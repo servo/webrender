@@ -141,6 +141,7 @@ pub struct Device {
     inside_frame: bool,
 
     // resources
+    resource_path: String,
     textures: HashMap<TextureId, Texture>,
     programs: HashMap<ProgramId, Program>,
     vaos: HashMap<VAOId, VAO>,
@@ -148,8 +149,9 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn new() -> Device {
+    pub fn new(resource_path: String) -> Device {
         Device {
+            resource_path: resource_path,
             inside_frame: false,
 
             bound_color_texture: TextureId(0),
@@ -165,13 +167,14 @@ impl Device {
         }
     }
 
-    pub fn compile_shader(filename: &str, shader_type: gl::GLenum) -> gl::GLuint {
-        let path_hack = "/home/gw/code/work/servo_gfx/test-webrender/";
+    pub fn compile_shader(filename: &str,
+                          shader_type: gl::GLenum,
+                          resource_path: &str) -> gl::GLuint {
         let mut path = String::new();
-        path.push_str(path_hack);
+        path.push_str(resource_path);
         path.push_str(filename);
 
-        //println!("compile {:?}", path);
+        println!("compile {:?}", path);
 
         let mut f = File::open(&path).unwrap();
         let mut s = String::new();
@@ -385,8 +388,8 @@ impl Device {
         let pid = gl::create_program();
 
         // todo(gw): store shader ids so they can be freed!
-        let vs_id = Device::compile_shader(vs_filename, gl::VERTEX_SHADER);
-        let fs_id = Device::compile_shader(fs_filename, gl::FRAGMENT_SHADER);
+        let vs_id = Device::compile_shader(vs_filename, gl::VERTEX_SHADER, &self.resource_path);
+        let fs_id = Device::compile_shader(fs_filename, gl::FRAGMENT_SHADER, &self.resource_path);
 
         gl::attach_shader(pid, vs_id);
         gl::attach_shader(pid, fs_id);

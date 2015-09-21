@@ -27,13 +27,14 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(notifier: Box<RenderNotifier>,
                width: u32,
-               height: u32) -> Renderer {
+               height: u32,
+               resource_path: String) -> Renderer {
         let (api_tx, api_rx) = channel();
         let (result_tx, result_rx) = channel();
 
         let initial_viewport = Rect::new(Point2D::zero(), Size2D::new(width as i32, height as i32));
 
-        let mut device = Device::new();
+        let mut device = Device::new(resource_path);
         device.begin_frame();
 
         let quad_program_id = device.create_program("quad.vs.glsl", "quad.fs.glsl");
