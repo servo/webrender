@@ -1,0 +1,19 @@
+[package]
+name = "webrender"
+version = "0.1.0"
+authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
+
+[dependencies.freetype]
+git = "https://github.com/servo/rust-freetype"
+
+[dependencies]
+gleam = "*"
+libc = "*"
+euclid = "0.2"
+time = "*"
+string_cache = "0.1"
+serde = "0.5"
+serde_macros = "0.5"
+bit-vec="*"
+fnv="*"
+scoped_threadpool = "0.1.6"
