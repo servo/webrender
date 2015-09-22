@@ -3,7 +3,7 @@ use types::Au;
 use freetype::freetype::{FTErrorMethods, FT_PIXEL_MODE_GRAY};
 use freetype::freetype::{FT_Done_FreeType, FT_LOAD_RENDER};
 use freetype::freetype::{FT_Library, FT_Set_Char_Size};
-use freetype::freetype::{FT_Face, FT_Long, FT_UInt};
+use freetype::freetype::{FT_Face, FT_Long, FT_UInt, FT_F26Dot6};
 use freetype::freetype::{FT_Init_FreeType, FT_Load_Glyph};
 use freetype::freetype::{FT_New_Memory_Face, FT_GlyphSlot};
 
@@ -84,7 +84,7 @@ impl FontContext {
 
         unsafe {
             let char_size = float_to_fixed_ft((0.5f64 + size.to_f64_px()).floor());
-            let result = FT_Set_Char_Size(face.face, char_size as i64, 0, 0, 0);
+            let result = FT_Set_Char_Size(face.face, char_size as FT_F26Dot6, 0, 0, 0);
             assert!(result.succeeded());
 
             let result =  FT_Load_Glyph(face.face, character as FT_UInt, FT_LOAD_RENDER);

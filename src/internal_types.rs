@@ -118,8 +118,10 @@ pub struct PackedVertex {
 
 impl PackedVertex {
     pub fn new(v: &WorkVertex, z: f32, offset: &Point2D<f32>) -> PackedVertex {
-        debug_assert!(v.u >= 0.0 && v.u <= 1.0, format!("bad u {:?}", v.u));
-        debug_assert!(v.v >= 0.0 && v.v <= 1.0, format!("bad v {:?}", v.v));
+        debug_assert!(v.u >= -0.1 && v.u <= 1.1, format!("bad u {:?}", v.u));
+        debug_assert!(v.v >= -0.1 && v.v <= 1.1, format!("bad v {:?}", v.v));
+        debug_assert!(v.mu >= -0.1 && v.mu <= 1.1, format!("bad mu {:?}", v.mu));
+        debug_assert!(v.mv >= -0.1 && v.mv <= 1.1, format!("bad mv {:?}", v.mv));
 
         // opengl spec f32 -> unorm16
         // round(clamp(c, 0, +1) * 65535.0)

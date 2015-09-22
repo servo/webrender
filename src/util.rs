@@ -23,7 +23,7 @@ impl Drop for ProfileScope {
         let t1 = precise_time_ns();
         let ms = (t1 - self.t0) as f64 / 1000000f64;
         //if ms > 0.1 {
-        //    println!("{} {}", self.name, ms);
+            println!("{} {}", self.name, ms);
         //}
     }
 }

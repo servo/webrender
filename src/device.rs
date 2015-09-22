@@ -7,6 +7,18 @@ use std::mem;
 use std::io::Read;
 use types::ImageFormat;
 
+#[cfg(not(any(target_os = "android", target_os = "gonk")))]
+const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA;
+
+#[cfg(not(any(target_os = "android", target_os = "gonk")))]
+const GL_FORMAT_A: gl::GLuint = gl::RED;
+
+#[cfg(any(target_os = "android", target_os = "gonk"))]
+const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA_EXT;
+
+#[cfg(any(target_os = "android", target_os = "gonk"))]
+const GL_FORMAT_A: gl::GLuint = gl::ALPHA;
+
 impl TextureId {
     fn bind(&self) {
         let TextureId(id) = *self;
@@ -18,13 +30,6 @@ impl ProgramId {
     fn bind(&self) {
         let ProgramId(id) = *self;
         gl::use_program(id);
-    }
-}
-
-impl VAOId {
-    fn bind(&self) {
-        let VAOId(id) = *self;
-        gl::bind_vertex_array(id);
     }
 }
 
@@ -92,10 +97,23 @@ impl Drop for FBO {
 
 struct VAO {
     id: gl::GLuint,
+    vertex_format: VertexFormat,
     vbo_id: VBOId,
     ibo_id: IBOId,
 }
 
+#[cfg(any(target_os = "android", target_os = "gonk"))]
+impl Drop for VAO {
+    fn drop(&mut self) {
+        // todo(gw): maybe make these there own type with hashmap?
+        let VBOId(vbo_id) = self.vbo_id;
+        let IBOId(ibo_id) = self.ibo_id;
+        gl::delete_buffers(&[vbo_id]);
+        gl::delete_buffers(&[ibo_id]);
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "gonk")))]
 impl Drop for VAO {
     fn drop(&mut self) {
         gl::delete_vertex_arrays(&[self.id]);
@@ -146,6 +164,19 @@ pub struct Device {
     programs: HashMap<ProgramId, Program>,
     vaos: HashMap<VAOId, VAO>,
     //fbos: HashMap<FBOId, FBO>,
+
+    // Used on android only
+    next_vao_id: gl::GLuint,
+}
+
+#[cfg(not(any(target_os = "android", target_os = "gonk")))]
+fn shader_preamble() -> &'static str {
+    ""
+}
+
+#[cfg(any(target_os = "android", target_os = "gonk"))]
+fn shader_preamble() -> &'static str {
+    "#define PLATFORM_ANDROID\n"
 }
 
 impl Device {
@@ -164,6 +195,8 @@ impl Device {
             programs: HashMap::new(),
             vaos: HashMap::new(),
             //fbos: HashMap::new(),
+
+            next_vao_id: 0,
         }
     }
 
@@ -181,7 +214,7 @@ impl Device {
         f.read_to_string(&mut s).unwrap();
 
         let id = gl::create_shader(shader_type);
-        gl::shader_source(id, &[ s.as_bytes() ]);
+        gl::shader_source(id, &[ shader_preamble().as_bytes(), s.as_bytes() ]);
         gl::compile_shader(id);
         if gl::get_shader_iv(id, gl::COMPILE_STATUS) == (0 as gl::GLint) {
             panic!("Failed to compile shader: {}", gl::get_shader_info_log(id));
@@ -209,7 +242,7 @@ impl Device {
 
         // Vertex state
         self.bound_vao = VAOId(0);
-        gl::bind_vertex_array(0);
+        self.clear_vertex_array();
 
         // FBO state
         self.bound_fbo = FBOId(0);
@@ -239,15 +272,6 @@ impl Device {
             gl::active_texture(gl::TEXTURE1);
             texture_id.bind();
             gl::active_texture(gl::TEXTURE0);
-        }
-    }
-
-    pub fn bind_vao(&mut self, vao_id: VAOId) {
-        debug_assert!(self.inside_frame);
-
-        if self.bound_vao != vao_id {
-            self.bound_vao = vao_id;
-            vao_id.bind();
         }
     }
 
@@ -330,9 +354,9 @@ impl Device {
         self.textures.get_mut(&texture_id).unwrap().format = format;
 
         let (internal_format, gl_format) = match format {
-            ImageFormat::A8 => (gl::RED, gl::RED),
+            ImageFormat::A8 => (GL_FORMAT_A, GL_FORMAT_A),
             ImageFormat::RGB8 => (gl::RGB, gl::RGB),
-            ImageFormat::RGBA8 => (gl::RGBA, gl::BGRA),
+            ImageFormat::RGBA8 => (gl::RGBA, GL_FORMAT_BGRA),
             ImageFormat::Invalid => unreachable!(),
         };
 
@@ -461,9 +485,9 @@ impl Device {
         debug_assert!(self.inside_frame);
 
         let (gl_format, bpp) = match self.textures.get(&texture_id).unwrap().format {
-            ImageFormat::A8 => (gl::RED, 1),
+            ImageFormat::A8 => (GL_FORMAT_A, 1),
             ImageFormat::RGB8 => (gl::RGB, 3),
-            ImageFormat::RGBA8 => (gl::BGRA, 4),
+            ImageFormat::RGBA8 => (GL_FORMAT_BGRA, 4),
             ImageFormat::Invalid => unreachable!(),
         };
 
@@ -482,6 +506,102 @@ impl Device {
                              data);
     }
 
+    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    fn clear_vertex_array(&mut self) {
+        debug_assert!(self.inside_frame);
+
+        gl::disable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
+        gl::disable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
+        gl::disable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
+        gl::disable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
+    }
+
+    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    pub fn bind_vao(&mut self, vao_id: VAOId) {
+        debug_assert!(self.inside_frame);
+
+        if self.bound_vao != vao_id {
+            self.bound_vao = vao_id;
+
+            let vao = self.vaos.get(&vao_id).unwrap();
+            vao.vbo_id.bind();
+            vao.ibo_id.bind();
+
+            match vao.vertex_format {
+                VertexFormat::Default => {
+                    let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLint;
+
+                    gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
+                    gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
+                    gl::enable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
+                    gl::enable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
+
+                    gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint, 3, gl::FLOAT, false, vertex_stride, 0);
+                    gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint, 4, gl::UNSIGNED_BYTE, true, vertex_stride, 12);
+                    gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 16);
+                    gl::vertex_attrib_pointer(VertexAttribute::MaskTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 20);
+                }
+    /*            VertexFormat::Debug => {
+                    let vertex_stride = mem::size_of::<DebugVertex>() as gl::GLint;
+
+                    gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
+                    gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
+
+                    gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint, 2, gl::FLOAT, false, vertex_stride, 0);
+                    gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint, 4, gl::UNSIGNED_BYTE, true, vertex_stride, 8);
+                }*/
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    pub fn create_vao(&mut self, vertex_format: VertexFormat) -> VAOId {
+        debug_assert!(self.inside_frame);
+
+        let vao_id = self.next_vao_id;
+        self.next_vao_id += 1;
+        let buffer_ids = gl::gen_buffers(2);
+
+        let vbo_id = buffer_ids[0];
+        let ibo_id = buffer_ids[1];
+
+        let vbo_id = VBOId(vbo_id);
+        let ibo_id = IBOId(ibo_id);
+
+        let vao = VAO {
+            id: vao_id,
+            vertex_format: vertex_format,
+            vbo_id: vbo_id,
+            ibo_id: ibo_id,
+        };
+
+        let vao_id = VAOId(vao_id);
+
+        debug_assert!(self.vaos.contains_key(&vao_id) == false);
+        self.vaos.insert(vao_id, vao);
+
+        vao_id
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
+    fn clear_vertex_array(&mut self) {
+        debug_assert!(self.inside_frame);
+        gl::bind_vertex_array(0);
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
+    pub fn bind_vao(&mut self, vao_id: VAOId) {
+        debug_assert!(self.inside_frame);
+
+        if self.bound_vao != vao_id {
+            self.bound_vao = vao_id;
+
+            let VAOId(id) = vao_id;
+            gl::bind_vertex_array(id);
+        }
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     pub fn create_vao(&mut self, vertex_format: VertexFormat) -> VAOId {
         debug_assert!(self.inside_frame);
 
@@ -528,6 +648,7 @@ impl Device {
 
         let vao = VAO {
             id: vao_id,
+            vertex_format: vertex_format,
             vbo_id: vbo_id,
             ibo_id: ibo_id,
         };
