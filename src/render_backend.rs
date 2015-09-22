@@ -1,6 +1,6 @@
 use clipper;
 use device::{ProgramId, TextureId};
-use euclid::{Rect, Point2D, Size2D};
+use euclid::{Rect, Point2D, Size2D, Matrix2D};
 use font::{FontContext, RasterizedGlyph};
 use fnv::FnvHasher;
 use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, ORTHO_FAR_PLANE, DrawLayer};
@@ -40,7 +40,7 @@ thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontC
 
 trait GetDisplayItemHelper {
     fn get_item(&self, key: &DisplayItemKey) -> &DisplayItem;
-    fn get_item_and_offset(&self, key: &DisplayItemKey) -> (&DisplayItem, &Point2D<f32>);
+    fn get_item_and_draw_context(&self, key: &DisplayItemKey) -> (&DisplayItem, &DrawContext);
 }
 
 impl GetDisplayItemHelper for FlatDrawListArray {
@@ -50,17 +50,23 @@ impl GetDisplayItemHelper for FlatDrawListArray {
         &self[list_index as usize].draw_list.items[item_index as usize]
     }
 
-    fn get_item_and_offset(&self, key: &DisplayItemKey) -> (&DisplayItem, &Point2D<f32>) {
+    fn get_item_and_draw_context(&self, key: &DisplayItemKey) -> (&DisplayItem, &DrawContext) {
         let DrawListIndex(list_index) = key.draw_list_index;
         let DrawListItemIndex(item_index) = key.item_index;
         let list = &self[list_index as usize];
-        (&list.draw_list.items[item_index as usize], &list.offset)
+        (&list.draw_list.items[item_index as usize], &list.draw_context)
     }
+}
+
+#[derive(Clone)]
+struct DrawContext {
+    offset: Point2D<f32>,
+    transform: Matrix2D<f32>,
 }
 
 struct FlatDrawList {
     pub id: Option<DrawListID>,
-    pub offset: Point2D<f32>,
+    pub draw_context: DrawContext,
     pub draw_list: DrawList,
 }
 
@@ -220,7 +226,7 @@ impl Scene {
 
     fn add_draw_list(&mut self,
                      draw_list_id: DrawListID,
-                     offset: &Point2D<f32>,
+                     draw_context: &DrawContext,
                      draw_list_map: &mut DrawListMap,
                      iframes: &mut Vec<IframeInfo>) {
         let draw_list = draw_list_map.remove(&draw_list_id).unwrap();
@@ -229,7 +235,7 @@ impl Scene {
         for item in &draw_list.items {
             match item.item {
                 SpecificDisplayItem::Iframe(ref info) => {
-                    let iframe_offset = *offset + item.rect.origin;
+                    let iframe_offset = draw_context.offset + item.rect.origin;
                     iframes.push(IframeInfo::new(info.iframe, iframe_offset));
                 }
                 _ => {}
@@ -238,7 +244,7 @@ impl Scene {
 
         self.flat_draw_lists.push(FlatDrawList {
             id: Some(draw_list_id),
-            offset: offset.clone(),
+            draw_context: draw_context.clone(),
             draw_list: draw_list,
         });
     }
@@ -258,6 +264,15 @@ impl Scene {
         let mut iframes = Vec::new();
         let offset = Point2D::new(offset.x + stacking_context.bounds.origin.x,
                                   offset.y + stacking_context.bounds.origin.y);
+
+        let xform_2d = Matrix2D::new(stacking_context.transform.m11, stacking_context.transform.m12,
+                                     stacking_context.transform.m21, stacking_context.transform.m22,
+                                     stacking_context.transform.m41, stacking_context.transform.m42);
+
+        let draw_context = DrawContext {
+            offset: offset.clone(),
+            transform: xform_2d,
+        };
 
         match stacking_context_kind {
             StackingContextKind::Normal(..) => {}
@@ -281,7 +296,7 @@ impl Scene {
 
                     self.flat_draw_lists.push(FlatDrawList {
                         id: None,
-                        offset: offset.clone(),
+                        draw_context: draw_context.clone(),
                         draw_list: root_draw_list,
                     });
                 }
@@ -291,7 +306,7 @@ impl Scene {
         let draw_list_ids = stacking_context.collect_draw_lists(display_list_map);
 
         for id in &draw_list_ids.background_and_borders {
-            self.add_draw_list(*id, &offset, draw_list_map, &mut iframes);
+            self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
         }
 
         // TODO: Sort children (or store in two arrays) to avoid having
@@ -308,19 +323,19 @@ impl Scene {
         }
 
         for id in &draw_list_ids.block_background_and_borders {
-            self.add_draw_list(*id, &offset, draw_list_map, &mut iframes);
+            self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
         }
 
         for id in &draw_list_ids.floats {
-            self.add_draw_list(*id, &offset, draw_list_map, &mut iframes);
+            self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
         }
 
         for id in &draw_list_ids.content {
-            self.add_draw_list(*id, &offset, draw_list_map, &mut iframes);
+            self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
         }
 
         for id in &draw_list_ids.positioned_content {
-            self.add_draw_list(*id, &offset, draw_list_map, &mut iframes);
+            self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
         }
 
         for child in &stacking_context.children {
@@ -348,7 +363,7 @@ impl Scene {
         }
 
         for id in &draw_list_ids.outlines {
-            self.add_draw_list(*id, &offset, draw_list_map, &mut iframes);
+            self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
         }
     }
 
@@ -359,7 +374,8 @@ impl Scene {
         // push all visible draw lists into aabb tree
         for (draw_list_index, flat_draw_list) in self.flat_draw_lists.iter().enumerate() {
             for (item_index, item) in flat_draw_list.draw_list.items.iter().enumerate() {
-                let rect = item.rect.translate(&flat_draw_list.offset);
+                // TODO: AABB tree doesn't take transform into account yet!
+                let rect = item.rect.translate(&flat_draw_list.draw_context.offset);
                 self.aabb_tree.insert(&rect, draw_list_index, item_index);
             }
         }
@@ -684,7 +700,7 @@ impl AABBTreeNode {
         let mut compiled_node = CompiledNode::new();
 
         for key in &self.src_items {
-            let (display_item, offset) = flat_draw_lists.get_item_and_offset(key);
+            let (display_item, draw_context) = flat_draw_lists.get_item_and_draw_context(key);
 
             // TODO: This doesn't propagate the stacking context clip region!
             let clip_rect = &display_item.clip.main;
@@ -693,7 +709,7 @@ impl AABBTreeNode {
                 SpecificDisplayItem::Image(ref info) => {
                     let image = texture_cache.get(info.image_id);
                     compiled_node.add_image(key,
-                                            offset,
+                                            draw_context,
                                             &display_item.rect,
                                             &clip_rect,
                                             &info.stretch_size,
@@ -703,7 +719,7 @@ impl AABBTreeNode {
                 }
                 SpecificDisplayItem::Text(ref info) => {
                     compiled_node.add_text(key,
-                                           offset,
+                                           draw_context,
                                            info.font_id.clone(),
                                            info.size,
                                            &info.color,
@@ -714,7 +730,7 @@ impl AABBTreeNode {
                 }
                 SpecificDisplayItem::Rectangle(ref info) => {
                     compiled_node.add_rectangle(key,
-                                                offset,
+                                                draw_context,
                                                 &display_item.rect,
                                                 &clip_rect,
                                                 white_image_info,
@@ -724,7 +740,7 @@ impl AABBTreeNode {
                 SpecificDisplayItem::Iframe(..) => {}
                 SpecificDisplayItem::Gradient(ref info) => {
                     compiled_node.add_gradient(key,
-                                               offset,
+                                               draw_context,
                                                &display_item.rect,
                                                &info.start_point,
                                                &info.end_point,
@@ -734,7 +750,7 @@ impl AABBTreeNode {
                 }
                 SpecificDisplayItem::BoxShadow(ref info) => {
                     compiled_node.add_box_shadow(key,
-                                                 offset,
+                                                 draw_context,
                                                  &info.box_bounds,
                                                  &clip_rect,
                                                  &info.offset,
@@ -747,7 +763,7 @@ impl AABBTreeNode {
                 }
                 SpecificDisplayItem::Border(ref info) => {
                     compiled_node.add_border(key,
-                                             offset,
+                                             draw_context,
                                              &display_item.rect,
                                              info,
                                              white_image_info,
@@ -757,7 +773,7 @@ impl AABBTreeNode {
                 }
                 SpecificDisplayItem::RenderTarget(ref info) => {
                     compiled_node.add_render_target(key,
-                                                    offset,
+                                                    draw_context,
                                                     &display_item.rect,
                                                     info.id,
                                                     mask_image_info);
@@ -1281,24 +1297,66 @@ impl VertexBuffer {
     }
 
     #[inline]
-    fn push(&mut self, x: f32, y: f32, color: &ColorF, s: f32, t: f32, offset: &Point2D<f32>) {
-        self.vertices.push(WorkVertex::new(x + offset.x, y + offset.y, color, s, t, 0.0, 0.0));
+    fn push(&mut self,
+            x: f32,
+            y: f32,
+            color: &ColorF,
+            s: f32,
+            t: f32,
+            draw_context: &DrawContext) {
+        let p = Point2D::new(x, y);
+        let p = draw_context.transform.transform_point(&p);
+        self.vertices.push(WorkVertex::new(p.x + draw_context.offset.x,
+                                           p.y + draw_context.offset.y,
+                                           color,
+                                           s,
+                                           t,
+                                           0.0,
+                                           0.0));
     }
 
     #[inline]
-    fn push_white(&mut self, x: f32, y: f32, color: &ColorF, offset: &Point2D<f32>) {
-        self.vertices.push(WorkVertex::new(x + offset.x, y + offset.y, color, 0.0, 0.0, 0.0, 0.0));
+    fn push_white(&mut self,
+                  x: f32,
+                  y: f32,
+                  color: &ColorF,
+                  draw_context: &DrawContext) {
+        let p = Point2D::new(x, y);
+        let p = draw_context.transform.transform_point(&p);
+        self.vertices.push(WorkVertex::new(p.x + draw_context.offset.x,
+                                           p.y + draw_context.offset.y,
+                                           color,
+                                           0.0,
+                                           0.0,
+                                           0.0,
+                                           0.0));
     }
 
     #[inline]
-    fn push_masked(&mut self, x: f32, y: f32, color: &ColorF, ms: f32, mt: f32, offset: &Point2D<f32>) {
-        self.vertices.push(WorkVertex::new(x + offset.x, y + offset.y, color, 0.0, 0.0, ms, mt));
+    fn push_masked(&mut self,
+                   x: f32,
+                   y: f32,
+                   color: &ColorF,
+                   ms: f32,
+                   mt: f32,
+                   draw_context: &DrawContext) {
+        let p = Point2D::new(x, y);
+        let p = draw_context.transform.transform_point(&p);
+        self.vertices.push(WorkVertex::new(p.x + draw_context.offset.x,
+                                           p.y + draw_context.offset.y,
+                                           color,
+                                           0.0,
+                                           0.0,
+                                           ms,
+                                           mt));
     }
 
     #[inline]
-    fn push_vertex(&mut self, mut v: WorkVertex, offset: &Point2D<f32>) {
-        v.x += offset.x;
-        v.y += offset.y;
+    fn push_vertex(&mut self, mut v: WorkVertex, draw_context: &DrawContext) {
+        let p = Point2D::new(v.x, v.y);
+        let p = draw_context.transform.transform_point(&p);
+        v.x = p.x + draw_context.offset.x;
+        v.y = p.y + draw_context.offset.y;
         self.vertices.push(v);
     }
 
@@ -1311,7 +1369,7 @@ impl VertexBuffer {
 impl CompiledNode {
     fn add_rectangle(&mut self,
                      sort_key: &DisplayItemKey,
-                     offset: &Point2D<f32>,
+                     draw_context: &DrawContext,
                      rect: &Rect<f32>,
                      clip: &Rect<f32>,
                      image_info: &TextureCacheItem,
@@ -1335,10 +1393,10 @@ impl CompiledNode {
                 first_vertex: self.vertex_buffer.len(),
             };
 
-            self.vertex_buffer.push(cr.x0, cr.y0, color, cr.u0, cr.v0, offset);
-            self.vertex_buffer.push(cr.x1, cr.y0, color, cr.u1, cr.v0, offset);
-            self.vertex_buffer.push(cr.x0, cr.y1, color, cr.u0, cr.v1, offset);
-            self.vertex_buffer.push(cr.x1, cr.y1, color, cr.u1, cr.v1, offset);
+            self.vertex_buffer.push(cr.x0, cr.y0, color, cr.u0, cr.v0, draw_context);
+            self.vertex_buffer.push(cr.x1, cr.y0, color, cr.u1, cr.v0, draw_context);
+            self.vertex_buffer.push(cr.x0, cr.y1, color, cr.u0, cr.v1, draw_context);
+            self.vertex_buffer.push(cr.x1, cr.y1, color, cr.u1, cr.v1, draw_context);
 
             self.render_items.push(render_item);
         }
@@ -1346,7 +1404,7 @@ impl CompiledNode {
 
     fn add_render_target(&mut self,
                          sort_key: &DisplayItemKey,
-                         offset: &Point2D<f32>,
+                         draw_context: &DrawContext,
                          rect: &Rect<f32>,
                          render_target_id: RenderTargetID,
                          dummy_mask_image: &TextureCacheItem) {
@@ -1370,17 +1428,17 @@ impl CompiledNode {
 
         let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
 
-        self.vertex_buffer.push(x0, y0, &color, 0.0, 1.0, offset);
-        self.vertex_buffer.push(x1, y0, &color, 1.0, 1.0, offset);
-        self.vertex_buffer.push(x0, y1, &color, 0.0, 0.0, offset);
-        self.vertex_buffer.push(x1, y1, &color, 1.0, 0.0, offset);
+        self.vertex_buffer.push(x0, y0, &color, 0.0, 1.0, draw_context);
+        self.vertex_buffer.push(x1, y0, &color, 1.0, 1.0, draw_context);
+        self.vertex_buffer.push(x0, y1, &color, 0.0, 0.0, draw_context);
+        self.vertex_buffer.push(x1, y1, &color, 1.0, 0.0, draw_context);
 
         self.render_items.push(render_item);
     }
 
     fn add_image(&mut self,
                  sort_key: &DisplayItemKey,
-                 offset: &Point2D<f32>,
+                 draw_context: &DrawContext,
                  rect: &Rect<f32>,
                  clip_rect: &Rect<f32>,
                  stretch_size: &Size2D<f32>,
@@ -1402,10 +1460,10 @@ impl CompiledNode {
             let clip_result = clipper::clip_rect_pos_uv(rect, &uv, clip_rect);
 
             if let Some(cr) = clip_result {
-                self.vertex_buffer.push(cr.x0, cr.y0, color, cr.u0, cr.v0, offset);
-                self.vertex_buffer.push(cr.x1, cr.y0, color, cr.u1, cr.v0, offset);
-                self.vertex_buffer.push(cr.x0, cr.y1, color, cr.u0, cr.v1, offset);
-                self.vertex_buffer.push(cr.x1, cr.y1, color, cr.u1, cr.v1, offset);
+                self.vertex_buffer.push(cr.x0, cr.y0, color, cr.u0, cr.v0, draw_context);
+                self.vertex_buffer.push(cr.x1, cr.y0, color, cr.u1, cr.v0, draw_context);
+                self.vertex_buffer.push(cr.x0, cr.y1, color, cr.u0, cr.v1, draw_context);
+                self.vertex_buffer.push(cr.x1, cr.y1, color, cr.u1, cr.v1, draw_context);
                 vertex_count = 4;
             }
         } else if image_info.width as f32 == stretch_size.width &&
@@ -1421,10 +1479,10 @@ impl CompiledNode {
 
                     let clip_result = clipper::clip_rect_pos_uv(&tiled_rect, &uv, clip_rect);
                     if let Some(cr) = clip_result {
-                        self.vertex_buffer.push(cr.x0, cr.y0, color, cr.u0, cr.v0, offset);
-                        self.vertex_buffer.push(cr.x1, cr.y0, color, cr.u1, cr.v0, offset);
-                        self.vertex_buffer.push(cr.x0, cr.y1, color, cr.u0, cr.v1, offset);
-                        self.vertex_buffer.push(cr.x1, cr.y1, color, cr.u1, cr.v1, offset);
+                        self.vertex_buffer.push(cr.x0, cr.y0, color, cr.u0, cr.v0, draw_context);
+                        self.vertex_buffer.push(cr.x1, cr.y0, color, cr.u1, cr.v0, draw_context);
+                        self.vertex_buffer.push(cr.x0, cr.y1, color, cr.u0, cr.v1, draw_context);
+                        self.vertex_buffer.push(cr.x1, cr.y1, color, cr.u1, cr.v1, draw_context);
                         vertex_count += 4;
                     }
 
@@ -1455,7 +1513,7 @@ impl CompiledNode {
 
     fn add_text(&mut self,
                 sort_key: &DisplayItemKey,
-                offset: &Point2D<f32>,
+                draw_context: &DrawContext,
                 font_id: Atom,
                 size: Au,
                 color: &ColorF,
@@ -1496,10 +1554,10 @@ impl CompiledNode {
                 let y1 = y0 + image_info.height as f32;
 
                 if image_info.texture_id == first_image_info.texture_id {
-                    self.vertex_buffer.push(x0, y0, color, image_info.u0, image_info.v0, offset);
-                    self.vertex_buffer.push(x1, y0, color, image_info.u1, image_info.v0, offset);
-                    self.vertex_buffer.push(x0, y1, color, image_info.u0, image_info.v1, offset);
-                    self.vertex_buffer.push(x1, y1, color, image_info.u1, image_info.v1, offset);
+                    self.vertex_buffer.push(x0, y0, color, image_info.u0, image_info.v0, draw_context);
+                    self.vertex_buffer.push(x1, y0, color, image_info.u1, image_info.v0, draw_context);
+                    self.vertex_buffer.push(x0, y1, color, image_info.u0, image_info.v1, draw_context);
+                    self.vertex_buffer.push(x1, y1, color, image_info.u1, image_info.v1, draw_context);
                     primary_render_item.vertex_count += 4;
                 } else {
                     let vertex_buffer = match other_render_items.entry(image_info.texture_id) {
@@ -1510,10 +1568,10 @@ impl CompiledNode {
                             entry.insert(VertexBuffer::new())
                         }
                     };
-                    vertex_buffer.push(x0, y0, color, image_info.u0, image_info.v0, offset);
-                    vertex_buffer.push(x1, y0, color, image_info.u1, image_info.v0, offset);
-                    vertex_buffer.push(x0, y1, color, image_info.u0, image_info.v1, offset);
-                    vertex_buffer.push(x1, y1, color, image_info.u1, image_info.v1, offset);
+                    vertex_buffer.push(x0, y0, color, image_info.u0, image_info.v0, draw_context);
+                    vertex_buffer.push(x1, y0, color, image_info.u1, image_info.v0, draw_context);
+                    vertex_buffer.push(x0, y1, color, image_info.u0, image_info.v1, draw_context);
+                    vertex_buffer.push(x1, y1, color, image_info.u1, image_info.v1, draw_context);
                 }
             }
         }
@@ -1539,7 +1597,7 @@ impl CompiledNode {
 
     fn add_gradient(&mut self,
                     sort_key: &DisplayItemKey,
-                    offset: &Point2D<f32>,
+                    draw_context: &DrawContext,
                     rect: &Rect<f32>,
                     start_point: &Point2D<f32>,
                     end_point: &Point2D<f32>,
@@ -1616,7 +1674,7 @@ impl CompiledNode {
                 };
 
                 for vert in clip_result {
-                    self.vertex_buffer.push_vertex(vert, offset);
+                    self.vertex_buffer.push_vertex(vert, draw_context);
                 }
 
                 self.render_items.push(render_item);
@@ -1626,7 +1684,7 @@ impl CompiledNode {
 
     fn add_box_shadow(&mut self,
                       sort_key: &DisplayItemKey,
-                      sc_offset: &Point2D<f32>,
+                      draw_context: &DrawContext,
                       box_bounds: &Rect<f32>,
                       clip: &Rect<f32>,
                       box_offset: &Point2D<f32>,
@@ -1641,7 +1699,7 @@ impl CompiledNode {
                 let mut rect = box_bounds.clone();
                 rect.origin.x += box_offset.x;
                 rect.origin.y += box_offset.y;
-                self.add_rectangle(sort_key, sc_offset, &rect, clip, image, dummy_mask_image, color);
+                self.add_rectangle(sort_key, draw_context, &rect, clip, image, dummy_mask_image, color);
             }
             _ => {
                 println!("TODO: BoxShadow {:?} {:?} {:?}", blur_radius, spread_radius, clip_mode);
@@ -1652,7 +1710,7 @@ impl CompiledNode {
     #[inline]
     fn add_border_quad(&mut self,
                        sort_key: &DisplayItemKey,
-                       offset: &Point2D<f32>,
+                       draw_context: &DrawContext,
                        v0: Point2D<f32>,
                        v1: Point2D<f32>,
                        color: &ColorF,
@@ -1670,10 +1728,10 @@ impl CompiledNode {
                 vertex_count: 4,
             };
 
-            self.vertex_buffer.push_white(v0.x, v0.y, color, offset);
-            self.vertex_buffer.push_white(v1.x, v0.y, color, offset);
-            self.vertex_buffer.push_white(v0.x, v1.y, color, offset);
-            self.vertex_buffer.push_white(v1.x, v1.y, color, offset);
+            self.vertex_buffer.push_white(v0.x, v0.y, color, draw_context);
+            self.vertex_buffer.push_white(v1.x, v0.y, color, draw_context);
+            self.vertex_buffer.push_white(v0.x, v1.y, color, draw_context);
+            self.vertex_buffer.push_white(v1.x, v1.y, color, draw_context);
 
             self.render_items.push(item);
         }
@@ -1682,7 +1740,7 @@ impl CompiledNode {
     #[inline]
     fn add_border_corner(&mut self,
                          sort_key: &DisplayItemKey,
-                         offset: &Point2D<f32>,
+                         draw_context: &DrawContext,
                          v0: Point2D<f32>,
                          v1: Point2D<f32>,
                          color0: &ColorF,
@@ -1716,13 +1774,13 @@ impl CompiledNode {
                 vertex_count: 6,
             };
 
-            self.vertex_buffer.push_masked(v0.x, v0.y, color0, mask_image.u0, mask_image.v0, offset);
-            self.vertex_buffer.push_masked(v1.x, v1.y, color0, mask_image.u1, mask_image.v1, offset);
-            self.vertex_buffer.push_masked(v0.x, v1.y, color0, mask_image.u0, mask_image.v1, offset);
+            self.vertex_buffer.push_masked(v0.x, v0.y, color0, mask_image.u0, mask_image.v0, draw_context);
+            self.vertex_buffer.push_masked(v1.x, v1.y, color0, mask_image.u1, mask_image.v1, draw_context);
+            self.vertex_buffer.push_masked(v0.x, v1.y, color0, mask_image.u0, mask_image.v1, draw_context);
 
-            self.vertex_buffer.push_masked(v0.x, v0.y, color1, mask_image.u0, mask_image.v0, offset);
-            self.vertex_buffer.push_masked(v1.x, v0.y, color1, mask_image.u1, mask_image.v0, offset);
-            self.vertex_buffer.push_masked(v1.x, v1.y, color1, mask_image.u1, mask_image.v1, offset);
+            self.vertex_buffer.push_masked(v0.x, v0.y, color1, mask_image.u0, mask_image.v0, draw_context);
+            self.vertex_buffer.push_masked(v1.x, v0.y, color1, mask_image.u1, mask_image.v0, draw_context);
+            self.vertex_buffer.push_masked(v1.x, v1.y, color1, mask_image.u1, mask_image.v1, draw_context);
 
             self.render_items.push(item);
         }
@@ -1730,7 +1788,7 @@ impl CompiledNode {
 
     fn add_border(&mut self,
                   sort_key: &DisplayItemKey,
-                  offset: &Point2D<f32>,
+                  draw_context: &DrawContext,
                   rect: &Rect<f32>,
                   info: &BorderDisplayItem,
                   white_image: &TextureCacheItem,
@@ -1759,7 +1817,7 @@ impl CompiledNode {
 
         // Edges
         self.add_border_quad(sort_key,
-                             offset,
+                             draw_context,
                              Point2D::new(tl_outer.x, tl_inner.y),
                              Point2D::new(tl_outer.x + left.width, bl_inner.y),
                              &left.color,
@@ -1767,7 +1825,7 @@ impl CompiledNode {
                              dummy_mask_image);
 
         self.add_border_quad(sort_key,
-                             offset,
+                             draw_context,
                              Point2D::new(tl_inner.x, tl_outer.y),
                              Point2D::new(tr_inner.x, tr_outer.y + top.width),
                              &top.color,
@@ -1775,7 +1833,7 @@ impl CompiledNode {
                              dummy_mask_image);
 
         self.add_border_quad(sort_key,
-                             offset,
+                             draw_context,
                              Point2D::new(br_outer.x - right.width, tr_inner.y),
                              Point2D::new(br_outer.x, br_inner.y),
                              &right.color,
@@ -1783,7 +1841,7 @@ impl CompiledNode {
                              dummy_mask_image);
 
         self.add_border_quad(sort_key,
-                             offset,
+                             draw_context,
                              Point2D::new(bl_inner.x, bl_outer.y - bottom.width),
                              Point2D::new(br_inner.x, br_outer.y),
                              &bottom.color,
@@ -1792,7 +1850,7 @@ impl CompiledNode {
 
         // Corners
         self.add_border_corner(sort_key,
-                               offset,
+                               draw_context,
                                tl_outer,
                                tl_inner,
                                &left.color,
@@ -1805,7 +1863,7 @@ impl CompiledNode {
                                texture_cache);
 
         self.add_border_corner(sort_key,
-                               offset,
+                               draw_context,
                                tr_outer,
                                tr_inner,
                                &right.color,
@@ -1818,7 +1876,7 @@ impl CompiledNode {
                                texture_cache);
 
         self.add_border_corner(sort_key,
-                               offset,
+                               draw_context,
                                br_outer,
                                br_inner,
                                &right.color,
@@ -1831,7 +1889,7 @@ impl CompiledNode {
                                texture_cache);
 
         self.add_border_corner(sort_key,
-                               offset,
+                               draw_context,
                                bl_outer,
                                bl_inner,
                                &left.color,

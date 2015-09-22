@@ -1,4 +1,4 @@
-use euclid::{Point2D, Rect, Size2D};
+use euclid::{Point2D, Rect, Size2D, Matrix4};
 use std::i32;
 use std::fmt;
 use std::ops::{Add, Sub, Neg, Mul, Div, Rem};
@@ -321,9 +321,9 @@ pub struct StackingContext {
     pub z_index: i32,
     pub display_lists: Vec<DisplayListID>,
     pub children: Vec<StackingContext>,
-
-    // hacks
-    pub opacity: f32,
+    pub transform: Matrix4,
+    pub perspective: Matrix4,
+    pub establishes_3d_context: bool,
 }
 
 impl StackingContext {
@@ -331,7 +331,9 @@ impl StackingContext {
                bounds: Rect<f32>,
                overflow: Rect<f32>,
                z_index: i32,
-               opacity: f32) -> StackingContext {
+               transform: &Matrix4,
+               perspective: &Matrix4,
+               establishes_3d_context: bool) -> StackingContext {
         StackingContext {
             scroll_layer_id: scroll_layer_id,
             bounds: bounds,
@@ -339,7 +341,9 @@ impl StackingContext {
             z_index: z_index,
             display_lists: Vec::new(),
             children: Vec::new(),
-            opacity: opacity,
+            transform: transform.clone(),
+            perspective: perspective.clone(),
+            establishes_3d_context: establishes_3d_context,
         }
     }
 
