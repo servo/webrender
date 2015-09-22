@@ -1,5 +1,3 @@
-#version 130
-
 #ifdef GL_ES
     precision mediump float;
 #endif
@@ -9,10 +7,8 @@ uniform sampler2D sDiffuse;
 uniform vec4 uPosition;
 uniform vec4 uRadii;
 
-in vec4 vColor;
-in vec2 vPosition;
-
-out float outMask;
+varying vec4 vColor;
+varying vec2 vPosition;
 
 /*
     Ellipse equation:
@@ -40,8 +36,8 @@ void main(void)
 
     if ((outer_dx + outer_dy <= 1.0) &&
         (inner_dx + inner_dy >= 1.0)) {
-        outMask = 1.0;
+        gl_FragColor = vec4(1.0);
     } else {
-        outMask = 0.0;
+        gl_FragColor = vec4(0.0);
     }
 }

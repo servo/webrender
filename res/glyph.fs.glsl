@@ -1,18 +1,18 @@
-#version 130
-
 #ifdef GL_ES
     precision mediump float;
 #endif
 
 uniform sampler2D sDiffuse;
 
-in vec2 vTexCoord;
-in vec4 vColor;
-
-out vec4 outColor;
+varying vec2 vTexCoord;
+varying vec4 vColor;
 
 void main(void)
 {
-	float alpha = texture2D(sDiffuse, vTexCoord).r;
-	outColor = vec4(vColor.xyz, alpha);
+	#ifdef PLATFORM_ANDROID
+		float alpha = texture2D(sDiffuse, vTexCoord).a;
+	#else
+		float alpha = texture2D(sDiffuse, vTexCoord).r;
+	#endif
+	gl_FragColor = vec4(vColor.xyz, alpha);
 }

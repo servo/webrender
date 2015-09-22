@@ -1,13 +1,11 @@
-#version 130
-
-in vec3 aPosition;
-in vec2 aTexCoord;
-in vec4 aColor;
+attribute vec3 aPosition;
+attribute vec2 aTexCoord;
+attribute vec4 aColor;
 
 uniform mat4 uTransform;
 
-out vec4 vColor;
-out vec2 vTexCoord;
+varying vec4 vColor;
+varying vec2 vTexCoord;
 
 void main(void)
 {

@@ -1,15 +1,13 @@
-#version 130
-
-in vec3 aPosition;
-in vec2 aColorTexCoord;
-in vec2 aMaskTexCoord;
-in vec4 aColor;
+attribute vec3 aPosition;
+attribute vec2 aColorTexCoord;
+attribute vec2 aMaskTexCoord;
+attribute vec4 aColor;
 
 uniform mat4 uTransform;
 
-out vec4 vColor;
-out vec2 vColorTexCoord;
-out vec2 vMaskTexCoord;
+varying vec4 vColor;
+varying vec2 vColorTexCoord;
+varying vec2 vMaskTexCoord;
 
 void main(void)
 {

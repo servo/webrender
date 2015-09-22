@@ -249,7 +249,7 @@ impl Scene {
                                 display_list_map: &DisplayListMap,
                                 draw_list_map: &mut DrawListMap,
                                 stacking_contexts: &StackingContextMap) {
-        let _pf = util::ProfileScope::new("  flatten_stacking_context");
+//        let _pf = util::ProfileScope::new("  flatten_stacking_context");
         let stacking_context = match stacking_context_kind {
             StackingContextKind::Normal(stacking_context) => stacking_context,
             StackingContextKind::Root(root) => &root.stacking_context,
@@ -353,7 +353,7 @@ impl Scene {
     }
 
     fn build_aabb_tree(&mut self, scene_rect: &Rect<f32>) {
-        let _pf = util::ProfileScope::new("  build_aabb_tree");
+//        let _pf = util::ProfileScope::new("  build_aabb_tree");
         self.aabb_tree.init(scene_rect);
 
         // push all visible draw lists into aabb tree
@@ -418,7 +418,7 @@ impl Scene {
     }
 
     fn collect_and_sort_visible_render_items(&self) -> Vec<RenderItemKey> {
-        let _pf = util::ProfileScope::new("  collect_and_sort_visible_render_items");
+//        let _pf = util::ProfileScope::new("  collect_and_sort_visible_render_items");
 
         let mut keys = Vec::new();
 
@@ -456,7 +456,7 @@ impl Scene {
                       quad_program_id: ProgramId,
                       glyph_program_id: ProgramId,
                       scroll_offset: &Point2D<f32>) -> Frame {
-        let _pf = util::ProfileScope::new("  create_batches");
+//        let _pf = util::ProfileScope::new("  create_batches");
 
         let mut frame = Frame::new(self.pipeline_epoch_map.clone());
         let mut batcher = RenderBatcher::new(keys.len(),
@@ -483,7 +483,7 @@ impl Scene {
                              texture_cache: &TextureCache,
                              white_image_id: ImageID,
                              dummy_mask_image_id: ImageID) {
-        let _pf = util::ProfileScope::new("  compile_visible_nodes");
+//        let _pf = util::ProfileScope::new("  compile_visible_nodes");
 
         let nodes = &mut self.aabb_tree.nodes;
         let flat_draw_list_array = &self.flat_draw_lists;
@@ -511,7 +511,7 @@ impl Scene {
                                                   glyph_to_image_map: &mut GlyphToImageMap,
                                                   image_templates: &ImageTemplateMap,
                                                   texture_cache: &mut TextureCache) -> Vec<GlyphRasterJob> {
-        let _pf = util::ProfileScope::new("  update_texture_cache_and_build_raster_jobs");
+//        let _pf = util::ProfileScope::new("  update_texture_cache_and_build_raster_jobs");
 
         let mut raster_jobs = Vec::new();
         let nodes = &self.aabb_tree.nodes;
@@ -539,7 +539,7 @@ impl Scene {
                      mut jobs: Vec<GlyphRasterJob>,
                      font_templates: &FontTemplateMap,
                      texture_cache: &mut TextureCache) {
-        let _pf = util::ProfileScope::new("  raster_glyphs");
+//        let _pf = util::ProfileScope::new("  raster_glyphs");
 
         // Run raster jobs in parallel
         self.thread_pool.scoped(|scope| {
@@ -571,7 +571,7 @@ impl Scene {
     }
 
     fn update_resource_lists(&mut self) {
-        let _pf = util::ProfileScope::new("  update_resource_lists");
+//        let _pf = util::ProfileScope::new("  update_resource_lists");
 
         let flat_draw_lists = &self.flat_draw_lists;
         let nodes = &mut self.aabb_tree.nodes;
@@ -927,7 +927,7 @@ impl AABBTree {
     }
 
     fn cull(&mut self, rect: &Rect<f32>) {
-        let _pf = util::ProfileScope::new("  cull");
+//        let _pf = util::ProfileScope::new("  cull");
         for node in &mut self.nodes {
             node.is_visible = false;
         }
@@ -1857,7 +1857,7 @@ trait RequiredResourceHelpers {
 
 impl BuildRequiredResources for AABBTreeNode {
     fn build_resource_list(&mut self, flat_draw_lists: &FlatDrawListArray) {
-        let _pf = util::ProfileScope::new("  build_resource_list");
+//        let _pf = util::ProfileScope::new("  build_resource_list");
         let mut resource_list = ResourceList::new();
 
         for item_key in &self.src_items {
