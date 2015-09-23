@@ -88,6 +88,9 @@ pub struct WorkVertex {
 impl WorkVertex {
     #[inline]
     pub fn new(x: f32, y: f32, color: &ColorF, u: f32, v: f32, mu: f32, mv: f32) -> WorkVertex {
+        debug_assert!(u.is_finite());
+        debug_assert!(v.is_finite());
+
         WorkVertex {
             x: x,
             y: y,
@@ -262,7 +265,7 @@ impl Frame {
 pub enum ApiMsg {
     AddFont(Atom, Vec<u8>),
     AddImage(ImageID, u32, u32, ImageFormat, Vec<u8>),
-    AddDisplayList(DisplayListID, DisplayListBuilder),
+    AddDisplayList(DisplayListID, PipelineId, Epoch, DisplayListBuilder),
     SetRootStackingContext(StackingContext, ColorF, Epoch, PipelineId),
     Scroll(Point2D<f32>),
 }
@@ -274,6 +277,9 @@ pub enum ResultMsg {
 
 pub struct DisplayList {
     pub mode: DisplayListMode,
+
+    pub pipeline_id: PipelineId,
+    pub epoch: Epoch,
 
     pub background_and_borders_id: Option<DrawListID>,
     pub block_backgrounds_and_borders_id: Option<DrawListID>,

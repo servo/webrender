@@ -30,10 +30,13 @@ impl RenderApi {
         //self.tx.send(msg).unwrap();
     }
 
-    pub fn add_display_list(&self, display_list: DisplayListBuilder) -> DisplayListID {
+    pub fn add_display_list(&self,
+                            display_list: DisplayListBuilder,
+                            pipeline_id: PipelineId,
+                            epoch: Epoch) -> DisplayListID {
         debug_assert!(display_list.item_count() > 0, "Avoid adding empty lists!");
         let id = DisplayListID::new();
-        let msg = ApiMsg::AddDisplayList(id, display_list);
+        let msg = ApiMsg::AddDisplayList(id, pipeline_id, epoch, display_list);
         self.tx.send(msg).unwrap();
         id
     }

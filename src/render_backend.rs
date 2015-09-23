@@ -229,7 +229,7 @@ impl Scene {
                      draw_context: &DrawContext,
                      draw_list_map: &mut DrawListMap,
                      iframes: &mut Vec<IframeInfo>) {
-        let draw_list = draw_list_map.remove(&draw_list_id).unwrap();
+        let draw_list = draw_list_map.remove(&draw_list_id).expect(&format!("unable to remove draw list {:?}", draw_list_id));
 
         // TODO: DrawList should set a flag if iframes are added, to avoid this loop in the common case of no iframes.
         for item in &draw_list.items {
@@ -1135,6 +1135,12 @@ impl RenderBackend {
         backend
     }
 
+    fn remove_draw_list(&mut self, draw_list_id: Option<DrawListID>) {
+        if let Some(id) = draw_list_id {
+            self.draw_list_map.remove(&id).unwrap();
+        }
+    }
+
     fn add_draw_list(&mut self, draw_list: DrawList) -> Option<DrawListID> {
         if draw_list.item_count() > 0 {
             let id = DrawListID::new();
@@ -1168,9 +1174,11 @@ impl RenderBackend {
                             };
                             self.image_templates.insert(id, image);
                         }
-                        ApiMsg::AddDisplayList(id, display_list_builder) => {
+                        ApiMsg::AddDisplayList(id, pipeline_id, epoch, display_list_builder) => {
                             let display_list = DisplayList {
                                 mode: display_list_builder.mode,
+                                pipeline_id: pipeline_id,
+                                epoch: epoch,
                                 background_and_borders_id: self.add_draw_list(display_list_builder.background_and_borders),
                                 block_backgrounds_and_borders_id: self.add_draw_list(display_list_builder.block_backgrounds_and_borders),
                                 floats_id: self.add_draw_list(display_list_builder.floats),
@@ -1182,7 +1190,33 @@ impl RenderBackend {
                             self.display_list_map.insert(id, display_list);
                         }
                         ApiMsg::SetRootStackingContext(stacking_context, background_color, epoch, pipeline_id) => {
-                            let _pf = util::ProfileScope::new("SetRootStackingContext");
+                            //let _pf = util::ProfileScope::new("SetRootStackingContext");
+
+                            // Return all current draw lists to the hash
+                            for flat_draw_list in self.scene.flat_draw_lists.drain(..) {
+                                if let Some(id) = flat_draw_list.id {
+                                    self.draw_list_map.insert(id, flat_draw_list.draw_list);
+                                }
+                            }
+
+                            // Remove any old draw lists and display lists for this pipeline
+                            let old_display_list_keys: Vec<_> = self.display_list_map.iter()
+                                                                    .filter(|&(_, ref v)| {
+                                                                        v.pipeline_id == pipeline_id &&
+                                                                        v.epoch < epoch
+                                                                    })
+                                                                    .map(|(k, _)| k.clone())
+                                                                    .collect();
+
+                            for key in &old_display_list_keys {
+                                let display_list = self.display_list_map.remove(key).unwrap();
+                                self.remove_draw_list(display_list.background_and_borders_id);
+                                self.remove_draw_list(display_list.block_backgrounds_and_borders_id);
+                                self.remove_draw_list(display_list.floats_id);
+                                self.remove_draw_list(display_list.content_id);
+                                self.remove_draw_list(display_list.positioned_content_id);
+                                self.remove_draw_list(display_list.outlines_id);
+                            }
 
                             self.stacking_contexts.insert(pipeline_id, RootStackingContext {
                                 pipeline_id: pipeline_id,
@@ -1213,13 +1247,6 @@ impl RenderBackend {
         // Flatten the stacking context hierarchy
         let root_pipeline_id = PipelineId(0);
         if let Some(root_sc) = self.stacking_contexts.get(&root_pipeline_id) {
-            // Return all current draw lists to the hash
-            for flat_draw_list in self.scene.flat_draw_lists.drain(..) {
-                if let Some(id) = flat_draw_list.id {
-                    self.draw_list_map.insert(id, flat_draw_list.draw_list);
-                }
-            }
-
             // Clear out any state and return draw lists (if needed)
             self.scene.reset();
 
@@ -1231,9 +1258,6 @@ impl RenderBackend {
 
             // Init the AABB culling tree(s)
             self.scene.build_aabb_tree(&root_sc.stacking_context.overflow);
-
-            // Collect unused draw lists
-            self.draw_list_map.clear();
         }
     }
 
@@ -1375,30 +1399,32 @@ impl CompiledNode {
                      image_info: &TextureCacheItem,
                      dummy_mask_image: &TextureCacheItem,
                      color: &ColorF) {
-        let uv_origin = Point2D::new(image_info.u0, image_info.v0);
-        let uv_size = Size2D::new(image_info.u1 - image_info.u0,
-                                  image_info.v1 - image_info.v0);
-        let uv = Rect::new(uv_origin, uv_size);
+        if rect.size.width > 0.0 && rect.size.height > 0.0 {
+            let uv_origin = Point2D::new(image_info.u0, image_info.v0);
+            let uv_size = Size2D::new(image_info.u1 - image_info.u0,
+                                      image_info.v1 - image_info.v0);
+            let uv = Rect::new(uv_origin, uv_size);
 
-        let clip_result = clipper::clip_rect_pos_uv(rect, &uv, clip);
+            let clip_result = clipper::clip_rect_pos_uv(rect, &uv, clip);
 
-        if let Some(cr) = clip_result {
-            let render_item = RenderItem {
-                sort_key: sort_key.clone(),
-                pass: util::get_render_pass(color, image_info.format),
-                color_texture_id: image_info.texture_id,
-                mask_texture_id: dummy_mask_image.texture_id,
-                primitive: Primitive::Rectangles,
-                vertex_count: 4,
-                first_vertex: self.vertex_buffer.len(),
-            };
+            if let Some(cr) = clip_result {
+                let render_item = RenderItem {
+                    sort_key: sort_key.clone(),
+                    pass: util::get_render_pass(color, image_info.format),
+                    color_texture_id: image_info.texture_id,
+                    mask_texture_id: dummy_mask_image.texture_id,
+                    primitive: Primitive::Rectangles,
+                    vertex_count: 4,
+                    first_vertex: self.vertex_buffer.len(),
+                };
 
-            self.vertex_buffer.push(cr.x0, cr.y0, color, cr.u0, cr.v0, draw_context);
-            self.vertex_buffer.push(cr.x1, cr.y0, color, cr.u1, cr.v0, draw_context);
-            self.vertex_buffer.push(cr.x0, cr.y1, color, cr.u0, cr.v1, draw_context);
-            self.vertex_buffer.push(cr.x1, cr.y1, color, cr.u1, cr.v1, draw_context);
+                self.vertex_buffer.push(cr.x0, cr.y0, color, cr.u0, cr.v0, draw_context);
+                self.vertex_buffer.push(cr.x1, cr.y0, color, cr.u1, cr.v0, draw_context);
+                self.vertex_buffer.push(cr.x0, cr.y1, color, cr.u0, cr.v1, draw_context);
+                self.vertex_buffer.push(cr.x1, cr.y1, color, cr.u1, cr.v1, draw_context);
 
-            self.render_items.push(render_item);
+                self.render_items.push(render_item);
+            }
         }
     }
 
@@ -1702,7 +1728,7 @@ impl CompiledNode {
                 self.add_rectangle(sort_key, draw_context, &rect, clip, image, dummy_mask_image, color);
             }
             _ => {
-                println!("TODO: BoxShadow {:?} {:?} {:?}", blur_radius, spread_radius, clip_mode);
+                //println!("TODO: BoxShadow {:?} {:?} {:?}", blur_radius, spread_radius, clip_mode);
             }
         }
     }
