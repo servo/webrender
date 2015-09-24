@@ -255,7 +255,7 @@ impl Scene {
                                 display_list_map: &DisplayListMap,
                                 draw_list_map: &mut DrawListMap,
                                 stacking_contexts: &StackingContextMap) {
-//        let _pf = util::ProfileScope::new("  flatten_stacking_context");
+        let _pf = util::ProfileScope::new("  flatten_stacking_context");
         let stacking_context = match stacking_context_kind {
             StackingContextKind::Normal(stacking_context) => stacking_context,
             StackingContextKind::Root(root) => &root.stacking_context,
@@ -368,14 +368,14 @@ impl Scene {
     }
 
     fn build_aabb_tree(&mut self, scene_rect: &Rect<f32>) {
-//        let _pf = util::ProfileScope::new("  build_aabb_tree");
+        let _pf = util::ProfileScope::new("  build_aabb_tree");
         self.aabb_tree.init(scene_rect);
 
         // push all visible draw lists into aabb tree
         for (draw_list_index, flat_draw_list) in self.flat_draw_lists.iter().enumerate() {
             for (item_index, item) in flat_draw_list.draw_list.items.iter().enumerate() {
-                // TODO: AABB tree doesn't take transform into account yet!
-                let rect = item.rect.translate(&flat_draw_list.draw_context.offset);
+                let rect = flat_draw_list.draw_context.transform.transform_rect(&item.rect);
+                let rect = rect.translate(&flat_draw_list.draw_context.offset);
                 self.aabb_tree.insert(&rect, draw_list_index, item_index);
             }
         }
@@ -434,7 +434,7 @@ impl Scene {
     }
 
     fn collect_and_sort_visible_render_items(&self) -> Vec<RenderItemKey> {
-//        let _pf = util::ProfileScope::new("  collect_and_sort_visible_render_items");
+        let _pf = util::ProfileScope::new("  collect_and_sort_visible_render_items");
 
         let mut keys = Vec::new();
 
@@ -472,7 +472,7 @@ impl Scene {
                       quad_program_id: ProgramId,
                       glyph_program_id: ProgramId,
                       scroll_offset: &Point2D<f32>) -> Frame {
-//        let _pf = util::ProfileScope::new("  create_batches");
+        let _pf = util::ProfileScope::new("  create_batches");
 
         let mut frame = Frame::new(self.pipeline_epoch_map.clone());
         let mut batcher = RenderBatcher::new(keys.len(),
@@ -499,7 +499,7 @@ impl Scene {
                              texture_cache: &TextureCache,
                              white_image_id: ImageID,
                              dummy_mask_image_id: ImageID) {
-//        let _pf = util::ProfileScope::new("  compile_visible_nodes");
+        let _pf = util::ProfileScope::new("  compile_visible_nodes");
 
         let nodes = &mut self.aabb_tree.nodes;
         let flat_draw_list_array = &self.flat_draw_lists;
@@ -527,7 +527,7 @@ impl Scene {
                                                   glyph_to_image_map: &mut GlyphToImageMap,
                                                   image_templates: &ImageTemplateMap,
                                                   texture_cache: &mut TextureCache) -> Vec<GlyphRasterJob> {
-//        let _pf = util::ProfileScope::new("  update_texture_cache_and_build_raster_jobs");
+        let _pf = util::ProfileScope::new("  update_texture_cache_and_build_raster_jobs");
 
         let mut raster_jobs = Vec::new();
         let nodes = &self.aabb_tree.nodes;
@@ -555,7 +555,7 @@ impl Scene {
                      mut jobs: Vec<GlyphRasterJob>,
                      font_templates: &FontTemplateMap,
                      texture_cache: &mut TextureCache) {
-//        let _pf = util::ProfileScope::new("  raster_glyphs");
+        let _pf = util::ProfileScope::new("  raster_glyphs");
 
         // Run raster jobs in parallel
         self.thread_pool.scoped(|scope| {
@@ -587,7 +587,7 @@ impl Scene {
     }
 
     fn update_resource_lists(&mut self) {
-//        let _pf = util::ProfileScope::new("  update_resource_lists");
+        let _pf = util::ProfileScope::new("  update_resource_lists");
 
         let flat_draw_lists = &self.flat_draw_lists;
         let nodes = &mut self.aabb_tree.nodes;
@@ -703,7 +703,7 @@ impl AABBTreeNode {
             let (display_item, draw_context) = flat_draw_lists.get_item_and_draw_context(key);
 
             // TODO: This doesn't propagate the stacking context clip region!
-            let clip_rect = &display_item.clip.main;
+            let clip_rect = Rect::new(Point2D::new(-1000.0, -1000.0), Size2D::new(10000.0, 10000.0));// &display_item.clip.main;
 
             match display_item.item {
                 SpecificDisplayItem::Image(ref info) => {
@@ -928,7 +928,7 @@ impl AABBTree {
                              rect: &Rect<f32>) {
         let children = {
             let node = self.node_mut(node_index);
-            if node.rect.intersects(rect) {
+            if true {//node.rect.intersects(rect) {
                 node.is_visible = true;
                 node.children
             } else {
@@ -943,7 +943,8 @@ impl AABBTree {
     }
 
     fn cull(&mut self, rect: &Rect<f32>) {
-//        let _pf = util::ProfileScope::new("  cull");
+        let _pf = util::ProfileScope::new("  cull");
+        println!("cull {:?} nodes in tree", self.nodes.len());
         for node in &mut self.nodes {
             node.is_visible = false;
         }
@@ -1190,7 +1191,7 @@ impl RenderBackend {
                             self.display_list_map.insert(id, display_list);
                         }
                         ApiMsg::SetRootStackingContext(stacking_context, background_color, epoch, pipeline_id) => {
-                            //let _pf = util::ProfileScope::new("SetRootStackingContext");
+                            let _pf = util::ProfileScope::new("SetRootStackingContext");
 
                             // Return all current draw lists to the hash
                             for flat_draw_list in self.scene.flat_draw_lists.drain(..) {
@@ -1229,7 +1230,7 @@ impl RenderBackend {
                             self.render(&mut *notifier);
                         }
                         ApiMsg::Scroll(delta) => {
-                            //let _pf = util::ProfileScope::new("Scroll");
+                            let _pf = util::ProfileScope::new("Scroll");
 
                             self.scroll(delta);
                             self.render(&mut *notifier);
@@ -1941,7 +1942,7 @@ trait RequiredResourceHelpers {
 
 impl BuildRequiredResources for AABBTreeNode {
     fn build_resource_list(&mut self, flat_draw_lists: &FlatDrawListArray) {
-//        let _pf = util::ProfileScope::new("  build_resource_list");
+        //let _pf = util::ProfileScope::new("  build_resource_list");
         let mut resource_list = ResourceList::new();
 
         for item_key in &self.src_items {
