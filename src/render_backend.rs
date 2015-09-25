@@ -928,7 +928,7 @@ impl AABBTree {
                              rect: &Rect<f32>) {
         let children = {
             let node = self.node_mut(node_index);
-            if true {//node.rect.intersects(rect) {
+            if node.rect.intersects(rect) {
                 node.is_visible = true;
                 node.children
             } else {
@@ -944,7 +944,6 @@ impl AABBTree {
 
     fn cull(&mut self, rect: &Rect<f32>) {
         let _pf = util::ProfileScope::new("  cull");
-        println!("cull {:?} nodes in tree", self.nodes.len());
         for node in &mut self.nodes {
             node.is_visible = false;
         }
