@@ -6,6 +6,7 @@ use internal_types::{TextureUpdateDetails, PackedVertex};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, RenderBatch, VertexFormat};
 use render_api::RenderApi;
 use render_backend::RenderBackend;
+use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
 use texture_cache::TextureCache;
@@ -28,7 +29,7 @@ impl Renderer {
     pub fn new(notifier: Box<RenderNotifier>,
                width: u32,
                height: u32,
-               resource_path: String) -> Renderer {
+               resource_path: PathBuf) -> Renderer {
         let (api_tx, api_rx) = channel();
         let (result_tx, result_rx) = channel();
 

@@ -3,6 +3,7 @@ use gleam::gl;
 use internal_types::{TextureSampler, VertexAttribute, VertexFormat, PackedVertex, RenderTargetMode};
 use std::collections::HashMap;
 use std::fs::File;
+use std::path::PathBuf;
 use std::mem;
 use std::io::Read;
 use types::ImageFormat;
@@ -159,7 +160,7 @@ pub struct Device {
     inside_frame: bool,
 
     // resources
-    resource_path: String,
+    resource_path: PathBuf,
     textures: HashMap<TextureId, Texture>,
     programs: HashMap<ProgramId, Program>,
     vaos: HashMap<VAOId, VAO>,
@@ -180,7 +181,7 @@ fn shader_preamble() -> &'static str {
 }
 
 impl Device {
-    pub fn new(resource_path: String) -> Device {
+    pub fn new(resource_path: PathBuf) -> Device {
         Device {
             resource_path: resource_path,
             inside_frame: false,
@@ -202,10 +203,9 @@ impl Device {
 
     pub fn compile_shader(filename: &str,
                           shader_type: gl::GLenum,
-                          resource_path: &str) -> gl::GLuint {
-        let mut path = String::new();
-        path.push_str(resource_path);
-        path.push_str(filename);
+                          resource_path: &PathBuf) -> gl::GLuint {
+        let mut path = resource_path.clone();
+        path.push(filename);
 
         println!("compile {:?}", path);
 
