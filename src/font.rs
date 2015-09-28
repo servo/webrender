@@ -10,7 +10,7 @@ use freetype::freetype::{FT_New_Memory_Face, FT_GlyphSlot};
 use std::{mem, ptr, slice};
 use std::collections::HashMap;
 use string_cache::Atom;
-use util;
+//use util;
 
 struct Face {
     face: FT_Face,

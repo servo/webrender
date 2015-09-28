@@ -18,10 +18,10 @@ use std::thread;
 use string_cache::Atom;
 use texture_cache::{TextureCache, TextureCacheItem};
 use types::{Au, DisplayListID, Epoch, BorderDisplayItem, BorderRadiusRasterOp, RectangleDisplayItem};
-use types::{ScrollLayerId, Glyph, GradientStop, DisplayListMode, RasterItem, ClipRegion};
+use types::{Glyph, GradientStop, DisplayListMode, RasterItem, ClipRegion};
 use types::{GlyphInstance, ImageID, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
 use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF, DrawListID};
-use types::{RenderTargetID, RenderTargetDisplayItem};
+use types::RenderTargetID;
 use util;
 use scoped_threadpool;
 
@@ -404,10 +404,10 @@ impl Scene {
         self.update_resource_lists();
 
         // Update texture cache and build list of raster jobs.
-        let mut raster_jobs = self.update_texture_cache_and_build_raster_jobs(raster_to_image_map,
-                                                                              glyph_to_image_map,
-                                                                              image_templates,
-                                                                              texture_cache);
+        let raster_jobs = self.update_texture_cache_and_build_raster_jobs(raster_to_image_map,
+                                                                          glyph_to_image_map,
+                                                                          image_templates,
+                                                                          texture_cache);
 
         // Rasterize needed glyphs on worker threads
         self.raster_glyphs(raster_jobs,

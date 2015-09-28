@@ -190,7 +190,7 @@ pub enum TextureUpdateDetails {
 pub enum TextureUpdateOp {
     Create(u32, u32, ImageFormat, RenderTargetMode, Option<Vec<u8>>),
     Update(u32, u32, u32, u32, TextureUpdateDetails),
-    FreeRenderTarget(TextureId),
+    //FreeRenderTarget(TextureId),
 }
 
 pub struct TextureUpdate {

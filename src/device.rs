@@ -98,6 +98,7 @@ impl Drop for FBO {
 
 struct VAO {
     id: gl::GLuint,
+    #[cfg(any(target_os = "android", target_os = "gonk"))]
     vertex_format: VertexFormat,
     vbo_id: VBOId,
     ibo_id: IBOId,
@@ -167,6 +168,7 @@ pub struct Device {
     //fbos: HashMap<FBOId, FBO>,
 
     // Used on android only
+    #[allow(dead_code)]
     next_vao_id: gl::GLuint,
 }
 
@@ -396,13 +398,15 @@ impl Device {
         }
     }
 
-    pub fn free_texture(&mut self, texture_id: TextureId) {
+/*
+    pub fn free_texture(&mut self, _texture_id: TextureId) {
         debug_assert!(self.inside_frame);
         // TODO: Should only really clear the data in the FBO, not
         // remove the texture - since the texture handle is managed
         // by the backend...
         //self.textures.remove(&texture_id).unwrap();
     }
+*/
 
     pub fn create_program(&mut self,
                           vs_filename: &str,
@@ -648,7 +652,6 @@ impl Device {
 
         let vao = VAO {
             id: vao_id,
-            vertex_format: vertex_format,
             vbo_id: vbo_id,
             ibo_id: ibo_id,
         };

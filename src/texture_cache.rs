@@ -139,6 +139,7 @@ impl TextureCache {
         mem::replace(&mut self.pending_updates, TextureUpdateList::new())
     }
 
+/*
     pub fn allocate_render_target(&mut self,
                                   width: u32,
                                   height: u32,
@@ -159,7 +160,7 @@ impl TextureCache {
             op: TextureUpdateOp::FreeRenderTarget(texture_id),
         };
         self.pending_updates.push(update_op);
-    }
+    }*/
 
     pub fn allocate(&mut self,
                     image_id: ImageID,
