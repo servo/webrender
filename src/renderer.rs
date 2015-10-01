@@ -1,8 +1,8 @@
-use device::{Device, ProgramId, UniformLocation};
+use device::{Device, ProgramId, UniformLocation, TextureId};
 use euclid::{Rect, Matrix4, Point2D, Size2D};
 use gleam::gl;
 use internal_types::{ApiMsg, Frame, ResultMsg, TextureUpdateOp, TextureUpdateList};
-use internal_types::{TextureUpdateDetails, PackedVertex};
+use internal_types::{TextureUpdateDetails, PackedVertex, RenderTargetMode, DrawCommand};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, RenderBatch, VertexFormat};
 use render_api::RenderApi;
 use render_backend::RenderBackend;
@@ -10,8 +10,16 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
 use texture_cache::TextureCache;
-use types::{ColorF, Epoch, PipelineId, RenderNotifier, ImageID, ImageFormat};
+use types::{ColorF, Epoch, PipelineId, RenderNotifier, ImageID, ImageFormat, BlendMode};
 //use util;
+
+struct RenderContext {
+    blend_program_id: ProgramId,
+    temporary_fb_texture: TextureId,
+    projection: Matrix4,
+    layer_size: Size2D<u32>,
+    draw_calls: usize,
+}
 
 pub struct Renderer {
     api_tx: Sender<ApiMsg>,
@@ -24,6 +32,9 @@ pub struct Renderer {
     border_program_id: ProgramId,
     u_border_radii: UniformLocation,
     u_border_position: UniformLocation,
+
+    blend_program_id: ProgramId,
+    u_blend_params: UniformLocation,
 }
 
 impl Renderer {
@@ -43,9 +54,12 @@ impl Renderer {
         let quad_program_id = device.create_program("quad.vs.glsl", "quad.fs.glsl");
         let glyph_program_id = device.create_program("glyph.vs.glsl", "glyph.fs.glsl");
         let border_program_id = device.create_program("border.vs.glsl", "border.fs.glsl");
+        let blend_program_id = device.create_program("blend.vs.glsl", "blend.fs.glsl");
 
         let u_border_radii = device.get_uniform_location(border_program_id, "uRadii");
         let u_border_position = device.get_uniform_location(border_program_id, "uPosition");
+
+        let u_blend_params = device.get_uniform_location(blend_program_id, "uBlendParams");
 
         let texture_ids = device.create_texture_ids(1024);
         let mut texture_cache = TextureCache::new(texture_ids);
@@ -89,8 +103,10 @@ impl Renderer {
             pending_texture_updates: Vec::new(),
             border_program_id: border_program_id,
             device_pixel_ratio: device_pixel_ratio,
+            blend_program_id: blend_program_id,
             u_border_radii: u_border_radii,
             u_border_position: u_border_position,
+            u_blend_params: u_blend_params,
         }
     }
 
@@ -210,10 +226,10 @@ impl Renderer {
 
                                 let indices: [u16; 6] = [ 0, 1, 2, 2, 3, 1 ];
                                 let vertices: [PackedVertex; 4] = [
-                                    PackedVertex::from_components(x, y, &color0),
-                                    PackedVertex::from_components(x + outer_rx, y, &color1),
-                                    PackedVertex::from_components(x, y + outer_ry, &color2),
-                                    PackedVertex::from_components(x + outer_rx, y + outer_ry, &color3),
+                                    PackedVertex::from_components(x, y, 0.0, &color0, 0.0, 0.0, 0.0, 0.0),
+                                    PackedVertex::from_components(x + outer_rx, y, 0.0, &color1, 0.0, 0.0, 0.0, 0.0),
+                                    PackedVertex::from_components(x, y + outer_ry, 0.0, &color2, 0.0, 0.0, 0.0, 0.0),
+                                    PackedVertex::from_components(x + outer_rx, y + outer_ry, 0.0, &color3, 0.0, 0.0, 0.0, 0.0),
                                 ];
                                 self.device.update_vao_indices(vao_id, &indices);
                                 self.device.update_vao_vertices(vao_id, &vertices);
@@ -231,15 +247,28 @@ impl Renderer {
 
     fn draw_frame(&mut self) {
         if let Some(ref frame) = self.current_frame {
-            let mut draw_calls = 0;
+            // TODO: cache render targets!
 
-            for layer in &frame.layers {
-                let projection = Matrix4::ortho(0.0,
-                                                layer.size.width as f32,
-                                                layer.size.height as f32,
-                                                0.0,
-                                                ORTHO_NEAR_PLANE,
-                                                ORTHO_FAR_PLANE);
+            // Draw render targets in reverse order to ensure dependencies
+            // of earlier render targets are already available.
+            // TODO: Are there cases where this fails and needs something
+            // like a topological sort with dependencies?
+            let mut render_context = RenderContext {
+                blend_program_id: self.blend_program_id,
+                temporary_fb_texture: self.device.create_texture_ids(1)[0],
+                projection: Matrix4::identity(),
+                layer_size: Size2D::zero(),
+                draw_calls: 0,
+            };
+
+            for layer in frame.layers.iter().rev() {
+                render_context.layer_size = layer.size;
+                render_context.projection = Matrix4::ortho(0.0,
+                                                           layer.size.width as f32,
+                                                           layer.size.height as f32,
+                                                           0.0,
+                                                           ORTHO_NEAR_PLANE,
+                                                           ORTHO_FAR_PLANE);
 
                 self.device.bind_render_target(layer.texture_id);
                 gl::viewport(0,
@@ -248,28 +277,90 @@ impl Renderer {
                              (layer.size.height as f32 * self.device_pixel_ratio) as gl::GLint);
                 gl::enable(gl::DEPTH_TEST);
                 gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-                gl::depth_mask(true);
 
                 // Clear frame buffer
                 gl::clear_color(1.0, 1.0, 1.0, 1.0);
+                gl::clear_depth(1.0);
+                gl::depth_mask(true);
                 gl::clear(gl::COLOR_BUFFER_BIT |
                           gl::DEPTH_BUFFER_BIT |
                           gl::STENCIL_BUFFER_BIT);
 
-                // standard opaque pass!
-                // TODO: probably worth sorting front to back to minimize overdraw (if profiling shows fragment / rop bound)
-                gl::disable(gl::BLEND);
+                for cmd in &layer.commands {
+                    match cmd {
+                        &DrawCommand::Batch(ref opaque_batches, ref alpha_batches) => {
+                            // standard opaque pass!
+                            // TODO: probably worth sorting front to back to minimize overdraw (if profiling shows fragment / rop bound)
+                            gl::depth_mask(true);
+                            gl::disable(gl::BLEND);
 
-                for batch in &layer.opaque_batches {
-                    Renderer::draw_batch(&mut self.device, batch, &projection, &mut draw_calls);
-                }
+                            for batch in opaque_batches {
+                                Renderer::draw_batch(&mut self.device, batch, &mut render_context);
+                            }
 
-                // alpha pass!
-                gl::enable(gl::BLEND);
-                gl::depth_mask(false);
+                            // alpha pass!
+                            gl::depth_mask(false);
+                            gl::enable(gl::BLEND);
 
-                for batch in &layer.alpha_batches {
-                    Renderer::draw_batch(&mut self.device, batch, &projection, &mut draw_calls);
+                            for batch in alpha_batches {
+                                Renderer::draw_batch(&mut self.device, batch, &mut render_context);
+                            }
+                        }
+                        &DrawCommand::Composite(ref info) => {
+                            gl::depth_mask(true);
+                            gl::disable(gl::BLEND);
+
+                            match info.blend_mode {
+                                BlendMode::Normal => unreachable!(),
+                                BlendMode::Difference => {
+                                    let x0 = info.rect.origin.x;
+                                    let y0 = info.rect.origin.y;
+                                    //let y0 = render_context.layer_size.height - info.rect.size.height - info.rect.origin.y;
+                                    let x1 = x0 + info.rect.size.width;
+                                    let y1 = y0 + info.rect.size.height;
+
+                                    // TODO: No need to re-init this FB working copy texture every time...
+                                    self.device.init_texture(render_context.temporary_fb_texture,
+                                                             info.rect.size.width,
+                                                             info.rect.size.height,
+                                                             ImageFormat::RGBA8,
+                                                             RenderTargetMode::None,
+                                                             None);
+                                    self.device.read_framebuffer_rect(render_context.temporary_fb_texture,
+                                                                      x0,
+                                                                      render_context.layer_size.height - info.rect.size.height - y0,
+                                                                      info.rect.size.width,
+                                                                      info.rect.size.height);
+
+                                    self.device.bind_program(render_context.blend_program_id,
+                                                             &render_context.projection);
+                                    self.device.set_uniform_4f(self.u_blend_params, info.blend_mode as i32 as f32, 0.0, 0.0, 0.0);
+                                    self.device.bind_color_texture(info.color_texture_id);
+                                    self.device.bind_mask_texture(render_context.temporary_fb_texture);
+
+                                    // TODO: Don't re-create this VAO all the time.
+                                    // Create it once and set positions via uniforms.
+                                    let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
+                                    let indices: [u16; 6] = [ 0, 1, 2, 2, 3, 1 ];
+                                    let vertices: [PackedVertex; 4] = [
+                                        PackedVertex::from_components(x0 as f32, y0 as f32, info.z, &color, 0.0, 0.0, 0.0, 1.0),
+                                        PackedVertex::from_components(x1 as f32, y0 as f32, info.z, &color, 1.0, 0.0, 1.0, 1.0),
+                                        PackedVertex::from_components(x0 as f32, y1 as f32, info.z, &color, 0.0, 1.0, 0.0, 0.0),
+                                        PackedVertex::from_components(x1 as f32, y1 as f32, info.z, &color, 1.0, 1.0, 1.0, 0.0),
+                                    ];
+                                    let vao_id = self.device.create_vao(VertexFormat::Default);
+                                    self.device.bind_vao(vao_id);
+                                    self.device.update_vao_indices(vao_id, &indices);
+                                    self.device.update_vao_vertices(vao_id, &vertices);
+
+                                    self.device.draw_triangles_u16(indices.len() as gl::GLint);
+                                    render_context.draw_calls += 1;
+
+                                    self.device.delete_vao(vao_id);
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -277,21 +368,21 @@ impl Renderer {
         }
     }
 
-    fn draw_batch(device: &mut Device, batch: &RenderBatch, projection: &Matrix4, draw_calls: &mut usize) {
-        device.bind_color_texture(batch.color_texture_id);
+    fn draw_batch(device: &mut Device,
+                  batch: &RenderBatch,
+                  context: &mut RenderContext) {
+        device.bind_program(batch.program_id, &context.projection);
         device.bind_mask_texture(batch.mask_texture_id);
-        device.bind_program(batch.program_id, &projection);
+        device.bind_color_texture(batch.color_texture_id);
 
         let vao_id = device.create_vao(VertexFormat::Default);
         device.bind_vao(vao_id);
-
-        //println!("    draw_batch {:?} {:?}", batch.color_texture_id, batch.vertices);
 
         device.update_vao_indices(vao_id, &batch.indices);
         device.update_vao_vertices(vao_id, &batch.vertices);
 
         device.draw_triangles_u16(batch.indices.len() as gl::GLint);
-        *draw_calls += 1;
+        context.draw_calls += 1;
 
         device.delete_vao(vao_id);
     }

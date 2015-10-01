@@ -379,11 +379,6 @@ pub struct RectangleDisplayItem {
 }
 
 #[derive(Debug)]
-pub struct RenderTargetDisplayItem {
-    pub id: RenderTargetID,
-}
-
-#[derive(Debug)]
 pub struct BorderDisplayItem {
     pub left: BorderSide,
     pub right: BorderSide,
@@ -436,6 +431,18 @@ pub struct IframeDisplayItem {
     pub iframe: PipelineId,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum BlendMode {
+    Normal,
+    Difference,
+}
+
+#[derive(Debug)]
+pub struct CompositeDisplayItem {
+    pub texture_id: RenderTargetID,
+    pub blend_mode: BlendMode,
+}
+
 #[derive(Debug)]
 pub enum SpecificDisplayItem {
     Rectangle(RectangleDisplayItem),
@@ -445,7 +452,7 @@ pub enum SpecificDisplayItem {
     BoxShadow(BoxShadowDisplayItem),
     Gradient(GradientDisplayItem),
     Iframe(IframeDisplayItem),
-    RenderTarget(RenderTargetDisplayItem),
+    Composite(CompositeDisplayItem),
 }
 
 #[derive(Debug)]
