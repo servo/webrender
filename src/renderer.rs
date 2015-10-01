@@ -19,6 +19,7 @@ pub struct Renderer {
     device: Device,
     pending_texture_updates: Vec<TextureUpdateList>,
     current_frame: Option<Frame>,
+    device_pixel_ratio: f32,
 
     border_program_id: ProgramId,
     u_border_radii: UniformLocation,
@@ -29,6 +30,7 @@ impl Renderer {
     pub fn new(notifier: Box<RenderNotifier>,
                width: u32,
                height: u32,
+               device_pixel_ratio: f32,
                resource_path: PathBuf) -> Renderer {
         let (api_tx, api_rx) = channel();
         let (result_tx, result_rx) = channel();
@@ -70,6 +72,7 @@ impl Renderer {
             let mut backend = RenderBackend::new(api_rx,
                                                  result_tx,
                                                  initial_viewport,
+                                                 device_pixel_ratio,
                                                  quad_program_id,
                                                  glyph_program_id,
                                                  white_image_id,
@@ -85,6 +88,7 @@ impl Renderer {
             current_frame: None,
             pending_texture_updates: Vec::new(),
             border_program_id: border_program_id,
+            device_pixel_ratio: device_pixel_ratio,
             u_border_radii: u_border_radii,
             u_border_position: u_border_position,
         }
@@ -238,7 +242,10 @@ impl Renderer {
                                                 ORTHO_FAR_PLANE);
 
                 self.device.bind_render_target(layer.texture_id);
-                gl::viewport(0, 0, layer.size.width as gl::GLint, layer.size.height as gl::GLint);
+                gl::viewport(0,
+                             0,
+                             (layer.size.width as f32 * self.device_pixel_ratio) as gl::GLint,
+                             (layer.size.height as f32 * self.device_pixel_ratio) as gl::GLint);
                 gl::enable(gl::DEPTH_TEST);
                 gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
                 gl::depth_mask(true);

@@ -77,13 +77,15 @@ impl FontContext {
     pub fn get_glyph(&mut self,
                      font_id: &Atom,
                      size: Au,
-                     character: u32) -> Option<RasterizedGlyph> {
+                     character: u32,
+                     device_pixel_ratio: f32) -> Option<RasterizedGlyph> {
         debug_assert!(self.faces.contains_key(&font_id));
 
         let face = self.faces.get(&font_id).unwrap();
 
         unsafe {
-            let char_size = float_to_fixed_ft((0.5f64 + size.to_f64_px()).floor());
+            let char_size = float_to_fixed_ft(((0.5f64 + size.to_f64_px()) *
+                                               device_pixel_ratio as f64).floor());
             let result = FT_Set_Char_Size(face.face, char_size as FT_F26Dot6, 0, 0, 0);
             assert!(result.succeeded());
 

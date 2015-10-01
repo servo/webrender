@@ -82,6 +82,7 @@ impl GetDisplayItemHelper for FlatDrawListArray {
 struct DrawContext {
     offset: Point2D<f32>,
     transform: Matrix2D<f32>,
+    device_pixel_ratio: f32,
 }
 
 struct FlatDrawList {
@@ -299,7 +300,8 @@ impl Scene {
                                 offset: &Point2D<f32>,
                                 display_list_map: &DisplayListMap,
                                 draw_list_map: &mut DrawListMap,
-                                stacking_contexts: &StackingContextMap) {
+                                stacking_contexts: &StackingContextMap,
+                                device_pixel_ratio: f32) {
         let _pf = util::ProfileScope::new("  flatten_stacking_context");
         let stacking_context = match stacking_context_kind {
             StackingContextKind::Normal(stacking_context) => stacking_context,
@@ -317,6 +319,7 @@ impl Scene {
         let draw_context = DrawContext {
             offset: offset.clone(),
             transform: xform_2d,
+            device_pixel_ratio: device_pixel_ratio,
         };
 
         match stacking_context_kind {
@@ -364,7 +367,8 @@ impl Scene {
                                           &offset,
                                           display_list_map,
                                           draw_list_map,
-                                          stacking_contexts);
+                                          stacking_contexts,
+                                          device_pixel_ratio);
         }
 
         for id in &draw_list_ids.block_background_and_borders {
@@ -391,7 +395,8 @@ impl Scene {
                                           &offset,
                                           display_list_map,
                                           draw_list_map,
-                                          stacking_contexts);
+                                          stacking_contexts,
+                                          device_pixel_ratio);
         }
 
         // TODO: This ordering isn't quite right - it should look
@@ -403,7 +408,8 @@ impl Scene {
                                               &iframe_info.offset,
                                               display_list_map,
                                               draw_list_map,
-                                              stacking_contexts);
+                                              stacking_contexts,
+                                              device_pixel_ratio);
             }
         }
 
@@ -428,6 +434,7 @@ impl Scene {
 
     fn build_frame(&mut self,
                    viewport: &Rect<i32>,
+                   device_pixel_ratio: f32,
                    raster_to_image_map: &mut RasterToImageMap,
                    glyph_to_image_map: &mut GlyphToImageMap,
                    image_templates: &ImageTemplateMap,
@@ -457,7 +464,8 @@ impl Scene {
         // Rasterize needed glyphs on worker threads
         self.raster_glyphs(raster_jobs,
                            font_templates,
-                           texture_cache);
+                           texture_cache,
+                           device_pixel_ratio);
 
         // Compile nodes that have become visible
         self.compile_visible_nodes(glyph_to_image_map,
@@ -599,7 +607,8 @@ impl Scene {
     fn raster_glyphs(&mut self,
                      mut jobs: Vec<GlyphRasterJob>,
                      font_templates: &FontTemplateMap,
-                     texture_cache: &mut TextureCache) {
+                     texture_cache: &mut TextureCache,
+                     device_pixel_ratio: f32) {
         let _pf = util::ProfileScope::new("  raster_glyphs");
 
         // Run raster jobs in parallel
@@ -612,7 +621,8 @@ impl Scene {
                         font_context.add_font(&job.glyph_key.font_id, &font_template.bytes);
                         job.result = font_context.get_glyph(&job.glyph_key.font_id,
                                                             job.glyph_key.size,
-                                                            job.glyph_key.index);
+                                                            job.glyph_key.index,
+                                                            device_pixel_ratio);
                     });
                 });
             }
@@ -1046,6 +1056,7 @@ pub struct RenderBackend {
     api_rx: Receiver<ApiMsg>,
     result_tx: Sender<ResultMsg>,
     viewport: Rect<i32>,
+    device_pixel_ratio: f32,
 
     quad_program_id: ProgramId,
     glyph_program_id: ProgramId,
@@ -1136,6 +1147,7 @@ impl RenderBackend {
     pub fn new(rx: Receiver<ApiMsg>,
                tx: Sender<ResultMsg>,
                viewport: Rect<i32>,
+               device_pixel_ratio: f32,
                quad_program_id: ProgramId,
                glyph_program_id: ProgramId,
                white_image_id: ImageID,
@@ -1145,6 +1157,7 @@ impl RenderBackend {
             api_rx: rx,
             result_tx: tx,
             viewport: viewport,
+            device_pixel_ratio: device_pixel_ratio,
 
             quad_program_id: quad_program_id,
             glyph_program_id: glyph_program_id,
@@ -1302,7 +1315,8 @@ impl RenderBackend {
                                                 &Point2D::zero(),
                                                 &self.display_list_map,
                                                 &mut self.draw_list_map,
-                                                &self.stacking_contexts);
+                                                &self.stacking_contexts,
+                                                self.device_pixel_ratio);
             self.scene.pop_render_target();
 
             // Init the AABB culling tree(s)
@@ -1312,6 +1326,7 @@ impl RenderBackend {
 
     fn render(&mut self, notifier: &mut RenderNotifier) {
         let frame = self.scene.build_frame(&self.viewport,
+                                           self.device_pixel_ratio,
                                            &mut self.raster_to_image_map,
                                            &mut self.glyph_to_image_map,
                                            &self.image_templates,
@@ -1599,6 +1614,8 @@ impl CompiledNode {
         // Logic below to pick the primary render item depends on len > 0!
         assert!(glyphs.len() > 0);
 
+        let device_pixel_ratio = draw_context.device_pixel_ratio;
+
         let mut glyph_key = GlyphKey::new(font_id, size, glyphs[0].index);
 
         let first_image_id = glyph_to_image_map.get(&glyph_key).unwrap();
@@ -1622,11 +1639,11 @@ impl CompiledNode {
             let image_info = texture_cache.get(*image_id);
 
             if image_info.width > 0 && image_info.height > 0 {
-                let x0 = glyph.x + image_info.x0 as f32;
-                let y0 = glyph.y - image_info.y0 as f32;
+                let x0 = glyph.x + image_info.x0 as f32 / device_pixel_ratio;
+                let y0 = glyph.y - image_info.y0 as f32 / device_pixel_ratio;
 
-                let x1 = x0 + image_info.width as f32;
-                let y1 = y0 + image_info.height as f32;
+                let x1 = x0 + image_info.width as f32 / device_pixel_ratio;
+                let y1 = y0 + image_info.height as f32 / device_pixel_ratio;
 
                 if image_info.texture_id == first_image_info.texture_id {
                     self.vertex_buffer.push(x0, y0, color, image_info.u0, image_info.v0, draw_context);
