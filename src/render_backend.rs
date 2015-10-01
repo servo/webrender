@@ -38,6 +38,26 @@ static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
+#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq)]
+struct RenderTargetIndex(u32);
+
+#[derive(Debug)]
+struct RenderTarget {
+    target_size: Size2D<u32>,
+    draw_list_indices: Vec<DrawListIndex>,
+    dependencies: Vec<RenderTargetIndex>,
+}
+
+impl RenderTarget {
+    fn new(size: Size2D<u32>) -> RenderTarget {
+        RenderTarget {
+            target_size: size,
+            draw_list_indices: Vec::new(),
+            dependencies: Vec::new(),
+        }
+    }
+}
+
 trait GetDisplayItemHelper {
     fn get_item(&self, key: &DisplayItemKey) -> &DisplayItem;
     fn get_item_and_draw_context(&self, key: &DisplayItemKey) -> (&DisplayItem, &DrawContext);
@@ -207,6 +227,9 @@ struct Scene {
     flat_draw_lists: Vec<FlatDrawList>,
     thread_pool: scoped_threadpool::Pool,
     scroll_offset: Point2D<f32>,
+
+    render_targets: Vec<RenderTarget>,
+    render_target_stack: Vec<RenderTargetIndex>,
 }
 
 impl Scene {
@@ -217,11 +240,27 @@ impl Scene {
             flat_draw_lists: Vec::new(),
             thread_pool: scoped_threadpool::Pool::new(8),
             scroll_offset: Point2D::zero(),
+            render_targets: Vec::new(),
+            render_target_stack: Vec::new(),
         }
     }
 
     fn reset(&mut self) {
+        debug_assert!(self.render_target_stack.len() == 0);
         self.pipeline_epoch_map.clear();
+        self.render_targets.clear();
+    }
+
+    fn push_render_target(&mut self, size: Size2D<u32>) {
+        let rt_index = RenderTargetIndex(self.render_targets.len() as u32);
+        self.render_target_stack.push(rt_index);
+
+        let render_target = RenderTarget::new(size);
+        self.render_targets.push(render_target);
+    }
+
+    fn pop_render_target(&mut self) {
+        self.render_target_stack.pop().unwrap();
     }
 
     fn add_draw_list(&mut self,
@@ -241,6 +280,12 @@ impl Scene {
                 _ => {}
             }
         }
+
+        let RenderTargetIndex(current_render_target) = *self.render_target_stack.last().unwrap();
+        let render_target = &mut self.render_targets[current_render_target as usize];
+
+        let draw_list_index = DrawListIndex(self.flat_draw_lists.len() as u32);
+        render_target.draw_list_indices.push(draw_list_index);
 
         self.flat_draw_lists.push(FlatDrawList {
             id: Some(draw_list_id),
@@ -1250,11 +1295,15 @@ impl RenderBackend {
             // Clear out any state and return draw lists (if needed)
             self.scene.reset();
 
+            let size = Size2D::new(self.viewport.size.width as u32,
+                                   self.viewport.size.height as u32);
+            self.scene.push_render_target(size);
             self.scene.flatten_stacking_context(StackingContextKind::Root(root_sc),
                                                 &Point2D::zero(),
                                                 &self.display_list_map,
                                                 &mut self.draw_list_map,
                                                 &self.stacking_contexts);
+            self.scene.pop_render_target();
 
             // Init the AABB culling tree(s)
             self.scene.build_aabb_tree(&root_sc.stacking_context.overflow);

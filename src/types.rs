@@ -324,6 +324,7 @@ pub struct StackingContext {
     pub transform: Matrix4,
     pub perspective: Matrix4,
     pub establishes_3d_context: bool,
+    pub mix_blend_mode: MixBlendMode,
 }
 
 impl StackingContext {
@@ -333,7 +334,8 @@ impl StackingContext {
                z_index: i32,
                transform: &Matrix4,
                perspective: &Matrix4,
-               establishes_3d_context: bool) -> StackingContext {
+               establishes_3d_context: bool,
+               mix_blend_mode: MixBlendMode) -> StackingContext {
         StackingContext {
             scroll_layer_id: scroll_layer_id,
             bounds: bounds,
@@ -344,6 +346,7 @@ impl StackingContext {
             transform: transform.clone(),
             perspective: perspective.clone(),
             establishes_3d_context: establishes_3d_context,
+            mix_blend_mode: mix_blend_mode,
         }
     }
 
@@ -769,4 +772,23 @@ impl ClipRegion {
 pub enum ScrollPolicy {
     Scrollable,
     FixedPosition,
+}
+
+pub enum MixBlendMode {
+    Normal,
+    Multiple,
+    Screen,
+    Overlay,
+    Darken,
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity,
 }
