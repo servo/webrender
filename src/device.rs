@@ -98,13 +98,13 @@ impl Drop for FBO {
 
 struct VAO {
     id: gl::GLuint,
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
     vertex_format: VertexFormat,
     vbo_id: VBOId,
     ibo_id: IBOId,
 }
 
-#[cfg(any(target_os = "android", target_os = "gonk"))]
+#[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
 impl Drop for VAO {
     fn drop(&mut self) {
         // todo(gw): maybe make these there own type with hashmap?
@@ -115,7 +115,7 @@ impl Drop for VAO {
     }
 }
 
-#[cfg(not(any(target_os = "android", target_os = "gonk")))]
+#[cfg(not(any(target_os = "android", target_os = "gonk", target_os = "macos")))]
 impl Drop for VAO {
     fn drop(&mut self) {
         gl::delete_vertex_arrays(&[self.id]);
@@ -510,7 +510,7 @@ impl Device {
                              data);
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
     fn clear_vertex_array(&mut self) {
         debug_assert!(self.inside_frame);
 
@@ -520,7 +520,7 @@ impl Device {
         gl::disable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
     pub fn bind_vao(&mut self, vao_id: VAOId) {
         debug_assert!(self.inside_frame);
 
@@ -558,7 +558,7 @@ impl Device {
         }
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
     pub fn create_vao(&mut self, vertex_format: VertexFormat) -> VAOId {
         debug_assert!(self.inside_frame);
 
@@ -587,13 +587,13 @@ impl Device {
         vao_id
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
+    #[cfg(not(any(target_os = "android", target_os = "gonk", target_os = "macos")))]
     fn clear_vertex_array(&mut self) {
         debug_assert!(self.inside_frame);
         gl::bind_vertex_array(0);
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
+    #[cfg(not(any(target_os = "android", target_os = "gonk", target_os = "macos")))]
     pub fn bind_vao(&mut self, vao_id: VAOId) {
         debug_assert!(self.inside_frame);
 
@@ -605,7 +605,7 @@ impl Device {
         }
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
+    #[cfg(not(any(target_os = "android", target_os = "gonk", target_os = "macos")))]
     pub fn create_vao(&mut self, vertex_format: VertexFormat) -> VAOId {
         debug_assert!(self.inside_frame);
 
