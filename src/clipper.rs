@@ -1,6 +1,7 @@
 use euclid::{Point2D, Rect};
 use internal_types::{ClipRectResult, WorkVertex};
 use types::{BoxShadowClipMode, ColorF};
+use simd::f32x4;
 
 fn is_inside(a: &Point2D<f32>, b: &Point2D<f32>, c: &WorkVertex) -> bool {
     (a.x - c.x) * (b.y - c.y) > (a.y - c.y) * (b.x - c.x)
@@ -31,13 +32,13 @@ fn intersection(a: &Point2D<f32>, b: &Point2D<f32>, p: &WorkVertex, q: &WorkVert
     WorkVertex::new(x, y, &color, u, v, mu, mv)
 }
 
-pub fn clip_polygon(polygon: &Vec<WorkVertex>, clip_polygon: &Vec<Point2D<f32>>) -> Vec<WorkVertex> {
-    let mut result = polygon.clone();
-
+pub fn clip_polygon(polygon: &[WorkVertex], clip_polygon: &[Point2D<f32>]) -> Vec<WorkVertex> {
+    let mut result = polygon.to_vec();
+    let mut input = result.clone();
     let clip_len = clip_polygon.len();
 
     for i in 0..clip_len {
-        let input = result.clone();
+        input.clone_from(&result);
         let input_len = input.len();
         result.clear();
 
@@ -48,12 +49,14 @@ pub fn clip_polygon(polygon: &Vec<WorkVertex>, clip_polygon: &Vec<Point2D<f32>>)
             let p = &input[(j + input_len-1) % input_len];
             let q = &input[j];
 
+            let p_is_inside = is_inside(a, b, p);
+
             if is_inside(a, b, q) {
-                if !is_inside(a, b, p) {
+                if !p_is_inside {
                     result.push(intersection(a, b, p, q));
                 }
                 result.push(q.clone());
-            } else if is_inside(a, b, p) {
+            } else if p_is_inside {
                 result.push(intersection(a, b, p, q));
             }
         }
@@ -64,26 +67,56 @@ pub fn clip_polygon(polygon: &Vec<WorkVertex>, clip_polygon: &Vec<Point2D<f32>>)
 
 pub fn clip_rect_pos_uv(pos: &Rect<f32>, uv: &Rect<f32>, clip_rect: &Rect<f32>) -> Option<ClipRectResult> {
     pos.intersection(clip_rect).map(|clipped_rect| {
-        let cx0 = clipped_rect.origin.x;
-        let cy0 = clipped_rect.origin.y;
-        let cx1 = cx0 + clipped_rect.size.width;
-        let cy1 = cy0 + clipped_rect.size.height;
+        // de-simd'd code:
+        // let cx0 = clipped_rect.origin.x;
+        // let cy0 = clipped_rect.origin.y;
+        // let cx1 = cx0 + clipped_rect.size.width;
+        // let cy1 = cy0 + clipped_rect.size.height;
 
-        let f0 = (cx0 - pos.origin.x) / pos.size.width;
-        let f1 = (cy0 - pos.origin.y) / pos.size.height;
-        let f2 = (cx1 - pos.origin.x) / pos.size.width;
-        let f3 = (cy1 - pos.origin.y) / pos.size.height;
+        // let f0 = (cx0 - pos.origin.x) / pos.size.width;
+        // let f1 = (cy0 - pos.origin.y) / pos.size.height;
+        // let f2 = (cx1 - pos.origin.x) / pos.size.width;
+        // let f3 = (cy1 - pos.origin.y) / pos.size.height;
+
+        // ClipRectResult {
+        //     x0: cx0,
+        //     y0: cy0,
+        //     x1: cx1,
+        //     y1: cy1,
+        //     u0: uv.origin.x + f0 * uv.size.width,
+        //     v0: uv.origin.y + f1 * uv.size.height,
+        //     u1: uv.origin.x + f2 * uv.size.width,
+        //     v1: uv.origin.y + f3 * uv.size.height,
+        // }
+
+        let clip = f32x4::new(clipped_rect.origin.x,
+                              clipped_rect.origin.y,
+                              clipped_rect.origin.x + clipped_rect.size.width,
+                              clipped_rect.origin.y + clipped_rect.size.height);
+
+        let origins = f32x4::new(pos.origin.x, pos.origin.y,
+                                 pos.origin.x, pos.origin.y);
+
+        let sizes = f32x4::new(pos.size.width, pos.size.height,
+                               pos.size.width, pos.size.height);
+
+        let uv_origins = f32x4::new(uv.origin.x, uv.origin.y,
+                                    uv.origin.x, uv.origin.y);
+        let uv_sizes = f32x4::new(uv.size.width, uv.size.height,
+                                  uv.size.width, uv.size.height);
+        let f = ((clip - origins) / sizes) * uv_sizes + uv_origins;
 
         ClipRectResult {
-            x0: cx0,
-            y0: cy0,
-            x1: cx1,
-            y1: cy1,
-            u0: uv.origin.x + f0 * uv.size.width,
-            v0: uv.origin.y + f1 * uv.size.height,
-            u1: uv.origin.x + f2 * uv.size.width,
-            v1: uv.origin.y + f3 * uv.size.height,
+            x0: clip.extract(0),
+            y0: clip.extract(1),
+            x1: clip.extract(2),
+            y1: clip.extract(3),
+            u0: f.extract(0),
+            v0: f.extract(1),
+            u1: f.extract(2),
+            v1: f.extract(3),
         }
+
     })
 }
 

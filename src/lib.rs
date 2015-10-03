@@ -16,6 +16,7 @@ extern crate string_cache;
 extern crate serde;
 extern crate bit_vec;
 extern crate scoped_threadpool;
+extern crate simd;
 
 pub mod types;
 pub mod renderer;
