@@ -1891,7 +1891,7 @@ impl CompiledNode {
         let y0 = rect.origin.y;
         let y1 = y0 + rect.size.height;
 
-        let clip_polygon = vec![
+        let clip_polygon = [
             Point2D::new(x0, y0),
             Point2D::new(x1, y0),
             Point2D::new(x1, y1),
@@ -1933,34 +1933,36 @@ impl CompiledNode {
             let x3 = start_x + perp_xn * len_scale;
             let y3 = start_y + perp_yn * len_scale;
 
-            let gradient_polygon = vec![
+            let gradient_polygon = [
                 WorkVertex::new(x0, y0, color0, 0.0, 0.0, 0.0, 0.0),
                 WorkVertex::new(x1, y1, color1, 0.0, 0.0, 0.0, 0.0),
                 WorkVertex::new(x2, y2, color1, 0.0, 0.0, 0.0, 0.0),
                 WorkVertex::new(x3, y3, color0, 0.0, 0.0, 0.0, 0.0),
             ];
 
-            let clip_result = clipper::clip_polygon(&mut self.clip_buffers,
-                                                    &gradient_polygon, &clip_polygon);
+            { // scope for  buffers
+                let buffers = &mut self.clip_buffers;
+                let clip_result = clipper::clip_polygon(buffers, &gradient_polygon, &clip_polygon);
 
-            if clip_result.len() >= 3 {
-                let render_item = RenderItem {
-                    sort_key: sort_key.clone(),
-                    info: RenderItemInfo::Draw(DrawRenderItem {
-                        pass: RenderPass::Opaque,
-                        color_texture_id: image.texture_id,
-                        mask_texture_id: dummy_mask_image.texture_id,
-                        primitive: Primitive::TriangleFan,
-                        first_vertex: self.vertex_buffer.len(),
-                        vertex_count: clip_result.len() as u32,
-                    }),
-                };
+                if clip_result.len() >= 3 {
+                    let render_item = RenderItem {
+                        sort_key: sort_key.clone(),
+                        info: RenderItemInfo::Draw(DrawRenderItem {
+                            pass: RenderPass::Opaque,
+                            color_texture_id: image.texture_id,
+                            mask_texture_id: dummy_mask_image.texture_id,
+                            primitive: Primitive::TriangleFan,
+                            first_vertex: self.vertex_buffer.len(),
+                            vertex_count: clip_result.len() as u32,
+                        }),
+                    };
 
-                for vert in clip_result {
-                    self.vertex_buffer.push_vertex(vert, draw_context);
+                    for vert in clip_result {
+                        self.vertex_buffer.push_vertex(vert.clone(), draw_context);
+                    }
+
+                    self.render_items.push(render_item);
                 }
-
-                self.render_items.push(render_item);
             }
         }
     }

@@ -46,25 +46,30 @@ fn intersection(a: &Point2D<f32>, b: &Point2D<f32>, p: &WorkVertex, q: &WorkVert
                                   p_uv.extract(3))
 }
 
-// We reuse these buffer(s) for clipping algorithms
+// We reuse these buffers for clipping algorithms
 pub struct ClipBuffers {
     input: Vec<WorkVertex>,
+    result: Vec<WorkVertex>,
 }
 
 impl ClipBuffers {
     pub fn new() -> ClipBuffers {
         ClipBuffers {
             input: Vec::new(),
+            result: Vec::new(),
         }
     }
 }
 
-pub fn clip_polygon(buffers: &mut ClipBuffers, polygon: &[WorkVertex],
-                    clip_polygon: &[Point2D<f32>]) -> Vec<WorkVertex> {
+pub fn clip_polygon<'a>(buffers: &'a mut ClipBuffers, polygon: &[WorkVertex],
+                    clip_polygon: &[Point2D<f32>]) -> &'a [WorkVertex] {
 
-    let mut result = polygon.to_vec();
-    let input = &mut buffers.input;
+    let ClipBuffers {ref mut input, ref mut result} = *buffers;
     input.clear();
+    result.clear();
+    for vert in polygon {
+        result.push(vert.clone());
+    }
     let clip_len = clip_polygon.len();
 
     for i in 0..clip_len {
