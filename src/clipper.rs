@@ -9,27 +9,41 @@ fn is_inside(a: &Point2D<f32>, b: &Point2D<f32>, c: &WorkVertex) -> bool {
 
 fn intersection(a: &Point2D<f32>, b: &Point2D<f32>, p: &WorkVertex, q: &WorkVertex) -> WorkVertex {
     let denominator = (a.x - b.x) * (p.y - q.y) - (a.y - b.y) * (p.x - q.x);
-    let x = ((a.x*b.y-b.x*a.y) * (p.x-q.x) - (a.x-b.x) * (p.x*q.y-p.y*q.x)) / denominator;
-    let y = ((a.x*b.y-b.x*a.y) * (p.y-q.y) - (a.y-b.y) * (p.x*q.y-p.y*q.x)) / denominator;
+    let axby = a.x*b.y - b.x*a.y;
+    let pxqy = p.x*q.y - p.y*q.x;
+    let x = (axby * (p.x-q.x) - (a.x-b.x) * pxqy) / denominator;
+    let y = (axby * (p.y-q.y) - (a.y-b.y) * pxqy) / denominator;
 
     let d1 = ((p.x - x) * (p.x - x) + (p.y - y) * (p.y - y)).sqrt();
     let d2 = ((p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y)).sqrt();
     let ratio = d1 / d2;
 
-    let u = p.u + ratio * (q.u - p.u);
-    let v = p.v + ratio * (q.v - p.v);
+    // de-simd'd code:
+    // let u = p.u + ratio * (q.u - p.u);
+    // let v = p.v + ratio * (q.v - p.v);
+    // let mu = p.mu + ratio * (q.mu - p.mu);
+    // let mv = p.mv + ratio * (q.mv - p.mv);
+    // let r = p.r + ratio * (q.r - p.r);
+    // let g = p.g + ratio * (q.g - p.g);
+    // let b = p.b + ratio * (q.b - p.b);
+    // let a = p.a + ratio * (q.a - p.a);
+    let mut p_uv = f32x4::new(p.u, p.v, p.mu, p.mv);
+    let q_uv = f32x4::new(q.u, q.v, q.mu, q.mv);
+    let simd_ratio = f32x4::new(ratio, ratio, ratio, ratio);
+    let mut p_rgba = f32x4::new(p.r, p.g, p.b, p.a);
+    let q_rgba = f32x4::new(q.r, q.g, q.b, q.a);
+    p_uv = p_uv + simd_ratio * (q_uv - p_uv);
+    p_rgba = p_rgba + simd_ratio * (q_rgba - p_rgba);
 
-    let mu = p.mu + ratio * (q.mu - p.mu);
-    let mv = p.mv + ratio * (q.mv - p.mv);
+    let color = ColorF::new(p_rgba.extract(0),
+                            p_rgba.extract(1),
+                            p_rgba.extract(2),
+                            p_rgba.extract(0));
 
-    let r = p.r + ratio * (q.r - p.r);
-    let g = p.g + ratio * (q.g - p.g);
-    let b = p.b + ratio * (q.b - p.b);
-    let a = p.a + ratio * (q.a - p.a);
-
-    let color = ColorF::new(r, g, b, a);
-
-    WorkVertex::new(x, y, &color, u, v, mu, mv)
+    WorkVertex::new(x, y, &color, p_uv.extract(0),
+                                  p_uv.extract(1),
+                                  p_uv.extract(2),
+                                  p_uv.extract(3))
 }
 
 pub fn clip_polygon(polygon: &[WorkVertex], clip_polygon: &[Point2D<f32>]) -> Vec<WorkVertex> {
