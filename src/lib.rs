@@ -38,3 +38,11 @@ pub use types::{BorderSide, BorderRadius, BorderStyle, Epoch, BoxShadowClipMode,
 pub use types::{ScrollLayerId, MixBlendMode};
 pub use render_api::RenderApi;
 pub use renderer::Renderer;
+
+
+#[doc(hidden)]
+pub mod bench {
+    // to make private modules available to the benchmarks
+    pub use clipper::{clip_rect_pos_uv, clip_polygon};
+    pub use internal_types::WorkVertex;
+}
