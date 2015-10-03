@@ -11,7 +11,7 @@ use std::str::FromStr;
 
 use euclid::{Rect, Point2D, Size2D};
 
-use webrender::bench::{WorkVertex, clip_rect_pos_uv, clip_polygon};
+use webrender::bench::{WorkVertex, clip_rect_pos_uv, clip_polygon, ClipBuffers};
 
 #[bench]
 fn bench_clip_rect(b: &mut Bencher) {
@@ -45,9 +45,10 @@ fn new_rect(arr: &[&str]) -> Rect<f32> {
 fn bench_clip_poly(b: &mut Bencher) {
     // huge vector of polygons
     let polys = include!("./polygons.in");
+    let mut clip_buffer = ClipBuffers::new();
     b.iter(|| {
         for poly in &polys {
-            black_box(clip_polygon(&poly.0, &poly.1));
+            black_box(clip_polygon(&mut clip_buffer, &poly.0, &poly.1));
         }
     })
 }

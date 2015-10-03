@@ -833,6 +833,11 @@ impl ResourceList {
 struct CompiledNode {
     render_items: Vec<RenderItem>,
     vertex_buffer: VertexBuffer,
+    // store shared clip buffers per CompiledNode
+    // Since we have one CompiledNode per AABBTreeNode,
+    // and AABBTreeNodes are processed in parallel,
+    // this is the highest up these buffers can be stored
+    clip_buffers: clipper::ClipBuffers,
 }
 
 impl CompiledNode {
@@ -840,6 +845,7 @@ impl CompiledNode {
         CompiledNode {
             render_items: Vec::new(),
             vertex_buffer: VertexBuffer::new(),
+            clip_buffers: clipper::ClipBuffers::new(),
         }
     }
 }
@@ -1934,7 +1940,8 @@ impl CompiledNode {
                 WorkVertex::new(x3, y3, color0, 0.0, 0.0, 0.0, 0.0),
             ];
 
-            let clip_result = clipper::clip_polygon(&gradient_polygon, &clip_polygon);
+            let clip_result = clipper::clip_polygon(&mut self.clip_buffers,
+                                                    &gradient_polygon, &clip_polygon);
 
             if clip_result.len() >= 3 {
                 let render_item = RenderItem {
