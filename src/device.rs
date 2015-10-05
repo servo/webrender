@@ -52,6 +52,7 @@ impl FBOId {
     fn bind(&self) {
         let FBOId(id) = *self;
         gl::bind_framebuffer(gl::FRAMEBUFFER, id);
+        gl::bind_framebuffer(gl::READ_FRAMEBUFFER, id);
     }
 }
 
@@ -199,7 +200,7 @@ impl Device {
             vaos: HashMap::new(),
             //fbos: HashMap::new(),
 
-            next_vao_id: 0,
+            next_vao_id: 1,
         }
     }
 
@@ -479,6 +480,12 @@ impl Device {
         debug_assert!(self.inside_frame);
         let ProgramId(program_id) = program_id;
         UniformLocation(gl::get_uniform_location(program_id, name))
+    }
+
+    pub fn set_uniform_1f(&self, uniform: UniformLocation, x: f32) {
+        debug_assert!(self.inside_frame);
+        let UniformLocation(location) = uniform;
+        gl::uniform_1f(location, x);
     }
 
     pub fn set_uniform_4f(&self,

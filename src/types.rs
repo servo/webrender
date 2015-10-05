@@ -11,7 +11,7 @@ pub enum ImageFormat {
     RGBA8,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ColorF {
     pub r: f32,
     pub g: f32,
@@ -102,7 +102,7 @@ impl ImageID {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BoxShadowClipMode {
     None,
     Outset,
@@ -253,6 +253,7 @@ pub struct BoxShadowDisplayItem {
     pub color: ColorF,
     pub blur_radius: f32,
     pub spread_radius: f32,
+    pub border_radius: f32,
     pub clip_mode: BoxShadowClipMode,
 }
 
@@ -323,8 +324,28 @@ impl BorderRadiusRasterOp {
 }
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub struct BoxShadowCornerRasterOp {
+    pub blur_radius: Au,
+    pub border_radius: Au,
+}
+
+impl BoxShadowCornerRasterOp {
+    pub fn create(blur_radius: f32, border_radius: f32) -> Option<BoxShadowCornerRasterOp> {
+        if blur_radius > 0.0 || border_radius > 0.0 {
+            Some(BoxShadowCornerRasterOp {
+                blur_radius: Au::from_f32_px(blur_radius),
+                border_radius: Au::from_f32_px(border_radius),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub enum RasterItem {
     BorderRadius(BorderRadiusRasterOp),
+    BoxShadowCorner(BoxShadowCornerRasterOp),
 }
 
 pub struct DrawList {
@@ -486,6 +507,7 @@ impl DisplayListBuilder {
                            color: ColorF,
                            blur_radius: f32,
                            spread_radius: f32,
+                           border_radius: f32,
                            clip_mode: BoxShadowClipMode) {
         let item = BoxShadowDisplayItem {
             box_bounds: box_bounds,
@@ -493,6 +515,7 @@ impl DisplayListBuilder {
             color: color,
             blur_radius: blur_radius,
             spread_radius: spread_radius,
+            border_radius: border_radius,
             clip_mode: clip_mode,
         };
 
