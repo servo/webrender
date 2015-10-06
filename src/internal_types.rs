@@ -1,7 +1,8 @@
 use device::{ProgramId, TextureId};
-use euclid::{Point2D, Size2D};
+use euclid::{Point2D, Size2D, Rect};
 use std::collections::HashMap;
 use string_cache::Atom;
+use types::{BlendMode};
 use types::{Epoch, ColorF, PipelineId, ImageFormat, DisplayListID, DrawListID};
 use types::{Au, ImageID, StackingContext, DisplayListBuilder, DisplayListMode};
 
@@ -24,7 +25,7 @@ pub struct ImageResource {
     pub format: ImageFormat,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RenderPass {
     Opaque,
     Alpha,
@@ -141,16 +142,23 @@ impl PackedVertex {
         }
     }
 
-    pub fn from_components(x: f32, y: f32, color: &ColorF) -> PackedVertex {
+    pub fn from_components(x: f32,
+                           y: f32,
+                           z: f32,
+                           color: &ColorF,
+                           u: f32,
+                           v: f32,
+                           mu: f32,
+                           mv: f32) -> PackedVertex {
         PackedVertex {
             x: x,
             y: y,
-            z: 0.0,
+            z: z,
             color: PackedColor::from_color(color),
-            u: 0,
-            v: 0,
-            mu: 0,
-            mv: 0,
+            u: (u * UV_FLOAT_TO_FIXED).round() as u16,
+            v: (v * UV_FLOAT_TO_FIXED).round() as u16,
+            mu: (mu * UV_FLOAT_TO_FIXED).round() as u16,
+            mv: (mv * UV_FLOAT_TO_FIXED).round() as u16,
         }
     }
 }
@@ -223,23 +231,32 @@ pub struct RenderBatch {
     pub indices: Vec<u16>,
 }
 
+pub struct CompositeInfo {
+    pub blend_mode: BlendMode,
+    pub rect: Rect<u32>,
+    pub color_texture_id: TextureId,
+    pub z: f32,
+}
+
+pub enum DrawCommand {
+    Batch(Vec<RenderBatch>, Vec<RenderBatch>),
+    Composite(CompositeInfo)
+}
+
 pub struct DrawLayer {
     pub texture_id: Option<TextureId>,
     pub size: Size2D<u32>,
-    pub opaque_batches: Vec<RenderBatch>,
-    pub alpha_batches: Vec<RenderBatch>,
+    pub commands: Vec<DrawCommand>,
 }
 
 impl DrawLayer {
     pub fn new(texture_id: Option<TextureId>,
                size: Size2D<u32>,
-               opaque_batches: Vec<RenderBatch>,
-               alpha_batches: Vec<RenderBatch>) -> DrawLayer {
+               commands: Vec<DrawCommand>) -> DrawLayer {
         DrawLayer {
             texture_id: texture_id,
             size: size,
-            opaque_batches: opaque_batches,
-            alpha_batches: alpha_batches,
+            commands: commands,
         }
     }
 }

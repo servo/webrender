@@ -4,12 +4,14 @@ use euclid::{Rect, Point2D, Size2D, Matrix2D};
 use font::{FontContext, RasterizedGlyph};
 use fnv::FnvHasher;
 use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, ORTHO_FAR_PLANE, DrawLayer};
-use internal_types::{PackedVertex, WorkVertex, RenderPass, RenderBatch, DisplayList};
+use internal_types::{PackedVertex, WorkVertex, RenderPass, RenderBatch, DisplayList, DrawCommand};
+use internal_types::{CompositeInfo};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
 use std::cmp::Ordering;
+use std::mem;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Arc;
@@ -21,7 +23,7 @@ use types::{Au, DisplayListID, Epoch, BorderDisplayItem, BorderRadiusRasterOp, R
 use types::{Glyph, GradientStop, DisplayListMode, RasterItem, ClipRegion};
 use types::{GlyphInstance, ImageID, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
 use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF, DrawListID};
-use types::RenderTargetID;
+use types::{RenderTargetID, MixBlendMode, CompositeDisplayItem, BlendMode};
 use util;
 use scoped_threadpool;
 
@@ -33,6 +35,7 @@ type RasterToImageMap = HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>;
 type FontTemplateMap = HashMap<Atom, FontTemplate, DefaultState<FnvHasher>>;
 type ImageTemplateMap = HashMap<ImageID, ImageResource, DefaultState<FnvHasher>>;
 type StackingContextMap = HashMap<PipelineId, RootStackingContext, DefaultState<FnvHasher>>;
+type RenderItemKeyArray = Vec<RenderItemKey>;
 
 static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
 
@@ -43,17 +46,17 @@ struct RenderTargetIndex(u32);
 
 #[derive(Debug)]
 struct RenderTarget {
-    target_size: Size2D<u32>,
+    size: Size2D<u32>,
     draw_list_indices: Vec<DrawListIndex>,
-    dependencies: Vec<RenderTargetIndex>,
+    texture_id: Option<TextureId>,
 }
 
 impl RenderTarget {
-    fn new(size: Size2D<u32>) -> RenderTarget {
+    fn new(size: Size2D<u32>, texture_id: Option<TextureId>) -> RenderTarget {
         RenderTarget {
-            target_size: size,
+            size: size,
             draw_list_indices: Vec::new(),
-            dependencies: Vec::new(),
+            texture_id: texture_id,
         }
     }
 }
@@ -78,8 +81,23 @@ impl GetDisplayItemHelper for FlatDrawListArray {
     }
 }
 
+trait StackingContextHelpers {
+    fn needs_render_target(&self) -> bool;
+}
+
+impl StackingContextHelpers for StackingContext {
+    fn needs_render_target(&self) -> bool {
+        match self.mix_blend_mode {
+            MixBlendMode::Normal => false,
+            MixBlendMode::Difference => true,
+            _ => panic!("not handled yet!"),
+        }
+    }
+}
+
 #[derive(Clone)]
 struct DrawContext {
+    render_target_index: RenderTargetIndex,
     offset: Point2D<f32>,
     transform: Matrix2D<f32>,
     device_pixel_ratio: f32,
@@ -249,19 +267,49 @@ impl Scene {
     fn reset(&mut self) {
         debug_assert!(self.render_target_stack.len() == 0);
         self.pipeline_epoch_map.clear();
+
+        // Free any render targets from last frame.
+        // TODO: This should really re-use existing targets here...
+        for _ in &mut self.render_targets {
+            println!("todo - free me!");
+        }
+
         self.render_targets.clear();
     }
 
-    fn push_render_target(&mut self, size: Size2D<u32>) {
+    fn push_render_target(&mut self,
+                          size: Size2D<u32>,
+                          texture_id: Option<TextureId>) {
         let rt_index = RenderTargetIndex(self.render_targets.len() as u32);
         self.render_target_stack.push(rt_index);
 
-        let render_target = RenderTarget::new(size);
+        let render_target = RenderTarget::new(size, texture_id);
         self.render_targets.push(render_target);
+    }
+
+    fn current_render_target(&self) -> RenderTargetIndex {
+        *self.render_target_stack.last().unwrap()
     }
 
     fn pop_render_target(&mut self) {
         self.render_target_stack.pop().unwrap();
+    }
+
+    fn push_draw_list(&mut self,
+                      id: Option<DrawListID>,
+                      draw_list: DrawList,
+                      draw_context: &DrawContext) {
+        let RenderTargetIndex(current_render_target) = *self.render_target_stack.last().unwrap();
+        let render_target = &mut self.render_targets[current_render_target as usize];
+
+        let draw_list_index = DrawListIndex(self.flat_draw_lists.len() as u32);
+        render_target.draw_list_indices.push(draw_list_index);
+
+        self.flat_draw_lists.push(FlatDrawList {
+            id: id,
+            draw_context: draw_context.clone(),
+            draw_list: draw_list,
+        });
     }
 
     fn add_draw_list(&mut self,
@@ -282,17 +330,9 @@ impl Scene {
             }
         }
 
-        let RenderTargetIndex(current_render_target) = *self.render_target_stack.last().unwrap();
-        let render_target = &mut self.render_targets[current_render_target as usize];
-
-        let draw_list_index = DrawListIndex(self.flat_draw_lists.len() as u32);
-        render_target.draw_list_indices.push(draw_list_index);
-
-        self.flat_draw_lists.push(FlatDrawList {
-            id: Some(draw_list_id),
-            draw_context: draw_context.clone(),
-            draw_list: draw_list,
-        });
+        self.push_draw_list(Some(draw_list_id),
+                            draw_list,
+                            draw_context);
     }
 
     fn flatten_stacking_context(&mut self,
@@ -301,7 +341,8 @@ impl Scene {
                                 display_list_map: &DisplayListMap,
                                 draw_list_map: &mut DrawListMap,
                                 stacking_contexts: &StackingContextMap,
-                                device_pixel_ratio: f32) {
+                                device_pixel_ratio: f32,
+                                texture_cache: &mut TextureCache) {
         let _pf = util::ProfileScope::new("  flatten_stacking_context");
         let stacking_context = match stacking_context_kind {
             StackingContextKind::Normal(stacking_context) => stacking_context,
@@ -309,18 +350,49 @@ impl Scene {
         };
 
         let mut iframes = Vec::new();
-        let offset = Point2D::new(offset.x + stacking_context.bounds.origin.x,
-                                  offset.y + stacking_context.bounds.origin.y);
+        let mut offset = Point2D::new(offset.x + stacking_context.bounds.origin.x,
+                                      offset.y + stacking_context.bounds.origin.y);
 
         let xform_2d = Matrix2D::new(stacking_context.transform.m11, stacking_context.transform.m12,
                                      stacking_context.transform.m21, stacking_context.transform.m22,
                                      stacking_context.transform.m41, stacking_context.transform.m42);
 
-        let draw_context = DrawContext {
+        let mut draw_context = DrawContext {
+            render_target_index: self.current_render_target(),
             offset: offset.clone(),
             transform: xform_2d,
             device_pixel_ratio: device_pixel_ratio,
         };
+
+        let needs_render_target = stacking_context.needs_render_target();
+        if needs_render_target {
+            let size = Size2D::new(stacking_context.overflow.size.width as u32,
+                                   stacking_context.overflow.size.height as u32);
+            let texture_id = texture_cache.allocate_render_target(size.width, size.height, ImageFormat::RGBA8);
+            let TextureId(render_target_id) = texture_id;
+
+            let mut composite_draw_list = DrawList::new();
+            let composite_item = CompositeDisplayItem {
+                blend_mode: BlendMode::Difference,
+                texture_id: RenderTargetID(render_target_id),
+            };
+            let clip = ClipRegion {
+                main: stacking_context.overflow,
+            };
+            let composite_item = DisplayItem {
+                item: SpecificDisplayItem::Composite(composite_item),
+                rect: stacking_context.overflow,
+                clip: clip,
+            };
+            composite_draw_list.push(composite_item);
+            self.push_draw_list(None, composite_draw_list, &draw_context);
+
+            self.push_render_target(size, Some(texture_id));
+
+            offset = Point2D::zero();
+            draw_context.offset = offset;
+            draw_context.render_target_index = self.current_render_target();
+        }
 
         match stacking_context_kind {
             StackingContextKind::Normal(..) => {}
@@ -342,11 +414,7 @@ impl Scene {
                     };
                     root_draw_list.push(root_bg_color_item);
 
-                    self.flat_draw_lists.push(FlatDrawList {
-                        id: None,
-                        draw_context: draw_context.clone(),
-                        draw_list: root_draw_list,
-                    });
+                    self.push_draw_list(None, root_draw_list, &draw_context);
                 }
             }
         }
@@ -368,7 +436,8 @@ impl Scene {
                                           display_list_map,
                                           draw_list_map,
                                           stacking_contexts,
-                                          device_pixel_ratio);
+                                          device_pixel_ratio,
+                                          texture_cache);
         }
 
         for id in &draw_list_ids.block_background_and_borders {
@@ -396,7 +465,8 @@ impl Scene {
                                           display_list_map,
                                           draw_list_map,
                                           stacking_contexts,
-                                          device_pixel_ratio);
+                                          device_pixel_ratio,
+                                          texture_cache);
         }
 
         // TODO: This ordering isn't quite right - it should look
@@ -409,12 +479,17 @@ impl Scene {
                                               display_list_map,
                                               draw_list_map,
                                               stacking_contexts,
-                                              device_pixel_ratio);
+                                              device_pixel_ratio,
+                                              texture_cache);
             }
         }
 
         for id in &draw_list_ids.outlines {
             self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
+        }
+
+        if needs_render_target {
+            self.pop_render_target();
         }
     }
 
@@ -478,70 +553,80 @@ impl Scene {
         let sorted_render_item_keys = self.collect_and_sort_visible_render_items();
 
         // Build the batches (TODO: This is a very naive batcher for now!)
-        let size = Size2D::new(viewport.size.width as u32, viewport.size.height as u32);
-        self.create_batches(size,
-                            sorted_render_item_keys,
+        self.create_batches(sorted_render_item_keys,
                             quad_program_id,
                             glyph_program_id,
                             &self.scroll_offset)
     }
 
-    fn collect_and_sort_visible_render_items(&self) -> Vec<RenderItemKey> {
+    // One for each render target!
+    fn collect_and_sort_visible_render_items(&self) -> Vec<RenderItemKeyArray> {
         let _pf = util::ProfileScope::new("  collect_and_sort_visible_render_items");
 
-        let mut keys = Vec::new();
+        let mut render_targets = Vec::new();
+        for _ in 0..self.render_targets.len() {
+            render_targets.push(RenderItemKeyArray::new());
+        }
 
         for (node_index, node) in self.aabb_tree.nodes.iter().enumerate() {
             if node.is_visible {
                 debug_assert!(node.is_compiled);
                 // TODO: There is probably a quicker way to do this!
                 //       At the very least, compile node could create and cache this keys array...
-                for i in 0..node.compiled_node.as_ref().unwrap().render_items.len() {
-                    keys.push(RenderItemKey::new(node_index, i));
+                for (i, render_item) in node.compiled_node.as_ref().unwrap().render_items.iter().enumerate() {
+                    let DrawListIndex(draw_list_index) = render_item.sort_key.draw_list_index;
+                    let render_target_index = self.flat_draw_lists[draw_list_index as usize].draw_context.render_target_index;
+                    let RenderTargetIndex(render_target_index) = render_target_index;
+                    render_targets[render_target_index as usize].push(RenderItemKey::new(node_index, i));
                 }
             }
         }
 
-        keys.sort_by(|a, b| {
-            let ra = &self.aabb_tree.get_render_item(a);
-            let rb = &self.aabb_tree.get_render_item(b);
-            let draw_list_order = ra.sort_key.draw_list_index.cmp(&rb.sort_key.draw_list_index);
-            match draw_list_order {
-                Ordering::Equal => {
-                    ra.sort_key.item_index.cmp(&rb.sort_key.item_index)
+        for render_target in &mut render_targets {
+            render_target.sort_by(|a, b| {
+                let ra = &self.aabb_tree.get_render_item(a);
+                let rb = &self.aabb_tree.get_render_item(b);
+                let draw_list_order = ra.sort_key.draw_list_index.cmp(&rb.sort_key.draw_list_index);
+                match draw_list_order {
+                    Ordering::Equal => {
+                        ra.sort_key.item_index.cmp(&rb.sort_key.item_index)
+                    }
+                    order => {
+                        order
+                    }
                 }
-                order => {
-                    order
-                }
-            }
-        });
+            });
+        }
 
-        keys
+        render_targets
     }
 
     fn create_batches(&self,
-                      size: Size2D<u32>,
-                      keys: Vec<RenderItemKey>,
+                      keys_array: Vec<RenderItemKeyArray>,
                       quad_program_id: ProgramId,
                       glyph_program_id: ProgramId,
                       scroll_offset: &Point2D<f32>) -> Frame {
         let _pf = util::ProfileScope::new("  create_batches");
 
         let mut frame = Frame::new(self.pipeline_epoch_map.clone());
-        let mut batcher = RenderBatcher::new(keys.len(),
-                                             quad_program_id,
-                                             glyph_program_id);
 
-        for key in &keys {
-            let (render_item, vertex_buffer) = self.aabb_tree.get_render_item_and_vb(key);
-            batcher.add_render_item(render_item, vertex_buffer, scroll_offset);
+        for (render_target, keys) in self.render_targets.iter().zip(keys_array.iter()) {
+            let mut batcher = RenderBatcher::new(keys.len(),
+                                                 quad_program_id,
+                                                 glyph_program_id);
+
+            for key in keys {
+                let (render_item, vertex_buffer) = self.aabb_tree.get_render_item_and_vb(key);
+                batcher.add_render_item(render_item, vertex_buffer, scroll_offset);
+            }
+
+            let draw_commands = batcher.finalize();
+
+            let layer = DrawLayer::new(render_target.texture_id,
+                                       render_target.size,
+                                       draw_commands);
+            frame.add_layer(layer);
         }
-
-        let layer = DrawLayer::new(None,
-                                   size,
-                                   batcher.opaque_batches,
-                                   batcher.alpha_batches);
-        frame.add_layer(layer);
 
         frame
     }
@@ -826,12 +911,12 @@ impl AABBTreeNode {
                                              raster_to_image_map,
                                              texture_cache);
                 }
-                SpecificDisplayItem::RenderTarget(ref info) => {
-                    compiled_node.add_render_target(key,
-                                                    draw_context,
-                                                    &display_item.rect,
-                                                    info.id,
-                                                    mask_image_info);
+                SpecificDisplayItem::Composite(ref info) => {
+                    compiled_node.add_composite(key,
+                                                draw_context,
+                                                &display_item.rect,
+                                                info.texture_id,
+                                                info.blend_mode);
                 }
             }
         }
@@ -1310,13 +1395,14 @@ impl RenderBackend {
 
             let size = Size2D::new(self.viewport.size.width as u32,
                                    self.viewport.size.height as u32);
-            self.scene.push_render_target(size);
+            self.scene.push_render_target(size, None);
             self.scene.flatten_stacking_context(StackingContextKind::Root(root_sc),
                                                 &Point2D::zero(),
                                                 &self.display_list_map,
                                                 &mut self.draw_list_map,
                                                 &self.stacking_contexts,
-                                                self.device_pixel_ratio);
+                                                self.device_pixel_ratio,
+                                                &mut self.texture_cache);
             self.scene.pop_render_target();
 
             // Init the AABB culling tree(s)
@@ -1359,14 +1445,32 @@ enum Primitive {
 }
 
 #[derive(Debug)]
-struct RenderItem {
-    sort_key: DisplayItemKey,       // TODO: Make this smaller!
+struct DrawRenderItem {
     pass: RenderPass,
     color_texture_id: TextureId,
     mask_texture_id: TextureId,
     first_vertex: u32,
     vertex_count: u32,
     primitive: Primitive,
+}
+
+#[derive(Debug)]
+struct CompositeRenderItem {
+    blend_mode: BlendMode,
+    rect: Rect<u32>,
+    color_texture_id: TextureId,
+}
+
+#[derive(Debug)]
+enum RenderItemInfo {
+    Draw(DrawRenderItem),
+    Composite(CompositeRenderItem),
+}
+
+#[derive(Debug)]
+struct RenderItem {
+    sort_key: DisplayItemKey,       // TODO: Make this smaller!
+    info: RenderItemInfo,
 }
 
 struct VertexBuffer {
@@ -1474,12 +1578,14 @@ impl CompiledNode {
             if let Some(cr) = clip_result {
                 let render_item = RenderItem {
                     sort_key: sort_key.clone(),
-                    pass: util::get_render_pass(color, image_info.format),
-                    color_texture_id: image_info.texture_id,
-                    mask_texture_id: dummy_mask_image.texture_id,
-                    primitive: Primitive::Rectangles,
-                    vertex_count: 4,
-                    first_vertex: self.vertex_buffer.len(),
+                    info: RenderItemInfo::Draw(DrawRenderItem {
+                        pass: util::get_render_pass(color, image_info.format),
+                        color_texture_id: image_info.texture_id,
+                        mask_texture_id: dummy_mask_image.texture_id,
+                        primitive: Primitive::Rectangles,
+                        vertex_count: 4,
+                        first_vertex: self.vertex_buffer.len(),
+                    }),
                 };
 
                 self.vertex_buffer.push(cr.x0, cr.y0, color, cr.u0, cr.v0, draw_context);
@@ -1492,36 +1598,26 @@ impl CompiledNode {
         }
     }
 
-    fn add_render_target(&mut self,
-                         sort_key: &DisplayItemKey,
-                         draw_context: &DrawContext,
-                         rect: &Rect<f32>,
-                         render_target_id: RenderTargetID,
-                         dummy_mask_image: &TextureCacheItem) {
-        let RenderTargetID(rt_texture_id) = render_target_id;
-        let rt_texture_id = TextureId(rt_texture_id);
+    fn add_composite(&mut self,
+                     sort_key: &DisplayItemKey,
+                     draw_context: &DrawContext,
+                     rect: &Rect<f32>,
+                     texture_id: RenderTargetID,
+                     blend_mode: BlendMode) {
+        let RenderTargetID(texture_id) = texture_id;
+
+        let origin = Point2D::new((rect.origin.x + draw_context.offset.x) as u32,
+                                  (rect.origin.y + draw_context.offset.y) as u32);
+        let size = Size2D::new(rect.size.width as u32, rect.size.height as u32);
 
         let render_item = RenderItem {
             sort_key: sort_key.clone(),
-            pass: RenderPass::Alpha,
-            color_texture_id: rt_texture_id,
-            mask_texture_id: dummy_mask_image.texture_id,
-            primitive: Primitive::Rectangles,
-            vertex_count: 4,
-            first_vertex: self.vertex_buffer.len(),
+            info: RenderItemInfo::Composite(CompositeRenderItem {
+                blend_mode: blend_mode,
+                rect: Rect::new(origin, size),
+                color_texture_id: TextureId(texture_id),
+            }),
         };
-
-        let x0 = rect.origin.x;
-        let y0 = rect.origin.y;
-        let x1 = x0 + rect.size.width;
-        let y1 = y0 + rect.size.height;
-
-        let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
-
-        self.vertex_buffer.push(x0, y0, &color, 0.0, 1.0, draw_context);
-        self.vertex_buffer.push(x1, y0, &color, 1.0, 1.0, draw_context);
-        self.vertex_buffer.push(x0, y1, &color, 0.0, 0.0, draw_context);
-        self.vertex_buffer.push(x1, y1, &color, 1.0, 0.0, draw_context);
 
         self.render_items.push(render_item);
     }
@@ -1589,12 +1685,14 @@ impl CompiledNode {
         if vertex_count > 0 {
             let render_item = RenderItem {
                 sort_key: sort_key.clone(),
-                pass: pass,
-                color_texture_id: image_info.texture_id,
-                mask_texture_id: dummy_mask_image.texture_id,
-                primitive: Primitive::Rectangles,
-                first_vertex: first_vertex,
-                vertex_count: vertex_count,
+                info: RenderItemInfo::Draw(DrawRenderItem {
+                    pass: pass,
+                    color_texture_id: image_info.texture_id,
+                    mask_texture_id: dummy_mask_image.texture_id,
+                    primitive: Primitive::Rectangles,
+                    first_vertex: first_vertex,
+                    vertex_count: vertex_count,
+                }),
             };
 
             self.render_items.push(render_item);
@@ -1621,8 +1719,7 @@ impl CompiledNode {
         let first_image_id = glyph_to_image_map.get(&glyph_key).unwrap();
         let first_image_info = texture_cache.get(*first_image_id);
 
-        let mut primary_render_item = RenderItem {
-            sort_key: sort_key.clone(),
+        let mut primary_render_item = DrawRenderItem {
             pass: RenderPass::Alpha,
             color_texture_id: first_image_info.texture_id,
             mask_texture_id: dummy_mask_image.texture_id,
@@ -1669,18 +1766,23 @@ impl CompiledNode {
         }
 
         if primary_render_item.vertex_count > 0 {
-            self.render_items.push(primary_render_item);
+            self.render_items.push(RenderItem {
+                sort_key: sort_key.clone(),
+                info: RenderItemInfo::Draw(primary_render_item),
+            });
         }
 
         for (texture_id, vertex_buffer) in other_render_items {
             let render_item = RenderItem {
                 sort_key: sort_key.clone(),
-                pass: RenderPass::Alpha,
-                color_texture_id: texture_id,
-                mask_texture_id: dummy_mask_image.texture_id,
-                primitive: Primitive::Glyphs,
-                first_vertex: self.vertex_buffer.len(),
-                vertex_count: vertex_buffer.len() as u32,
+                info: RenderItemInfo::Draw(DrawRenderItem {
+                    pass: RenderPass::Alpha,
+                    color_texture_id: texture_id,
+                    mask_texture_id: dummy_mask_image.texture_id,
+                    primitive: Primitive::Glyphs,
+                    first_vertex: self.vertex_buffer.len(),
+                    vertex_count: vertex_buffer.len() as u32,
+                }),
             };
             self.vertex_buffer.extend(vertex_buffer);
             self.render_items.push(render_item);
@@ -1757,12 +1859,14 @@ impl CompiledNode {
             if clip_result.len() >= 3 {
                 let render_item = RenderItem {
                     sort_key: sort_key.clone(),
-                    pass: RenderPass::Opaque,
-                    color_texture_id: image.texture_id,
-                    mask_texture_id: dummy_mask_image.texture_id,
-                    primitive: Primitive::TriangleFan,
-                    first_vertex: self.vertex_buffer.len(),
-                    vertex_count: clip_result.len() as u32,
+                    info: RenderItemInfo::Draw(DrawRenderItem {
+                        pass: RenderPass::Opaque,
+                        color_texture_id: image.texture_id,
+                        mask_texture_id: dummy_mask_image.texture_id,
+                        primitive: Primitive::TriangleFan,
+                        first_vertex: self.vertex_buffer.len(),
+                        vertex_count: clip_result.len() as u32,
+                    }),
                 };
 
                 for vert in clip_result {
@@ -1812,12 +1916,14 @@ impl CompiledNode {
         if color.a > 0.0 {
             let item = RenderItem {
                 sort_key: sort_key.clone(),
-                pass: RenderPass::Alpha,
-                color_texture_id: white_image.texture_id,
-                mask_texture_id: mask_image.texture_id,
-                primitive: Primitive::Rectangles,
-                first_vertex: self.vertex_buffer.len(),
-                vertex_count: 4,
+                info: RenderItemInfo::Draw(DrawRenderItem {
+                    pass: RenderPass::Alpha,
+                    color_texture_id: white_image.texture_id,
+                    mask_texture_id: mask_image.texture_id,
+                    primitive: Primitive::Rectangles,
+                    first_vertex: self.vertex_buffer.len(),
+                    vertex_count: 4,
+                }),
             };
 
             self.vertex_buffer.push_white(v0.x, v0.y, color, draw_context);
@@ -1858,12 +1964,14 @@ impl CompiledNode {
         if color0.a > 0.0 || color1.a > 0.0 {
             let item = RenderItem {
                 sort_key: sort_key.clone(),
-                pass: RenderPass::Alpha,
-                color_texture_id: white_image.texture_id,
-                mask_texture_id: mask_image.texture_id,
-                primitive: Primitive::Triangles,
-                first_vertex: self.vertex_buffer.len(),
-                vertex_count: 6,
+                info: RenderItemInfo::Draw(DrawRenderItem {
+                    pass: RenderPass::Alpha,
+                    color_texture_id: white_image.texture_id,
+                    mask_texture_id: mask_image.texture_id,
+                    primitive: Primitive::Triangles,
+                    first_vertex: self.vertex_buffer.len(),
+                    vertex_count: 6,
+                }),
             };
 
             self.vertex_buffer.push_masked(v0.x, v0.y, color0, mask_image.u0, mask_image.v0, draw_context);
@@ -2039,7 +2147,7 @@ impl BuildRequiredResources for AABBTreeNode {
                 SpecificDisplayItem::Iframe(..) => {}
                 SpecificDisplayItem::Gradient(..) => {}
                 SpecificDisplayItem::BoxShadow(..) => {}
-                SpecificDisplayItem::RenderTarget(..) => {}
+                SpecificDisplayItem::Composite(..) => {}
                 SpecificDisplayItem::Border(ref info) => {
                     DrawList::add_radius(&mut resource_list.required_rasters,
                                          &info.radius.top_left,
@@ -2084,18 +2192,18 @@ impl RenderBatch {
         }
     }
 
-    fn can_add_to_batch(&self, item: &RenderItem, program_id: ProgramId) -> bool {
+    fn can_add_to_batch(&self, item: &DrawRenderItem, program_id: ProgramId) -> bool {
         program_id == self.program_id &&
         item.color_texture_id == self.color_texture_id &&
         item.mask_texture_id == self.mask_texture_id &&
         self.vertices.len() < 65535                 // to ensure we can use u16 index buffers
     }
 
-    fn add_item(&mut self,
-                item: &RenderItem,
-                z: f32,
-                vertex_buffer: &Vec<WorkVertex>,
-                offset: &Point2D<f32>) {
+    fn add_draw_item(&mut self,
+                     item: &DrawRenderItem,
+                     z: f32,
+                     vertex_buffer: &Vec<WorkVertex>,
+                     offset: &Point2D<f32>) {
         debug_assert!(item.color_texture_id == self.color_texture_id);
         debug_assert!(item.mask_texture_id == self.mask_texture_id);
 
@@ -2139,8 +2247,9 @@ impl RenderBatch {
 }
 
 struct RenderBatcher {
-    opaque_batches: Vec<RenderBatch>,
-    alpha_batches: Vec<RenderBatch>,
+    draw_commands: Vec<DrawCommand>,
+    current_opaque_batches: Vec<RenderBatch>,
+    current_alpha_batches: Vec<RenderBatch>,
     total_item_count: usize,
     added_item_count: usize,
     z_inc: f32,
@@ -2153,14 +2262,31 @@ impl RenderBatcher {
            quad_program_id: ProgramId,
            glyph_program_id: ProgramId) -> RenderBatcher {
         RenderBatcher {
-            opaque_batches: Vec::new(),
-            alpha_batches: Vec::new(),
+            draw_commands: Vec::new(),
+            current_opaque_batches: Vec::new(),
+            current_alpha_batches: Vec::new(),
             total_item_count: total_item_count,
             added_item_count: 0,
             z_inc: ORTHO_FAR_PLANE as f32 / total_item_count as f32,
             quad_program_id: quad_program_id,
             glyph_program_id: glyph_program_id,
         }
+    }
+
+    fn flush_current_batches(&mut self) {
+        if self.current_opaque_batches.len() > 0 ||
+           self.current_alpha_batches.len() > 0 {
+            let opaque_batches = mem::replace(&mut self.current_opaque_batches, Vec::new());
+            let alpha_batches = mem::replace(&mut self.current_alpha_batches, Vec::new());
+            let draw_cmd = DrawCommand::Batch(opaque_batches, alpha_batches);
+            self.draw_commands.push(draw_cmd);
+        }
+    }
+
+    fn finalize(self) -> Vec<DrawCommand> {
+        let mut this = self;
+        this.flush_current_batches();
+        this.draw_commands
     }
 
     fn add_render_item(&mut self,
@@ -2172,33 +2298,51 @@ impl RenderBatcher {
         let z = self.added_item_count as f32 * self.z_inc;
         self.added_item_count += 1;
 
-        let mut batch_list = match item.pass {
-            RenderPass::Opaque => &mut self.opaque_batches,
-            RenderPass::Alpha => &mut self.alpha_batches,
-        };
+        match item.info {
+            RenderItemInfo::Draw(ref info) => {
+                let mut batch_list = match info.pass {
+                    RenderPass::Opaque => &mut self.current_opaque_batches,
+                    RenderPass::Alpha => &mut self.current_alpha_batches,
+                };
 
-        let program_id = match item.primitive {
-            Primitive::Rectangles |
-            Primitive::TriangleFan |
-            Primitive::Triangles => {
-                self.quad_program_id
-            }
-            Primitive::Glyphs => {
-                self.glyph_program_id
-            }
-        };
+                let program_id = match info.primitive {
+                    Primitive::Rectangles |
+                    Primitive::TriangleFan |
+                    Primitive::Triangles => {
+                        self.quad_program_id
+                    }
+                    Primitive::Glyphs => {
+                        self.glyph_program_id
+                    }
+                };
 
-        if batch_list.is_empty() ||
-           batch_list.last().unwrap().can_add_to_batch(&item, program_id) == false {
-            let new_batch = RenderBatch::new(program_id,
-                                             item.color_texture_id,
-                                             item.mask_texture_id);
-            batch_list.push(new_batch);
+                if batch_list.is_empty() ||
+                   batch_list.last().unwrap().can_add_to_batch(info, program_id) == false {
+                    let new_batch = RenderBatch::new(program_id,
+                                                     info.color_texture_id,
+                                                     info.mask_texture_id);
+                    batch_list.push(new_batch);
+                }
+
+                let batch = batch_list.last_mut().unwrap();
+                batch.add_draw_item(info, z, &vertex_buffer.vertices, &vertex_offset);
+
+                debug_assert!(self.added_item_count <= self.total_item_count, format!("added={} total={}", self.added_item_count, self.total_item_count));
+            }
+            RenderItemInfo::Composite(ref info) => {
+                // When a composite is encountered - always flush any batches that are pending.
+                // TODO: It may be possible to be smarter about this in the future and avoid
+                // flushing the batches in some cases.
+                self.flush_current_batches();
+                let composite_info = CompositeInfo {
+                    blend_mode: info.blend_mode,
+                    rect: info.rect,
+                    z: z,
+                    color_texture_id: info.color_texture_id,
+                };
+                let cmd = DrawCommand::Composite(composite_info);
+                self.draw_commands.push(cmd);
+            }
         }
-
-        let batch = batch_list.last_mut().unwrap();
-        batch.add_item(item, z, &vertex_buffer.vertices, &vertex_offset);
-
-        debug_assert!(self.added_item_count <= self.total_item_count, format!("added={} total={}", self.added_item_count, self.total_item_count));
     }
 }

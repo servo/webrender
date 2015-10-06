@@ -510,6 +510,16 @@ impl Device {
                              data);
     }
 
+    pub fn read_framebuffer_rect(&mut self,
+                                 texture_id: TextureId,
+                                 x: u32,
+                                 y: u32,
+                                 width: u32,
+                                 height: u32) {
+        self.bind_color_texture(texture_id);
+        gl::copy_tex_sub_image_2d(gl::TEXTURE_2D, 0, 0, 0, x as gl::GLint, y as gl::GLint, width as gl::GLint, height as gl::GLint);
+    }
+
     #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
     fn clear_vertex_array(&mut self) {
         debug_assert!(self.inside_frame);
