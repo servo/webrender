@@ -5,6 +5,7 @@
 #![feature(drain)]
 #![feature(hashmap_hasher)]
 
+extern crate app_units;
 extern crate euclid;
 extern crate fnv;
 extern crate freetype;
@@ -31,7 +32,7 @@ mod stats;
 mod texture_cache;
 
 pub use types::{ImageID, StackingLevel, DisplayListID, StackingContext, DisplayListBuilder};
-pub use types::{Au, ColorF, ImageFormat, GradientStop, PipelineId, GlyphInstance, RenderNotifier};
+pub use types::{ColorF, ImageFormat, GradientStop, PipelineId, GlyphInstance, RenderNotifier};
 pub use types::{BorderSide, BorderRadius, BorderStyle, Epoch, BoxShadowClipMode, ClipRegion};
 pub use types::{ScrollLayerId, MixBlendMode};
 pub use render_api::RenderApi;

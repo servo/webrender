@@ -1,4 +1,4 @@
-use types::Au;
+use app_units::Au;
 
 use freetype::freetype::{FTErrorMethods, FT_PIXEL_MODE_GRAY};
 use freetype::freetype::{FT_Done_FreeType, FT_LOAD_RENDER};
