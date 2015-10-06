@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
 use texture_cache::TextureCache;
-use types::{ColorF, Epoch, PipelineId, RenderNotifier, ImageID, ImageFormat, BlendMode};
+use types::{ColorF, Epoch, PipelineId, RenderNotifier, ImageID, ImageFormat, MixBlendMode};
 //use util;
 
 struct RenderContext {
@@ -28,6 +28,8 @@ pub struct Renderer {
     pending_texture_updates: Vec<TextureUpdateList>,
     current_frame: Option<Frame>,
     device_pixel_ratio: f32,
+
+    quad_program_id: ProgramId,
 
     border_program_id: ProgramId,
     u_border_radii: UniformLocation,
@@ -104,6 +106,7 @@ impl Renderer {
             border_program_id: border_program_id,
             device_pixel_ratio: device_pixel_ratio,
             blend_program_id: blend_program_id,
+            quad_program_id: quad_program_id,
             u_border_radii: u_border_radii,
             u_border_position: u_border_position,
             u_blend_params: u_blend_params,
@@ -276,7 +279,6 @@ impl Renderer {
                              (layer.size.width as f32 * self.device_pixel_ratio) as gl::GLint,
                              (layer.size.height as f32 * self.device_pixel_ratio) as gl::GLint);
                 gl::enable(gl::DEPTH_TEST);
-                gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
 
                 // Clear frame buffer
                 gl::clear_color(1.0, 1.0, 1.0, 1.0);
@@ -301,6 +303,8 @@ impl Renderer {
                             // alpha pass!
                             gl::depth_mask(false);
                             gl::enable(gl::BLEND);
+                            gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+                            gl::blend_equation(gl::FUNC_ADD);
 
                             for batch in alpha_batches {
                                 Renderer::draw_batch(&mut self.device, batch, &mut render_context);
@@ -308,57 +312,94 @@ impl Renderer {
                         }
                         &DrawCommand::Composite(ref info) => {
                             gl::depth_mask(true);
-                            gl::disable(gl::BLEND);
 
-                            match info.blend_mode {
-                                BlendMode::Normal => unreachable!(),
-                                BlendMode::Difference => {
-                                    let x0 = info.rect.origin.x;
-                                    let y0 = info.rect.origin.y;
-                                    //let y0 = render_context.layer_size.height - info.rect.size.height - info.rect.origin.y;
-                                    let x1 = x0 + info.rect.size.width;
-                                    let y1 = y0 + info.rect.size.height;
+                            let needs_fb = match info.blend_mode {
+                                MixBlendMode::Normal => unreachable!(),
 
-                                    // TODO: No need to re-init this FB working copy texture every time...
-                                    self.device.init_texture(render_context.temporary_fb_texture,
-                                                             info.rect.size.width,
-                                                             info.rect.size.height,
-                                                             ImageFormat::RGBA8,
-                                                             RenderTargetMode::None,
-                                                             None);
-                                    self.device.read_framebuffer_rect(render_context.temporary_fb_texture,
-                                                                      x0,
-                                                                      render_context.layer_size.height - info.rect.size.height - y0,
-                                                                      info.rect.size.width,
-                                                                      info.rect.size.height);
+                                MixBlendMode::Screen |
+                                MixBlendMode::Overlay |
+                                MixBlendMode::ColorDodge |
+                                MixBlendMode::ColorBurn |
+                                MixBlendMode::HardLight |
+                                MixBlendMode::SoftLight |
+                                MixBlendMode::Difference |
+                                MixBlendMode::Exclusion |
+                                MixBlendMode::Hue |
+                                MixBlendMode::Saturation |
+                                MixBlendMode::Color |
+                                MixBlendMode::Luminosity => true,
 
-                                    self.device.bind_program(render_context.blend_program_id,
-                                                             &render_context.projection);
-                                    self.device.set_uniform_4f(self.u_blend_params, info.blend_mode as i32 as f32, 0.0, 0.0, 0.0);
-                                    self.device.bind_color_texture(info.color_texture_id);
-                                    self.device.bind_mask_texture(render_context.temporary_fb_texture);
+                                MixBlendMode::Multiply |
+                                MixBlendMode::Darken |
+                                MixBlendMode::Lighten => false,
+                            };
 
-                                    // TODO: Don't re-create this VAO all the time.
-                                    // Create it once and set positions via uniforms.
-                                    let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
-                                    let indices: [u16; 6] = [ 0, 1, 2, 2, 3, 1 ];
-                                    let vertices: [PackedVertex; 4] = [
-                                        PackedVertex::from_components(x0 as f32, y0 as f32, info.z, &color, 0.0, 0.0, 0.0, 1.0),
-                                        PackedVertex::from_components(x1 as f32, y0 as f32, info.z, &color, 1.0, 0.0, 1.0, 1.0),
-                                        PackedVertex::from_components(x0 as f32, y1 as f32, info.z, &color, 0.0, 1.0, 0.0, 0.0),
-                                        PackedVertex::from_components(x1 as f32, y1 as f32, info.z, &color, 1.0, 1.0, 1.0, 0.0),
-                                    ];
-                                    let vao_id = self.device.create_vao(VertexFormat::Default);
-                                    self.device.bind_vao(vao_id);
-                                    self.device.update_vao_indices(vao_id, &indices);
-                                    self.device.update_vao_vertices(vao_id, &vertices);
+                            let x0 = info.rect.origin.x;
+                            let y0 = info.rect.origin.y;
+                            let x1 = x0 + info.rect.size.width;
+                            let y1 = y0 + info.rect.size.height;
 
-                                    self.device.draw_triangles_u16(indices.len() as gl::GLint);
-                                    render_context.draw_calls += 1;
+                            if needs_fb {
+                                gl::disable(gl::BLEND);
 
-                                    self.device.delete_vao(vao_id);
+                                // TODO: No need to re-init this FB working copy texture every time...
+                                self.device.init_texture(render_context.temporary_fb_texture,
+                                                         info.rect.size.width,
+                                                         info.rect.size.height,
+                                                         ImageFormat::RGBA8,
+                                                         RenderTargetMode::None,
+                                                         None);
+                                self.device.read_framebuffer_rect(render_context.temporary_fb_texture,
+                                                                  x0,
+                                                                  render_context.layer_size.height - info.rect.size.height - y0,
+                                                                  info.rect.size.width,
+                                                                  info.rect.size.height);
+
+                                self.device.bind_program(render_context.blend_program_id, &render_context.projection);
+                                self.device.set_uniform_4f(self.u_blend_params, info.blend_mode as i32 as f32, 0.0, 0.0, 0.0);
+                                self.device.bind_mask_texture(render_context.temporary_fb_texture);
+                            } else {
+                                gl::enable(gl::BLEND);
+
+                                match info.blend_mode {
+                                    MixBlendMode::Multiply => {
+                                        gl::blend_func(gl::DST_COLOR, gl::ZERO);
+                                        gl::blend_equation(gl::FUNC_ADD);
+                                    }
+                                    MixBlendMode::Darken => {
+                                        gl::blend_func(gl::ONE, gl::ONE);
+                                        gl::blend_equation(gl::MIN);
+                                    }
+                                    MixBlendMode::Lighten => {
+                                        gl::blend_func(gl::ONE, gl::ONE);
+                                        gl::blend_equation(gl::MAX);
+                                    }
+                                    _ => unreachable!(),
                                 }
+
+                                self.device.bind_program(self.quad_program_id, &render_context.projection)
                             }
+
+                            let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
+                            let indices: [u16; 6] = [ 0, 1, 2, 2, 3, 1 ];
+                            let vertices: [PackedVertex; 4] = [
+                                PackedVertex::from_components(x0 as f32, y0 as f32, info.z, &color, 0.0, 1.0, 0.0, 1.0),
+                                PackedVertex::from_components(x1 as f32, y0 as f32, info.z, &color, 1.0, 1.0, 1.0, 1.0),
+                                PackedVertex::from_components(x0 as f32, y1 as f32, info.z, &color, 0.0, 0.0, 0.0, 0.0),
+                                PackedVertex::from_components(x1 as f32, y1 as f32, info.z, &color, 1.0, 0.0, 1.0, 0.0),
+                            ];
+                            // TODO: Don't re-create this VAO all the time.
+                            // Create it once and set positions via uniforms.
+                            let vao_id = self.device.create_vao(VertexFormat::Default);
+                            self.device.bind_color_texture(info.color_texture_id);
+                            self.device.bind_vao(vao_id);
+                            self.device.update_vao_indices(vao_id, &indices);
+                            self.device.update_vao_vertices(vao_id, &vertices);
+
+                            self.device.draw_triangles_u16(indices.len() as gl::GLint);
+                            render_context.draw_calls += 1;
+
+                            self.device.delete_vao(vao_id);
                         }
                     }
                 }
