@@ -1,3 +1,4 @@
+use app_units::Au;
 use clipper;
 use device::{ProgramId, TextureId};
 use euclid::{Rect, Point2D, Size2D, Matrix2D};
@@ -19,7 +20,7 @@ use std::sync::mpsc::{Sender, Receiver};
 use std::thread;
 use string_cache::Atom;
 use texture_cache::{TextureCache, TextureCacheItem};
-use types::{Au, DisplayListID, Epoch, BorderDisplayItem, BorderRadiusRasterOp, RectangleDisplayItem};
+use types::{DisplayListID, Epoch, BorderDisplayItem, BorderRadiusRasterOp, RectangleDisplayItem};
 use types::{Glyph, GradientStop, DisplayListMode, RasterItem, ClipRegion};
 use types::{GlyphInstance, ImageID, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
 use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF, DrawListID};
