@@ -152,15 +152,14 @@ impl TextureCache {
         texture_id
     }
 
-/*
     pub fn free_render_target(&mut self, texture_id: TextureId) {
         self.free_texture_ids.push(texture_id);
         let update_op = TextureUpdate {
             id: texture_id,
-            op: TextureUpdateOp::FreeRenderTarget(texture_id),
+            op: TextureUpdateOp::DeinitRenderTarget(texture_id),
         };
         self.pending_updates.push(update_op);
-    }*/
+    }
 
     pub fn allocate(&mut self,
                     image_id: ImageID,

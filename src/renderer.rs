@@ -174,9 +174,9 @@ impl Renderer {
                             }
                         }
                     }
-/*                    TextureUpdateOp::FreeRenderTarget(id) => {
-                        self.device.free_texture(id);
-                    }*/
+                    TextureUpdateOp::DeinitRenderTarget(id) => {
+                        self.device.deinit_texture(id);
+                    }
                     TextureUpdateOp::Update(x, y, width, height, details) => {
                         match details {
                             TextureUpdateDetails::Blit(bytes) => {

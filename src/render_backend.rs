@@ -265,14 +265,16 @@ impl Scene {
         }
     }
 
-    fn reset(&mut self) {
+    fn reset(&mut self, texture_cache: &mut TextureCache) {
         debug_assert!(self.render_target_stack.len() == 0);
         self.pipeline_epoch_map.clear();
 
         // Free any render targets from last frame.
         // TODO: This should really re-use existing targets here...
-        for _ in &mut self.render_targets {
-            println!("todo - free me!");
+        for render_target in &mut self.render_targets {
+            if let Some(texture_id) = render_target.texture_id {
+                texture_cache.free_render_target(texture_id);
+            }
         }
 
         self.render_targets.clear();
@@ -1392,7 +1394,7 @@ impl RenderBackend {
         let root_pipeline_id = PipelineId(0);
         if let Some(root_sc) = self.stacking_contexts.get(&root_pipeline_id) {
             // Clear out any state and return draw lists (if needed)
-            self.scene.reset();
+            self.scene.reset(&mut self.texture_cache);
 
             let size = Size2D::new(self.viewport.size.width as u32,
                                    self.viewport.size.height as u32);
