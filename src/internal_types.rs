@@ -3,7 +3,7 @@ use device::{ProgramId, TextureId};
 use euclid::{Point2D, Size2D, Rect};
 use std::collections::HashMap;
 use string_cache::Atom;
-use types::{BlendMode};
+use types::{MixBlendMode};
 use types::{Epoch, ColorF, PipelineId, ImageFormat, DisplayListID, DrawListID};
 use types::{ImageID, StackingContext, DisplayListBuilder, DisplayListMode};
 
@@ -233,7 +233,7 @@ pub struct RenderBatch {
 }
 
 pub struct CompositeInfo {
-    pub blend_mode: BlendMode,
+    pub blend_mode: MixBlendMode,
     pub rect: Rect<u32>,
     pub color_texture_id: TextureId,
     pub z: f32,

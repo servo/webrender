@@ -268,16 +268,10 @@ pub struct IframeDisplayItem {
     pub iframe: PipelineId,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum BlendMode {
-    Normal,
-    Difference,
-}
-
 #[derive(Debug)]
 pub struct CompositeDisplayItem {
     pub texture_id: RenderTargetID,
-    pub blend_mode: BlendMode,
+    pub blend_mode: MixBlendMode,
 }
 
 #[derive(Debug)]
@@ -618,6 +612,7 @@ pub enum ScrollPolicy {
     FixedPosition,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum MixBlendMode {
     Normal,
     Multiply,

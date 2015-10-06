@@ -24,7 +24,7 @@ use types::{DisplayListID, Epoch, BorderDisplayItem, BorderRadiusRasterOp, Recta
 use types::{Glyph, GradientStop, DisplayListMode, RasterItem, ClipRegion};
 use types::{GlyphInstance, ImageID, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
 use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF, DrawListID};
-use types::{RenderTargetID, MixBlendMode, CompositeDisplayItem, BlendMode};
+use types::{RenderTargetID, MixBlendMode, CompositeDisplayItem};
 use util;
 use scoped_threadpool;
 
@@ -90,8 +90,21 @@ impl StackingContextHelpers for StackingContext {
     fn needs_render_target(&self) -> bool {
         match self.mix_blend_mode {
             MixBlendMode::Normal => false,
-            MixBlendMode::Difference => true,
-            _ => panic!("not handled yet!"),
+            MixBlendMode::Multiply |
+            MixBlendMode::Screen |
+            MixBlendMode::Overlay |
+            MixBlendMode::Darken |
+            MixBlendMode::Lighten |
+            MixBlendMode::ColorDodge |
+            MixBlendMode::ColorBurn |
+            MixBlendMode::HardLight |
+            MixBlendMode::SoftLight |
+            MixBlendMode::Difference |
+            MixBlendMode::Exclusion |
+            MixBlendMode::Hue |
+            MixBlendMode::Saturation |
+            MixBlendMode::Color |
+            MixBlendMode::Luminosity => true,
         }
     }
 }
@@ -376,7 +389,7 @@ impl Scene {
 
             let mut composite_draw_list = DrawList::new();
             let composite_item = CompositeDisplayItem {
-                blend_mode: BlendMode::Difference,
+                blend_mode: stacking_context.mix_blend_mode,
                 texture_id: RenderTargetID(render_target_id),
             };
             let clip = ClipRegion {
@@ -1459,7 +1472,7 @@ struct DrawRenderItem {
 
 #[derive(Debug)]
 struct CompositeRenderItem {
-    blend_mode: BlendMode,
+    blend_mode: MixBlendMode,
     rect: Rect<u32>,
     color_texture_id: TextureId,
 }
@@ -1606,7 +1619,7 @@ impl CompiledNode {
                      draw_context: &DrawContext,
                      rect: &Rect<f32>,
                      texture_id: RenderTargetID,
-                     blend_mode: BlendMode) {
+                     blend_mode: MixBlendMode) {
         let RenderTargetID(texture_id) = texture_id;
 
         let origin = Point2D::new((rect.origin.x + draw_context.offset.x) as u32,
