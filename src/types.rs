@@ -620,7 +620,7 @@ pub enum ScrollPolicy {
 
 pub enum MixBlendMode {
     Normal,
-    Multiple,
+    Multiply,
     Screen,
     Overlay,
     Darken,

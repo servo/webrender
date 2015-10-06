@@ -398,15 +398,33 @@ impl Device {
         }
     }
 
-/*
-    pub fn free_texture(&mut self, _texture_id: TextureId) {
+    pub fn deinit_texture(&mut self, texture_id: TextureId) {
         debug_assert!(self.inside_frame);
-        // TODO: Should only really clear the data in the FBO, not
-        // remove the texture - since the texture handle is managed
-        // by the backend...
-        //self.textures.remove(&texture_id).unwrap();
+
+        self.bind_color_texture(texture_id);
+
+        let texture = self.textures.get_mut(&texture_id).unwrap();
+
+        if let Some(fbo_id) = texture.fbo_id {
+            let FBOId(fbo_id) = fbo_id;
+            gl::delete_framebuffers(&[fbo_id]);
+        }
+
+        gl::tex_image_2d(gl::TEXTURE_2D,
+                         0,
+                         gl::RGB as gl::GLint,
+                         0,
+                         0,
+                         0,
+                         gl::RGB,
+                         gl::UNSIGNED_BYTE,
+                         None);
+
+        texture.format = ImageFormat::Invalid;
+        texture.width = 0;
+        texture.height = 0;
+        texture.fbo_id = None;
     }
-*/
 
     pub fn create_program(&mut self,
                           vs_filename: &str,
