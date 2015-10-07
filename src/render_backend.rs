@@ -1404,7 +1404,8 @@ impl RenderBackend {
 
     fn build_scene(&mut self) {
         // Flatten the stacking context hierarchy
-        let root_pipeline_id = PipelineId(0);
+        // TODO: Fixme!
+        let root_pipeline_id = PipelineId(0, 0);
         if let Some(root_sc) = self.stacking_contexts.get(&root_pipeline_id) {
             // Clear out any state and return draw lists (if needed)
             self.scene.reset(&mut self.texture_cache);

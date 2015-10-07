@@ -44,7 +44,7 @@ pub enum StackingLevel {
 pub struct Epoch(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PipelineId(pub u32);
+pub struct PipelineId(pub u32, pub u32);
 
 static RESOURCE_ID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
