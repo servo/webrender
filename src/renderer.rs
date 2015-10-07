@@ -1,11 +1,13 @@
-use device::{Device, ProgramId, UniformLocation, TextureId};
+use app_units::Au;
+use device::{Device, ProgramId, TextureId, UniformLocation};
 use euclid::{Rect, Matrix4, Point2D, Size2D};
 use gleam::gl;
-use internal_types::{ApiMsg, Frame, ResultMsg, TextureUpdateOp, TextureUpdateList};
-use internal_types::{TextureUpdateDetails, PackedVertex, RenderTargetMode, DrawCommand};
+use internal_types::{ApiMsg, DrawCommand, Frame, ResultMsg, TextureUpdateOp};
+use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, RenderBatch, VertexFormat};
 use render_api::RenderApi;
 use render_backend::RenderBackend;
+use std::mem;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
@@ -37,6 +39,11 @@ pub struct Renderer {
 
     blend_program_id: ProgramId,
     u_blend_params: UniformLocation,
+
+    box_shadow_corner_program_id: ProgramId,
+    u_box_shadow_corner_position: UniformLocation,
+    u_blur_radius: UniformLocation,
+    u_arc_radius: UniformLocation,
 }
 
 impl Renderer {
@@ -57,11 +64,20 @@ impl Renderer {
         let glyph_program_id = device.create_program("glyph.vs.glsl", "glyph.fs.glsl");
         let border_program_id = device.create_program("border.vs.glsl", "border.fs.glsl");
         let blend_program_id = device.create_program("blend.vs.glsl", "blend.fs.glsl");
+        let box_shadow_corner_program_id = device.create_program("box-shadow-corner.vs.glsl",
+                                                                 "box-shadow-corner.fs.glsl");
 
         let u_border_radii = device.get_uniform_location(border_program_id, "uRadii");
         let u_border_position = device.get_uniform_location(border_program_id, "uPosition");
 
         let u_blend_params = device.get_uniform_location(blend_program_id, "uBlendParams");
+
+        let u_box_shadow_corner_position =
+            device.get_uniform_location(box_shadow_corner_program_id, "uPosition");
+        let u_blur_radius = device.get_uniform_location(box_shadow_corner_program_id,
+                                                        "uBlurRadius");
+        let u_arc_radius = device.get_uniform_location(box_shadow_corner_program_id,
+                                                       "uArcRadius");
 
         let texture_ids = device.create_texture_ids(1024);
         let mut texture_cache = TextureCache::new(texture_ids);
@@ -107,9 +123,13 @@ impl Renderer {
             device_pixel_ratio: device_pixel_ratio,
             blend_program_id: blend_program_id,
             quad_program_id: quad_program_id,
+            box_shadow_corner_program_id: box_shadow_corner_program_id,
             u_border_radii: u_border_radii,
             u_border_position: u_border_position,
             u_blend_params: u_blend_params,
+            u_box_shadow_corner_position: u_box_shadow_corner_position,
+            u_blur_radius: u_blur_radius,
+            u_arc_radius: u_arc_radius,
         }
     }
 
@@ -153,7 +173,8 @@ impl Renderer {
     }
 
     fn update_texture_cache(&mut self) {
-        for update_list in self.pending_texture_updates.drain(..) {
+        let mut pending_texture_updates = mem::replace(&mut self.pending_texture_updates, vec![]);
+        for update_list in pending_texture_updates.drain(..) {
             for update in update_list.updates {
                 match update.op {
                     TextureUpdateOp::Create(width, height, format, mode, maybe_bytes) => {
@@ -198,29 +219,21 @@ impl Renderer {
                                 let outer_rx = outer_rx.to_f32_px();
                                 let outer_ry = outer_ry.to_f32_px();
 
-                                // TODO: Render jobs could also be batched.
-                                gl::disable(gl::BLEND);
-                                gl::disable(gl::DEPTH_TEST);
+                                let border_program_id = self.border_program_id;
+                                self.set_up_gl_state_for_texture_cache_update(
+                                    update.id,
+                                    border_program_id);
 
-                                let (texture_width, texture_height) =
-                                    self.device.get_texture_dimensions(update.id);
-
-                                let projection = Matrix4::ortho(0.0,
-                                                                texture_width as f32,
-                                                                0.0,
-                                                                texture_height as f32,
-                                                                ORTHO_NEAR_PLANE,
-                                                                ORTHO_FAR_PLANE);
-
-                                self.device.bind_render_target(Some(update.id));
-                                gl::viewport(0, 0, texture_width as gl::GLint, texture_height as gl::GLint);
-                                self.device.bind_program(self.border_program_id,
-                                                         &projection);
-                                self.device.set_uniform_4f(self.u_border_radii, outer_rx, outer_ry, inner_rx, inner_ry);
-                                self.device.set_uniform_4f(self.u_border_position, x + outer_rx, y + outer_ry, 0.0, 0.0);
-
-                                let vao_id = self.device.create_vao(VertexFormat::Default);
-                                self.device.bind_vao(vao_id);
+                                self.device.set_uniform_4f(self.u_border_radii,
+                                                           outer_rx,
+                                                           outer_ry,
+                                                           inner_rx,
+                                                           inner_ry);
+                                self.device.set_uniform_4f(self.u_border_position,
+                                                           x + outer_rx,
+                                                           y + outer_ry,
+                                                           0.0,
+                                                           0.0);
 
                                 let color0 = ColorF::new(1.0, 0.0, 0.0, 1.0);
                                 let color1 = ColorF::new(0.0, 1.0, 0.0, 1.0);
@@ -229,23 +242,149 @@ impl Renderer {
 
                                 let indices: [u16; 6] = [ 0, 1, 2, 2, 3, 1 ];
                                 let vertices: [PackedVertex; 4] = [
-                                    PackedVertex::from_components(x, y, 0.0, &color0, 0.0, 0.0, 0.0, 0.0),
-                                    PackedVertex::from_components(x + outer_rx, y, 0.0, &color1, 0.0, 0.0, 0.0, 0.0),
-                                    PackedVertex::from_components(x, y + outer_ry, 0.0, &color2, 0.0, 0.0, 0.0, 0.0),
-                                    PackedVertex::from_components(x + outer_rx, y + outer_ry, 0.0, &color3, 0.0, 0.0, 0.0, 0.0),
+                                    PackedVertex::from_components(x,
+                                                                  y,
+                                                                  0.0,
+                                                                  &color0,
+                                                                  0.0,
+                                                                  0.0,
+                                                                  0.0,
+                                                                  0.0),
+                                    PackedVertex::from_components(x + outer_rx,
+                                                                  y,
+                                                                  0.0,
+                                                                  &color1,
+                                                                  0.0,
+                                                                  0.0,
+                                                                  0.0,
+                                                                  0.0),
+                                    PackedVertex::from_components(x,
+                                                                  y + outer_ry,
+                                                                  0.0,
+                                                                  &color2,
+                                                                  0.0,
+                                                                  0.0,
+                                                                  0.0,
+                                                                  0.0),
+                                    PackedVertex::from_components(x + outer_rx,
+                                                                  y + outer_ry,
+                                                                  0.0,
+                                                                  &color3,
+                                                                  0.0,
+                                                                  0.0,
+                                                                  0.0,
+                                                                  0.0),
                                 ];
-                                self.device.update_vao_indices(vao_id, &indices);
-                                self.device.update_vao_vertices(vao_id, &vertices);
 
-                                self.device.draw_triangles_u16(indices.len() as gl::GLint);
-
-                                self.device.delete_vao(vao_id);
+                                self.perform_gl_texture_cache_update(&indices, &vertices);
+                            }
+                            TextureUpdateDetails::BoxShadowCorner(blur_radius, border_radius) => {
+                                self.update_texture_cache_for_box_shadow_corner(
+                                    update.id,
+                                    &Rect::new(Point2D::new(x as f32, y as f32),
+                                               Size2D::new(width as f32, height as f32)),
+                                    blur_radius,
+                                    border_radius)
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    fn update_texture_cache_for_box_shadow_corner(&mut self,
+                                                  update_id: TextureId,
+                                                  rect: &Rect<f32>,
+                                                  blur_radius: Au,
+                                                  border_radius: Au) {
+        static INDICES: [u16; 6] = [ 0, 1, 2, 2, 3, 1 ];
+
+        let box_shadow_corner_program_id = self.box_shadow_corner_program_id;
+        self.set_up_gl_state_for_texture_cache_update(update_id, box_shadow_corner_program_id);
+
+        let blur_radius = blur_radius.to_f32_px();
+        let border_radius = border_radius.to_f32_px();
+        self.device.set_uniform_4f(self.u_box_shadow_corner_position,
+                                   rect.origin.x,
+                                   rect.origin.y,
+                                   rect.size.width,
+                                   rect.size.height);
+        self.device.set_uniform_1f(self.u_blur_radius, blur_radius);
+        self.device.set_uniform_1f(self.u_arc_radius, border_radius);
+
+        let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
+        let vertices: [PackedVertex; 4] = [
+            PackedVertex::from_components(rect.origin.x,
+                                          rect.origin.y,
+                                          0.0,
+                                          &color,
+                                          0.0,
+                                          0.0,
+                                          0.0,
+                                          0.0),
+            PackedVertex::from_components(rect.max_x(),
+                                          rect.origin.y,
+                                          0.0,
+                                          &color,
+                                          0.0,
+                                          0.0,
+                                          0.0,
+                                          0.0),
+            PackedVertex::from_components(rect.origin.x,
+                                          rect.max_y(),
+                                          0.0,
+                                          &color,
+                                          0.0,
+                                          0.0,
+                                          0.0,
+                                          0.0),
+            PackedVertex::from_components(rect.max_x(),
+                                          rect.max_y(),
+                                          0.0,
+                                          &color,
+                                          0.0,
+                                          0.0,
+                                          0.0,
+                                          0.0),
+        ];
+
+        self.perform_gl_texture_cache_update(&INDICES, &vertices);
+    }
+
+    fn set_up_gl_state_for_texture_cache_update(&mut self,
+                                                update_id: TextureId,
+                                                program_id: ProgramId) {
+        // TODO(gw): Render jobs could also be batched.
+        gl::disable(gl::BLEND);
+        gl::disable(gl::DEPTH_TEST);
+
+        let (texture_width, texture_height) = self.device.get_texture_dimensions(update_id);
+
+        let projection = Matrix4::ortho(0.0,
+                                        texture_width as f32,
+                                        0.0,
+                                        texture_height as f32,
+                                        ORTHO_NEAR_PLANE,
+                                        ORTHO_FAR_PLANE);
+
+        self.device.bind_render_target(Some(update_id));
+        gl::viewport(0, 0, texture_width as gl::GLint, texture_height as gl::GLint);
+
+        self.device.bind_program(program_id, &projection);
+    }
+
+    fn perform_gl_texture_cache_update(&mut self,
+                                       indices: &[u16],
+                                       vertices: &[PackedVertex]) {
+        let vao_id = self.device.create_vao(VertexFormat::Default);
+        self.device.bind_vao(vao_id);
+
+        self.device.update_vao_indices(vao_id, indices);
+        self.device.update_vao_vertices(vao_id, vertices);
+
+        self.device.draw_triangles_u16(indices.len() as gl::GLint);
+        self.device.delete_vao(vao_id);
     }
 
     fn draw_frame(&mut self) {

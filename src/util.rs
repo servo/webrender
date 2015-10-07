@@ -20,17 +20,18 @@ impl ProfileScope {
 
 impl Drop for ProfileScope {
     fn drop(&mut self) {
-        let t1 = precise_time_ns();
-        let ms = (t1 - self.t0) as f64 / 1000000f64;
-        //if ms > 0.1 {
+        if self.name.chars().next() != Some(' ') {
+            let t1 = precise_time_ns();
+            let ms = (t1 - self.t0) as f64 / 1000000f64;
+            //if ms > 0.1 {
             println!("{} {}", self.name, ms);
-        //}
+        }
     }
 }
 
-pub fn get_render_pass(color: &ColorF, format: ImageFormat) -> RenderPass {
-    if color.a < 1.0 {
-        return RenderPass::Alpha;
+pub fn get_render_pass(colors: &[ColorF], format: ImageFormat) -> RenderPass {
+    if colors.iter().any(|color| color.a < 1.0) {
+        return RenderPass::Alpha
     }
 
     match format {

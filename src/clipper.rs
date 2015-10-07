@@ -1,6 +1,6 @@
 use euclid::{Point2D, Rect};
 use internal_types::{ClipRectResult, WorkVertex};
-use types::ColorF;
+use types::{BoxShadowClipMode, ColorF};
 
 fn is_inside(a: &Point2D<f32>, b: &Point2D<f32>, c: &WorkVertex) -> bool {
     (a.x - c.x) * (b.y - c.y) > (a.y - c.y) * (b.x - c.x)
@@ -86,3 +86,61 @@ pub fn clip_rect_pos_uv(pos: &Rect<f32>, uv: &Rect<f32>, clip_rect: &Rect<f32>) 
         }
     })
 }
+
+pub fn clip_out_rect_pos_uv(pos: &Rect<f32>, uv: &Rect<f32>, clip_rect: &Rect<f32>)
+                            -> Vec<ClipRectResult> {
+    let clip_rect = match pos.intersection(clip_rect) {
+        Some(clip_rect) => clip_rect,
+        None => return vec![ClipRectResult::from_rects(pos, uv)],
+    };
+
+    // FIXME(pcwalton): Clip the u and v too.
+    let mut result = vec![];
+    push(&mut result, uv, &pos.origin, &Point2D::new(pos.max_x(), clip_rect.origin.y));
+    push(&mut result,
+         uv,
+         &Point2D::new(pos.origin.x, clip_rect.origin.y),
+         &clip_rect.bottom_left());
+    push(&mut result, uv, &clip_rect.top_right(), &Point2D::new(pos.max_x(), clip_rect.max_y()));
+    push(&mut result, uv, &Point2D::new(pos.origin.x, clip_rect.max_y()), &pos.bottom_right());
+    return result;
+
+    fn push(result: &mut Vec<ClipRectResult>,
+            uv: &Rect<f32>,
+            top_left: &Point2D<f32>,
+            bottom_right: &Point2D<f32>) {
+        if top_left.x >= bottom_right.x || top_left.y >= bottom_right.y {
+            return
+        }
+        result.push(ClipRectResult {
+            x0: top_left.x,
+            y0: top_left.y,
+            x1: bottom_right.x,
+            y1: bottom_right.y,
+            u0: uv.origin.x,
+            v0: uv.origin.y,
+            u1: uv.max_x(),
+            v1: uv.max_y(),
+        })
+    }
+}
+
+pub fn clip_rect_with_mode_pos_uv(pos: &Rect<f32>,
+                                  uv: &Rect<f32>,
+                                  clip_rect: &Rect<f32>,
+                                  clip_mode: BoxShadowClipMode)
+                                  -> Vec<ClipRectResult> {
+    match clip_mode {
+        BoxShadowClipMode::None => vec![ClipRectResult::from_rects(pos, uv)],
+        BoxShadowClipMode::Inset => {
+            match clip_rect_pos_uv(pos, uv, clip_rect) {
+                Some(clip_result) => vec![clip_result],
+                None => vec![],
+            }
+        }
+        BoxShadowClipMode::Outset => {
+            clip_out_rect_pos_uv(pos, uv, clip_rect)
+        }
+    }
+}
+

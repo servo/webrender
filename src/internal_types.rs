@@ -1,6 +1,6 @@
 use app_units::Au;
 use device::{ProgramId, TextureId};
-use euclid::{Point2D, Size2D, Rect};
+use euclid::{Point2D, Rect, Size2D};
 use std::collections::HashMap;
 use string_cache::Atom;
 use types::{MixBlendMode};
@@ -194,6 +194,8 @@ pub enum RenderTargetMode {
 pub enum TextureUpdateDetails {
     Blit(Vec<u8>),
     BorderRadius(Au, Au, Au, Au),
+    /// Blur radius and border radius, respectively.
+    BoxShadowCorner(Au, Au),
 }
 
 pub enum TextureUpdateOp {
@@ -317,3 +319,19 @@ pub struct ClipRectResult {
     pub u1: f32,
     pub v1: f32,
 }
+
+impl ClipRectResult {
+    pub fn from_rects(rect: &Rect<f32>, uv: &Rect<f32>) -> ClipRectResult {
+        ClipRectResult {
+            x0: rect.origin.x,
+            y0: rect.origin.y,
+            x1: rect.max_x(),
+            y1: rect.max_y(),
+            u0: uv.origin.x,
+            v0: uv.origin.y,
+            u1: uv.max_x(),
+            v1: uv.max_y(),
+        }
+    }
+}
+

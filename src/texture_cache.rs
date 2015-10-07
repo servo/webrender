@@ -264,6 +264,28 @@ impl TextureCache {
                                                                                    op.inner_radius_y)),
                 }
             }
+            &RasterItem::BoxShadowCorner(ref op) => {
+                let size = op.border_radius + op.blur_radius;
+                let allocation = self.allocate(image_id,
+                                               0,
+                                               0,
+                                               size.to_nearest_px() as u32,
+                                               size.to_nearest_px() as u32,
+                                               ImageFormat::A8);
+
+                // TODO(pcwalton): Handle large box shadows not fitting in texture cache page.
+                assert!(allocation.kind == AllocationKind::TexturePage);
+
+                TextureUpdate {
+                    id: allocation.texture_id,
+                    op: TextureUpdateOp::Update(
+                        allocation.x,
+                        allocation.y,
+                        size.to_nearest_px() as u32,
+                        size.to_nearest_px() as u32,
+                        TextureUpdateDetails::BoxShadowCorner(op.blur_radius, op.border_radius)),
+                }
+            }
         };
 
         self.pending_updates.push(update_op);

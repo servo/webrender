@@ -20,7 +20,8 @@ use std::sync::mpsc::{Sender, Receiver};
 use std::thread;
 use string_cache::Atom;
 use texture_cache::{TextureCache, TextureCacheItem};
-use types::{DisplayListID, Epoch, BorderDisplayItem, BorderRadiusRasterOp, RectangleDisplayItem};
+use types::{DisplayListID, Epoch, BorderDisplayItem, BorderRadiusRasterOp};
+use types::{BoxShadowCornerRasterOp, RectangleDisplayItem};
 use types::{Glyph, GradientStop, DisplayListMode, RasterItem, ClipRegion};
 use types::{GlyphInstance, ImageID, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
 use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF, DrawListID};
@@ -41,6 +42,17 @@ type RenderItemKeyArray = Vec<RenderItemKey>;
 static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
+
+static MAX_RECT: Rect<f32> = Rect {
+    origin: Point2D {
+        x: -1000.0,
+        y: -1000.0,
+    },
+    size: Size2D {
+        width: 10000.0,
+        height: 10000.0,
+    },
+};
 
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq)]
 struct RenderTargetIndex(u32);
@@ -859,7 +871,7 @@ impl AABBTreeNode {
             let (display_item, draw_context) = flat_draw_lists.get_item_and_draw_context(key);
 
             // TODO: This doesn't propagate the stacking context clip region!
-            let clip_rect = Rect::new(Point2D::new(-1000.0, -1000.0), Size2D::new(10000.0, 10000.0));// &display_item.clip.main;
+            let clip_rect = MAX_RECT; // &display_item.clip.main;
 
             match display_item.item {
                 SpecificDisplayItem::Image(ref info) => {
@@ -889,6 +901,7 @@ impl AABBTreeNode {
                                                 draw_context,
                                                 &display_item.rect,
                                                 &clip_rect,
+                                                BoxShadowClipMode::Inset,
                                                 white_image_info,
                                                 mask_image_info,
                                                 &info.color);
@@ -913,9 +926,12 @@ impl AABBTreeNode {
                                                  &info.color,
                                                  info.blur_radius,
                                                  info.spread_radius,
+                                                 info.border_radius,
                                                  info.clip_mode,
                                                  white_image_info,
-                                                 mask_image_info);
+                                                 mask_image_info,
+                                                 raster_to_image_map,
+                                                 texture_cache);
                 }
                 SpecificDisplayItem::Border(ref info) => {
                     compiled_node.add_border(key,
@@ -1581,38 +1597,18 @@ impl CompiledNode {
                      draw_context: &DrawContext,
                      rect: &Rect<f32>,
                      clip: &Rect<f32>,
+                     clip_mode: BoxShadowClipMode,
                      image_info: &TextureCacheItem,
                      dummy_mask_image: &TextureCacheItem,
                      color: &ColorF) {
-        if rect.size.width > 0.0 && rect.size.height > 0.0 {
-            let uv_origin = Point2D::new(image_info.u0, image_info.v0);
-            let uv_size = Size2D::new(image_info.u1 - image_info.u0,
-                                      image_info.v1 - image_info.v0);
-            let uv = Rect::new(uv_origin, uv_size);
-
-            let clip_result = clipper::clip_rect_pos_uv(rect, &uv, clip);
-
-            if let Some(cr) = clip_result {
-                let render_item = RenderItem {
-                    sort_key: sort_key.clone(),
-                    info: RenderItemInfo::Draw(DrawRenderItem {
-                        pass: util::get_render_pass(color, image_info.format),
-                        color_texture_id: image_info.texture_id,
-                        mask_texture_id: dummy_mask_image.texture_id,
-                        primitive: Primitive::Rectangles,
-                        vertex_count: 4,
-                        first_vertex: self.vertex_buffer.len(),
-                    }),
-                };
-
-                self.vertex_buffer.push(cr.x0, cr.y0, color, cr.u0, cr.v0, draw_context);
-                self.vertex_buffer.push(cr.x1, cr.y0, color, cr.u1, cr.v0, draw_context);
-                self.vertex_buffer.push(cr.x0, cr.y1, color, cr.u0, cr.v1, draw_context);
-                self.vertex_buffer.push(cr.x1, cr.y1, color, cr.u1, cr.v1, draw_context);
-
-                self.render_items.push(render_item);
-            }
-        }
+        self.add_axis_aligned_gradient(sort_key,
+                                       draw_context,
+                                       rect,
+                                       clip,
+                                       clip_mode,
+                                       image_info,
+                                       dummy_mask_image,
+                                       &[*color, *color, *color, *color])
     }
 
     fn add_composite(&mut self,
@@ -1649,7 +1645,7 @@ impl CompiledNode {
                  dummy_mask_image: &TextureCacheItem,
                  color: &ColorF) {
 
-        let pass = util::get_render_pass(&color, image_info.format);
+        let pass = util::get_render_pass(&[*color], image_info.format);
         let first_vertex = self.vertex_buffer.len();
         let mut vertex_count = 0;
 
@@ -1806,16 +1802,57 @@ impl CompiledNode {
         }
     }
 
+    // Colors are in the order: top left, top right, bottom right, bottom left.
+    fn add_axis_aligned_gradient(&mut self,
+                                 sort_key: &DisplayItemKey,
+                                 draw_context: &DrawContext,
+                                 rect: &Rect<f32>,
+                                 clip: &Rect<f32>,
+                                 clip_mode: BoxShadowClipMode,
+                                 image_info: &TextureCacheItem,
+                                 dummy_mask_image: &TextureCacheItem,
+                                 colors: &[ColorF; 4]) {
+        if rect.size.width == 0.0 || rect.size.height == 0.0 {
+            return
+        }
+
+        let uv_origin = Point2D::new(image_info.u0, image_info.v0);
+        let uv_size = Size2D::new(image_info.u1 - image_info.u0, image_info.v1 - image_info.v0);
+        let uv = Rect::new(uv_origin, uv_size);
+
+        // TODO(pcwalton): Clip colors too!
+        for cr in clipper::clip_rect_with_mode_pos_uv(rect, &uv, clip, clip_mode) {
+            let render_item = RenderItem {
+                sort_key: sort_key.clone(),
+                info: RenderItemInfo::Draw(DrawRenderItem {
+                    pass: util::get_render_pass(colors, image_info.format),
+                    color_texture_id: image_info.texture_id,
+                    mask_texture_id: dummy_mask_image.texture_id,
+                    primitive: Primitive::Rectangles,
+                    vertex_count: 4,
+                    first_vertex: self.vertex_buffer.len(),
+                }),
+            };
+
+            self.vertex_buffer.push(cr.x0, cr.y0, &colors[0], cr.u0, cr.v0, draw_context);
+            self.vertex_buffer.push(cr.x1, cr.y0, &colors[1], cr.u1, cr.v0, draw_context);
+            self.vertex_buffer.push(cr.x0, cr.y1, &colors[3], cr.u0, cr.v1, draw_context);
+            self.vertex_buffer.push(cr.x1, cr.y1, &colors[2], cr.u1, cr.v1, draw_context);
+
+            self.render_items.push(render_item);
+        }
+    }
+
     fn add_gradient(&mut self,
                     sort_key: &DisplayItemKey,
                     draw_context: &DrawContext,
                     rect: &Rect<f32>,
                     start_point: &Point2D<f32>,
                     end_point: &Point2D<f32>,
-                    stops: &Vec<GradientStop>,
+                    stops: &[GradientStop],
                     image: &TextureCacheItem,
                     dummy_mask_image: &TextureCacheItem) {
-        assert!(stops.len() >= 2);
+        debug_assert!(stops.len() >= 2);
 
         let x0 = rect.origin.x;
         let x1 = x0 + rect.size.width;
@@ -1904,20 +1941,176 @@ impl CompiledNode {
                       color: &ColorF,
                       blur_radius: f32,
                       spread_radius: f32,
+                      border_radius: f32,
                       clip_mode: BoxShadowClipMode,
-                      image: &TextureCacheItem,
-                      dummy_mask_image: &TextureCacheItem) {
-        match (blur_radius, spread_radius, clip_mode) {
-            (0.0, 0.0, BoxShadowClipMode::None) => {
-                let mut rect = box_bounds.clone();
-                rect.origin.x += box_offset.x;
-                rect.origin.y += box_offset.y;
-                self.add_rectangle(sort_key, draw_context, &rect, clip, image, dummy_mask_image, color);
-            }
-            _ => {
-                //println!("TODO: BoxShadow {:?} {:?} {:?}", blur_radius, spread_radius, clip_mode);
-            }
+                      white_image: &TextureCacheItem,
+                      dummy_mask_image: &TextureCacheItem,
+                      raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                      texture_cache: &TextureCache) {
+        let mut rect = box_bounds.clone();
+        rect.origin.x += box_offset.x;
+        rect.origin.y += box_offset.y;
+
+        // Fast path.
+        if blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None {
+            self.add_rectangle(sort_key,
+                               draw_context,
+                               &rect,
+                               clip,
+                               BoxShadowClipMode::Inset,
+                               white_image,
+                               dummy_mask_image,
+                               color);
+            return;
         }
+
+        // Draw the corners.
+        //
+        //      +--+------------------+--+
+        //      |##|                  |##|
+        //      +--+------------------+--+
+        //      |  |                  |  |
+        //      |  |                  |  |
+        //      |  |                  |  |
+        //      +--+------------------+--+
+        //      |##|                  |##|
+        //      +--+------------------+--+
+
+        let side_radius = border_radius + blur_radius;
+        let tl_outer = rect.origin;
+        let tl_inner = tl_outer + Point2D::new(side_radius, side_radius);
+        let tr_outer = rect.top_right();
+        let tr_inner = tr_outer + Point2D::new(-side_radius, side_radius);
+        let bl_outer = rect.bottom_left();
+        let bl_inner = bl_outer + Point2D::new(side_radius, -side_radius);
+        let br_outer = rect.bottom_right();
+        let br_inner = br_outer + Point2D::new(-side_radius, -side_radius);
+
+        self.add_box_shadow_corner(sort_key,
+                                   draw_context,
+                                   &tl_outer,
+                                   &tl_inner,
+                                   box_bounds,
+                                   &color,
+                                   blur_radius,
+                                   border_radius,
+                                   clip_mode,
+                                   white_image,
+                                   dummy_mask_image,
+                                   raster_to_image_map,
+                                   texture_cache);
+        self.add_box_shadow_corner(sort_key,
+                                   draw_context,
+                                   &tr_outer,
+                                   &tr_inner,
+                                   box_bounds,
+                                   &color,
+                                   blur_radius,
+                                   border_radius,
+                                   clip_mode,
+                                   white_image,
+                                   dummy_mask_image,
+                                   raster_to_image_map,
+                                   texture_cache);
+        self.add_box_shadow_corner(sort_key,
+                                   draw_context,
+                                   &bl_outer,
+                                   &bl_inner,
+                                   box_bounds,
+                                   &color,
+                                   blur_radius,
+                                   border_radius,
+                                   clip_mode,
+                                   white_image,
+                                   dummy_mask_image,
+                                   raster_to_image_map,
+                                   texture_cache);
+        self.add_box_shadow_corner(sort_key,
+                                   draw_context,
+                                   &br_outer,
+                                   &br_inner,
+                                   box_bounds,
+                                   &color,
+                                   blur_radius,
+                                   border_radius,
+                                   clip_mode,
+                                   white_image,
+                                   dummy_mask_image,
+                                   raster_to_image_map,
+                                   texture_cache);
+
+        // Draw the sides.
+        //
+        //      +--+------------------+--+
+        //      |  |##################|  |
+        //      +--+------------------+--+
+        //      |##|                  |##|
+        //      |##|                  |##|
+        //      |##|                  |##|
+        //      +--+------------------+--+
+        //      |  |##################|  |
+        //      +--+------------------+--+
+
+        let transparent = ColorF {
+            a: 0.0,
+            ..*color
+        };
+        let blur_diameter = blur_radius + blur_radius;
+        let twice_blur_diameter = blur_diameter + blur_diameter;
+        let twice_side_radius = side_radius + side_radius;
+        let horizontal_size = Size2D::new(rect.size.width - twice_side_radius, blur_diameter);
+        let vertical_size = Size2D::new(blur_diameter, rect.size.height - twice_side_radius);
+        let top_rect = Rect::new(tl_outer + Point2D::new(side_radius, 0.0), horizontal_size);
+        let right_rect = Rect::new(tr_outer + Point2D::new(-blur_diameter, side_radius),
+                                   vertical_size);
+        let bottom_rect = Rect::new(bl_outer + Point2D::new(side_radius, -blur_diameter),
+                                    horizontal_size);
+        let left_rect = Rect::new(tl_outer + Point2D::new(0.0, side_radius), vertical_size);
+
+        self.add_axis_aligned_gradient(sort_key,
+                                       draw_context,
+                                       &top_rect,
+                                       box_bounds,
+                                       clip_mode,
+                                       white_image,
+                                       dummy_mask_image,
+                                       &[transparent, transparent, *color, *color]);
+        self.add_axis_aligned_gradient(sort_key,
+                                       draw_context,
+                                       &right_rect,
+                                       box_bounds,
+                                       clip_mode,
+                                       white_image,
+                                       dummy_mask_image,
+                                       &[*color, transparent, transparent, *color]);
+        self.add_axis_aligned_gradient(sort_key,
+                                       draw_context,
+                                       &bottom_rect,
+                                       box_bounds,
+                                       clip_mode,
+                                       white_image,
+                                       dummy_mask_image,
+                                       &[*color, *color, transparent, transparent]);
+        self.add_axis_aligned_gradient(sort_key,
+                                       draw_context,
+                                       &left_rect,
+                                       box_bounds,
+                                       clip_mode,
+                                       white_image,
+                                       dummy_mask_image,
+                                       &[transparent, *color, *color, transparent]);
+
+        // Fill the center area.
+        self.add_rectangle(sort_key,
+                           draw_context,
+                           &Rect::new(tl_outer + Point2D::new(blur_diameter, blur_diameter),
+                                      Size2D::new(rect.size.width - twice_blur_diameter,
+                                                  rect.size.height - twice_blur_diameter)),
+                           box_bounds,
+                           clip_mode,
+                           white_image,
+                           dummy_mask_image,
+                           color);
     }
 
     #[inline]
@@ -1978,26 +2171,77 @@ impl CompiledNode {
             }
         };
 
-        if color0.a > 0.0 || color1.a > 0.0 {
+        self.add_masked_rectangle(sort_key,
+                                  draw_context,
+                                  &v0,
+                                  &v1,
+                                  &MAX_RECT,
+                                  BoxShadowClipMode::None,
+                                  color0,
+                                  color1,
+                                  &white_image,
+                                  &mask_image);
+    }
+
+    fn add_masked_rectangle(&mut self,
+                            sort_key: &DisplayItemKey,
+                            draw_context: &DrawContext,
+                            v0: &Point2D<f32>,
+                            v1: &Point2D<f32>,
+                            clip: &Rect<f32>,
+                            clip_mode: BoxShadowClipMode,
+                            color0: &ColorF,
+                            color1: &ColorF,
+                            white_image: &TextureCacheItem,
+                            mask_image: &TextureCacheItem) {
+        if color0.a <= 0.0 || color1.a <= 0.0 {
+            return
+        }
+
+        let vertices_rect = Rect::new(*v0, Size2D::new(v1.x - v0.x, v1.y - v0.y));
+        let mask_uv_rect = Rect::new(Point2D::new(mask_image.u0, mask_image.v0),
+                                     Size2D::new(mask_image.u1 - mask_image.u0,
+                                                 mask_image.v1 - mask_image.v0));
+        for clip_result in clipper::clip_rect_with_mode_pos_uv(&vertices_rect,
+                                                               &mask_uv_rect,
+                                                               clip,
+                                                               clip_mode) {
             let item = RenderItem {
                 sort_key: sort_key.clone(),
                 info: RenderItemInfo::Draw(DrawRenderItem {
                     pass: RenderPass::Alpha,
                     color_texture_id: white_image.texture_id,
                     mask_texture_id: mask_image.texture_id,
-                    primitive: Primitive::Triangles,
+                    primitive: Primitive::Rectangles,
                     first_vertex: self.vertex_buffer.len(),
-                    vertex_count: 6,
+                    vertex_count: 4,
                 }),
             };
 
-            self.vertex_buffer.push_masked(v0.x, v0.y, color0, mask_image.u0, mask_image.v0, draw_context);
-            self.vertex_buffer.push_masked(v1.x, v1.y, color0, mask_image.u1, mask_image.v1, draw_context);
-            self.vertex_buffer.push_masked(v0.x, v1.y, color0, mask_image.u0, mask_image.v1, draw_context);
-
-            self.vertex_buffer.push_masked(v0.x, v0.y, color1, mask_image.u0, mask_image.v0, draw_context);
-            self.vertex_buffer.push_masked(v1.x, v0.y, color1, mask_image.u1, mask_image.v0, draw_context);
-            self.vertex_buffer.push_masked(v1.x, v1.y, color1, mask_image.u1, mask_image.v1, draw_context);
+            self.vertex_buffer.push_masked(clip_result.x0,
+                                           clip_result.y0,
+                                           color0,
+                                           clip_result.u0,
+                                           clip_result.v0,
+                                           draw_context);
+            self.vertex_buffer.push_masked(clip_result.x1,
+                                           clip_result.y0,
+                                           color0,
+                                           clip_result.u1,
+                                           clip_result.v0,
+                                           draw_context);
+            self.vertex_buffer.push_masked(clip_result.x0,
+                                           clip_result.y1,
+                                           color1,
+                                           clip_result.u0,
+                                           clip_result.v1,
+                                           draw_context);
+            self.vertex_buffer.push_masked(clip_result.x1,
+                                           clip_result.y1,
+                                           color1,
+                                           clip_result.u1,
+                                           clip_result.v1,
+                                           draw_context);
 
             self.render_items.push(item);
         }
@@ -2118,6 +2362,52 @@ impl CompiledNode {
                                raster_to_image_map,
                                texture_cache);
     }
+
+    // FIXME(pcwalton): Assumes rectangles are well-formed with origin in TL
+    fn add_box_shadow_corner(&mut self,
+                             sort_key: &DisplayItemKey,
+                             draw_context: &DrawContext,
+                             top_left: &Point2D<f32>,
+                             bottom_right: &Point2D<f32>,
+                             box_bounds: &Rect<f32>,
+                             color: &ColorF,
+                             blur_radius: f32,
+                             border_radius: f32,
+                             clip_mode: BoxShadowClipMode,
+                             white_image: &TextureCacheItem,
+                             dummy_mask_image: &TextureCacheItem,
+                             raster_to_image_map:
+                                &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                             texture_cache: &TextureCache) {
+        let mask_image = match BoxShadowCornerRasterOp::create(blur_radius, border_radius) {
+            Some(raster_item) => {
+                let raster_item = RasterItem::BoxShadowCorner(raster_item);
+                let raster_item_id = raster_to_image_map[&raster_item];
+                texture_cache.get(raster_item_id)
+            }
+            None => dummy_mask_image,
+        };
+
+        let clip_rect = match clip_mode {
+            BoxShadowClipMode::Outset => *box_bounds,
+            BoxShadowClipMode::None => MAX_RECT,
+            BoxShadowClipMode::Inset => {
+                // TODO(pcwalton): Implement this.
+                MAX_RECT
+            }
+        };
+
+        self.add_masked_rectangle(sort_key,
+                                  draw_context,
+                                  top_left,
+                                  bottom_right,
+                                  &clip_rect,
+                                  clip_mode,
+                                  color,
+                                  color,
+                                  white_image,
+                                  &mask_image)
+    }
 }
 
 trait BuildRequiredResources {
@@ -2128,6 +2418,9 @@ trait RequiredResourceHelpers {
     fn add_radius(required_rasters: &mut HashSet<RasterItem, DefaultState<FnvHasher>>,
                   outer_radius: &Size2D<f32>,
                   inner_radius: &Size2D<f32>);
+    fn add_box_shadow_corner(required_rasters: &mut HashSet<RasterItem, DefaultState<FnvHasher>>,
+                             blur_radius: f32,
+                             border_radius: f32);
 }
 
 impl BuildRequiredResources for AABBTreeNode {
@@ -2163,8 +2456,12 @@ impl BuildRequiredResources for AABBTreeNode {
                 SpecificDisplayItem::Rectangle(..) => {}
                 SpecificDisplayItem::Iframe(..) => {}
                 SpecificDisplayItem::Gradient(..) => {}
-                SpecificDisplayItem::BoxShadow(..) => {}
                 SpecificDisplayItem::Composite(..) => {}
+                SpecificDisplayItem::BoxShadow(ref info) => {
+                    DrawList::add_box_shadow_corner(&mut resource_list.required_rasters,
+                                                    info.blur_radius,
+                                                    info.border_radius);
+                }
                 SpecificDisplayItem::Border(ref info) => {
                     DrawList::add_radius(&mut resource_list.required_rasters,
                                          &info.radius.top_left,
@@ -2192,6 +2489,14 @@ impl RequiredResourceHelpers for DrawList {
                   inner_radius: &Size2D<f32>) {
         if let Some(raster_item) = BorderRadiusRasterOp::create(outer_radius, inner_radius) {
             required_rasters.insert(RasterItem::BorderRadius(raster_item));
+        }
+    }
+
+    fn add_box_shadow_corner(required_rasters: &mut HashSet<RasterItem, DefaultState<FnvHasher>>,
+                             blur_radius: f32,
+                             border_radius: f32) {
+        if let Some(raster_item) = BoxShadowCornerRasterOp::create(blur_radius, border_radius) {
+            required_rasters.insert(RasterItem::BoxShadowCorner(raster_item));
         }
     }
 }
