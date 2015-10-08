@@ -1655,7 +1655,6 @@ impl CompiledNode {
         let uv = Rect::new(uv_origin, uv_size);
 
         if rect.size.width == stretch_size.width && rect.size.height == stretch_size.height {
-            // Fast path: No need to create a pattern.
             let clip_result = clipper::clip_rect_pos_uv(rect, &uv, clip_rect);
 
             if let Some(cr) = clip_result {
@@ -1665,9 +1664,7 @@ impl CompiledNode {
                 self.vertex_buffer.push(cr.x1, cr.y1, color, cr.u1, cr.v1, draw_context);
                 vertex_count = 4;
             }
-        } else if image_info.width as f32 == stretch_size.width &&
-                  image_info.height as f32 == stretch_size.height {
-            // Slightly slower path: No need to stretch.
+        } else {
             let mut y_offset = 0.0;
             while y_offset < rect.size.height {
                 let mut x_offset = 0.0;
@@ -1690,9 +1687,6 @@ impl CompiledNode {
 
                 y_offset = y_offset + stretch_size.height;
             }
-        } else {
-            // Slow path: Both stretch and a pattern are needed.
-            println!("TODO: Slow image rendering stretch path!");
         }
 
         if vertex_count > 0 {
