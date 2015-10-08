@@ -25,7 +25,7 @@ use types::{BoxShadowCornerRasterOp, RectangleDisplayItem};
 use types::{Glyph, GradientStop, DisplayListMode, RasterItem, ClipRegion};
 use types::{GlyphInstance, ImageID, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
 use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF, DrawListID};
-use types::{RenderTargetID, MixBlendMode, CompositeDisplayItem};
+use types::{RenderTargetID, MixBlendMode, CompositeDisplayItem, BorderSide, BorderStyle};
 use util;
 use scoped_threadpool;
 
@@ -2272,12 +2272,17 @@ impl CompiledNode {
         let br_outer = Point2D::new(rect.origin.x + rect.size.width, rect.origin.y + rect.size.height);
         let br_inner = br_outer - Point2D::new(radius.bottom_right.width.max(right.width), radius.bottom_right.height.max(bottom.width));
 
+        let left_color = left.border_color(1.0, 2.0/3.0, 0.3, 0.7);
+        let top_color = top.border_color(1.0, 2.0/3.0, 0.3, 0.7);
+        let right_color = right.border_color(2.0/3.0, 1.0, 0.7, 0.3);
+        let bottom_color = bottom.border_color(2.0/3.0, 1.0, 0.7, 0.3);
+
         // Edges
         self.add_border_quad(sort_key,
                              draw_context,
                              Point2D::new(tl_outer.x, tl_inner.y),
                              Point2D::new(tl_outer.x + left.width, bl_inner.y),
-                             &left.color,
+                             &left_color,
                              white_image,
                              dummy_mask_image);
 
@@ -2285,7 +2290,7 @@ impl CompiledNode {
                              draw_context,
                              Point2D::new(tl_inner.x, tl_outer.y),
                              Point2D::new(tr_inner.x, tr_outer.y + top.width),
-                             &top.color,
+                             &top_color,
                              white_image,
                              dummy_mask_image);
 
@@ -2293,7 +2298,7 @@ impl CompiledNode {
                              draw_context,
                              Point2D::new(br_outer.x - right.width, tr_inner.y),
                              Point2D::new(br_outer.x, br_inner.y),
-                             &right.color,
+                             &right_color,
                              white_image,
                              dummy_mask_image);
 
@@ -2301,7 +2306,7 @@ impl CompiledNode {
                              draw_context,
                              Point2D::new(bl_inner.x, bl_outer.y - bottom.width),
                              Point2D::new(br_inner.x, br_outer.y),
-                             &bottom.color,
+                             &bottom_color,
                              white_image,
                              dummy_mask_image);
 
@@ -2310,8 +2315,8 @@ impl CompiledNode {
                                draw_context,
                                tl_outer,
                                tl_inner,
-                               &left.color,
-                               &top.color,
+                               &left_color,
+                               &top_color,
                                &radius.top_left,
                                &info.top_left_inner_radius(),
                                white_image,
@@ -2323,8 +2328,8 @@ impl CompiledNode {
                                draw_context,
                                tr_outer,
                                tr_inner,
-                               &right.color,
-                               &top.color,
+                               &right_color,
+                               &top_color,
                                &radius.top_right,
                                &info.top_right_inner_radius(),
                                white_image,
@@ -2336,8 +2341,8 @@ impl CompiledNode {
                                draw_context,
                                br_outer,
                                br_inner,
-                               &right.color,
-                               &bottom.color,
+                               &right_color,
+                               &bottom_color,
                                &radius.bottom_right,
                                &info.bottom_right_inner_radius(),
                                white_image,
@@ -2349,8 +2354,8 @@ impl CompiledNode {
                                draw_context,
                                bl_outer,
                                bl_inner,
-                               &left.color,
-                               &bottom.color,
+                               &left_color,
+                               &bottom_color,
                                &radius.bottom_left,
                                &info.bottom_left_inner_radius(),
                                white_image,
@@ -2661,6 +2666,40 @@ impl RenderBatcher {
                 let cmd = DrawCommand::Composite(composite_info);
                 self.draw_commands.push(cmd);
             }
+        }
+    }
+}
+
+trait BorderSideHelpers {
+    fn border_color(&self,
+                    scale_factor_0: f32,
+                    scale_factor_1: f32,
+                    black_color_0: f32,
+                    black_color_1: f32) -> ColorF;
+}
+
+impl BorderSideHelpers for BorderSide {
+    fn border_color(&self,
+                    scale_factor_0: f32,
+                    scale_factor_1: f32,
+                    black_color_0: f32,
+                    black_color_1: f32) -> ColorF {
+        match self.style {
+            BorderStyle::Inset => {
+                if self.color.r != 0.0 || self.color.g != 0.0 || self.color.b != 0.0 {
+                    self.color.scale_rgb(scale_factor_1)
+                } else {
+                    ColorF::new(black_color_1, black_color_1, black_color_1, self.color.a)
+                }
+            }
+            BorderStyle::Outset => {
+                if self.color.r != 0.0 || self.color.g != 0.0 || self.color.b != 0.0 {
+                    self.color.scale_rgb(scale_factor_0)
+                } else {
+                    ColorF::new(black_color_0, black_color_0, black_color_0, self.color.a)
+                }
+            }
+            _ => self.color,
         }
     }
 }

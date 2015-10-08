@@ -28,6 +28,15 @@ impl ColorF {
             a: a,
         }
     }
+
+    pub fn scale_rgb(&self, scale: f32) -> ColorF {
+        ColorF {
+            r: self.r * scale,
+            g: self.g * scale,
+            b: self.b * scale,
+            a: self.a,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
