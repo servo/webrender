@@ -126,6 +126,7 @@ struct DrawContext {
     render_target_index: RenderTargetIndex,
     offset: Point2D<f32>,
     transform: Matrix2D<f32>,
+    overflow: Rect<f32>,
     device_pixel_ratio: f32,
 }
 
@@ -389,6 +390,7 @@ impl Scene {
             render_target_index: self.current_render_target(),
             offset: offset.clone(),
             transform: xform_2d,
+            overflow: stacking_context.overflow,
             device_pixel_ratio: device_pixel_ratio,
         };
 
@@ -869,86 +871,86 @@ impl AABBTreeNode {
 
         for key in &self.src_items {
             let (display_item, draw_context) = flat_draw_lists.get_item_and_draw_context(key);
+            let clip_rect = display_item.clip.main.intersection(&draw_context.overflow);
 
-            // TODO: This doesn't propagate the stacking context clip region!
-            let clip_rect = &display_item.clip.main;
-
-            match display_item.item {
-                SpecificDisplayItem::Image(ref info) => {
-                    let image = texture_cache.get(info.image_id);
-                    compiled_node.add_image(key,
-                                            draw_context,
-                                            &display_item.rect,
-                                            &clip_rect,
-                                            &info.stretch_size,
-                                            image,
-                                            mask_image_info,
-                                            &color_white);
-                }
-                SpecificDisplayItem::Text(ref info) => {
-                    compiled_node.add_text(key,
-                                           draw_context,
-                                           info.font_id.clone(),
-                                           info.size,
-                                           &info.color,
-                                           &info.glyphs,
-                                           mask_image_info,
-                                           &glyph_to_image_map,
-                                           &texture_cache);
-                }
-                SpecificDisplayItem::Rectangle(ref info) => {
-                    compiled_node.add_rectangle(key,
+            if let Some(clip_rect) = clip_rect {
+                match display_item.item {
+                    SpecificDisplayItem::Image(ref info) => {
+                        let image = texture_cache.get(info.image_id);
+                        compiled_node.add_image(key,
                                                 draw_context,
                                                 &display_item.rect,
                                                 &clip_rect,
-                                                BoxShadowClipMode::Inset,
-                                                white_image_info,
+                                                &info.stretch_size,
+                                                image,
                                                 mask_image_info,
-                                                &info.color);
-                }
-                SpecificDisplayItem::Iframe(..) => {}
-                SpecificDisplayItem::Gradient(ref info) => {
-                    compiled_node.add_gradient(key,
+                                                &color_white);
+                    }
+                    SpecificDisplayItem::Text(ref info) => {
+                        compiled_node.add_text(key,
                                                draw_context,
-                                               &display_item.rect,
-                                               &info.start_point,
-                                               &info.end_point,
-                                               &info.stops,
-                                               white_image_info,
-                                               mask_image_info);
-                }
-                SpecificDisplayItem::BoxShadow(ref info) => {
-                    compiled_node.add_box_shadow(key,
+                                               info.font_id.clone(),
+                                               info.size,
+                                               &info.color,
+                                               &info.glyphs,
+                                               mask_image_info,
+                                               &glyph_to_image_map,
+                                               &texture_cache);
+                    }
+                    SpecificDisplayItem::Rectangle(ref info) => {
+                        compiled_node.add_rectangle(key,
+                                                    draw_context,
+                                                    &display_item.rect,
+                                                    &clip_rect,
+                                                    BoxShadowClipMode::Inset,
+                                                    white_image_info,
+                                                    mask_image_info,
+                                                    &info.color);
+                    }
+                    SpecificDisplayItem::Iframe(..) => {}
+                    SpecificDisplayItem::Gradient(ref info) => {
+                        compiled_node.add_gradient(key,
+                                                   draw_context,
+                                                   &display_item.rect,
+                                                   &info.start_point,
+                                                   &info.end_point,
+                                                   &info.stops,
+                                                   white_image_info,
+                                                   mask_image_info);
+                    }
+                    SpecificDisplayItem::BoxShadow(ref info) => {
+                        compiled_node.add_box_shadow(key,
+                                                     draw_context,
+                                                     &info.box_bounds,
+                                                     &clip_rect,
+                                                     &info.offset,
+                                                     &info.color,
+                                                     info.blur_radius,
+                                                     info.spread_radius,
+                                                     info.border_radius,
+                                                     info.clip_mode,
+                                                     white_image_info,
+                                                     mask_image_info,
+                                                     raster_to_image_map,
+                                                     texture_cache);
+                    }
+                    SpecificDisplayItem::Border(ref info) => {
+                        compiled_node.add_border(key,
                                                  draw_context,
-                                                 &info.box_bounds,
-                                                 &clip_rect,
-                                                 &info.offset,
-                                                 &info.color,
-                                                 info.blur_radius,
-                                                 info.spread_radius,
-                                                 info.border_radius,
-                                                 info.clip_mode,
+                                                 &display_item.rect,
+                                                 info,
                                                  white_image_info,
                                                  mask_image_info,
                                                  raster_to_image_map,
                                                  texture_cache);
-                }
-                SpecificDisplayItem::Border(ref info) => {
-                    compiled_node.add_border(key,
-                                             draw_context,
-                                             &display_item.rect,
-                                             info,
-                                             white_image_info,
-                                             mask_image_info,
-                                             raster_to_image_map,
-                                             texture_cache);
-                }
-                SpecificDisplayItem::Composite(ref info) => {
-                    compiled_node.add_composite(key,
-                                                draw_context,
-                                                &display_item.rect,
-                                                info.texture_id,
-                                                info.blend_mode);
+                    }
+                    SpecificDisplayItem::Composite(ref info) => {
+                        compiled_node.add_composite(key,
+                                                    draw_context,
+                                                    &display_item.rect,
+                                                    info.texture_id,
+                                                    info.blend_mode);
+                    }
                 }
             }
         }
