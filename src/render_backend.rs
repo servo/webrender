@@ -871,7 +871,7 @@ impl AABBTreeNode {
             let (display_item, draw_context) = flat_draw_lists.get_item_and_draw_context(key);
 
             // TODO: This doesn't propagate the stacking context clip region!
-            let clip_rect = MAX_RECT; // &display_item.clip.main;
+            let clip_rect = &display_item.clip.main;
 
             match display_item.item {
                 SpecificDisplayItem::Image(ref info) => {
