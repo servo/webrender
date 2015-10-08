@@ -211,6 +211,7 @@ pub struct TextDisplayItem {
     pub font_id: Atom,
     pub size: Au,
     pub color: ColorF,
+    pub blur_radius: Au,
 }
 
 #[derive(Debug)]
@@ -464,12 +465,14 @@ impl DisplayListBuilder {
                      glyphs: Vec<GlyphInstance>,
                      font_id: Atom,
                      color: ColorF,
-                     size: Au) {
+                     size: Au,
+                     blur_radius: Au) {
         let item = TextDisplayItem {
             color: color,
             glyphs: glyphs,
             font_id: font_id,
             size: size,
+            blur_radius: blur_radius,
         };
 
         let display_item = DisplayItem {
@@ -612,14 +615,16 @@ pub trait RenderNotifier : Send {
 #[derive(PartialEq, Eq, Hash)]
 pub struct Glyph {
     pub size: Au,
+    pub blur_radius: Au,
     pub index: u32,
 }
 
 impl Glyph {
     #[inline]
-    pub fn new(size: Au, index: u32) -> Glyph {
+    pub fn new(size: Au, blur_radius: Au, index: u32) -> Glyph {
         Glyph {
             size: size,
+            blur_radius: blur_radius,
             index: index,
         }
     }

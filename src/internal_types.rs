@@ -193,6 +193,7 @@ pub enum RenderTargetMode {
 #[derive(Debug)]
 pub enum TextureUpdateDetails {
     Blit(Vec<u8>),
+    Blur(Vec<u8>, Size2D<u32>, Au, TextureId, TextureId),
     BorderRadius(Au, Au, Au, Au),
     /// Blur radius and border radius, respectively.
     BoxShadowCorner(Au, Au),

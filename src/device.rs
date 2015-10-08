@@ -488,6 +488,12 @@ impl Device {
         gl::uniform_1f(location, x);
     }
 
+    pub fn set_uniform_2f(&self, uniform: UniformLocation, x: f32, y: f32) {
+        debug_assert!(self.inside_frame);
+        let UniformLocation(location) = uniform;
+        gl::uniform_2f(location, x, y);
+    }
+
     pub fn set_uniform_4f(&self,
                           uniform: UniformLocation,
                           x: f32,

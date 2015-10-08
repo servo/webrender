@@ -7,11 +7,13 @@ use fnv::FnvHasher;
 use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, ORTHO_FAR_PLANE, DrawLayer};
 use internal_types::{PackedVertex, WorkVertex, RenderPass, RenderBatch, DisplayList, DrawCommand};
 use internal_types::{CompositeInfo};
+use renderer::BLUR_INFLATION_FACTOR;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
 use std::cmp::Ordering;
+use std::f32;
 use std::mem;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 use std::sync::atomic::Ordering::SeqCst;
@@ -19,7 +21,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Sender, Receiver};
 use std::thread;
 use string_cache::Atom;
-use texture_cache::{TextureCache, TextureCacheItem};
+use texture_cache::{TextureCache, TextureCacheItem, TextureInsertOp};
 use types::{DisplayListID, Epoch, BorderDisplayItem, BorderRadiusRasterOp};
 use types::{BoxShadowCornerRasterOp, RectangleDisplayItem};
 use types::{Glyph, GradientStop, DisplayListMode, RasterItem, ClipRegion};
@@ -746,13 +748,32 @@ impl Scene {
         // Add completed raster jobs to the texture cache
         for job in jobs {
             let result = job.result.expect("Failed to rasterize the glyph?");
+            let texture_width;
+            let texture_height;
+            let insert_op;
+            match job.glyph_key.blur_radius {
+                Au(0) => {
+                    texture_width = result.width;
+                    texture_height = result.height;
+                    insert_op = TextureInsertOp::Blit(result.bytes);
+                }
+                blur_radius => {
+                    let blur_radius_px = f32::ceil(blur_radius.to_f32_px() * device_pixel_ratio)
+                        as u32;
+                    texture_width = result.width + blur_radius_px * BLUR_INFLATION_FACTOR;
+                    texture_height = result.height + blur_radius_px * BLUR_INFLATION_FACTOR;
+                    insert_op = TextureInsertOp::Blur(result.bytes,
+                                                      Size2D::new(result.width, result.height),
+                                                      blur_radius);
+                }
+            }
             texture_cache.insert(job.image_id,
                                  result.left,
                                  result.top,
-                                 result.width,
-                                 result.height,
+                                 texture_width,
+                                 texture_height,
                                  ImageFormat::A8,
-                                 result.bytes);
+                                 insert_op);
         }
     }
 
@@ -891,6 +912,7 @@ impl AABBTreeNode {
                                                draw_context,
                                                info.font_id.clone(),
                                                info.size,
+                                               info.blur_radius,
                                                &info.color,
                                                &info.glyphs,
                                                mask_image_info,
@@ -1131,14 +1153,16 @@ impl AABBTree {
 pub struct GlyphKey {
     pub font_id: Atom,
     pub size: Au,
+    pub blur_radius: Au,
     pub index: u32,
 }
 
 impl GlyphKey {
-    pub fn new(font_id: Atom, size: Au, index: u32) -> GlyphKey {
+    pub fn new(font_id: Atom, size: Au, blur_radius: Au, index: u32) -> GlyphKey {
         GlyphKey {
             font_id: font_id,
             size: size,
+            blur_radius: blur_radius,
             index: index,
         }
     }
@@ -1200,13 +1224,14 @@ fn cache_image(image_id: ImageID,
                image_templates: &HashMap<ImageID, ImageResource, DefaultState<FnvHasher>>) {
     if !texture_cache.exists(image_id) {
         let image_template = image_templates.get(&image_id).expect("TODO: image not available yet! ");
+        // TODO: Can we avoid the clone of the bytes here?
         texture_cache.insert(image_id,
                              0,
                              0,
                              image_template.width,
                              image_template.height,
                              image_template.format,
-                             image_template.bytes.clone());        // TODO: Can we avoid the clone here?
+                             TextureInsertOp::Blit(image_template.bytes.clone()));
     }
 }
 
@@ -1225,10 +1250,11 @@ fn cache_fonts(resource_list: &ResourceList,
     //let _pf = util::ProfileScope::new("  cache_fonts");
 
     for (font_id, glyphs) in &resource_list.required_glyphs {
-        let mut glyph_key = GlyphKey::new(font_id.clone(), Au(0), 0);
+        let mut glyph_key = GlyphKey::new(font_id.clone(), Au(0), Au(0), 0);
         for glyph in glyphs {
             glyph_key.size = glyph.size;
             glyph_key.index = glyph.index;
+            glyph_key.blur_radius = glyph.blur_radius;
 
             if !glyph_to_image_map.contains_key(&glyph_key) {
                 let image_id = ImageID::new();
@@ -1714,6 +1740,7 @@ impl CompiledNode {
                 draw_context: &DrawContext,
                 font_id: Atom,
                 size: Au,
+                blur_radius: Au,
                 color: &ColorF,
                 glyphs: &Vec<GlyphInstance>,
                 dummy_mask_image: &TextureCacheItem,
@@ -1724,7 +1751,9 @@ impl CompiledNode {
 
         let device_pixel_ratio = draw_context.device_pixel_ratio;
 
-        let mut glyph_key = GlyphKey::new(font_id, size, glyphs[0].index);
+        let mut glyph_key = GlyphKey::new(font_id, size, blur_radius, glyphs[0].index);
+
+        let blur_offset = blur_radius.to_f32_px() * (BLUR_INFLATION_FACTOR as f32) / 2.0;
 
         let first_image_id = glyph_to_image_map.get(&glyph_key).unwrap();
         let first_image_info = texture_cache.get(*first_image_id);
@@ -1746,8 +1775,8 @@ impl CompiledNode {
             let image_info = texture_cache.get(*image_id);
 
             if image_info.width > 0 && image_info.height > 0 {
-                let x0 = glyph.x + image_info.x0 as f32 / device_pixel_ratio;
-                let y0 = glyph.y - image_info.y0 as f32 / device_pixel_ratio;
+                let x0 = glyph.x + image_info.x0 as f32 / device_pixel_ratio - blur_offset;
+                let y0 = glyph.y - image_info.y0 as f32 / device_pixel_ratio - blur_offset;
 
                 let x1 = x0 + image_info.width as f32 / device_pixel_ratio;
                 let y1 = y0 + image_info.height as f32 / device_pixel_ratio;
@@ -2441,7 +2470,7 @@ impl BuildRequiredResources for AABBTreeNode {
                 }
                 SpecificDisplayItem::Text(ref info) => {
                     for glyph in &info.glyphs {
-                        let glyph = Glyph::new(info.size, glyph.index);
+                        let glyph = Glyph::new(info.size, info.blur_radius, glyph.index);
                         // TODO: Cloning this atom here might be quite expensive!
                         match resource_list.required_glyphs.entry(info.font_id.clone()) {
                             Occupied(entry) => {
@@ -2518,9 +2547,9 @@ impl RenderBatch {
 
     fn can_add_to_batch(&self, item: &DrawRenderItem, program_id: ProgramId) -> bool {
         program_id == self.program_id &&
-        item.color_texture_id == self.color_texture_id &&
-        item.mask_texture_id == self.mask_texture_id &&
-        self.vertices.len() < 65535                 // to ensure we can use u16 index buffers
+            item.color_texture_id == self.color_texture_id &&
+            item.mask_texture_id == self.mask_texture_id &&
+            self.vertices.len() < 65535                  // to ensure we can use u16 index buffers
     }
 
     fn add_draw_item(&mut self,
