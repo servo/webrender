@@ -1,3 +1,5 @@
+#version 110
+
 #ifdef GL_ES
     precision mediump float;
 #endif
@@ -14,5 +16,5 @@ void main(void)
 	#else
 		float alpha = texture2D(sDiffuse, vTexCoord).r;
 	#endif
-	gl_FragColor = vec4(vColor.xyz, alpha);
+	gl_FragColor = vec4(vColor.xyz, alpha * vColor.w);
 }
