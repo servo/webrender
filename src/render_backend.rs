@@ -1650,6 +1650,7 @@ impl CompiledNode {
         let pass = util::get_render_pass(&[*color], image_info.format);
         let first_vertex = self.vertex_buffer.len();
         let mut vertex_count = 0;
+        debug_assert!(stretch_size.width > 0.0 && stretch_size.height > 0.0);       // Should be caught higher up
 
         let uv_origin = Point2D::new(image_info.u0, image_info.v0);
         let uv_size = Size2D::new(image_info.u1 - image_info.u0,
