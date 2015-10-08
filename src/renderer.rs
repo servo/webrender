@@ -7,13 +7,18 @@ use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, Rend
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, RenderBatch, VertexFormat};
 use render_api::RenderApi;
 use render_backend::RenderBackend;
+use std::f32;
 use std::mem;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
-use texture_cache::TextureCache;
+use texture_cache::{TextureCache, TextureInsertOp};
 use types::{ColorF, Epoch, PipelineId, RenderNotifier, ImageID, ImageFormat, MixBlendMode};
 //use util;
+
+pub const BLUR_INFLATION_FACTOR: u32 = 3;
+
+static RECTANGLE_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 1];
 
 struct RenderContext {
     blend_program_id: ProgramId,
@@ -42,8 +47,14 @@ pub struct Renderer {
 
     box_shadow_corner_program_id: ProgramId,
     u_box_shadow_corner_position: UniformLocation,
-    u_blur_radius: UniformLocation,
+    u_box_shadow_blur_radius: UniformLocation,
     u_arc_radius: UniformLocation,
+
+    blur_program_id: ProgramId,
+    u_blur_blur_radius: UniformLocation,
+    u_dest_texture_size: UniformLocation,
+    u_direction: UniformLocation,
+    u_source_texture_size: UniformLocation,
 }
 
 impl Renderer {
@@ -66,6 +77,7 @@ impl Renderer {
         let blend_program_id = device.create_program("blend.vs.glsl", "blend.fs.glsl");
         let box_shadow_corner_program_id = device.create_program("box-shadow-corner.vs.glsl",
                                                                  "box-shadow-corner.fs.glsl");
+        let blur_program_id = device.create_program("blur.vs.glsl", "blur.fs.glsl");
 
         let u_border_radii = device.get_uniform_location(border_program_id, "uRadii");
         let u_border_position = device.get_uniform_location(border_program_id, "uPosition");
@@ -74,10 +86,16 @@ impl Renderer {
 
         let u_box_shadow_corner_position =
             device.get_uniform_location(box_shadow_corner_program_id, "uPosition");
-        let u_blur_radius = device.get_uniform_location(box_shadow_corner_program_id,
-                                                        "uBlurRadius");
+        let u_box_shadow_blur_radius = device.get_uniform_location(box_shadow_corner_program_id,
+                                                                   "uBlurRadius");
         let u_arc_radius = device.get_uniform_location(box_shadow_corner_program_id,
                                                        "uArcRadius");
+
+        let u_blur_blur_radius = device.get_uniform_location(blur_program_id, "uBlurRadius");
+        let u_dest_texture_size = device.get_uniform_location(blur_program_id, "uDestTextureSize");
+        let u_direction = device.get_uniform_location(blur_program_id, "uDirection");
+        let u_source_texture_size = device.get_uniform_location(blur_program_id,
+                                                                "uSourceTextureSize");
 
         let texture_ids = device.create_texture_ids(1024);
         let mut texture_cache = TextureCache::new(texture_ids);
@@ -93,10 +111,22 @@ impl Renderer {
         ];
         // TODO: Ensure that the white texture can never get evicted when the cache supports LRU eviction!
         let white_image_id = ImageID::new();
-        texture_cache.insert(white_image_id, 0, 0, 2, 2, ImageFormat::RGB8, white_pixels);
+        texture_cache.insert(white_image_id,
+                             0,
+                             0,
+                             2,
+                             2,
+                             ImageFormat::RGB8,
+                             TextureInsertOp::Blit(white_pixels));
 
         let dummy_mask_image_id = ImageID::new();
-        texture_cache.insert(dummy_mask_image_id, 0, 0, 2, 2, ImageFormat::A8, mask_pixels);
+        texture_cache.insert(dummy_mask_image_id,
+                             0,
+                             0,
+                             2,
+                             2,
+                             ImageFormat::A8,
+                             TextureInsertOp::Blit(mask_pixels));
 
         device.end_frame();
 
@@ -124,12 +154,17 @@ impl Renderer {
             blend_program_id: blend_program_id,
             quad_program_id: quad_program_id,
             box_shadow_corner_program_id: box_shadow_corner_program_id,
+            blur_program_id: blur_program_id,
             u_border_radii: u_border_radii,
             u_border_position: u_border_position,
             u_blend_params: u_blend_params,
             u_box_shadow_corner_position: u_box_shadow_corner_position,
-            u_blur_radius: u_blur_radius,
+            u_box_shadow_blur_radius: u_box_shadow_blur_radius,
             u_arc_radius: u_arc_radius,
+            u_blur_blur_radius: u_blur_blur_radius,
+            u_dest_texture_size: u_dest_texture_size,
+            u_source_texture_size: u_source_texture_size,
+            u_direction: u_direction,
         }
     }
 
@@ -210,6 +245,101 @@ impl Renderer {
                                                            width,
                                                            height,
                                                            bytes.as_slice());
+                            }
+                            TextureUpdateDetails::Blur(bytes,
+                                                       glyph_size,
+                                                       radius,
+                                                       unblurred_glyph_texture_id,
+                                                       horizontal_blur_texture_id) => {
+                                let radius =
+                                    f32::ceil(radius.to_f32_px() * self.device_pixel_ratio) as u32;
+                                self.device.init_texture(unblurred_glyph_texture_id,
+                                                         glyph_size.width,
+                                                         glyph_size.height,
+                                                         ImageFormat::A8,
+                                                         RenderTargetMode::None,
+                                                         Some(bytes.as_slice()));
+                                self.device.init_texture(horizontal_blur_texture_id,
+                                                         width,
+                                                         height,
+                                                         ImageFormat::A8,
+                                                         RenderTargetMode::RenderTarget,
+                                                         None);
+
+                                let blur_program_id = self.blur_program_id;
+                                self.set_up_gl_state_for_texture_cache_update(
+                                    horizontal_blur_texture_id,
+                                    blur_program_id);
+
+                                let white = ColorF::new(1.0, 1.0, 1.0, 1.0);
+                                let (width, height) = (width as f32, height as f32);
+                                self.device.bind_mask_texture(unblurred_glyph_texture_id);
+                                self.device.set_uniform_2f(self.u_direction, 1.0, 0.0);
+
+                                // FIXME(pcwalton): This is going to interfere pretty bad with
+                                // our batching if we have lots of heterogeneous border radii.
+                                // Maybe we should make these varyings instead.
+                                self.device.set_uniform_1f(self.u_blur_blur_radius, radius as f32);
+                                self.device.set_uniform_2f(self.u_dest_texture_size,
+                                                           width as f32,
+                                                           height as f32);
+                                self.device.set_uniform_2f(self.u_source_texture_size,
+                                                           glyph_size.width as f32,
+                                                           glyph_size.height as f32);
+
+                                let vertices = [
+                                    PackedVertex::from_components(0.0, 0.0, 0.0,
+                                                                  &white,
+                                                                  0.0, 0.0, 0.0, 0.0),
+                                    PackedVertex::from_components(width, 0.0, 0.0,
+                                                                  &white,
+                                                                  0.0, 0.0, 1.0, 0.0),
+                                    PackedVertex::from_components(0.0, height, 0.0,
+                                                                  &white,
+                                                                  0.0, 0.0, 0.0, 1.0),
+                                    PackedVertex::from_components(width, height, 0.0,
+                                                                  &white,
+                                                                  0.0, 0.0, 1.0, 1.0),
+                                ];
+
+                                self.perform_gl_texture_cache_update(&RECTANGLE_INDICES,
+                                                                     &vertices);
+
+                                self.device.deinit_texture(unblurred_glyph_texture_id);
+
+                                self.set_up_gl_state_for_texture_cache_update(
+                                    update.id,
+                                    blur_program_id);
+                                self.device.bind_mask_texture(horizontal_blur_texture_id);
+                                self.device.set_uniform_1f(self.u_blur_blur_radius, radius as f32);
+                                self.device.set_uniform_2f(self.u_source_texture_size,
+                                                           width as f32,
+                                                           height as f32);
+                                self.device.set_uniform_2f(self.u_dest_texture_size,
+                                                           width as f32,
+                                                           height as f32);
+                                self.device.set_uniform_2f(self.u_direction, 0.0, 1.0);
+
+                                let (x, y) = (x as f32, y as f32);
+                                let (max_x, max_y) = (x + width, y + height);
+                                let vertices = [
+                                    PackedVertex::from_components(x, y, 0.0,
+                                                                  &white,
+                                                                  0.0, 0.0, 0.0, 0.0),
+                                    PackedVertex::from_components(max_x, y, 0.0,
+                                                                  &white,
+                                                                  1.0, 0.0, 1.0, 0.0),
+                                    PackedVertex::from_components(x, max_y, 0.0,
+                                                                  &white,
+                                                                  0.0, 1.0, 0.0, 1.0),
+                                    PackedVertex::from_components(max_x, max_y, 0.0,
+                                                                  &white,
+                                                                  1.0, 1.0, 1.0, 1.0),
+                                ];
+                                self.perform_gl_texture_cache_update(&RECTANGLE_INDICES,
+                                                                     &vertices);
+
+                                self.device.deinit_texture(horizontal_blur_texture_id);
                             }
                             TextureUpdateDetails::BorderRadius(outer_rx, outer_ry, inner_rx, inner_ry) => {
                                 let x = x as f32;
@@ -298,8 +428,6 @@ impl Renderer {
                                                   rect: &Rect<f32>,
                                                   blur_radius: Au,
                                                   border_radius: Au) {
-        static INDICES: [u16; 6] = [ 0, 1, 2, 2, 3, 1 ];
-
         let box_shadow_corner_program_id = self.box_shadow_corner_program_id;
         self.set_up_gl_state_for_texture_cache_update(update_id, box_shadow_corner_program_id);
 
@@ -310,7 +438,7 @@ impl Renderer {
                                    rect.origin.y,
                                    rect.size.width,
                                    rect.size.height);
-        self.device.set_uniform_1f(self.u_blur_radius, blur_radius);
+        self.device.set_uniform_1f(self.u_box_shadow_blur_radius, blur_radius);
         self.device.set_uniform_1f(self.u_arc_radius, border_radius);
 
         let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
@@ -349,7 +477,7 @@ impl Renderer {
                                           0.0),
         ];
 
-        self.perform_gl_texture_cache_update(&INDICES, &vertices);
+        self.perform_gl_texture_cache_update(&RECTANGLE_INDICES, &vertices);
     }
 
     fn set_up_gl_state_for_texture_cache_update(&mut self,

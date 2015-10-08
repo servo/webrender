@@ -1,5 +1,7 @@
+use app_units::Au;
 use bit_vec::BitVec;
 use device::TextureId;
+use euclid::Size2D;
 use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RenderTargetMode, TextureUpdateList};
 use std::collections::HashMap;
@@ -298,16 +300,40 @@ impl TextureCache {
                   width: u32,
                   height: u32,
                   format: ImageFormat,
-                  bytes: Vec<u8>) {
+                  insert_op: TextureInsertOp) {
 
         let result = self.allocate(image_id, x0, y0, width, height, format);
 
-        let op = match result.kind {
-            AllocationKind::TexturePage => {
-                TextureUpdateOp::Update(result.x, result.y, width, height, TextureUpdateDetails::Blit(bytes))
+        let op = match (result.kind, insert_op) {
+            (AllocationKind::TexturePage, TextureInsertOp::Blit(bytes)) => {
+                TextureUpdateOp::Update(result.x,
+                                        result.y,
+                                        width,
+                                        height,
+                                        TextureUpdateDetails::Blit(bytes))
             }
-            AllocationKind::Standalone => {
+            (AllocationKind::TexturePage,
+             TextureInsertOp::Blur(bytes, glyph_size, blur_radius)) => {
+                let unblurred_glyph_texture_id =
+                    self.free_texture_ids.pop().expect("TODO: Handle running out of texture IDs!");
+                let horizontal_blur_texture_id =
+                    self.free_texture_ids.pop().expect("TODO: Handle running out of texture IDs!");
+                TextureUpdateOp::Update(result.x,
+                                        result.y,
+                                        width,
+                                        height,
+                                        TextureUpdateDetails::Blur(bytes,
+                                                                   glyph_size,
+                                                                   blur_radius,
+                                                                   unblurred_glyph_texture_id,
+                                                                   horizontal_blur_texture_id))
+            }
+            (AllocationKind::Standalone, TextureInsertOp::Blit(bytes)) => {
                 TextureUpdateOp::Create(width, height, format, RenderTargetMode::None, Some(bytes))
+            }
+            (AllocationKind::Standalone, TextureInsertOp::Blur(_, _, _)) => {
+                println!("ERROR: Can't blur with a standalone texture yet!");
+                return
             }
         };
 
@@ -324,6 +350,15 @@ impl TextureCache {
     }
 
     pub fn get(&self, id: ImageID) -> &TextureCacheItem {
-        self.items.get(&id).expect(&format!("id {:?} was not cached!", id))
+        match self.items.get(&id) {
+            Some(item) => item,
+            None => panic!("id {:?} was not cached!", id),
+        }
     }
 }
+
+pub enum TextureInsertOp {
+    Blit(Vec<u8>),
+    Blur(Vec<u8>, Size2D<u32>, Au),
+}
+
