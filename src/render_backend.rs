@@ -410,6 +410,7 @@ impl Scene {
             };
             let clip = ClipRegion {
                 main: stacking_context.overflow,
+                complex: vec![],
             };
             let composite_item = DisplayItem {
                 item: SpecificDisplayItem::Composite(composite_item),
@@ -438,6 +439,7 @@ impl Scene {
                     };
                     let clip = ClipRegion {
                         main: stacking_context.overflow,
+                        complex: vec![],
                     };
                     let root_bg_color_item = DisplayItem {
                         item: SpecificDisplayItem::Rectangle(rectangle_item),
@@ -908,9 +910,12 @@ impl AABBTreeNode {
                                                 draw_context,
                                                 &display_item.rect,
                                                 &clip_rect,
+                                                &display_item.clip,
                                                 &info.stretch_size,
                                                 image,
                                                 mask_image_info,
+                                                raster_to_image_map,
+                                                &texture_cache,
                                                 &color_white);
                     }
                     SpecificDisplayItem::Text(ref info) => {
@@ -931,8 +936,11 @@ impl AABBTreeNode {
                                                     &display_item.rect,
                                                     &clip_rect,
                                                     BoxShadowClipMode::Inset,
+                                                    &display_item.clip,
                                                     white_image_info,
                                                     mask_image_info,
+                                                    raster_to_image_map,
+                                                    &texture_cache,
                                                     &info.color);
                     }
                     SpecificDisplayItem::Iframe(..) => {}
@@ -951,6 +959,7 @@ impl AABBTreeNode {
                                                      draw_context,
                                                      &info.box_bounds,
                                                      &clip_rect,
+                                                     &display_item.clip,
                                                      &info.offset,
                                                      &info.color,
                                                      info.blur_radius,
@@ -1501,6 +1510,7 @@ impl RenderBackend {
     fn scroll(&mut self, delta: Point2D<f32>) {
         self.scene.scroll(delta);
     }
+
 }
 
 #[derive(Debug)]
@@ -1611,6 +1621,27 @@ impl VertexBuffer {
     }
 
     #[inline]
+    fn push_textured_and_masked(&mut self,
+                                x: f32,
+                                y: f32,
+                                color: &ColorF,
+                                s: f32,
+                                t: f32,
+                                ms: f32,
+                                mt: f32,
+                                draw_context: &DrawContext) {
+        let p = Point2D::new(x, y);
+        let p = draw_context.transform.transform_point(&p);
+        self.vertices.push(WorkVertex::new(p.x + draw_context.offset.x,
+                                           p.y + draw_context.offset.y,
+                                           color,
+                                           s,
+                                           t,
+                                           ms,
+                                           mt));
+    }
+
+    #[inline]
     fn push_vertex(&mut self, mut v: WorkVertex, draw_context: &DrawContext) {
         let p = Point2D::new(v.x, v.y);
         let p = draw_context.transform.transform_point(&p);
@@ -1632,16 +1663,22 @@ impl CompiledNode {
                      rect: &Rect<f32>,
                      clip: &Rect<f32>,
                      clip_mode: BoxShadowClipMode,
+                     clip_region: &ClipRegion,
                      image_info: &TextureCacheItem,
                      dummy_mask_image: &TextureCacheItem,
+                     raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                     texture_cache: &TextureCache,
                      color: &ColorF) {
         self.add_axis_aligned_gradient(sort_key,
                                        draw_context,
                                        rect,
                                        clip,
                                        clip_mode,
+                                       clip_region,
                                        image_info,
                                        dummy_mask_image,
+                                       raster_to_image_map,
+                                       texture_cache,
                                        &[*color, *color, *color, *color])
     }
 
@@ -1674,14 +1711,14 @@ impl CompiledNode {
                  draw_context: &DrawContext,
                  rect: &Rect<f32>,
                  clip_rect: &Rect<f32>,
+                 clip_region: &ClipRegion,
                  stretch_size: &Size2D<f32>,
                  image_info: &TextureCacheItem,
                  dummy_mask_image: &TextureCacheItem,
+                 raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                 texture_cache: &TextureCache,
                  color: &ColorF) {
-
-        let pass = util::get_render_pass(&[*color], image_info.format);
-        let first_vertex = self.vertex_buffer.len();
-        let mut vertex_count = 0;
+        let pass = util::get_render_pass(&[*color], image_info.format, &None);
         debug_assert!(stretch_size.width > 0.0 && stretch_size.height > 0.0);       // Should be caught higher up
 
         let uv_origin = Point2D::new(image_info.u0, image_info.v0);
@@ -1690,15 +1727,20 @@ impl CompiledNode {
         let uv = Rect::new(uv_origin, uv_size);
 
         if rect.size.width == stretch_size.width && rect.size.height == stretch_size.height {
-            let clip_result = clipper::clip_rect_pos_uv(rect, &uv, clip_rect);
-
-            if let Some(cr) = clip_result {
-                self.vertex_buffer.push(cr.x0, cr.y0, color, cr.u0, cr.v0, draw_context);
-                self.vertex_buffer.push(cr.x1, cr.y0, color, cr.u1, cr.v0, draw_context);
-                self.vertex_buffer.push(cr.x0, cr.y1, color, cr.u0, cr.v1, draw_context);
-                self.vertex_buffer.push(cr.x1, cr.y1, color, cr.u1, cr.v1, draw_context);
-                vertex_count = 4;
-            }
+            push_rect(&mut self.render_items,
+                      &mut self.vertex_buffer,
+                      draw_context,
+                      color,
+                      image_info,
+                      dummy_mask_image,
+                      clip_rect,
+                      clip_region,
+                      &sort_key,
+                      pass,
+                      raster_to_image_map,
+                      texture_cache,
+                      rect,
+                      &uv);
         } else {
             let mut y_offset = 0.0;
             while y_offset < rect.size.height {
@@ -1708,14 +1750,20 @@ impl CompiledNode {
                     let origin = Point2D::new(rect.origin.x + x_offset, rect.origin.y + y_offset);
                     let tiled_rect = Rect::new(origin, stretch_size.clone());
 
-                    let clip_result = clipper::clip_rect_pos_uv(&tiled_rect, &uv, clip_rect);
-                    if let Some(cr) = clip_result {
-                        self.vertex_buffer.push(cr.x0, cr.y0, color, cr.u0, cr.v0, draw_context);
-                        self.vertex_buffer.push(cr.x1, cr.y0, color, cr.u1, cr.v0, draw_context);
-                        self.vertex_buffer.push(cr.x0, cr.y1, color, cr.u0, cr.v1, draw_context);
-                        self.vertex_buffer.push(cr.x1, cr.y1, color, cr.u1, cr.v1, draw_context);
-                        vertex_count += 4;
-                    }
+                    push_rect(&mut self.render_items,
+                              &mut self.vertex_buffer,
+                              draw_context,
+                              color,
+                              image_info,
+                              dummy_mask_image,
+                              clip_rect,
+                              clip_region,
+                              &sort_key,
+                              pass,
+                              raster_to_image_map,
+                              texture_cache,
+                              &tiled_rect,
+                              &uv);
 
                     x_offset = x_offset + stretch_size.width;
                 }
@@ -1724,20 +1772,74 @@ impl CompiledNode {
             }
         }
 
-        if vertex_count > 0 {
-            let render_item = RenderItem {
-                sort_key: sort_key.clone(),
-                info: RenderItemInfo::Draw(DrawRenderItem {
-                    pass: pass,
-                    color_texture_id: image_info.texture_id,
-                    mask_texture_id: dummy_mask_image.texture_id,
-                    primitive: Primitive::Rectangles,
-                    first_vertex: first_vertex,
-                    vertex_count: vertex_count,
-                }),
-            };
+        fn push_rect(render_items: &mut Vec<RenderItem>,
+                     vertex_buffer: &mut VertexBuffer,
+                     draw_context: &DrawContext,
+                     color: &ColorF,
+                     image_info: &TextureCacheItem,
+                     dummy_mask_image: &TextureCacheItem,
+                     clip_rect: &Rect<f32>,
+                     clip_region: &ClipRegion,
+                     sort_key: &DisplayItemKey,
+                     pass: RenderPass,
+                     raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                     texture_cache: &TextureCache,
+                     rect: &Rect<f32>,
+                     uv: &Rect<f32>) {
+            for clip_region in clipper::clip_rect_with_mode_and_to_region_pos_uv(
+                    rect,
+                    &uv,
+                    clip_rect,
+                    BoxShadowClipMode::Inset,
+                    clip_region) {
+                let rect = clip_region.rect_result.rect();
+                let uv = clip_region.rect_result.uv_rect();
+                let mask = match clip_region.mask_result {
+                    None => dummy_mask_image,
+                    Some(ref mask_result) => {
+                        mask_for_border_radius(dummy_mask_image,
+                                               raster_to_image_map,
+                                               texture_cache,
+                                               mask_result.border_radius)
+                    }
+                };
 
-            self.render_items.push(render_item);
+                let first_vertex = vertex_buffer.len();
+                let muv = clip_region.muv(&mask);
+                vertex_buffer.push_textured_and_masked(rect.origin.x, rect.origin.y,
+                                                       color,
+                                                       uv.origin.x, uv.origin.y,
+                                                       muv.origin.x, muv.origin.y,
+                                                       draw_context);
+                vertex_buffer.push_textured_and_masked(rect.max_x(), rect.origin.y,
+                                                       color,
+                                                       uv.max_x(), uv.origin.y,
+                                                       muv.max_x(), muv.origin.y,
+                                                       draw_context);
+                vertex_buffer.push_textured_and_masked(rect.origin.x, rect.max_y(),
+                                                       color,
+                                                       uv.origin.x, uv.max_y(),
+                                                       muv.origin.x, muv.max_y(),
+                                                       draw_context);
+                vertex_buffer.push_textured_and_masked(rect.max_x(), rect.max_y(),
+                                                       color,
+                                                       uv.max_x(), uv.max_y(),
+                                                       muv.max_x(), muv.max_y(),
+                                                       draw_context);
+
+                let render_item = RenderItem {
+                    sort_key: (*sort_key).clone(),
+                    info: RenderItemInfo::Draw(DrawRenderItem {
+                        pass: pass,
+                        color_texture_id: image_info.texture_id,
+                        mask_texture_id: mask.texture_id,
+                        primitive: Primitive::Rectangles,
+                        first_vertex: first_vertex,
+                        vertex_count: 4,
+                    }),
+                };
+                render_items.push(render_item);
+            }
         }
     }
 
@@ -1841,8 +1943,13 @@ impl CompiledNode {
                                  rect: &Rect<f32>,
                                  clip: &Rect<f32>,
                                  clip_mode: BoxShadowClipMode,
+                                 clip_region: &ClipRegion,
                                  image_info: &TextureCacheItem,
                                  dummy_mask_image: &TextureCacheItem,
+                                 raster_to_image_map: &HashMap<RasterItem,
+                                                               ImageID,
+                                                               DefaultState<FnvHasher>>,
+                                 texture_cache: &TextureCache,
                                  colors: &[ColorF; 4]) {
         if rect.size.width == 0.0 || rect.size.height == 0.0 {
             return
@@ -1853,23 +1960,64 @@ impl CompiledNode {
         let uv = Rect::new(uv_origin, uv_size);
 
         // TODO(pcwalton): Clip colors too!
-        for cr in clipper::clip_rect_with_mode_pos_uv(rect, &uv, clip, clip_mode) {
+        for clip_region in clipper::clip_rect_with_mode_and_to_region_pos_uv(rect,
+                                                                             &uv,
+                                                                             clip,
+                                                                             clip_mode,
+                                                                             clip_region) {
+            let mask = match clip_region.mask_result {
+                None => dummy_mask_image,
+                Some(ref mask_result) => {
+                    mask_for_border_radius(dummy_mask_image,
+                                           raster_to_image_map,
+                                           texture_cache,
+                                           mask_result.border_radius)
+                }
+            };
+
             let render_item = RenderItem {
                 sort_key: sort_key.clone(),
                 info: RenderItemInfo::Draw(DrawRenderItem {
-                    pass: util::get_render_pass(colors, image_info.format),
+                    pass: util::get_render_pass(colors,
+                                                image_info.format,
+                                                &clip_region.mask_result),
                     color_texture_id: image_info.texture_id,
-                    mask_texture_id: dummy_mask_image.texture_id,
+                    mask_texture_id: mask.texture_id,
                     primitive: Primitive::Rectangles,
                     vertex_count: 4,
                     first_vertex: self.vertex_buffer.len(),
                 }),
             };
 
-            self.vertex_buffer.push(cr.x0, cr.y0, &colors[0], cr.u0, cr.v0, draw_context);
-            self.vertex_buffer.push(cr.x1, cr.y0, &colors[1], cr.u1, cr.v0, draw_context);
-            self.vertex_buffer.push(cr.x0, cr.y1, &colors[3], cr.u0, cr.v1, draw_context);
-            self.vertex_buffer.push(cr.x1, cr.y1, &colors[2], cr.u1, cr.v1, draw_context);
+            let muv = clip_region.muv(&mask);
+            self.vertex_buffer.push_textured_and_masked(clip_region.rect_result.x0,
+                                                        clip_region.rect_result.y0,
+                                                        &colors[0],
+                                                        clip_region.rect_result.u0,
+                                                        clip_region.rect_result.v0,
+                                                        muv.origin.x, muv.origin.y,
+                                                        draw_context);
+            self.vertex_buffer.push_textured_and_masked(clip_region.rect_result.x1,
+                                                        clip_region.rect_result.y0,
+                                                        &colors[1],
+                                                        clip_region.rect_result.u1,
+                                                        clip_region.rect_result.v0,
+                                                        muv.max_x(), muv.origin.y,
+                                                        draw_context);
+            self.vertex_buffer.push_textured_and_masked(clip_region.rect_result.x0,
+                                                        clip_region.rect_result.y1,
+                                                        &colors[3],
+                                                        clip_region.rect_result.u0,
+                                                        clip_region.rect_result.v1,
+                                                        muv.origin.x, muv.max_y(),
+                                                        draw_context);
+            self.vertex_buffer.push_textured_and_masked(clip_region.rect_result.x1,
+                                                        clip_region.rect_result.y1,
+                                                        &colors[2],
+                                                        clip_region.rect_result.u1,
+                                                        clip_region.rect_result.v1,
+                                                        muv.max_x(), muv.max_y(),
+                                                        draw_context);
 
             self.render_items.push(render_item);
         }
@@ -1972,6 +2120,7 @@ impl CompiledNode {
                       draw_context: &DrawContext,
                       box_bounds: &Rect<f32>,
                       clip: &Rect<f32>,
+                      clip_region: &ClipRegion,
                       box_offset: &Point2D<f32>,
                       color: &ColorF,
                       blur_radius: f32,
@@ -1993,8 +2142,11 @@ impl CompiledNode {
                                &rect,
                                clip,
                                BoxShadowClipMode::Inset,
+                               clip_region,
                                white_image,
                                dummy_mask_image,
+                               raster_to_image_map,
+                               texture_cache,
                                color);
             return;
         }
@@ -2107,32 +2259,44 @@ impl CompiledNode {
                                        &top_rect,
                                        box_bounds,
                                        clip_mode,
+                                       clip_region,
                                        white_image,
                                        dummy_mask_image,
+                                       raster_to_image_map,
+                                       texture_cache,
                                        &[transparent, transparent, *color, *color]);
         self.add_axis_aligned_gradient(sort_key,
                                        draw_context,
                                        &right_rect,
                                        box_bounds,
                                        clip_mode,
+                                       clip_region,
                                        white_image,
                                        dummy_mask_image,
+                                       raster_to_image_map,
+                                       texture_cache,
                                        &[*color, transparent, transparent, *color]);
         self.add_axis_aligned_gradient(sort_key,
                                        draw_context,
                                        &bottom_rect,
                                        box_bounds,
                                        clip_mode,
+                                       clip_region,
                                        white_image,
                                        dummy_mask_image,
+                                       raster_to_image_map,
+                                       texture_cache,
                                        &[*color, *color, transparent, transparent]);
         self.add_axis_aligned_gradient(sort_key,
                                        draw_context,
                                        &left_rect,
                                        box_bounds,
                                        clip_mode,
+                                       clip_region,
                                        white_image,
                                        dummy_mask_image,
+                                       raster_to_image_map,
+                                       texture_cache,
                                        &[transparent, *color, *color, transparent]);
 
         // Fill the center area.
@@ -2143,8 +2307,11 @@ impl CompiledNode {
                                                   rect.size.height - twice_blur_diameter)),
                            box_bounds,
                            clip_mode,
+                           clip_region,
                            white_image,
                            dummy_mask_image,
+                           raster_to_image_map,
+                           texture_cache,
                            color);
     }
 
@@ -2471,7 +2638,21 @@ impl BuildRequiredResources for AABBTreeNode {
         for item_key in &self.src_items {
             let display_item = flat_draw_lists.get_item(item_key);
 
-            // TODO: Handle border radius for complex clipping regions
+            // Handle border radius for complex clipping regions.
+            for complex_clip_region in display_item.clip.complex.iter() {
+                DrawList::add_radius(&mut resource_list.required_rasters,
+                                     &complex_clip_region.radii.top_left,
+                                     &Size2D::new(0.0, 0.0));
+                DrawList::add_radius(&mut resource_list.required_rasters,
+                                     &complex_clip_region.radii.top_right,
+                                     &Size2D::new(0.0, 0.0));
+                DrawList::add_radius(&mut resource_list.required_rasters,
+                                     &complex_clip_region.radii.bottom_left,
+                                     &Size2D::new(0.0, 0.0));
+                DrawList::add_radius(&mut resource_list.required_rasters,
+                                     &complex_clip_region.radii.bottom_right,
+                                     &Size2D::new(0.0, 0.0));
+            }
 
             match display_item.item {
                 SpecificDisplayItem::Image(ref info) => {
@@ -2742,3 +2923,27 @@ impl BorderSideHelpers for BorderSide {
         }
     }
 }
+
+fn mask_for_border_radius<'a>(dummy_mask_image: &'a TextureCacheItem,
+                              raster_to_image_map: &HashMap<RasterItem,
+                                                            ImageID,
+                                                            DefaultState<FnvHasher>>,
+                              texture_cache: &'a TextureCache,
+                              border_radius: f32)
+                              -> &'a TextureCacheItem {
+    if border_radius == 0.0 {
+        return dummy_mask_image
+    }
+
+    let border_radius = Au::from_f32_px(border_radius);
+    match raster_to_image_map.get(&RasterItem::BorderRadius(BorderRadiusRasterOp {
+        outer_radius_x: border_radius,
+        outer_radius_y: border_radius,
+        inner_radius_x: Au(0),
+        inner_radius_y: Au(0),
+    })) {
+        Some(image_info) => texture_cache.get(*image_info),
+        None => panic!("Couldn't find border radius {:?} in raster-to-image map!", border_radius),
+    }
+}
+

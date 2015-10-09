@@ -1,5 +1,5 @@
 use time::precise_time_ns;
-use internal_types::RenderPass;
+use internal_types::{ClipRectToRegionMaskResult, RenderPass};
 use types::{ColorF, ImageFormat};
 
 #[allow(dead_code)]
@@ -29,8 +29,11 @@ impl Drop for ProfileScope {
     }
 }
 
-pub fn get_render_pass(colors: &[ColorF], format: ImageFormat) -> RenderPass {
-    if colors.iter().any(|color| color.a < 1.0) {
+pub fn get_render_pass(colors: &[ColorF],
+                       format: ImageFormat,
+                       mask_result: &Option<ClipRectToRegionMaskResult>)
+                       -> RenderPass {
+    if colors.iter().any(|color| color.a < 1.0) || mask_result.is_some() {
         return RenderPass::Alpha
     }
 

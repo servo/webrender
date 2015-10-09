@@ -3,6 +3,7 @@ use device::{ProgramId, TextureId};
 use euclid::{Point2D, Rect, Size2D};
 use std::collections::HashMap;
 use string_cache::Atom;
+use texture_cache::TextureCacheItem;
 use types::{MixBlendMode};
 use types::{Epoch, ColorF, PipelineId, ImageFormat, DisplayListID, DrawListID};
 use types::{ImageID, StackingContext, DisplayListBuilder, DisplayListMode};
@@ -310,6 +311,7 @@ pub struct DisplayList {
     pub outlines_id: Option<DrawListID>,
 }
 
+#[derive(Debug)]
 pub struct ClipRectResult {
     pub x0: f32,
     pub y0: f32,
@@ -332,6 +334,71 @@ impl ClipRectResult {
             v0: uv.origin.y,
             u1: uv.max_x(),
             v1: uv.max_y(),
+        }
+    }
+
+    pub fn rect(&self) -> Rect<f32> {
+        Rect::new(Point2D::new(self.x0, self.y0),
+                  Size2D::new(self.x1 - self.x0, self.y1 - self.y0))
+    }
+
+    pub fn uv_rect(&self) -> Rect<f32> {
+        Rect::new(Point2D::new(self.u0, self.v0),
+                  Size2D::new(self.u1 - self.u0, self.v1 - self.v0))
+    }
+}
+
+#[derive(Debug)]
+pub struct ClipRectToRegionMaskResult {
+    pub mu0: f32,
+    pub mv0: f32,
+    pub mu1: f32,
+    pub mv1: f32,
+
+    /// For looking up in the texture cache.
+    pub border_radius: f32,
+}
+
+impl ClipRectToRegionMaskResult {
+    pub fn new(rect: &Rect<f32>, border_radius: f32) -> ClipRectToRegionMaskResult {
+        ClipRectToRegionMaskResult {
+            mu0: rect.origin.x,
+            mv0: rect.origin.y,
+            mu1: rect.max_x(),
+            mv1: rect.max_y(),
+            border_radius: border_radius,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ClipRectToRegionResult {
+    pub rect_result: ClipRectResult,
+    pub mask_result: Option<ClipRectToRegionMaskResult>,
+}
+
+impl ClipRectToRegionResult {
+    pub fn new(rect_result: ClipRectResult, mask_result: Option<ClipRectToRegionMaskResult>)
+               -> ClipRectToRegionResult {
+        ClipRectToRegionResult {
+            rect_result: rect_result,
+            mask_result: mask_result,
+        }
+    }
+
+    pub fn muv(&self, mask: &TextureCacheItem) -> Rect<f32> {
+        match self.mask_result {
+            None => {
+                Rect::new(Point2D::new(mask.u0, mask.v0),
+                          Size2D::new(mask.u1 - mask.u0, mask.v1 - mask.v0))
+            }
+            Some(ref mask_result) => {
+                let mask_uv_size = Size2D::new(mask.u1 - mask.u0, mask.v1 - mask.v0);
+                Rect::new(Point2D::new(mask.u0 + mask_result.mu0 * mask_uv_size.width,
+                                       mask.v0 + mask_result.mv0 * mask_uv_size.height),
+                          Size2D::new((mask_result.mu1 - mask_result.mu0) * mask_uv_size.width,
+                                      (mask_result.mv1 - mask_result.mv0) * mask_uv_size.height))
+            }
         }
     }
 }

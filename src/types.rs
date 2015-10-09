@@ -131,7 +131,7 @@ pub struct GradientStop {
     pub color: ColorF,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct BorderRadius {
     pub top_left: Size2D<f32>,
     pub top_right: Size2D<f32>,
@@ -633,12 +633,31 @@ impl Glyph {
 #[derive(Debug, Clone)]
 pub struct ClipRegion {
     pub main: Rect<f32>,
+    pub complex: Vec<ComplexClipRegion>,
 }
 
 impl ClipRegion {
-    pub fn new(rect: Rect<f32>) -> ClipRegion {
+    pub fn new(rect: Rect<f32>, complex: Vec<ComplexClipRegion>) -> ClipRegion {
         ClipRegion {
             main: rect,
+            complex: complex,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ComplexClipRegion {
+    /// The boundaries of the rectangle.
+    pub rect: Rect<f32>,
+    /// Border radii of this rectangle.
+    pub radii: BorderRadius,
+}
+
+impl ComplexClipRegion {
+    pub fn new(rect: Rect<f32>, radii: BorderRadius) -> ComplexClipRegion {
+        ComplexClipRegion {
+            rect: rect,
+            radii: radii,
         }
     }
 }
