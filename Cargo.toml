@@ -18,3 +18,4 @@ bit-vec="*"
 fnv="*"
 scoped_threadpool = "0.1.6"
 app_units = "0.1"
+simd = { git = "https://github.com/huonw/simd" }

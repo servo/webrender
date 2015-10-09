@@ -1,6 +1,7 @@
 use euclid::{Point2D, Rect};
 use internal_types::{ClipRectResult, WorkVertex};
 use types::{BoxShadowClipMode, ColorF};
+use simd::f32x4;
 
 fn is_inside(a: &Point2D<f32>, b: &Point2D<f32>, c: &WorkVertex) -> bool {
     (a.x - c.x) * (b.y - c.y) > (a.y - c.y) * (b.x - c.x)
@@ -8,36 +9,71 @@ fn is_inside(a: &Point2D<f32>, b: &Point2D<f32>, c: &WorkVertex) -> bool {
 
 fn intersection(a: &Point2D<f32>, b: &Point2D<f32>, p: &WorkVertex, q: &WorkVertex) -> WorkVertex {
     let denominator = (a.x - b.x) * (p.y - q.y) - (a.y - b.y) * (p.x - q.x);
-    let x = ((a.x*b.y-b.x*a.y) * (p.x-q.x) - (a.x-b.x) * (p.x*q.y-p.y*q.x)) / denominator;
-    let y = ((a.x*b.y-b.x*a.y) * (p.y-q.y) - (a.y-b.y) * (p.x*q.y-p.y*q.x)) / denominator;
+    let axby = a.x*b.y - b.x*a.y;
+    let pxqy = p.x*q.y - p.y*q.x;
+    let x = (axby * (p.x-q.x) - (a.x-b.x) * pxqy) / denominator;
+    let y = (axby * (p.y-q.y) - (a.y-b.y) * pxqy) / denominator;
 
     let d1 = ((p.x - x) * (p.x - x) + (p.y - y) * (p.y - y)).sqrt();
     let d2 = ((p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y)).sqrt();
     let ratio = d1 / d2;
 
-    let u = p.u + ratio * (q.u - p.u);
-    let v = p.v + ratio * (q.v - p.v);
+    // de-simd'd code:
+    // let u = p.u + ratio * (q.u - p.u);
+    // let v = p.v + ratio * (q.v - p.v);
+    // let mu = p.mu + ratio * (q.mu - p.mu);
+    // let mv = p.mv + ratio * (q.mv - p.mv);
+    // let r = p.r + ratio * (q.r - p.r);
+    // let g = p.g + ratio * (q.g - p.g);
+    // let b = p.b + ratio * (q.b - p.b);
+    // let a = p.a + ratio * (q.a - p.a);
+    let mut p_uv = f32x4::new(p.u, p.v, p.mu, p.mv);
+    let q_uv = f32x4::new(q.u, q.v, q.mu, q.mv);
+    let simd_ratio = f32x4::new(ratio, ratio, ratio, ratio);
+    let mut p_rgba = f32x4::new(p.r, p.g, p.b, p.a);
+    let q_rgba = f32x4::new(q.r, q.g, q.b, q.a);
+    p_uv = p_uv + simd_ratio * (q_uv - p_uv);
+    p_rgba = p_rgba + simd_ratio * (q_rgba - p_rgba);
 
-    let mu = p.mu + ratio * (q.mu - p.mu);
-    let mv = p.mv + ratio * (q.mv - p.mv);
+    let color = ColorF::new(p_rgba.extract(0),
+                            p_rgba.extract(1),
+                            p_rgba.extract(2),
+                            p_rgba.extract(0));
 
-    let r = p.r + ratio * (q.r - p.r);
-    let g = p.g + ratio * (q.g - p.g);
-    let b = p.b + ratio * (q.b - p.b);
-    let a = p.a + ratio * (q.a - p.a);
-
-    let color = ColorF::new(r, g, b, a);
-
-    WorkVertex::new(x, y, &color, u, v, mu, mv)
+    WorkVertex::new(x, y, &color, p_uv.extract(0),
+                                  p_uv.extract(1),
+                                  p_uv.extract(2),
+                                  p_uv.extract(3))
 }
 
-pub fn clip_polygon(polygon: &Vec<WorkVertex>, clip_polygon: &Vec<Point2D<f32>>) -> Vec<WorkVertex> {
-    let mut result = polygon.clone();
+// We reuse these buffers for clipping algorithms
+pub struct ClipBuffers {
+    input: Vec<WorkVertex>,
+    result: Vec<WorkVertex>,
+}
 
+impl ClipBuffers {
+    pub fn new() -> ClipBuffers {
+        ClipBuffers {
+            input: Vec::new(),
+            result: Vec::new(),
+        }
+    }
+}
+
+pub fn clip_polygon<'a>(buffers: &'a mut ClipBuffers, polygon: &[WorkVertex],
+                    clip_polygon: &[Point2D<f32>]) -> &'a [WorkVertex] {
+
+    let ClipBuffers {ref mut input, ref mut result} = *buffers;
+    input.clear();
+    result.clear();
+    for vert in polygon {
+        result.push(vert.clone());
+    }
     let clip_len = clip_polygon.len();
 
     for i in 0..clip_len {
-        let input = result.clone();
+        input.clone_from(&result);
         let input_len = input.len();
         result.clear();
 
@@ -48,12 +84,14 @@ pub fn clip_polygon(polygon: &Vec<WorkVertex>, clip_polygon: &Vec<Point2D<f32>>)
             let p = &input[(j + input_len-1) % input_len];
             let q = &input[j];
 
+            let p_is_inside = is_inside(a, b, p);
+
             if is_inside(a, b, q) {
-                if !is_inside(a, b, p) {
+                if !p_is_inside {
                     result.push(intersection(a, b, p, q));
                 }
                 result.push(q.clone());
-            } else if is_inside(a, b, p) {
+            } else if p_is_inside {
                 result.push(intersection(a, b, p, q));
             }
         }
@@ -64,26 +102,56 @@ pub fn clip_polygon(polygon: &Vec<WorkVertex>, clip_polygon: &Vec<Point2D<f32>>)
 
 pub fn clip_rect_pos_uv(pos: &Rect<f32>, uv: &Rect<f32>, clip_rect: &Rect<f32>) -> Option<ClipRectResult> {
     pos.intersection(clip_rect).map(|clipped_rect| {
-        let cx0 = clipped_rect.origin.x;
-        let cy0 = clipped_rect.origin.y;
-        let cx1 = cx0 + clipped_rect.size.width;
-        let cy1 = cy0 + clipped_rect.size.height;
+        // de-simd'd code:
+        // let cx0 = clipped_rect.origin.x;
+        // let cy0 = clipped_rect.origin.y;
+        // let cx1 = cx0 + clipped_rect.size.width;
+        // let cy1 = cy0 + clipped_rect.size.height;
 
-        let f0 = (cx0 - pos.origin.x) / pos.size.width;
-        let f1 = (cy0 - pos.origin.y) / pos.size.height;
-        let f2 = (cx1 - pos.origin.x) / pos.size.width;
-        let f3 = (cy1 - pos.origin.y) / pos.size.height;
+        // let f0 = (cx0 - pos.origin.x) / pos.size.width;
+        // let f1 = (cy0 - pos.origin.y) / pos.size.height;
+        // let f2 = (cx1 - pos.origin.x) / pos.size.width;
+        // let f3 = (cy1 - pos.origin.y) / pos.size.height;
+
+        // ClipRectResult {
+        //     x0: cx0,
+        //     y0: cy0,
+        //     x1: cx1,
+        //     y1: cy1,
+        //     u0: uv.origin.x + f0 * uv.size.width,
+        //     v0: uv.origin.y + f1 * uv.size.height,
+        //     u1: uv.origin.x + f2 * uv.size.width,
+        //     v1: uv.origin.y + f3 * uv.size.height,
+        // }
+
+        let clip = f32x4::new(clipped_rect.origin.x,
+                              clipped_rect.origin.y,
+                              clipped_rect.origin.x + clipped_rect.size.width,
+                              clipped_rect.origin.y + clipped_rect.size.height);
+
+        let origins = f32x4::new(pos.origin.x, pos.origin.y,
+                                 pos.origin.x, pos.origin.y);
+
+        let sizes = f32x4::new(pos.size.width, pos.size.height,
+                               pos.size.width, pos.size.height);
+
+        let uv_origins = f32x4::new(uv.origin.x, uv.origin.y,
+                                    uv.origin.x, uv.origin.y);
+        let uv_sizes = f32x4::new(uv.size.width, uv.size.height,
+                                  uv.size.width, uv.size.height);
+        let f = ((clip - origins) / sizes) * uv_sizes + uv_origins;
 
         ClipRectResult {
-            x0: cx0,
-            y0: cy0,
-            x1: cx1,
-            y1: cy1,
-            u0: uv.origin.x + f0 * uv.size.width,
-            v0: uv.origin.y + f1 * uv.size.height,
-            u1: uv.origin.x + f2 * uv.size.width,
-            v1: uv.origin.y + f3 * uv.size.height,
+            x0: clip.extract(0),
+            y0: clip.extract(1),
+            x1: clip.extract(2),
+            y1: clip.extract(3),
+            u0: f.extract(0),
+            v0: f.extract(1),
+            u1: f.extract(2),
+            v1: f.extract(3),
         }
+
     })
 }
 

@@ -16,6 +16,7 @@ extern crate string_cache;
 extern crate serde;
 extern crate bit_vec;
 extern crate scoped_threadpool;
+extern crate simd;
 
 pub mod types;
 pub mod renderer;
@@ -37,3 +38,11 @@ pub use types::{BorderSide, BorderRadius, BorderStyle, Epoch, BoxShadowClipMode,
 pub use types::{ScrollLayerId, MixBlendMode};
 pub use render_api::RenderApi;
 pub use renderer::Renderer;
+
+
+#[doc(hidden)]
+pub mod bench {
+    // to make private modules available to the benchmarks
+    pub use clipper::{clip_rect_pos_uv, clip_polygon, ClipBuffers};
+    pub use internal_types::WorkVertex;
+}
