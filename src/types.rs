@@ -139,7 +139,7 @@ pub struct BorderRadius {
     pub bottom_right: Size2D<f32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum BorderStyle {
     None,
     Solid,
