@@ -1,7 +1,9 @@
-use euclid::{Point2D, Rect};
-use internal_types::{ClipRectResult, WorkVertex};
-use types::{BoxShadowClipMode, ColorF};
+use euclid::{Point2D, Rect, Size2D};
+use internal_types::{ClipRectResult, ClipRectToRegionMaskResult, ClipRectToRegionResult};
+use internal_types::{WorkVertex};
 use simd::f32x4;
+use std::mem;
+use types::{BoxShadowClipMode, ClipRegion, ColorF};
 
 fn is_inside(a: &Point2D<f32>, b: &Point2D<f32>, c: &WorkVertex) -> bool {
     (a.x - c.x) * (b.y - c.y) > (a.y - c.y) * (b.x - c.x)
@@ -101,7 +103,11 @@ pub fn clip_polygon<'a>(buffers: &'a mut ClipBuffers, polygon: &[WorkVertex],
 }
 
 pub fn clip_rect_pos_uv(pos: &Rect<f32>, uv: &Rect<f32>, clip_rect: &Rect<f32>) -> Option<ClipRectResult> {
-    pos.intersection(clip_rect).map(|clipped_rect| {
+    pos.intersection(clip_rect).and_then(|clipped_rect| {
+        if rect_is_empty(&clipped_rect) {
+            return None
+        }
+
         // de-simd'd code:
         // let cx0 = clipped_rect.origin.x;
         // let cy0 = clipped_rect.origin.y;
@@ -141,7 +147,7 @@ pub fn clip_rect_pos_uv(pos: &Rect<f32>, uv: &Rect<f32>, clip_rect: &Rect<f32>) 
                                   uv.size.width, uv.size.height);
         let f = ((clip - origins) / sizes) * uv_sizes + uv_origins;
 
-        ClipRectResult {
+        Some(ClipRectResult {
             x0: clip.extract(0),
             y0: clip.extract(1),
             x1: clip.extract(2),
@@ -150,8 +156,7 @@ pub fn clip_rect_pos_uv(pos: &Rect<f32>, uv: &Rect<f32>, clip_rect: &Rect<f32>) 
             v0: f.extract(1),
             u1: f.extract(2),
             v1: f.extract(3),
-        }
-
+        })
     })
 }
 
@@ -210,5 +215,208 @@ pub fn clip_rect_with_mode_pos_uv(pos: &Rect<f32>,
             clip_out_rect_pos_uv(pos, uv, clip_rect)
         }
     }
+}
+
+fn clip_rect_to_region_pos_uv(pos: &Rect<f32>, uv: &Rect<f32>, region: &ClipRegion)
+                              -> Vec<ClipRectToRegionResult> {
+    let main_result = match clip_rect_pos_uv(pos, uv, &region.main) {
+        Some(main_result) => main_result,
+        None => return vec![],
+    };
+
+    let mut result = vec![ClipRectToRegionResult::new(main_result, None)];
+    for complex_region in region.complex.iter() {
+        for intermediate_result in mem::replace(&mut result, vec![]) {
+            // Quick rejection:
+            let intermediate_rect = intermediate_result.rect_result.rect();
+            if !complex_region.rect.intersects(&intermediate_rect) {
+                continue
+            }
+            let intermediate_uv_rect = intermediate_result.rect_result.uv_rect();
+
+            // FIXME(pcwalton): This is pretty bogus. I guess we should create a region for the
+            // inner area -- which may not be rectangular due to nonequal border radii! -- and use
+            // Sutherland-Hodgman clipping for it.
+            let border_radius =
+                f32::max(f32::max(f32::max(size_max(&complex_region.radii.top_left),
+                                           size_max(&complex_region.radii.top_right)),
+                                  size_max(&complex_region.radii.bottom_left)),
+                         size_max(&complex_region.radii.bottom_right));
+
+            // Compute the middle intersected region:
+            //
+            //   +--+-----------------+--+
+            //   | /|                 |\ | 
+            //   +--+-----------------+--+
+            //   |#######################|
+            //   |#######################|
+            //   |#######################|
+            //   +--+-----------------+--+
+            //   | \|                 |/ | 
+            //   +--+-----------------+--+
+            let inner_rect = Rect::new(
+                Point2D::new(complex_region.rect.origin.x,
+                             complex_region.rect.origin.y + border_radius),
+                Size2D::new(complex_region.rect.size.width,
+                            complex_region.rect.size.height - (border_radius + border_radius)));
+            if !rect_is_empty(&inner_rect) {
+                if let Some(clip_rect_result) =
+                        clip_rect_pos_uv(&intermediate_rect,
+                                         &intermediate_result.rect_result.uv_rect(),
+                                         &inner_rect) {
+                    result.push(ClipRectToRegionResult::new(clip_rect_result, None))
+                }
+            }
+
+            // Compute the top region:
+            //
+            //   +--+-----------------+--+
+            //   | /|#################|\ |
+            //   +--+-----------------+--+
+            //   |                       |
+            //   |                       |
+            //   |                       |
+            //   +--+-----------------+--+
+            //   | \|                 |/ |
+            //   +--+-----------------+--+
+            let top_rect = Rect::new(
+                Point2D::new(complex_region.rect.origin.x + border_radius,
+                             complex_region.rect.origin.y),
+                Size2D::new(complex_region.rect.size.width - (border_radius + border_radius),
+                            border_radius));
+            if !rect_is_empty(&top_rect) {
+                if let Some(clip_rect_result) = clip_rect_pos_uv(&intermediate_rect,
+                                                                 &intermediate_uv_rect,
+                                                                 &top_rect) {
+                    result.push(ClipRectToRegionResult::new(clip_rect_result, None))
+                }
+            }
+
+            // Compute the bottom region:
+            //
+            //   +--+-----------------+--+
+            //   | /|                 |\ |
+            //   +--+-----------------+--+
+            //   |                       |
+            //   |                       |
+            //   |                       |
+            //   +--+-----------------+--+
+            //   | \|#################|/ |
+            //   +--+-----------------+--+
+            let bottom_rect = Rect::new(
+                Point2D::new(complex_region.rect.origin.x + border_radius,
+                             complex_region.rect.max_y() - border_radius),
+                Size2D::new(complex_region.rect.size.width - (border_radius + border_radius),
+                            border_radius));
+            if !rect_is_empty(&bottom_rect) {
+                if let Some(clip_rect_result) = clip_rect_pos_uv(&intermediate_rect,
+                                                                 &intermediate_uv_rect,
+                                                                 &bottom_rect) {
+                    result.push(ClipRectToRegionResult::new(clip_rect_result, None))
+                }
+            }
+
+            // Now for the corners:
+            //
+            //     +--+-----------------+--+
+            //   A | /|                 |\ | B
+            //     +--+-----------------+--+
+            //     |                       |
+            //     |                       |
+            //     |                       |
+            //     +--+-----------------+--+
+            //   C | \|                 |/ | D
+            //     +--+-----------------+--+
+            //
+            // FIXME(pcwalton): This should clip the mask u and v properly too. For now we just
+            // blindly assume that the border was not clipped.
+
+            // Compute A:
+            let mut corner_rect = Rect::new(complex_region.rect.origin,
+                                            Size2D::new(border_radius, border_radius));
+            if !rect_is_empty(&corner_rect) {
+                if let Some(clip_rect_result) = clip_rect_pos_uv(&intermediate_rect,
+                                                                 &intermediate_uv_rect,
+                                                                 &corner_rect) {
+                    let mask_rect = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(1.0, 1.0));
+                    result.push(ClipRectToRegionResult::new(
+                            clip_rect_result,
+                            Some(ClipRectToRegionMaskResult::new(&mask_rect, border_radius))));
+                }
+            }
+
+            // B:
+            corner_rect.origin = Point2D::new(complex_region.rect.max_x() - border_radius,
+                                              complex_region.rect.origin.y);
+            if !rect_is_empty(&corner_rect) {
+                if let Some(clip_rect_result) = clip_rect_pos_uv(&intermediate_rect,
+                                                                 &intermediate_uv_rect,
+                                                                 &corner_rect) {
+                    let mask_rect = Rect::new(Point2D::new(1.0, 0.0), Size2D::new(-1.0, 1.0));
+                    result.push(ClipRectToRegionResult::new(
+                            clip_rect_result,
+                            Some(ClipRectToRegionMaskResult::new(&mask_rect, border_radius))));
+                }
+            }
+
+            // C:
+            corner_rect.origin = Point2D::new(complex_region.rect.origin.x,
+                                              complex_region.rect.max_y() - border_radius);
+            if !rect_is_empty(&corner_rect) {
+                if let Some(clip_rect_result) = clip_rect_pos_uv(&intermediate_rect,
+                                                                 &intermediate_uv_rect,
+                                                                 &corner_rect) {
+                    let mask_rect = Rect::new(Point2D::new(0.0, 1.0), Size2D::new(1.0, -1.0));
+                    result.push(ClipRectToRegionResult::new(
+                            clip_rect_result,
+                            Some(ClipRectToRegionMaskResult::new(&mask_rect, border_radius))));
+                }
+            }
+
+            // D:
+            corner_rect.origin = Point2D::new(complex_region.rect.max_x() - border_radius,
+                                              complex_region.rect.max_y() - border_radius);
+            if !rect_is_empty(&corner_rect) {
+                if let Some(clip_rect_result) = clip_rect_pos_uv(&intermediate_rect,
+                                                                 &intermediate_uv_rect,
+                                                                 &corner_rect) {
+                    let mask_rect = Rect::new(Point2D::new(1.0, 1.0), Size2D::new(-1.0, -1.0));
+                    result.push(ClipRectToRegionResult::new(
+                            clip_rect_result,
+                            Some(ClipRectToRegionMaskResult::new(&mask_rect, border_radius))));
+                }
+            }
+
+        }
+    }
+
+    // Done!
+    return result;
+
+    fn size_max(size: &Size2D<f32>) -> f32 {
+        f32::max(size.width, size.height)
+    }
+}
+
+pub fn clip_rect_with_mode_and_to_region_pos_uv(pos: &Rect<f32>,
+                                                uv: &Rect<f32>,
+                                                clip_rect: &Rect<f32>,
+                                                clip_mode: BoxShadowClipMode,
+                                                clip_region: &ClipRegion)
+                                                -> Vec<ClipRectToRegionResult> {
+    let initial_results = clip_rect_with_mode_pos_uv(pos, uv, clip_rect, clip_mode);
+    let mut final_results = vec![];
+    for initial_clip_result in initial_results.into_iter() {
+        final_results.extend(clip_rect_to_region_pos_uv(&initial_clip_result.rect(),
+                                                        &initial_clip_result.uv_rect(),
+                                                        clip_region).into_iter())
+    }
+    final_results
+}
+
+// Don't use `euclid`'s `is_empty` because that has effectively has an "and" in the conditional
+// below instead of an "or".
+fn rect_is_empty(rect: &Rect<f32>) -> bool {
+    rect.size.width == 0.0 || rect.size.height == 0.0
 }
 
