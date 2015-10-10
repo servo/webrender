@@ -403,3 +403,9 @@ impl ClipRectToRegionResult {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum BorderEdgeDirection {
+    Horizontal,
+    Vertical,
+}
+

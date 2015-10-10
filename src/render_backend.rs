@@ -6,7 +6,7 @@ use font::{FontContext, RasterizedGlyph};
 use fnv::FnvHasher;
 use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, ORTHO_FAR_PLANE, DrawLayer};
 use internal_types::{PackedVertex, WorkVertex, RenderPass, RenderBatch, DisplayList, DrawCommand};
-use internal_types::{CompositeInfo};
+use internal_types::{CompositeInfo, BorderEdgeDirection};
 use renderer::BLUR_INFLATION_FACTOR;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -55,6 +55,8 @@ static MAX_RECT: Rect<f32> = Rect {
         height: 10000.0,
     },
 };
+
+const BORDER_DASH_SIZE: f32 = 3.0;
 
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq)]
 struct RenderTargetIndex(u32);
@@ -2316,16 +2318,76 @@ impl CompiledNode {
     }
 
     #[inline]
-    fn add_border_quad(&mut self,
+    fn add_border_edge(&mut self,
                        sort_key: &DisplayItemKey,
                        draw_context: &DrawContext,
-                       v0: Point2D<f32>,
-                       v1: Point2D<f32>,
+                       rect: &Rect<f32>,
+                       direction: BorderEdgeDirection,
                        color: &ColorF,
+                       border_style: BorderStyle,
                        white_image: &TextureCacheItem,
                        mask_image: &TextureCacheItem) {
         // TODO: Check for zero width/height borders!
-        if color.a > 0.0 {
+        if color.a <= 0.0 {
+            return
+        }
+
+        match border_style {
+            BorderStyle::Dashed => {
+                let (extent, step) = match direction {
+                    BorderEdgeDirection::Horizontal => {
+                        (rect.size.width, rect.size.height * BORDER_DASH_SIZE)
+                    }
+                    BorderEdgeDirection::Vertical => {
+                        (rect.size.height, rect.size.width * BORDER_DASH_SIZE)
+                    }
+                };
+                let mut origin = 0.0;
+                while origin < extent {
+                    let dash_rect = match direction {
+                        BorderEdgeDirection::Horizontal => {
+                            Rect::new(Point2D::new(rect.origin.x + origin, rect.origin.y),
+                                      Size2D::new(f32::min(step, extent - origin),
+                                                  rect.size.height))
+                        }
+                        BorderEdgeDirection::Vertical => {
+                            Rect::new(Point2D::new(rect.origin.x, rect.origin.y + origin),
+                                      Size2D::new(rect.size.width,
+                                                  f32::min(step, extent - origin)))
+                        }
+                    };
+                    add_rectangle(&mut self.vertex_buffer,
+                                  &mut self.render_items,
+                                  sort_key,
+                                  draw_context,
+                                  &dash_rect,
+                                  color,
+                                  white_image,
+                                  mask_image);
+
+                    origin += step + step;
+                }
+            }
+            _ => {
+                add_rectangle(&mut self.vertex_buffer,
+                              &mut self.render_items,
+                              sort_key,
+                              draw_context,
+                              rect,
+                              color,
+                              white_image,
+                              mask_image);
+            }
+        }
+
+        fn add_rectangle(vertex_buffer: &mut VertexBuffer,
+                         render_items: &mut Vec<RenderItem>,
+                         sort_key: &DisplayItemKey,
+                         draw_context: &DrawContext,
+                         rect: &Rect<f32>,
+                         color: &ColorF,
+                         white_image: &TextureCacheItem,
+                         mask_image: &TextureCacheItem) {
             let item = RenderItem {
                 sort_key: sort_key.clone(),
                 info: RenderItemInfo::Draw(DrawRenderItem {
@@ -2333,17 +2395,17 @@ impl CompiledNode {
                     color_texture_id: white_image.texture_id,
                     mask_texture_id: mask_image.texture_id,
                     primitive: Primitive::Rectangles,
-                    first_vertex: self.vertex_buffer.len(),
+                    first_vertex: vertex_buffer.len(),
                     vertex_count: 4,
                 }),
             };
 
-            self.vertex_buffer.push_white(v0.x, v0.y, color, draw_context);
-            self.vertex_buffer.push_white(v1.x, v0.y, color, draw_context);
-            self.vertex_buffer.push_white(v0.x, v1.y, color, draw_context);
-            self.vertex_buffer.push_white(v1.x, v1.y, color, draw_context);
+            vertex_buffer.push_white(rect.origin.x, rect.origin.y, color, draw_context);
+            vertex_buffer.push_white(rect.max_x(), rect.origin.y, color, draw_context);
+            vertex_buffer.push_white(rect.origin.x, rect.max_y(), color, draw_context);
+            vertex_buffer.push_white(rect.max_x(), rect.max_y(), color, draw_context);
 
-            self.render_items.push(item);
+            render_items.push(item);
         }
     }
 
@@ -2484,35 +2546,45 @@ impl CompiledNode {
         let bottom_color = bottom.border_color(2.0/3.0, 1.0, 0.7, 0.3);
 
         // Edges
-        self.add_border_quad(sort_key,
+        self.add_border_edge(sort_key,
                              draw_context,
-                             Point2D::new(tl_outer.x, tl_inner.y),
-                             Point2D::new(tl_outer.x + left.width, bl_inner.y),
+                             &Rect::new(Point2D::new(tl_outer.x, tl_inner.y),
+                                        Size2D::new(left.width, bl_inner.y - tl_inner.y)),
+                             BorderEdgeDirection::Vertical,
                              &left_color,
+                             info.left.style,
                              white_image,
                              dummy_mask_image);
 
-        self.add_border_quad(sort_key,
+        self.add_border_edge(sort_key,
                              draw_context,
-                             Point2D::new(tl_inner.x, tl_outer.y),
-                             Point2D::new(tr_inner.x, tr_outer.y + top.width),
+                             &Rect::new(Point2D::new(tl_inner.x, tl_outer.y),
+                                        Size2D::new(tr_inner.x - tl_inner.x,
+                                                    tr_outer.y + top.width - tl_outer.y)),
+                             BorderEdgeDirection::Horizontal,
                              &top_color,
+                             info.top.style,
                              white_image,
                              dummy_mask_image);
 
-        self.add_border_quad(sort_key,
+        self.add_border_edge(sort_key,
                              draw_context,
-                             Point2D::new(br_outer.x - right.width, tr_inner.y),
-                             Point2D::new(br_outer.x, br_inner.y),
+                             &Rect::new(Point2D::new(br_outer.x - right.width, tr_inner.y),
+                                        Size2D::new(right.width, br_inner.y - tr_inner.y)),
+                             BorderEdgeDirection::Vertical,
                              &right_color,
+                             info.right.style,
                              white_image,
                              dummy_mask_image);
 
-        self.add_border_quad(sort_key,
+        self.add_border_edge(sort_key,
                              draw_context,
-                             Point2D::new(bl_inner.x, bl_outer.y - bottom.width),
-                             Point2D::new(br_inner.x, br_outer.y),
+                             &Rect::new(Point2D::new(bl_inner.x, bl_outer.y - bottom.width),
+                                        Size2D::new(br_inner.x - bl_inner.x,
+                                                    br_outer.y - bl_outer.y + bottom.width)),
+                             BorderEdgeDirection::Horizontal,
                              &bottom_color,
+                             info.bottom.style,
                              white_image,
                              dummy_mask_image);
 
