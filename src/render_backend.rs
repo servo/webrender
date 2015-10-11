@@ -2455,6 +2455,40 @@ impl CompiledNode {
                     origin += step + step;
                 }
             }
+            BorderStyle::Double => {
+                let (outer_rect, inner_rect) = match direction {
+                    BorderEdgeDirection::Horizontal => {
+                        (Rect::new(rect.origin,
+                                   Size2D::new(rect.size.width, rect.size.height / 3.0)),
+                         Rect::new(Point2D::new(rect.origin.x,
+                                                rect.origin.y + rect.size.height * 2.0 / 3.0),
+                                   Size2D::new(rect.size.width, rect.size.height / 3.0)))
+                    }
+                    BorderEdgeDirection::Vertical => {
+                        (Rect::new(rect.origin,
+                                   Size2D::new(rect.size.width / 3.0, rect.size.height)),
+                         Rect::new(Point2D::new(rect.origin.x + rect.size.width * 2.0 / 3.0,
+                                                rect.origin.y),
+                                   Size2D::new(rect.size.width / 3.0, rect.size.height)))
+                    }
+                };
+                add_rectangle(&mut self.vertex_buffer,
+                              &mut self.render_items,
+                              sort_key,
+                              draw_context,
+                              &outer_rect,
+                              color,
+                              white_image,
+                              dummy_mask_image);
+                add_rectangle(&mut self.vertex_buffer,
+                              &mut self.render_items,
+                              sort_key,
+                              draw_context,
+                              &inner_rect,
+                              color,
+                              white_image,
+                              dummy_mask_image);
+            }
             _ => {
                 add_rectangle(&mut self.vertex_buffer,
                               &mut self.render_items,
