@@ -2691,16 +2691,21 @@ impl CompiledNode {
         let bottom = &info.bottom;
 
         let tl_outer = Point2D::new(rect.origin.x, rect.origin.y);
-        let tl_inner = tl_outer + Point2D::new(radius.top_left.width.max(left.width), radius.top_left.height.max(top.width));
+        let tl_inner = tl_outer + Point2D::new(radius.top_left.width.max(left.width),
+                                               radius.top_left.height.max(top.width));
 
         let tr_outer = Point2D::new(rect.origin.x + rect.size.width, rect.origin.y);
-        let tr_inner = tr_outer + Point2D::new(-radius.top_right.width.max(right.width), radius.top_right.height.max(top.width));
+        let tr_inner = tr_outer + Point2D::new(-radius.top_right.width.max(right.width),
+                                               radius.top_right.height.max(top.width));
 
         let bl_outer = Point2D::new(rect.origin.x, rect.origin.y + rect.size.height);
-        let bl_inner = bl_outer + Point2D::new(radius.bottom_left.width.max(left.width), -radius.bottom_left.height.max(bottom.width));
+        let bl_inner = bl_outer + Point2D::new(radius.bottom_left.width.max(left.width),
+                                               -radius.bottom_left.height.max(bottom.width));
 
-        let br_outer = Point2D::new(rect.origin.x + rect.size.width, rect.origin.y + rect.size.height);
-        let br_inner = br_outer - Point2D::new(radius.bottom_right.width.max(right.width), radius.bottom_right.height.max(bottom.width));
+        let br_outer = Point2D::new(rect.origin.x + rect.size.width,
+                                    rect.origin.y + rect.size.height);
+        let br_inner = br_outer - Point2D::new(radius.bottom_right.width.max(right.width),
+                                               radius.bottom_right.height.max(bottom.width));
 
         let left_color = left.border_color(1.0, 2.0/3.0, 0.3, 0.7);
         let top_color = top.border_color(1.0, 2.0/3.0, 0.3, 0.7);
