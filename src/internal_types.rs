@@ -1,10 +1,11 @@
 use app_units::Au;
 use device::{ProgramId, TextureId};
-use euclid::{Point2D, Rect, Size2D};
+use euclid::{Matrix4, Point2D, Rect, Size2D};
+use render_backend::DisplayItemKey;
 use std::collections::HashMap;
 use string_cache::Atom;
 use texture_cache::TextureCacheItem;
-use types::{MixBlendMode};
+use types::{MixBlendMode, new_resource_id};
 use types::{Epoch, ColorF, PipelineId, ImageFormat, DisplayListID, DrawListID};
 use types::{ImageID, StackingContext, DisplayListBuilder, DisplayListMode};
 
@@ -13,6 +14,15 @@ const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
 pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct BatchId(pub usize);
+
+impl BatchId {
+    pub fn new() -> BatchId {
+        BatchId(new_resource_id())
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TextureSampler {
@@ -38,6 +48,7 @@ pub enum VertexAttribute {
     Color,
     ColorTexCoord,
     MaskTexCoord,
+    MatrixIndex,
 }
 
 pub enum VertexFormat {
@@ -114,16 +125,19 @@ impl WorkVertex {
 pub struct PackedVertex {
     pub x: f32,
     pub y: f32,
-    pub z: f32,
     pub color: PackedColor,
     pub u: u16,
     pub v: u16,
     pub mu: u16,
     pub mv: u16,
+    pub matrix_index: u8,
+    pub unused0: u8,        // TODO(gw): For alignment purposes of floats. Profile which GPUs this affects - might be worth having a separate stream.
+    pub unused1: u8,
+    pub unused2: u8,
 }
 
 impl PackedVertex {
-    pub fn new(v: &WorkVertex, z: f32, offset: &Point2D<f32>, device_pixel_ratio: f32)
+    pub fn new(v: &WorkVertex, device_pixel_ratio: f32, matrix_index: u8)
                -> PackedVertex {
         debug_assert!(v.u >= -0.1 && v.u <= 1.1, format!("bad u {:?}", v.u));
         debug_assert!(v.v >= -0.1 && v.v <= 1.1, format!("bad v {:?}", v.v));
@@ -134,20 +148,22 @@ impl PackedVertex {
         // round(clamp(c, 0, +1) * 65535.0)
 
         PackedVertex {
-            x: ((v.x + offset.x) * device_pixel_ratio).round() / device_pixel_ratio,
-            y: ((v.y + offset.y) * device_pixel_ratio).round() / device_pixel_ratio,
-            z: z,
+            x: (v.x * device_pixel_ratio).round() / device_pixel_ratio,
+            y: (v.y * device_pixel_ratio).round() / device_pixel_ratio,
             color: PackedColor::from_components(v.r, v.g, v.b, v.a),
             u: (v.u * UV_FLOAT_TO_FIXED).round() as u16,
             v: (v.v * UV_FLOAT_TO_FIXED).round() as u16,
             mu: (v.mu * UV_FLOAT_TO_FIXED).round() as u16,
             mv: (v.mv * UV_FLOAT_TO_FIXED).round() as u16,
+            matrix_index: matrix_index,
+            unused0: 0,
+            unused1: 0,
+            unused2: 0,
         }
     }
 
     pub fn from_components(x: f32,
                            y: f32,
-                           z: f32,
                            color: &ColorF,
                            u: f32,
                            v: f32,
@@ -156,12 +172,15 @@ impl PackedVertex {
         PackedVertex {
             x: x,
             y: y,
-            z: z,
             color: PackedColor::from_color(color),
             u: (u * UV_FLOAT_TO_FIXED).round() as u16,
             v: (v * UV_FLOAT_TO_FIXED).round() as u16,
             mu: (mu * UV_FLOAT_TO_FIXED).round() as u16,
             mv: (mv * UV_FLOAT_TO_FIXED).round() as u16,
+            matrix_index: 0,
+            unused0: 0,
+            unused1: 0,
+            unused2: 0,
         }
     }
 }
@@ -229,24 +248,59 @@ impl TextureUpdateList {
     }
 }
 
-pub struct RenderBatch {
-    pub program_id: ProgramId,
-    pub color_texture_id: TextureId,
-    pub mask_texture_id: TextureId,
-    pub vertices: Vec<PackedVertex>,
-    pub indices: Vec<u16>,
+pub enum BatchUpdateOp {
+    Create(Vec<PackedVertex>,
+           Vec<u16>,
+           ProgramId,
+           TextureId,
+           TextureId),
+    UpdateUniforms(Vec<Matrix4>),
+    Destroy,
 }
 
+pub struct BatchUpdate {
+    pub id: BatchId,
+    pub op: BatchUpdateOp,
+}
+
+pub struct BatchUpdateList {
+    pub updates: Vec<BatchUpdate>,
+}
+
+impl BatchUpdateList {
+    pub fn new() -> BatchUpdateList {
+        BatchUpdateList {
+            updates: Vec::new(),
+        }
+    }
+
+    #[inline]
+    pub fn push(&mut self, update: BatchUpdate) {
+        self.updates.push(update);
+    }
+}
+
+#[derive(Clone)]
 pub struct CompositeInfo {
     pub blend_mode: MixBlendMode,
     pub rect: Rect<u32>,
     pub color_texture_id: TextureId,
-    pub z: f32,
 }
 
-pub enum DrawCommand {
-    Batch(Vec<RenderBatch>, Vec<RenderBatch>),
-    Composite(CompositeInfo)
+#[derive(Clone)]
+pub enum DrawCommandInfo {
+    Batch(BatchId),
+    Composite(CompositeInfo),
+}
+
+#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq, Hash)]
+pub struct RenderTargetIndex(pub u32);
+
+#[derive(Clone)]
+pub struct DrawCommand {
+    pub render_target: RenderTargetIndex,
+    pub sort_key: DisplayItemKey,
+    pub info: DrawCommandInfo,
 }
 
 pub struct DrawLayer {
@@ -295,6 +349,7 @@ pub enum ApiMsg {
 
 pub enum ResultMsg {
     UpdateTextureCache(TextureUpdateList),
+    UpdateBatches(BatchUpdateList),
     NewFrame(Frame),
 }
 

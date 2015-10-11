@@ -3,6 +3,9 @@ use euclid::{Point2D, Rect, Size2D, Matrix4};
 use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 use string_cache::Atom;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NodeIndex(pub u32);
+
 #[derive(Debug, Clone, Copy)]
 pub enum ImageFormat {
     Invalid,
@@ -58,7 +61,7 @@ pub struct PipelineId(pub u32, pub u32);
 static RESOURCE_ID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
 #[inline]
-fn new_resource_id() -> usize {
+pub fn new_resource_id() -> usize {
     RESOURCE_ID_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
@@ -302,6 +305,8 @@ pub struct DisplayItem {
     pub item: SpecificDisplayItem,
     pub rect: Rect<f32>,
     pub clip: ClipRegion,
+
+    pub node_index: Option<NodeIndex>,
 }
 
 pub enum DisplayListMode {
@@ -433,6 +438,7 @@ impl DisplayListBuilder {
             item: SpecificDisplayItem::Rectangle(item),
             rect: rect,
             clip: clip,
+            node_index: None,
         };
 
         self.push_item(level, display_item);
@@ -453,6 +459,7 @@ impl DisplayListBuilder {
             item: SpecificDisplayItem::Image(item),
             rect: rect,
             clip: clip,
+            node_index: None,
         };
 
         self.push_item(level, display_item);
@@ -479,6 +486,7 @@ impl DisplayListBuilder {
             item: SpecificDisplayItem::Text(item),
             rect: rect,
             clip: clip,
+            node_index: None,
         };
 
         self.push_item(level, display_item);
@@ -505,6 +513,7 @@ impl DisplayListBuilder {
             item: SpecificDisplayItem::Border(item),
             rect: rect,
             clip: clip,
+            node_index: None,
         };
 
         self.push_item(level, display_item);
@@ -535,6 +544,7 @@ impl DisplayListBuilder {
             item: SpecificDisplayItem::BoxShadow(item),
             rect: rect,
             clip: clip,
+            node_index: None,
         };
 
         self.push_item(level, display_item);
@@ -557,6 +567,7 @@ impl DisplayListBuilder {
             item: SpecificDisplayItem::Gradient(item),
             rect: rect,
             clip: clip,
+            node_index: None,
         };
 
         self.push_item(level, display_item);
@@ -579,6 +590,7 @@ impl DisplayListBuilder {
             item: SpecificDisplayItem::Iframe(item),
             rect: rect,
             clip: clip,
+            node_index: None,
         };
 
         self.push_item(level, display_item);

@@ -1,9 +1,13 @@
+#version 110
+
 attribute vec3 aPosition;
 attribute vec2 aColorTexCoord;
 attribute vec2 aMaskTexCoord;
 attribute vec4 aColor;
+attribute vec4 aMatrixIndex;
 
 uniform mat4 uTransform;
+uniform mat4 uMatrixPalette[32];
 
 varying vec4 vColor;
 varying vec2 vColorTexCoord;
@@ -14,5 +18,7 @@ void main(void)
 	vColor = aColor;
 	vColorTexCoord = aColorTexCoord;
 	vMaskTexCoord = aMaskTexCoord;
-    gl_Position = uTransform * vec4(aPosition, 1.0);
+
+	mat4 matrix = uMatrixPalette[int(aMatrixIndex.x)];
+    gl_Position = uTransform * matrix * vec4(aPosition, 1.0);
 }
