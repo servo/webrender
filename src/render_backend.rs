@@ -2326,7 +2326,9 @@ impl CompiledNode {
                        color: &ColorF,
                        border_style: BorderStyle,
                        white_image: &TextureCacheItem,
-                       mask_image: &TextureCacheItem) {
+                       dummy_mask_image: &TextureCacheItem,
+                       raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                       texture_cache: &TextureCache) {
         // TODO: Check for zero width/height borders!
         if color.a <= 0.0 {
             return
@@ -2363,7 +2365,92 @@ impl CompiledNode {
                                   &dash_rect,
                                   color,
                                   white_image,
-                                  mask_image);
+                                  dummy_mask_image);
+
+                    origin += step + step;
+                }
+            }
+            BorderStyle::Dotted => {
+                let (extent, step) = match direction {
+                    BorderEdgeDirection::Horizontal => (rect.size.width, rect.size.height),
+                    BorderEdgeDirection::Vertical => (rect.size.height, rect.size.width),
+                };
+                let mut origin = 0.0;
+                while origin < extent {
+                    let (dot_rect, mask_radius) = match direction {
+                        BorderEdgeDirection::Horizontal => {
+                            (Rect::new(Point2D::new(rect.origin.x + origin, rect.origin.y),
+                                       Size2D::new(f32::min(step, extent - origin),
+                                                   rect.size.height)),
+                             rect.size.height / 2.0)
+                        }
+                        BorderEdgeDirection::Vertical => {
+                            (Rect::new(Point2D::new(rect.origin.x, rect.origin.y + origin),
+                                       Size2D::new(rect.size.width,
+                                                   f32::min(step, extent - origin))),
+                             rect.size.width / 2.0)
+                        }
+                    };
+
+                    let raster_op =
+                        BorderRadiusRasterOp::create(&Size2D::new(mask_radius, mask_radius),
+                                                     &Size2D::new(0.0, 0.0)).expect(
+                        "Didn't find border radius mask for dashed border!");
+                    let raster_item = RasterItem::BorderRadius(raster_op);
+                    let raster_item_id = raster_to_image_map[&raster_item];
+                    let mask_image = texture_cache.get(raster_item_id);
+                    let muv_rect = Rect::new(Point2D::new(mask_image.u0, mask_image.v0),
+                                             Size2D::new(mask_image.u1 - mask_image.u0,
+                                                         mask_image.v1 - mask_image.v0));
+
+                    // Top left:
+                    add_masked_rectangle(&mut self.vertex_buffer,
+                                         &mut self.render_items,
+                                         sort_key,
+                                         draw_context,
+                                         &Rect::new(dot_rect.origin,
+                                                    Size2D::new(dot_rect.size.width / 2.0,
+                                                                dot_rect.size.height / 2.0)),
+                                         &muv_rect,
+                                         color,
+                                         white_image,
+                                         mask_image);
+                    // Top right:
+                    add_masked_rectangle(&mut self.vertex_buffer,
+                                         &mut self.render_items,
+                                         sort_key,
+                                         draw_context,
+                                         &Rect::new(dot_rect.top_right(),
+                                                    Size2D::new(-dot_rect.size.width / 2.0,
+                                                                dot_rect.size.height / 2.0)),
+                                         &muv_rect,
+                                         color,
+                                         white_image,
+                                         mask_image);
+                    // Bottom right:
+                    add_masked_rectangle(&mut self.vertex_buffer,
+                                         &mut self.render_items,
+                                         sort_key,
+                                         draw_context,
+                                         &Rect::new(dot_rect.bottom_right(),
+                                                    Size2D::new(-dot_rect.size.width / 2.0,
+                                                                -dot_rect.size.height / 2.0)),
+                                         &muv_rect,
+                                         color,
+                                         white_image,
+                                         mask_image);
+                    // Bottom left:
+                    add_masked_rectangle(&mut self.vertex_buffer,
+                                         &mut self.render_items,
+                                         sort_key,
+                                         draw_context,
+                                         &Rect::new(dot_rect.bottom_left(),
+                                                    Size2D::new(dot_rect.size.width / 2.0,
+                                                                -dot_rect.size.height / 2.0)),
+                                         &muv_rect,
+                                         color,
+                                         white_image,
+                                         mask_image);
 
                     origin += step + step;
                 }
@@ -2376,7 +2463,7 @@ impl CompiledNode {
                               rect,
                               color,
                               white_image,
-                              mask_image);
+                              dummy_mask_image);
             }
         }
 
@@ -2404,6 +2491,47 @@ impl CompiledNode {
             vertex_buffer.push_white(rect.max_x(), rect.origin.y, color, draw_context);
             vertex_buffer.push_white(rect.origin.x, rect.max_y(), color, draw_context);
             vertex_buffer.push_white(rect.max_x(), rect.max_y(), color, draw_context);
+
+            render_items.push(item);
+        }
+
+        fn add_masked_rectangle(vertex_buffer: &mut VertexBuffer,
+                                render_items: &mut Vec<RenderItem>,
+                                sort_key: &DisplayItemKey,
+                                draw_context: &DrawContext,
+                                rect: &Rect<f32>,
+                                muv_rect: &Rect<f32>,
+                                color: &ColorF,
+                                white_image: &TextureCacheItem,
+                                mask_image: &TextureCacheItem) {
+            let item = RenderItem {
+                sort_key: sort_key.clone(),
+                info: RenderItemInfo::Draw(DrawRenderItem {
+                    pass: RenderPass::Alpha,
+                    color_texture_id: white_image.texture_id,
+                    mask_texture_id: mask_image.texture_id,
+                    primitive: Primitive::Rectangles,
+                    first_vertex: vertex_buffer.len(),
+                    vertex_count: 4,
+                }),
+            };
+
+            vertex_buffer.push_masked(rect.origin.x, rect.origin.y,
+                                      color,
+                                      muv_rect.origin.x, muv_rect.origin.y,
+                                      draw_context);
+            vertex_buffer.push_masked(rect.max_x(), rect.origin.y,
+                                      color,
+                                      muv_rect.max_x(), muv_rect.origin.y,
+                                      draw_context);
+            vertex_buffer.push_masked(rect.origin.x, rect.max_y(),
+                                      color,
+                                      muv_rect.origin.x, muv_rect.max_y(),
+                                      draw_context);
+            vertex_buffer.push_masked(rect.max_x(), rect.max_y(),
+                                      color,
+                                      muv_rect.max_x(), muv_rect.max_y(),
+                                      draw_context);
 
             render_items.push(item);
         }
@@ -2554,7 +2682,9 @@ impl CompiledNode {
                              &left_color,
                              info.left.style,
                              white_image,
-                             dummy_mask_image);
+                             dummy_mask_image,
+                             raster_to_image_map,
+                             texture_cache);
 
         self.add_border_edge(sort_key,
                              draw_context,
@@ -2565,7 +2695,9 @@ impl CompiledNode {
                              &top_color,
                              info.top.style,
                              white_image,
-                             dummy_mask_image);
+                             dummy_mask_image,
+                             raster_to_image_map,
+                             texture_cache);
 
         self.add_border_edge(sort_key,
                              draw_context,
@@ -2575,7 +2707,9 @@ impl CompiledNode {
                              &right_color,
                              info.right.style,
                              white_image,
-                             dummy_mask_image);
+                             dummy_mask_image,
+                             raster_to_image_map,
+                             texture_cache);
 
         self.add_border_edge(sort_key,
                              draw_context,
@@ -2586,7 +2720,9 @@ impl CompiledNode {
                              &bottom_color,
                              info.bottom.style,
                              white_image,
-                             dummy_mask_image);
+                             dummy_mask_image,
+                             raster_to_image_map,
+                             texture_cache);
 
         // Corners
         self.add_border_corner(sort_key,
@@ -2768,6 +2904,31 @@ impl BuildRequiredResources for AABBTreeNode {
                     DrawList::add_radius(&mut resource_list.required_rasters,
                                          &info.radius.bottom_right,
                                          &info.bottom_right_inner_radius());
+
+                    if info.top.style == BorderStyle::Dotted {
+                        DrawList::add_radius(&mut resource_list.required_rasters,
+                                             &Size2D::new(info.top.width / 2.0,
+                                                          info.top.width / 2.0),
+                                             &Size2D::new(0.0, 0.0));
+                    }
+                    if info.right.style == BorderStyle::Dotted {
+                        DrawList::add_radius(&mut resource_list.required_rasters,
+                                             &Size2D::new(info.right.width / 2.0,
+                                                          info.right.width / 2.0),
+                                             &Size2D::new(0.0, 0.0));
+                    }
+                    if info.bottom.style == BorderStyle::Dotted {
+                        DrawList::add_radius(&mut resource_list.required_rasters,
+                                             &Size2D::new(info.bottom.width / 2.0,
+                                                          info.bottom.width / 2.0),
+                                             &Size2D::new(0.0, 0.0));
+                    }
+                    if info.left.style == BorderStyle::Dotted {
+                        DrawList::add_radius(&mut resource_list.required_rasters,
+                                             &Size2D::new(info.left.width / 2.0,
+                                                          info.left.width / 2.0),
+                                             &Size2D::new(0.0, 0.0));
+                    }
                 }
             }
         }
