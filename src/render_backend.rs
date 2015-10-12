@@ -592,7 +592,8 @@ impl Scene {
         self.create_batches(sorted_render_item_keys,
                             quad_program_id,
                             glyph_program_id,
-                            &self.scroll_offset)
+                            &self.scroll_offset,
+                            device_pixel_ratio)
     }
 
     // One for each render target!
@@ -641,7 +642,9 @@ impl Scene {
                       keys_array: Vec<RenderItemKeyArray>,
                       quad_program_id: ProgramId,
                       glyph_program_id: ProgramId,
-                      scroll_offset: &Point2D<f32>) -> Frame {
+                      scroll_offset: &Point2D<f32>,
+                      device_pixel_ratio: f32)
+                      -> Frame {
         let _pf = util::ProfileScope::new("  create_batches");
 
         let mut frame = Frame::new(self.pipeline_epoch_map.clone());
@@ -653,7 +656,10 @@ impl Scene {
 
             for key in keys {
                 let (render_item, vertex_buffer) = self.aabb_tree.get_render_item_and_vb(key);
-                batcher.add_render_item(render_item, vertex_buffer, scroll_offset);
+                batcher.add_render_item(render_item,
+                                        vertex_buffer,
+                                        scroll_offset,
+                                        device_pixel_ratio);
             }
 
             let draw_commands = batcher.finalize();
@@ -3018,7 +3024,8 @@ impl RenderBatch {
                      item: &DrawRenderItem,
                      z: f32,
                      vertex_buffer: &Vec<WorkVertex>,
-                     offset: &Point2D<f32>) {
+                     offset: &Point2D<f32>,
+                     device_pixel_ratio: f32) {
         debug_assert!(item.color_texture_id == self.color_texture_id);
         debug_assert!(item.mask_texture_id == self.mask_texture_id);
 
@@ -3056,7 +3063,7 @@ impl RenderBatch {
         for i in 0..item.vertex_count {
             let vertex_index = (item.first_vertex + i) as usize;
             let src_vertex = &vertex_buffer[vertex_index];
-            self.vertices.push(PackedVertex::new(src_vertex, z, offset));
+            self.vertices.push(PackedVertex::new(src_vertex, z, offset, device_pixel_ratio));
         }
     }
 }
@@ -3107,7 +3114,8 @@ impl RenderBatcher {
     fn add_render_item(&mut self,
                        item: &RenderItem,
                        vertex_buffer: &VertexBuffer,
-                       vertex_offset: &Point2D<f32>) {
+                       vertex_offset: &Point2D<f32>,
+                       device_pixel_ratio: f32) {
         // TODO: May need a better distribution of z for accuracy (since z-buffer
         //       is actually proportional to 1/w).
         let z = self.added_item_count as f32 * self.z_inc;
@@ -3140,7 +3148,11 @@ impl RenderBatcher {
                 }
 
                 let batch = batch_list.last_mut().unwrap();
-                batch.add_draw_item(info, z, &vertex_buffer.vertices, &vertex_offset);
+                batch.add_draw_item(info,
+                                    z,
+                                    &vertex_buffer.vertices,
+                                    &vertex_offset,
+                                    device_pixel_ratio);
 
                 debug_assert!(self.added_item_count <= self.total_item_count, format!("added={} total={}", self.added_item_count, self.total_item_count));
             }

@@ -123,7 +123,8 @@ pub struct PackedVertex {
 }
 
 impl PackedVertex {
-    pub fn new(v: &WorkVertex, z: f32, offset: &Point2D<f32>) -> PackedVertex {
+    pub fn new(v: &WorkVertex, z: f32, offset: &Point2D<f32>, device_pixel_ratio: f32)
+               -> PackedVertex {
         debug_assert!(v.u >= -0.1 && v.u <= 1.1, format!("bad u {:?}", v.u));
         debug_assert!(v.v >= -0.1 && v.v <= 1.1, format!("bad v {:?}", v.v));
         debug_assert!(v.mu >= -0.1 && v.mu <= 1.1, format!("bad mu {:?}", v.mu));
@@ -133,8 +134,8 @@ impl PackedVertex {
         // round(clamp(c, 0, +1) * 65535.0)
 
         PackedVertex {
-            x: (v.x + offset.x).round(),
-            y: (v.y + offset.y).round(),
+            x: ((v.x + offset.x) * device_pixel_ratio).round() / device_pixel_ratio,
+            y: ((v.y + offset.y) * device_pixel_ratio).round() / device_pixel_ratio,
             z: z,
             color: PackedColor::from_components(v.r, v.g, v.b, v.a),
             u: (v.u * UV_FLOAT_TO_FIXED).round() as u16,
