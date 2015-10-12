@@ -3154,7 +3154,10 @@ impl RenderBatcher {
                                     &vertex_offset,
                                     device_pixel_ratio);
 
-                debug_assert!(self.added_item_count <= self.total_item_count, format!("added={} total={}", self.added_item_count, self.total_item_count));
+                debug_assert!(self.added_item_count <= self.total_item_count,
+                              format!("added={} total={}",
+                                      self.added_item_count,
+                                      self.total_item_count));
             }
             RenderItemInfo::Composite(ref info) => {
                 // When a composite is encountered - always flush any batches that are pending.
