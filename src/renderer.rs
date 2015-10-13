@@ -4,7 +4,7 @@ use euclid::{Rect, Matrix4, Point2D, Size2D};
 use gleam::gl;
 use internal_types::{ApiMsg, Frame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode, BatchId};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, VertexFormat, DrawCommandInfo};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DrawCommandInfo};
 use render_api::RenderApi;
 use render_backend::RenderBackend;
 use std::collections::HashMap;
@@ -247,7 +247,7 @@ impl Renderer {
                                           program_id,
                                           color_texture_id,
                                           mask_texture_id) => {
-                        let vao_id = self.device.create_vao(VertexFormat::Default);
+                        let vao_id = self.device.create_vao();
                         self.device.bind_vao(vao_id);
 
                         self.device.update_vao_indices(vao_id, &indices);
@@ -563,7 +563,7 @@ impl Renderer {
     fn perform_gl_texture_cache_update(&mut self,
                                        indices: &[u16],
                                        vertices: &[PackedVertex]) {
-        let vao_id = self.device.create_vao(VertexFormat::Default);
+        let vao_id = self.device.create_vao();
         self.device.bind_vao(vao_id);
 
         self.device.update_vao_indices(vao_id, indices);
@@ -715,7 +715,7 @@ impl Renderer {
                             ];
                             // TODO: Don't re-create this VAO all the time.
                             // Create it once and set positions via uniforms.
-                            let vao_id = self.device.create_vao(VertexFormat::Default);
+                            let vao_id = self.device.create_vao();
                             self.device.bind_color_texture(info.color_texture_id);
                             self.device.bind_vao(vao_id);
                             self.device.update_vao_indices(vao_id, &indices);

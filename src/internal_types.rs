@@ -37,23 +37,12 @@ pub struct ImageResource {
     pub format: ImageFormat,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum RenderPass {
-    Opaque,
-    Alpha,
-}
-
 pub enum VertexAttribute {
     Position,
     Color,
     ColorTexCoord,
     MaskTexCoord,
     MatrixIndex,
-}
-
-pub enum VertexFormat {
-    Default,
-    //Debug
 }
 
 #[derive(Debug, Clone)]

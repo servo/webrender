@@ -5,7 +5,7 @@ use euclid::{Rect, Point2D, Size2D, Matrix4};
 use font::{FontContext, RasterizedGlyph};
 use fnv::FnvHasher;
 use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp};
-use internal_types::{PackedVertex, WorkVertex, RenderPass, DisplayList, DrawCommand, DrawCommandInfo};
+use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo};
 use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex};
 use renderer::BLUR_INFLATION_FACTOR;
 use std::cell::RefCell;
@@ -1780,7 +1780,6 @@ enum Primitive {
 
 #[derive(Debug)]
 struct DrawRenderItem {
-    pass: RenderPass,
     color_texture_id: TextureId,
     mask_texture_id: TextureId,
     first_vertex: u32,
@@ -1956,7 +1955,6 @@ impl DrawCommandBuilder {
                  raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
                  texture_cache: &TextureCache,
                  color: &ColorF) {
-        let pass = util::get_render_pass(&[*color], image_info.format, &None);
         debug_assert!(stretch_size.width > 0.0 && stretch_size.height > 0.0);       // Should be caught higher up
 
         let uv_origin = Point2D::new(image_info.u0, image_info.v0);
@@ -1973,7 +1971,6 @@ impl DrawCommandBuilder {
                       clip_rect,
                       clip_region,
                       &sort_key,
-                      pass,
                       raster_to_image_map,
                       texture_cache,
                       rect,
@@ -1995,7 +1992,6 @@ impl DrawCommandBuilder {
                               clip_rect,
                               clip_region,
                               &sort_key,
-                              pass,
                               raster_to_image_map,
                               texture_cache,
                               &tiled_rect,
@@ -2016,7 +2012,6 @@ impl DrawCommandBuilder {
                      clip_rect: &Rect<f32>,
                      clip_region: &ClipRegion,
                      sort_key: &DisplayItemKey,
-                     pass: RenderPass,
                      raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
                      texture_cache: &TextureCache,
                      rect: &Rect<f32>,
@@ -2061,7 +2056,6 @@ impl DrawCommandBuilder {
                 let render_item = RenderItem {
                     sort_key: (*sort_key).clone(),
                     info: RenderItemInfo::Draw(DrawRenderItem {
-                        pass: pass,
                         color_texture_id: image_info.texture_id,
                         mask_texture_id: mask.texture_id,
                         primitive: Primitive::Rectangles,
@@ -2098,7 +2092,6 @@ impl DrawCommandBuilder {
         let first_image_info = texture_cache.get(*first_image_id);
 
         let mut primary_render_item = DrawRenderItem {
-            pass: RenderPass::Alpha,
             color_texture_id: first_image_info.texture_id,
             mask_texture_id: dummy_mask_image.texture_id,
             primitive: Primitive::Glyphs,
@@ -2154,7 +2147,6 @@ impl DrawCommandBuilder {
             let render_item = RenderItem {
                 sort_key: sort_key.clone(),
                 info: RenderItemInfo::Draw(DrawRenderItem {
-                    pass: RenderPass::Alpha,
                     color_texture_id: texture_id,
                     mask_texture_id: dummy_mask_image.texture_id,
                     primitive: Primitive::Glyphs,
@@ -2208,9 +2200,6 @@ impl DrawCommandBuilder {
             let render_item = RenderItem {
                 sort_key: sort_key.clone(),
                 info: RenderItemInfo::Draw(DrawRenderItem {
-                    pass: util::get_render_pass(colors,
-                                                image_info.format,
-                                                &clip_region.mask_result),
                     color_texture_id: image_info.texture_id,
                     mask_texture_id: mask.texture_id,
                     primitive: Primitive::Rectangles,
@@ -2321,7 +2310,6 @@ impl DrawCommandBuilder {
                     let render_item = RenderItem {
                         sort_key: sort_key.clone(),
                         info: RenderItemInfo::Draw(DrawRenderItem {
-                            pass: RenderPass::Opaque,
                             color_texture_id: image.texture_id,
                             mask_texture_id: dummy_mask_image.texture_id,
                             primitive: Primitive::TriangleFan,
@@ -2714,7 +2702,6 @@ impl DrawCommandBuilder {
             let item = RenderItem {
                 sort_key: sort_key.clone(),
                 info: RenderItemInfo::Draw(DrawRenderItem {
-                    pass: RenderPass::Alpha,
                     color_texture_id: white_image.texture_id,
                     mask_texture_id: mask_image.texture_id,
                     primitive: Primitive::Rectangles,
@@ -2742,7 +2729,6 @@ impl DrawCommandBuilder {
             let item = RenderItem {
                 sort_key: sort_key.clone(),
                 info: RenderItemInfo::Draw(DrawRenderItem {
-                    pass: RenderPass::Alpha,
                     color_texture_id: white_image.texture_id,
                     mask_texture_id: mask_image.texture_id,
                     primitive: Primitive::Rectangles,
@@ -2829,7 +2815,6 @@ impl DrawCommandBuilder {
             let item = RenderItem {
                 sort_key: sort_key.clone(),
                 info: RenderItemInfo::Draw(DrawRenderItem {
-                    pass: RenderPass::Alpha,
                     color_texture_id: white_image.texture_id,
                     mask_texture_id: mask_image.texture_id,
                     primitive: Primitive::Rectangles,
