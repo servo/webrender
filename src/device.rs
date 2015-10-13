@@ -1,6 +1,6 @@
 use euclid::Matrix4;
 use gleam::gl;
-use internal_types::{TextureSampler, VertexAttribute, VertexFormat, PackedVertex, RenderTargetMode};
+use internal_types::{TextureSampler, VertexAttribute, PackedVertex, RenderTargetMode};
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
@@ -87,8 +87,6 @@ impl Drop for Program {
 
 struct VAO {
     id: gl::GLuint,
-    #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
-    vertex_format: VertexFormat,
     vbo_id: VBOId,
     ibo_id: IBOId,
 }
@@ -580,28 +578,24 @@ impl Device {
             vao.vbo_id.bind();
             vao.ibo_id.bind();
 
-            match vao.vertex_format {
-                VertexFormat::Default => {
-                    let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLint;
+            let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLint;
 
-                    gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
-                    gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
-                    gl::enable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
-                    gl::enable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
-                    gl::enable_vertex_attrib_array(VertexAttribute::MatrixIndex as gl::GLuint);
+            gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
+            gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
+            gl::enable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
+            gl::enable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
+            gl::enable_vertex_attrib_array(VertexAttribute::MatrixIndex as gl::GLuint);
 
-                    gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint, 2, gl::FLOAT, false, vertex_stride, 0);
-                    gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint, 4, gl::UNSIGNED_BYTE, true, vertex_stride, 8);
-                    gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 12);
-                    gl::vertex_attrib_pointer(VertexAttribute::MaskTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 16);
-                    gl::vertex_attrib_pointer(VertexAttribute::MatrixIndex as gl::GLuint, 4, gl::UNSIGNED_BYTE, false, vertex_stride, 20);
-                }
-            }
+            gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint, 2, gl::FLOAT, false, vertex_stride, 0);
+            gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint, 4, gl::UNSIGNED_BYTE, true, vertex_stride, 8);
+            gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 12);
+            gl::vertex_attrib_pointer(VertexAttribute::MaskTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 16);
+            gl::vertex_attrib_pointer(VertexAttribute::MatrixIndex as gl::GLuint, 4, gl::UNSIGNED_BYTE, false, vertex_stride, 20);
         }
     }
 
     #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
-    pub fn create_vao(&mut self, vertex_format: VertexFormat) -> VAOId {
+    pub fn create_vao(&mut self) -> VAOId {
         debug_assert!(self.inside_frame);
 
         let vao_id = self.next_vao_id;
@@ -616,7 +610,6 @@ impl Device {
 
         let vao = VAO {
             id: vao_id,
-            vertex_format: vertex_format,
             vbo_id: vbo_id,
             ibo_id: ibo_id,
         };
@@ -648,7 +641,7 @@ impl Device {
     }
 
     #[cfg(not(any(target_os = "android", target_os = "gonk", target_os = "macos")))]
-    pub fn create_vao(&mut self, vertex_format: VertexFormat) -> VAOId {
+    pub fn create_vao(&mut self) -> VAOId {
         debug_assert!(self.inside_frame);
 
         let buffer_ids = gl::gen_buffers(2);
@@ -662,23 +655,19 @@ impl Device {
         gl::bind_buffer(gl::ARRAY_BUFFER, vbo_id);
         gl::bind_buffer(gl::ELEMENT_ARRAY_BUFFER, ibo_id);
 
-        match vertex_format {
-            VertexFormat::Default => {
-                let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLint;
+        let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLint;
 
-                gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
-                gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
-                gl::enable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
-                gl::enable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
-                gl::enable_vertex_attrib_array(VertexAttribute::MatrixIndex as gl::GLuint);
+        gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
+        gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
+        gl::enable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
+        gl::enable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
+        gl::enable_vertex_attrib_array(VertexAttribute::MatrixIndex as gl::GLuint);
 
-                gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint, 2, gl::FLOAT, false, vertex_stride, 0);
-                gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint, 4, gl::UNSIGNED_BYTE, true, vertex_stride, 8);
-                gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 12);
-                gl::vertex_attrib_pointer(VertexAttribute::MaskTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 16);
-                gl::vertex_attrib_pointer(VertexAttribute::MatrixIndex as gl::GLuint, 4, gl::UNSIGNED_BYTE, false, vertex_stride, 20);
-            }
-        }
+        gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint, 2, gl::FLOAT, false, vertex_stride, 0);
+        gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint, 4, gl::UNSIGNED_BYTE, true, vertex_stride, 8);
+        gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 12);
+        gl::vertex_attrib_pointer(VertexAttribute::MaskTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 16);
+        gl::vertex_attrib_pointer(VertexAttribute::MatrixIndex as gl::GLuint, 4, gl::UNSIGNED_BYTE, false, vertex_stride, 20);
 
         gl::bind_vertex_array(0);
 
