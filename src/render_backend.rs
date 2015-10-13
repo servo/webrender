@@ -1,12 +1,12 @@
 use app_units::Au;
 use clipper;
 use device::{ProgramId, TextureId};
-use euclid::{Rect, Point2D, Size2D, Matrix2D};
+use euclid::{Rect, Point2D, Size2D, Matrix4};
 use font::{FontContext, RasterizedGlyph};
 use fnv::FnvHasher;
-use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, ORTHO_FAR_PLANE, DrawLayer};
-use internal_types::{PackedVertex, WorkVertex, RenderPass, RenderBatch, DisplayList, DrawCommand};
-use internal_types::{CompositeInfo, BorderEdgeDirection};
+use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp};
+use internal_types::{PackedVertex, WorkVertex, RenderPass, DisplayList, DrawCommand, DrawCommandInfo};
+use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex};
 use renderer::BLUR_INFLATION_FACTOR;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -27,8 +27,9 @@ use types::{BoxShadowCornerRasterOp, RectangleDisplayItem};
 use types::{Glyph, GradientStop, DisplayListMode, RasterItem, ClipRegion};
 use types::{GlyphInstance, ImageID, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
 use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF, DrawListID};
-use types::{RenderTargetID, MixBlendMode, CompositeDisplayItem, BorderSide, BorderStyle};
+use types::{RenderTargetID, MixBlendMode, CompositeDisplayItem, BorderSide, BorderStyle, NodeIndex};
 use util;
+use util::MatrixHelpers;
 use scoped_threadpool;
 
 type DisplayListMap = HashMap<DisplayListID, DisplayList, DefaultState<FnvHasher>>;
@@ -39,11 +40,23 @@ type RasterToImageMap = HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>;
 type FontTemplateMap = HashMap<Atom, FontTemplate, DefaultState<FnvHasher>>;
 type ImageTemplateMap = HashMap<ImageID, ImageResource, DefaultState<FnvHasher>>;
 type StackingContextMap = HashMap<PipelineId, RootStackingContext, DefaultState<FnvHasher>>;
-type RenderItemKeyArray = Vec<RenderItemKey>;
+
+const MAX_MATRICES_PER_BATCH: usize = 32;
 
 static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
+
+struct RenderBatch {
+    batch_id: BatchId,
+    sort_key: DisplayItemKey,
+    program_id: ProgramId,
+    color_texture_id: TextureId,
+    mask_texture_id: TextureId,
+    vertices: Vec<PackedVertex>,
+    indices: Vec<u16>,
+    matrix_map: HashMap<DrawListIndex, u8>,
+}
 
 static MAX_RECT: Rect<f32> = Rect {
     origin: Point2D {
@@ -57,9 +70,6 @@ static MAX_RECT: Rect<f32> = Rect {
 };
 
 const BORDER_DASH_SIZE: f32 = 3.0;
-
-#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq)]
-struct RenderTargetIndex(u32);
 
 #[derive(Debug)]
 struct RenderTarget {
@@ -78,6 +88,68 @@ impl RenderTarget {
     }
 }
 
+struct DisplayItemIterator<'a> {
+    flat_draw_lists: &'a FlatDrawListArray,
+    current_key: DisplayItemKey,
+    last_key: DisplayItemKey,
+}
+
+impl<'a> DisplayItemIterator<'a> {
+    fn new(flat_draw_lists: &'a FlatDrawListArray,
+           src_items: &Vec<DisplayItemKey>) -> DisplayItemIterator<'a> {
+
+        match (src_items.first(), src_items.last()) {
+            (Some(first), Some(last)) => {
+                let current_key = first.clone();
+                let mut last_key = last.clone();
+
+                let DrawListItemIndex(last_item_index) = last_key.item_index;
+                last_key.item_index = DrawListItemIndex(last_item_index + 1);
+
+                DisplayItemIterator {
+                    current_key: current_key,
+                    last_key: last_key,
+                    flat_draw_lists: flat_draw_lists,
+                }
+            }
+            (None, None) => {
+                DisplayItemIterator {
+                    current_key: DisplayItemKey::new(0, 0),
+                    last_key: DisplayItemKey::new(0, 0),
+                    flat_draw_lists: flat_draw_lists
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl<'a> Iterator for DisplayItemIterator<'a> {
+    type Item = DisplayItemKey;
+
+    fn next(&mut self) -> Option<DisplayItemKey> {
+        if self.current_key == self.last_key {
+            return None;
+        }
+
+        let key = self.current_key.clone();
+        let DrawListItemIndex(item_index) = key.item_index;
+        let DrawListIndex(list_index) = key.draw_list_index;
+
+        self.current_key.item_index = DrawListItemIndex(item_index + 1);
+
+        if key.draw_list_index != self.last_key.draw_list_index {
+            let last_item_index = DrawListItemIndex(self.flat_draw_lists[list_index as usize].draw_list.items.len() as u32);
+            if self.current_key.item_index == last_item_index {
+                self.current_key.draw_list_index = DrawListIndex(list_index + 1);
+                self.current_key.item_index = DrawListItemIndex(0);
+            }
+        }
+
+        Some(key)
+    }
+}
+
 trait GetDisplayItemHelper {
     fn get_item(&self, key: &DisplayItemKey) -> &DisplayItem;
     fn get_item_and_draw_context(&self, key: &DisplayItemKey) -> (&DisplayItem, &DrawContext);
@@ -93,7 +165,9 @@ impl GetDisplayItemHelper for FlatDrawListArray {
     fn get_item_and_draw_context(&self, key: &DisplayItemKey) -> (&DisplayItem, &DrawContext) {
         let DrawListIndex(list_index) = key.draw_list_index;
         let DrawListItemIndex(item_index) = key.item_index;
+        //println!("\tget_item_and_draw_context list={} item={} lists_len={}", list_index, item_index, self.len());
         let list = &self[list_index as usize];
+        //println!("list {} has {} items", list_index, list.draw_list.items.len());
         (&list.draw_list.items[item_index as usize], &list.draw_context)
     }
 }
@@ -128,10 +202,9 @@ impl StackingContextHelpers for StackingContext {
 #[derive(Clone)]
 struct DrawContext {
     render_target_index: RenderTargetIndex,
-    offset: Point2D<f32>,
-    transform: Matrix2D<f32>,
     overflow: Rect<f32>,
     device_pixel_ratio: f32,
+    final_transform: Matrix4,
 }
 
 struct FlatDrawList {
@@ -229,20 +302,14 @@ impl CollectDrawListsForStackingContext for StackingContext {
     }
 }
 
-#[derive(Clone, Debug, Ord, PartialOrd, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq, Hash)]
 struct DrawListIndex(u32);
 
-#[derive(Clone, Debug, Ord, PartialOrd, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq)]
 struct DrawListItemIndex(u32);
 
-#[derive(Debug)]
-struct NodeIndex(u32);
-
-#[derive(Debug)]
-struct RenderItemIndex(u32);
-
-#[derive(Clone, Debug)]
-struct DisplayItemKey {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisplayItemKey {
     draw_list_index: DrawListIndex,
     item_index: DrawListItemIndex,
 }
@@ -256,21 +323,6 @@ impl DisplayItemKey {
     }
 }
 
-#[derive(Debug)]
-struct RenderItemKey {
-    node_index: NodeIndex,
-    item_index: RenderItemIndex,
-}
-
-impl RenderItemKey {
-    fn new(node_index: usize, item_index: usize) -> RenderItemKey {
-        RenderItemKey {
-            node_index: NodeIndex(node_index as u32),
-            item_index: RenderItemIndex(item_index as u32),
-        }
-    }
-}
-
 struct Scene {
     pipeline_epoch_map: HashMap<PipelineId, Epoch>,
     aabb_tree: AABBTree,
@@ -280,6 +332,8 @@ struct Scene {
 
     render_targets: Vec<RenderTarget>,
     render_target_stack: Vec<RenderTargetIndex>,
+
+    pending_updates: BatchUpdateList,
 }
 
 impl Scene {
@@ -292,12 +346,28 @@ impl Scene {
             scroll_offset: Point2D::zero(),
             render_targets: Vec::new(),
             render_target_stack: Vec::new(),
+            pending_updates: BatchUpdateList::new(),
         }
+    }
+
+    pub fn pending_updates(&mut self) -> BatchUpdateList {
+        mem::replace(&mut self.pending_updates, BatchUpdateList::new())
     }
 
     fn reset(&mut self, texture_cache: &mut TextureCache) {
         debug_assert!(self.render_target_stack.len() == 0);
         self.pipeline_epoch_map.clear();
+
+        for node in &mut self.aabb_tree.nodes {
+            if let Some(ref compiled_node) = node.compiled_node {
+                for batch in &compiled_node.batches {
+                    self.pending_updates.push(BatchUpdate {
+                        id: batch.batch_id,
+                        op: BatchUpdateOp::Destroy,
+                    });
+                }
+            }
+        }
 
         // Free any render targets from last frame.
         // TODO: This should really re-use existing targets here...
@@ -356,7 +426,7 @@ impl Scene {
         for item in &draw_list.items {
             match item.item {
                 SpecificDisplayItem::Iframe(ref info) => {
-                    let iframe_offset = draw_context.offset + item.rect.origin;
+                    let iframe_offset = draw_context.final_transform.transform_point(&item.rect.origin);
                     iframes.push(IframeInfo::new(info.iframe, iframe_offset));
                 }
                 _ => {}
@@ -370,7 +440,7 @@ impl Scene {
 
     fn flatten_stacking_context(&mut self,
                                 stacking_context_kind: StackingContextKind,
-                                offset: &Point2D<f32>,
+                                transform: &Matrix4,
                                 display_list_map: &DisplayListMap,
                                 draw_list_map: &mut DrawListMap,
                                 stacking_contexts: &StackingContextMap,
@@ -383,19 +453,16 @@ impl Scene {
         };
 
         let mut iframes = Vec::new();
-        let mut offset = Point2D::new(offset.x + stacking_context.bounds.origin.x,
-                                      offset.y + stacking_context.bounds.origin.y);
 
-        let xform_2d = Matrix2D::new(stacking_context.transform.m11, stacking_context.transform.m12,
-                                     stacking_context.transform.m21, stacking_context.transform.m22,
-                                     stacking_context.transform.m41, stacking_context.transform.m42);
+        let mut transform = transform.translate(stacking_context.bounds.origin.x,
+                                                stacking_context.bounds.origin.y,
+                                                0.0);
 
         let mut draw_context = DrawContext {
             render_target_index: self.current_render_target(),
-            offset: offset.clone(),
-            transform: xform_2d,
             overflow: stacking_context.overflow,
             device_pixel_ratio: device_pixel_ratio,
+            final_transform: transform,
         };
 
         let needs_render_target = stacking_context.needs_render_target();
@@ -418,14 +485,15 @@ impl Scene {
                 item: SpecificDisplayItem::Composite(composite_item),
                 rect: stacking_context.overflow,
                 clip: clip,
+                node_index: None,
             };
             composite_draw_list.push(composite_item);
             self.push_draw_list(None, composite_draw_list, &draw_context);
 
             self.push_render_target(size, Some(texture_id));
 
-            offset = Point2D::zero();
-            draw_context.offset = offset;
+            transform = Matrix4::identity();
+            draw_context.final_transform = transform;
             draw_context.render_target_index = self.current_render_target();
         }
 
@@ -447,6 +515,7 @@ impl Scene {
                         item: SpecificDisplayItem::Rectangle(rectangle_item),
                         rect: stacking_context.overflow,
                         clip: clip,
+                        node_index: None,
                     };
                     root_draw_list.push(root_bg_color_item);
 
@@ -468,7 +537,7 @@ impl Scene {
                 continue;
             }
             self.flatten_stacking_context(StackingContextKind::Normal(child),
-                                          &offset,
+                                          &transform,
                                           display_list_map,
                                           draw_list_map,
                                           stacking_contexts,
@@ -497,7 +566,7 @@ impl Scene {
                 continue;
             }
             self.flatten_stacking_context(StackingContextKind::Normal(child),
-                                          &offset,
+                                          &transform,
                                           display_list_map,
                                           draw_list_map,
                                           stacking_contexts,
@@ -510,8 +579,12 @@ impl Scene {
         for iframe_info in &iframes {
             let iframe = stacking_contexts.get(&iframe_info.id);
             if let Some(iframe) = iframe {
+                // TODO: DOesn't handle transforms on iframes yet!
+                let iframe_transform = Matrix4::identity().translate(iframe_info.offset.x,
+                                                                     iframe_info.offset.y,
+                                                                     0.0);
                 self.flatten_stacking_context(StackingContextKind::Root(iframe),
-                                              &iframe_info.offset,
+                                              &iframe_transform,
                                               display_list_map,
                                               draw_list_map,
                                               stacking_contexts,
@@ -534,13 +607,15 @@ impl Scene {
         self.aabb_tree.init(scene_rect);
 
         // push all visible draw lists into aabb tree
-        for (draw_list_index, flat_draw_list) in self.flat_draw_lists.iter().enumerate() {
-            for (item_index, item) in flat_draw_list.draw_list.items.iter().enumerate() {
-                let rect = flat_draw_list.draw_context.transform.transform_rect(&item.rect);
-                let rect = rect.translate(&flat_draw_list.draw_context.offset);
-                self.aabb_tree.insert(&rect, draw_list_index, item_index);
+        for (draw_list_index, flat_draw_list) in self.flat_draw_lists.iter_mut().enumerate() {
+            for (item_index, item) in flat_draw_list.draw_list.items.iter_mut().enumerate() {
+                assert!(item.node_index.is_none());
+                let rect = flat_draw_list.draw_context.final_transform.transform_rect(&item.rect);
+                item.node_index = self.aabb_tree.insert(&rect, draw_list_index, item_index);
             }
         }
+
+        //self.aabb_tree.print(0, 0);
     }
 
     fn build_frame(&mut self,
@@ -583,91 +658,78 @@ impl Scene {
                                    raster_to_image_map,
                                    texture_cache,
                                    white_image_id,
-                                   dummy_mask_image_id);
+                                   dummy_mask_image_id,
+                                   quad_program_id,
+                                   glyph_program_id,
+                                   device_pixel_ratio);
 
-        // Get the list of render items, in sorted order ready for batch creation.
-        let sorted_render_item_keys = self.collect_and_sort_visible_render_items();
+        // Update the batch cache from newly compiled nodes
+        self.update_batch_cache();
 
-        // Build the batches (TODO: This is a very naive batcher for now!)
-        self.create_batches(sorted_render_item_keys,
-                            quad_program_id,
-                            glyph_program_id,
-                            &self.scroll_offset,
-                            device_pixel_ratio)
+        // Collect the visible batches into a frame
+        self.collect_and_sort_visible_batches()
     }
 
-    // One for each render target!
-    fn collect_and_sort_visible_render_items(&self) -> Vec<RenderItemKeyArray> {
-        let _pf = util::ProfileScope::new("  collect_and_sort_visible_render_items");
-
-        let mut render_targets = Vec::new();
-        for _ in 0..self.render_targets.len() {
-            render_targets.push(RenderItemKeyArray::new());
-        }
-
-        for (node_index, node) in self.aabb_tree.nodes.iter().enumerate() {
-            if node.is_visible {
-                debug_assert!(node.is_compiled);
-                // TODO: There is probably a quicker way to do this!
-                //       At the very least, compile node could create and cache this keys array...
-                for (i, render_item) in node.compiled_node.as_ref().unwrap().render_items.iter().enumerate() {
-                    let DrawListIndex(draw_list_index) = render_item.sort_key.draw_list_index;
-                    let render_target_index = self.flat_draw_lists[draw_list_index as usize].draw_context.render_target_index;
-                    let RenderTargetIndex(render_target_index) = render_target_index;
-                    render_targets[render_target_index as usize].push(RenderItemKey::new(node_index, i));
-                }
-            }
-        }
-
-        for render_target in &mut render_targets {
-            render_target.sort_by(|a, b| {
-                let ra = &self.aabb_tree.get_render_item(a);
-                let rb = &self.aabb_tree.get_render_item(b);
-                let draw_list_order = ra.sort_key.draw_list_index.cmp(&rb.sort_key.draw_list_index);
-                match draw_list_order {
-                    Ordering::Equal => {
-                        ra.sort_key.item_index.cmp(&rb.sort_key.item_index)
-                    }
-                    order => {
-                        order
-                    }
-                }
-            });
-        }
-
-        render_targets
-    }
-
-    fn create_batches(&self,
-                      keys_array: Vec<RenderItemKeyArray>,
-                      quad_program_id: ProgramId,
-                      glyph_program_id: ProgramId,
-                      scroll_offset: &Point2D<f32>,
-                      device_pixel_ratio: f32)
-                      -> Frame {
-        let _pf = util::ProfileScope::new("  create_batches");
-
+    fn collect_and_sort_visible_batches(&mut self) -> Frame {
         let mut frame = Frame::new(self.pipeline_epoch_map.clone());
 
-        for (render_target, keys) in self.render_targets.iter().zip(keys_array.iter()) {
-            let mut batcher = RenderBatcher::new(keys.len(),
-                                                 quad_program_id,
-                                                 glyph_program_id);
+        let mut layers = Vec::new();
 
-            for key in keys {
-                let (render_item, vertex_buffer) = self.aabb_tree.get_render_item_and_vb(key);
-                batcher.add_render_item(render_item,
-                                        vertex_buffer,
-                                        scroll_offset,
-                                        device_pixel_ratio);
-            }
-
-            let draw_commands = batcher.finalize();
-
-            let layer = DrawLayer::new(render_target.texture_id,
+        for render_target in &self.render_targets {
+            layers.push(DrawLayer::new(render_target.texture_id,
                                        render_target.size,
-                                       draw_commands);
-            frame.add_layer(layer);
+                                       Vec::new()));
+        }
+
+        for node in &self.aabb_tree.nodes {
+            if node.is_visible {
+                debug_assert!(node.compiled_node.is_some());
+                let compiled_node = node.compiled_node.as_ref().unwrap();
+
+                // Update batch matrices
+                for (batch_id, matrix_map) in &compiled_node.matrix_maps {
+                    // TODO: Could cache these matrices rather than generate for every batch.
+                    let mut matrix_palette = vec![Matrix4::identity(); matrix_map.len()];
+
+                    for (draw_list_index, matrix_index) in matrix_map {
+                        let DrawListIndex(draw_list_index) = *draw_list_index;
+                        let transform = self.flat_draw_lists[draw_list_index as usize].draw_context.final_transform;
+                        let transform = transform.translate(self.scroll_offset.x,
+                                                            self.scroll_offset.y,
+                                                            0.0);
+                        let matrix_index = *matrix_index as usize;
+                        matrix_palette[matrix_index] = transform;
+                    }
+
+                    self.pending_updates.push(BatchUpdate {
+                        id: *batch_id,
+                        op: BatchUpdateOp::UpdateUniforms(matrix_palette),
+                    });
+                }
+
+                for command in &compiled_node.commands {
+                    let RenderTargetIndex(render_target) = command.render_target;
+                    layers[render_target as usize].commands.push(command.clone());
+                }
+            }
+        }
+
+        for mut layer in layers {
+            if layer.commands.len() > 0 {
+                layer.commands.sort_by(|a, b| {
+                    let draw_list_order = a.sort_key.draw_list_index.cmp(&b.sort_key.draw_list_index);
+                    match draw_list_order {
+                        Ordering::Equal => {
+                            a.sort_key.item_index.cmp(&b.sort_key.item_index)
+                        }
+                        order => {
+                            order
+                        }
+                    }
+                });
+
+                frame.add_layer(layer);
+            }
         }
 
         frame
@@ -678,9 +740,12 @@ impl Scene {
                              raster_to_image_map: &RasterToImageMap,
                              texture_cache: &TextureCache,
                              white_image_id: ImageID,
-                             dummy_mask_image_id: ImageID) {
+                             dummy_mask_image_id: ImageID,
+                             quad_program_id: ProgramId,
+                             glyph_program_id: ProgramId,
+                             device_pixel_ratio: f32) {
         let _pf = util::ProfileScope::new("  compile_visible_nodes");
-
+        let node_rects = &self.aabb_tree.node_rects();
         let nodes = &mut self.aabb_tree.nodes;
         let flat_draw_list_array = &self.flat_draw_lists;
         let white_image_info = texture_cache.get(white_image_id);
@@ -688,18 +753,42 @@ impl Scene {
 
         self.thread_pool.scoped(|scope| {
             for node in nodes {
-                if node.is_visible && !node.is_compiled {
+                if node.is_visible && node.compiled_node.is_none() {
                     scope.execute(move || {
                         node.compile(flat_draw_list_array,
                                      white_image_info,
                                      mask_image_info,
                                      glyph_to_image_map,
                                      raster_to_image_map,
-                                     texture_cache);
+                                     texture_cache,
+                                     node_rects,
+                                     quad_program_id,
+                                     glyph_program_id,
+                                     device_pixel_ratio);
                     });
                 }
             }
         });
+    }
+
+    fn update_batch_cache(&mut self) {
+        // Allocate and update VAOs
+        for node in &mut self.aabb_tree.nodes {
+            if node.is_visible {
+                let compiled_node = node.compiled_node.as_mut().unwrap();
+                for batch in compiled_node.batches.drain(..) {
+                    self.pending_updates.push(BatchUpdate {
+                        id: batch.batch_id,
+                        op: BatchUpdateOp::Create(batch.vertices,
+                                                  batch.indices,
+                                                  batch.program_id,
+                                                  batch.color_texture_id,
+                                                  batch.mask_texture_id),
+                    });
+                    compiled_node.matrix_maps.insert(batch.batch_id, batch.matrix_map);
+                }
+            }
+        }
     }
 
     fn update_texture_cache_and_build_raster_jobs(&mut self,
@@ -795,7 +884,7 @@ impl Scene {
 
         self.thread_pool.scoped(|scope| {
             for node in nodes {
-                if node.is_visible && !node.is_compiled {
+                if node.is_visible && node.compiled_node.is_none() {
                     scope.execute(move || {
                         node.build_resource_list(flat_draw_lists);
                     });
@@ -841,6 +930,27 @@ impl ResourceList {
 }
 
 struct CompiledNode {
+    batches: Vec<RenderBatch>,
+    commands: Vec<DrawCommand>,
+    matrix_maps: HashMap<BatchId, HashMap<DrawListIndex, u8>>,
+}
+
+impl CompiledNode {
+    fn new() -> CompiledNode {
+        CompiledNode {
+            batches: Vec::new(),
+            commands: Vec::new(),
+            matrix_maps: HashMap::new(),
+        }
+    }
+}
+
+struct DrawCommandBuilder {
+    quad_program_id: ProgramId,
+    glyph_program_id: ProgramId,
+    device_pixel_ratio: f32,
+    render_target_index: RenderTargetIndex,
+
     render_items: Vec<RenderItem>,
     vertex_buffer: VertexBuffer,
     // store shared clip buffers per CompiledNode
@@ -850,24 +960,116 @@ struct CompiledNode {
     clip_buffers: clipper::ClipBuffers,
 }
 
-impl CompiledNode {
-    fn new() -> CompiledNode {
-        CompiledNode {
+impl DrawCommandBuilder {
+    fn new(quad_program_id: ProgramId,
+           glyph_program_id: ProgramId,
+           device_pixel_ratio: f32,
+           render_target_index: RenderTargetIndex) -> DrawCommandBuilder {
+        DrawCommandBuilder {
+            render_target_index: render_target_index,
+            device_pixel_ratio: device_pixel_ratio,
+            quad_program_id: quad_program_id,
+            glyph_program_id: glyph_program_id,
             render_items: Vec::new(),
             vertex_buffer: VertexBuffer::new(),
             clip_buffers: clipper::ClipBuffers::new(),
         }
     }
+
+    fn finalize(self) -> (Vec<RenderBatch>, Vec<DrawCommand>) {
+        let mut current_batch: Option<RenderBatch> = None;
+        let mut draw_commands = Vec::new();
+        let mut batches = Vec::new();
+
+        for item in self.render_items {
+            match item.info {
+                RenderItemInfo::Draw(ref info) => {
+                    let program_id = match info.primitive {
+                        Primitive::Rectangles |
+                        Primitive::TriangleFan => {
+                            self.quad_program_id
+                        }
+                        Primitive::Glyphs => {
+                            self.glyph_program_id
+                        }
+                    };
+
+                    let need_new_batch = current_batch.is_none() ||
+                                         current_batch.as_ref().unwrap().can_add_to_batch(info,
+                                                                                          &item.sort_key,
+                                                                                          program_id) == false;
+
+                    if need_new_batch {
+                        if let Some(current_batch) = current_batch.take() {
+                            draw_commands.push(DrawCommand {
+                                render_target: self.render_target_index,
+                                sort_key: current_batch.sort_key.clone(),
+                                info: DrawCommandInfo::Batch(current_batch.batch_id),
+                            });
+                            batches.push(current_batch);
+                        }
+                        current_batch = Some(RenderBatch::new(BatchId::new(),
+                                                              item.sort_key.clone(),
+                                                              program_id,
+                                                              info.color_texture_id,
+                                                              info.mask_texture_id));
+                    }
+
+                    let batch = current_batch.as_mut().unwrap();
+                    batch.add_draw_item(info,
+                                        &self.vertex_buffer.vertices,
+                                        &item.sort_key,
+                                        self.device_pixel_ratio);
+                }
+                RenderItemInfo::Composite(ref info) => {
+                    // When a composite is encountered - always flush any batches that are pending.
+                    // TODO: It may be possible to be smarter about this in the future and avoid
+                    // flushing the batches in some cases.
+                    if let Some(current_batch) = current_batch.take() {
+                        draw_commands.push(DrawCommand {
+                            render_target: self.render_target_index,
+                            sort_key: current_batch.sort_key.clone(),
+                            info: DrawCommandInfo::Batch(current_batch.batch_id),
+                        });
+                        batches.push(current_batch);
+                    }
+
+                    let composite_info = CompositeInfo {
+                        blend_mode: info.blend_mode,
+                        rect: info.rect,
+                        color_texture_id: info.color_texture_id,
+                    };
+                    let cmd = DrawCommand {
+                        render_target: self.render_target_index,
+                        sort_key: item.sort_key,
+                        info: DrawCommandInfo::Composite(composite_info)
+                    };
+                    draw_commands.push(cmd);
+                }
+            }
+        }
+
+        if let Some(current_batch) = current_batch.take() {
+            draw_commands.push(DrawCommand {
+                render_target: self.render_target_index,
+                sort_key: current_batch.sort_key.clone(),
+                info: DrawCommandInfo::Batch(current_batch.batch_id),
+            });
+            batches.push(current_batch);
+        }
+
+        (batches, draw_commands)
+    }
 }
 
 struct AABBTreeNode {
     rect: Rect<f32>,
+    node_index: NodeIndex,
 
     // TODO: Use Option + NonZero here
-    children: Option<u32>,
+    children: Option<NodeIndex>,
 
     is_visible: bool,
-    is_compiled: bool,
 
     src_items: Vec<DisplayItemKey>,
 
@@ -876,12 +1078,12 @@ struct AABBTreeNode {
 }
 
 impl AABBTreeNode {
-    fn new(rect: &Rect<f32>) -> AABBTreeNode {
+    fn new(rect: &Rect<f32>, node_index: NodeIndex) -> AABBTreeNode {
         AABBTreeNode {
             rect: rect.clone(),
+            node_index: node_index,
             children: None,
             is_visible: false,
-            is_compiled: false,
             resource_list: None,
             src_items: Vec::new(),
             compiled_node: None,
@@ -902,105 +1104,143 @@ impl AABBTreeNode {
                mask_image_info: &TextureCacheItem,
                glyph_to_image_map: &HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
                raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
-               texture_cache: &TextureCache) {
+               texture_cache: &TextureCache,
+               node_rects: &Vec<Rect<f32>>,
+               quad_program_id: ProgramId,
+               glyph_program_id: ProgramId,
+               device_pixel_ratio: f32) {
         let color_white = ColorF::new(1.0, 1.0, 1.0, 1.0);
         let mut compiled_node = CompiledNode::new();
 
-        for key in &self.src_items {
-            let (display_item, draw_context) = flat_draw_lists.get_item_and_draw_context(key);
-            let clip_rect = display_item.clip.main.intersection(&draw_context.overflow);
+        let mut draw_cmd_builders = HashMap::new();
 
-            if let Some(clip_rect) = clip_rect {
-                match display_item.item {
-                    SpecificDisplayItem::Image(ref info) => {
-                        let image = texture_cache.get(info.image_id);
-                        compiled_node.add_image(key,
-                                                draw_context,
-                                                &display_item.rect,
-                                                &clip_rect,
-                                                &display_item.clip,
-                                                &info.stretch_size,
-                                                image,
-                                                mask_image_info,
-                                                raster_to_image_map,
-                                                &texture_cache,
-                                                &color_white);
-                    }
-                    SpecificDisplayItem::Text(ref info) => {
-                        compiled_node.add_text(key,
-                                               draw_context,
-                                               info.font_id.clone(),
-                                               info.size,
-                                               info.blur_radius,
-                                               &info.color,
-                                               &info.glyphs,
-                                               mask_image_info,
-                                               &glyph_to_image_map,
-                                               &texture_cache);
-                    }
-                    SpecificDisplayItem::Rectangle(ref info) => {
-                        compiled_node.add_rectangle(key,
-                                                    draw_context,
-                                                    &display_item.rect,
-                                                    &clip_rect,
-                                                    BoxShadowClipMode::Inset,
-                                                    &display_item.clip,
-                                                    white_image_info,
-                                                    mask_image_info,
-                                                    raster_to_image_map,
-                                                    &texture_cache,
-                                                    &info.color);
-                    }
-                    SpecificDisplayItem::Iframe(..) => {}
-                    SpecificDisplayItem::Gradient(ref info) => {
-                        compiled_node.add_gradient(key,
-                                                   draw_context,
-                                                   &display_item.rect,
-                                                   &info.start_point,
-                                                   &info.end_point,
-                                                   &info.stops,
-                                                   white_image_info,
-                                                   mask_image_info);
-                    }
-                    SpecificDisplayItem::BoxShadow(ref info) => {
-                        compiled_node.add_box_shadow(key,
-                                                     draw_context,
-                                                     &info.box_bounds,
-                                                     &clip_rect,
-                                                     &display_item.clip,
-                                                     &info.offset,
-                                                     &info.color,
-                                                     info.blur_radius,
-                                                     info.spread_radius,
-                                                     info.border_radius,
-                                                     info.clip_mode,
+        let iter = DisplayItemIterator::new(flat_draw_lists, &self.src_items);
+        for key in iter {
+            let (display_item, draw_context) = flat_draw_lists.get_item_and_draw_context(&key);
+
+            if let Some(item_node_index) = display_item.node_index {
+                if item_node_index == self.node_index {
+                    let clip_rect = display_item.clip.main.intersection(&draw_context.overflow);
+
+                    if let Some(clip_rect) = clip_rect {
+
+                        let builder = match draw_cmd_builders.entry(draw_context.render_target_index) {
+                            Vacant(entry) => {
+                                entry.insert(DrawCommandBuilder::new(quad_program_id,
+                                                                     glyph_program_id,
+                                                                     device_pixel_ratio,
+                                                                     draw_context.render_target_index))
+                            }
+                            Occupied(entry) => entry.into_mut(),
+                        };
+
+                        match display_item.item {
+                            SpecificDisplayItem::Image(ref info) => {
+                                let image = texture_cache.get(info.image_id);
+                                builder.add_image(&key,
+                                                        &display_item.rect,
+                                                        &clip_rect,
+                                                        &display_item.clip,
+                                                        &info.stretch_size,
+                                                        image,
+                                                        mask_image_info,
+                                                        raster_to_image_map,
+                                                        &texture_cache,
+                                                        &color_white);
+                            }
+                            SpecificDisplayItem::Text(ref info) => {
+                                builder.add_text(&key,
+                                                       draw_context,
+                                                       info.font_id.clone(),
+                                                       info.size,
+                                                       info.blur_radius,
+                                                       &info.color,
+                                                       &info.glyphs,
+                                                       mask_image_info,
+                                                       &glyph_to_image_map,
+                                                       &texture_cache);
+                            }
+                            SpecificDisplayItem::Rectangle(ref info) => {
+                                builder.add_rectangle(&key,
+                                                            &display_item.rect,
+                                                            &clip_rect,
+                                                            BoxShadowClipMode::Inset,
+                                                            &display_item.clip,
+                                                            white_image_info,
+                                                            mask_image_info,
+                                                            raster_to_image_map,
+                                                            &texture_cache,
+                                                            &info.color);
+                            }
+                            SpecificDisplayItem::Iframe(..) => {}
+                            SpecificDisplayItem::Gradient(ref info) => {
+                                builder.add_gradient(&key,
+                                                           &display_item.rect,
+                                                           &info.start_point,
+                                                           &info.end_point,
+                                                           &info.stops,
+                                                           white_image_info,
+                                                           mask_image_info);
+                            }
+                            SpecificDisplayItem::BoxShadow(ref info) => {
+                                builder.add_box_shadow(&key,
+                                                             &info.box_bounds,
+                                                             &clip_rect,
+                                                             &display_item.clip,
+                                                             &info.offset,
+                                                             &info.color,
+                                                             info.blur_radius,
+                                                             info.spread_radius,
+                                                             info.border_radius,
+                                                             info.clip_mode,
+                                                             white_image_info,
+                                                             mask_image_info,
+                                                             raster_to_image_map,
+                                                             texture_cache);
+                            }
+                            SpecificDisplayItem::Border(ref info) => {
+                                builder.add_border(&key,
+                                                     &display_item.rect,
+                                                     info,
                                                      white_image_info,
                                                      mask_image_info,
                                                      raster_to_image_map,
                                                      texture_cache);
+                            }
+                            SpecificDisplayItem::Composite(ref info) => {
+                                builder.add_composite(&key,
+                                                            draw_context,
+                                                            &display_item.rect,
+                                                            info.texture_id,
+                                                            info.blend_mode);
+                            }
+                        }
                     }
-                    SpecificDisplayItem::Border(ref info) => {
-                        compiled_node.add_border(key,
-                                                 draw_context,
-                                                 &display_item.rect,
-                                                 info,
-                                                 white_image_info,
-                                                 mask_image_info,
-                                                 raster_to_image_map,
-                                                 texture_cache);
-                    }
-                    SpecificDisplayItem::Composite(ref info) => {
-                        compiled_node.add_composite(key,
-                                                    draw_context,
-                                                    &display_item.rect,
-                                                    info.texture_id,
-                                                    info.blend_mode);
+                } else {
+                    // TODO: Cache this information!!!
+                    let NodeIndex(node0) = item_node_index;
+                    let NodeIndex(node1) = self.node_index;
+
+                    let rect0 = &node_rects[node0 as usize];
+                    let rect1 = &node_rects[node1 as usize];
+                    let nodes_overlap = rect0.intersects(rect1);
+                    if nodes_overlap {
+                        if let Some(builder) = draw_cmd_builders.remove(&draw_context.render_target_index) {
+                            let (batches, commands) = builder.finalize();
+                            compiled_node.batches.extend(batches.into_iter());
+                            compiled_node.commands.extend(commands.into_iter());
+                        }
                     }
                 }
             }
         }
 
-        self.is_compiled = true;
+        for (_, builder) in draw_cmd_builders.into_iter() {
+            let (batches, commands) = builder.finalize();
+            compiled_node.batches.extend(batches.into_iter());
+            compiled_node.commands.extend(commands.into_iter());
+        }
+
         self.compiled_node = Some(compiled_node);
     }
 }
@@ -1021,58 +1261,58 @@ impl AABBTree {
     fn init(&mut self, scene_rect: &Rect<f32>) {
         self.nodes.clear();
 
-        let root_node = AABBTreeNode::new(scene_rect);
+        let root_node = AABBTreeNode::new(scene_rect, NodeIndex(0));
         self.nodes.push(root_node);
     }
 
-    fn get_render_item(&self, key: &RenderItemKey) -> &RenderItem {
-        let NodeIndex(node_index) = key.node_index;
-        let RenderItemIndex(item_index) = key.item_index;
-        &self.nodes[node_index as usize].compiled_node.as_ref().unwrap().render_items[item_index as usize]
-    }
-
-    fn get_render_item_and_vb(&self, key: &RenderItemKey) -> (&RenderItem, &VertexBuffer) {
-        let NodeIndex(node_index) = key.node_index;
-        let RenderItemIndex(item_index) = key.item_index;
-        let compiled_node = &self.nodes[node_index as usize].compiled_node.as_ref().unwrap();
-        (&compiled_node.render_items[item_index as usize], &compiled_node.vertex_buffer)
-    }
-
     #[allow(dead_code)]
-    fn print(&self, node_index: u32, level: u32) {
+    fn print(&self, node_index: NodeIndex, level: u32) {
         let mut indent = String::new();
         for _ in 0..level {
             indent.push_str("  ");
         }
 
         let node = self.node(node_index);
-        println!("{:?}n={} r={:?} c={:?}", indent, node_index, node.rect, node.children);
+        println!("{}n={:?} r={:?} c={:?}", indent, node_index, node.rect, node.children);
 
         if let Some(child_index) = node.children {
-            self.print(child_index+0, level+1);
-            self.print(child_index+1, level+1);
+            let NodeIndex(child_index) = child_index;
+            self.print(NodeIndex(child_index+0), level+1);
+            self.print(NodeIndex(child_index+1), level+1);
         }
     }
 
     #[inline(always)]
-    fn node(&self, index: u32) -> &AABBTreeNode {
+    fn node(&self, index: NodeIndex) -> &AABBTreeNode {
+        let NodeIndex(index) = index;
         &self.nodes[index as usize]
     }
 
     #[inline(always)]
-    fn node_mut(&mut self, index: u32) -> &mut AABBTreeNode {
+    fn node_mut(&mut self, index: NodeIndex) -> &mut AABBTreeNode {
+        let NodeIndex(index) = index;
         &mut self.nodes[index as usize]
+    }
+
+    // TODO: temp hack to test if this idea works
+    fn node_rects(&self) -> Vec<Rect<f32>> {
+        let mut rects = Vec::new();
+        for node in &self.nodes {
+            rects.push(node.rect);
+        }
+        rects
     }
 
     #[inline]
     fn find_best_node(&mut self,
-                      node_index: u32,
-                      rect: &Rect<f32>) -> Option<u32> {
+                      node_index: NodeIndex,
+                      rect: &Rect<f32>) -> Option<NodeIndex> {
         self.split_if_needed(node_index);
 
         if let Some(child_node_index) = self.node(node_index).children {
-            let left_node_index = child_node_index + 0;
-            let right_node_index = child_node_index + 1;
+            let NodeIndex(child_node_index) = child_node_index;
+            let left_node_index = NodeIndex(child_node_index + 0);
+            let right_node_index = NodeIndex(child_node_index + 1);
 
             let left_intersect = self.node(left_node_index).rect.intersects(rect);
             let right_intersect = self.node(right_node_index).rect.intersects(rect);
@@ -1095,15 +1335,16 @@ impl AABBTree {
     fn insert(&mut self,
               rect: &Rect<f32>,
               draw_list_index: usize,
-              item_index: usize) {
-        let node_index = self.find_best_node(0, rect);
+              item_index: usize) -> Option<NodeIndex> {
+        let node_index = self.find_best_node(NodeIndex(0), rect);
         if let Some(node_index) = node_index {
             let node = self.node_mut(node_index);
             node.append_item(draw_list_index, item_index);
         }
+        node_index
     }
 
-    fn split_if_needed(&mut self, node_index: u32) {
+    fn split_if_needed(&mut self, node_index: NodeIndex) {
         if self.node(node_index).children.is_none() {
             let rect = self.node(node_index).rect.clone();
 
@@ -1131,19 +1372,19 @@ impl AABBTree {
             if let Some((left_rect, right_rect)) = child_rects {
                 let child_node_index = self.nodes.len() as u32;
 
-                let left_node = AABBTreeNode::new(&left_rect);
+                let left_node = AABBTreeNode::new(&left_rect, NodeIndex(child_node_index+0));
                 self.nodes.push(left_node);
 
-                let right_node = AABBTreeNode::new(&right_rect);
+                let right_node = AABBTreeNode::new(&right_rect, NodeIndex(child_node_index+1));
                 self.nodes.push(right_node);
 
-                self.node_mut(node_index).children = Some(child_node_index);
+                self.node_mut(node_index).children = Some(NodeIndex(child_node_index));
             }
         }
     }
 
     fn check_node_visibility(&mut self,
-                             node_index: u32,
+                             node_index: NodeIndex,
                              rect: &Rect<f32>) {
         let children = {
             let node = self.node_mut(node_index);
@@ -1156,8 +1397,9 @@ impl AABBTree {
         };
 
         if let Some(child_index) = children {
-            self.check_node_visibility(child_index+0, rect);
-            self.check_node_visibility(child_index+1, rect);
+            let NodeIndex(child_index) = child_index;
+            self.check_node_visibility(NodeIndex(child_index+0), rect);
+            self.check_node_visibility(NodeIndex(child_index+1), rect);
         }
     }
 
@@ -1167,7 +1409,7 @@ impl AABBTree {
             node.is_visible = false;
         }
         if self.nodes.len() > 0 {
-            self.check_node_visibility(0, &rect);
+            self.check_node_visibility(NodeIndex(0), &rect);
         }
     }
 }
@@ -1320,7 +1562,8 @@ impl RenderBackend {
                glyph_program_id: ProgramId,
                white_image_id: ImageID,
                dummy_mask_image_id: ImageID,
-               texture_cache: TextureCache) -> RenderBackend {
+               texture_cache: TextureCache,
+               /*vao_ids: Vec<VAOId>*/) -> RenderBackend {
         let mut backend = RenderBackend {
             api_rx: rx,
             result_tx: tx,
@@ -1332,6 +1575,7 @@ impl RenderBackend {
             white_image_id: white_image_id,
             dummy_mask_image_id: dummy_mask_image_id,
             texture_cache: texture_cache,
+            //vao_ids: vao_ids,
 
             font_templates: HashMap::with_hash_state(Default::default()),
             image_templates: HashMap::with_hash_state(Default::default()),
@@ -1481,7 +1725,7 @@ impl RenderBackend {
                                    self.viewport.size.height as u32);
             self.scene.push_render_target(size, None);
             self.scene.flatten_stacking_context(StackingContextKind::Root(root_sc),
-                                                &Point2D::zero(),
+                                                &Matrix4::identity(),
                                                 &self.display_list_map,
                                                 &mut self.draw_list_map,
                                                 &self.stacking_contexts,
@@ -1511,6 +1755,12 @@ impl RenderBackend {
         if pending_update.updates.len() > 0 {
             self.result_tx.send(ResultMsg::UpdateTextureCache(pending_update)).unwrap();
         }
+
+        let pending_update = self.scene.pending_updates();
+        if pending_update.updates.len() > 0 {
+            self.result_tx.send(ResultMsg::UpdateBatches(pending_update)).unwrap();
+        }
+
         self.result_tx.send(ResultMsg::NewFrame(frame)).unwrap();
         notifier.new_frame_ready();
     }
@@ -1524,7 +1774,6 @@ impl RenderBackend {
 #[derive(Debug)]
 enum Primitive {
     Rectangles,     // 4 vertices per rect
-    Triangles,      // simple non-indexed triangles         // TODO: Perhaps expose index buffer directly in render items...
     TriangleFan,    // simple triangle fan (typically from clipper)
     Glyphs,         // font glyphs (some platforms may specialize shader)
 }
@@ -1579,12 +1828,9 @@ impl VertexBuffer {
             y: f32,
             color: &ColorF,
             s: f32,
-            t: f32,
-            draw_context: &DrawContext) {
-        let p = Point2D::new(x, y);
-        let p = draw_context.transform.transform_point(&p);
-        self.vertices.push(WorkVertex::new(p.x + draw_context.offset.x,
-                                           p.y + draw_context.offset.y,
+            t: f32) {
+        self.vertices.push(WorkVertex::new(x,
+                                           y,
                                            color,
                                            s,
                                            t,
@@ -1596,12 +1842,9 @@ impl VertexBuffer {
     fn push_white(&mut self,
                   x: f32,
                   y: f32,
-                  color: &ColorF,
-                  draw_context: &DrawContext) {
-        let p = Point2D::new(x, y);
-        let p = draw_context.transform.transform_point(&p);
-        self.vertices.push(WorkVertex::new(p.x + draw_context.offset.x,
-                                           p.y + draw_context.offset.y,
+                  color: &ColorF) {
+        self.vertices.push(WorkVertex::new(x,
+                                           y,
                                            color,
                                            0.0,
                                            0.0,
@@ -1615,12 +1858,9 @@ impl VertexBuffer {
                    y: f32,
                    color: &ColorF,
                    ms: f32,
-                   mt: f32,
-                   draw_context: &DrawContext) {
-        let p = Point2D::new(x, y);
-        let p = draw_context.transform.transform_point(&p);
-        self.vertices.push(WorkVertex::new(p.x + draw_context.offset.x,
-                                           p.y + draw_context.offset.y,
+                   mt: f32) {
+        self.vertices.push(WorkVertex::new(x,
+                                           y,
                                            color,
                                            0.0,
                                            0.0,
@@ -1636,12 +1876,9 @@ impl VertexBuffer {
                                 s: f32,
                                 t: f32,
                                 ms: f32,
-                                mt: f32,
-                                draw_context: &DrawContext) {
-        let p = Point2D::new(x, y);
-        let p = draw_context.transform.transform_point(&p);
-        self.vertices.push(WorkVertex::new(p.x + draw_context.offset.x,
-                                           p.y + draw_context.offset.y,
+                                mt: f32) {
+        self.vertices.push(WorkVertex::new(x,
+                                           y,
                                            color,
                                            s,
                                            t,
@@ -1650,11 +1887,7 @@ impl VertexBuffer {
     }
 
     #[inline]
-    fn push_vertex(&mut self, mut v: WorkVertex, draw_context: &DrawContext) {
-        let p = Point2D::new(v.x, v.y);
-        let p = draw_context.transform.transform_point(&p);
-        v.x = p.x + draw_context.offset.x;
-        v.y = p.y + draw_context.offset.y;
+    fn push_vertex(&mut self, v: WorkVertex) {
         self.vertices.push(v);
     }
 
@@ -1664,10 +1897,9 @@ impl VertexBuffer {
     }
 }
 
-impl CompiledNode {
+impl DrawCommandBuilder {
     fn add_rectangle(&mut self,
                      sort_key: &DisplayItemKey,
-                     draw_context: &DrawContext,
                      rect: &Rect<f32>,
                      clip: &Rect<f32>,
                      clip_mode: BoxShadowClipMode,
@@ -1678,7 +1910,6 @@ impl CompiledNode {
                      texture_cache: &TextureCache,
                      color: &ColorF) {
         self.add_axis_aligned_gradient(sort_key,
-                                       draw_context,
                                        rect,
                                        clip,
                                        clip_mode,
@@ -1698,8 +1929,8 @@ impl CompiledNode {
                      blend_mode: MixBlendMode) {
         let RenderTargetID(texture_id) = texture_id;
 
-        let origin = Point2D::new((rect.origin.x + draw_context.offset.x) as u32,
-                                  (rect.origin.y + draw_context.offset.y) as u32);
+        let origin = draw_context.final_transform.transform_point(&rect.origin);
+        let origin = Point2D::new(origin.x as u32, origin.y as u32);
         let size = Size2D::new(rect.size.width as u32, rect.size.height as u32);
 
         let render_item = RenderItem {
@@ -1716,7 +1947,6 @@ impl CompiledNode {
 
     fn add_image(&mut self,
                  sort_key: &DisplayItemKey,
-                 draw_context: &DrawContext,
                  rect: &Rect<f32>,
                  clip_rect: &Rect<f32>,
                  clip_region: &ClipRegion,
@@ -1737,7 +1967,6 @@ impl CompiledNode {
         if rect.size.width == stretch_size.width && rect.size.height == stretch_size.height {
             push_rect(&mut self.render_items,
                       &mut self.vertex_buffer,
-                      draw_context,
                       color,
                       image_info,
                       dummy_mask_image,
@@ -1760,7 +1989,6 @@ impl CompiledNode {
 
                     push_rect(&mut self.render_items,
                               &mut self.vertex_buffer,
-                              draw_context,
                               color,
                               image_info,
                               dummy_mask_image,
@@ -1782,7 +2010,6 @@ impl CompiledNode {
 
         fn push_rect(render_items: &mut Vec<RenderItem>,
                      vertex_buffer: &mut VertexBuffer,
-                     draw_context: &DrawContext,
                      color: &ColorF,
                      image_info: &TextureCacheItem,
                      dummy_mask_image: &TextureCacheItem,
@@ -1817,23 +2044,19 @@ impl CompiledNode {
                 vertex_buffer.push_textured_and_masked(rect.origin.x, rect.origin.y,
                                                        color,
                                                        uv.origin.x, uv.origin.y,
-                                                       muv.origin.x, muv.origin.y,
-                                                       draw_context);
+                                                       muv.origin.x, muv.origin.y);
                 vertex_buffer.push_textured_and_masked(rect.max_x(), rect.origin.y,
                                                        color,
                                                        uv.max_x(), uv.origin.y,
-                                                       muv.max_x(), muv.origin.y,
-                                                       draw_context);
+                                                       muv.max_x(), muv.origin.y);
                 vertex_buffer.push_textured_and_masked(rect.origin.x, rect.max_y(),
                                                        color,
                                                        uv.origin.x, uv.max_y(),
-                                                       muv.origin.x, muv.max_y(),
-                                                       draw_context);
+                                                       muv.origin.x, muv.max_y());
                 vertex_buffer.push_textured_and_masked(rect.max_x(), rect.max_y(),
                                                        color,
                                                        uv.max_x(), uv.max_y(),
-                                                       muv.max_x(), muv.max_y(),
-                                                       draw_context);
+                                                       muv.max_x(), muv.max_y());
 
                 let render_item = RenderItem {
                     sort_key: (*sort_key).clone(),
@@ -1898,10 +2121,10 @@ impl CompiledNode {
                 let y1 = y0 + image_info.height as f32 / device_pixel_ratio;
 
                 if image_info.texture_id == first_image_info.texture_id {
-                    self.vertex_buffer.push(x0, y0, color, image_info.u0, image_info.v0, draw_context);
-                    self.vertex_buffer.push(x1, y0, color, image_info.u1, image_info.v0, draw_context);
-                    self.vertex_buffer.push(x0, y1, color, image_info.u0, image_info.v1, draw_context);
-                    self.vertex_buffer.push(x1, y1, color, image_info.u1, image_info.v1, draw_context);
+                    self.vertex_buffer.push(x0, y0, color, image_info.u0, image_info.v0);
+                    self.vertex_buffer.push(x1, y0, color, image_info.u1, image_info.v0);
+                    self.vertex_buffer.push(x0, y1, color, image_info.u0, image_info.v1);
+                    self.vertex_buffer.push(x1, y1, color, image_info.u1, image_info.v1);
                     primary_render_item.vertex_count += 4;
                 } else {
                     let vertex_buffer = match other_render_items.entry(image_info.texture_id) {
@@ -1912,10 +2135,10 @@ impl CompiledNode {
                             entry.insert(VertexBuffer::new())
                         }
                     };
-                    vertex_buffer.push(x0, y0, color, image_info.u0, image_info.v0, draw_context);
-                    vertex_buffer.push(x1, y0, color, image_info.u1, image_info.v0, draw_context);
-                    vertex_buffer.push(x0, y1, color, image_info.u0, image_info.v1, draw_context);
-                    vertex_buffer.push(x1, y1, color, image_info.u1, image_info.v1, draw_context);
+                    vertex_buffer.push(x0, y0, color, image_info.u0, image_info.v0);
+                    vertex_buffer.push(x1, y0, color, image_info.u1, image_info.v0);
+                    vertex_buffer.push(x0, y1, color, image_info.u0, image_info.v1);
+                    vertex_buffer.push(x1, y1, color, image_info.u1, image_info.v1);
                 }
             }
         }
@@ -1947,7 +2170,6 @@ impl CompiledNode {
     // Colors are in the order: top left, top right, bottom right, bottom left.
     fn add_axis_aligned_gradient(&mut self,
                                  sort_key: &DisplayItemKey,
-                                 draw_context: &DrawContext,
                                  rect: &Rect<f32>,
                                  clip: &Rect<f32>,
                                  clip_mode: BoxShadowClipMode,
@@ -2003,29 +2225,25 @@ impl CompiledNode {
                                                         &colors[0],
                                                         clip_region.rect_result.u0,
                                                         clip_region.rect_result.v0,
-                                                        muv.origin.x, muv.origin.y,
-                                                        draw_context);
+                                                        muv.origin.x, muv.origin.y);
             self.vertex_buffer.push_textured_and_masked(clip_region.rect_result.x1,
                                                         clip_region.rect_result.y0,
                                                         &colors[1],
                                                         clip_region.rect_result.u1,
                                                         clip_region.rect_result.v0,
-                                                        muv.max_x(), muv.origin.y,
-                                                        draw_context);
+                                                        muv.max_x(), muv.origin.y);
             self.vertex_buffer.push_textured_and_masked(clip_region.rect_result.x0,
                                                         clip_region.rect_result.y1,
                                                         &colors[3],
                                                         clip_region.rect_result.u0,
                                                         clip_region.rect_result.v1,
-                                                        muv.origin.x, muv.max_y(),
-                                                        draw_context);
+                                                        muv.origin.x, muv.max_y());
             self.vertex_buffer.push_textured_and_masked(clip_region.rect_result.x1,
                                                         clip_region.rect_result.y1,
                                                         &colors[2],
                                                         clip_region.rect_result.u1,
                                                         clip_region.rect_result.v1,
-                                                        muv.max_x(), muv.max_y(),
-                                                        draw_context);
+                                                        muv.max_x(), muv.max_y());
 
             self.render_items.push(render_item);
         }
@@ -2033,7 +2251,6 @@ impl CompiledNode {
 
     fn add_gradient(&mut self,
                     sort_key: &DisplayItemKey,
-                    draw_context: &DrawContext,
                     rect: &Rect<f32>,
                     start_point: &Point2D<f32>,
                     end_point: &Point2D<f32>,
@@ -2114,7 +2331,7 @@ impl CompiledNode {
                     };
 
                     for vert in clip_result {
-                        self.vertex_buffer.push_vertex(vert.clone(), draw_context);
+                        self.vertex_buffer.push_vertex(vert.clone());
                     }
 
                     self.render_items.push(render_item);
@@ -2125,7 +2342,6 @@ impl CompiledNode {
 
     fn add_box_shadow(&mut self,
                       sort_key: &DisplayItemKey,
-                      draw_context: &DrawContext,
                       box_bounds: &Rect<f32>,
                       clip: &Rect<f32>,
                       clip_region: &ClipRegion,
@@ -2146,7 +2362,6 @@ impl CompiledNode {
         // Fast path.
         if blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None {
             self.add_rectangle(sort_key,
-                               draw_context,
                                &rect,
                                clip,
                                BoxShadowClipMode::Inset,
@@ -2182,7 +2397,6 @@ impl CompiledNode {
         let br_inner = br_outer + Point2D::new(-side_radius, -side_radius);
 
         self.add_box_shadow_corner(sort_key,
-                                   draw_context,
                                    &tl_outer,
                                    &tl_inner,
                                    box_bounds,
@@ -2195,7 +2409,6 @@ impl CompiledNode {
                                    raster_to_image_map,
                                    texture_cache);
         self.add_box_shadow_corner(sort_key,
-                                   draw_context,
                                    &tr_outer,
                                    &tr_inner,
                                    box_bounds,
@@ -2208,7 +2421,6 @@ impl CompiledNode {
                                    raster_to_image_map,
                                    texture_cache);
         self.add_box_shadow_corner(sort_key,
-                                   draw_context,
                                    &bl_outer,
                                    &bl_inner,
                                    box_bounds,
@@ -2221,7 +2433,6 @@ impl CompiledNode {
                                    raster_to_image_map,
                                    texture_cache);
         self.add_box_shadow_corner(sort_key,
-                                   draw_context,
                                    &br_outer,
                                    &br_inner,
                                    box_bounds,
@@ -2263,7 +2474,6 @@ impl CompiledNode {
         let left_rect = Rect::new(tl_outer + Point2D::new(0.0, side_radius), vertical_size);
 
         self.add_axis_aligned_gradient(sort_key,
-                                       draw_context,
                                        &top_rect,
                                        box_bounds,
                                        clip_mode,
@@ -2274,7 +2484,6 @@ impl CompiledNode {
                                        texture_cache,
                                        &[transparent, transparent, *color, *color]);
         self.add_axis_aligned_gradient(sort_key,
-                                       draw_context,
                                        &right_rect,
                                        box_bounds,
                                        clip_mode,
@@ -2285,7 +2494,6 @@ impl CompiledNode {
                                        texture_cache,
                                        &[*color, transparent, transparent, *color]);
         self.add_axis_aligned_gradient(sort_key,
-                                       draw_context,
                                        &bottom_rect,
                                        box_bounds,
                                        clip_mode,
@@ -2296,7 +2504,6 @@ impl CompiledNode {
                                        texture_cache,
                                        &[*color, *color, transparent, transparent]);
         self.add_axis_aligned_gradient(sort_key,
-                                       draw_context,
                                        &left_rect,
                                        box_bounds,
                                        clip_mode,
@@ -2309,7 +2516,6 @@ impl CompiledNode {
 
         // Fill the center area.
         self.add_rectangle(sort_key,
-                           draw_context,
                            &Rect::new(tl_outer + Point2D::new(blur_diameter, blur_diameter),
                                       Size2D::new(rect.size.width - twice_blur_diameter,
                                                   rect.size.height - twice_blur_diameter)),
@@ -2326,7 +2532,6 @@ impl CompiledNode {
     #[inline]
     fn add_border_edge(&mut self,
                        sort_key: &DisplayItemKey,
-                       draw_context: &DrawContext,
                        rect: &Rect<f32>,
                        direction: BorderEdgeDirection,
                        color: &ColorF,
@@ -2367,7 +2572,6 @@ impl CompiledNode {
                     add_rectangle(&mut self.vertex_buffer,
                                   &mut self.render_items,
                                   sort_key,
-                                  draw_context,
                                   &dash_rect,
                                   color,
                                   white_image,
@@ -2413,7 +2617,6 @@ impl CompiledNode {
                     add_masked_rectangle(&mut self.vertex_buffer,
                                          &mut self.render_items,
                                          sort_key,
-                                         draw_context,
                                          &Rect::new(dot_rect.origin,
                                                     Size2D::new(dot_rect.size.width / 2.0,
                                                                 dot_rect.size.height / 2.0)),
@@ -2425,7 +2628,6 @@ impl CompiledNode {
                     add_masked_rectangle(&mut self.vertex_buffer,
                                          &mut self.render_items,
                                          sort_key,
-                                         draw_context,
                                          &Rect::new(dot_rect.top_right(),
                                                     Size2D::new(-dot_rect.size.width / 2.0,
                                                                 dot_rect.size.height / 2.0)),
@@ -2437,7 +2639,6 @@ impl CompiledNode {
                     add_masked_rectangle(&mut self.vertex_buffer,
                                          &mut self.render_items,
                                          sort_key,
-                                         draw_context,
                                          &Rect::new(dot_rect.bottom_right(),
                                                     Size2D::new(-dot_rect.size.width / 2.0,
                                                                 -dot_rect.size.height / 2.0)),
@@ -2449,7 +2650,6 @@ impl CompiledNode {
                     add_masked_rectangle(&mut self.vertex_buffer,
                                          &mut self.render_items,
                                          sort_key,
-                                         draw_context,
                                          &Rect::new(dot_rect.bottom_left(),
                                                     Size2D::new(dot_rect.size.width / 2.0,
                                                                 -dot_rect.size.height / 2.0)),
@@ -2481,7 +2681,6 @@ impl CompiledNode {
                 add_rectangle(&mut self.vertex_buffer,
                               &mut self.render_items,
                               sort_key,
-                              draw_context,
                               &outer_rect,
                               color,
                               white_image,
@@ -2489,7 +2688,6 @@ impl CompiledNode {
                 add_rectangle(&mut self.vertex_buffer,
                               &mut self.render_items,
                               sort_key,
-                              draw_context,
                               &inner_rect,
                               color,
                               white_image,
@@ -2499,7 +2697,6 @@ impl CompiledNode {
                 add_rectangle(&mut self.vertex_buffer,
                               &mut self.render_items,
                               sort_key,
-                              draw_context,
                               rect,
                               color,
                               white_image,
@@ -2510,7 +2707,6 @@ impl CompiledNode {
         fn add_rectangle(vertex_buffer: &mut VertexBuffer,
                          render_items: &mut Vec<RenderItem>,
                          sort_key: &DisplayItemKey,
-                         draw_context: &DrawContext,
                          rect: &Rect<f32>,
                          color: &ColorF,
                          white_image: &TextureCacheItem,
@@ -2527,10 +2723,10 @@ impl CompiledNode {
                 }),
             };
 
-            vertex_buffer.push_white(rect.origin.x, rect.origin.y, color, draw_context);
-            vertex_buffer.push_white(rect.max_x(), rect.origin.y, color, draw_context);
-            vertex_buffer.push_white(rect.origin.x, rect.max_y(), color, draw_context);
-            vertex_buffer.push_white(rect.max_x(), rect.max_y(), color, draw_context);
+            vertex_buffer.push_white(rect.origin.x, rect.origin.y, color);
+            vertex_buffer.push_white(rect.max_x(), rect.origin.y, color);
+            vertex_buffer.push_white(rect.origin.x, rect.max_y(), color);
+            vertex_buffer.push_white(rect.max_x(), rect.max_y(), color);
 
             render_items.push(item);
         }
@@ -2538,7 +2734,6 @@ impl CompiledNode {
         fn add_masked_rectangle(vertex_buffer: &mut VertexBuffer,
                                 render_items: &mut Vec<RenderItem>,
                                 sort_key: &DisplayItemKey,
-                                draw_context: &DrawContext,
                                 rect: &Rect<f32>,
                                 muv_rect: &Rect<f32>,
                                 color: &ColorF,
@@ -2558,20 +2753,16 @@ impl CompiledNode {
 
             vertex_buffer.push_masked(rect.origin.x, rect.origin.y,
                                       color,
-                                      muv_rect.origin.x, muv_rect.origin.y,
-                                      draw_context);
+                                      muv_rect.origin.x, muv_rect.origin.y);
             vertex_buffer.push_masked(rect.max_x(), rect.origin.y,
                                       color,
-                                      muv_rect.max_x(), muv_rect.origin.y,
-                                      draw_context);
+                                      muv_rect.max_x(), muv_rect.origin.y);
             vertex_buffer.push_masked(rect.origin.x, rect.max_y(),
                                       color,
-                                      muv_rect.origin.x, muv_rect.max_y(),
-                                      draw_context);
+                                      muv_rect.origin.x, muv_rect.max_y());
             vertex_buffer.push_masked(rect.max_x(), rect.max_y(),
                                       color,
-                                      muv_rect.max_x(), muv_rect.max_y(),
-                                      draw_context);
+                                      muv_rect.max_x(), muv_rect.max_y());
 
             render_items.push(item);
         }
@@ -2580,7 +2771,6 @@ impl CompiledNode {
     #[inline]
     fn add_border_corner(&mut self,
                          sort_key: &DisplayItemKey,
-                         draw_context: &DrawContext,
                          v0: Point2D<f32>,
                          v1: Point2D<f32>,
                          color0: &ColorF,
@@ -2604,7 +2794,6 @@ impl CompiledNode {
         };
 
         self.add_masked_rectangle(sort_key,
-                                  draw_context,
                                   &v0,
                                   &v1,
                                   &MAX_RECT,
@@ -2617,7 +2806,6 @@ impl CompiledNode {
 
     fn add_masked_rectangle(&mut self,
                             sort_key: &DisplayItemKey,
-                            draw_context: &DrawContext,
                             v0: &Point2D<f32>,
                             v1: &Point2D<f32>,
                             clip: &Rect<f32>,
@@ -2654,26 +2842,22 @@ impl CompiledNode {
                                            clip_result.y0,
                                            color0,
                                            clip_result.u0,
-                                           clip_result.v0,
-                                           draw_context);
+                                           clip_result.v0);
             self.vertex_buffer.push_masked(clip_result.x1,
                                            clip_result.y0,
                                            color0,
                                            clip_result.u1,
-                                           clip_result.v0,
-                                           draw_context);
+                                           clip_result.v0);
             self.vertex_buffer.push_masked(clip_result.x0,
                                            clip_result.y1,
                                            color1,
                                            clip_result.u0,
-                                           clip_result.v1,
-                                           draw_context);
+                                           clip_result.v1);
             self.vertex_buffer.push_masked(clip_result.x1,
                                            clip_result.y1,
                                            color1,
                                            clip_result.u1,
-                                           clip_result.v1,
-                                           draw_context);
+                                           clip_result.v1);
 
             self.render_items.push(item);
         }
@@ -2681,7 +2865,6 @@ impl CompiledNode {
 
     fn add_border(&mut self,
                   sort_key: &DisplayItemKey,
-                  draw_context: &DrawContext,
                   rect: &Rect<f32>,
                   info: &BorderDisplayItem,
                   white_image: &TextureCacheItem,
@@ -2720,7 +2903,6 @@ impl CompiledNode {
 
         // Edges
         self.add_border_edge(sort_key,
-                             draw_context,
                              &Rect::new(Point2D::new(tl_outer.x, tl_inner.y),
                                         Size2D::new(left.width, bl_inner.y - tl_inner.y)),
                              BorderEdgeDirection::Vertical,
@@ -2732,7 +2914,6 @@ impl CompiledNode {
                              texture_cache);
 
         self.add_border_edge(sort_key,
-                             draw_context,
                              &Rect::new(Point2D::new(tl_inner.x, tl_outer.y),
                                         Size2D::new(tr_inner.x - tl_inner.x,
                                                     tr_outer.y + top.width - tl_outer.y)),
@@ -2745,7 +2926,6 @@ impl CompiledNode {
                              texture_cache);
 
         self.add_border_edge(sort_key,
-                             draw_context,
                              &Rect::new(Point2D::new(br_outer.x - right.width, tr_inner.y),
                                         Size2D::new(right.width, br_inner.y - tr_inner.y)),
                              BorderEdgeDirection::Vertical,
@@ -2757,7 +2937,6 @@ impl CompiledNode {
                              texture_cache);
 
         self.add_border_edge(sort_key,
-                             draw_context,
                              &Rect::new(Point2D::new(bl_inner.x, bl_outer.y - bottom.width),
                                         Size2D::new(br_inner.x - bl_inner.x,
                                                     br_outer.y - bl_outer.y + bottom.width)),
@@ -2771,7 +2950,6 @@ impl CompiledNode {
 
         // Corners
         self.add_border_corner(sort_key,
-                               draw_context,
                                tl_outer,
                                tl_inner,
                                &left_color,
@@ -2784,7 +2962,6 @@ impl CompiledNode {
                                texture_cache);
 
         self.add_border_corner(sort_key,
-                               draw_context,
                                tr_outer,
                                tr_inner,
                                &right_color,
@@ -2797,7 +2974,6 @@ impl CompiledNode {
                                texture_cache);
 
         self.add_border_corner(sort_key,
-                               draw_context,
                                br_outer,
                                br_inner,
                                &right_color,
@@ -2810,7 +2986,6 @@ impl CompiledNode {
                                texture_cache);
 
         self.add_border_corner(sort_key,
-                               draw_context,
                                bl_outer,
                                bl_inner,
                                &left_color,
@@ -2826,7 +3001,6 @@ impl CompiledNode {
     // FIXME(pcwalton): Assumes rectangles are well-formed with origin in TL
     fn add_box_shadow_corner(&mut self,
                              sort_key: &DisplayItemKey,
-                             draw_context: &DrawContext,
                              top_left: &Point2D<f32>,
                              bottom_right: &Point2D<f32>,
                              box_bounds: &Rect<f32>,
@@ -2858,7 +3032,6 @@ impl CompiledNode {
         };
 
         self.add_masked_rectangle(sort_key,
-                                  draw_context,
                                   top_left,
                                   bottom_right,
                                   &clip_rect,
@@ -3001,33 +3174,51 @@ impl RequiredResourceHelpers for DrawList {
 }
 
 impl RenderBatch {
-    fn new(program_id: ProgramId,
+    fn new(batch_id: BatchId,
+           sort_key: DisplayItemKey,
+           program_id: ProgramId,
            color_texture_id: TextureId,
            mask_texture_id: TextureId) -> RenderBatch {
         RenderBatch {
+            sort_key: sort_key,
+            batch_id: batch_id,
             program_id: program_id,
             color_texture_id: color_texture_id,
             mask_texture_id: mask_texture_id,
             vertices: Vec::new(),
             indices: Vec::new(),
+            matrix_map: HashMap::new(),
         }
     }
 
-    fn can_add_to_batch(&self, item: &DrawRenderItem, program_id: ProgramId) -> bool {
+    fn can_add_to_batch(&self,
+                        item: &DrawRenderItem,
+                        key: &DisplayItemKey,
+                        program_id: ProgramId) -> bool {
+        let matrix_ok = self.matrix_map.len() < MAX_MATRICES_PER_BATCH ||
+                        self.matrix_map.contains_key(&key.draw_list_index);
+
         program_id == self.program_id &&
             item.color_texture_id == self.color_texture_id &&
             item.mask_texture_id == self.mask_texture_id &&
-            self.vertices.len() < 65535                  // to ensure we can use u16 index buffers
+            self.vertices.len() < 65535 &&                  // to ensure we can use u16 index buffers
+            matrix_ok
     }
 
     fn add_draw_item(&mut self,
                      item: &DrawRenderItem,
-                     z: f32,
                      vertex_buffer: &Vec<WorkVertex>,
-                     offset: &Point2D<f32>,
+                     key: &DisplayItemKey,
                      device_pixel_ratio: f32) {
         debug_assert!(item.color_texture_id == self.color_texture_id);
         debug_assert!(item.mask_texture_id == self.mask_texture_id);
+
+        let next_matrix_index = self.matrix_map.len() as u8;
+        let matrix_index = match self.matrix_map.entry(key.draw_list_index) {
+            Vacant(entry) => *entry.insert(next_matrix_index),
+            Occupied(entry) => *entry.get(),
+        };
+        debug_assert!(self.matrix_map.len() <= MAX_MATRICES_PER_BATCH);
 
         let index_offset = self.vertices.len();
 
@@ -3043,14 +3234,6 @@ impl RenderBatch {
                     self.indices.push(index_base + 1);
                 }
             }
-            Primitive::Triangles => {
-                for i in (0..item.vertex_count as usize).step_by(3) {
-                    let index_base = (index_offset + i) as u16;
-                    self.indices.push(index_base + 0);
-                    self.indices.push(index_base + 1);
-                    self.indices.push(index_base + 2);
-                }
-            }
             Primitive::TriangleFan => {
                 for i in (1..item.vertex_count as usize - 1) {
                     self.indices.push(index_offset as u16);        // center vertex
@@ -3063,116 +3246,9 @@ impl RenderBatch {
         for i in 0..item.vertex_count {
             let vertex_index = (item.first_vertex + i) as usize;
             let src_vertex = &vertex_buffer[vertex_index];
-            self.vertices.push(PackedVertex::new(src_vertex, z, offset, device_pixel_ratio));
-        }
-    }
-}
-
-struct RenderBatcher {
-    draw_commands: Vec<DrawCommand>,
-    current_opaque_batches: Vec<RenderBatch>,
-    current_alpha_batches: Vec<RenderBatch>,
-    total_item_count: usize,
-    added_item_count: usize,
-    z_inc: f32,
-    quad_program_id: ProgramId,
-    glyph_program_id: ProgramId,
-}
-
-impl RenderBatcher {
-    fn new(total_item_count: usize,
-           quad_program_id: ProgramId,
-           glyph_program_id: ProgramId) -> RenderBatcher {
-        RenderBatcher {
-            draw_commands: Vec::new(),
-            current_opaque_batches: Vec::new(),
-            current_alpha_batches: Vec::new(),
-            total_item_count: total_item_count,
-            added_item_count: 0,
-            z_inc: ORTHO_FAR_PLANE as f32 / total_item_count as f32,
-            quad_program_id: quad_program_id,
-            glyph_program_id: glyph_program_id,
-        }
-    }
-
-    fn flush_current_batches(&mut self) {
-        if self.current_opaque_batches.len() > 0 ||
-           self.current_alpha_batches.len() > 0 {
-            let opaque_batches = mem::replace(&mut self.current_opaque_batches, Vec::new());
-            let alpha_batches = mem::replace(&mut self.current_alpha_batches, Vec::new());
-            let draw_cmd = DrawCommand::Batch(opaque_batches, alpha_batches);
-            self.draw_commands.push(draw_cmd);
-        }
-    }
-
-    fn finalize(self) -> Vec<DrawCommand> {
-        let mut this = self;
-        this.flush_current_batches();
-        this.draw_commands
-    }
-
-    fn add_render_item(&mut self,
-                       item: &RenderItem,
-                       vertex_buffer: &VertexBuffer,
-                       vertex_offset: &Point2D<f32>,
-                       device_pixel_ratio: f32) {
-        // TODO: May need a better distribution of z for accuracy (since z-buffer
-        //       is actually proportional to 1/w).
-        let z = self.added_item_count as f32 * self.z_inc;
-        self.added_item_count += 1;
-
-        match item.info {
-            RenderItemInfo::Draw(ref info) => {
-                let mut batch_list = match info.pass {
-                    RenderPass::Opaque => &mut self.current_opaque_batches,
-                    RenderPass::Alpha => &mut self.current_alpha_batches,
-                };
-
-                let program_id = match info.primitive {
-                    Primitive::Rectangles |
-                    Primitive::TriangleFan |
-                    Primitive::Triangles => {
-                        self.quad_program_id
-                    }
-                    Primitive::Glyphs => {
-                        self.glyph_program_id
-                    }
-                };
-
-                if batch_list.is_empty() ||
-                   batch_list.last().unwrap().can_add_to_batch(info, program_id) == false {
-                    let new_batch = RenderBatch::new(program_id,
-                                                     info.color_texture_id,
-                                                     info.mask_texture_id);
-                    batch_list.push(new_batch);
-                }
-
-                let batch = batch_list.last_mut().unwrap();
-                batch.add_draw_item(info,
-                                    z,
-                                    &vertex_buffer.vertices,
-                                    &vertex_offset,
-                                    device_pixel_ratio);
-
-                debug_assert!(self.added_item_count <= self.total_item_count,
-                              format!("added={} total={}",
-                                      self.added_item_count,
-                                      self.total_item_count));
-            }
-            RenderItemInfo::Composite(ref info) => {
-                // When a composite is encountered - always flush any batches that are pending.
-                // TODO: It may be possible to be smarter about this in the future and avoid
-                // flushing the batches in some cases.
-                self.flush_current_batches();
-                let composite_info = CompositeInfo {
-                    blend_mode: info.blend_mode,
-                    rect: info.rect,
-                    z: z,
-                    color_texture_id: info.color_texture_id,
-                };
-                let cmd = DrawCommand::Composite(composite_info);
-                self.draw_commands.push(cmd);
-            }
+            self.vertices.push(PackedVertex::new(src_vertex,
+                                                 device_pixel_ratio,
+                                                 matrix_index));
         }
     }
 }

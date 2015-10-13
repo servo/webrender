@@ -1,12 +1,13 @@
 use app_units::Au;
-use device::{Device, ProgramId, TextureId, UniformLocation};
+use device::{Device, ProgramId, TextureId, UniformLocation, VAOId};
 use euclid::{Rect, Matrix4, Point2D, Size2D};
 use gleam::gl;
-use internal_types::{ApiMsg, DrawCommand, Frame, ResultMsg, TextureUpdateOp};
-use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, RenderBatch, VertexFormat};
+use internal_types::{ApiMsg, Frame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
+use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode, BatchId};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, VertexFormat, DrawCommandInfo};
 use render_api::RenderApi;
 use render_backend::RenderBackend;
+use std::collections::HashMap;
 use std::f32;
 use std::mem;
 use std::path::PathBuf;
@@ -19,6 +20,14 @@ use types::{ColorF, Epoch, PipelineId, RenderNotifier, ImageID, ImageFormat, Mix
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
 
 static RECTANGLE_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 1];
+
+struct Batch {
+    program_id: ProgramId,
+    color_texture_id: TextureId,
+    mask_texture_id: TextureId,
+    vao_id: VAOId,
+    index_count: gl::GLint,
+}
 
 struct RenderContext {
     blend_program_id: ProgramId,
@@ -33,10 +42,17 @@ pub struct Renderer {
     result_rx: Receiver<ResultMsg>,
     device: Device,
     pending_texture_updates: Vec<TextureUpdateList>,
+    pending_batch_updates: Vec<BatchUpdateList>,
     current_frame: Option<Frame>,
     device_pixel_ratio: f32,
+    batches: HashMap<BatchId, Batch>,
+    batch_matrices: HashMap<BatchId, Vec<Matrix4>>,
 
     quad_program_id: ProgramId,
+    u_quad_transform_array: UniformLocation,
+
+    glyph_program_id: ProgramId,
+    u_glyph_transform_array: UniformLocation,
 
     border_program_id: ProgramId,
     u_border_radii: UniformLocation,
@@ -78,6 +94,10 @@ impl Renderer {
         let box_shadow_corner_program_id = device.create_program("box-shadow-corner.vs.glsl",
                                                                  "box-shadow-corner.fs.glsl");
         let blur_program_id = device.create_program("blur.vs.glsl", "blur.fs.glsl");
+
+        let u_quad_transform_array = device.get_uniform_location(quad_program_id, "uMatrixPalette");
+
+        let u_glyph_transform_array = device.get_uniform_location(glyph_program_id, "uMatrixPalette");
 
         let u_border_radii = device.get_uniform_location(border_program_id, "uRadii");
         let u_border_position = device.get_uniform_location(border_program_id, "uPosition");
@@ -148,11 +168,15 @@ impl Renderer {
             result_rx: result_rx,
             device: device,
             current_frame: None,
+            batches: HashMap::new(),
+            batch_matrices: HashMap::new(),
             pending_texture_updates: Vec::new(),
+            pending_batch_updates: Vec::new(),
             border_program_id: border_program_id,
             device_pixel_ratio: device_pixel_ratio,
             blend_program_id: blend_program_id,
             quad_program_id: quad_program_id,
+            glyph_program_id: glyph_program_id,
             box_shadow_corner_program_id: box_shadow_corner_program_id,
             blur_program_id: blur_program_id,
             u_border_radii: u_border_radii,
@@ -165,6 +189,8 @@ impl Renderer {
             u_dest_texture_size: u_dest_texture_size,
             u_source_texture_size: u_source_texture_size,
             u_direction: u_direction,
+            u_quad_transform_array: u_quad_transform_array,
+            u_glyph_transform_array: u_glyph_transform_array,
         }
     }
 
@@ -189,6 +215,9 @@ impl Renderer {
                         ResultMsg::UpdateTextureCache(update_list) => {
                             self.pending_texture_updates.push(update_list);
                         }
+                        ResultMsg::UpdateBatches(update_list) => {
+                            self.pending_batch_updates.push(update_list);
+                        }
                         ResultMsg::NewFrame(frame) => {
                             self.current_frame = Some(frame);
                         }
@@ -203,8 +232,45 @@ impl Renderer {
         //let _pf = util::ProfileScope::new("render");
         self.device.begin_frame();
         self.update_texture_cache();
+        self.update_batches();
         self.draw_frame();
         self.device.end_frame();
+    }
+
+    fn update_batches(&mut self) {
+        let mut pending_batch_updates = mem::replace(&mut self.pending_batch_updates, vec![]);
+        for update_list in pending_batch_updates.drain(..) {
+            for update in update_list.updates {
+                match update.op {
+                    BatchUpdateOp::Create(vertices,
+                                          indices,
+                                          program_id,
+                                          color_texture_id,
+                                          mask_texture_id) => {
+                        let vao_id = self.device.create_vao(VertexFormat::Default);
+                        self.device.bind_vao(vao_id);
+
+                        self.device.update_vao_indices(vao_id, &indices);
+                        self.device.update_vao_vertices(vao_id, &vertices);
+
+                        self.batches.insert(update.id, Batch {
+                            vao_id: vao_id,
+                            program_id: program_id,
+                            color_texture_id: color_texture_id,
+                            mask_texture_id: mask_texture_id,
+                            index_count: indices.len() as gl::GLint,
+                        });
+                    }
+                    BatchUpdateOp::UpdateUniforms(matrices) => {
+                        self.batch_matrices.insert(update.id, matrices);
+                    }
+                    BatchUpdateOp::Destroy => {
+                        let batch = self.batches.remove(&update.id).unwrap();
+                        self.device.delete_vao(batch.vao_id);
+                    }
+                }
+            }
+        }
     }
 
     fn update_texture_cache(&mut self) {
@@ -288,16 +354,16 @@ impl Renderer {
                                                            glyph_size.height as f32);
 
                                 let vertices = [
-                                    PackedVertex::from_components(0.0, 0.0, 0.0,
+                                    PackedVertex::from_components(0.0, 0.0,
                                                                   &white,
                                                                   0.0, 0.0, 0.0, 0.0),
-                                    PackedVertex::from_components(width, 0.0, 0.0,
+                                    PackedVertex::from_components(width, 0.0,
                                                                   &white,
                                                                   0.0, 0.0, 1.0, 0.0),
-                                    PackedVertex::from_components(0.0, height, 0.0,
+                                    PackedVertex::from_components(0.0, height,
                                                                   &white,
                                                                   0.0, 0.0, 0.0, 1.0),
-                                    PackedVertex::from_components(width, height, 0.0,
+                                    PackedVertex::from_components(width, height,
                                                                   &white,
                                                                   0.0, 0.0, 1.0, 1.0),
                                 ];
@@ -323,16 +389,16 @@ impl Renderer {
                                 let (x, y) = (x as f32, y as f32);
                                 let (max_x, max_y) = (x + width, y + height);
                                 let vertices = [
-                                    PackedVertex::from_components(x, y, 0.0,
+                                    PackedVertex::from_components(x, y,
                                                                   &white,
                                                                   0.0, 0.0, 0.0, 0.0),
-                                    PackedVertex::from_components(max_x, y, 0.0,
+                                    PackedVertex::from_components(max_x, y,
                                                                   &white,
                                                                   1.0, 0.0, 1.0, 0.0),
-                                    PackedVertex::from_components(x, max_y, 0.0,
+                                    PackedVertex::from_components(x, max_y,
                                                                   &white,
                                                                   0.0, 1.0, 0.0, 1.0),
-                                    PackedVertex::from_components(max_x, max_y, 0.0,
+                                    PackedVertex::from_components(max_x, max_y,
                                                                   &white,
                                                                   1.0, 1.0, 1.0, 1.0),
                                 ];
@@ -374,7 +440,6 @@ impl Renderer {
                                 let vertices: [PackedVertex; 4] = [
                                     PackedVertex::from_components(x,
                                                                   y,
-                                                                  0.0,
                                                                   &color0,
                                                                   0.0,
                                                                   0.0,
@@ -382,7 +447,6 @@ impl Renderer {
                                                                   0.0),
                                     PackedVertex::from_components(x + outer_rx,
                                                                   y,
-                                                                  0.0,
                                                                   &color1,
                                                                   0.0,
                                                                   0.0,
@@ -390,7 +454,6 @@ impl Renderer {
                                                                   0.0),
                                     PackedVertex::from_components(x,
                                                                   y + outer_ry,
-                                                                  0.0,
                                                                   &color2,
                                                                   0.0,
                                                                   0.0,
@@ -398,7 +461,6 @@ impl Renderer {
                                                                   0.0),
                                     PackedVertex::from_components(x + outer_rx,
                                                                   y + outer_ry,
-                                                                  0.0,
                                                                   &color3,
                                                                   0.0,
                                                                   0.0,
@@ -445,7 +507,6 @@ impl Renderer {
         let vertices: [PackedVertex; 4] = [
             PackedVertex::from_components(rect.origin.x,
                                           rect.origin.y,
-                                          0.0,
                                           &color,
                                           0.0,
                                           0.0,
@@ -453,7 +514,6 @@ impl Renderer {
                                           0.0),
             PackedVertex::from_components(rect.max_x(),
                                           rect.origin.y,
-                                          0.0,
                                           &color,
                                           0.0,
                                           0.0,
@@ -461,7 +521,6 @@ impl Renderer {
                                           0.0),
             PackedVertex::from_components(rect.origin.x,
                                           rect.max_y(),
-                                          0.0,
                                           &color,
                                           0.0,
                                           0.0,
@@ -469,7 +528,6 @@ impl Renderer {
                                           0.0),
             PackedVertex::from_components(rect.max_x(),
                                           rect.max_y(),
-                                          0.0,
                                           &color,
                                           0.0,
                                           0.0,
@@ -545,41 +603,40 @@ impl Renderer {
                              0,
                              (layer.size.width as f32 * self.device_pixel_ratio) as gl::GLint,
                              (layer.size.height as f32 * self.device_pixel_ratio) as gl::GLint);
-                gl::enable(gl::DEPTH_TEST);
+                gl::disable(gl::DEPTH_TEST);
 
                 // Clear frame buffer
                 gl::clear_color(1.0, 1.0, 1.0, 1.0);
-                gl::clear_depth(1.0);
-                gl::depth_mask(true);
-                gl::clear(gl::COLOR_BUFFER_BIT |
-                          gl::DEPTH_BUFFER_BIT |
-                          gl::STENCIL_BUFFER_BIT);
+                gl::clear(gl::COLOR_BUFFER_BIT);
 
                 for cmd in &layer.commands {
-                    match cmd {
-                        &DrawCommand::Batch(ref opaque_batches, ref alpha_batches) => {
-                            // standard opaque pass!
+                    match cmd.info {
+                        DrawCommandInfo::Batch(batch_id) => {
                             // TODO: probably worth sorting front to back to minimize overdraw (if profiling shows fragment / rop bound)
-                            gl::depth_mask(true);
-                            gl::disable(gl::BLEND);
 
-                            for batch in opaque_batches {
-                                Renderer::draw_batch(&mut self.device, batch, &mut render_context);
-                            }
-
-                            // alpha pass!
-                            gl::depth_mask(false);
                             gl::enable(gl::BLEND);
                             gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
                             gl::blend_equation(gl::FUNC_ADD);
 
-                            for batch in alpha_batches {
-                                Renderer::draw_batch(&mut self.device, batch, &mut render_context);
-                            }
-                        }
-                        &DrawCommand::Composite(ref info) => {
-                            gl::depth_mask(true);
+                            let batch = &self.batches[&batch_id];
+                            let matrices = &self.batch_matrices[&batch_id];
 
+                            // TODO: hack - bind the uniform locations? this goes away if only one shader anyway...
+                            let u_transform_array = if batch.program_id == self.quad_program_id {
+                                self.u_quad_transform_array
+                            } else if batch.program_id == self.glyph_program_id {
+                                self.u_glyph_transform_array
+                            } else {
+                                panic!("unexpected batch shader!");
+                            };
+
+                            Renderer::draw_batch(&mut self.device,
+                                                 batch,
+                                                 matrices,
+                                                 &mut render_context,
+                                                 u_transform_array);
+                        }
+                        DrawCommandInfo::Composite(ref info) => {
                             let needs_fb = match info.blend_mode {
                                 MixBlendMode::Normal => unreachable!(),
 
@@ -644,16 +701,17 @@ impl Renderer {
                                     _ => unreachable!(),
                                 }
 
-                                self.device.bind_program(self.quad_program_id, &render_context.projection)
+                                self.device.bind_program(self.quad_program_id, &render_context.projection);
+                                self.device.set_uniform_mat4_array(self.u_quad_transform_array, &[Matrix4::identity()]);
                             }
 
                             let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
                             let indices: [u16; 6] = [ 0, 1, 2, 2, 3, 1 ];
                             let vertices: [PackedVertex; 4] = [
-                                PackedVertex::from_components(x0 as f32, y0 as f32, info.z, &color, 0.0, 1.0, 0.0, 1.0),
-                                PackedVertex::from_components(x1 as f32, y0 as f32, info.z, &color, 1.0, 1.0, 1.0, 1.0),
-                                PackedVertex::from_components(x0 as f32, y1 as f32, info.z, &color, 0.0, 0.0, 0.0, 0.0),
-                                PackedVertex::from_components(x1 as f32, y1 as f32, info.z, &color, 1.0, 0.0, 1.0, 0.0),
+                                PackedVertex::from_components(x0 as f32, y0 as f32, &color, 0.0, 1.0, 0.0, 1.0),
+                                PackedVertex::from_components(x1 as f32, y0 as f32, &color, 1.0, 1.0, 1.0, 1.0),
+                                PackedVertex::from_components(x0 as f32, y1 as f32, &color, 0.0, 0.0, 0.0, 0.0),
+                                PackedVertex::from_components(x1 as f32, y1 as f32, &color, 1.0, 0.0, 1.0, 0.0),
                             ];
                             // TODO: Don't re-create this VAO all the time.
                             // Create it once and set positions via uniforms.
@@ -672,26 +730,24 @@ impl Renderer {
                 }
             }
 
-            //println!("draw_calls {}", draw_calls);
+            //println!("draw_calls {}", render_context.draw_calls);
         }
     }
 
     fn draw_batch(device: &mut Device,
-                  batch: &RenderBatch,
-                  context: &mut RenderContext) {
+                  batch: &Batch,
+                  matrices: &Vec<Matrix4>,
+                  context: &mut RenderContext,
+                  u_transform_array: UniformLocation) {
         device.bind_program(batch.program_id, &context.projection);
+        device.set_uniform_mat4_array(u_transform_array, matrices);     // The uniform loc here isn't always right!
+
         device.bind_mask_texture(batch.mask_texture_id);
         device.bind_color_texture(batch.color_texture_id);
 
-        let vao_id = device.create_vao(VertexFormat::Default);
-        device.bind_vao(vao_id);
+        device.bind_vao(batch.vao_id);
 
-        device.update_vao_indices(vao_id, &batch.indices);
-        device.update_vao_vertices(vao_id, &batch.vertices);
-
-        device.draw_triangles_u16(batch.indices.len() as gl::GLint);
+        device.draw_triangles_u16(batch.index_count);
         context.draw_calls += 1;
-
-        device.delete_vao(vao_id);
     }
 }

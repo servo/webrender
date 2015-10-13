@@ -85,18 +85,6 @@ impl Drop for Program {
     }
 }
 
-/*
-struct FBO {
-    id: gl::GLuint,
-    texture_id: gl::GLuint,
-}
-
-impl Drop for FBO {
-    fn drop(&mut self) {
-        println!("TODO: FBO::Drop");
-    }
-}*/
-
 struct VAO {
     id: gl::GLuint,
     #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
@@ -166,7 +154,6 @@ pub struct Device {
     textures: HashMap<TextureId, Texture>,
     programs: HashMap<ProgramId, Program>,
     vaos: HashMap<VAOId, VAO>,
-    //fbos: HashMap<FBOId, FBO>,
 
     // Used on android only
     #[allow(dead_code)]
@@ -291,20 +278,9 @@ impl Device {
         }
     }
 
-/*
-    pub fn bind_fbo(&mut self, fbo_id: FBOId) {
-        debug_assert!(self.inside_frame);
-
-        if self.bound_fbo != fbo_id {
-            self.bound_fbo = fbo_id;
-            fbo_id.bind();
-        }
-    }
-*/
-
     pub fn bind_program(&mut self,
-                    program_id: ProgramId,
-                    projection: &Matrix4) {
+                        program_id: ProgramId,
+                        projection: &Matrix4) {
         debug_assert!(self.inside_frame);
 
         if self.bound_program != program_id {
@@ -445,6 +421,7 @@ impl Device {
         gl::bind_attrib_location(pid, VertexAttribute::Color as gl::GLuint, "aColor");
         gl::bind_attrib_location(pid, VertexAttribute::ColorTexCoord as gl::GLuint, "aColorTexCoord");
         gl::bind_attrib_location(pid, VertexAttribute::MaskTexCoord as gl::GLuint, "aMaskTexCoord");
+        gl::bind_attrib_location(pid, VertexAttribute::MatrixIndex as gl::GLuint, "aMatrixIndex");
 
         gl::link_program(pid);
         if gl::get_program_iv(pid, gl::LINK_STATUS) == (0 as gl::GLint) {
@@ -505,6 +482,36 @@ impl Device {
         gl::uniform_4f(location, x, y, z, w);
     }
 
+    pub fn set_uniform_mat4_array(&self,
+                                  uniform: UniformLocation,
+                                  matrices: &[Matrix4]) {
+        debug_assert!(self.inside_frame);
+        let UniformLocation(location) = uniform;
+
+        // TODO(gw): Avoid alloc here by storing as 3x3 matrices at a higher level...
+        let mut floats = Vec::new();
+        for matrix in matrices {
+            floats.push(matrix.m11);
+            floats.push(matrix.m12);
+            floats.push(matrix.m13);
+            floats.push(matrix.m14);
+            floats.push(matrix.m21);
+            floats.push(matrix.m22);
+            floats.push(matrix.m23);
+            floats.push(matrix.m24);
+            floats.push(matrix.m31);
+            floats.push(matrix.m32);
+            floats.push(matrix.m33);
+            floats.push(matrix.m34);
+            floats.push(matrix.m41);
+            floats.push(matrix.m42);
+            floats.push(matrix.m43);
+            floats.push(matrix.m44);
+        }
+
+        gl::uniform_matrix_4fv(location, false, &floats);
+    }
+
     pub fn set_uniforms(&self, program: &Program, transform: &Matrix4) {
         debug_assert!(self.inside_frame);
         gl::uniform_matrix_4fv(program.u_transform, false, &transform.to_array());
@@ -559,6 +566,7 @@ impl Device {
         gl::disable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
         gl::disable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
         gl::disable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
+        gl::disable_vertex_attrib_array(VertexAttribute::MatrixIndex as gl::GLuint);
     }
 
     #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
@@ -580,21 +588,14 @@ impl Device {
                     gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
                     gl::enable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
                     gl::enable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
-
-                    gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint, 3, gl::FLOAT, false, vertex_stride, 0);
-                    gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint, 4, gl::UNSIGNED_BYTE, true, vertex_stride, 12);
-                    gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 16);
-                    gl::vertex_attrib_pointer(VertexAttribute::MaskTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 20);
-                }
-    /*            VertexFormat::Debug => {
-                    let vertex_stride = mem::size_of::<DebugVertex>() as gl::GLint;
-
-                    gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
-                    gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
+                    gl::enable_vertex_attrib_array(VertexAttribute::MatrixIndex as gl::GLuint);
 
                     gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint, 2, gl::FLOAT, false, vertex_stride, 0);
                     gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint, 4, gl::UNSIGNED_BYTE, true, vertex_stride, 8);
-                }*/
+                    gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 12);
+                    gl::vertex_attrib_pointer(VertexAttribute::MaskTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 16);
+                    gl::vertex_attrib_pointer(VertexAttribute::MatrixIndex as gl::GLuint, 4, gl::UNSIGNED_BYTE, false, vertex_stride, 20);
+                }
             }
         }
     }
@@ -669,21 +670,14 @@ impl Device {
                 gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
                 gl::enable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
                 gl::enable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
-
-                gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint, 3, gl::FLOAT, false, vertex_stride, 0);
-                gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint, 4, gl::UNSIGNED_BYTE, true, vertex_stride, 12);
-                gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 16);
-                gl::vertex_attrib_pointer(VertexAttribute::MaskTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 20);
-            }
-/*            VertexFormat::Debug => {
-                let vertex_stride = mem::size_of::<DebugVertex>() as gl::GLint;
-
-                gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
-                gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
+                gl::enable_vertex_attrib_array(VertexAttribute::MatrixIndex as gl::GLuint);
 
                 gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint, 2, gl::FLOAT, false, vertex_stride, 0);
                 gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint, 4, gl::UNSIGNED_BYTE, true, vertex_stride, 8);
-            }*/
+                gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 12);
+                gl::vertex_attrib_pointer(VertexAttribute::MaskTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 16);
+                gl::vertex_attrib_pointer(VertexAttribute::MatrixIndex as gl::GLuint, 4, gl::UNSIGNED_BYTE, false, vertex_stride, 20);
+            }
         }
 
         gl::bind_vertex_array(0);
@@ -725,13 +719,6 @@ impl Device {
         gl::buffer_data(gl::ELEMENT_ARRAY_BUFFER, &indices, gl::DYNAMIC_DRAW);
     }
 
-/*
-    pub fn draw_lines_u32(&mut self, index_count: i32) {
-        debug_assert!(self.inside_frame);
-        gl::draw_elements(gl::LINES, index_count, gl::UNSIGNED_INT, 0);
-    }
-*/
-
     pub fn draw_triangles_u16(&mut self, index_count: i32) {
         debug_assert!(self.inside_frame);
         gl::draw_elements(gl::TRIANGLES, index_count, gl::UNSIGNED_SHORT, 0);
@@ -743,44 +730,6 @@ impl Device {
             self.bound_vao = VAOId(0);
         }
     }
-
-/*
-    pub fn create_fbo(&mut self, width: u32, height: u32) -> FBOId {
-        let fbo_id = gl::gen_framebuffers(1)[0];
-        gl::bind_framebuffer(gl::FRAMEBUFFER, fbo_id);
-
-        let texture_id = gl::gen_textures(1)[0];
-        gl::bind_texture(gl::TEXTURE_2D, texture_id);
-
-        gl::tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as gl::GLint, width as gl::GLsizei,
-                         height as gl::GLsizei, 0, gl::RGB, gl::UNSIGNED_BYTE, None);
-        gl::tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as gl::GLint);
-        gl::tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as gl::GLint);
-
-        gl::framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D,
-                                   texture_id, 0);
-
-        gl::bind_texture(gl::TEXTURE_2D, 0);
-        gl::bind_framebuffer(gl::FRAMEBUFFER, 0);
-
-        let fbo = FBO {
-            id: fbo_id,
-            texture_id: texture_id,
-        };
-
-        println!("create fbo id={} tex={}", fbo_id, texture_id);
-
-        let fbo_id = FBOId(fbo_id);
-
-        debug_assert!(self.fbos.contains_key(&fbo_id) == false);
-        self.fbos.insert(fbo_id, fbo);
-
-        fbo_id
-    }
-
-    pub fn delete_fbo(&mut self, fbo_id: FBOId) {
-        panic!("todo");
-    }*/
 
     pub fn end_frame(&mut self) {
         debug_assert!(self.inside_frame);
