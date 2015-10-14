@@ -1,6 +1,7 @@
 use app_units::Au;
 use device::{ProgramId, TextureId};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
+use renderbatch::RenderBatch;
 use std::collections::HashMap;
 use string_cache::Atom;
 use texture_cache::TextureCacheItem;
@@ -108,7 +109,7 @@ impl WorkVertex {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct PackedVertex {
     pub x: f32,
@@ -125,8 +126,7 @@ pub struct PackedVertex {
 }
 
 impl PackedVertex {
-    pub fn new(v: &WorkVertex, device_pixel_ratio: f32, matrix_index: u8)
-               -> PackedVertex {
+    pub fn new(v: &WorkVertex, matrix_index: u8) -> PackedVertex {
         debug_assert!(v.u >= -0.1 && v.u <= 1.1, format!("bad u {:?}", v.u));
         debug_assert!(v.v >= -0.1 && v.v <= 1.1, format!("bad v {:?}", v.v));
         debug_assert!(v.mu >= -0.1 && v.mu <= 1.1, format!("bad mu {:?}", v.mu));
@@ -136,8 +136,8 @@ impl PackedVertex {
         // round(clamp(c, 0, +1) * 65535.0)
 
         PackedVertex {
-            x: (v.x * device_pixel_ratio).round() / device_pixel_ratio,
-            y: (v.y * device_pixel_ratio).round() / device_pixel_ratio,
+            x: v.x.round(),
+            y: v.y.round(),
             color: PackedColor::from_components(v.r, v.g, v.b, v.a),
             u: (v.u * UV_FLOAT_TO_FIXED).round() as u16,
             v: (v.v * UV_FLOAT_TO_FIXED).round() as u16,
@@ -172,26 +172,6 @@ impl PackedVertex {
         }
     }
 }
-
-/*
-#[derive(Debug)]
-#[repr(C)]
-pub struct DebugVertex {
-    x: f32,
-    y: f32,
-    color: PackedColor,
-}*/
-
-/*
-impl DebugVertex {
-    fn new(x: f32, y: f32, color: &ColorF) -> DebugVertex {
-        DebugVertex {
-            x: x,
-            y: y,
-            color: PackedColor::from_color(color),
-        }
-    }
-}*/
 
 #[derive(Debug)]
 pub enum RenderTargetMode {
@@ -493,15 +473,11 @@ impl DisplayItemKey {
     }
 }
 
-pub struct RenderBatch {
-    pub batch_id: BatchId,
-    pub sort_key: DisplayItemKey,
-    pub program_id: ProgramId,
-    pub color_texture_id: TextureId,
-    pub mask_texture_id: TextureId,
-    pub vertices: Vec<PackedVertex>,
-    pub indices: Vec<u16>,
-    pub matrix_map: HashMap<DrawListIndex, u8>,
+#[derive(Debug)]
+pub enum Primitive {
+    Rectangles,     // 4 vertices per rect
+    TriangleFan,    // simple triangle fan (typically from clipper)
+    Glyphs,         // font glyphs (some platforms may specialize shader)
 }
 
 pub struct CompiledNode {
