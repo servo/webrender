@@ -4,6 +4,7 @@
 #![plugin(serde_macros)]
 #![feature(drain)]
 #![feature(hashmap_hasher)]
+#![feature(vec_push_all)]
 
 extern crate app_units;
 extern crate euclid;
@@ -28,6 +29,7 @@ mod font;
 mod util;
 mod clipper;
 mod internal_types;
+mod renderbatch;
 mod render_backend;
 mod resource_list;
 mod stats;
