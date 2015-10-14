@@ -606,6 +606,7 @@ impl Scene {
 
         // Traverse tree to calculate visible nodes
         let adjusted_viewport = viewport_rect.translate(&-self.scroll_offset);
+        //self.aabb_tree.print(NodeIndex(0),0);
         self.aabb_tree.cull(&adjusted_viewport);
 
         // Build resource list for newly visible nodes

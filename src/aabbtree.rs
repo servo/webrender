@@ -5,7 +5,8 @@ use types::NodeIndex;
 use util;
 
 pub struct AABBTreeNode {
-    pub rect: Rect<f32>,
+    pub split_rect: Rect<f32>,
+    pub actual_rect: Rect<f32>,
     pub node_index: NodeIndex,
 
     // TODO: Use Option + NonZero here
@@ -20,9 +21,10 @@ pub struct AABBTreeNode {
 }
 
 impl AABBTreeNode {
-    fn new(rect: &Rect<f32>, node_index: NodeIndex) -> AABBTreeNode {
+    fn new(split_rect: &Rect<f32>, node_index: NodeIndex) -> AABBTreeNode {
         AABBTreeNode {
-            rect: rect.clone(),
+            split_rect: split_rect.clone(),
+            actual_rect: Rect::zero(),
             node_index: node_index,
             children: None,
             is_visible: false,
@@ -35,7 +37,9 @@ impl AABBTreeNode {
     #[inline]
     fn append_item(&mut self,
                    draw_list_index: usize,
-                   item_index: usize) {
+                   item_index: usize,
+                   rect: &Rect<f32>) {
+        self.actual_rect = self.actual_rect.union(rect);
         let key = DisplayItemKey::new(draw_list_index, item_index);
         self.src_items.push(key);
     }
@@ -69,7 +73,13 @@ impl AABBTree {
         }
 
         let node = self.node(node_index);
-        println!("{}n={:?} r={:?} c={:?}", indent, node_index, node.rect, node.children);
+        println!("{}n={:?} sr={:?} ar={:?} c={:?} items={}",
+                 indent,
+                 node_index,
+                 node.split_rect,
+                 node.actual_rect,
+                 node.children,
+                 node.src_items.len());
 
         if let Some(child_index) = node.children {
             let NodeIndex(child_index) = child_index;
@@ -90,19 +100,18 @@ impl AABBTree {
         &mut self.nodes[index as usize]
     }
 
-    // TODO: temp hack to test if this idea works
     pub fn node_rects(&self) -> Vec<Rect<f32>> {
         let mut rects = Vec::new();
         for node in &self.nodes {
-            rects.push(node.rect);
+            rects.push(node.actual_rect);
         }
         rects
     }
 
     #[inline]
     fn find_best_node(&mut self,
-                          node_index: NodeIndex,
-                          rect: &Rect<f32>) -> Option<NodeIndex> {
+                      node_index: NodeIndex,
+                      rect: &Rect<f32>) -> Option<NodeIndex> {
         self.split_if_needed(node_index);
 
         if let Some(child_node_index) = self.node(node_index).children {
@@ -110,8 +119,8 @@ impl AABBTree {
             let left_node_index = NodeIndex(child_node_index + 0);
             let right_node_index = NodeIndex(child_node_index + 1);
 
-            let left_intersect = self.node(left_node_index).rect.intersects(rect);
-            let right_intersect = self.node(right_node_index).rect.intersects(rect);
+            let left_intersect = self.node(left_node_index).split_rect.intersects(rect);
+            let right_intersect = self.node(right_node_index).split_rect.intersects(rect);
 
             if left_intersect && right_intersect {
                 Some(node_index)
@@ -135,14 +144,14 @@ impl AABBTree {
         let node_index = self.find_best_node(NodeIndex(0), rect);
         if let Some(node_index) = node_index {
             let node = self.node_mut(node_index);
-            node.append_item(draw_list_index, item_index);
+            node.append_item(draw_list_index, item_index, rect);
         }
         node_index
     }
 
     fn split_if_needed(&mut self, node_index: NodeIndex) {
         if self.node(node_index).children.is_none() {
-            let rect = self.node(node_index).rect.clone();
+            let rect = self.node(node_index).split_rect.clone();
 
             let child_rects = if rect.size.width > self.split_size &&
                                  rect.size.width > rect.size.height {
@@ -184,8 +193,10 @@ impl AABBTree {
                              rect: &Rect<f32>) {
         let children = {
             let node = self.node_mut(node_index);
-            if node.rect.intersects(rect) {
-                node.is_visible = true;
+            if node.split_rect.intersects(rect) {
+                if node.src_items.len() > 0 {
+                    node.is_visible = true;
+                }
                 node.children
             } else {
                 return;
