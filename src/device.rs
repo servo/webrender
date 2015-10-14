@@ -143,6 +143,7 @@ pub struct Device {
     bound_program: ProgramId,
     bound_vao: VAOId,
     bound_fbo: FBOId,
+    default_fbo: gl::GLuint,
 
     // debug
     inside_frame: bool,
@@ -179,11 +180,11 @@ impl Device {
             bound_program: ProgramId(0),
             bound_vao: VAOId(0),
             bound_fbo: FBOId(0),
+            default_fbo: 0,
 
             textures: HashMap::new(),
             programs: HashMap::new(),
             vaos: HashMap::new(),
-            //fbos: HashMap::new(),
 
             next_vao_id: 1,
         }
@@ -215,6 +216,11 @@ impl Device {
         debug_assert!(!self.inside_frame);
         self.inside_frame = true;
 
+        // Retrive the currently set FBO.
+        let mut default_fbo = 0;
+        gl::get_integer_v(gl::FRAMEBUFFER_BINDING, &mut default_fbo);
+        self.default_fbo = default_fbo as gl::GLuint;
+
         // Texture state
         self.bound_color_texture = TextureId(0);
         gl::active_texture(gl::TEXTURE0);
@@ -233,8 +239,7 @@ impl Device {
         self.clear_vertex_array();
 
         // FBO state
-        self.bound_fbo = FBOId(0);
-        gl::bind_framebuffer(gl::FRAMEBUFFER, 0);
+        self.bound_fbo = FBOId(self.default_fbo);
 
         // Pixel op state
         gl::pixel_store_i(gl::UNPACK_ALIGNMENT, 1);
@@ -266,7 +271,7 @@ impl Device {
     pub fn bind_render_target(&mut self, texture_id: Option<TextureId>) {
         debug_assert!(self.inside_frame);
 
-        let fbo_id = texture_id.map_or(FBOId(0), |texture_id| {
+        let fbo_id = texture_id.map_or(FBOId(self.default_fbo), |texture_id| {
             self.textures.get(&texture_id).unwrap().fbo_id.expect("Binding normal texture as render target!")
         });
 
@@ -357,7 +362,7 @@ impl Device {
                                            gl_texture_id,
                                            0);
 
-                gl::bind_framebuffer(gl::FRAMEBUFFER, 0);
+                gl::bind_framebuffer(gl::FRAMEBUFFER, self.default_fbo);
 
                 let fbo_id = FBOId(fbo_id);
 
