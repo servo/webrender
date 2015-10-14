@@ -136,8 +136,8 @@ impl PackedVertex {
         // round(clamp(c, 0, +1) * 65535.0)
 
         PackedVertex {
-            x: v.x.round(),
-            y: v.y.round(),
+            x: v.x,
+            y: v.y,
             color: PackedColor::from_components(v.r, v.g, v.b, v.a),
             u: (v.u * UV_FLOAT_TO_FIXED).round() as u16,
             v: (v.v * UV_FLOAT_TO_FIXED).round() as u16,

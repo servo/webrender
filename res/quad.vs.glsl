@@ -15,10 +15,12 @@ varying vec2 vMaskTexCoord;
 
 void main(void)
 {
-	vColor = aColor;
-	vColorTexCoord = aColorTexCoord;
-	vMaskTexCoord = aMaskTexCoord;
+    vColor = aColor;
+    vColorTexCoord = aColorTexCoord;
+    vMaskTexCoord = aMaskTexCoord;
 
-	mat4 matrix = uMatrixPalette[int(aMatrixIndex.x)];
-    gl_Position = uTransform * matrix * vec4(aPosition, 1.0);
+    mat4 matrix = uMatrixPalette[int(aMatrixIndex.x)];
+    vec4 pos = matrix * vec4(aPosition, 1.0);
+    pos.xy = floor(pos.xy + 0.5);
+    gl_Position = uTransform * pos;
 }
