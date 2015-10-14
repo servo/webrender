@@ -11,11 +11,13 @@ use core_text;
 use libc::size_t;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use string_cache::Atom;
+use types::FontKey;
+
+pub type NativeFontHandle = CGFont;
 
 pub struct FontContext {
-    cg_fonts: HashMap<Atom, CGFont>,
-    ct_fonts: HashMap<(Atom, Au), CTFont>,
+    cg_fonts: HashMap<FontKey, CGFont>,
+    ct_fonts: HashMap<(FontKey, Au), CTFont>,
 }
 
 pub struct RasterizedGlyph {
@@ -46,8 +48,8 @@ impl FontContext {
         }
     }
 
-    pub fn add_font(&mut self, font_id: &Atom, bytes: &[u8]) {
-        if self.cg_fonts.contains_key(font_id) {
+    pub fn add_raw_font(&mut self, font_key: &FontKey, bytes: &[u8]) {
+        if self.cg_fonts.contains_key(font_key) {
             return
         }
 
@@ -56,19 +58,27 @@ impl FontContext {
             Err(_) => return,
             Ok(cg_font) => cg_font,
         };
-        self.cg_fonts.insert((*font_id).clone(), cg_font);
+        self.cg_fonts.insert((*font_key).clone(), cg_font);
+    }
+
+    pub fn add_native_font(&mut self, font_key: &FontKey, native_font_handle: CGFont) {
+        if self.cg_fonts.contains_key(font_key) {
+            return
+        }
+
+        self.cg_fonts.insert((*font_key).clone(), native_font_handle);
     }
 
     pub fn get_glyph(&mut self,
-                     font_id: &Atom,
+                     font_key: &FontKey,
                      size: Au,
                      character: u32,
                      device_pixel_ratio: f32)
                      -> Option<RasterizedGlyph> {
-        let ct_font = match self.ct_fonts.entry(((*font_id).clone(), size)) {
+        let ct_font = match self.ct_fonts.entry(((*font_key).clone(), size)) {
             Entry::Occupied(entry) => (*entry.get()).clone(),
             Entry::Vacant(entry) => {
-                let cg_font = match self.cg_fonts.get(font_id) {
+                let cg_font = match self.cg_fonts.get(font_key) {
                     None => return Some(RasterizedGlyph::blank()),
                     Some(cg_font) => cg_font,
                 };

@@ -12,6 +12,9 @@ use std::{mem, ptr, slice};
 use std::collections::HashMap;
 //use util;
 
+/// Native fonts are not used on Linux; all fonts are raw.
+pub struct NativeFontHandle;
+
 struct Face {
     face: FT_Face,
 }

@@ -46,8 +46,6 @@ mod aabbtree;
 mod batch;
 mod clipper;
 mod device;
-mod util;
-mod clipper;
 mod internal_types;
 mod layer;
 mod optimizer;
