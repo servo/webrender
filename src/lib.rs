@@ -47,8 +47,6 @@ mod platform {
 mod aabbtree;
 mod clipper;
 mod device;
-mod util;
-mod clipper;
 mod internal_types;
 mod layer;
 mod renderbatch;

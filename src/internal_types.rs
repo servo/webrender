@@ -2,6 +2,7 @@ use app_units::Au;
 use device::{ProgramId, TextureId};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
+use platform::font::NativeFontHandle;
 use renderbatch::RenderBatch;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
@@ -323,7 +324,8 @@ impl Frame {
 }
 
 pub enum ApiMsg {
-    AddFont(Atom, Vec<u8>),
+    AddRawFont(Atom, Vec<u8>),
+    AddNativeFont(Atom, NativeFontHandle),
     AddImage(ImageID, u32, u32, ImageFormat, Vec<u8>),
     AddDisplayList(DisplayListID, PipelineId, Epoch, DisplayListBuilder),
     SetRootStackingContext(StackingContext, ColorF, Epoch, PipelineId),

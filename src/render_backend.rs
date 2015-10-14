@@ -9,7 +9,7 @@ use internal_types::{BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp, Compi
 use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo, DrawListIndex, DrawListItemIndex};
 use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey, DisplayItemKey};
 use layer::Layer;
-use platform::font::{FontContext, RasterizedGlyph};
+use platform::font::{FontContext, NativeFontHandle, RasterizedGlyph};
 use renderbatch::RenderBatch;
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_list::ResourceList;
@@ -963,7 +963,15 @@ impl Scene {
                     FONT_CONTEXT.with(|font_context| {
                         let mut font_context = font_context.borrow_mut();
                         let font_template = &font_templates[&job.glyph_key.font_id];
-                        font_context.add_font(&job.glyph_key.font_id, &font_template.bytes);
+                        match *font_template {
+                            FontTemplate::Raw(ref bytes) => {
+                                font_context.add_raw_font(&job.glyph_key.font_id, &**bytes);
+                            }
+                            FontTemplate::Native(ref native_font_handle) => {
+                                font_context.add_native_font(&job.glyph_key.font_id,
+                                                             (*native_font_handle).clone());
+                            }
+                        }
                         job.result = font_context.get_glyph(&job.glyph_key.font_id,
                                                             job.glyph_key.size,
                                                             job.glyph_key.index,
@@ -1045,8 +1053,9 @@ impl Scene {
     }
 }
 
-struct FontTemplate {
-    bytes: Arc<Vec<u8>>,
+enum FontTemplate {
+    Raw(Arc<Vec<u8>>),
+    Native(NativeFontHandle),
 }
 
 struct GlyphRasterJob {
@@ -1329,10 +1338,12 @@ impl RenderBackend {
             match msg {
                 Ok(msg) => {
                     match msg {
-                        ApiMsg::AddFont(id, bytes) => {
-                            self.font_templates.insert(id, FontTemplate {
-                                bytes: Arc::new(bytes),
-                            });
+                        ApiMsg::AddRawFont(id, bytes) => {
+                            self.font_templates.insert(id, FontTemplate::Raw(Arc::new(bytes)));
+                        }
+                        ApiMsg::AddNativeFont(id, native_font_handle) => {
+                            self.font_templates.insert(id,
+                                                       FontTemplate::Native(native_font_handle));
                         }
                         ApiMsg::AddImage(id, width, height, format, bytes) => {
                             let image = ImageResource {

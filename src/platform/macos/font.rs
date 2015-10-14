@@ -13,6 +13,8 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use string_cache::Atom;
 
+pub type NativeFontHandle = CGFont;
+
 pub struct FontContext {
     cg_fonts: HashMap<Atom, CGFont>,
     ct_fonts: HashMap<(Atom, Au), CTFont>,
@@ -46,7 +48,7 @@ impl FontContext {
         }
     }
 
-    pub fn add_font(&mut self, font_id: &Atom, bytes: &[u8]) {
+    pub fn add_raw_font(&mut self, font_id: &Atom, bytes: &[u8]) {
         if self.cg_fonts.contains_key(font_id) {
             return
         }
@@ -57,6 +59,14 @@ impl FontContext {
             Ok(cg_font) => cg_font,
         };
         self.cg_fonts.insert((*font_id).clone(), cg_font);
+    }
+
+    pub fn add_native_font(&mut self, font_id: &Atom, native_font_handle: CGFont) {
+        if self.cg_fonts.contains_key(font_id) {
+            return
+        }
+
+        self.cg_fonts.insert((*font_id).clone(), native_font_handle);
     }
 
     pub fn get_glyph(&mut self,
