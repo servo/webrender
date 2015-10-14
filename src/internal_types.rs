@@ -1,7 +1,6 @@
 use app_units::Au;
 use device::{ProgramId, TextureId};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
-use render_backend::DisplayItemKey;
 use std::collections::HashMap;
 use string_cache::Atom;
 use texture_cache::TextureCacheItem;
@@ -469,6 +468,54 @@ impl GlyphKey {
             size: size,
             blur_radius: blur_radius,
             index: index,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq, Hash)]
+pub struct DrawListIndex(pub u32);
+
+#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq)]
+pub struct DrawListItemIndex(pub u32);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisplayItemKey {
+    pub draw_list_index: DrawListIndex,
+    pub item_index: DrawListItemIndex,
+}
+
+impl DisplayItemKey {
+    pub fn new(draw_list_index: usize, item_index: usize) -> DisplayItemKey {
+        DisplayItemKey {
+            draw_list_index: DrawListIndex(draw_list_index as u32),
+            item_index: DrawListItemIndex(item_index as u32),
+        }
+    }
+}
+
+pub struct RenderBatch {
+    pub batch_id: BatchId,
+    pub sort_key: DisplayItemKey,
+    pub program_id: ProgramId,
+    pub color_texture_id: TextureId,
+    pub mask_texture_id: TextureId,
+    pub vertices: Vec<PackedVertex>,
+    pub indices: Vec<u16>,
+    pub matrix_map: HashMap<DrawListIndex, u8>,
+}
+
+pub struct CompiledNode {
+    pub batches: Vec<RenderBatch>,
+    pub commands: Vec<DrawCommand>,
+    pub matrix_maps: HashMap<BatchId, HashMap<DrawListIndex, u8>>,
+}
+
+impl CompiledNode {
+    pub fn new() -> CompiledNode {
+        CompiledNode {
+            batches: Vec::new(),
+            commands: Vec::new(),
+            matrix_maps: HashMap::new(),
         }
     }
 }

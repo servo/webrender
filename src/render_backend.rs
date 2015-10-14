@@ -1,12 +1,14 @@
+use aabbtree::{AABBTree, AABBTreeNode};
 use app_units::Au;
 use clipper;
 use device::{ProgramId, TextureId};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
 use font::{FontContext, RasterizedGlyph};
 use fnv::FnvHasher;
-use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp};
-use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo};
-use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey};
+use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, RenderBatch};
+use internal_types::{BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp, CompiledNode};
+use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo, DrawListIndex, DrawListItemIndex};
+use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey, DisplayItemKey};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_list::ResourceList;
 use std::cell::RefCell;
@@ -47,17 +49,6 @@ const MAX_MATRICES_PER_BATCH: usize = 32;
 static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
-
-struct RenderBatch {
-    batch_id: BatchId,
-    sort_key: DisplayItemKey,
-    program_id: ProgramId,
-    color_texture_id: TextureId,
-    mask_texture_id: TextureId,
-    vertices: Vec<PackedVertex>,
-    indices: Vec<u16>,
-    matrix_map: HashMap<DrawListIndex, u8>,
-}
 
 static MAX_RECT: Rect<f32> = Rect {
     origin: Point2D {
@@ -300,27 +291,6 @@ impl CollectDrawListsForStackingContext for StackingContext {
         }
 
         result
-    }
-}
-
-#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq, Hash)]
-struct DrawListIndex(u32);
-
-#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq)]
-struct DrawListItemIndex(u32);
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisplayItemKey {
-    draw_list_index: DrawListIndex,
-    item_index: DrawListItemIndex,
-}
-
-impl DisplayItemKey {
-    fn new(draw_list_index: usize, item_index: usize) -> DisplayItemKey {
-        DisplayItemKey {
-            draw_list_index: DrawListIndex(draw_list_index as u32),
-            item_index: DrawListItemIndex(item_index as u32),
-        }
     }
 }
 
@@ -940,22 +910,6 @@ struct GlyphRasterJob {
     result: Option<RasterizedGlyph>,
 }
 
-struct CompiledNode {
-    batches: Vec<RenderBatch>,
-    commands: Vec<DrawCommand>,
-    matrix_maps: HashMap<BatchId, HashMap<DrawListIndex, u8>>,
-}
-
-impl CompiledNode {
-    fn new() -> CompiledNode {
-        CompiledNode {
-            batches: Vec::new(),
-            commands: Vec::new(),
-            matrix_maps: HashMap::new(),
-        }
-    }
-}
-
 struct DrawCommandBuilder {
     quad_program_id: ProgramId,
     glyph_program_id: ProgramId,
@@ -1070,358 +1024,6 @@ impl DrawCommandBuilder {
         }
 
         (batches, draw_commands)
-    }
-}
-
-struct AABBTreeNode {
-    rect: Rect<f32>,
-    node_index: NodeIndex,
-
-    // TODO: Use Option + NonZero here
-    children: Option<NodeIndex>,
-
-    is_visible: bool,
-
-    src_items: Vec<DisplayItemKey>,
-
-    resource_list: Option<ResourceList>,
-    compiled_node: Option<CompiledNode>,
-}
-
-impl AABBTreeNode {
-    fn new(rect: &Rect<f32>, node_index: NodeIndex) -> AABBTreeNode {
-        AABBTreeNode {
-            rect: rect.clone(),
-            node_index: node_index,
-            children: None,
-            is_visible: false,
-            resource_list: None,
-            src_items: Vec::new(),
-            compiled_node: None,
-        }
-    }
-
-    #[inline]
-    fn append_item(&mut self,
-                   draw_list_index: usize,
-                   item_index: usize) {
-        let key = DisplayItemKey::new(draw_list_index, item_index);
-        self.src_items.push(key);
-    }
-
-    fn compile(&mut self,
-               flat_draw_lists: &FlatDrawListArray,
-               white_image_info: &TextureCacheItem,
-               mask_image_info: &TextureCacheItem,
-               glyph_to_image_map: &HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
-               raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
-               texture_cache: &TextureCache,
-               node_rects: &Vec<Rect<f32>>,
-               quad_program_id: ProgramId,
-               glyph_program_id: ProgramId,
-               device_pixel_ratio: f32) {
-        let color_white = ColorF::new(1.0, 1.0, 1.0, 1.0);
-        let mut compiled_node = CompiledNode::new();
-
-        let mut draw_cmd_builders = HashMap::new();
-
-        let iter = DisplayItemIterator::new(flat_draw_lists, &self.src_items);
-        for key in iter {
-            let (display_item, draw_context) = flat_draw_lists.get_item_and_draw_context(&key);
-
-            if let Some(item_node_index) = display_item.node_index {
-                if item_node_index == self.node_index {
-                    let clip_rect = display_item.clip.main.intersection(&draw_context.overflow);
-
-                    if let Some(clip_rect) = clip_rect {
-
-                        let builder = match draw_cmd_builders.entry(draw_context.render_target_index) {
-                            Vacant(entry) => {
-                                entry.insert(DrawCommandBuilder::new(quad_program_id,
-                                                                     glyph_program_id,
-                                                                     device_pixel_ratio,
-                                                                     draw_context.render_target_index))
-                            }
-                            Occupied(entry) => entry.into_mut(),
-                        };
-
-                        match display_item.item {
-                            SpecificDisplayItem::Image(ref info) => {
-                                let image = texture_cache.get(info.image_id);
-                                builder.add_image(&key,
-                                                        &display_item.rect,
-                                                        &clip_rect,
-                                                        &display_item.clip,
-                                                        &info.stretch_size,
-                                                        image,
-                                                        mask_image_info,
-                                                        raster_to_image_map,
-                                                        &texture_cache,
-                                                        &color_white);
-                            }
-                            SpecificDisplayItem::Text(ref info) => {
-                                builder.add_text(&key,
-                                                       draw_context,
-                                                       info.font_id.clone(),
-                                                       info.size,
-                                                       info.blur_radius,
-                                                       &info.color,
-                                                       &info.glyphs,
-                                                       mask_image_info,
-                                                       &glyph_to_image_map,
-                                                       &texture_cache);
-                            }
-                            SpecificDisplayItem::Rectangle(ref info) => {
-                                builder.add_rectangle(&key,
-                                                            &display_item.rect,
-                                                            &clip_rect,
-                                                            BoxShadowClipMode::Inset,
-                                                            &display_item.clip,
-                                                            white_image_info,
-                                                            mask_image_info,
-                                                            raster_to_image_map,
-                                                            &texture_cache,
-                                                            &info.color);
-                            }
-                            SpecificDisplayItem::Iframe(..) => {}
-                            SpecificDisplayItem::Gradient(ref info) => {
-                                builder.add_gradient(&key,
-                                                           &display_item.rect,
-                                                           &info.start_point,
-                                                           &info.end_point,
-                                                           &info.stops,
-                                                           white_image_info,
-                                                           mask_image_info);
-                            }
-                            SpecificDisplayItem::BoxShadow(ref info) => {
-                                builder.add_box_shadow(&key,
-                                                             &info.box_bounds,
-                                                             &clip_rect,
-                                                             &display_item.clip,
-                                                             &info.offset,
-                                                             &info.color,
-                                                             info.blur_radius,
-                                                             info.spread_radius,
-                                                             info.border_radius,
-                                                             info.clip_mode,
-                                                             white_image_info,
-                                                             mask_image_info,
-                                                             raster_to_image_map,
-                                                             texture_cache);
-                            }
-                            SpecificDisplayItem::Border(ref info) => {
-                                builder.add_border(&key,
-                                                     &display_item.rect,
-                                                     info,
-                                                     white_image_info,
-                                                     mask_image_info,
-                                                     raster_to_image_map,
-                                                     texture_cache);
-                            }
-                            SpecificDisplayItem::Composite(ref info) => {
-                                builder.add_composite(&key,
-                                                            draw_context,
-                                                            &display_item.rect,
-                                                            info.texture_id,
-                                                            info.blend_mode);
-                            }
-                        }
-                    }
-                } else {
-                    // TODO: Cache this information!!!
-                    let NodeIndex(node0) = item_node_index;
-                    let NodeIndex(node1) = self.node_index;
-
-                    let rect0 = &node_rects[node0 as usize];
-                    let rect1 = &node_rects[node1 as usize];
-                    let nodes_overlap = rect0.intersects(rect1);
-                    if nodes_overlap {
-                        if let Some(builder) = draw_cmd_builders.remove(&draw_context.render_target_index) {
-                            let (batches, commands) = builder.finalize();
-                            compiled_node.batches.extend(batches.into_iter());
-                            compiled_node.commands.extend(commands.into_iter());
-                        }
-                    }
-                }
-            }
-        }
-
-        for (_, builder) in draw_cmd_builders.into_iter() {
-            let (batches, commands) = builder.finalize();
-            compiled_node.batches.extend(batches.into_iter());
-            compiled_node.commands.extend(commands.into_iter());
-        }
-
-        self.compiled_node = Some(compiled_node);
-    }
-}
-
-struct AABBTree {
-    nodes: Vec<AABBTreeNode>,
-    split_size: f32,
-}
-
-impl AABBTree {
-    fn new(split_size: f32) -> AABBTree {
-        AABBTree {
-            nodes: Vec::new(),
-            split_size: split_size,
-        }
-    }
-
-    fn init(&mut self, scene_rect: &Rect<f32>) {
-        self.nodes.clear();
-
-        let root_node = AABBTreeNode::new(scene_rect, NodeIndex(0));
-        self.nodes.push(root_node);
-    }
-
-    #[allow(dead_code)]
-    fn print(&self, node_index: NodeIndex, level: u32) {
-        let mut indent = String::new();
-        for _ in 0..level {
-            indent.push_str("  ");
-        }
-
-        let node = self.node(node_index);
-        println!("{}n={:?} r={:?} c={:?}", indent, node_index, node.rect, node.children);
-
-        if let Some(child_index) = node.children {
-            let NodeIndex(child_index) = child_index;
-            self.print(NodeIndex(child_index+0), level+1);
-            self.print(NodeIndex(child_index+1), level+1);
-        }
-    }
-
-    #[inline(always)]
-    fn node(&self, index: NodeIndex) -> &AABBTreeNode {
-        let NodeIndex(index) = index;
-        &self.nodes[index as usize]
-    }
-
-    #[inline(always)]
-    fn node_mut(&mut self, index: NodeIndex) -> &mut AABBTreeNode {
-        let NodeIndex(index) = index;
-        &mut self.nodes[index as usize]
-    }
-
-    // TODO: temp hack to test if this idea works
-    fn node_rects(&self) -> Vec<Rect<f32>> {
-        let mut rects = Vec::new();
-        for node in &self.nodes {
-            rects.push(node.rect);
-        }
-        rects
-    }
-
-    #[inline]
-    fn find_best_node(&mut self,
-                      node_index: NodeIndex,
-                      rect: &Rect<f32>) -> Option<NodeIndex> {
-        self.split_if_needed(node_index);
-
-        if let Some(child_node_index) = self.node(node_index).children {
-            let NodeIndex(child_node_index) = child_node_index;
-            let left_node_index = NodeIndex(child_node_index + 0);
-            let right_node_index = NodeIndex(child_node_index + 1);
-
-            let left_intersect = self.node(left_node_index).rect.intersects(rect);
-            let right_intersect = self.node(right_node_index).rect.intersects(rect);
-
-            if left_intersect && right_intersect {
-                Some(node_index)
-            } else if left_intersect {
-                self.find_best_node(left_node_index, rect)
-            } else if right_intersect {
-                self.find_best_node(right_node_index, rect)
-            } else {
-                None
-            }
-        } else {
-            Some(node_index)
-        }
-    }
-
-    #[inline]
-    fn insert(&mut self,
-              rect: &Rect<f32>,
-              draw_list_index: usize,
-              item_index: usize) -> Option<NodeIndex> {
-        let node_index = self.find_best_node(NodeIndex(0), rect);
-        if let Some(node_index) = node_index {
-            let node = self.node_mut(node_index);
-            node.append_item(draw_list_index, item_index);
-        }
-        node_index
-    }
-
-    fn split_if_needed(&mut self, node_index: NodeIndex) {
-        if self.node(node_index).children.is_none() {
-            let rect = self.node(node_index).rect.clone();
-
-            let child_rects = if rect.size.width > self.split_size &&
-                                 rect.size.width > rect.size.height {
-                let new_width = rect.size.width * 0.5;
-
-                let left = Rect::new(rect.origin, Size2D::new(new_width, rect.size.height));
-                let right = Rect::new(rect.origin + Point2D::new(new_width, 0.0),
-                                      Size2D::new(rect.size.width - new_width, rect.size.height));
-
-                Some((left, right))
-            } else if rect.size.height > self.split_size {
-                let new_height = rect.size.height * 0.5;
-
-                let left = Rect::new(rect.origin, Size2D::new(rect.size.width, new_height));
-                let right = Rect::new(rect.origin + Point2D::new(0.0, new_height),
-                                      Size2D::new(rect.size.width, rect.size.height - new_height));
-
-                Some((left, right))
-            } else {
-                None
-            };
-
-            if let Some((left_rect, right_rect)) = child_rects {
-                let child_node_index = self.nodes.len() as u32;
-
-                let left_node = AABBTreeNode::new(&left_rect, NodeIndex(child_node_index+0));
-                self.nodes.push(left_node);
-
-                let right_node = AABBTreeNode::new(&right_rect, NodeIndex(child_node_index+1));
-                self.nodes.push(right_node);
-
-                self.node_mut(node_index).children = Some(NodeIndex(child_node_index));
-            }
-        }
-    }
-
-    fn check_node_visibility(&mut self,
-                             node_index: NodeIndex,
-                             rect: &Rect<f32>) {
-        let children = {
-            let node = self.node_mut(node_index);
-            if node.rect.intersects(rect) {
-                node.is_visible = true;
-                node.children
-            } else {
-                return;
-            }
-        };
-
-        if let Some(child_index) = children {
-            let NodeIndex(child_index) = child_index;
-            self.check_node_visibility(NodeIndex(child_index+0), rect);
-            self.check_node_visibility(NodeIndex(child_index+1), rect);
-        }
-    }
-
-    fn cull(&mut self, rect: &Rect<f32>) {
-        let _pf = util::ProfileScope::new("  cull");
-        for node in &mut self.nodes {
-            node.is_visible = false;
-        }
-        if self.nodes.len() > 0 {
-            self.check_node_visibility(NodeIndex(0), &rect);
-        }
     }
 }
 
@@ -3168,3 +2770,164 @@ fn mask_for_border_radius<'a>(dummy_mask_image: &'a TextureCacheItem,
     }
 }
 
+trait NodeCompiler {
+    fn compile(&mut self,
+               flat_draw_lists: &FlatDrawListArray,
+               white_image_info: &TextureCacheItem,
+               mask_image_info: &TextureCacheItem,
+               glyph_to_image_map: &HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
+               raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+               texture_cache: &TextureCache,
+               node_rects: &Vec<Rect<f32>>,
+               quad_program_id: ProgramId,
+               glyph_program_id: ProgramId,
+               device_pixel_ratio: f32);
+}
+
+impl NodeCompiler for AABBTreeNode {
+    fn compile(&mut self,
+               flat_draw_lists: &FlatDrawListArray,
+               white_image_info: &TextureCacheItem,
+               mask_image_info: &TextureCacheItem,
+               glyph_to_image_map: &HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
+               raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+               texture_cache: &TextureCache,
+               node_rects: &Vec<Rect<f32>>,
+               quad_program_id: ProgramId,
+               glyph_program_id: ProgramId,
+               device_pixel_ratio: f32) {
+        let color_white = ColorF::new(1.0, 1.0, 1.0, 1.0);
+        let mut compiled_node = CompiledNode::new();
+
+        let mut draw_cmd_builders = HashMap::new();
+
+        let iter = DisplayItemIterator::new(flat_draw_lists, &self.src_items);
+        for key in iter {
+            let (display_item, draw_context) = flat_draw_lists.get_item_and_draw_context(&key);
+
+            if let Some(item_node_index) = display_item.node_index {
+                if item_node_index == self.node_index {
+                    let clip_rect = display_item.clip.main.intersection(&draw_context.overflow);
+
+                    if let Some(clip_rect) = clip_rect {
+
+                        let builder = match draw_cmd_builders.entry(draw_context.render_target_index) {
+                            Vacant(entry) => {
+                                entry.insert(DrawCommandBuilder::new(quad_program_id,
+                                                                     glyph_program_id,
+                                                                     device_pixel_ratio,
+                                                                     draw_context.render_target_index))
+                            }
+                            Occupied(entry) => entry.into_mut(),
+                        };
+
+                        match display_item.item {
+                            SpecificDisplayItem::Image(ref info) => {
+                                let image = texture_cache.get(info.image_id);
+                                builder.add_image(&key,
+                                                        &display_item.rect,
+                                                        &clip_rect,
+                                                        &display_item.clip,
+                                                        &info.stretch_size,
+                                                        image,
+                                                        mask_image_info,
+                                                        raster_to_image_map,
+                                                        &texture_cache,
+                                                        &color_white);
+                            }
+                            SpecificDisplayItem::Text(ref info) => {
+                                builder.add_text(&key,
+                                                       draw_context,
+                                                       info.font_id.clone(),
+                                                       info.size,
+                                                       info.blur_radius,
+                                                       &info.color,
+                                                       &info.glyphs,
+                                                       mask_image_info,
+                                                       &glyph_to_image_map,
+                                                       &texture_cache);
+                            }
+                            SpecificDisplayItem::Rectangle(ref info) => {
+                                builder.add_rectangle(&key,
+                                                            &display_item.rect,
+                                                            &clip_rect,
+                                                            BoxShadowClipMode::Inset,
+                                                            &display_item.clip,
+                                                            white_image_info,
+                                                            mask_image_info,
+                                                            raster_to_image_map,
+                                                            &texture_cache,
+                                                            &info.color);
+                            }
+                            SpecificDisplayItem::Iframe(..) => {}
+                            SpecificDisplayItem::Gradient(ref info) => {
+                                builder.add_gradient(&key,
+                                                           &display_item.rect,
+                                                           &info.start_point,
+                                                           &info.end_point,
+                                                           &info.stops,
+                                                           white_image_info,
+                                                           mask_image_info);
+                            }
+                            SpecificDisplayItem::BoxShadow(ref info) => {
+                                builder.add_box_shadow(&key,
+                                                             &info.box_bounds,
+                                                             &clip_rect,
+                                                             &display_item.clip,
+                                                             &info.offset,
+                                                             &info.color,
+                                                             info.blur_radius,
+                                                             info.spread_radius,
+                                                             info.border_radius,
+                                                             info.clip_mode,
+                                                             white_image_info,
+                                                             mask_image_info,
+                                                             raster_to_image_map,
+                                                             texture_cache);
+                            }
+                            SpecificDisplayItem::Border(ref info) => {
+                                builder.add_border(&key,
+                                                     &display_item.rect,
+                                                     info,
+                                                     white_image_info,
+                                                     mask_image_info,
+                                                     raster_to_image_map,
+                                                     texture_cache);
+                            }
+                            SpecificDisplayItem::Composite(ref info) => {
+                                builder.add_composite(&key,
+                                                            draw_context,
+                                                            &display_item.rect,
+                                                            info.texture_id,
+                                                            info.blend_mode);
+                            }
+                        }
+                    }
+                } else {
+                    // TODO: Cache this information!!!
+                    let NodeIndex(node0) = item_node_index;
+                    let NodeIndex(node1) = self.node_index;
+
+                    let rect0 = &node_rects[node0 as usize];
+                    let rect1 = &node_rects[node1 as usize];
+                    let nodes_overlap = rect0.intersects(rect1);
+                    if nodes_overlap {
+                        if let Some(builder) = draw_cmd_builders.remove(&draw_context.render_target_index) {
+                            let (batches, commands) = builder.finalize();
+                            compiled_node.batches.extend(batches.into_iter());
+                            compiled_node.commands.extend(commands.into_iter());
+                        }
+                    }
+                }
+            }
+        }
+
+        for (_, builder) in draw_cmd_builders.into_iter() {
+            let (batches, commands) = builder.finalize();
+            compiled_node.batches.extend(batches.into_iter());
+            compiled_node.commands.extend(commands.into_iter());
+        }
+
+        self.compiled_node = Some(compiled_node);
+    }
+}
