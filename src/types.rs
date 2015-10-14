@@ -174,6 +174,7 @@ pub struct StackingContext {
     pub perspective: Matrix4,
     pub establishes_3d_context: bool,
     pub mix_blend_mode: MixBlendMode,
+    pub filters: Vec<FilterOp>,
 }
 
 impl StackingContext {
@@ -184,7 +185,9 @@ impl StackingContext {
                transform: &Matrix4,
                perspective: &Matrix4,
                establishes_3d_context: bool,
-               mix_blend_mode: MixBlendMode) -> StackingContext {
+               mix_blend_mode: MixBlendMode,
+               filters: Vec<FilterOp>)
+               -> StackingContext {
         StackingContext {
             scroll_layer_id: scroll_layer_id,
             bounds: bounds,
@@ -196,6 +199,7 @@ impl StackingContext {
             perspective: perspective.clone(),
             establishes_3d_context: establishes_3d_context,
             mix_blend_mode: mix_blend_mode,
+            filters: filters,
         }
     }
 
@@ -285,7 +289,7 @@ pub struct IframeDisplayItem {
 #[derive(Debug)]
 pub struct CompositeDisplayItem {
     pub texture_id: RenderTargetID,
-    pub blend_mode: MixBlendMode,
+    pub operation: CompositionOp,
 }
 
 #[derive(Debug)]
@@ -699,3 +703,42 @@ pub enum MixBlendMode {
     Color,
     Luminosity,
 }
+
+#[derive(Clone, Copy, Debug)]
+pub enum LowLevelFilterOp {
+    Blur(Au, BlurDirection),
+    Brightness(f32),
+    Contrast(f32),
+    Grayscale(f32),
+    HueRotate(f32),
+    Invert(f32),
+    Opacity(f32),
+    Saturate(f32),
+    Sepia(f32),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum FilterOp {
+    Blur(Au),
+    Brightness(f32),
+    Contrast(f32),
+    Grayscale(f32),
+    HueRotate(f32),
+    Invert(f32),
+    Opacity(f32),
+    Saturate(f32),
+    Sepia(f32),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum BlurDirection {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum CompositionOp {
+    MixBlend(MixBlendMode),
+    Filter(LowLevelFilterOp),
+}
+

@@ -38,7 +38,7 @@ mod texture_cache;
 pub use types::{ImageID, StackingLevel, DisplayListID, StackingContext, DisplayListBuilder};
 pub use types::{ColorF, ImageFormat, GradientStop, PipelineId, GlyphInstance, RenderNotifier};
 pub use types::{BorderSide, BorderRadius, BorderStyle, Epoch, BoxShadowClipMode, ClipRegion};
-pub use types::{ScrollLayerId, MixBlendMode, ComplexClipRegion};
+pub use types::{ScrollLayerId, MixBlendMode, ComplexClipRegion, FilterOp};
 pub use render_api::RenderApi;
 pub use renderer::Renderer;
 
