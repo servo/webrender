@@ -6,10 +6,11 @@ use font::{FontContext, RasterizedGlyph};
 use fnv::FnvHasher;
 use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp};
 use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo};
-use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex};
+use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey};
 use renderer::BLUR_INFLATION_FACTOR;
+use resource_list::ResourceList;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
 use std::cmp::Ordering;
@@ -799,21 +800,47 @@ impl Scene {
         let _pf = util::ProfileScope::new("  update_texture_cache_and_build_raster_jobs");
 
         let mut raster_jobs = Vec::new();
-        let nodes = &self.aabb_tree.nodes;
 
-        for node in nodes {
+        for node in &self.aabb_tree.nodes {
             if node.is_visible {
-                // Do actual caching (single threaded for now)
                 let resource_list = node.resource_list.as_ref().unwrap();
 
                 // Update texture cache with any GPU generated procedural items.
-                cache_raster_items(resource_list, raster_to_image_map, texture_cache);
+                resource_list.for_each_raster(|raster_item| {
+                    if !raster_to_image_map.contains_key(raster_item) {
+                        let image_id = ImageID::new();
+                        texture_cache.insert_raster_op(image_id, raster_item);
+                        raster_to_image_map.insert(raster_item.clone(), image_id);
+                    }
+                });
 
                 // Update texture cache with any images that aren't yet uploaded to GPU.
-                cache_images(resource_list, texture_cache, image_templates);
+                resource_list.for_each_image(|image_id| {
+                    if !texture_cache.exists(image_id) {
+                        let image_template = image_templates.get(&image_id).expect("TODO: image not available yet! ");
+                        // TODO: Can we avoid the clone of the bytes here?
+                        texture_cache.insert(image_id,
+                                             0,
+                                             0,
+                                             image_template.width,
+                                             image_template.height,
+                                             image_template.format,
+                                             TextureInsertOp::Blit(image_template.bytes.clone()));
+                    }
+                });
 
                 // Update texture cache with any newly rasterized glyphs.
-                cache_fonts(resource_list, glyph_to_image_map, &mut raster_jobs);
+                resource_list.for_each_glyph(|glyph_key| {
+                    if !glyph_to_image_map.contains_key(&glyph_key) {
+                        let image_id = ImageID::new();
+                        raster_jobs.push(GlyphRasterJob {
+                            image_id: image_id,
+                            glyph_key: glyph_key.clone(),
+                            result: None,
+                        });
+                        glyph_to_image_map.insert(glyph_key.clone(), image_id);
+                    }
+                });
             }
         }
 
@@ -911,22 +938,6 @@ struct GlyphRasterJob {
     image_id: ImageID,
     glyph_key: GlyphKey,
     result: Option<RasterizedGlyph>,
-}
-
-struct ResourceList {
-    required_images: HashSet<ImageID, DefaultState<FnvHasher>>,
-    required_glyphs: HashMap<Atom, HashSet<Glyph>, DefaultState<FnvHasher>>,
-    required_rasters: HashSet<RasterItem, DefaultState<FnvHasher>>,
-}
-
-impl ResourceList {
-    fn new() -> ResourceList {
-        ResourceList {
-            required_glyphs: HashMap::with_hash_state(Default::default()),
-            required_images: HashSet::with_hash_state(Default::default()),
-            required_rasters: HashSet::with_hash_state(Default::default()),
-        }
-    }
 }
 
 struct CompiledNode {
@@ -1414,25 +1425,6 @@ impl AABBTree {
     }
 }
 
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub struct GlyphKey {
-    pub font_id: Atom,
-    pub size: Au,
-    pub blur_radius: Au,
-    pub index: u32,
-}
-
-impl GlyphKey {
-    pub fn new(font_id: Atom, size: Au, blur_radius: Au, index: u32) -> GlyphKey {
-        GlyphKey {
-            font_id: font_id,
-            size: size,
-            blur_radius: blur_radius,
-            index: index,
-        }
-    }
-}
-
 #[derive(Debug)]
 struct IframeInfo {
     offset: Point2D<f32>,
@@ -1482,75 +1474,6 @@ pub struct RenderBackend {
     stacking_contexts: StackingContextMap,
 
     scene: Scene,
-}
-
-fn cache_image(image_id: ImageID,
-               texture_cache: &mut TextureCache,
-               image_templates: &HashMap<ImageID, ImageResource, DefaultState<FnvHasher>>) {
-    if !texture_cache.exists(image_id) {
-        let image_template = image_templates.get(&image_id).expect("TODO: image not available yet! ");
-        // TODO: Can we avoid the clone of the bytes here?
-        texture_cache.insert(image_id,
-                             0,
-                             0,
-                             image_template.width,
-                             image_template.height,
-                             image_template.format,
-                             TextureInsertOp::Blit(image_template.bytes.clone()));
-    }
-}
-
-fn cache_images(resource_list: &ResourceList,
-                texture_cache: &mut TextureCache,
-                image_templates: &HashMap<ImageID, ImageResource, DefaultState<FnvHasher>>) {
-    //let _pf = util::ProfileScope::new("  cache_images");
-    for image_id in &resource_list.required_images {
-        cache_image(*image_id, texture_cache, image_templates);
-    }
-}
-
-fn cache_fonts(resource_list: &ResourceList,
-               glyph_to_image_map: &mut HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
-               raster_jobs: &mut Vec<GlyphRasterJob>) {
-    //let _pf = util::ProfileScope::new("  cache_fonts");
-
-    for (font_id, glyphs) in &resource_list.required_glyphs {
-        let mut glyph_key = GlyphKey::new(font_id.clone(), Au(0), Au(0), 0);
-        for glyph in glyphs {
-            glyph_key.size = glyph.size;
-            glyph_key.index = glyph.index;
-            glyph_key.blur_radius = glyph.blur_radius;
-
-            if !glyph_to_image_map.contains_key(&glyph_key) {
-                let image_id = ImageID::new();
-                raster_jobs.push(GlyphRasterJob {
-                    image_id: image_id,
-                    glyph_key: glyph_key.clone(),
-                    result: None,
-                });
-                glyph_to_image_map.insert(glyph_key.clone(), image_id);
-            }
-        }
-    }
-}
-
-fn cache_raster_item(raster_item: &RasterItem,
-                     raster_to_image_map: &mut HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
-                     texture_cache: &mut TextureCache) {
-    if !raster_to_image_map.contains_key(raster_item) {
-        let image_id = ImageID::new();
-        texture_cache.insert_raster_op(image_id, raster_item);
-        raster_to_image_map.insert(raster_item.clone(), image_id);
-    }
-}
-
-fn cache_raster_items(resource_list: &ResourceList,
-                      raster_to_image_map: &mut HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
-                      texture_cache: &mut TextureCache) {
-    //let _pf = util::ProfileScope::new("  cache_raster_items");
-    for raster_item in &resource_list.required_rasters {
-        cache_raster_item(raster_item, raster_to_image_map, texture_cache);
-    }
 }
 
 impl RenderBackend {
@@ -3032,15 +2955,6 @@ trait BuildRequiredResources {
     fn build_resource_list(&mut self, flat_draw_lists: &FlatDrawListArray);
 }
 
-trait RequiredResourceHelpers {
-    fn add_radius(required_rasters: &mut HashSet<RasterItem, DefaultState<FnvHasher>>,
-                  outer_radius: &Size2D<f32>,
-                  inner_radius: &Size2D<f32>);
-    fn add_box_shadow_corner(required_rasters: &mut HashSet<RasterItem, DefaultState<FnvHasher>>,
-                             blur_radius: f32,
-                             border_radius: f32);
-}
-
 impl BuildRequiredResources for AABBTreeNode {
     fn build_resource_list(&mut self, flat_draw_lists: &FlatDrawListArray) {
         //let _pf = util::ProfileScope::new("  build_resource_list");
@@ -3051,38 +2965,24 @@ impl BuildRequiredResources for AABBTreeNode {
 
             // Handle border radius for complex clipping regions.
             for complex_clip_region in display_item.clip.complex.iter() {
-                DrawList::add_radius(&mut resource_list.required_rasters,
-                                     &complex_clip_region.radii.top_left,
-                                     &Size2D::new(0.0, 0.0));
-                DrawList::add_radius(&mut resource_list.required_rasters,
-                                     &complex_clip_region.radii.top_right,
-                                     &Size2D::new(0.0, 0.0));
-                DrawList::add_radius(&mut resource_list.required_rasters,
-                                     &complex_clip_region.radii.bottom_left,
-                                     &Size2D::new(0.0, 0.0));
-                DrawList::add_radius(&mut resource_list.required_rasters,
-                                     &complex_clip_region.radii.bottom_right,
-                                     &Size2D::new(0.0, 0.0));
+                resource_list.add_radius_raster(&complex_clip_region.radii.top_left,
+                                                &Size2D::new(0.0, 0.0));
+                resource_list.add_radius_raster(&complex_clip_region.radii.top_right,
+                                                &Size2D::new(0.0, 0.0));
+                resource_list.add_radius_raster(&complex_clip_region.radii.bottom_left,
+                                                &Size2D::new(0.0, 0.0));
+                resource_list.add_radius_raster(&complex_clip_region.radii.bottom_right,
+                                                &Size2D::new(0.0, 0.0));
             }
 
             match display_item.item {
                 SpecificDisplayItem::Image(ref info) => {
-                    resource_list.required_images.insert(info.image_id);
+                    resource_list.add_image(info.image_id);
                 }
                 SpecificDisplayItem::Text(ref info) => {
                     for glyph in &info.glyphs {
                         let glyph = Glyph::new(info.size, info.blur_radius, glyph.index);
-                        // TODO: Cloning this atom here might be quite expensive!
-                        match resource_list.required_glyphs.entry(info.font_id.clone()) {
-                            Occupied(entry) => {
-                                entry.into_mut().insert(glyph);
-                            }
-                            Vacant(entry) => {
-                                let mut hash_set = HashSet::new();
-                                hash_set.insert(glyph);
-                                entry.insert(hash_set);
-                            }
-                        }
+                        resource_list.add_glyph(info.font_id.clone(), glyph);
                     }
                 }
                 SpecificDisplayItem::Rectangle(..) => {}
@@ -3090,71 +2990,44 @@ impl BuildRequiredResources for AABBTreeNode {
                 SpecificDisplayItem::Gradient(..) => {}
                 SpecificDisplayItem::Composite(..) => {}
                 SpecificDisplayItem::BoxShadow(ref info) => {
-                    DrawList::add_box_shadow_corner(&mut resource_list.required_rasters,
-                                                    info.blur_radius,
-                                                    info.border_radius);
+                    resource_list.add_box_shadow_corner(info.blur_radius,
+                                                        info.border_radius);
                 }
                 SpecificDisplayItem::Border(ref info) => {
-                    DrawList::add_radius(&mut resource_list.required_rasters,
-                                         &info.radius.top_left,
-                                         &info.top_left_inner_radius());
-                    DrawList::add_radius(&mut resource_list.required_rasters,
-                                         &info.radius.top_right,
-                                         &info.top_right_inner_radius());
-                    DrawList::add_radius(&mut resource_list.required_rasters,
-                                         &info.radius.bottom_left,
-                                         &info.bottom_left_inner_radius());
-                    DrawList::add_radius(&mut resource_list.required_rasters,
-                                         &info.radius.bottom_right,
-                                         &info.bottom_right_inner_radius());
+                    resource_list.add_radius_raster(&info.radius.top_left,
+                                                    &info.top_left_inner_radius());
+                    resource_list.add_radius_raster(&info.radius.top_right,
+                                                    &info.top_right_inner_radius());
+                    resource_list.add_radius_raster(&info.radius.bottom_left,
+                                                    &info.bottom_left_inner_radius());
+                    resource_list.add_radius_raster(&info.radius.bottom_right,
+                                                    &info.bottom_right_inner_radius());
 
                     if info.top.style == BorderStyle::Dotted {
-                        DrawList::add_radius(&mut resource_list.required_rasters,
-                                             &Size2D::new(info.top.width / 2.0,
-                                                          info.top.width / 2.0),
-                                             &Size2D::new(0.0, 0.0));
+                        resource_list.add_radius_raster(&Size2D::new(info.top.width / 2.0,
+                                                                     info.top.width / 2.0),
+                                                        &Size2D::new(0.0, 0.0));
                     }
                     if info.right.style == BorderStyle::Dotted {
-                        DrawList::add_radius(&mut resource_list.required_rasters,
-                                             &Size2D::new(info.right.width / 2.0,
-                                                          info.right.width / 2.0),
-                                             &Size2D::new(0.0, 0.0));
+                        resource_list.add_radius_raster(&Size2D::new(info.right.width / 2.0,
+                                                                     info.right.width / 2.0),
+                                                        &Size2D::new(0.0, 0.0));
                     }
                     if info.bottom.style == BorderStyle::Dotted {
-                        DrawList::add_radius(&mut resource_list.required_rasters,
-                                             &Size2D::new(info.bottom.width / 2.0,
-                                                          info.bottom.width / 2.0),
-                                             &Size2D::new(0.0, 0.0));
+                        resource_list.add_radius_raster(&Size2D::new(info.bottom.width / 2.0,
+                                                                     info.bottom.width / 2.0),
+                                                        &Size2D::new(0.0, 0.0));
                     }
                     if info.left.style == BorderStyle::Dotted {
-                        DrawList::add_radius(&mut resource_list.required_rasters,
-                                             &Size2D::new(info.left.width / 2.0,
-                                                          info.left.width / 2.0),
-                                             &Size2D::new(0.0, 0.0));
+                        resource_list.add_radius_raster(&Size2D::new(info.left.width / 2.0,
+                                                                     info.left.width / 2.0),
+                                                        &Size2D::new(0.0, 0.0));
                     }
                 }
             }
         }
 
         self.resource_list = Some(resource_list);
-    }
-}
-
-impl RequiredResourceHelpers for DrawList {
-    fn add_radius(required_rasters: &mut HashSet<RasterItem, DefaultState<FnvHasher>>,
-                  outer_radius: &Size2D<f32>,
-                  inner_radius: &Size2D<f32>) {
-        if let Some(raster_item) = BorderRadiusRasterOp::create(outer_radius, inner_radius) {
-            required_rasters.insert(RasterItem::BorderRadius(raster_item));
-        }
-    }
-
-    fn add_box_shadow_corner(required_rasters: &mut HashSet<RasterItem, DefaultState<FnvHasher>>,
-                             blur_radius: f32,
-                             border_radius: f32) {
-        if let Some(raster_item) = BoxShadowCornerRasterOp::create(blur_radius, border_radius) {
-            required_rasters.insert(RasterItem::BoxShadowCorner(raster_item));
-        }
     }
 }
 

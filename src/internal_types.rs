@@ -454,3 +454,21 @@ pub enum BorderEdgeDirection {
     Vertical,
 }
 
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub struct GlyphKey {
+    pub font_id: Atom,
+    pub size: Au,
+    pub blur_radius: Au,
+    pub index: u32,
+}
+
+impl GlyphKey {
+    pub fn new(font_id: Atom, size: Au, blur_radius: Au, index: u32) -> GlyphKey {
+        GlyphKey {
+            font_id: font_id,
+            size: size,
+            blur_radius: blur_radius,
+            index: index,
+        }
+    }
+}

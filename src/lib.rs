@@ -29,6 +29,7 @@ mod util;
 mod clipper;
 mod internal_types;
 mod render_backend;
+mod resource_list;
 mod stats;
 mod texture_cache;
 
