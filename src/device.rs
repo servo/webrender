@@ -133,6 +133,21 @@ struct VBOId(gl::GLuint);
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 struct IBOId(gl::GLuint);
 
+#[derive(Debug, Copy, Clone)]
+pub enum VertexUsageHint {
+    Static,
+    Dynamic,
+}
+
+impl VertexUsageHint {
+    fn to_gl(&self) -> gl::GLuint {
+        match *self {
+            VertexUsageHint::Static => gl::STATIC_DRAW,
+            VertexUsageHint::Dynamic => gl::DYNAMIC_DRAW,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct UniformLocation(gl::GLint);
 
@@ -693,24 +708,30 @@ impl Device {
         vao_id
     }
 
-    pub fn update_vao_vertices<V>(&mut self, vao_id: VAOId, vertices: &[V]) {
+    pub fn update_vao_vertices<V>(&mut self,
+                                  vao_id: VAOId,
+                                  vertices: &[V],
+                                  usage_hint: VertexUsageHint) {
         debug_assert!(self.inside_frame);
 
         let vao = self.vaos.get(&vao_id).unwrap();
         debug_assert!(self.bound_vao == vao_id);
 
         vao.vbo_id.bind();
-        gl::buffer_data(gl::ARRAY_BUFFER, &vertices, gl::DYNAMIC_DRAW);
+        gl::buffer_data(gl::ARRAY_BUFFER, &vertices, usage_hint.to_gl());
     }
 
-    pub fn update_vao_indices<I>(&mut self, vao_id: VAOId, indices: &[I]) {
+    pub fn update_vao_indices<I>(&mut self,
+                                 vao_id: VAOId,
+                                 indices: &[I],
+                                 usage_hint: VertexUsageHint) {
         debug_assert!(self.inside_frame);
 
         let vao = self.vaos.get(&vao_id).unwrap();
         debug_assert!(self.bound_vao == vao_id);
 
         vao.ibo_id.bind();
-        gl::buffer_data(gl::ELEMENT_ARRAY_BUFFER, &indices, gl::DYNAMIC_DRAW);
+        gl::buffer_data(gl::ELEMENT_ARRAY_BUFFER, &indices, usage_hint.to_gl());
     }
 
     pub fn draw_triangles_u16(&mut self, index_count: i32) {

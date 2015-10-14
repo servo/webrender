@@ -1,5 +1,5 @@
 use app_units::Au;
-use device::{Device, ProgramId, TextureId, UniformLocation, VAOId};
+use device::{Device, ProgramId, TextureId, UniformLocation, VAOId, VertexUsageHint};
 use euclid::{Rect, Matrix4, Point2D, Size2D};
 use gleam::gl;
 use internal_types::{ApiMsg, Frame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
@@ -250,8 +250,8 @@ impl Renderer {
                         let vao_id = self.device.create_vao();
                         self.device.bind_vao(vao_id);
 
-                        self.device.update_vao_indices(vao_id, &indices);
-                        self.device.update_vao_vertices(vao_id, &vertices);
+                        self.device.update_vao_indices(vao_id, &indices, VertexUsageHint::Static);
+                        self.device.update_vao_vertices(vao_id, &vertices, VertexUsageHint::Static);
 
                         self.batches.insert(update.id, Batch {
                             vao_id: vao_id,
@@ -566,8 +566,8 @@ impl Renderer {
         let vao_id = self.device.create_vao();
         self.device.bind_vao(vao_id);
 
-        self.device.update_vao_indices(vao_id, indices);
-        self.device.update_vao_vertices(vao_id, vertices);
+        self.device.update_vao_indices(vao_id, indices, VertexUsageHint::Dynamic);
+        self.device.update_vao_vertices(vao_id, vertices, VertexUsageHint::Dynamic);
 
         self.device.draw_triangles_u16(indices.len() as gl::GLint);
         self.device.delete_vao(vao_id);
@@ -718,8 +718,8 @@ impl Renderer {
                             let vao_id = self.device.create_vao();
                             self.device.bind_color_texture(info.color_texture_id);
                             self.device.bind_vao(vao_id);
-                            self.device.update_vao_indices(vao_id, &indices);
-                            self.device.update_vao_vertices(vao_id, &vertices);
+                            self.device.update_vao_indices(vao_id, &indices, VertexUsageHint::Dynamic);
+                            self.device.update_vao_vertices(vao_id, &vertices, VertexUsageHint::Dynamic);
 
                             self.device.draw_triangles_u16(indices.len() as gl::GLint);
                             render_context.draw_calls += 1;
