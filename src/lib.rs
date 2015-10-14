@@ -17,15 +17,37 @@ extern crate serde;
 extern crate scoped_threadpool;
 extern crate simd;
 
+#[cfg(target_os="macos")]
+extern crate core_graphics;
+#[cfg(target_os="macos")]
+extern crate core_text;
+
 pub mod types;
 pub mod renderer;
 pub mod render_api;
+
+mod platform {
+    #[cfg(target_os="macos")]
+    pub use platform::macos::font;
+    #[cfg(any(target_os="linux", target_os="android"))]
+    pub use platform::linux::font;
+
+    #[cfg(target_os="macos")]
+    pub mod macos {
+        pub mod font;
+    }
+    #[cfg(any(target_os="linux", target_os="android"))]
+    pub mod linux {
+        pub mod font;
+    }
+}
 
 mod aabbtree;
 mod batch;
 mod clipper;
 mod device;
-mod font;
+mod util;
+mod clipper;
 mod internal_types;
 mod layer;
 mod optimizer;

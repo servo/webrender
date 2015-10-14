@@ -4,7 +4,6 @@ use batch::RenderBatch;
 use clipper::{self, ClipBuffers};
 use device::{ProgramId, TextureId, TextureIndex};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
-use font::{FontContext, RasterizedGlyph};
 use fnv::FnvHasher;
 use internal_types::{ApiMsg, FontTemplate, Frame, ImageResource, ResultMsg, DrawLayer, Primitive, ClearInfo};
 use internal_types::{BorderRadiusRasterOp, BoxShadowCornerRasterOp, RasterItem};
@@ -15,6 +14,7 @@ use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, Glyp
 use internal_types::{Glyph, ImageID, PolygonPosColorUv, RectPosUv, TextureTarget};
 use layer::Layer;
 use optimizer;
+use platform::font::{FontContext, RasterizedGlyph};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use resource_list::ResourceList;
