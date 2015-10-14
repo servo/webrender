@@ -329,10 +329,10 @@ impl Scene {
         self.pipeline_epoch_map.clear();
 
         for node in &mut self.aabb_tree.nodes {
-            if let Some(ref compiled_node) = node.compiled_node {
-                for batch in &compiled_node.batches {
+            if let Some(ref mut compiled_node) = node.compiled_node {
+                for batch_id in compiled_node.batch_id_list.drain(..) {
                     self.pending_updates.push(BatchUpdate {
-                        id: batch.batch_id,
+                        id: batch_id,
                         op: BatchUpdateOp::Destroy,
                     });
                 }
@@ -753,6 +753,7 @@ impl Scene {
                                                   batch.color_texture_id,
                                                   batch.mask_texture_id),
                     });
+                    compiled_node.batch_id_list.push(batch.batch_id);
                     compiled_node.matrix_maps.insert(batch.batch_id, batch.matrix_map);
                 }
             }

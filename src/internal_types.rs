@@ -483,6 +483,7 @@ pub enum Primitive {
 pub struct CompiledNode {
     pub batches: Vec<RenderBatch>,
     pub commands: Vec<DrawCommand>,
+    pub batch_id_list: Vec<BatchId>,
     pub matrix_maps: HashMap<BatchId, HashMap<DrawListIndex, u8>>,
 }
 
@@ -491,6 +492,7 @@ impl CompiledNode {
         CompiledNode {
             batches: Vec::new(),
             commands: Vec::new(),
+            batch_id_list: Vec::new(),
             matrix_maps: HashMap::new(),
         }
     }
