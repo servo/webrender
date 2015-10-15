@@ -653,7 +653,10 @@ impl Scene {
             };
 
             for (item_index, item) in flat_draw_list.draw_list.items.iter_mut().enumerate() {
-                assert!(item.node_index.is_none());
+                // Node index may already be Some(..). This can occur when a page has iframes
+                // and a new root stacking context is received. In this case, the node index
+                // may already be set for draw lists from other iframe(s) that weren't updated
+                // as part of this new stacking context.
                 let rect = flat_draw_list.draw_context.final_transform.transform_rect(&item.rect);
                 item.node_index = layer.insert(&rect, draw_list_index, item_index);
             }
