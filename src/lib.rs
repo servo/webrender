@@ -24,21 +24,22 @@ pub mod renderer;
 pub mod render_api;
 
 mod aabbtree;
+mod clipper;
 mod device;
 mod font;
-mod util;
-mod clipper;
 mod internal_types;
+mod layer;
 mod renderbatch;
 mod render_backend;
 mod resource_list;
 mod stats;
 mod texture_cache;
+mod util;
 
 pub use types::{ImageID, StackingLevel, DisplayListID, StackingContext, DisplayListBuilder};
 pub use types::{ColorF, ImageFormat, GradientStop, PipelineId, GlyphInstance, RenderNotifier};
 pub use types::{BorderSide, BorderRadius, BorderStyle, Epoch, BoxShadowClipMode, ClipRegion};
-pub use types::{ScrollLayerId, MixBlendMode, ComplexClipRegion, FilterOp};
+pub use types::{ScrollLayerId, ScrollPolicy, MixBlendMode, ComplexClipRegion, FilterOp};
 pub use render_api::RenderApi;
 pub use renderer::Renderer;
 
