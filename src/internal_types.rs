@@ -1,8 +1,10 @@
 use app_units::Au;
 use device::{ProgramId, TextureId};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
+use fnv::FnvHasher;
 use renderbatch::RenderBatch;
 use std::collections::HashMap;
+use std::collections::hash_state::DefaultState;
 use std::sync::mpsc::Sender;
 use string_cache::Atom;
 use texture_cache::TextureCacheItem;
@@ -291,12 +293,12 @@ impl DrawLayer {
 }
 
 pub struct Frame {
-    pub pipeline_epoch_map: HashMap<PipelineId, Epoch>,
+    pub pipeline_epoch_map: HashMap<PipelineId, Epoch, DefaultState<FnvHasher>>,
     pub layers: Vec<DrawLayer>,
 }
 
 impl Frame {
-    pub fn new(pipeline_epoch_map: HashMap<PipelineId, Epoch>) -> Frame {
+    pub fn new(pipeline_epoch_map: HashMap<PipelineId, Epoch, DefaultState<FnvHasher>>) -> Frame {
         Frame {
             pipeline_epoch_map: pipeline_epoch_map,
             layers: Vec::new(),
@@ -487,7 +489,7 @@ pub struct CompiledNode {
     pub batches: Vec<RenderBatch>,
     pub commands: Vec<DrawCommand>,
     pub batch_id_list: Vec<BatchId>,
-    pub matrix_maps: HashMap<BatchId, HashMap<DrawListIndex, u8>>,
+    pub matrix_maps: HashMap<BatchId, HashMap<DrawListIndex, u8>, DefaultState<FnvHasher>>,
 }
 
 impl CompiledNode {
@@ -496,7 +498,7 @@ impl CompiledNode {
             batches: Vec::new(),
             commands: Vec::new(),
             batch_id_list: Vec::new(),
-            matrix_maps: HashMap::new(),
+            matrix_maps: HashMap::with_hash_state(Default::default()),
         }
     }
 }
