@@ -1,6 +1,7 @@
 use app_units::Au;
 use device::{Device, ProgramId, TextureId, UniformLocation, VAOId, VertexUsageHint};
 use euclid::{Rect, Matrix4, Point2D, Size2D};
+use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{ApiMsg, Frame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode, BatchId};
@@ -8,6 +9,7 @@ use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DrawCommandInfo};
 use render_api::RenderApi;
 use render_backend::RenderBackend;
 use std::collections::HashMap;
+use std::collections::hash_state::DefaultState;
 use std::f32;
 use std::mem;
 use std::path::PathBuf;
@@ -47,8 +49,8 @@ pub struct Renderer {
     pending_batch_updates: Vec<BatchUpdateList>,
     current_frame: Option<Frame>,
     device_pixel_ratio: f32,
-    batches: HashMap<BatchId, Batch>,
-    batch_matrices: HashMap<BatchId, Vec<Matrix4>>,
+    batches: HashMap<BatchId, Batch, DefaultState<FnvHasher>>,
+    batch_matrices: HashMap<BatchId, Vec<Matrix4>, DefaultState<FnvHasher>>,
 
     quad_program_id: ProgramId,
     u_quad_transform_array: UniformLocation,
@@ -178,8 +180,8 @@ impl Renderer {
             result_rx: result_rx,
             device: device,
             current_frame: None,
-            batches: HashMap::new(),
-            batch_matrices: HashMap::new(),
+            batches: HashMap::with_hash_state(Default::default()),
+            batch_matrices: HashMap::with_hash_state(Default::default()),
             pending_texture_updates: Vec::new(),
             pending_batch_updates: Vec::new(),
             border_program_id: border_program_id,

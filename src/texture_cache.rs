@@ -2,9 +2,11 @@ use app_units::Au;
 use bit_vec::BitVec;
 use device::TextureId;
 use euclid::Size2D;
+use fnv::FnvHasher;
 use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RenderTargetMode, TextureUpdateList};
 use std::collections::HashMap;
+use std::collections::hash_state::DefaultState;
 use std::mem;
 use types::{ImageFormat, ImageID, RasterItem};
 
@@ -104,7 +106,7 @@ impl TextureCacheLevel {
 
 pub struct TextureCache {
     free_texture_ids: Vec<TextureId>,
-    items: HashMap<ImageID, TextureCacheItem>,
+    items: HashMap<ImageID, TextureCacheItem, DefaultState<FnvHasher>>,
     levels: [TextureCacheLevel; 4],
     pending_updates: TextureUpdateList,
 }
@@ -126,7 +128,7 @@ impl TextureCache {
     pub fn new(free_texture_ids: Vec<TextureId>) -> TextureCache {
         TextureCache {
             free_texture_ids: free_texture_ids,
-            items: HashMap::new(),
+            items: HashMap::with_hash_state(Default::default()),
             pending_updates: TextureUpdateList::new(),
             levels: [
                 TextureCacheLevel::new(32),

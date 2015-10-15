@@ -1,7 +1,9 @@
 use euclid::Matrix4;
+use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{TextureSampler, VertexAttribute, PackedVertex, RenderTargetMode};
 use std::collections::HashMap;
+use std::collections::hash_state::DefaultState;
 use std::fs::File;
 use std::path::PathBuf;
 use std::mem;
@@ -165,9 +167,9 @@ pub struct Device {
 
     // resources
     resource_path: PathBuf,
-    textures: HashMap<TextureId, Texture>,
-    programs: HashMap<ProgramId, Program>,
-    vaos: HashMap<VAOId, VAO>,
+    textures: HashMap<TextureId, Texture, DefaultState<FnvHasher>>,
+    programs: HashMap<ProgramId, Program, DefaultState<FnvHasher>>,
+    vaos: HashMap<VAOId, VAO, DefaultState<FnvHasher>>,
 
     // Used on android only
     #[allow(dead_code)]
@@ -197,9 +199,9 @@ impl Device {
             bound_fbo: FBOId(0),
             default_fbo: 0,
 
-            textures: HashMap::new(),
-            programs: HashMap::new(),
-            vaos: HashMap::new(),
+            textures: HashMap::with_hash_state(Default::default()),
+            programs: HashMap::with_hash_state(Default::default()),
+            vaos: HashMap::with_hash_state(Default::default()),
 
             next_vao_id: 1,
         }

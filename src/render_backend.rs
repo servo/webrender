@@ -297,13 +297,13 @@ impl CollectDrawListsForStackingContext for StackingContext {
 struct Scene {
     // Internal state
     thread_pool: scoped_threadpool::Pool,
-    layers: HashMap<ScrollLayerId, Layer>,
+    layers: HashMap<ScrollLayerId, Layer, DefaultState<FnvHasher>>,
 
     // Source data
     flat_draw_lists: Vec<FlatDrawList>,
 
     // Outputs
-    pipeline_epoch_map: HashMap<PipelineId, Epoch>,
+    pipeline_epoch_map: HashMap<PipelineId, Epoch, DefaultState<FnvHasher>>,
     render_targets: Vec<RenderTarget>,
     render_target_stack: Vec<RenderTargetIndex>,
     pending_updates: BatchUpdateList,
@@ -313,11 +313,11 @@ impl Scene {
     fn new() -> Scene {
         Scene {
             thread_pool: scoped_threadpool::Pool::new(8),
-            layers: HashMap::new(),
+            layers: HashMap::with_hash_state(Default::default()),
 
             flat_draw_lists: Vec::new(),
 
-            pipeline_epoch_map: HashMap::new(),
+            pipeline_epoch_map: HashMap::with_hash_state(Default::default()),
             render_targets: Vec::new(),
             render_target_stack: Vec::new(),
             pending_updates: BatchUpdateList::new(),
@@ -658,7 +658,8 @@ impl Scene {
     fn build_layers(&mut self, scene_rect: &Rect<f32>) {
         let _pf = util::ProfileScope::new("  build_layers");
 
-        let old_layers = mem::replace(&mut self.layers, HashMap::new());
+        let old_layers = mem::replace(&mut self.layers,
+                                      HashMap::with_hash_state(Default::default()));
 
         // push all visible draw lists into aabb tree
         for (draw_list_index, flat_draw_list) in self.flat_draw_lists.iter_mut().enumerate() {
@@ -819,7 +820,7 @@ impl Scene {
 
         // TODO(gw): This is a bit messy with layers - work out a cleaner interface
         // for detecting node overlaps...
-        let mut node_rects_map = HashMap::new();
+        let mut node_rects_map = HashMap::with_hash_state(Default::default());
         for (scroll_layer_id, layer) in &self.layers {
             node_rects_map.insert(*scroll_layer_id, layer.aabb_tree.node_rects());
         }
@@ -1643,7 +1644,8 @@ impl DrawCommandBuilder {
 
         let blur_offset = blur_radius.to_f32_px() * (BLUR_INFLATION_FACTOR as f32) / 2.0;
 
-        let mut text_batches: HashMap<TextureId, Vec<PackedVertex>> = HashMap::new();
+        let mut text_batches: HashMap<TextureId, Vec<PackedVertex>, DefaultState<FnvHasher>> =
+            HashMap::with_hash_state(Default::default());
 
         for glyph in glyphs {
             glyph_key.index = glyph.index;
@@ -2675,7 +2677,7 @@ trait NodeCompiler {
                glyph_to_image_map: &HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
                raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
                texture_cache: &TextureCache,
-               node_rects_map: &HashMap<ScrollLayerId, Vec<Rect<f32>>>,
+               node_rects_map: &HashMap<ScrollLayerId, Vec<Rect<f32>>, DefaultState<FnvHasher>>,
                quad_program_id: ProgramId,
                glyph_program_id: ProgramId,
                node_scroll_layer_id: ScrollLayerId);
@@ -2689,7 +2691,7 @@ impl NodeCompiler for AABBTreeNode {
                glyph_to_image_map: &HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
                raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
                texture_cache: &TextureCache,
-               node_rects_map: &HashMap<ScrollLayerId, Vec<Rect<f32>>>,
+               node_rects_map: &HashMap<ScrollLayerId, Vec<Rect<f32>>, DefaultState<FnvHasher>>,
                quad_program_id: ProgramId,
                glyph_program_id: ProgramId,
                node_scroll_layer_id: ScrollLayerId) {
