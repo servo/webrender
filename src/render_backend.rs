@@ -407,7 +407,9 @@ impl Scene {
 
     fn flatten_stacking_context(&mut self,
                                 stacking_context_kind: StackingContextKind,
-                                transform: &Matrix4,
+                                parent_origin: &Point2D<f32>,
+                                parent_transform: &Matrix4,
+                                parent_perspective: &Matrix4,
                                 display_list_map: &DisplayListMap,
                                 draw_list_map: &mut DrawListMap,
                                 parent_scroll_layer: ScrollLayerId,
@@ -433,15 +435,29 @@ impl Scene {
             }
         };
 
-        let mut transform = transform.translate(stacking_context.bounds.origin.x,
-                                                stacking_context.bounds.origin.y,
-                                                0.0);
+        // TODO: Account for scroll offset!
+        let mut world_rect = stacking_context.bounds.clone();
+        world_rect = world_rect.translate(parent_origin);
+
+        let x0 = world_rect.origin.x;
+        let y0 = world_rect.origin.y;
+
+        // Build world space transform
+        let local_transform = Matrix4::identity().translate(x0, y0, 0.0)
+                                                 .mul(&stacking_context.transform);
+
+        let mut final_transform = parent_perspective.mul(&local_transform).mul(&parent_transform);
+
+        // Build world space perspective transform
+        let perspective_transform = Matrix4::identity().translate(x0, y0, 0.0)
+                                                       .mul(&stacking_context.perspective)
+                                                       .translate(-x0, -y0, 0.0);
 
         let mut draw_context = DrawContext {
             render_target_index: self.current_render_target(),
             overflow: stacking_context.overflow,
             device_pixel_ratio: device_pixel_ratio,
-            final_transform: transform,
+            final_transform: final_transform,
             scroll_layer_id: this_scroll_layer,
         };
 
@@ -519,9 +535,9 @@ impl Scene {
             self.push_draw_list(None, composite_draw_list, &draw_context);
 
             self.push_render_target(size, Some(texture_id));
-
-            transform = Matrix4::identity();
-            draw_context.final_transform = transform;
+            world_rect.origin = Point2D::zero();
+            final_transform = Matrix4::identity();
+            draw_context.final_transform = final_transform;
             draw_context.render_target_index = self.current_render_target();
         }
 
@@ -565,7 +581,9 @@ impl Scene {
                 continue;
             }
             self.flatten_stacking_context(StackingContextKind::Normal(child),
-                                          &transform,
+                                          &world_rect.origin,
+                                          &final_transform,
+                                          &perspective_transform,
                                           display_list_map,
                                           draw_list_map,
                                           parent_scroll_layer,
@@ -595,7 +613,9 @@ impl Scene {
                 continue;
             }
             self.flatten_stacking_context(StackingContextKind::Normal(child),
-                                          &transform,
+                                          &world_rect.origin,
+                                          &final_transform,
+                                          &perspective_transform,
                                           display_list_map,
                                           draw_list_map,
                                           parent_scroll_layer,
@@ -614,7 +634,9 @@ impl Scene {
                                                                      iframe_info.offset.y,
                                                                      0.0);
                 self.flatten_stacking_context(StackingContextKind::Root(iframe),
+                                              &world_rect.origin,
                                               &iframe_transform,
+                                              &perspective_transform,
                                               display_list_map,
                                               draw_list_map,
                                               parent_scroll_layer,
@@ -1371,6 +1393,8 @@ impl RenderBackend {
 
                 self.scene.push_render_target(size, None);
                 self.scene.flatten_stacking_context(StackingContextKind::Root(root_sc),
+                                                    &Point2D::zero(),
+                                                    &Matrix4::identity(),
                                                     &Matrix4::identity(),
                                                     &self.display_list_map,
                                                     &mut self.draw_list_map,
