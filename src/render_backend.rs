@@ -1161,6 +1161,7 @@ pub struct RenderBackend {
     result_tx: Sender<ResultMsg>,
     viewport: Rect<i32>,
     device_pixel_ratio: f32,
+    root_pipeline_id: Option<PipelineId>,
 
     quad_program_id: ProgramId,
     glyph_program_id: ProgramId,
@@ -1195,6 +1196,7 @@ impl RenderBackend {
             result_tx: tx,
             viewport: viewport,
             device_pixel_ratio: device_pixel_ratio,
+            root_pipeline_id: None,
 
             quad_program_id: quad_program_id,
             glyph_program_id: glyph_program_id,
@@ -1323,6 +1325,13 @@ impl RenderBackend {
                             self.build_scene();
                             self.render(&mut *notifier);
                         }
+                        ApiMsg::SetRootPipeline(pipeline_id) => {
+                            let _pf = util::ProfileScope::new("SetRootPipeline");
+
+                            self.root_pipeline_id = Some(pipeline_id);
+                            self.build_scene();
+                            self.render(&mut *notifier);
+                        }
                         ApiMsg::Scroll(delta) => {
                             let _pf = util::ProfileScope::new("Scroll");
 
@@ -1340,31 +1349,31 @@ impl RenderBackend {
 
     fn build_scene(&mut self) {
         // Flatten the stacking context hierarchy
-        // TODO: Fixme!
-        let root_pipeline_id = PipelineId(0, 0);
-        if let Some(root_sc) = self.stacking_contexts.get(&root_pipeline_id) {
-            // Clear out any state and return draw lists (if needed)
-            self.scene.reset(&mut self.texture_cache);
+        if let Some(root_pipeline_id) = self.root_pipeline_id {
+            if let Some(root_sc) = self.stacking_contexts.get(&root_pipeline_id) {
+                // Clear out any state and return draw lists (if needed)
+                self.scene.reset(&mut self.texture_cache);
 
-            let size = Size2D::new(self.viewport.size.width as u32,
-                                   self.viewport.size.height as u32);
-            let root_scroll_layer_id = root_sc.stacking_context
-                                              .scroll_layer_id
-                                              .expect("root layer must be a scroll layer!");
+                let size = Size2D::new(self.viewport.size.width as u32,
+                                       self.viewport.size.height as u32);
+                let root_scroll_layer_id = root_sc.stacking_context
+                                                  .scroll_layer_id
+                                                  .expect("root layer must be a scroll layer!");
 
-            self.scene.push_render_target(size, None);
-            self.scene.flatten_stacking_context(StackingContextKind::Root(root_sc),
-                                                &Matrix4::identity(),
-                                                &self.display_list_map,
-                                                &mut self.draw_list_map,
-                                                root_scroll_layer_id,
-                                                &self.stacking_contexts,
-                                                self.device_pixel_ratio,
-                                                &mut self.texture_cache);
-            self.scene.pop_render_target();
+                self.scene.push_render_target(size, None);
+                self.scene.flatten_stacking_context(StackingContextKind::Root(root_sc),
+                                                    &Matrix4::identity(),
+                                                    &self.display_list_map,
+                                                    &mut self.draw_list_map,
+                                                    root_scroll_layer_id,
+                                                    &self.stacking_contexts,
+                                                    self.device_pixel_ratio,
+                                                    &mut self.texture_cache);
+                self.scene.pop_render_target();
 
-            // Init the AABB culling tree(s)
-            self.scene.build_layers(&root_sc.stacking_context.overflow);
+                // Init the AABB culling tree(s)
+                self.scene.build_layers(&root_sc.stacking_context.overflow);
+            }
         }
     }
 

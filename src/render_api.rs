@@ -41,6 +41,11 @@ impl RenderApi {
         id
     }
 
+    pub fn set_root_pipeline(&self, pipeline_id: PipelineId) {
+        let msg = ApiMsg::SetRootPipeline(pipeline_id);
+        self.tx.send(msg).unwrap();
+    }
+
     pub fn set_root_stacking_context(&self,
                                      stacking_context: StackingContext,
                                      background_color: ColorF,

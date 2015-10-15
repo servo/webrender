@@ -312,6 +312,7 @@ pub enum ApiMsg {
     AddImage(ImageID, u32, u32, ImageFormat, Vec<u8>),
     AddDisplayList(DisplayListID, PipelineId, Epoch, DisplayListBuilder),
     SetRootStackingContext(StackingContext, ColorF, Epoch, PipelineId),
+    SetRootPipeline(PipelineId),
     Scroll(Point2D<f32>),
 }
 
