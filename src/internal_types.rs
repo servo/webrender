@@ -3,6 +3,7 @@ use device::{ProgramId, TextureId};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use renderbatch::RenderBatch;
 use std::collections::HashMap;
+use std::sync::mpsc::Sender;
 use string_cache::Atom;
 use texture_cache::TextureCacheItem;
 use types::{Epoch, ColorF, PipelineId, ImageFormat, DisplayListID, DrawListID};
@@ -314,6 +315,7 @@ pub enum ApiMsg {
     SetRootStackingContext(StackingContext, ColorF, Epoch, PipelineId),
     SetRootPipeline(PipelineId),
     Scroll(Point2D<f32>),
+    TranslatePointToLayerSpace(Point2D<f32>, Sender<Point2D<f32>>),
 }
 
 pub enum ResultMsg {

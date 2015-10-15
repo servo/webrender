@@ -1,5 +1,5 @@
 use aabbtree::AABBTree;
-use euclid::{Point2D, Rect};
+use euclid::{Point2D, Rect, Size2D};
 use internal_types::{BatchUpdate, BatchUpdateList, BatchUpdateOp};
 use types::NodeIndex;
 
@@ -7,16 +7,18 @@ pub struct Layer {
     // TODO: Remove pub from here if possible in the future
     pub aabb_tree: AABBTree,
     pub scroll_offset: Point2D<f32>,
+    pub scroll_boundaries: Size2D<f32>,
 }
 
 impl Layer {
-    pub fn new(scene_rect: &Rect<f32>) -> Layer {
+    pub fn new(scene_rect: &Rect<f32>, scroll_offset: &Point2D<f32>) -> Layer {
         let mut aabb_tree = AABBTree::new(512.0);
         aabb_tree.init(scene_rect);
 
         Layer {
             aabb_tree: aabb_tree,
-            scroll_offset: Point2D::zero(),
+            scroll_offset: *scroll_offset,
+            scroll_boundaries: Size2D::zero(),
         }
     }
 

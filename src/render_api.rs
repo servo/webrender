@@ -1,6 +1,6 @@
 use euclid::Point2D;
 use internal_types::ApiMsg;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{self, Sender};
 use string_cache::Atom;
 use types::{PipelineId, ImageID, ImageFormat, StackingContext};
 use types::{ColorF, DisplayListID, DisplayListBuilder, Epoch};
@@ -59,4 +59,12 @@ impl RenderApi {
         let msg = ApiMsg::Scroll(delta);
         self.tx.send(msg).unwrap();
     }
+
+    pub fn translate_point_to_layer_space(&self, point: &Point2D<f32>) -> Point2D<f32> {
+        let (tx, rx) = mpsc::channel();
+        let msg = ApiMsg::TranslatePointToLayerSpace(*point, tx);
+        self.tx.send(msg).unwrap();
+        rx.recv().unwrap()
+    }
 }
+

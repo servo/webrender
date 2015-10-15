@@ -658,17 +658,22 @@ impl Scene {
     fn build_layers(&mut self, scene_rect: &Rect<f32>) {
         let _pf = util::ProfileScope::new("  build_layers");
 
-        // TODO(gw): Handle layers being removed somehow!! Does this work safely?
-        self.layers.clear();
+        let old_layers = mem::replace(&mut self.layers, HashMap::new());
 
         // push all visible draw lists into aabb tree
         for (draw_list_index, flat_draw_list) in self.flat_draw_lists.iter_mut().enumerate() {
+            let scroll_offset = match old_layers.get(&flat_draw_list.draw_context
+                                                                    .scroll_layer_id) {
+                Some(ref old_layer) => old_layer.scroll_offset,
+                None => Point2D::zero(),
+            };
+
             let layer = match self.layers.entry(flat_draw_list.draw_context.scroll_layer_id) {
                 Occupied(entry) => {
                     entry.into_mut()
                 }
                 Vacant(entry) => {
-                    entry.insert(Layer::new(scene_rect))
+                    entry.insert(Layer::new(scene_rect, &scroll_offset))
                 }
             };
 
@@ -1004,17 +1009,20 @@ impl Scene {
         }
     }
 
-    fn scroll(&mut self, delta: Point2D<f32>) {
+    fn scroll(&mut self, delta: &Point2D<f32>, viewport_size: &Size2D<f32>) {
         // TODO: Select other layers for scrolling!
         let layer = self.layers.get_mut(&ScrollLayerId(0));
 
         if let Some(layer) = layer {
-            layer.scroll_offset = layer.scroll_offset + delta;
+            layer.scroll_offset = layer.scroll_offset + *delta;
 
             layer.scroll_offset.x = layer.scroll_offset.x.min(0.0);
             layer.scroll_offset.y = layer.scroll_offset.y.min(0.0);
 
-            // TODO: Clamp end of scroll (need overflow rect + screen rect)
+            layer.scroll_offset.x = layer.scroll_offset.x.max(-layer.scroll_boundaries.width +
+                                                              viewport_size.width);
+            layer.scroll_offset.y = layer.scroll_offset.y.max(-layer.scroll_boundaries.height +
+                                                              viewport_size.height);
         } else {
             println!("unable to find root scroll layer (may be an empty stacking context)");
         }
@@ -1366,8 +1374,15 @@ impl RenderBackend {
                         ApiMsg::Scroll(delta) => {
                             let _pf = util::ProfileScope::new("Scroll");
 
-                            self.scroll(delta);
+                            self.scroll(&delta);
                             self.render(&mut *notifier);
+                        }
+                        ApiMsg::TranslatePointToLayerSpace(point, tx) => {
+                            // TODO(pcwalton): Select other layers for mouse events.
+                            match self.scene.layers.get_mut(&ScrollLayerId(0)) {
+                                None => tx.send(point).unwrap(),
+                                Some(layer) => tx.send(point - layer.scroll_offset).unwrap(),
+                            }
                         }
                     }
                 }
@@ -1406,6 +1421,12 @@ impl RenderBackend {
 
                 // Init the AABB culling tree(s)
                 self.scene.build_layers(&root_sc.stacking_context.overflow);
+
+                // FIXME(pcwalton): This should be done somewhere else, probably when building the
+                // layer.
+                if let Some(root_scroll_layer) = self.scene.layers.get_mut(&root_scroll_layer_id) {
+                    root_scroll_layer.scroll_boundaries = root_sc.stacking_context.overflow.size;
+                }
             }
         }
     }
@@ -1437,8 +1458,10 @@ impl RenderBackend {
         notifier.new_frame_ready();
     }
 
-    fn scroll(&mut self, delta: Point2D<f32>) {
-        self.scene.scroll(delta);
+    fn scroll(&mut self, delta: &Point2D<f32>) {
+        let viewport_size = Size2D::new(self.viewport.size.width as f32,
+                                        self.viewport.size.height as f32);
+        self.scene.scroll(delta, &viewport_size);
     }
 
 }
