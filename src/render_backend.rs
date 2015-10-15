@@ -158,9 +158,7 @@ impl GetDisplayItemHelper for FlatDrawListArray {
     fn get_item_and_draw_context(&self, key: &DisplayItemKey) -> (&DisplayItem, &DrawContext) {
         let DrawListIndex(list_index) = key.draw_list_index;
         let DrawListItemIndex(item_index) = key.item_index;
-        //println!("\tget_item_and_draw_context list={} item={} lists_len={}", list_index, item_index, self.len());
         let list = &self[list_index as usize];
-        //println!("list {} has {} items", list_index, list.draw_list.items.len());
         (&list.draw_list.items[item_index as usize], &list.draw_context)
     }
 }
@@ -986,14 +984,18 @@ impl Scene {
 
     fn scroll(&mut self, delta: Point2D<f32>) {
         // TODO: Select other layers for scrolling!
-        let layer = self.layers.get_mut(&ScrollLayerId(0)).expect("unable to find root scroll layer");
+        let layer = self.layers.get_mut(&ScrollLayerId(0));
 
-        layer.scroll_offset = layer.scroll_offset + delta;
+        if let Some(layer) = layer {
+            layer.scroll_offset = layer.scroll_offset + delta;
 
-        layer.scroll_offset.x = layer.scroll_offset.x.min(0.0);
-        layer.scroll_offset.y = layer.scroll_offset.y.min(0.0);
+            layer.scroll_offset.x = layer.scroll_offset.x.min(0.0);
+            layer.scroll_offset.y = layer.scroll_offset.y.min(0.0);
 
-        // TODO: Clamp end of scroll (need overflow rect + screen rect)
+            // TODO: Clamp end of scroll (need overflow rect + screen rect)
+        } else {
+            println!("unable to find root scroll layer (may be an empty stacking context)");
+        }
     }
 }
 
@@ -1327,6 +1329,13 @@ impl RenderBackend {
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
                             let _pf = util::ProfileScope::new("SetRootPipeline");
+
+                            // Return all current draw lists to the hash
+                            for flat_draw_list in self.scene.flat_draw_lists.drain(..) {
+                                if let Some(id) = flat_draw_list.id {
+                                    self.draw_list_map.insert(id, flat_draw_list.draw_list);
+                                }
+                            }
 
                             self.root_pipeline_id = Some(pipeline_id);
                             self.build_scene();
