@@ -87,12 +87,20 @@ impl RenderTargetID {
     }
 }
 
+// TODO: This is bogus - work out a clean way to generate scroll layer IDs that integrates well with servo...
+const FIXED_SCROLL_LAYER_ID: usize = 0xffffffff;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScrollLayerId(pub usize);
 
 impl ScrollLayerId {
     pub fn new(value: usize) -> ScrollLayerId {
+        debug_assert!(value != FIXED_SCROLL_LAYER_ID);
         ScrollLayerId(value)
+    }
+
+    pub fn fixed_layer() -> ScrollLayerId {
+        ScrollLayerId(FIXED_SCROLL_LAYER_ID)
     }
 }
 
@@ -165,6 +173,7 @@ pub struct GlyphInstance {
 
 pub struct StackingContext {
     pub scroll_layer_id: Option<ScrollLayerId>,
+    pub scroll_policy: ScrollPolicy,
     pub bounds: Rect<f32>,
     pub overflow: Rect<f32>,
     pub z_index: i32,
@@ -179,6 +188,7 @@ pub struct StackingContext {
 
 impl StackingContext {
     pub fn new(scroll_layer_id: Option<ScrollLayerId>,
+               scroll_policy: ScrollPolicy,
                bounds: Rect<f32>,
                overflow: Rect<f32>,
                z_index: i32,
@@ -190,6 +200,7 @@ impl StackingContext {
                -> StackingContext {
         StackingContext {
             scroll_layer_id: scroll_layer_id,
+            scroll_policy: scroll_policy,
             bounds: bounds,
             overflow: overflow,
             z_index: z_index,
@@ -681,7 +692,7 @@ impl ComplexClipRegion {
 #[derive(Clone, PartialEq, Eq, Copy, Deserialize, Serialize, Debug)]
 pub enum ScrollPolicy {
     Scrollable,
-    FixedPosition,
+    Fixed,
 }
 
 #[derive(Clone, Copy, Debug)]

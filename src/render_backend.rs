@@ -1,4 +1,4 @@
-use aabbtree::{AABBTree, AABBTreeNode};
+use aabbtree::AABBTreeNode;
 use app_units::Au;
 use clipper;
 use device::{ProgramId, TextureId};
@@ -9,6 +9,7 @@ use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, Primiti
 use internal_types::{BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp, CompiledNode};
 use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo, DrawListIndex, DrawListItemIndex};
 use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey, DisplayItemKey};
+use layer::Layer;
 use renderbatch::RenderBatch;
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_list::ResourceList;
@@ -26,8 +27,8 @@ use std::sync::mpsc::{Sender, Receiver};
 use std::thread;
 use string_cache::Atom;
 use texture_cache::{TextureCache, TextureCacheItem, TextureInsertOp};
-use types::{DisplayListID, Epoch, BorderDisplayItem, BorderRadiusRasterOp};
-use types::{BoxShadowCornerRasterOp, RectangleDisplayItem};
+use types::{DisplayListID, Epoch, BorderDisplayItem, BorderRadiusRasterOp, ScrollPolicy};
+use types::{BoxShadowCornerRasterOp, RectangleDisplayItem, ScrollLayerId};
 use types::{Glyph, GradientStop, DisplayListMode, RasterItem, ClipRegion};
 use types::{GlyphInstance, ImageID, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
 use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF, DrawListID};
@@ -197,6 +198,7 @@ struct DrawContext {
     overflow: Rect<f32>,
     device_pixel_ratio: f32,
     final_transform: Matrix4,
+    scroll_layer_id: ScrollLayerId,
 }
 
 struct FlatDrawList {
@@ -295,26 +297,29 @@ impl CollectDrawListsForStackingContext for StackingContext {
 }
 
 struct Scene {
-    pipeline_epoch_map: HashMap<PipelineId, Epoch>,
-    aabb_tree: AABBTree,
-    flat_draw_lists: Vec<FlatDrawList>,
+    // Internal state
     thread_pool: scoped_threadpool::Pool,
-    scroll_offset: Point2D<f32>,
+    layers: HashMap<ScrollLayerId, Layer>,
 
+    // Source data
+    flat_draw_lists: Vec<FlatDrawList>,
+
+    // Outputs
+    pipeline_epoch_map: HashMap<PipelineId, Epoch>,
     render_targets: Vec<RenderTarget>,
     render_target_stack: Vec<RenderTargetIndex>,
-
     pending_updates: BatchUpdateList,
 }
 
 impl Scene {
     fn new() -> Scene {
         Scene {
-            pipeline_epoch_map: HashMap::new(),
-            aabb_tree: AABBTree::new(512.0),
-            flat_draw_lists: Vec::new(),
             thread_pool: scoped_threadpool::Pool::new(8),
-            scroll_offset: Point2D::zero(),
+            layers: HashMap::new(),
+
+            flat_draw_lists: Vec::new(),
+
+            pipeline_epoch_map: HashMap::new(),
             render_targets: Vec::new(),
             render_target_stack: Vec::new(),
             pending_updates: BatchUpdateList::new(),
@@ -329,15 +334,8 @@ impl Scene {
         debug_assert!(self.render_target_stack.len() == 0);
         self.pipeline_epoch_map.clear();
 
-        for node in &mut self.aabb_tree.nodes {
-            if let Some(ref mut compiled_node) = node.compiled_node {
-                for batch_id in compiled_node.batch_id_list.drain(..) {
-                    self.pending_updates.push(BatchUpdate {
-                        id: batch_id,
-                        op: BatchUpdateOp::Destroy,
-                    });
-                }
-            }
+        for (_, layer) in &mut self.layers {
+            layer.reset(&mut self.pending_updates);
         }
 
         // Free any render targets from last frame.
@@ -414,6 +412,7 @@ impl Scene {
                                 transform: &Matrix4,
                                 display_list_map: &DisplayListMap,
                                 draw_list_map: &mut DrawListMap,
+                                parent_scroll_layer: ScrollLayerId,
                                 stacking_contexts: &StackingContextMap,
                                 device_pixel_ratio: f32,
                                 texture_cache: &mut TextureCache) {
@@ -425,6 +424,17 @@ impl Scene {
 
         let mut iframes = Vec::new();
 
+        let (this_scroll_layer, parent_scroll_layer) = match stacking_context.scroll_policy {
+            ScrollPolicy::Scrollable => {
+                let scroll_layer = stacking_context.scroll_layer_id.unwrap_or(parent_scroll_layer);
+                (scroll_layer, scroll_layer)
+            }
+            ScrollPolicy::Fixed => {
+                debug_assert!(stacking_context.scroll_layer_id.is_none());
+                (ScrollLayerId::fixed_layer(), parent_scroll_layer)
+            }
+        };
+
         let mut transform = transform.translate(stacking_context.bounds.origin.x,
                                                 stacking_context.bounds.origin.y,
                                                 0.0);
@@ -434,6 +444,7 @@ impl Scene {
             overflow: stacking_context.overflow,
             device_pixel_ratio: device_pixel_ratio,
             final_transform: transform,
+            scroll_layer_id: this_scroll_layer,
         };
 
         let mut composition_operations = vec![];
@@ -559,6 +570,7 @@ impl Scene {
                                           &transform,
                                           display_list_map,
                                           draw_list_map,
+                                          parent_scroll_layer,
                                           stacking_contexts,
                                           device_pixel_ratio,
                                           texture_cache);
@@ -588,6 +600,7 @@ impl Scene {
                                           &transform,
                                           display_list_map,
                                           draw_list_map,
+                                          parent_scroll_layer,
                                           stacking_contexts,
                                           device_pixel_ratio,
                                           texture_cache);
@@ -606,6 +619,7 @@ impl Scene {
                                               &iframe_transform,
                                               display_list_map,
                                               draw_list_map,
+                                              parent_scroll_layer,
                                               stacking_contexts,
                                               device_pixel_ratio,
                                               texture_cache);
@@ -621,20 +635,29 @@ impl Scene {
         }
     }
 
-    fn build_aabb_tree(&mut self, scene_rect: &Rect<f32>) {
-        let _pf = util::ProfileScope::new("  build_aabb_tree");
-        self.aabb_tree.init(scene_rect);
+    fn build_layers(&mut self, scene_rect: &Rect<f32>) {
+        let _pf = util::ProfileScope::new("  build_layers");
+
+        // TODO(gw): Handle layers being removed somehow!! Does this work safely?
+        self.layers.clear();
 
         // push all visible draw lists into aabb tree
         for (draw_list_index, flat_draw_list) in self.flat_draw_lists.iter_mut().enumerate() {
+            let layer = match self.layers.entry(flat_draw_list.draw_context.scroll_layer_id) {
+                Occupied(entry) => {
+                    entry.into_mut()
+                }
+                Vacant(entry) => {
+                    entry.insert(Layer::new(scene_rect))
+                }
+            };
+
             for (item_index, item) in flat_draw_list.draw_list.items.iter_mut().enumerate() {
                 assert!(item.node_index.is_none());
                 let rect = flat_draw_list.draw_context.final_transform.transform_rect(&item.rect);
-                item.node_index = self.aabb_tree.insert(&rect, draw_list_index, item_index);
+                item.node_index = layer.insert(&rect, draw_list_index, item_index);
             }
         }
-
-        //self.aabb_tree.print(0, 0);
     }
 
     fn build_frame(&mut self,
@@ -653,10 +676,10 @@ impl Scene {
         let size = Size2D::new(viewport.size.width as f32, viewport.size.height as f32);
         let viewport_rect = Rect::new(origin, size);
 
-        // Traverse tree to calculate visible nodes
-        let adjusted_viewport = viewport_rect.translate(&-self.scroll_offset);
-        //self.aabb_tree.print(NodeIndex(0),0);
-        self.aabb_tree.cull(&adjusted_viewport);
+        // Traverse layer trees to calculate visible nodes
+        for (_, layer) in &mut self.layers {
+            layer.cull(&viewport_rect);
+        }
 
         // Build resource list for newly visible nodes
         self.update_resource_lists();
@@ -692,50 +715,52 @@ impl Scene {
     fn collect_and_sort_visible_batches(&mut self) -> Frame {
         let mut frame = Frame::new(self.pipeline_epoch_map.clone());
 
-        let mut layers = Vec::new();
+        let mut render_layers = Vec::new();
 
         for render_target in &self.render_targets {
-            layers.push(DrawLayer::new(render_target.texture_id,
-                                       render_target.size,
-                                       Vec::new()));
+            render_layers.push(DrawLayer::new(render_target.texture_id,
+                                              render_target.size,
+                                              Vec::new()));
         }
 
-        for node in &self.aabb_tree.nodes {
-            if node.is_visible {
-                debug_assert!(node.compiled_node.is_some());
-                let compiled_node = node.compiled_node.as_ref().unwrap();
+        for (_, layer) in &self.layers {
+            for node in &layer.aabb_tree.nodes {
+                if node.is_visible {
+                    debug_assert!(node.compiled_node.is_some());
+                    let compiled_node = node.compiled_node.as_ref().unwrap();
 
-                // Update batch matrices
-                for (batch_id, matrix_map) in &compiled_node.matrix_maps {
-                    // TODO: Could cache these matrices rather than generate for every batch.
-                    let mut matrix_palette = vec![Matrix4::identity(); matrix_map.len()];
+                    // Update batch matrices
+                    for (batch_id, matrix_map) in &compiled_node.matrix_maps {
+                        // TODO: Could cache these matrices rather than generate for every batch.
+                        let mut matrix_palette = vec![Matrix4::identity(); matrix_map.len()];
 
-                    for (draw_list_index, matrix_index) in matrix_map {
-                        let DrawListIndex(draw_list_index) = *draw_list_index;
-                        let transform = self.flat_draw_lists[draw_list_index as usize].draw_context.final_transform;
-                        let transform = transform.translate(self.scroll_offset.x,
-                                                            self.scroll_offset.y,
-                                                            0.0);
-                        let matrix_index = *matrix_index as usize;
-                        matrix_palette[matrix_index] = transform;
+                        for (draw_list_index, matrix_index) in matrix_map {
+                            let DrawListIndex(draw_list_index) = *draw_list_index;
+                            let transform = self.flat_draw_lists[draw_list_index as usize].draw_context.final_transform;
+                            let transform = transform.translate(layer.scroll_offset.x,
+                                                                layer.scroll_offset.y,
+                                                                0.0);
+                            let matrix_index = *matrix_index as usize;
+                            matrix_palette[matrix_index] = transform;
+                        }
+
+                        self.pending_updates.push(BatchUpdate {
+                            id: *batch_id,
+                            op: BatchUpdateOp::UpdateUniforms(matrix_palette),
+                        });
                     }
 
-                    self.pending_updates.push(BatchUpdate {
-                        id: *batch_id,
-                        op: BatchUpdateOp::UpdateUniforms(matrix_palette),
-                    });
-                }
-
-                for command in &compiled_node.commands {
-                    let RenderTargetIndex(render_target) = command.render_target;
-                    layers[render_target as usize].commands.push(command.clone());
+                    for command in &compiled_node.commands {
+                        let RenderTargetIndex(render_target) = command.render_target;
+                        render_layers[render_target as usize].commands.push(command.clone());
+                    }
                 }
             }
         }
 
-        for mut layer in layers {
-            if layer.commands.len() > 0 {
-                layer.commands.sort_by(|a, b| {
+        for mut render_layer in render_layers {
+            if render_layer.commands.len() > 0 {
+                render_layer.commands.sort_by(|a, b| {
                     let draw_list_order = a.sort_key.draw_list_index.cmp(&b.sort_key.draw_list_index);
                     match draw_list_order {
                         Ordering::Equal => {
@@ -747,7 +772,7 @@ impl Scene {
                     }
                 });
 
-                frame.add_layer(layer);
+                frame.add_layer(render_layer);
             }
         }
 
@@ -763,26 +788,38 @@ impl Scene {
                              quad_program_id: ProgramId,
                              glyph_program_id: ProgramId) {
         let _pf = util::ProfileScope::new("  compile_visible_nodes");
-        let node_rects = &self.aabb_tree.node_rects();
-        let nodes = &mut self.aabb_tree.nodes;
+
+        // TODO(gw): This is a bit messy with layers - work out a cleaner interface
+        // for detecting node overlaps...
+        let mut node_rects_map = HashMap::new();
+        for (scroll_layer_id, layer) in &self.layers {
+            node_rects_map.insert(*scroll_layer_id, layer.aabb_tree.node_rects());
+        }
+
         let flat_draw_list_array = &self.flat_draw_lists;
         let white_image_info = texture_cache.get(white_image_id);
         let mask_image_info = texture_cache.get(dummy_mask_image_id);
+        let layers = &mut self.layers;
+        let node_rects_map = &node_rects_map;
 
         self.thread_pool.scoped(|scope| {
-            for node in nodes {
-                if node.is_visible && node.compiled_node.is_none() {
-                    scope.execute(move || {
-                        node.compile(flat_draw_list_array,
-                                     white_image_info,
-                                     mask_image_info,
-                                     glyph_to_image_map,
-                                     raster_to_image_map,
-                                     texture_cache,
-                                     node_rects,
-                                     quad_program_id,
-                                     glyph_program_id);
-                    });
+            for (scroll_layer_id, layer) in layers {
+                let nodes = &mut layer.aabb_tree.nodes;
+                for node in nodes {
+                    if node.is_visible && node.compiled_node.is_none() {
+                        scope.execute(move || {
+                            node.compile(flat_draw_list_array,
+                                         white_image_info,
+                                         mask_image_info,
+                                         glyph_to_image_map,
+                                         raster_to_image_map,
+                                         texture_cache,
+                                         node_rects_map,
+                                         quad_program_id,
+                                         glyph_program_id,
+                                         *scroll_layer_id);
+                        });
+                    }
                 }
             }
         });
@@ -790,20 +827,22 @@ impl Scene {
 
     fn update_batch_cache(&mut self) {
         // Allocate and update VAOs
-        for node in &mut self.aabb_tree.nodes {
-            if node.is_visible {
-                let compiled_node = node.compiled_node.as_mut().unwrap();
-                for batch in compiled_node.batches.drain(..) {
-                    self.pending_updates.push(BatchUpdate {
-                        id: batch.batch_id,
-                        op: BatchUpdateOp::Create(batch.vertices,
-                                                  batch.indices,
-                                                  batch.program_id,
-                                                  batch.color_texture_id,
-                                                  batch.mask_texture_id),
-                    });
-                    compiled_node.batch_id_list.push(batch.batch_id);
-                    compiled_node.matrix_maps.insert(batch.batch_id, batch.matrix_map);
+        for (_, layer) in &mut self.layers {
+            for node in &mut layer.aabb_tree.nodes {
+                if node.is_visible {
+                    let compiled_node = node.compiled_node.as_mut().unwrap();
+                    for batch in compiled_node.batches.drain(..) {
+                        self.pending_updates.push(BatchUpdate {
+                            id: batch.batch_id,
+                            op: BatchUpdateOp::Create(batch.vertices,
+                                                      batch.indices,
+                                                      batch.program_id,
+                                                      batch.color_texture_id,
+                                                      batch.mask_texture_id),
+                        });
+                        compiled_node.batch_id_list.push(batch.batch_id);
+                        compiled_node.matrix_maps.insert(batch.batch_id, batch.matrix_map);
+                    }
                 }
             }
         }
@@ -818,46 +857,48 @@ impl Scene {
 
         let mut raster_jobs = Vec::new();
 
-        for node in &self.aabb_tree.nodes {
-            if node.is_visible {
-                let resource_list = node.resource_list.as_ref().unwrap();
+        for (_, layer) in &self.layers {
+            for node in &layer.aabb_tree.nodes {
+                if node.is_visible {
+                    let resource_list = node.resource_list.as_ref().unwrap();
 
-                // Update texture cache with any GPU generated procedural items.
-                resource_list.for_each_raster(|raster_item| {
-                    if !raster_to_image_map.contains_key(raster_item) {
-                        let image_id = ImageID::new();
-                        texture_cache.insert_raster_op(image_id, raster_item);
-                        raster_to_image_map.insert(raster_item.clone(), image_id);
-                    }
-                });
+                    // Update texture cache with any GPU generated procedural items.
+                    resource_list.for_each_raster(|raster_item| {
+                        if !raster_to_image_map.contains_key(raster_item) {
+                            let image_id = ImageID::new();
+                            texture_cache.insert_raster_op(image_id, raster_item);
+                            raster_to_image_map.insert(raster_item.clone(), image_id);
+                        }
+                    });
 
-                // Update texture cache with any images that aren't yet uploaded to GPU.
-                resource_list.for_each_image(|image_id| {
-                    if !texture_cache.exists(image_id) {
-                        let image_template = image_templates.get(&image_id).expect("TODO: image not available yet! ");
-                        // TODO: Can we avoid the clone of the bytes here?
-                        texture_cache.insert(image_id,
-                                             0,
-                                             0,
-                                             image_template.width,
-                                             image_template.height,
-                                             image_template.format,
-                                             TextureInsertOp::Blit(image_template.bytes.clone()));
-                    }
-                });
+                    // Update texture cache with any images that aren't yet uploaded to GPU.
+                    resource_list.for_each_image(|image_id| {
+                        if !texture_cache.exists(image_id) {
+                            let image_template = image_templates.get(&image_id).expect("TODO: image not available yet! ");
+                            // TODO: Can we avoid the clone of the bytes here?
+                            texture_cache.insert(image_id,
+                                                 0,
+                                                 0,
+                                                 image_template.width,
+                                                 image_template.height,
+                                                 image_template.format,
+                                                 TextureInsertOp::Blit(image_template.bytes.clone()));
+                        }
+                    });
 
-                // Update texture cache with any newly rasterized glyphs.
-                resource_list.for_each_glyph(|glyph_key| {
-                    if !glyph_to_image_map.contains_key(&glyph_key) {
-                        let image_id = ImageID::new();
-                        raster_jobs.push(GlyphRasterJob {
-                            image_id: image_id,
-                            glyph_key: glyph_key.clone(),
-                            result: None,
-                        });
-                        glyph_to_image_map.insert(glyph_key.clone(), image_id);
-                    }
-                });
+                    // Update texture cache with any newly rasterized glyphs.
+                    resource_list.for_each_glyph(|glyph_key| {
+                        if !glyph_to_image_map.contains_key(&glyph_key) {
+                            let image_id = ImageID::new();
+                            raster_jobs.push(GlyphRasterJob {
+                                image_id: image_id,
+                                glyph_key: glyph_key.clone(),
+                                result: None,
+                            });
+                            glyph_to_image_map.insert(glyph_key.clone(), image_id);
+                        }
+                    });
+                }
             }
         }
 
@@ -924,24 +965,30 @@ impl Scene {
         let _pf = util::ProfileScope::new("  update_resource_lists");
 
         let flat_draw_lists = &self.flat_draw_lists;
-        let nodes = &mut self.aabb_tree.nodes;
 
-        self.thread_pool.scoped(|scope| {
-            for node in nodes {
-                if node.is_visible && node.compiled_node.is_none() {
-                    scope.execute(move || {
-                        node.build_resource_list(flat_draw_lists);
-                    });
+        for (_, layer) in &mut self.layers {
+            let nodes = &mut layer.aabb_tree.nodes;
+
+            self.thread_pool.scoped(|scope| {
+                for node in nodes {
+                    if node.is_visible && node.compiled_node.is_none() {
+                        scope.execute(move || {
+                            node.build_resource_list(flat_draw_lists);
+                        });
+                    }
                 }
-            }
-        });
+            });
+        }
     }
 
     fn scroll(&mut self, delta: Point2D<f32>) {
-        self.scroll_offset = self.scroll_offset + delta;
+        // TODO: Select other layers for scrolling!
+        let layer = self.layers.get_mut(&ScrollLayerId(0)).expect("unable to find root scroll layer");
 
-        self.scroll_offset.x = self.scroll_offset.x.min(0.0);
-        self.scroll_offset.y = self.scroll_offset.y.min(0.0);
+        layer.scroll_offset = layer.scroll_offset + delta;
+
+        layer.scroll_offset.x = layer.scroll_offset.x.min(0.0);
+        layer.scroll_offset.y = layer.scroll_offset.y.min(0.0);
 
         // TODO: Clamp end of scroll (need overflow rect + screen rect)
     }
@@ -1298,18 +1345,23 @@ impl RenderBackend {
 
             let size = Size2D::new(self.viewport.size.width as u32,
                                    self.viewport.size.height as u32);
+            let root_scroll_layer_id = root_sc.stacking_context
+                                              .scroll_layer_id
+                                              .expect("root layer must be a scroll layer!");
+
             self.scene.push_render_target(size, None);
             self.scene.flatten_stacking_context(StackingContextKind::Root(root_sc),
                                                 &Matrix4::identity(),
                                                 &self.display_list_map,
                                                 &mut self.draw_list_map,
+                                                root_scroll_layer_id,
                                                 &self.stacking_contexts,
                                                 self.device_pixel_ratio,
                                                 &mut self.texture_cache);
             self.scene.pop_render_target();
 
             // Init the AABB culling tree(s)
-            self.scene.build_aabb_tree(&root_sc.stacking_context.overflow);
+            self.scene.build_layers(&root_sc.stacking_context.overflow);
         }
     }
 
@@ -2555,9 +2607,10 @@ trait NodeCompiler {
                glyph_to_image_map: &HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
                raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
                texture_cache: &TextureCache,
-               node_rects: &Vec<Rect<f32>>,
+               node_rects_map: &HashMap<ScrollLayerId, Vec<Rect<f32>>>,
                quad_program_id: ProgramId,
-               glyph_program_id: ProgramId);
+               glyph_program_id: ProgramId,
+               node_scroll_layer_id: ScrollLayerId);
 }
 
 impl NodeCompiler for AABBTreeNode {
@@ -2568,9 +2621,10 @@ impl NodeCompiler for AABBTreeNode {
                glyph_to_image_map: &HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
                raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
                texture_cache: &TextureCache,
-               node_rects: &Vec<Rect<f32>>,
+               node_rects_map: &HashMap<ScrollLayerId, Vec<Rect<f32>>>,
                quad_program_id: ProgramId,
-               glyph_program_id: ProgramId) {
+               glyph_program_id: ProgramId,
+               node_scroll_layer_id: ScrollLayerId) {
         let color_white = ColorF::new(1.0, 1.0, 1.0, 1.0);
         let mut compiled_node = CompiledNode::new();
 
@@ -2680,10 +2734,13 @@ impl NodeCompiler for AABBTreeNode {
                 } else {
                     // TODO: Cache this information!!!
                     let NodeIndex(node0) = item_node_index;
-                    let NodeIndex(node1) = self.node_index;
+                    let node_rects0 = node_rects_map.get(&draw_context.scroll_layer_id).unwrap();
+                    let rect0 = &node_rects0[node0 as usize];
 
-                    let rect0 = &node_rects[node0 as usize];
-                    let rect1 = &node_rects[node1 as usize];
+                    let NodeIndex(node1) = self.node_index;
+                    let node_rects1 = node_rects_map.get(&node_scroll_layer_id).unwrap();
+                    let rect1 = &node_rects1[node1 as usize];
+
                     let nodes_overlap = rect0.intersects(rect1);
                     if nodes_overlap {
                         if let Some(builder) = draw_cmd_builders.remove(&draw_context.render_target_index) {

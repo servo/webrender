@@ -138,9 +138,9 @@ impl AABBTree {
 
     #[inline]
     pub fn insert(&mut self,
-              rect: &Rect<f32>,
-              draw_list_index: usize,
-              item_index: usize) -> Option<NodeIndex> {
+                  rect: &Rect<f32>,
+                  draw_list_index: usize,
+                  item_index: usize) -> Option<NodeIndex> {
         let node_index = self.find_best_node(NodeIndex(0), rect);
         if let Some(node_index) = node_index {
             let node = self.node_mut(node_index);
