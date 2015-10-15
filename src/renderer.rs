@@ -15,6 +15,7 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
 use texture_cache::{TextureCache, TextureInsertOp};
 use types::{ColorF, Epoch, PipelineId, RenderNotifier, ImageID, ImageFormat, MixBlendMode};
+use types::{CompositionOp, LowLevelFilterOp, BlurDirection};
 //use util;
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
@@ -31,6 +32,7 @@ struct Batch {
 
 struct RenderContext {
     blend_program_id: ProgramId,
+    filter_program_id: ProgramId,
     temporary_fb_texture: TextureId,
     projection: Matrix4,
     layer_size: Size2D<u32>,
@@ -60,6 +62,10 @@ pub struct Renderer {
 
     blend_program_id: ProgramId,
     u_blend_params: UniformLocation,
+
+    filter_program_id: ProgramId,
+    u_filter_params: UniformLocation,
+    u_filter_texture_size: UniformLocation,
 
     box_shadow_corner_program_id: ProgramId,
     u_box_shadow_corner_position: UniformLocation,
@@ -91,6 +97,7 @@ impl Renderer {
         let glyph_program_id = device.create_program("glyph.vs.glsl", "glyph.fs.glsl");
         let border_program_id = device.create_program("border.vs.glsl", "border.fs.glsl");
         let blend_program_id = device.create_program("blend.vs.glsl", "blend.fs.glsl");
+        let filter_program_id = device.create_program("filter.vs.glsl", "filter.fs.glsl");
         let box_shadow_corner_program_id = device.create_program("box-shadow-corner.vs.glsl",
                                                                  "box-shadow-corner.fs.glsl");
         let blur_program_id = device.create_program("blur.vs.glsl", "blur.fs.glsl");
@@ -103,6 +110,9 @@ impl Renderer {
         let u_border_position = device.get_uniform_location(border_program_id, "uPosition");
 
         let u_blend_params = device.get_uniform_location(blend_program_id, "uBlendParams");
+
+        let u_filter_params = device.get_uniform_location(filter_program_id, "uFilterParams");
+        let u_filter_texture_size = device.get_uniform_location(filter_program_id, "uTextureSize");
 
         let u_box_shadow_corner_position =
             device.get_uniform_location(box_shadow_corner_program_id, "uPosition");
@@ -175,6 +185,7 @@ impl Renderer {
             border_program_id: border_program_id,
             device_pixel_ratio: device_pixel_ratio,
             blend_program_id: blend_program_id,
+            filter_program_id: filter_program_id,
             quad_program_id: quad_program_id,
             glyph_program_id: glyph_program_id,
             box_shadow_corner_program_id: box_shadow_corner_program_id,
@@ -182,6 +193,8 @@ impl Renderer {
             u_border_radii: u_border_radii,
             u_border_position: u_border_position,
             u_blend_params: u_blend_params,
+            u_filter_params: u_filter_params,
+            u_filter_texture_size: u_filter_texture_size,
             u_box_shadow_corner_position: u_box_shadow_corner_position,
             u_box_shadow_blur_radius: u_box_shadow_blur_radius,
             u_arc_radius: u_arc_radius,
@@ -267,6 +280,10 @@ impl Renderer {
                     BatchUpdateOp::Destroy => {
                         let batch = self.batches.remove(&update.id).unwrap();
                         self.device.delete_vao(batch.vao_id);
+                        /*for (_, batch) in self.batches.iter() {
+                            self.device.delete_vao(batch.vao_id);
+                        }
+                        self.batches.clear();*/
                     }
                 }
             }
@@ -583,6 +600,7 @@ impl Renderer {
             // like a topological sort with dependencies?
             let mut render_context = RenderContext {
                 blend_program_id: self.blend_program_id,
+                filter_program_id: self.filter_program_id,
                 temporary_fb_texture: self.device.create_texture_ids(1)[0],
                 projection: Matrix4::identity(),
                 layer_size: Size2D::zero(),
@@ -637,25 +655,34 @@ impl Renderer {
                                                  u_transform_array);
                         }
                         DrawCommandInfo::Composite(ref info) => {
-                            let needs_fb = match info.blend_mode {
-                                MixBlendMode::Normal => unreachable!(),
+                            let needs_fb = match info.operation {
+                                CompositionOp::MixBlend(MixBlendMode::Normal) => unreachable!(),
 
-                                MixBlendMode::Screen |
-                                MixBlendMode::Overlay |
-                                MixBlendMode::ColorDodge |
-                                MixBlendMode::ColorBurn |
-                                MixBlendMode::HardLight |
-                                MixBlendMode::SoftLight |
-                                MixBlendMode::Difference |
-                                MixBlendMode::Exclusion |
-                                MixBlendMode::Hue |
-                                MixBlendMode::Saturation |
-                                MixBlendMode::Color |
-                                MixBlendMode::Luminosity => true,
+                                CompositionOp::MixBlend(MixBlendMode::Screen) |
+                                CompositionOp::MixBlend(MixBlendMode::Overlay) |
+                                CompositionOp::MixBlend(MixBlendMode::ColorDodge) |
+                                CompositionOp::MixBlend(MixBlendMode::ColorBurn) |
+                                CompositionOp::MixBlend(MixBlendMode::HardLight) |
+                                CompositionOp::MixBlend(MixBlendMode::SoftLight) |
+                                CompositionOp::MixBlend(MixBlendMode::Difference) |
+                                CompositionOp::MixBlend(MixBlendMode::Exclusion) |
+                                CompositionOp::MixBlend(MixBlendMode::Hue) |
+                                CompositionOp::MixBlend(MixBlendMode::Saturation) |
+                                CompositionOp::MixBlend(MixBlendMode::Color) |
+                                CompositionOp::MixBlend(MixBlendMode::Luminosity) |
+                                CompositionOp::Filter(LowLevelFilterOp::Blur(..)) |
+                                CompositionOp::Filter(LowLevelFilterOp::Contrast(_)) |
+                                CompositionOp::Filter(LowLevelFilterOp::Grayscale(_)) |
+                                CompositionOp::Filter(LowLevelFilterOp::HueRotate(_)) |
+                                CompositionOp::Filter(LowLevelFilterOp::Invert(_)) |
+                                CompositionOp::Filter(LowLevelFilterOp::Saturate(_)) |
+                                CompositionOp::Filter(LowLevelFilterOp::Sepia(_)) => true,
 
-                                MixBlendMode::Multiply |
-                                MixBlendMode::Darken |
-                                MixBlendMode::Lighten => false,
+                                CompositionOp::Filter(LowLevelFilterOp::Brightness(_)) |
+                                CompositionOp::Filter(LowLevelFilterOp::Opacity(_)) |
+                                CompositionOp::MixBlend(MixBlendMode::Multiply) |
+                                CompositionOp::MixBlend(MixBlendMode::Darken) |
+                                CompositionOp::MixBlend(MixBlendMode::Lighten) => false,
                             };
 
                             let x0 = info.rect.origin.x;
@@ -679,22 +706,97 @@ impl Renderer {
                                                                   info.rect.size.width,
                                                                   info.rect.size.height);
 
-                                self.device.bind_program(render_context.blend_program_id, &render_context.projection);
-                                self.device.set_uniform_4f(self.u_blend_params, info.blend_mode as i32 as f32, 0.0, 0.0, 0.0);
+                                match info.operation {
+                                    CompositionOp::MixBlend(blend_mode) => {
+                                        self.device.bind_program(render_context.blend_program_id,
+                                                                 &render_context.projection);
+                                        self.device.set_uniform_4f(self.u_blend_params,
+                                                                   blend_mode as i32 as f32,
+                                                                   0.0,
+                                                                   0.0,
+                                                                   0.0);
+                                    }
+                                    CompositionOp::Filter(filter_op) => {
+                                        self.device.bind_program(render_context.filter_program_id,
+                                                                 &render_context.projection);
+
+                                        let (opcode, amount, param0, param1) = match filter_op {
+                                            LowLevelFilterOp::Blur(radius,
+                                                                   BlurDirection::Horizontal) => {
+                                                (0.0,
+                                                 radius.to_f32_px() * self.device_pixel_ratio,
+                                                 1.0,
+                                                 0.0)
+                                            }
+                                            LowLevelFilterOp::Blur(radius,
+                                                                   BlurDirection::Vertical) => {
+                                                (0.0,
+                                                 radius.to_f32_px() * self.device_pixel_ratio,
+                                                 0.0,
+                                                 1.0)
+                                            }
+                                            LowLevelFilterOp::Contrast(amount) => {
+                                                (1.0, amount, 0.0, 0.0)
+                                            }
+                                            LowLevelFilterOp::Grayscale(amount) => {
+                                                (2.0, amount, 0.0, 0.0)
+                                            }
+                                            LowLevelFilterOp::HueRotate(angle) => {
+                                                (3.0, angle, 0.0, 0.0)
+                                            }
+                                            LowLevelFilterOp::Invert(amount) => {
+                                                (4.0, amount, 0.0, 0.0)
+                                            }
+                                            LowLevelFilterOp::Saturate(amount) => {
+                                                (5.0, amount, 0.0, 0.0)
+                                            }
+                                            LowLevelFilterOp::Sepia(amount) => {
+                                                (6.0, amount, 0.0, 0.0)
+                                            }
+                                            LowLevelFilterOp::Brightness(_) |
+                                            LowLevelFilterOp::Opacity(_) => {
+                                                // Expressible using GL blend modes, so not handled
+                                                // here.
+                                                unreachable!()
+                                            }
+                                        };
+
+                                        self.device.set_uniform_4f(self.u_filter_params,
+                                                                   opcode,
+                                                                   amount,
+                                                                   param0,
+                                                                   param1);
+                                        self.device.set_uniform_2f(self.u_filter_texture_size,
+                                                                   info.rect.size.width as f32,
+                                                                   info.rect.size.height as f32);
+                                    }
+                                }
                                 self.device.bind_mask_texture(render_context.temporary_fb_texture);
                             } else {
                                 gl::enable(gl::BLEND);
 
-                                match info.blend_mode {
-                                    MixBlendMode::Multiply => {
+                                match info.operation {
+                                    CompositionOp::Filter(LowLevelFilterOp::Brightness(
+                                            amount)) => {
+                                        gl::blend_func(gl::CONSTANT_COLOR, gl::ZERO);
+                                        gl::blend_equation(gl::FUNC_ADD);
+                                        gl::blend_color(amount, amount, amount, 1.0);
+                                    }
+                                    CompositionOp::Filter(LowLevelFilterOp::Opacity(amount)) => {
+                                        gl::blend_func(gl::CONSTANT_ALPHA,
+                                                       gl::ONE_MINUS_CONSTANT_ALPHA);
+                                        gl::blend_equation(gl::FUNC_ADD);
+                                        gl::blend_color(1.0, 1.0, 1.0, amount);
+                                    }
+                                    CompositionOp::MixBlend(MixBlendMode::Multiply) => {
                                         gl::blend_func(gl::DST_COLOR, gl::ZERO);
                                         gl::blend_equation(gl::FUNC_ADD);
                                     }
-                                    MixBlendMode::Darken => {
+                                    CompositionOp::MixBlend(MixBlendMode::Darken) => {
                                         gl::blend_func(gl::ONE, gl::ONE);
                                         gl::blend_equation(gl::MIN);
                                     }
-                                    MixBlendMode::Lighten => {
+                                    CompositionOp::MixBlend(MixBlendMode::Lighten) => {
                                         gl::blend_func(gl::ONE, gl::ONE);
                                         gl::blend_equation(gl::MAX);
                                     }

@@ -31,7 +31,8 @@ use types::{BoxShadowCornerRasterOp, RectangleDisplayItem};
 use types::{Glyph, GradientStop, DisplayListMode, RasterItem, ClipRegion};
 use types::{GlyphInstance, ImageID, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
 use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF, DrawListID};
-use types::{RenderTargetID, MixBlendMode, CompositeDisplayItem, BorderSide, BorderStyle, NodeIndex};
+use types::{RenderTargetID, MixBlendMode, CompositeDisplayItem, BorderSide, BorderStyle};
+use types::{NodeIndex, CompositionOp, FilterOp, LowLevelFilterOp, BlurDirection};
 use util;
 use util::MatrixHelpers;
 use scoped_threadpool;
@@ -164,11 +165,11 @@ impl GetDisplayItemHelper for FlatDrawListArray {
 }
 
 trait StackingContextHelpers {
-    fn needs_render_target(&self) -> bool;
+    fn needs_composition_operation_for_mix_blend_mode(&self) -> bool;
 }
 
 impl StackingContextHelpers for StackingContext {
-    fn needs_render_target(&self) -> bool {
+    fn needs_composition_operation_for_mix_blend_mode(&self) -> bool {
         match self.mix_blend_mode {
             MixBlendMode::Normal => false,
             MixBlendMode::Multiply |
@@ -435,8 +436,56 @@ impl Scene {
             final_transform: transform,
         };
 
-        let needs_render_target = stacking_context.needs_render_target();
-        if needs_render_target {
+        let mut composition_operations = vec![];
+        if stacking_context.needs_composition_operation_for_mix_blend_mode() {
+            composition_operations.push(CompositionOp::MixBlend(stacking_context.mix_blend_mode));
+        }
+        for filter in stacking_context.filters.iter() {
+            match *filter {
+                FilterOp::Blur(radius) => {
+                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Blur(
+                        radius,
+                        BlurDirection::Horizontal)));
+                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Blur(
+                        radius,
+                        BlurDirection::Vertical)));
+                }
+                FilterOp::Brightness(amount) => {
+                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Brightness(
+                        amount)));
+                }
+                FilterOp::Contrast(amount) => {
+                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Contrast(
+                        amount)));
+                }
+                FilterOp::Grayscale(amount) => {
+                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Grayscale(
+                        amount)));
+                }
+                FilterOp::HueRotate(angle) => {
+                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::HueRotate(
+                        angle)));
+                }
+                FilterOp::Invert(amount) => {
+                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Invert(
+                        amount)));
+                }
+                FilterOp::Opacity(amount) => {
+                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Opacity(
+                        amount)));
+                }
+                FilterOp::Saturate(amount) => {
+                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Saturate(
+                        amount)));
+                }
+                FilterOp::Sepia(amount) => {
+                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Sepia(
+                        amount)));
+                }
+            }
+        }
+
+        for composition_operation in composition_operations.iter() {
             let size = Size2D::new(stacking_context.overflow.size.width as u32,
                                    stacking_context.overflow.size.height as u32);
             let texture_id = texture_cache.allocate_render_target(size.width, size.height, ImageFormat::RGBA8);
@@ -444,7 +493,7 @@ impl Scene {
 
             let mut composite_draw_list = DrawList::new();
             let composite_item = CompositeDisplayItem {
-                blend_mode: stacking_context.mix_blend_mode,
+                operation: *composition_operation,
                 texture_id: RenderTargetID(render_target_id),
             };
             let clip = ClipRegion {
@@ -567,7 +616,7 @@ impl Scene {
             self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
         }
 
-        if needs_render_target {
+        for _ in composition_operations.iter() {
             self.pop_render_target();
         }
     }
@@ -940,7 +989,7 @@ impl DrawCommandBuilder {
     }
 
     fn add_composite_item(&mut self,
-                          blend_mode: MixBlendMode,
+                          operation: CompositionOp,
                           color_texture_id: TextureId,
                           rect: Rect<u32>,
                           sort_key: &DisplayItemKey) {
@@ -957,7 +1006,7 @@ impl DrawCommandBuilder {
         }
 
         let composite_info = CompositeInfo {
-            blend_mode: blend_mode,
+            operation: operation,
             rect: rect,
             color_texture_id: color_texture_id,
         };
@@ -1326,14 +1375,14 @@ impl DrawCommandBuilder {
                      draw_context: &DrawContext,
                      rect: &Rect<f32>,
                      texture_id: RenderTargetID,
-                     blend_mode: MixBlendMode) {
+                     operation: CompositionOp) {
         let RenderTargetID(texture_id) = texture_id;
 
         let origin = draw_context.final_transform.transform_point(&rect.origin);
         let origin = Point2D::new(origin.x as u32, origin.y as u32);
         let size = Size2D::new(rect.size.width as u32, rect.size.height as u32);
 
-        self.add_composite_item(blend_mode,
+        self.add_composite_item(operation,
                                 TextureId(texture_id),
                                 Rect::new(origin, size),
                                 sort_key);
@@ -2621,10 +2670,10 @@ impl NodeCompiler for AABBTreeNode {
                             }
                             SpecificDisplayItem::Composite(ref info) => {
                                 builder.add_composite(&key,
-                                                            draw_context,
-                                                            &display_item.rect,
-                                                            info.texture_id,
-                                                            info.blend_mode);
+                                                      draw_context,
+                                                      &display_item.rect,
+                                                      info.texture_id,
+                                                      info.operation);
                             }
                         }
                     }

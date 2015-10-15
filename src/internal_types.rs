@@ -5,9 +5,9 @@ use renderbatch::RenderBatch;
 use std::collections::HashMap;
 use string_cache::Atom;
 use texture_cache::TextureCacheItem;
-use types::{MixBlendMode, new_resource_id};
 use types::{Epoch, ColorF, PipelineId, ImageFormat, DisplayListID, DrawListID};
-use types::{ImageID, StackingContext, DisplayListBuilder, DisplayListMode};
+use types::{ImageID, StackingContext, DisplayListBuilder, DisplayListMode, CompositionOp};
+use types::{new_resource_id};
 
 const UV_FLOAT_TO_FIXED: f32 = 65535.0;
 const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
@@ -250,7 +250,7 @@ impl BatchUpdateList {
 
 #[derive(Clone)]
 pub struct CompositeInfo {
-    pub blend_mode: MixBlendMode,
+    pub operation: CompositionOp,
     pub rect: Rect<u32>,
     pub color_texture_id: TextureId,
 }
