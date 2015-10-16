@@ -251,6 +251,16 @@ impl BatchUpdateList {
     }
 }
 
+// TODO(gw): Use bitflags crate for ClearInfo...
+// TODO(gw): Expand clear info to handle color, depth etc as needed.
+
+#[derive(Clone)]
+pub struct ClearInfo {
+    pub clear_color: bool,
+    pub clear_z: bool,
+    pub clear_stencil: bool,
+}
+
 #[derive(Clone)]
 pub struct CompositeInfo {
     pub operation: CompositionOp,
@@ -262,6 +272,7 @@ pub struct CompositeInfo {
 pub enum DrawCommandInfo {
     Batch(BatchId),
     Composite(CompositeInfo),
+    Clear(ClearInfo),
 }
 
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq, Hash)]

@@ -298,6 +298,13 @@ pub struct IframeDisplayItem {
 }
 
 #[derive(Debug)]
+pub struct ClearDisplayItem {
+    pub clear_color: bool,
+    pub clear_z: bool,
+    pub clear_stencil: bool,
+}
+
+#[derive(Debug)]
 pub struct CompositeDisplayItem {
     pub texture_id: RenderTargetID,
     pub operation: CompositionOp,
@@ -312,7 +319,10 @@ pub enum SpecificDisplayItem {
     BoxShadow(BoxShadowDisplayItem),
     Gradient(GradientDisplayItem),
     Iframe(IframeDisplayItem),
+
+    // Internal use only
     Composite(CompositeDisplayItem),
+    Clear(ClearDisplayItem),
 }
 
 #[derive(Debug)]
