@@ -47,18 +47,22 @@ impl ResourceList {
 
     pub fn add_radius_raster(&mut self,
                              outer_radius: &Size2D<f32>,
-                             inner_radius: &Size2D<f32>) {
+                             inner_radius: &Size2D<f32>,
+                             inverted: bool) {
         if let Some(raster_item) = BorderRadiusRasterOp::create(outer_radius,
-                                                                inner_radius) {
+                                                                inner_radius,
+                                                                inverted) {
             self.required_rasters.insert(RasterItem::BorderRadius(raster_item));
         }
     }
 
     pub fn add_box_shadow_corner(&mut self,
                                  blur_radius: f32,
-                                 border_radius: f32) {
+                                 border_radius: f32,
+                                 inverted: bool) {
         if let Some(raster_item) = BoxShadowCornerRasterOp::create(blur_radius,
-                                                                   border_radius) {
+                                                                   border_radius,
+                                                                   inverted) {
             self.required_rasters.insert(RasterItem::BoxShadowCorner(raster_item));
         }
     }

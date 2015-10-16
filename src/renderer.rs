@@ -426,7 +426,11 @@ impl Renderer {
 
                                 self.device.deinit_texture(horizontal_blur_texture_id);
                             }
-                            TextureUpdateDetails::BorderRadius(outer_rx, outer_ry, inner_rx, inner_ry) => {
+                            TextureUpdateDetails::BorderRadius(outer_rx,
+                                                               outer_ry,
+                                                               inner_rx,
+                                                               inner_ry,
+                                                               inverted) => {
                                 let x = x as f32;
                                 let y = y as f32;
                                 let inner_rx = inner_rx.to_f32_px();
@@ -449,38 +453,38 @@ impl Renderer {
                                                            y + outer_ry,
                                                            0.0,
                                                            0.0);
-
-                                let color0 = ColorF::new(1.0, 0.0, 0.0, 1.0);
-                                let color1 = ColorF::new(0.0, 1.0, 0.0, 1.0);
-                                let color2 = ColorF::new(0.0, 0.0, 1.0, 1.0);
-                                let color3 = ColorF::new(1.0, 1.0, 1.0, 1.0);
+                                let color = if inverted {
+                                    ColorF::new(0.0, 0.0, 0.0, 0.0)
+                                } else {
+                                    ColorF::new(1.0, 1.0, 1.0, 1.0)
+                                };
 
                                 let indices: [u16; 6] = [ 0, 1, 2, 2, 3, 1 ];
                                 let vertices: [PackedVertex; 4] = [
                                     PackedVertex::from_components(x,
                                                                   y,
-                                                                  &color0,
+                                                                  &color,
                                                                   0.0,
                                                                   0.0,
                                                                   0.0,
                                                                   0.0),
                                     PackedVertex::from_components(x + outer_rx,
                                                                   y,
-                                                                  &color1,
+                                                                  &color,
                                                                   0.0,
                                                                   0.0,
                                                                   0.0,
                                                                   0.0),
                                     PackedVertex::from_components(x,
                                                                   y + outer_ry,
-                                                                  &color2,
+                                                                  &color,
                                                                   0.0,
                                                                   0.0,
                                                                   0.0,
                                                                   0.0),
                                     PackedVertex::from_components(x + outer_rx,
                                                                   y + outer_ry,
-                                                                  &color3,
+                                                                  &color,
                                                                   0.0,
                                                                   0.0,
                                                                   0.0,
@@ -489,13 +493,16 @@ impl Renderer {
 
                                 self.perform_gl_texture_cache_update(&indices, &vertices);
                             }
-                            TextureUpdateDetails::BoxShadowCorner(blur_radius, border_radius) => {
+                            TextureUpdateDetails::BoxShadowCorner(blur_radius,
+                                                                  border_radius,
+                                                                  inverted) => {
                                 self.update_texture_cache_for_box_shadow_corner(
                                     update.id,
                                     &Rect::new(Point2D::new(x as f32, y as f32),
                                                Size2D::new(width as f32, height as f32)),
                                     blur_radius,
-                                    border_radius)
+                                    border_radius,
+                                    inverted)
                             }
                         }
                     }
@@ -508,7 +515,8 @@ impl Renderer {
                                                   update_id: TextureId,
                                                   rect: &Rect<f32>,
                                                   blur_radius: Au,
-                                                  border_radius: Au) {
+                                                  border_radius: Au,
+                                                  inverted: bool) {
         let box_shadow_corner_program_id = self.box_shadow_corner_program_id;
         self.set_up_gl_state_for_texture_cache_update(update_id, box_shadow_corner_program_id);
 
@@ -522,7 +530,12 @@ impl Renderer {
         self.device.set_uniform_1f(self.u_box_shadow_blur_radius, blur_radius);
         self.device.set_uniform_1f(self.u_arc_radius, border_radius);
 
-        let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
+        let color = if inverted {
+            ColorF::new(0.0, 0.0, 0.0, 0.0)
+        } else {
+            ColorF::new(1.0, 1.0, 1.0, 1.0)
+        };
+
         let vertices: [PackedVertex; 4] = [
             PackedVertex::from_components(rect.origin.x,
                                           rect.origin.y,
