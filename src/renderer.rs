@@ -623,14 +623,30 @@ impl Renderer {
                              0,
                              (layer.size.width as f32 * self.device_pixel_ratio) as gl::GLint,
                              (layer.size.height as f32 * self.device_pixel_ratio) as gl::GLint);
-                gl::disable(gl::DEPTH_TEST);
+                gl::enable(gl::DEPTH_TEST);
+                gl::depth_func(gl::LEQUAL);
 
                 // Clear frame buffer
                 gl::clear_color(1.0, 1.0, 1.0, 1.0);
-                gl::clear(gl::COLOR_BUFFER_BIT);
+                gl::clear(gl::COLOR_BUFFER_BIT |
+                          gl::DEPTH_BUFFER_BIT |
+                          gl::STENCIL_BUFFER_BIT);
 
                 for cmd in &layer.commands {
                     match cmd.info {
+                        DrawCommandInfo::Clear(ref info) => {
+                            let mut clear_bits = 0;
+                            if info.clear_color {
+                                clear_bits |= gl::COLOR_BUFFER_BIT;
+                            }
+                            if info.clear_z {
+                                clear_bits |= gl::DEPTH_BUFFER_BIT;
+                            }
+                            if info.clear_stencil {
+                                clear_bits |= gl::STENCIL_BUFFER_BIT;
+                            }
+                            gl::clear(clear_bits);
+                        }
                         DrawCommandInfo::Batch(batch_id) => {
                             // TODO: probably worth sorting front to back to minimize overdraw (if profiling shows fragment / rop bound)
 

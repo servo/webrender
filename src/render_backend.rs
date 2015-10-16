@@ -5,7 +5,7 @@ use device::{ProgramId, TextureId};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
 use font::{FontContext, RasterizedGlyph};
 use fnv::FnvHasher;
-use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, Primitive};
+use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, Primitive, ClearInfo};
 use internal_types::{BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp, CompiledNode};
 use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo, DrawListIndex, DrawListItemIndex};
 use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey, DisplayItemKey};
@@ -28,7 +28,7 @@ use std::thread;
 use string_cache::Atom;
 use texture_cache::{TextureCache, TextureCacheItem, TextureInsertOp};
 use types::{DisplayListID, Epoch, BorderDisplayItem, BorderRadiusRasterOp, ScrollPolicy};
-use types::{BoxShadowCornerRasterOp, RectangleDisplayItem, ScrollLayerId};
+use types::{BoxShadowCornerRasterOp, RectangleDisplayItem, ScrollLayerId, ClearDisplayItem};
 use types::{Glyph, GradientStop, DisplayListMode, RasterItem, ClipRegion};
 use types::{GlyphInstance, ImageID, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
 use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF, DrawListID};
@@ -407,7 +407,6 @@ impl Scene {
 
     fn flatten_stacking_context(&mut self,
                                 stacking_context_kind: StackingContextKind,
-                                parent_origin: &Point2D<f32>,
                                 parent_transform: &Matrix4,
                                 parent_perspective: &Matrix4,
                                 display_list_map: &DisplayListMap,
@@ -435,23 +434,20 @@ impl Scene {
             }
         };
 
-        // TODO: Account for scroll offset!
-        let mut world_rect = stacking_context.bounds.clone();
-        world_rect = world_rect.translate(parent_origin);
-
-        let x0 = world_rect.origin.x;
-        let y0 = world_rect.origin.y;
+        // TODO: Account for scroll offset with transforms!
 
         // Build world space transform
-        let local_transform = Matrix4::identity().translate(x0, y0, 0.0)
+        let origin = &stacking_context.bounds.origin;
+        let local_transform = Matrix4::identity().translate(origin.x, origin.y, 0.0)
                                                  .mul(&stacking_context.transform);
 
-        let mut final_transform = parent_perspective.mul(&local_transform).mul(&parent_transform);
+        let mut final_transform = parent_perspective.mul(&parent_transform)
+                                                    .mul(&local_transform);
 
         // Build world space perspective transform
-        let perspective_transform = Matrix4::identity().translate(x0, y0, 0.0)
+        let perspective_transform = Matrix4::identity().translate(origin.x, origin.y, 0.0)
                                                        .mul(&stacking_context.perspective)
-                                                       .translate(-x0, -y0, 0.0);
+                                                       .translate(-origin.x, -origin.y, 0.0);
 
         let mut draw_context = DrawContext {
             render_target_index: self.current_render_target(),
@@ -460,6 +456,29 @@ impl Scene {
             final_transform: final_transform,
             scroll_layer_id: this_scroll_layer,
         };
+
+        // When establishing a new 3D context, clear Z. This is only needed if there
+        // are child stacking contexts, otherwise it is a redundant clear.
+        if stacking_context.establishes_3d_context && stacking_context.children.len() > 0 {
+            let mut clear_draw_list = DrawList::new();
+            let clear_item = ClearDisplayItem {
+                clear_color: false,
+                clear_z: true,
+                clear_stencil: true,
+            };
+            let clip = ClipRegion {
+                main: stacking_context.overflow,
+                complex: vec![],
+            };
+            let display_item = DisplayItem {
+                item: SpecificDisplayItem::Clear(clear_item),
+                rect: stacking_context.overflow,
+                clip: clip,
+                node_index: None,
+            };
+            clear_draw_list.push(display_item);
+            self.push_draw_list(None, clear_draw_list, &draw_context);
+        }
 
         let mut composition_operations = vec![];
         if stacking_context.needs_composition_operation_for_mix_blend_mode() {
@@ -535,7 +554,6 @@ impl Scene {
             self.push_draw_list(None, composite_draw_list, &draw_context);
 
             self.push_render_target(size, Some(texture_id));
-            world_rect.origin = Point2D::zero();
             final_transform = Matrix4::identity();
             draw_context.final_transform = final_transform;
             draw_context.render_target_index = self.current_render_target();
@@ -581,7 +599,6 @@ impl Scene {
                 continue;
             }
             self.flatten_stacking_context(StackingContextKind::Normal(child),
-                                          &world_rect.origin,
                                           &final_transform,
                                           &perspective_transform,
                                           display_list_map,
@@ -613,7 +630,6 @@ impl Scene {
                 continue;
             }
             self.flatten_stacking_context(StackingContextKind::Normal(child),
-                                          &world_rect.origin,
                                           &final_transform,
                                           &perspective_transform,
                                           display_list_map,
@@ -634,7 +650,6 @@ impl Scene {
                                                                      iframe_info.offset.y,
                                                                      0.0);
                 self.flatten_stacking_context(StackingContextKind::Root(iframe),
-                                              &world_rect.origin,
                                               &iframe_transform,
                                               &perspective_transform,
                                               display_list_map,
@@ -1071,12 +1086,8 @@ impl DrawCommandBuilder {
         }
     }
 
-    fn add_composite_item(&mut self,
-                          operation: CompositionOp,
-                          color_texture_id: TextureId,
-                          rect: Rect<u32>,
-                          sort_key: &DisplayItemKey) {
-        // When a composite is encountered - always flush any batches that are pending.
+    fn flush_current_batch(&mut self) {
+        // When a clear/composite is encountered - always flush any batches that are pending.
         // TODO: It may be possible to be smarter about this in the future and avoid
         // flushing the batches in some cases.
         if let Some(current_batch) = self.current_batch.take() {
@@ -1087,6 +1098,34 @@ impl DrawCommandBuilder {
             });
             self.batches.push(current_batch);
         }
+    }
+
+    fn add_clear(&mut self,
+                 sort_key: &DisplayItemKey,
+                 clear_color: bool,
+                 clear_z: bool,
+                 clear_stencil: bool) {
+        self.flush_current_batch();
+
+        let clear_info = ClearInfo {
+            clear_color: clear_color,
+            clear_z: clear_z,
+            clear_stencil: clear_stencil,
+        };
+        let cmd = DrawCommand {
+            render_target: self.render_target_index,
+            sort_key: sort_key.clone(),
+            info: DrawCommandInfo::Clear(clear_info),
+        };
+        self.draw_commands.push(cmd);
+    }
+
+    fn add_composite_item(&mut self,
+                          operation: CompositionOp,
+                          color_texture_id: TextureId,
+                          rect: Rect<u32>,
+                          sort_key: &DisplayItemKey) {
+        self.flush_current_batch();
 
         let composite_info = CompositeInfo {
             operation: operation,
@@ -1409,7 +1448,6 @@ impl RenderBackend {
 
                 self.scene.push_render_target(size, None);
                 self.scene.flatten_stacking_context(StackingContextKind::Root(root_sc),
-                                                    &Point2D::zero(),
                                                     &Matrix4::identity(),
                                                     &Matrix4::identity(),
                                                     &self.display_list_map,
@@ -2570,6 +2608,7 @@ impl BuildRequiredResources for AABBTreeNode {
                 SpecificDisplayItem::Iframe(..) => {}
                 SpecificDisplayItem::Gradient(..) => {}
                 SpecificDisplayItem::Composite(..) => {}
+                SpecificDisplayItem::Clear(..) => {}
                 SpecificDisplayItem::BoxShadow(ref info) => {
                     resource_list.add_box_shadow_corner(info.blur_radius,
                                                         info.border_radius);
@@ -2798,6 +2837,12 @@ impl NodeCompiler for AABBTreeNode {
                                                       &display_item.rect,
                                                       info.texture_id,
                                                       info.operation);
+                            }
+                            SpecificDisplayItem::Clear(ref info) => {
+                                builder.add_clear(&key,
+                                                  info.clear_color,
+                                                  info.clear_z,
+                                                  info.clear_stencil);
                             }
                         }
                     }
