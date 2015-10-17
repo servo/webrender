@@ -186,9 +186,10 @@ pub enum RenderTargetMode {
 pub enum TextureUpdateDetails {
     Blit(Vec<u8>),
     Blur(Vec<u8>, Size2D<u32>, Au, TextureId, TextureId),
-    BorderRadius(Au, Au, Au, Au),
-    /// Blur radius and border radius, respectively.
-    BoxShadowCorner(Au, Au),
+    /// All four corners and whether inverted, respectively.
+    BorderRadius(Au, Au, Au, Au, bool),
+    /// Blur radius border radius, and whether inverted, respectively.
+    BoxShadowCorner(Au, Au, bool),
 }
 
 pub enum TextureUpdateOp {

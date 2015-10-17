@@ -346,16 +346,19 @@ pub struct BorderRadiusRasterOp {
     pub outer_radius_y: Au,
     pub inner_radius_x: Au,
     pub inner_radius_y: Au,
+    pub inverted: bool,
 }
 
 impl BorderRadiusRasterOp {
-    pub fn create(outer_radius: &Size2D<f32>, inner_radius: &Size2D<f32>) -> Option<BorderRadiusRasterOp> {
+    pub fn create(outer_radius: &Size2D<f32>, inner_radius: &Size2D<f32>, inverted: bool)
+                  -> Option<BorderRadiusRasterOp> {
         if outer_radius.width > 0.0 || outer_radius.height > 0.0 {
             Some(BorderRadiusRasterOp {
                 outer_radius_x: Au::from_f32_px(outer_radius.width),
                 outer_radius_y: Au::from_f32_px(outer_radius.height),
                 inner_radius_x: Au::from_f32_px(inner_radius.width),
                 inner_radius_y: Au::from_f32_px(inner_radius.height),
+                inverted: inverted,
             })
         } else {
             None
@@ -367,14 +370,17 @@ impl BorderRadiusRasterOp {
 pub struct BoxShadowCornerRasterOp {
     pub blur_radius: Au,
     pub border_radius: Au,
+    pub inverted: bool,
 }
 
 impl BoxShadowCornerRasterOp {
-    pub fn create(blur_radius: f32, border_radius: f32) -> Option<BoxShadowCornerRasterOp> {
+    pub fn create(blur_radius: f32, border_radius: f32, inverted: bool)
+                  -> Option<BoxShadowCornerRasterOp> {
         if blur_radius > 0.0 || border_radius > 0.0 {
             Some(BoxShadowCornerRasterOp {
                 blur_radius: Au::from_f32_px(blur_radius),
                 border_radius: Au::from_f32_px(border_radius),
+                inverted: inverted,
             })
         } else {
             None

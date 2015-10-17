@@ -262,10 +262,12 @@ impl TextureCache {
                                                 allocation.y,
                                                 width,
                                                 height,
-                                                TextureUpdateDetails::BorderRadius(op.outer_radius_x,
-                                                                                   op.outer_radius_y,
-                                                                                   op.inner_radius_x,
-                                                                                   op.inner_radius_y)),
+                                                TextureUpdateDetails::BorderRadius(
+                                                    op.outer_radius_x,
+                                                    op.outer_radius_y,
+                                                    op.inner_radius_x,
+                                                    op.inner_radius_y,
+                                                    op.inverted)),
                 }
             }
             &RasterItem::BoxShadowCorner(ref op) => {
@@ -287,7 +289,9 @@ impl TextureCache {
                         allocation.y,
                         size.to_nearest_px() as u32,
                         size.to_nearest_px() as u32,
-                        TextureUpdateDetails::BoxShadowCorner(op.blur_radius, op.border_radius)),
+                        TextureUpdateDetails::BoxShadowCorner(op.blur_radius,
+                                                              op.border_radius,
+                                                              op.inverted)),
                 }
             }
         };
