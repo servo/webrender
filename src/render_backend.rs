@@ -2,7 +2,7 @@ use aabbtree::{AABBTreeNode, AABBTreeNodeInfo};
 use app_units::Au;
 use batch::RenderBatch;
 use clipper::{self, ClipBuffers};
-use device::{ProgramId, TextureId, TextureIndex};
+use device::{ProgramId, TextureId};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
 use fnv::FnvHasher;
 use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, Primitive, ClearInfo};
@@ -729,8 +729,8 @@ impl Scene {
                    resource_cache: &mut ResourceCache,
                    white_image_id: TextureCacheItemId,
                    dummy_mask_image_id: TextureCacheItemId,
-                   quad_program_id: ProgramId,
-                   glyph_program_id: ProgramId) -> Frame {
+                   quad_program_id: ProgramId)
+                   -> Frame {
         let origin = Point2D::new(viewport.origin.x as f32, viewport.origin.y as f32);
         let size = Size2D::new(viewport.size.width as f32, viewport.size.height as f32);
         let viewport_rect = Rect::new(origin, size);
@@ -758,8 +758,7 @@ impl Scene {
                                    texture_cache,
                                    white_image_id,
                                    dummy_mask_image_id,
-                                   quad_program_id,
-                                   glyph_program_id);
+                                   quad_program_id);
 
         // Update the batch cache from newly compiled nodes
         self.update_batch_cache();
@@ -840,8 +839,7 @@ impl Scene {
                              texture_cache: &TextureCache,
                              white_image_id: TextureCacheItemId,
                              dummy_mask_image_id: TextureCacheItemId,
-                             quad_program_id: ProgramId,
-                             glyph_program_id: ProgramId) {
+                             quad_program_id: ProgramId) {
         let _pf = util::ProfileScope::new("  compile_visible_nodes");
 
         // TODO(gw): This is a bit messy with layers - work out a cleaner interface
@@ -870,7 +868,6 @@ impl Scene {
                                          texture_cache,
                                          node_info_map,
                                          quad_program_id,
-                                         glyph_program_id,
                                          *scroll_layer_id);
                         });
                     }
@@ -904,7 +901,8 @@ impl Scene {
 
     fn update_texture_cache_and_build_raster_jobs(&mut self,
                                                   texture_cache: &mut TextureCache,
-                                                  resource_cache: &mut ResourceCache) -> Vec<GlyphRasterJob> {
+                                                  resource_cache: &mut ResourceCache)
+                                                  -> Vec<GlyphRasterJob> {
         let _pf = util::ProfileScope::new("  update_texture_cache_and_build_raster_jobs");
         let mut raster_jobs = Vec::new();
 
@@ -980,7 +978,7 @@ impl Scene {
                                                              (*native_font_handle).clone());
                             }
                         }
-                        job.result = font_context.get_glyph(job.glyph_key.font_key,
+                        job.result = font_context.get_glyph(&job.glyph_key.font_key,
                                                             job.glyph_key.size,
                                                             job.glyph_key.index,
                                                             device_pixel_ratio);
@@ -1016,7 +1014,7 @@ impl Scene {
                                  result.top,
                                  texture_width,
                                  texture_height,
-                                 ImageFormat::A8,
+                                 ImageFormat::RGBA8,
                                  insert_op);
         }
     }
@@ -1069,7 +1067,6 @@ struct GlyphRasterJob {
 
 struct DrawCommandBuilder {
     quad_program_id: ProgramId,
-    glyph_program_id: ProgramId,
     render_target_index: RenderTargetIndex,
     current_batch: Option<RenderBatch>,
     draw_commands: Vec<DrawCommand>,
@@ -1077,13 +1074,11 @@ struct DrawCommandBuilder {
 }
 
 impl DrawCommandBuilder {
-    fn new(quad_program_id: ProgramId,
-           glyph_program_id: ProgramId,
-           render_target_index: RenderTargetIndex) -> DrawCommandBuilder {
+    fn new(quad_program_id: ProgramId, render_target_index: RenderTargetIndex)
+           -> DrawCommandBuilder {
         DrawCommandBuilder {
             render_target_index: render_target_index,
             quad_program_id: quad_program_id,
-            glyph_program_id: glyph_program_id,
             current_batch: None,
             draw_commands: Vec::new(),
             batches: Vec::new(),
@@ -1150,17 +1145,7 @@ impl DrawCommandBuilder {
                      mask_texture_id: TextureId,
                      primitive: Primitive,
                      vertices: &mut [PackedVertex]) {
-        let program_id = match primitive {
-            Primitive::Triangles |
-            Primitive::Rectangles |
-            Primitive::TriangleFan => {
-                self.quad_program_id
-            }
-            Primitive::Glyphs => {
-                self.glyph_program_id
-            }
-        };
-
+        let program_id = self.quad_program_id;
         let need_new_batch = self.current_batch.is_none() ||
                              !self.current_batch.as_ref().unwrap().can_add_to_batch(color_texture_id,
                                                                                     mask_texture_id,
@@ -1244,7 +1229,6 @@ pub struct RenderBackend {
     root_pipeline_id: Option<PipelineId>,
 
     quad_program_id: ProgramId,
-    glyph_program_id: ProgramId,
     white_image_id: TextureCacheItemId,
     dummy_mask_image_id: TextureCacheItemId,
 
@@ -1264,7 +1248,6 @@ impl RenderBackend {
                viewport: Rect<i32>,
                device_pixel_ratio: f32,
                quad_program_id: ProgramId,
-               glyph_program_id: ProgramId,
                white_image_id: TextureCacheItemId,
                dummy_mask_image_id: TextureCacheItemId,
                texture_cache: TextureCache) -> RenderBackend {
@@ -1276,7 +1259,6 @@ impl RenderBackend {
             root_pipeline_id: None,
 
             quad_program_id: quad_program_id,
-            glyph_program_id: glyph_program_id,
             white_image_id: white_image_id,
             dummy_mask_image_id: dummy_mask_image_id,
             texture_cache: texture_cache,
@@ -1488,8 +1470,7 @@ impl RenderBackend {
                                                &mut self.resource_cache,
                                                self.white_image_id,
                                                self.dummy_mask_image_id,
-                                               self.quad_program_id,
-                                               self.glyph_program_id);
+                                               self.quad_program_id);
 
         // Bit of a hack - if there was nothing visible, at least
         // add one layer to the frame so that the screen gets
@@ -1719,30 +1700,34 @@ impl DrawCommandBuilder {
                         entry.insert(Vec::new())
                     }
                 };
-                vertex_buffer.push(PackedVertex::from_components(x0, y0,
-                                                                 color,
-                                                                 image_info.u0, image_info.v0,
-                                                                 0.0, 0.0,
-                                                                 image_info.texture_index,
-                                                                 TextureIndex(0)));
-                vertex_buffer.push(PackedVertex::from_components(x1, y0,
-                                                                 color,
-                                                                 image_info.u1, image_info.v0,
-                                                                 0.0, 0.0,
-                                                                 image_info.texture_index,
-                                                                 TextureIndex(0)));
-                vertex_buffer.push(PackedVertex::from_components(x0, y1,
-                                                                 color,
-                                                                 image_info.u0, image_info.v1,
-                                                                 0.0, 0.0,
-                                                                 image_info.texture_index,
-                                                                 TextureIndex(0)));
-                vertex_buffer.push(PackedVertex::from_components(x1, y1,
-                                                                 color,
-                                                                 image_info.u1, image_info.v1,
-                                                                 0.0, 0.0,
-                                                                 image_info.texture_index,
-                                                                 TextureIndex(0)));
+                vertex_buffer.push(PackedVertex::from_components(
+                        x0, y0,
+                        color,
+                        image_info.u0, image_info.v0,
+                        dummy_mask_image.u0, dummy_mask_image.v0,
+                        image_info.texture_index,
+                        dummy_mask_image.texture_index));
+                vertex_buffer.push(PackedVertex::from_components(
+                        x1, y0,
+                        color,
+                        image_info.u1, image_info.v0,
+                        dummy_mask_image.u1, dummy_mask_image.v0,
+                        image_info.texture_index,
+                        dummy_mask_image.texture_index));
+                vertex_buffer.push(PackedVertex::from_components(
+                        x0, y1,
+                        color,
+                        image_info.u0, image_info.v1,
+                        dummy_mask_image.u0, dummy_mask_image.v1,
+                        image_info.texture_index,
+                        dummy_mask_image.texture_index));
+                vertex_buffer.push(PackedVertex::from_components(
+                        x1, y1,
+                        color,
+                        image_info.u1, image_info.v1,
+                        dummy_mask_image.v0, dummy_mask_image.v1,
+                        image_info.texture_index,
+                        dummy_mask_image.texture_index));
             }
         }
 
@@ -3041,7 +3026,6 @@ trait NodeCompiler {
                                        Vec<AABBTreeNodeInfo>,
                                        DefaultState<FnvHasher>>,
                quad_program_id: ProgramId,
-               glyph_program_id: ProgramId,
                node_scroll_layer_id: ScrollLayerId);
 }
 
@@ -3056,7 +3040,6 @@ impl NodeCompiler for AABBTreeNode {
                                        Vec<AABBTreeNodeInfo>,
                                        DefaultState<FnvHasher>>,
                quad_program_id: ProgramId,
-               glyph_program_id: ProgramId,
                node_scroll_layer_id: ScrollLayerId) {
         let color_white = ColorF::new(1.0, 1.0, 1.0, 1.0);
         let mut compiled_node = CompiledNode::new();
@@ -3076,9 +3059,9 @@ impl NodeCompiler for AABBTreeNode {
 
                         let builder = match draw_cmd_builders.entry(draw_context.render_target_index) {
                             Vacant(entry) => {
-                                entry.insert(DrawCommandBuilder::new(quad_program_id,
-                                                                     glyph_program_id,
-                                                                     draw_context.render_target_index))
+                                entry.insert(DrawCommandBuilder::new(
+                                    quad_program_id,
+                                    draw_context.render_target_index))
                             }
                             Occupied(entry) => entry.into_mut(),
                         };
