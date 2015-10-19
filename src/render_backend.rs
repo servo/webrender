@@ -1,4 +1,4 @@
-use aabbtree::AABBTreeNode;
+use aabbtree::{AABBTreeNode, AABBTreeNodeInfo};
 use app_units::Au;
 use clipper;
 use device::{ProgramId, TextureId};
@@ -835,16 +835,16 @@ impl Scene {
 
         // TODO(gw): This is a bit messy with layers - work out a cleaner interface
         // for detecting node overlaps...
-        let mut node_rects_map = HashMap::with_hash_state(Default::default());
+        let mut node_info_map = HashMap::with_hash_state(Default::default());
         for (scroll_layer_id, layer) in &self.layers {
-            node_rects_map.insert(*scroll_layer_id, layer.aabb_tree.node_rects());
+            node_info_map.insert(*scroll_layer_id, layer.aabb_tree.node_info());
         }
 
         let flat_draw_list_array = &self.flat_draw_lists;
         let white_image_info = texture_cache.get(white_image_id);
         let mask_image_info = texture_cache.get(dummy_mask_image_id);
         let layers = &mut self.layers;
-        let node_rects_map = &node_rects_map;
+        let node_info_map = &node_info_map;
 
         self.thread_pool.scoped(|scope| {
             for (scroll_layer_id, layer) in layers {
@@ -858,7 +858,7 @@ impl Scene {
                                          glyph_to_image_map,
                                          raster_to_image_map,
                                          texture_cache,
-                                         node_rects_map,
+                                         node_info_map,
                                          quad_program_id,
                                          glyph_program_id,
                                          *scroll_layer_id);
@@ -2920,7 +2920,7 @@ trait NodeCompiler {
                glyph_to_image_map: &HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
                raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
                texture_cache: &TextureCache,
-               node_rects_map: &HashMap<ScrollLayerId, Vec<Rect<f32>>, DefaultState<FnvHasher>>,
+               node_info_map: &HashMap<ScrollLayerId, Vec<AABBTreeNodeInfo>, DefaultState<FnvHasher>>,
                quad_program_id: ProgramId,
                glyph_program_id: ProgramId,
                node_scroll_layer_id: ScrollLayerId);
@@ -2934,7 +2934,7 @@ impl NodeCompiler for AABBTreeNode {
                glyph_to_image_map: &HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
                raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
                texture_cache: &TextureCache,
-               node_rects_map: &HashMap<ScrollLayerId, Vec<Rect<f32>>, DefaultState<FnvHasher>>,
+               node_info_map: &HashMap<ScrollLayerId, Vec<AABBTreeNodeInfo>, DefaultState<FnvHasher>>,
                quad_program_id: ProgramId,
                glyph_program_id: ProgramId,
                node_scroll_layer_id: ScrollLayerId) {
@@ -3052,20 +3052,29 @@ impl NodeCompiler for AABBTreeNode {
                     }
                 } else {
                     // TODO: Cache this information!!!
-                    let NodeIndex(node0) = item_node_index;
-                    let node_rects0 = node_rects_map.get(&draw_context.scroll_layer_id).unwrap();
-                    let rect0 = &node_rects0[node0 as usize];
+                    let NodeIndex(node_index_for_item) = item_node_index;
+                    let NodeIndex(node_index_for_node) = self.node_index;
 
-                    let NodeIndex(node1) = self.node_index;
-                    let node_rects1 = node_rects_map.get(&node_scroll_layer_id).unwrap();
-                    let rect1 = &node_rects1[node1 as usize];
+                    let info_list_for_item = node_info_map.get(&draw_context.scroll_layer_id).unwrap();
+                    let info_list_for_node = node_info_map.get(&node_scroll_layer_id).unwrap();
 
-                    let nodes_overlap = rect0.intersects(rect1);
-                    if nodes_overlap {
-                        if let Some(builder) = draw_cmd_builders.remove(&draw_context.render_target_index) {
-                            let (batches, commands) = builder.finalize();
-                            compiled_node.batches.extend(batches.into_iter());
-                            compiled_node.commands.extend(commands.into_iter());
+                    let info_for_item = &info_list_for_item[node_index_for_item as usize];
+                    let info_for_node = &info_list_for_node[node_index_for_node as usize];
+
+                    // This node should be visible, else it shouldn't be getting compiled!
+                    debug_assert!(info_for_node.is_visible);
+
+                    if info_for_item.is_visible {
+                        let rect_for_info = &info_for_item.rect;
+                        let rect_for_node = &info_for_node.rect;
+
+                        let nodes_overlap = rect_for_node.intersects(rect_for_info);
+                        if nodes_overlap {
+                            if let Some(builder) = draw_cmd_builders.remove(&draw_context.render_target_index) {
+                                let (batches, commands) = builder.finalize();
+                                compiled_node.batches.extend(batches.into_iter());
+                                compiled_node.commands.extend(commands.into_iter());
+                            }
                         }
                     }
                 }

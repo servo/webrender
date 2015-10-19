@@ -132,10 +132,10 @@ impl Renderer {
         let texture_ids = device.create_texture_ids(1024);
         let mut texture_cache = TextureCache::new(texture_ids);
         let white_pixels: Vec<u8> = vec![
-            0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0xff,
         ];
         let mask_pixels: Vec<u8> = vec![
             0xff, 0xff,
@@ -148,7 +148,7 @@ impl Renderer {
                              0,
                              2,
                              2,
-                             ImageFormat::RGB8,
+                             ImageFormat::RGBA8,
                              TextureInsertOp::Blit(white_pixels));
 
         let dummy_mask_image_id = ImageID::new();
