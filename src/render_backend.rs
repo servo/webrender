@@ -7,8 +7,10 @@ use font::{FontContext, RasterizedGlyph};
 use fnv::FnvHasher;
 use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, Primitive, ClearInfo};
 use internal_types::{BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp, CompiledNode};
-use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo, DrawListIndex, DrawListItemIndex};
-use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey, DisplayItemKey};
+use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo};
+use internal_types::{ClipRectToRegionResult, DrawListIndex, DrawListItemIndex, DisplayItemKey};
+use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey};
+use internal_types::{PolygonPosColorUv, RectPosUv};
 use layer::Layer;
 use renderbatch::RenderBatch;
 use renderer::BLUR_INFLATION_FACTOR;
@@ -51,7 +53,7 @@ static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
-static MAX_RECT: Rect<f32> = Rect {
+pub static MAX_RECT: Rect<f32> = Rect {
     origin: Point2D {
         x: -1000.0,
         y: -1000.0,
@@ -1633,45 +1635,22 @@ impl DrawCommandBuilder {
                        texture_cache: &TextureCache,
                        rect: &Rect<f32>,
                        uv: &Rect<f32>) {
-        for clip_region in clipper::clip_rect_with_mode_and_to_region_pos_uv(
-                rect,
-                &uv,
-                clip_rect,
-                BoxShadowClipMode::Inset,
-                clip_region) {
-            let rect = clip_region.rect_result.rect();
-            let uv = clip_region.rect_result.uv_rect();
-            let mask = match clip_region.mask_result {
-                None => dummy_mask_image,
-                Some(ref mask_result) => {
-                    mask_for_border_radius(dummy_mask_image,
-                                           raster_to_image_map,
-                                           texture_cache,
-                                           mask_result.border_radius,
-                                           false)
-                }
-            };
+        for clip_region in clipper::clip_rect_with_mode_and_to_region(RectPosUv {
+                                                                        pos: *rect,
+                                                                        uv: *uv
+                                                                      },
+                                                                      &mut self.clip_buffers,
+                                                                      clip_rect,
+                                                                      BoxShadowClipMode::Inset,
+                                                                      clip_region) {
+            let mask = mask_for_clip_region(dummy_mask_image,
+                                            raster_to_image_map,
+                                            texture_cache,
+                                            &clip_region,
+                                            false);
 
-            let muv = clip_region.muv(&mask);
-
-            let mut vertices = [
-                PackedVertex::from_components(rect.origin.x, rect.origin.y,
-                                              color,
-                                              uv.origin.x, uv.origin.y,
-                                              muv.origin.x, muv.origin.y),
-                PackedVertex::from_components(rect.max_x(), rect.origin.y,
-                                              color,
-                                              uv.max_x(), uv.origin.y,
-                                              muv.max_x(), muv.origin.y),
-                PackedVertex::from_components(rect.origin.x, rect.max_y(),
-                                              color,
-                                              uv.origin.x, uv.max_y(),
-                                              muv.origin.x, muv.max_y()),
-                PackedVertex::from_components(rect.max_x(), rect.max_y(),
-                                              color,
-                                              uv.max_x(), uv.max_y(),
-                                              muv.max_x(), muv.max_y()),
-            ];
+            let colors = [*color, *color, *color, *color];
+            let mut vertices = clip_region.make_packed_vertices_for_rect(&colors, mask);
 
             self.add_draw_item(sort_key,
                                image_info.texture_id,
@@ -1774,55 +1753,21 @@ impl DrawCommandBuilder {
         let uv_size = Size2D::new(image_info.u1 - image_info.u0, image_info.v1 - image_info.v0);
         let uv = Rect::new(uv_origin, uv_size);
 
-        // TODO(pcwalton): Clip colors too!
-        for clip_region in clipper::clip_rect_with_mode_and_to_region_pos_uv(rect,
-                                                                             &uv,
-                                                                             clip,
-                                                                             clip_mode,
-                                                                             clip_region) {
-            let mask = match clip_region.mask_result {
-                None => dummy_mask_image,
-                Some(ref mask_result) => {
-                    mask_for_border_radius(dummy_mask_image,
-                                           raster_to_image_map,
-                                           texture_cache,
-                                           mask_result.border_radius,
-                                           false)
-                }
-            };
+        for clip_region in clipper::clip_rect_with_mode_and_to_region(RectPosUv {
+                                                                        pos: *rect,
+                                                                        uv: uv,
+                                                                      },
+                                                                      &mut self.clip_buffers,
+                                                                      clip,
+                                                                      clip_mode,
+                                                                      clip_region) {
+            let mask = mask_for_clip_region(dummy_mask_image,
+                                            raster_to_image_map,
+                                            texture_cache,
+                                            &clip_region,
+                                            false);
 
-            let muv = clip_region.muv(&mask);
-
-            let mut vertices = [
-                PackedVertex::from_components(clip_region.rect_result.x0,
-                                              clip_region.rect_result.y0,
-                                              &colors[0],
-                                              clip_region.rect_result.u0,
-                                              clip_region.rect_result.v0,
-                                              muv.origin.x,
-                                              muv.origin.y),
-                PackedVertex::from_components(clip_region.rect_result.x1,
-                                              clip_region.rect_result.y0,
-                                              &colors[1],
-                                              clip_region.rect_result.u1,
-                                              clip_region.rect_result.v0,
-                                              muv.max_x(),
-                                              muv.origin.y),
-                PackedVertex::from_components(clip_region.rect_result.x0,
-                                              clip_region.rect_result.y1,
-                                              &colors[3],
-                                              clip_region.rect_result.u0,
-                                              clip_region.rect_result.v1,
-                                              muv.origin.x,
-                                              muv.max_y()),
-                PackedVertex::from_components(clip_region.rect_result.x1,
-                                              clip_region.rect_result.y1,
-                                              &colors[2],
-                                              clip_region.rect_result.u1,
-                                              clip_region.rect_result.v1,
-                                              muv.max_x(),
-                                              muv.max_y()),
-            ];
+            let mut vertices = clip_region.make_packed_vertices_for_rect(colors, mask);
 
             self.add_draw_item(sort_key,
                                image_info.texture_id,
@@ -1835,24 +1780,15 @@ impl DrawCommandBuilder {
     fn add_gradient(&mut self,
                     sort_key: &DisplayItemKey,
                     rect: &Rect<f32>,
+                    clip_region: &ClipRegion,
                     start_point: &Point2D<f32>,
                     end_point: &Point2D<f32>,
                     stops: &[GradientStop],
                     image: &TextureCacheItem,
-                    dummy_mask_image: &TextureCacheItem) {
+                    dummy_mask_image: &TextureCacheItem,
+                    raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                    texture_cache: &TextureCache) {
         debug_assert!(stops.len() >= 2);
-
-        let x0 = rect.origin.x;
-        let x1 = x0 + rect.size.width;
-        let y0 = rect.origin.y;
-        let y1 = y0 + rect.size.height;
-
-        let clip_polygon = [
-            Point2D::new(x0, y0),
-            Point2D::new(x1, y0),
-            Point2D::new(x1, y1),
-            Point2D::new(x0, y1),
-        ];
 
         let dir_x = end_point.x - start_point.x;
         let dir_y = end_point.y - start_point.y;
@@ -1893,33 +1829,47 @@ impl DrawCommandBuilder {
             let x3 = start_x + perp_xn * len_scale;
             let y3 = start_y + perp_yn * len_scale;
 
-            let gradient_polygon = [
-                WorkVertex::new(x0, y0, color0, 0.0, 0.0, 0.0, 0.0),
-                WorkVertex::new(x1, y1, color1, 0.0, 0.0, 0.0, 0.0),
-                WorkVertex::new(x2, y2, color1, 0.0, 0.0, 0.0, 0.0),
-                WorkVertex::new(x3, y3, color0, 0.0, 0.0, 0.0, 0.0),
-            ];
+            let gradient_polygon = PolygonPosColorUv {
+                vertices: vec![
+                    WorkVertex::new(x0, y0, color0, 0.0, 0.0),
+                    WorkVertex::new(x1, y1, color1, 0.0, 0.0),
+                    WorkVertex::new(x2, y2, color1, 0.0, 0.0),
+                    WorkVertex::new(x3, y3, color0, 0.0, 0.0),
+                ],
+            };
 
-            let mut packed_vertices = Vec::new();
+            { // scope for buffers
+                let clip_result = clipper::clip_rect_with_mode_and_to_region(
+                    gradient_polygon,
+                    &mut self.clip_buffers,
+                    &rect,
+                    BoxShadowClipMode::Inset,
+                    &clip_region);
+                for clip_result in clip_result.into_iter() {
+                    let mask = mask_for_clip_region(dummy_mask_image,
+                                                    raster_to_image_map,
+                                                    texture_cache,
+                                                    &clip_result,
+                                                    false);
 
-            { // scope for  buffers
-                let clip_result = clipper::clip_polygon(&mut self.clip_buffers,
-                                                        &gradient_polygon,
-                                                        &clip_polygon);
+                    let mut packed_vertices = Vec::new();
+                    if clip_result.rect_result.vertices.len() >= 3 {
+                        for vert in clip_result.rect_result.vertices.iter() {
+                            packed_vertices.push(clip_result.make_packed_vertex(&vert.position(),
+                                                                                &vert.uv(),
+                                                                                &vert.color(),
+                                                                                &mask));
+                        }
+                    }
 
-                if clip_result.len() >= 3 {
-                    for vert in clip_result {
-                        packed_vertices.push(PackedVertex::new(vert, 0));
+                    if packed_vertices.len() > 0 {
+                        self.add_draw_item(sort_key,
+                                           image.texture_id,
+                                           mask.texture_id,
+                                           Primitive::TriangleFan,
+                                           &mut packed_vertices);
                     }
                 }
-            }
-
-            if packed_vertices.len() > 0 {
-                self.add_draw_item(sort_key,
-                                   image.texture_id,
-                                   dummy_mask_image.texture_id,
-                                   Primitive::TriangleFan,
-                                   &mut packed_vertices);
             }
         }
     }
@@ -2557,35 +2507,38 @@ impl DrawCommandBuilder {
         let mask_uv_rect = Rect::new(Point2D::new(mask_image.u0, mask_image.v0),
                                      Size2D::new(mask_image.u1 - mask_image.u0,
                                                  mask_image.v1 - mask_image.v0));
-        for clip_result in clipper::clip_rect_with_mode_pos_uv(&vertices_rect,
-                                                               &mask_uv_rect,
-                                                               clip,
-                                                               clip_mode) {
+        for clip_result in clipper::clip_rect_with_mode(RectPosUv {
+                                                            pos: vertices_rect,
+                                                            uv: mask_uv_rect,
+                                                        },
+                                                        &mut self.clip_buffers,
+                                                        clip,
+                                                        clip_mode) {
             let mut vertices = [
-                PackedVertex::from_components(clip_result.x0,
-                                              clip_result.y0,
+                PackedVertex::from_components(clip_result.pos.origin.x,
+                                              clip_result.pos.origin.y,
                                               color0,
                                               0.0, 0.0,
-                                              clip_result.u0,
-                                              clip_result.v0),
-                PackedVertex::from_components(clip_result.x1,
-                                              clip_result.y0,
+                                              clip_result.uv.origin.x,
+                                              clip_result.uv.origin.y),
+                PackedVertex::from_components(clip_result.pos.max_x(),
+                                              clip_result.pos.origin.y,
                                               color0,
                                               0.0, 0.0,
-                                              clip_result.u1,
-                                              clip_result.v0),
-                PackedVertex::from_components(clip_result.x0,
-                                              clip_result.y1,
+                                              clip_result.uv.max_x(),
+                                              clip_result.uv.origin.y),
+                PackedVertex::from_components(clip_result.pos.origin.x,
+                                              clip_result.pos.max_y(),
                                               color1,
                                               0.0, 0.0,
-                                              clip_result.u0,
-                                              clip_result.v1),
-                PackedVertex::from_components(clip_result.x1,
-                                              clip_result.y1,
+                                              clip_result.uv.origin.x,
+                                              clip_result.uv.max_y()),
+                PackedVertex::from_components(clip_result.pos.max_x(),
+                                              clip_result.pos.max_y(),
                                               color1,
                                               0.0, 0.0,
-                                              clip_result.u1,
-                                              clip_result.v1),
+                                              clip_result.uv.max_x(),
+                                              clip_result.uv.max_y()),
             ];
 
             self.add_draw_item(sort_key,
@@ -2934,6 +2887,26 @@ fn mask_for_border_radius<'a>(dummy_mask_image: &'a TextureCacheItem,
     }
 }
 
+fn mask_for_clip_region<'a,P>(dummy_mask_image: &'a TextureCacheItem,
+                              raster_to_image_map: &HashMap<RasterItem,
+                                                            ImageID,
+                                                            DefaultState<FnvHasher>>,
+                              texture_cache: &'a TextureCache,
+                              clip_region: &ClipRectToRegionResult<P>,
+                              inverted: bool)
+                              -> &'a TextureCacheItem {
+    match clip_region.mask_result {
+        None => dummy_mask_image,
+        Some(ref mask_result) => {
+            mask_for_border_radius(dummy_mask_image,
+                                   raster_to_image_map,
+                                   texture_cache,
+                                   mask_result.border_radius,
+                                   inverted)
+        }
+    }
+}
+
 trait NodeCompiler {
     fn compile(&mut self,
                flat_draw_lists: &FlatDrawListArray,
@@ -3012,25 +2985,28 @@ impl NodeCompiler for AABBTreeNode {
                             }
                             SpecificDisplayItem::Rectangle(ref info) => {
                                 builder.add_rectangle(&key,
-                                                            &display_item.rect,
-                                                            &clip_rect,
-                                                            BoxShadowClipMode::Inset,
-                                                            &display_item.clip,
-                                                            white_image_info,
-                                                            mask_image_info,
-                                                            raster_to_image_map,
-                                                            &texture_cache,
-                                                            &info.color);
+                                                      &display_item.rect,
+                                                      &clip_rect,
+                                                      BoxShadowClipMode::Inset,
+                                                      &display_item.clip,
+                                                      white_image_info,
+                                                      mask_image_info,
+                                                      raster_to_image_map,
+                                                      &texture_cache,
+                                                      &info.color);
                             }
                             SpecificDisplayItem::Iframe(..) => {}
                             SpecificDisplayItem::Gradient(ref info) => {
                                 builder.add_gradient(&key,
-                                                           &display_item.rect,
-                                                           &info.start_point,
-                                                           &info.end_point,
-                                                           &info.stops,
-                                                           white_image_info,
-                                                           mask_image_info);
+                                                     &display_item.rect,
+                                                     &display_item.clip,
+                                                     &info.start_point,
+                                                     &info.end_point,
+                                                     &info.stops,
+                                                     white_image_info,
+                                                     mask_image_info,
+                                                     raster_to_image_map,
+                                                     &texture_cache);
                             }
                             SpecificDisplayItem::BoxShadow(ref info) => {
                                 builder.add_box_shadow(&key,

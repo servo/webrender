@@ -47,6 +47,6 @@ pub use renderer::Renderer;
 #[doc(hidden)]
 pub mod bench {
     // to make private modules available to the benchmarks
-    pub use clipper::{clip_rect_pos_uv, clip_polygon, ClipBuffers};
+    pub use clipper::{clip_polygon, ClipBuffers, Polygon};
     pub use internal_types::WorkVertex;
 }

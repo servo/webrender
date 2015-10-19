@@ -11,6 +11,7 @@ use texture_cache::TextureCacheItem;
 use types::{Epoch, ColorF, PipelineId, ImageFormat, DisplayListID, DrawListID};
 use types::{ImageID, StackingContext, DisplayListBuilder, DisplayListMode, CompositionOp};
 use types::{new_resource_id};
+use util;
 
 const UV_FLOAT_TO_FIXED: f32 = 65535.0;
 const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
@@ -66,18 +67,9 @@ impl PackedColor {
             a: (color.a * COLOR_FLOAT_TO_FIXED).round() as u8,
         }
     }
-
-    pub fn from_components(r: f32, g: f32, b: f32, a: f32) -> PackedColor {
-        PackedColor {
-            r: (r * COLOR_FLOAT_TO_FIXED).round() as u8,
-            g: (g * COLOR_FLOAT_TO_FIXED).round() as u8,
-            b: (b * COLOR_FLOAT_TO_FIXED).round() as u8,
-            a: (a * COLOR_FLOAT_TO_FIXED).round() as u8,
-        }
-    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct WorkVertex {
     pub x: f32,
     pub y: f32,
@@ -87,13 +79,11 @@ pub struct WorkVertex {
     pub a: f32,
     pub u: f32,
     pub v: f32,
-    pub mu: f32,
-    pub mv: f32,
 }
 
 impl WorkVertex {
     #[inline]
-    pub fn new(x: f32, y: f32, color: &ColorF, u: f32, v: f32, mu: f32, mv: f32) -> WorkVertex {
+    pub fn new(x: f32, y: f32, color: &ColorF, u: f32, v: f32) -> WorkVertex {
         debug_assert!(u.is_finite());
         debug_assert!(v.is_finite());
 
@@ -106,8 +96,23 @@ impl WorkVertex {
             a: color.a,
             u: u,
             v: v,
-            mu: mu,
-            mv: mv,
+        }
+    }
+
+    pub fn position(&self) -> Point2D<f32> {
+        Point2D::new(self.x, self.y)
+    }
+
+    pub fn uv(&self) -> Point2D<f32> {
+        Point2D::new(self.u, self.v)
+    }
+
+    pub fn color(&self) -> ColorF {
+        ColorF {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+            a: self.a,
         }
     }
 }
@@ -129,30 +134,6 @@ pub struct PackedVertex {
 }
 
 impl PackedVertex {
-    pub fn new(v: &WorkVertex, matrix_index: u8) -> PackedVertex {
-        debug_assert!(v.u >= -0.1 && v.u <= 1.1, format!("bad u {:?}", v.u));
-        debug_assert!(v.v >= -0.1 && v.v <= 1.1, format!("bad v {:?}", v.v));
-        debug_assert!(v.mu >= -0.1 && v.mu <= 1.1, format!("bad mu {:?}", v.mu));
-        debug_assert!(v.mv >= -0.1 && v.mv <= 1.1, format!("bad mv {:?}", v.mv));
-
-        // opengl spec f32 -> unorm16
-        // round(clamp(c, 0, +1) * 65535.0)
-
-        PackedVertex {
-            x: v.x,
-            y: v.y,
-            color: PackedColor::from_components(v.r, v.g, v.b, v.a),
-            u: (v.u * UV_FLOAT_TO_FIXED).round() as u16,
-            v: (v.v * UV_FLOAT_TO_FIXED).round() as u16,
-            mu: (v.mu * UV_FLOAT_TO_FIXED).round() as u16,
-            mv: (v.mv * UV_FLOAT_TO_FIXED).round() as u16,
-            matrix_index: matrix_index,
-            unused0: 0,
-            unused1: 0,
-            unused2: 0,
-        }
-    }
-
     pub fn from_components(x: f32,
                            y: f32,
                            color: &ColorF,
@@ -173,6 +154,14 @@ impl PackedVertex {
             unused1: 0,
             unused2: 0,
         }
+    }
+
+    pub fn from_points(position: &Point2D<f32>,
+                       color: &ColorF,
+                       uv: &Point2D<f32>,
+                       muv: &Point2D<f32>)
+                       -> PackedVertex {
+        PackedVertex::from_components(position.x, position.y, color, uv.x, uv.y, muv.x, muv.y)
     }
 }
 
@@ -352,95 +341,99 @@ pub struct DisplayList {
     pub outlines_id: Option<DrawListID>,
 }
 
-#[derive(Debug)]
-pub struct ClipRectResult {
-    pub x0: f32,
-    pub y0: f32,
-    pub x1: f32,
-    pub y1: f32,
-    pub u0: f32,
-    pub v0: f32,
-    pub u1: f32,
-    pub v1: f32,
-}
-
-impl ClipRectResult {
-    pub fn from_rects(rect: &Rect<f32>, uv: &Rect<f32>) -> ClipRectResult {
-        ClipRectResult {
-            x0: rect.origin.x,
-            y0: rect.origin.y,
-            x1: rect.max_x(),
-            y1: rect.max_y(),
-            u0: uv.origin.x,
-            v0: uv.origin.y,
-            u1: uv.max_x(),
-            v1: uv.max_y(),
-        }
-    }
-
-    pub fn rect(&self) -> Rect<f32> {
-        Rect::new(Point2D::new(self.x0, self.y0),
-                  Size2D::new(self.x1 - self.x0, self.y1 - self.y0))
-    }
-
-    pub fn uv_rect(&self) -> Rect<f32> {
-        Rect::new(Point2D::new(self.u0, self.v0),
-                  Size2D::new(self.u1 - self.u0, self.v1 - self.v0))
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct ClipRectToRegionMaskResult {
-    pub mu0: f32,
-    pub mv0: f32,
-    pub mu1: f32,
-    pub mv1: f32,
+    /// The bounding box of the mask, in texture coordinates.
+    pub muv_rect: Rect<f32>,
 
-    /// For looking up in the texture cache.
+    /// The bounding rect onto which the mask will be applied, in framebuffer coordinates.
+    pub position_rect: Rect<f32>,
+
+    /// The border radius in question, for lookup in the texture cache.
     pub border_radius: f32,
 }
 
 impl ClipRectToRegionMaskResult {
-    pub fn new(rect: &Rect<f32>, border_radius: f32) -> ClipRectToRegionMaskResult {
+    pub fn new(muv_rect: &Rect<f32>, position_rect: &Rect<f32>, border_radius: f32)
+               -> ClipRectToRegionMaskResult {
         ClipRectToRegionMaskResult {
-            mu0: rect.origin.x,
-            mv0: rect.origin.y,
-            mu1: rect.max_x(),
-            mv1: rect.max_y(),
+            muv_rect: *muv_rect,
+            position_rect: *position_rect,
             border_radius: border_radius,
         }
     }
 }
 
 #[derive(Debug)]
-pub struct ClipRectToRegionResult {
-    pub rect_result: ClipRectResult,
+pub struct ClipRectToRegionResult<P> {
+    pub rect_result: P,
     pub mask_result: Option<ClipRectToRegionMaskResult>,
 }
 
-impl ClipRectToRegionResult {
-    pub fn new(rect_result: ClipRectResult, mask_result: Option<ClipRectToRegionMaskResult>)
-               -> ClipRectToRegionResult {
+impl<P> ClipRectToRegionResult<P> {
+    pub fn new(rect_result: P, mask_result: Option<ClipRectToRegionMaskResult>)
+               -> ClipRectToRegionResult<P> {
         ClipRectToRegionResult {
             rect_result: rect_result,
             mask_result: mask_result,
         }
     }
 
-    pub fn muv(&self, mask: &TextureCacheItem) -> Rect<f32> {
-        match self.mask_result {
-            None => {
-                Rect::new(Point2D::new(mask.u0, mask.v0),
-                          Size2D::new(mask.u1 - mask.u0, mask.v1 - mask.v0))
-            }
-            Some(ref mask_result) => {
-                let mask_uv_size = Size2D::new(mask.u1 - mask.u0, mask.v1 - mask.v0);
-                Rect::new(Point2D::new(mask.u0 + mask_result.mu0 * mask_uv_size.width,
-                                       mask.v0 + mask_result.mv0 * mask_uv_size.height),
-                          Size2D::new((mask_result.mu1 - mask_result.mu0) * mask_uv_size.width,
-                                      (mask_result.mv1 - mask_result.mv0) * mask_uv_size.height))
-            }
-        }
+    pub fn muv_for_position(&self, position: &Point2D<f32>, mask: &TextureCacheItem)
+                            -> Point2D<f32> {
+        let mask_uv_size = Size2D::new(mask.u1 - mask.u0, mask.v1 - mask.v0);
+        let mask_result = match self.mask_result {
+            None => return Point2D::new(0.0, 0.0),
+            Some(ref mask_result) => mask_result,
+        };
+
+        let muv_rect =
+            Rect::new(Point2D::new(mask.u0 + mask_result.muv_rect.origin.x * mask_uv_size.width,
+                                   mask.v0 + mask_result.muv_rect.origin.y * mask_uv_size.height),
+                      Size2D::new(mask_result.muv_rect.size.width * mask_uv_size.width,
+                                  mask_result.muv_rect.size.height * mask_uv_size.height));
+        let position_rect = &mask_result.position_rect;
+
+        Point2D::new(util::lerp(muv_rect.origin.x,
+                                muv_rect.max_x(),
+                                (position.x - position_rect.origin.x) / position_rect.size.width),
+                     util::lerp(muv_rect.origin.y,
+                                muv_rect.max_y(),
+                                (position.y - position_rect.origin.y) / position_rect.size.height))
+    }
+
+    pub fn make_packed_vertex(&self,
+                              position: &Point2D<f32>,
+                              uv: &Point2D<f32>,
+                              color: &ColorF,
+                              mask: &TextureCacheItem)
+                              -> PackedVertex {
+        PackedVertex::from_points(position, color, uv, &self.muv_for_position(position, mask))
+    }
+}
+
+impl ClipRectToRegionResult<RectPosUv> {
+    // TODO(pcwalton): Clip colors too!
+    pub fn make_packed_vertices_for_rect(&self, colors: &[ColorF; 4], mask: &TextureCacheItem)
+                                         -> [PackedVertex; 4] {
+        [
+            self.make_packed_vertex(&self.rect_result.pos.origin,
+                                    &self.rect_result.uv.origin,
+                                    &colors[0],
+                                    mask),
+            self.make_packed_vertex(&self.rect_result.pos.top_right(),
+                                    &self.rect_result.uv.top_right(),
+                                    &colors[1],
+                                    mask),
+            self.make_packed_vertex(&self.rect_result.pos.bottom_left(),
+                                    &self.rect_result.uv.bottom_left(),
+                                    &colors[3],
+                                    mask),
+            self.make_packed_vertex(&self.rect_result.pos.bottom_right(),
+                                    &self.rect_result.uv.bottom_right(),
+                                    &colors[2],
+                                    mask),
+        ]
     }
 }
 
@@ -514,3 +507,15 @@ impl CompiledNode {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct RectPosUv {
+    pub pos: Rect<f32>,
+    pub uv: Rect<f32>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PolygonPosColorUv {
+    pub vertices: Vec<WorkVertex>,
+}
+
