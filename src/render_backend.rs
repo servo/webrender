@@ -394,7 +394,7 @@ impl Scene {
             match item.item {
                 SpecificDisplayItem::Iframe(ref info) => {
                     let iframe_offset = draw_context.final_transform.transform_point(&item.rect.origin);
-                    iframes.push(IframeInfo::new(info.iframe, iframe_offset));
+                    iframes.push(IframeInfo::new(info.iframe, iframe_offset, item.rect));
                 }
                 _ => {}
             }
@@ -414,7 +414,8 @@ impl Scene {
                                 parent_scroll_layer: ScrollLayerId,
                                 stacking_contexts: &StackingContextMap,
                                 device_pixel_ratio: f32,
-                                texture_cache: &mut TextureCache) {
+                                texture_cache: &mut TextureCache,
+                                clip_rect: &Rect<f32>) {
         let _pf = util::ProfileScope::new("  flatten_stacking_context");
         let stacking_context = match stacking_context_kind {
             StackingContextKind::Normal(stacking_context) => stacking_context,
@@ -449,224 +450,236 @@ impl Scene {
                                                        .mul(&stacking_context.perspective)
                                                        .translate(-origin.x, -origin.y, 0.0);
 
-        let mut draw_context = DrawContext {
-            render_target_index: self.current_render_target(),
-            overflow: stacking_context.overflow,
-            device_pixel_ratio: device_pixel_ratio,
-            final_transform: final_transform,
-            scroll_layer_id: this_scroll_layer,
-        };
+        let overflow = stacking_context.overflow.intersection(&clip_rect);
 
-        // When establishing a new 3D context, clear Z. This is only needed if there
-        // are child stacking contexts, otherwise it is a redundant clear.
-        if stacking_context.establishes_3d_context && stacking_context.children.len() > 0 {
-            let mut clear_draw_list = DrawList::new();
-            let clear_item = ClearDisplayItem {
-                clear_color: false,
-                clear_z: true,
-                clear_stencil: true,
+        if let Some(overflow) = overflow {
+            let mut draw_context = DrawContext {
+                render_target_index: self.current_render_target(),
+                overflow: overflow,
+                device_pixel_ratio: device_pixel_ratio,
+                final_transform: final_transform,
+                scroll_layer_id: this_scroll_layer,
             };
-            let clip = ClipRegion {
-                main: stacking_context.overflow,
-                complex: vec![],
-            };
-            let display_item = DisplayItem {
-                item: SpecificDisplayItem::Clear(clear_item),
-                rect: stacking_context.overflow,
-                clip: clip,
-                node_index: None,
-            };
-            clear_draw_list.push(display_item);
-            self.push_draw_list(None, clear_draw_list, &draw_context);
-        }
 
-        let mut composition_operations = vec![];
-        if stacking_context.needs_composition_operation_for_mix_blend_mode() {
-            composition_operations.push(CompositionOp::MixBlend(stacking_context.mix_blend_mode));
-        }
-        for filter in stacking_context.filters.iter() {
-            match *filter {
-                FilterOp::Blur(radius) => {
-                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Blur(
-                        radius,
-                        BlurDirection::Horizontal)));
-                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Blur(
-                        radius,
-                        BlurDirection::Vertical)));
-                }
-                FilterOp::Brightness(amount) => {
-                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Brightness(
-                        amount)));
-                }
-                FilterOp::Contrast(amount) => {
-                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Contrast(
-                        amount)));
-                }
-                FilterOp::Grayscale(amount) => {
-                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Grayscale(
-                        amount)));
-                }
-                FilterOp::HueRotate(angle) => {
-                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::HueRotate(
-                        angle)));
-                }
-                FilterOp::Invert(amount) => {
-                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Invert(
-                        amount)));
-                }
-                FilterOp::Opacity(amount) => {
-                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Opacity(
-                        amount)));
-                }
-                FilterOp::Saturate(amount) => {
-                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Saturate(
-                        amount)));
-                }
-                FilterOp::Sepia(amount) => {
-                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Sepia(
-                        amount)));
+            // When establishing a new 3D context, clear Z. This is only needed if there
+            // are child stacking contexts, otherwise it is a redundant clear.
+            if stacking_context.establishes_3d_context && stacking_context.children.len() > 0 {
+                let mut clear_draw_list = DrawList::new();
+                let clear_item = ClearDisplayItem {
+                    clear_color: false,
+                    clear_z: true,
+                    clear_stencil: true,
+                };
+                let clip = ClipRegion {
+                    main: stacking_context.overflow,
+                    complex: vec![],
+                };
+                let display_item = DisplayItem {
+                    item: SpecificDisplayItem::Clear(clear_item),
+                    rect: stacking_context.overflow,
+                    clip: clip,
+                    node_index: None,
+                };
+                clear_draw_list.push(display_item);
+                self.push_draw_list(None, clear_draw_list, &draw_context);
+            }
+
+            let mut composition_operations = vec![];
+            if stacking_context.needs_composition_operation_for_mix_blend_mode() {
+                composition_operations.push(CompositionOp::MixBlend(stacking_context.mix_blend_mode));
+            }
+            for filter in stacking_context.filters.iter() {
+                match *filter {
+                    FilterOp::Blur(radius) => {
+                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Blur(
+                            radius,
+                            BlurDirection::Horizontal)));
+                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Blur(
+                            radius,
+                            BlurDirection::Vertical)));
+                    }
+                    FilterOp::Brightness(amount) => {
+                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Brightness(
+                            amount)));
+                    }
+                    FilterOp::Contrast(amount) => {
+                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Contrast(
+                            amount)));
+                    }
+                    FilterOp::Grayscale(amount) => {
+                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Grayscale(
+                            amount)));
+                    }
+                    FilterOp::HueRotate(angle) => {
+                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::HueRotate(
+                            angle)));
+                    }
+                    FilterOp::Invert(amount) => {
+                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Invert(
+                            amount)));
+                    }
+                    FilterOp::Opacity(amount) => {
+                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Opacity(
+                            amount)));
+                    }
+                    FilterOp::Saturate(amount) => {
+                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Saturate(
+                            amount)));
+                    }
+                    FilterOp::Sepia(amount) => {
+                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Sepia(
+                            amount)));
+                    }
                 }
             }
-        }
 
-        for composition_operation in composition_operations.iter() {
-            let size = Size2D::new(stacking_context.overflow.size.width as u32,
-                                   stacking_context.overflow.size.height as u32);
-            let texture_id = texture_cache.allocate_render_target(size.width, size.height, ImageFormat::RGBA8);
-            let TextureId(render_target_id) = texture_id;
+            for composition_operation in composition_operations.iter() {
+                let size = Size2D::new(stacking_context.overflow.size.width as u32,
+                                       stacking_context.overflow.size.height as u32);
+                let texture_id = texture_cache.allocate_render_target(size.width, size.height, ImageFormat::RGBA8);
+                let TextureId(render_target_id) = texture_id;
 
-            let mut composite_draw_list = DrawList::new();
-            let composite_item = CompositeDisplayItem {
-                operation: *composition_operation,
-                texture_id: RenderTargetID(render_target_id),
-            };
-            let clip = ClipRegion {
-                main: stacking_context.overflow,
-                complex: vec![],
-            };
-            let composite_item = DisplayItem {
-                item: SpecificDisplayItem::Composite(composite_item),
-                rect: stacking_context.overflow,
-                clip: clip,
-                node_index: None,
-            };
-            composite_draw_list.push(composite_item);
-            self.push_draw_list(None, composite_draw_list, &draw_context);
+                let mut composite_draw_list = DrawList::new();
+                let composite_item = CompositeDisplayItem {
+                    operation: *composition_operation,
+                    texture_id: RenderTargetID(render_target_id),
+                };
+                let clip = ClipRegion {
+                    main: stacking_context.overflow,
+                    complex: vec![],
+                };
+                let composite_item = DisplayItem {
+                    item: SpecificDisplayItem::Composite(composite_item),
+                    rect: stacking_context.overflow,
+                    clip: clip,
+                    node_index: None,
+                };
+                composite_draw_list.push(composite_item);
+                self.push_draw_list(None, composite_draw_list, &draw_context);
 
-            self.push_render_target(size, Some(texture_id));
-            final_transform = Matrix4::identity();
-            draw_context.final_transform = final_transform;
-            draw_context.render_target_index = self.current_render_target();
-        }
+                self.push_render_target(size, Some(texture_id));
+                final_transform = Matrix4::identity();
+                draw_context.final_transform = final_transform;
+                draw_context.render_target_index = self.current_render_target();
+            }
 
-        match stacking_context_kind {
-            StackingContextKind::Normal(..) => {}
-            StackingContextKind::Root(root) => {
-                self.pipeline_epoch_map.insert(root.pipeline_id, root.epoch);
+            match stacking_context_kind {
+                StackingContextKind::Normal(..) => {}
+                StackingContextKind::Root(root) => {
+                    self.pipeline_epoch_map.insert(root.pipeline_id, root.epoch);
 
-                if root.background_color.a > 0.0 {
-                    let mut root_draw_list = DrawList::new();
-                    let rectangle_item = RectangleDisplayItem {
-                        color: root.background_color.clone(),
-                    };
-                    let clip = ClipRegion {
-                        main: stacking_context.overflow,
-                        complex: vec![],
-                    };
-                    let root_bg_color_item = DisplayItem {
-                        item: SpecificDisplayItem::Rectangle(rectangle_item),
-                        rect: stacking_context.overflow,
-                        clip: clip,
-                        node_index: None,
-                    };
-                    root_draw_list.push(root_bg_color_item);
+                    if root.background_color.a > 0.0 {
+                        let mut root_draw_list = DrawList::new();
+                        let rectangle_item = RectangleDisplayItem {
+                            color: root.background_color.clone(),
+                        };
+                        let clip = ClipRegion {
+                            main: stacking_context.overflow,
+                            complex: vec![],
+                        };
+                        let root_bg_color_item = DisplayItem {
+                            item: SpecificDisplayItem::Rectangle(rectangle_item),
+                            rect: stacking_context.overflow,
+                            clip: clip,
+                            node_index: None,
+                        };
+                        root_draw_list.push(root_bg_color_item);
 
-                    self.push_draw_list(None, root_draw_list, &draw_context);
+                        self.push_draw_list(None, root_draw_list, &draw_context);
+                    }
                 }
             }
-        }
 
-        let draw_list_ids = stacking_context.collect_draw_lists(display_list_map);
+            let draw_list_ids = stacking_context.collect_draw_lists(display_list_map);
 
-        for id in &draw_list_ids.background_and_borders {
-            self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
-        }
-
-        // TODO: Sort children (or store in two arrays) to avoid having
-        //       to iterate this list twice.
-        for child in &stacking_context.children {
-            if child.z_index >= 0 {
-                continue;
+            for id in &draw_list_ids.background_and_borders {
+                self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
             }
-            self.flatten_stacking_context(StackingContextKind::Normal(child),
-                                          &final_transform,
-                                          &perspective_transform,
-                                          display_list_map,
-                                          draw_list_map,
-                                          parent_scroll_layer,
-                                          stacking_contexts,
-                                          device_pixel_ratio,
-                                          texture_cache);
-        }
 
-        for id in &draw_list_ids.block_background_and_borders {
-            self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
-        }
-
-        for id in &draw_list_ids.floats {
-            self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
-        }
-
-        for id in &draw_list_ids.content {
-            self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
-        }
-
-        for id in &draw_list_ids.positioned_content {
-            self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
-        }
-
-        for child in &stacking_context.children {
-            if child.z_index < 0 {
-                continue;
-            }
-            self.flatten_stacking_context(StackingContextKind::Normal(child),
-                                          &final_transform,
-                                          &perspective_transform,
-                                          display_list_map,
-                                          draw_list_map,
-                                          parent_scroll_layer,
-                                          stacking_contexts,
-                                          device_pixel_ratio,
-                                          texture_cache);
-        }
-
-        // TODO: This ordering isn't quite right - it should look
-        //       at the z-index in the iframe root stacking context.
-        for iframe_info in &iframes {
-            let iframe = stacking_contexts.get(&iframe_info.id);
-            if let Some(iframe) = iframe {
-                // TODO: DOesn't handle transforms on iframes yet!
-                let iframe_transform = Matrix4::identity().translate(iframe_info.offset.x,
-                                                                     iframe_info.offset.y,
-                                                                     0.0);
-                self.flatten_stacking_context(StackingContextKind::Root(iframe),
-                                              &iframe_transform,
+            // TODO: Sort children (or store in two arrays) to avoid having
+            //       to iterate this list twice.
+            for child in &stacking_context.children {
+                if child.z_index >= 0 {
+                    continue;
+                }
+                self.flatten_stacking_context(StackingContextKind::Normal(child),
+                                              &final_transform,
                                               &perspective_transform,
                                               display_list_map,
                                               draw_list_map,
                                               parent_scroll_layer,
                                               stacking_contexts,
                                               device_pixel_ratio,
-                                              texture_cache);
+                                              texture_cache,
+                                              clip_rect);
             }
-        }
 
-        for id in &draw_list_ids.outlines {
-            self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
-        }
+            for id in &draw_list_ids.block_background_and_borders {
+                self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
+            }
 
-        for _ in composition_operations.iter() {
-            self.pop_render_target();
+            for id in &draw_list_ids.floats {
+                self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
+            }
+
+            for id in &draw_list_ids.content {
+                self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
+            }
+
+            for id in &draw_list_ids.positioned_content {
+                self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
+            }
+
+            for child in &stacking_context.children {
+                if child.z_index < 0 {
+                    continue;
+                }
+                self.flatten_stacking_context(StackingContextKind::Normal(child),
+                                              &final_transform,
+                                              &perspective_transform,
+                                              display_list_map,
+                                              draw_list_map,
+                                              parent_scroll_layer,
+                                              stacking_contexts,
+                                              device_pixel_ratio,
+                                              texture_cache,
+                                              clip_rect);
+            }
+
+            // TODO: This ordering isn't quite right - it should look
+            //       at the z-index in the iframe root stacking context.
+            for iframe_info in &iframes {
+                let iframe = stacking_contexts.get(&iframe_info.id);
+                if let Some(iframe) = iframe {
+                    // TODO: DOesn't handle transforms on iframes yet!
+                    let iframe_transform = Matrix4::identity().translate(iframe_info.offset.x,
+                                                                         iframe_info.offset.y,
+                                                                         0.0);
+
+                    let clip_rect = clip_rect.intersection(&iframe_info.clip_rect);
+
+                    if let Some(clip_rect) = clip_rect {
+                        self.flatten_stacking_context(StackingContextKind::Root(iframe),
+                                                      &iframe_transform,
+                                                      &perspective_transform,
+                                                      display_list_map,
+                                                      draw_list_map,
+                                                      parent_scroll_layer,
+                                                      stacking_contexts,
+                                                      device_pixel_ratio,
+                                                      texture_cache,
+                                                      &clip_rect);
+                    }
+                }
+            }
+
+            for id in &draw_list_ids.outlines {
+                self.add_draw_list(*id, &draw_context, draw_list_map, &mut iframes);
+            }
+
+            for _ in composition_operations.iter() {
+                self.pop_render_target();
+            }
         }
     }
 
@@ -1204,14 +1217,18 @@ impl DrawCommandBuilder {
 #[derive(Debug)]
 struct IframeInfo {
     offset: Point2D<f32>,
+    clip_rect: Rect<f32>,
     id: PipelineId,
 }
 
 impl IframeInfo {
-    fn new(id: PipelineId, offset: Point2D<f32>) -> IframeInfo {
+    fn new(id: PipelineId,
+           offset: Point2D<f32>,
+           clip_rect: Rect<f32>) -> IframeInfo {
         IframeInfo {
             offset: offset,
             id: id,
+            clip_rect: clip_rect,
         }
     }
 }
@@ -1455,7 +1472,8 @@ impl RenderBackend {
                                                     root_scroll_layer_id,
                                                     &self.stacking_contexts,
                                                     self.device_pixel_ratio,
-                                                    &mut self.texture_cache);
+                                                    &mut self.texture_cache,
+                                                    &root_sc.stacking_context.overflow);
                 self.scene.pop_render_target();
 
                 // Init the AABB culling tree(s)
