@@ -42,12 +42,23 @@ impl RenderBatch {
                         program_id: ProgramId) -> bool {
         let matrix_ok = self.matrix_map.len() < MAX_MATRICES_PER_BATCH ||
                         self.matrix_map.contains_key(&key.draw_list_index);
+        let program_ok = program_id == self.program_id;
+        let color_texture_ok = color_texture_id == self.color_texture_id;
+        let mask_texture_ok = mask_texture_id == self.mask_texture_id;
+        let vertices_ok = self.vertices.len() < 65535;  // to ensure we can use u16 index buffers
 
-        program_id == self.program_id &&
-            color_texture_id == self.color_texture_id &&
-            mask_texture_id == self.mask_texture_id &&
-            self.vertices.len() < 65535 &&                  // to ensure we can use u16 index buffers
-            matrix_ok
+        let batch_ok = matrix_ok &&
+                       program_ok &&
+                       color_texture_ok &&
+                       mask_texture_ok &&
+                       vertices_ok;
+
+        if !batch_ok {
+            //println!("break batch! matrix={} program={} color={} mask={} vertices={} [{:?} vs {:?}]",
+            //         matrix_ok, program_ok, color_texture_ok, mask_texture_ok, vertices_ok, color_texture_id, self.color_texture_id);
+        }
+
+        batch_ok
     }
 
     pub fn add_draw_item(&mut self,

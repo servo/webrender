@@ -50,6 +50,11 @@ pub struct AABBTree {
     pub split_size: f32,
 }
 
+pub struct AABBTreeNodeInfo {
+    pub rect: Rect<f32>,
+    pub is_visible: bool,
+}
+
 impl AABBTree {
     pub fn new(split_size: f32) -> AABBTree {
         AABBTree {
@@ -100,12 +105,15 @@ impl AABBTree {
         &mut self.nodes[index as usize]
     }
 
-    pub fn node_rects(&self) -> Vec<Rect<f32>> {
-        let mut rects = Vec::new();
+    pub fn node_info(&self) -> Vec<AABBTreeNodeInfo> {
+        let mut info = Vec::new();
         for node in &self.nodes {
-            rects.push(node.actual_rect);
+            info.push(AABBTreeNodeInfo {
+                rect: node.actual_rect,
+                is_visible: node.is_visible,
+            });
         }
-        rects
+        info
     }
 
     #[inline]
@@ -194,7 +202,8 @@ impl AABBTree {
         let children = {
             let node = self.node_mut(node_index);
             if node.split_rect.intersects(rect) {
-                if node.src_items.len() > 0 {
+                if node.src_items.len() > 0 &&
+                   node.actual_rect.intersects(rect) {
                     node.is_visible = true;
                 }
                 node.children
