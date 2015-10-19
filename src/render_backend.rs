@@ -1703,8 +1703,8 @@ impl DrawCommandBuilder {
             let image_info = texture_cache.get(*image_id);
 
             if image_info.width > 0 && image_info.height > 0 {
-                let x0 = glyph.x + image_info.x0 as f32 / device_pixel_ratio - blur_offset;
-                let y0 = glyph.y - image_info.y0 as f32 / device_pixel_ratio - blur_offset;
+                let x0 = glyph.x.floor() + image_info.x0 as f32 / device_pixel_ratio - blur_offset;
+                let y0 = glyph.y.floor() - image_info.y0 as f32 / device_pixel_ratio - blur_offset;
 
                 let x1 = x0 + image_info.width as f32 / device_pixel_ratio;
                 let y1 = y0 + image_info.height as f32 / device_pixel_ratio;
