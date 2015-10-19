@@ -228,7 +228,7 @@ impl TextureCache {
         }
 
         let texture_id = self.free_texture_ids.pop().expect("TODO: Handle running out of texture ids!");
-        let cache_item = TextureCacheItem::new(texture_id, format, 0, 0, width, height, 0.0, 0.0, 1.0, 1.0);
+        let cache_item = TextureCacheItem::new(texture_id, format, x0, y0, width, height, 0.0, 0.0, 1.0, 1.0);
         self.items.insert(image_id, cache_item);
 
         AllocationResult {
