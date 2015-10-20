@@ -1866,6 +1866,10 @@ impl DrawCommandBuilder {
             let stop0 = &stops[i];
             let stop1 = &stops[i+1];
 
+            if stop0.offset == stop1.offset {
+                continue;
+            }
+
             let color0 = &stop0.color;
             let color1 = &stop1.color;
 

@@ -40,7 +40,7 @@ fn intersection(a: &Point2D<f32>, b: &Point2D<f32>, p: &WorkVertex, q: &WorkVert
     let color = ColorF::new(p_rgba.extract(0),
                             p_rgba.extract(1),
                             p_rgba.extract(2),
-                            p_rgba.extract(0));
+                            p_rgba.extract(3));
 
     WorkVertex::new(x, y, &color, p_uv.extract(0),
                                   p_uv.extract(1),
