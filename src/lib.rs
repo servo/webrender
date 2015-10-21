@@ -23,13 +23,13 @@ pub mod renderer;
 pub mod render_api;
 
 mod aabbtree;
+mod batch;
 mod clipper;
 mod device;
 mod font;
 mod internal_types;
 mod layer;
 mod optimizer;
-mod renderbatch;
 mod render_backend;
 mod resource_list;
 mod stats;

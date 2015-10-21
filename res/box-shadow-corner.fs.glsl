@@ -6,20 +6,21 @@
 
 uniform sampler2D sDiffuse;
 
-uniform vec4 uPosition;
-uniform float uBlurRadius;
-uniform float uArcRadius;
-
 varying vec4 vColor;
 varying vec2 vPosition;
+varying vec4 vBorderPosition;
+varying vec2 vDestTextureSize;
+varying vec4 vBorderRadii;
+varying float vBlurRadius;
 
 void main(void)
 {
-    vec2 lPosition = vPosition - uPosition.xy;
-    vec2 lArcCenter = uPosition.zw;
+    vec2 lPosition = vPosition - vBorderPosition.zw;
+    vec2 lArcCenter = vDestTextureSize;
+    float lArcRadius = vBorderRadii.x;
     float lDistance = distance(lPosition, vec2(lArcCenter));
-    float lValue = clamp(lDistance, uArcRadius - uBlurRadius, uArcRadius + uBlurRadius);
-    lValue = ((lValue - uArcRadius) / uBlurRadius + 1.0) / 2.0;
-    gl_FragColor = vec4(1.0 - lValue);
+    float lValue = clamp(lDistance, lArcRadius - vBlurRadius, lArcRadius + vBlurRadius);
+    lValue = ((lValue - lArcRadius) / vBlurRadius + 1.0) / 2.0;
+    gl_FragColor = vColor - vec4(lValue);
 }
 

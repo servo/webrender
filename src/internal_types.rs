@@ -1,8 +1,8 @@
 use app_units::Au;
+use batch::RenderBatch;
 use device::{ProgramId, TextureId};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
-use renderbatch::RenderBatch;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::sync::mpsc::Sender;
@@ -47,6 +47,11 @@ pub enum VertexAttribute {
     ColorTexCoord,
     MaskTexCoord,
     MatrixIndex,
+    BorderRadii,
+    BorderPosition,
+    BlurRadius,
+    DestTextureSize,
+    SourceTextureSize,
 }
 
 #[derive(Debug, Clone)]
@@ -174,11 +179,18 @@ pub enum RenderTargetMode {
 #[derive(Debug)]
 pub enum TextureUpdateDetails {
     Blit(Vec<u8>),
-    Blur(Vec<u8>, Size2D<u32>, Au, TextureId, TextureId),
+    Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage),
     /// All four corners and whether inverted, respectively.
     BorderRadius(Au, Au, Au, Au, bool),
     /// Blur radius border radius, and whether inverted, respectively.
     BoxShadowCorner(Au, Au, bool),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct TextureImage {
+    pub texture_id: TextureId,
+    pub texel_uv: Rect<f32>,
+    pub pixel_uv: Point2D<u32>,
 }
 
 pub enum TextureUpdateOp {
@@ -540,6 +552,67 @@ impl Glyph {
     }
 }
 
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct PackedVertexForTextureCacheUpdate {
+    pub x: f32,
+    pub y: f32,
+    pub color: PackedColor,
+    pub u: u16,
+    pub v: u16,
+    pub border_radii_outer_rx: f32,
+    pub border_radii_outer_ry: f32,
+    pub border_radii_inner_rx: f32,
+    pub border_radii_inner_ry: f32,
+    pub border_position_x: f32,
+    pub border_position_y: f32,
+    pub border_position_arc_center_x: f32,
+    pub border_position_arc_center_y: f32,
+    pub dest_texture_size_x: f32,
+    pub dest_texture_size_y: f32,
+    pub source_texture_size_x: f32,
+    pub source_texture_size_y: f32,
+    pub blur_radius: f32,
+    // TODO(pcwalton): For alignment purposes of floats. Does this actually help?
+    pub unused: f32,
+}
+
+impl PackedVertexForTextureCacheUpdate {
+    pub fn new(position: &Point2D<f32>,
+               color: &ColorF,
+               uv: &Point2D<f32>,
+               border_radii_outer: &Point2D<f32>,
+               border_radii_inner: &Point2D<f32>,
+               border_position: &Point2D<f32>,
+               border_position_arc_center: &Point2D<f32>,
+               dest_texture_size: &Size2D<f32>,
+               source_texture_size: &Size2D<f32>,
+               blur_radius: f32)
+               -> PackedVertexForTextureCacheUpdate {
+        PackedVertexForTextureCacheUpdate {
+            x: position.x,
+            y: position.y,
+            color: PackedColor::from_color(color),
+            u: (uv.x * UV_FLOAT_TO_FIXED).round() as u16,
+            v: (uv.y * UV_FLOAT_TO_FIXED).round() as u16,
+            border_radii_outer_rx: border_radii_outer.x,
+            border_radii_outer_ry: border_radii_outer.y,
+            border_radii_inner_rx: border_radii_inner.x,
+            border_radii_inner_ry: border_radii_inner.y,
+            border_position_x: border_position.x,
+            border_position_y: border_position.y,
+            border_position_arc_center_x: border_position_arc_center.x,
+            border_position_arc_center_y: border_position_arc_center.y,
+            dest_texture_size_x: dest_texture_size.width,
+            dest_texture_size_y: dest_texture_size.height,
+            source_texture_size_x: source_texture_size.width,
+            source_texture_size_y: source_texture_size.height,
+            blur_radius: blur_radius,
+            unused: 0.0,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct BorderRadiusRasterOp {
     pub outer_radius_x: Au,
@@ -598,3 +671,4 @@ pub enum RasterItem {
     BorderRadius(BorderRadiusRasterOp),
     BoxShadowCorner(BoxShadowCornerRasterOp),
 }
+
