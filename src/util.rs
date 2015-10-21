@@ -60,3 +60,8 @@ impl MatrixHelpers for Matrix4 {
                   Size2D::new(max_x - min_x, max_y - min_y))
     }
 }
+
+pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    (b - a) * t + a
+}
+
