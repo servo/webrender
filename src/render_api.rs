@@ -1,5 +1,6 @@
 use euclid::Point2D;
 use internal_types::ApiMsg;
+use platform::font::NativeFontHandle;
 use std::sync::mpsc::{self, Sender};
 use string_cache::Atom;
 use types::{PipelineId, ImageID, ImageFormat, StackingContext};
@@ -11,8 +12,13 @@ pub struct RenderApi {
 }
 
 impl RenderApi {
-    pub fn add_font(&self, id: Atom, bytes: Vec<u8>) {
-        let msg = ApiMsg::AddFont(id, bytes);
+    pub fn add_raw_font(&self, id: Atom, bytes: Vec<u8>) {
+        let msg = ApiMsg::AddRawFont(id, bytes);
+        self.tx.send(msg).unwrap();
+    }
+
+    pub fn add_native_font(&self, id: Atom, native_font_handle: NativeFontHandle) {
+        let msg = ApiMsg::AddNativeFont(id, native_font_handle);
         self.tx.send(msg).unwrap();
     }
 
