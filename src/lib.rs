@@ -29,6 +29,7 @@ mod device;
 mod font;
 mod internal_types;
 mod layer;
+mod optimizer;
 mod renderbatch;
 mod render_backend;
 mod resource_list;
