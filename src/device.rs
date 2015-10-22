@@ -161,6 +161,7 @@ pub struct Device {
     bound_vao: VAOId,
     bound_fbo: FBOId,
     default_fbo: gl::GLuint,
+    device_pixel_ratio: f32,
 
     // debug
     inside_frame: bool,
@@ -187,9 +188,11 @@ fn shader_preamble() -> &'static str {
 }
 
 impl Device {
-    pub fn new(resource_path: PathBuf) -> Device {
+    pub fn new(resource_path: PathBuf,
+               device_pixel_ratio: f32) -> Device {
         Device {
             resource_path: resource_path,
+            device_pixel_ratio: device_pixel_ratio,
             inside_frame: false,
 
             bound_color_texture: TextureId(0),
@@ -468,6 +471,10 @@ impl Device {
         let u_mask = gl::get_uniform_location(pid, "sMask");
         if u_mask != -1 {
             gl::uniform_1i(u_mask, TextureSampler::Mask as i32);
+        }
+        let u_device_pixel_ratio = gl::get_uniform_location(pid, "uDevicePixelRatio");
+        if u_device_pixel_ratio != -1 {
+            gl::uniform_1f(u_device_pixel_ratio, self.device_pixel_ratio);
         }
 
         program_id

@@ -92,7 +92,7 @@ impl Renderer {
 
         let initial_viewport = Rect::new(Point2D::zero(), Size2D::new(width as i32, height as i32));
 
-        let mut device = Device::new(resource_path);
+        let mut device = Device::new(resource_path, device_pixel_ratio);
         device.begin_frame();
 
         let quad_program_id = device.create_program("quad.vs.glsl", "quad.fs.glsl");
