@@ -56,14 +56,49 @@ fn intersection(a: &Point2D<f32>, b: &Point2D<f32>, p: &WorkVertex, q: &WorkVert
 }
 
 // We reuse these buffers for clipping algorithms
+pub struct TypedClipBuffers<P> {
+    pub polygon_scratch: Vec<P>,
+    pub polygon_output: Vec<P>,
+    pub clip_rect_to_region_result_scratch: Vec<ClipRectToRegionResult<P>>,
+    pub clip_rect_to_region_result_output: Vec<ClipRectToRegionResult<P>>,
+}
+
+impl<P> TypedClipBuffers<P> {
+    pub fn new() -> TypedClipBuffers<P> {
+        TypedClipBuffers {
+            polygon_scratch: Vec::new(),
+            polygon_output: Vec::new(),
+            clip_rect_to_region_result_scratch: Vec::new(),
+            clip_rect_to_region_result_output: Vec::new(),
+        }
+    }
+}
+
 pub struct ClipBuffers {
-    input: Vec<WorkVertex>,
-    result: Vec<WorkVertex>,
+    pub sh_clip_buffers: ShClipBuffers,
+    pub rect_pos_uv: TypedClipBuffers<RectPosUv>,
+    pub polygon_pos_color_uv: TypedClipBuffers<PolygonPosColorUv>,
 }
 
 impl ClipBuffers {
     pub fn new() -> ClipBuffers {
         ClipBuffers {
+            sh_clip_buffers: ShClipBuffers::new(),
+            rect_pos_uv: TypedClipBuffers::new(),
+            polygon_pos_color_uv: TypedClipBuffers::new(),
+        }
+    }
+}
+
+/// Clip buffers for the Sutherland-Hodgman clipping routine.
+pub struct ShClipBuffers {
+    pub input: Vec<WorkVertex>,
+    pub result: Vec<WorkVertex>,
+}
+
+impl ShClipBuffers {
+    pub fn new() -> ShClipBuffers {
+        ShClipBuffers {
             input: Vec::new(),
             result: Vec::new(),
         }
@@ -73,11 +108,11 @@ impl ClipBuffers {
 /// Clips the given polygon to a clip polygon.
 ///
 /// NB: Assumes clockwise winding for the clip polygon.
-pub fn clip_polygon<'a>(buffers: &'a mut ClipBuffers,
+pub fn clip_polygon<'a>(buffers: &'a mut ShClipBuffers,
                         polygon: &[WorkVertex],
                         clip_polygon: &[Point2D<f32>])
                         -> &'a [WorkVertex] {
-    let ClipBuffers {ref mut input, ref mut result} = *buffers;
+    let ShClipBuffers {ref mut input, ref mut result} = *buffers;
     input.clear();
     result.clear();
     for vert in polygon {
@@ -114,31 +149,38 @@ pub fn clip_polygon<'a>(buffers: &'a mut ClipBuffers,
 }
 
 pub fn clip_rect_with_mode<P>(polygon: P,
-                              clip_buffers: &mut ClipBuffers,
+                              sh_clip_buffers: &mut ShClipBuffers,
                               clip_rect: &Rect<f32>,
-                              clip_mode: BoxShadowClipMode)
-                              -> Vec<P>
+                              clip_mode: BoxShadowClipMode,
+                              output: &mut Vec<P>)
                               where P: Polygon {
     match clip_mode {
-        BoxShadowClipMode::None => vec![polygon],
-        BoxShadowClipMode::Inset => polygon.clip_to_rect(clip_buffers, clip_rect),
-        BoxShadowClipMode::Outset => polygon.clip_out_rect(clip_buffers, clip_rect),
+        BoxShadowClipMode::None => output.push(polygon),
+        BoxShadowClipMode::Inset => polygon.clip_to_rect(sh_clip_buffers, clip_rect, output),
+        BoxShadowClipMode::Outset => polygon.clip_out_rect(sh_clip_buffers, clip_rect, output),
     }
 }
 
-fn clip_to_region<P>(polygon: P, clip_buffers: &mut ClipBuffers, region: &ClipRegion)
-                     -> Vec<ClipRectToRegionResult<P>>
+fn clip_to_region<P>(polygon: P,
+                     sh_clip_buffers: &mut ShClipBuffers,
+                     polygon_scratch: &mut Vec<P>,
+                     clip_rect_to_region_result_scratch: &mut Vec<ClipRectToRegionResult<P>>,
+                     output: &mut Vec<ClipRectToRegionResult<P>>,
+                     region: &ClipRegion)
                      where P: Polygon + Clone {
-    let main_results = polygon.clip_to_rect(clip_buffers, &region.main);
-    if main_results.is_empty() {
-        return vec![]
+    polygon_scratch.clear();
+    polygon.clip_to_rect(sh_clip_buffers, &region.main, polygon_scratch);
+    if polygon_scratch.is_empty() {
+        return
     }
 
-    let mut result: Vec<_> = main_results.into_iter().map(|main_result| {
-        ClipRectToRegionResult::new(main_result, None)
-    }).collect();
+    for main_result in polygon_scratch.drain(..) {
+        output.push(ClipRectToRegionResult::new(main_result, None));
+    }
+
     for complex_region in region.complex.iter() {
-        for intermediate_result in mem::replace(&mut result, vec![]) {
+        mem::swap(clip_rect_to_region_result_scratch, output);
+        for intermediate_result in clip_rect_to_region_result_scratch.drain(..) {
             // Quick rejection:
             let intermediate_polygon = intermediate_result.rect_result.clone();
             if !intermediate_polygon.intersects_rect(&complex_region.rect) {
@@ -171,9 +213,8 @@ fn clip_to_region<P>(polygon: P, clip_buffers: &mut ClipBuffers, region: &ClipRe
                 Size2D::new(complex_region.rect.size.width,
                             complex_region.rect.size.height - (border_radius + border_radius)));
             if !rect_is_empty(&inner_rect) {
-                push_results(&mut result,
-                             intermediate_polygon.clip_to_rect(clip_buffers, &inner_rect),
-                             None);
+                intermediate_polygon.clip_to_rect(sh_clip_buffers, &inner_rect, polygon_scratch);
+                push_results(output, polygon_scratch, None);
             }
 
             // Compute the top region:
@@ -193,9 +234,8 @@ fn clip_to_region<P>(polygon: P, clip_buffers: &mut ClipBuffers, region: &ClipRe
                 Size2D::new(complex_region.rect.size.width - (border_radius + border_radius),
                             border_radius));
             if !rect_is_empty(&top_rect) {
-                push_results(&mut result,
-                             intermediate_polygon.clip_to_rect(clip_buffers, &top_rect),
-                             None);
+                intermediate_polygon.clip_to_rect(sh_clip_buffers, &top_rect, polygon_scratch);
+                push_results(output, polygon_scratch, None);
             }
 
             // Compute the bottom region:
@@ -215,9 +255,8 @@ fn clip_to_region<P>(polygon: P, clip_buffers: &mut ClipBuffers, region: &ClipRe
                 Size2D::new(complex_region.rect.size.width - (border_radius + border_radius),
                             border_radius));
             if !rect_is_empty(&bottom_rect) {
-                push_results(&mut result,
-                             intermediate_polygon.clip_to_rect(clip_buffers, &bottom_rect),
-                             None);
+                intermediate_polygon.clip_to_rect(sh_clip_buffers, &bottom_rect, polygon_scratch);
+                push_results(output, polygon_scratch, None);
             }
 
             // Now for the corners:
@@ -240,8 +279,9 @@ fn clip_to_region<P>(polygon: P, clip_buffers: &mut ClipBuffers, region: &ClipRe
                                             Size2D::new(border_radius, border_radius));
             if !rect_is_empty(&corner_rect) {
                 let mask_rect = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(1.0, 1.0));
-                push_results(&mut result,
-                             intermediate_polygon.clip_to_rect(clip_buffers, &corner_rect),
+                intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
+                push_results(output,
+                             polygon_scratch,
                              Some(ClipRectToRegionMaskResult::new(&mask_rect,
                                                                   &corner_rect,
                                                                   border_radius)))
@@ -251,9 +291,10 @@ fn clip_to_region<P>(polygon: P, clip_buffers: &mut ClipBuffers, region: &ClipRe
             corner_rect.origin = Point2D::new(complex_region.rect.max_x() - border_radius,
                                               complex_region.rect.origin.y);
             if !rect_is_empty(&corner_rect) {
+                intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
                 let mask_rect = Rect::new(Point2D::new(1.0, 0.0), Size2D::new(-1.0, 1.0));
-                push_results(&mut result,
-                             intermediate_polygon.clip_to_rect(clip_buffers, &corner_rect),
+                push_results(output,
+                             polygon_scratch,
                              Some(ClipRectToRegionMaskResult::new(&mask_rect,
                                                                   &corner_rect,
                                                                   border_radius)))
@@ -263,9 +304,10 @@ fn clip_to_region<P>(polygon: P, clip_buffers: &mut ClipBuffers, region: &ClipRe
             corner_rect.origin = Point2D::new(complex_region.rect.origin.x,
                                               complex_region.rect.max_y() - border_radius);
             if !rect_is_empty(&corner_rect) {
+                intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
                 let mask_rect = Rect::new(Point2D::new(0.0, 1.0), Size2D::new(1.0, -1.0));
-                push_results(&mut result,
-                             intermediate_polygon.clip_to_rect(clip_buffers, &corner_rect),
+                push_results(output,
+                             polygon_scratch,
                              Some(ClipRectToRegionMaskResult::new(&mask_rect,
                                                                   &corner_rect,
                                                                   border_radius)))
@@ -275,49 +317,54 @@ fn clip_to_region<P>(polygon: P, clip_buffers: &mut ClipBuffers, region: &ClipRe
             corner_rect.origin = Point2D::new(complex_region.rect.max_x() - border_radius,
                                               complex_region.rect.max_y() - border_radius);
             if !rect_is_empty(&corner_rect) {
+                intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
                 let mask_rect = Rect::new(Point2D::new(1.0, 1.0), Size2D::new(-1.0, -1.0));
-                push_results(&mut result,
-                             intermediate_polygon.clip_to_rect(clip_buffers, &corner_rect),
+                push_results(output,
+                             polygon_scratch,
                              Some(ClipRectToRegionMaskResult::new(&mask_rect,
                                                                   &corner_rect,
                                                                   border_radius)))
             }
-
         }
     }
-
-    // Done!
-    return result;
 
     fn size_max(size: &Size2D<f32>) -> f32 {
         f32::max(size.width, size.height)
     }
 
-    fn push_results<P>(results: &mut Vec<ClipRectToRegionResult<P>>,
-                       clip_rect_results: Vec<P>,
+    fn push_results<P>(output: &mut Vec<ClipRectToRegionResult<P>>,
+                       clip_rect_results: &mut Vec<P>,
                        mask_result: Option<ClipRectToRegionMaskResult>)
                        where P: Polygon {
-        results.extend(clip_rect_results.into_iter().map(|clip_rect_result| {
+        output.extend(clip_rect_results.drain(..).map(|clip_rect_result| {
             ClipRectToRegionResult::new(clip_rect_result, mask_result)
         }))
     }
 }
 
+/// NB: Clobbers both `polygon_scratch` and `polygon_output` in the typed clip buffers.
 pub fn clip_rect_with_mode_and_to_region<P>(polygon: P,
-                                            clip_buffers: &mut ClipBuffers,
+                                            sh_clip_buffers: &mut ShClipBuffers,
+                                            typed_clip_buffers: &mut TypedClipBuffers<P>,
                                             clip_rect: &Rect<f32>,
                                             clip_mode: BoxShadowClipMode,
                                             clip_region: &ClipRegion)
-                                            -> Vec<ClipRectToRegionResult<P>>
                                             where P: Polygon + Clone {
-    let initial_results = clip_rect_with_mode(polygon, clip_buffers, clip_rect, clip_mode);
-    let mut final_results = vec![];
-    for initial_clip_result in initial_results.into_iter() {
-        final_results.extend(clip_to_region(initial_clip_result,
-                                            clip_buffers,
-                                            clip_region).into_iter())
+    typed_clip_buffers.polygon_scratch.clear();
+    clip_rect_with_mode(polygon,
+                        sh_clip_buffers,
+                        clip_rect,
+                        clip_mode,
+                        &mut typed_clip_buffers.polygon_scratch);
+
+    for initial_clip_result in typed_clip_buffers.polygon_scratch.drain(..) {
+        clip_to_region(initial_clip_result,
+                       sh_clip_buffers,
+                       &mut typed_clip_buffers.polygon_output,
+                       &mut typed_clip_buffers.clip_rect_to_region_result_scratch,
+                       &mut typed_clip_buffers.clip_rect_to_region_result_output,
+                       clip_region)
     }
-    final_results
 }
 
 // Don't use `euclid`'s `is_empty` because that has effectively has an "and" in the conditional
@@ -327,16 +374,25 @@ fn rect_is_empty(rect: &Rect<f32>) -> bool {
 }
 
 pub trait Polygon : Sized {
-    fn clip_to_rect(&self, clip_buffers: &mut ClipBuffers, clip_rect: &Rect<f32>) -> Vec<Self>;
-    fn clip_out_rect(&self, clip_buffers: &mut ClipBuffers, clip_rect: &Rect<f32>) -> Vec<Self>;
+    fn clip_to_rect(&self,
+                    sh_clip_buffers: &mut ShClipBuffers,
+                    clip_rect: &Rect<f32>,
+                    output: &mut Vec<Self>);
+    fn clip_out_rect(&self,
+                     sh_clip_buffers: &mut ShClipBuffers,
+                     clip_rect: &Rect<f32>,
+                     output: &mut Vec<Self>);
     fn intersects_rect(&self, rect: &Rect<f32>) -> bool;
 }
 
 impl Polygon for RectPosUv {
-    fn clip_to_rect(&self, _: &mut ClipBuffers, clip_rect: &Rect<f32>) -> Vec<RectPosUv> {
-        self.pos.intersection(clip_rect).into_iter().flat_map(|clipped_rect| {
+    fn clip_to_rect(&self,
+                    _: &mut ShClipBuffers,
+                    clip_rect: &Rect<f32>,
+                    output: &mut Vec<RectPosUv>) {
+        for clipped_rect in self.pos.intersection(clip_rect).into_iter() {
             if rect_is_empty(&clipped_rect) {
-                return vec![]
+                continue
             }
 
             // de-simd'd code:
@@ -378,42 +434,46 @@ impl Polygon for RectPosUv {
                                       self.uv.size.width, self.uv.size.height);
             let f = ((clip - origins) / sizes) * uv_sizes + uv_origins;
 
-            vec![RectPosUv {
+            output.push(RectPosUv {
                 pos: Rect::new(Point2D::new(clip.extract(0), clip.extract(1)),
                                Size2D::new(clip.extract(2) - clip.extract(0),
                                            clip.extract(3) - clip.extract(1))),
                 uv: Rect::new(Point2D::new(f.extract(0), f.extract(1)),
                               Size2D::new(f.extract(2) - f.extract(0),
                                           f.extract(3) - f.extract(1))),
-            }]
-        }).collect()
+            })
+        }
     }
 
-    fn clip_out_rect(&self, _: &mut ClipBuffers, clip_rect: &Rect<f32>) -> Vec<RectPosUv> {
+    fn clip_out_rect(&self,
+                     _: &mut ShClipBuffers,
+                     clip_rect: &Rect<f32>,
+                     output: &mut Vec<RectPosUv>) {
         let clip_rect = match self.pos.intersection(clip_rect) {
             Some(clip_rect) => clip_rect,
-            None => return vec![*self],
+            None => {
+                output.push(*self);
+                return
+            }
         };
 
         // FIXME(pcwalton): Clip the u and v too.
-        let mut result = vec![];
-        push(&mut result,
+        push(output,
              &self.uv,
              &self.pos.origin,
              &Point2D::new(self.pos.max_x(), clip_rect.origin.y));
-        push(&mut result,
+        push(output,
              &self.uv,
              &Point2D::new(self.pos.origin.x, clip_rect.origin.y),
              &clip_rect.bottom_left());
-        push(&mut result,
+        push(output,
              &self.uv,
              &clip_rect.top_right(),
              &Point2D::new(self.pos.max_x(), clip_rect.max_y()));
-        push(&mut result,
+        push(output,
              &self.uv,
              &Point2D::new(self.pos.origin.x, clip_rect.max_y()),
              &self.pos.bottom_right());
-        return result;
 
         fn push(result: &mut Vec<RectPosUv>,
                 uv: &Rect<f32>,
@@ -437,32 +497,38 @@ impl Polygon for RectPosUv {
 }
 
 impl PolygonPosColorUv {
-    fn clip_to_polygon(&self, clip_buffers: &mut ClipBuffers, clip_vertices: &[Point2D<f32>])
-                       -> Vec<PolygonPosColorUv> {
+    fn clip_to_polygon(&self,
+                       clip_buffers: &mut ShClipBuffers,
+                       clip_vertices: &[Point2D<f32>],
+                       output: &mut Vec<PolygonPosColorUv>) {
         let clipped_vertices = clip_polygon(clip_buffers,
                                             &self.vertices[..],
                                             clip_vertices).to_vec();
-        vec![
-            PolygonPosColorUv {
-                vertices: clipped_vertices,
-            }
-        ]
+        output.push(PolygonPosColorUv {
+            vertices: clipped_vertices,
+        })
     }
 }
 
 impl Polygon for PolygonPosColorUv {
-    fn clip_to_rect(&self, clip_buffers: &mut ClipBuffers, clip_rect: &Rect<f32>)
-                    -> Vec<PolygonPosColorUv> {
-        self.clip_to_polygon(clip_buffers, &[
-            clip_rect.origin,
-            clip_rect.top_right(),
-            clip_rect.bottom_right(),
-            clip_rect.bottom_left(),
-        ])
+    fn clip_to_rect(&self,
+                    clip_buffers: &mut ShClipBuffers,
+                    clip_rect: &Rect<f32>,
+                    output: &mut Vec<PolygonPosColorUv>) {
+        self.clip_to_polygon(clip_buffers,
+                             &[
+                                clip_rect.origin,
+                                clip_rect.top_right(),
+                                clip_rect.bottom_right(),
+                                clip_rect.bottom_left(),
+                             ],
+                             output)
     }
 
-    fn clip_out_rect(&self, clip_buffers: &mut ClipBuffers, clip_rect: &Rect<f32>)
-                     -> Vec<PolygonPosColorUv> {
+    fn clip_out_rect(&self,
+                     clip_buffers: &mut ShClipBuffers,
+                     clip_rect: &Rect<f32>,
+                     output: &mut Vec<PolygonPosColorUv>) {
         //
         //  +-----------------------+
         //  | 8                     | 9
@@ -477,18 +543,20 @@ impl Polygon for PolygonPosColorUv {
         //    7                       6
         //
 
-        self.clip_to_polygon(clip_buffers, &[
-            clip_rect.top_right(),                                  // 1
-            clip_rect.bottom_right(),                               // 2
-            clip_rect.bottom_left(),                                // 3
-            clip_rect.origin,                                       // 4
-            Point2D::new(MAX_RECT.max_x(), clip_rect.origin.y),     // 5
-            MAX_RECT.bottom_right(),                                // 6
-            MAX_RECT.bottom_left(),                                 // 7
-            MAX_RECT.origin,                                        // 8
-            MAX_RECT.top_right(),                                   // 9
-            Point2D::new(MAX_RECT.max_x(), clip_rect.origin.y),     // 10
-        ])
+        self.clip_to_polygon(clip_buffers,
+                             &[
+                                clip_rect.top_right(),                                  // 1
+                                clip_rect.bottom_right(),                               // 2
+                                clip_rect.bottom_left(),                                // 3
+                                clip_rect.origin,                                       // 4
+                                Point2D::new(MAX_RECT.max_x(), clip_rect.origin.y),     // 5
+                                MAX_RECT.bottom_right(),                                // 6
+                                MAX_RECT.bottom_left(),                                 // 7
+                                MAX_RECT.origin,                                        // 8
+                                MAX_RECT.top_right(),                                   // 9
+                                Point2D::new(MAX_RECT.max_x(), clip_rect.origin.y),     // 10
+                             ],
+                             output)
     }
 
     fn intersects_rect(&self, rect: &Rect<f32>) -> bool {

@@ -364,7 +364,7 @@ impl ClipRectToRegionMaskResult {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ClipRectToRegionResult<P> {
     pub rect_result: P,
     pub mask_result: Option<ClipRectToRegionMaskResult>,
