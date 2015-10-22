@@ -12,6 +12,7 @@ use internal_types::{ClipRectToRegionResult, DrawListIndex, DrawListItemIndex, D
 use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey};
 use internal_types::{PolygonPosColorUv, RectPosUv};
 use layer::Layer;
+use optimizer;
 use renderbatch::RenderBatch;
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_list::ResourceList;
@@ -1353,7 +1354,12 @@ impl RenderBackend {
                             };
                             self.image_templates.insert(id, image);
                         }
-                        ApiMsg::AddDisplayList(id, pipeline_id, epoch, display_list_builder) => {
+                        ApiMsg::AddDisplayList(id,
+                                               pipeline_id,
+                                               epoch,
+                                               mut display_list_builder) => {
+                            optimizer::optimize_display_list_builder(&mut display_list_builder);
+
                             let display_list = DisplayList {
                                 mode: display_list_builder.mode,
                                 pipeline_id: pipeline_id,
