@@ -494,7 +494,9 @@ pub struct CompiledNode {
     pub batches: Vec<RenderBatch>,
     pub commands: Vec<DrawCommand>,
     pub batch_id_list: Vec<BatchId>,
-    pub matrix_maps: HashMap<BatchId, HashMap<DrawListIndex, u8>, DefaultState<FnvHasher>>,
+    pub matrix_maps: HashMap<BatchId,
+                             HashMap<DrawListIndex, u8, DefaultState<FnvHasher>>,
+                             DefaultState<FnvHasher>>,
 }
 
 impl CompiledNode {
