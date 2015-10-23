@@ -1,8 +1,10 @@
 use device::{ProgramId, TextureId};
+use fnv::FnvHasher;
 use internal_types::{BatchId, DisplayItemKey, DrawListIndex};
 use internal_types::{PackedVertex, Primitive};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
+use std::collections::hash_state::DefaultState;
 
 const MAX_MATRICES_PER_BATCH: usize = 32;
 
@@ -14,7 +16,7 @@ pub struct RenderBatch {
     pub mask_texture_id: TextureId,
     pub vertices: Vec<PackedVertex>,
     pub indices: Vec<u16>,
-    pub matrix_map: HashMap<DrawListIndex, u8>,
+    pub matrix_map: HashMap<DrawListIndex, u8, DefaultState<FnvHasher>>,
 }
 
 impl RenderBatch {
@@ -31,7 +33,7 @@ impl RenderBatch {
             mask_texture_id: mask_texture_id,
             vertices: Vec::new(),
             indices: Vec::new(),
-            matrix_map: HashMap::new(),
+            matrix_map: HashMap::with_hash_state(Default::default()),
         }
     }
 
