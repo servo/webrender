@@ -485,6 +485,7 @@ impl DisplayItemKey {
 
 #[derive(Debug)]
 pub enum Primitive {
+    Triangles,
     Rectangles,     // 4 vertices per rect
     TriangleFan,    // simple triangle fan (typically from clipper)
     Glyphs,         // font glyphs (some platforms may specialize shader)

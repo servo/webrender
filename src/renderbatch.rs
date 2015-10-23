@@ -93,6 +93,14 @@ impl RenderBatch {
                     self.indices.push(index_base + 1);
                 }
             }
+            Primitive::Triangles => {
+                for i in (0..vertices.len()).step_by(3) {
+                    let index_base = (index_offset + i) as u16;
+                    self.indices.push(index_base + 0);
+                    self.indices.push(index_base + 1);
+                    self.indices.push(index_base + 2);
+                }
+            }
             Primitive::TriangleFan => {
                 for i in (1..vertices.len() - 1) {
                     self.indices.push(index_offset as u16);        // center vertex

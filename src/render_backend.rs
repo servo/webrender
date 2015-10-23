@@ -1155,6 +1155,7 @@ impl DrawCommandBuilder {
                      primitive: Primitive,
                      vertices: &mut [PackedVertex]) {
         let program_id = match primitive {
+            Primitive::Triangles |
             Primitive::Rectangles |
             Primitive::TriangleFan => {
                 self.quad_program_id
@@ -2492,6 +2493,7 @@ impl DrawCommandBuilder {
     #[inline]
     fn add_border_corner(&mut self,
                          sort_key: &DisplayItemKey,
+                         clip: &Rect<f32>,
                          v0: Point2D<f32>,
                          v1: Point2D<f32>,
                          color0: &ColorF,
@@ -2501,8 +2503,11 @@ impl DrawCommandBuilder {
                          white_image: &TextureCacheItem,
                          dummy_mask_image: &TextureCacheItem,
                          raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
-                         texture_cache: &TextureCache,
-                         clip_buffers: &mut ClipBuffers) {
+                         texture_cache: &TextureCache) {
+        if color0.a <= 0.0 && color1.a <= 0.0 {
+            return
+        }
+
         // TODO: Check for zero width/height borders!
         let mask_image = match BorderRadiusRasterOp::create(outer_radius,
                                                             inner_radius,
@@ -2518,16 +2523,56 @@ impl DrawCommandBuilder {
             }
         };
 
-        self.add_masked_rectangle(sort_key,
-                                  &v0,
-                                  &v1,
-                                  &MAX_RECT,
-                                  BoxShadowClipMode::None,
-                                  color0,
-                                  color1,
-                                  &white_image,
-                                  &mask_image,
-                                  clip_buffers);
+        let vmin = Point2D::new(v0.x.min(v1.x), v0.y.min(v1.y));
+        let vmax = Point2D::new(v0.x.max(v1.x), v0.y.max(v1.y));
+        let vertices_rect = Rect::new(vmin, Size2D::new(vmax.x - vmin.x, vmax.y - vmin.y));
+        if vertices_rect.intersects(clip) {
+            let mut vertices = [
+                PackedVertex::from_components(v0.x,
+                                              v0.y,
+                                              color0,
+                                              0.0, 0.0,
+                                              mask_image.u0,
+                                              mask_image.v0),
+                PackedVertex::from_components(v1.x,
+                                              v1.y,
+                                              color0,
+                                              0.0, 0.0,
+                                              mask_image.u1,
+                                              mask_image.v1),
+                PackedVertex::from_components(v0.x,
+                                              v1.y,
+                                              color0,
+                                              0.0, 0.0,
+                                              mask_image.u0,
+                                              mask_image.v1),
+
+                PackedVertex::from_components(v0.x,
+                                              v0.y,
+                                              color1,
+                                              0.0, 0.0,
+                                              mask_image.u0,
+                                              mask_image.v0),
+                PackedVertex::from_components(v1.x,
+                                              v0.y,
+                                              color1,
+                                              0.0, 0.0,
+                                              mask_image.u1,
+                                              mask_image.v0),
+                PackedVertex::from_components(v1.x,
+                                              v1.y,
+                                              color1,
+                                              0.0, 0.0,
+                                              mask_image.u1,
+                                              mask_image.v1),
+            ];
+
+            self.add_draw_item(sort_key,
+                               white_image.texture_id,
+                               mask_image.texture_id,
+                               Primitive::Triangles,
+                               &mut vertices);
+        }
     }
 
     fn add_masked_rectangle(&mut self,
@@ -2696,6 +2741,7 @@ impl DrawCommandBuilder {
 
         // Corners
         self.add_border_corner(sort_key,
+                               clip,
                                tl_outer,
                                tl_inner,
                                &left_color,
@@ -2705,10 +2751,10 @@ impl DrawCommandBuilder {
                                white_image,
                                dummy_mask_image,
                                raster_to_image_map,
-                               texture_cache,
-                               clip_buffers);
+                               texture_cache);
 
         self.add_border_corner(sort_key,
+                               clip,
                                tr_outer,
                                tr_inner,
                                &right_color,
@@ -2718,10 +2764,10 @@ impl DrawCommandBuilder {
                                white_image,
                                dummy_mask_image,
                                raster_to_image_map,
-                               texture_cache,
-                               clip_buffers);
+                               texture_cache);
 
         self.add_border_corner(sort_key,
+                               clip,
                                br_outer,
                                br_inner,
                                &right_color,
@@ -2731,10 +2777,10 @@ impl DrawCommandBuilder {
                                white_image,
                                dummy_mask_image,
                                raster_to_image_map,
-                               texture_cache,
-                               clip_buffers);
+                               texture_cache);
 
         self.add_border_corner(sort_key,
+                               clip,
                                bl_outer,
                                bl_inner,
                                &left_color,
@@ -2744,8 +2790,7 @@ impl DrawCommandBuilder {
                                white_image,
                                dummy_mask_image,
                                raster_to_image_map,
-                               texture_cache,
-                               clip_buffers);
+                               texture_cache);
     }
 
     // FIXME(pcwalton): Assumes rectangles are well-formed with origin in TL
