@@ -176,7 +176,7 @@ impl TextureCache {
             if width <= level.size && height <= level.size {
                 let (page_list, mode) = match format {
                     ImageFormat::A8 => (&mut level.pages_a8, RenderTargetMode::RenderTarget),
-                    ImageFormat::RGBA8 => (&mut level.pages_rgba8, RenderTargetMode::None),
+                    ImageFormat::RGBA8 => (&mut level.pages_rgba8, RenderTargetMode::RenderTarget),
                     ImageFormat::RGB8 => (&mut level.pages_rgb8, RenderTargetMode::None),
                     ImageFormat::Invalid => unreachable!(),
                 };
@@ -252,7 +252,7 @@ impl TextureCache {
                                                0,
                                                width,
                                                height,
-                                               ImageFormat::A8);
+                                               op.image_format);
 
                 assert!(allocation.kind == AllocationKind::TexturePage);        // TODO: Handle large border radii not fitting in texture cache page
 

@@ -6,7 +6,7 @@ use string_cache::Atom;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NodeIndex(pub u32);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ImageFormat {
     Invalid,
     A8,
@@ -347,10 +347,14 @@ pub struct BorderRadiusRasterOp {
     pub inner_radius_x: Au,
     pub inner_radius_y: Au,
     pub inverted: bool,
+    pub image_format: ImageFormat,
 }
 
 impl BorderRadiusRasterOp {
-    pub fn create(outer_radius: &Size2D<f32>, inner_radius: &Size2D<f32>, inverted: bool)
+    pub fn create(outer_radius: &Size2D<f32>,
+                  inner_radius: &Size2D<f32>,
+                  inverted: bool,
+                  image_format: ImageFormat)
                   -> Option<BorderRadiusRasterOp> {
         if outer_radius.width > 0.0 || outer_radius.height > 0.0 {
             Some(BorderRadiusRasterOp {
@@ -359,6 +363,7 @@ impl BorderRadiusRasterOp {
                 inner_radius_x: Au::from_f32_px(inner_radius.width),
                 inner_radius_y: Au::from_f32_px(inner_radius.height),
                 inverted: inverted,
+                image_format: image_format,
             })
         } else {
             None

@@ -7,7 +7,7 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
 use string_cache::Atom;
 use types::{BorderRadiusRasterOp, BoxShadowCornerRasterOp};
-use types::{Glyph, ImageID, RasterItem};
+use types::{Glyph, ImageFormat, ImageID, RasterItem};
 
 type RequiredImageSet = HashSet<ImageID, DefaultState<FnvHasher>>;
 type RequiredGlyphMap = HashMap<Atom, HashSet<Glyph>, DefaultState<FnvHasher>>;
@@ -48,10 +48,12 @@ impl ResourceList {
     pub fn add_radius_raster(&mut self,
                              outer_radius: &Size2D<f32>,
                              inner_radius: &Size2D<f32>,
-                             inverted: bool) {
+                             inverted: bool,
+                             image_format: ImageFormat) {
         if let Some(raster_item) = BorderRadiusRasterOp::create(outer_radius,
                                                                 inner_radius,
-                                                                inverted) {
+                                                                inverted,
+                                                                image_format) {
             self.required_rasters.insert(RasterItem::BorderRadius(raster_item));
         }
     }
