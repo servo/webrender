@@ -61,10 +61,10 @@ pub struct PackedColor {
 impl PackedColor {
     pub fn from_color(color: &ColorF) -> PackedColor {
         PackedColor {
-            r: (color.r * COLOR_FLOAT_TO_FIXED).round() as u8,
-            g: (color.g * COLOR_FLOAT_TO_FIXED).round() as u8,
-            b: (color.b * COLOR_FLOAT_TO_FIXED).round() as u8,
-            a: (color.a * COLOR_FLOAT_TO_FIXED).round() as u8,
+            r: (color.r * COLOR_FLOAT_TO_FIXED) as u8,
+            g: (color.g * COLOR_FLOAT_TO_FIXED) as u8,
+            b: (color.b * COLOR_FLOAT_TO_FIXED) as u8,
+            a: (color.a * COLOR_FLOAT_TO_FIXED) as u8,
         }
     }
 }
@@ -145,10 +145,10 @@ impl PackedVertex {
             x: x,
             y: y,
             color: PackedColor::from_color(color),
-            u: (u * UV_FLOAT_TO_FIXED).round() as u16,
-            v: (v * UV_FLOAT_TO_FIXED).round() as u16,
-            mu: (mu * UV_FLOAT_TO_FIXED).round() as u16,
-            mv: (mv * UV_FLOAT_TO_FIXED).round() as u16,
+            u: (u * UV_FLOAT_TO_FIXED) as u16,
+            v: (v * UV_FLOAT_TO_FIXED) as u16,
+            mu: (mu * UV_FLOAT_TO_FIXED) as u16,
+            mv: (mv * UV_FLOAT_TO_FIXED) as u16,
             matrix_index: 0,
             unused0: 0,
             unused1: 0,
