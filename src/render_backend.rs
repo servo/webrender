@@ -65,6 +65,17 @@ pub static MAX_RECT: Rect<f32> = Rect {
     },
 };
 
+pub static ZERO_RECT: Rect<f32> = Rect {
+    origin: Point2D {
+        x: 0.0,
+        y: 0.0,
+    },
+    size: Size2D {
+        width: 0.0,
+        height: 0.0,
+    },
+};
+
 const BORDER_DASH_SIZE: f32 = 3.0;
 
 #[derive(Debug)]
@@ -2321,6 +2332,7 @@ impl DrawCommandBuilder {
                     };
                     self.push_rectangle(sort_key,
                                         &dash_rect,
+                                        &ZERO_RECT,
                                         color,
                                         white_image,
                                         dummy_mask_image);
@@ -2353,51 +2365,52 @@ impl DrawCommandBuilder {
                     let raster_op =
                         BorderRadiusRasterOp::create(&Size2D::new(mask_radius, mask_radius),
                                                      &Size2D::new(0.0, 0.0),
-                                                     false).expect(
+                                                     false,
+                                                     ImageFormat::RGBA8).expect(
                         "Didn't find border radius mask for dashed border!");
                     let raster_item = RasterItem::BorderRadius(raster_op);
                     let raster_item_id = raster_to_image_map[&raster_item];
-                    let mask_image = texture_cache.get(raster_item_id);
-                    let muv_rect = Rect::new(Point2D::new(mask_image.u0, mask_image.v0),
-                                             Size2D::new(mask_image.u1 - mask_image.u0,
-                                                         mask_image.v1 - mask_image.v0));
+                    let color_image = texture_cache.get(raster_item_id);
+                    let uv_rect = Rect::new(Point2D::new(color_image.u0, color_image.v0),
+                                             Size2D::new(color_image.u1 - color_image.u0,
+                                                         color_image.v1 - color_image.v0));
 
                     // Top left:
-                    self.push_masked_rectangle(sort_key,
-                                               &Rect::new(dot_rect.origin,
-                                                          Size2D::new(dot_rect.size.width / 2.0,
-                                                                      dot_rect.size.height / 2.0)),
-                                               &muv_rect,
-                                               color,
-                                               white_image,
-                                               mask_image);
+                    self.push_rectangle(sort_key,
+                                        &Rect::new(dot_rect.origin,
+                                                   Size2D::new(dot_rect.size.width / 2.0,
+                                                               dot_rect.size.height / 2.0)),
+                                        &uv_rect,
+                                        color,
+                                        color_image,
+                                        dummy_mask_image);
                     // Top right:
-                    self.push_masked_rectangle(sort_key,
-                                               &Rect::new(dot_rect.top_right(),
-                                                          Size2D::new(-dot_rect.size.width / 2.0,
-                                                                      dot_rect.size.height / 2.0)),
-                                               &muv_rect,
-                                               color,
-                                               white_image,
-                                               mask_image);
+                    self.push_rectangle(sort_key,
+                                        &Rect::new(dot_rect.top_right(),
+                                                   Size2D::new(-dot_rect.size.width / 2.0,
+                                                               dot_rect.size.height / 2.0)),
+                                        &uv_rect,
+                                        color,
+                                        color_image,
+                                        dummy_mask_image);
                     // Bottom right:
-                    self.push_masked_rectangle(sort_key,
-                                               &Rect::new(dot_rect.bottom_right(),
-                                                          Size2D::new(-dot_rect.size.width / 2.0,
-                                                                      -dot_rect.size.height / 2.0)),
-                                               &muv_rect,
-                                               color,
-                                               white_image,
-                                               mask_image);
+                    self.push_rectangle(sort_key,
+                                        &Rect::new(dot_rect.bottom_right(),
+                                                   Size2D::new(-dot_rect.size.width / 2.0,
+                                                               -dot_rect.size.height / 2.0)),
+                                        &uv_rect,
+                                        color,
+                                        color_image,
+                                        dummy_mask_image);
                     // Bottom left:
-                    self.push_masked_rectangle(sort_key,
-                                               &Rect::new(dot_rect.bottom_left(),
-                                                          Size2D::new(dot_rect.size.width / 2.0,
-                                                                      -dot_rect.size.height / 2.0)),
-                                               &muv_rect,
-                                               color,
-                                               white_image,
-                                               mask_image);
+                    self.push_rectangle(sort_key,
+                                        &Rect::new(dot_rect.bottom_left(),
+                                                   Size2D::new(dot_rect.size.width / 2.0,
+                                                               -dot_rect.size.height / 2.0)),
+                                        &uv_rect,
+                                        color,
+                                        color_image,
+                                        dummy_mask_image);
 
                     origin += step + step;
                 }
@@ -2421,11 +2434,13 @@ impl DrawCommandBuilder {
                 };
                 self.push_rectangle(sort_key,
                                     &outer_rect,
+                                    &ZERO_RECT,
                                     color,
                                     white_image,
                                     dummy_mask_image);
                 self.push_rectangle(sort_key,
                                     &inner_rect,
+                                    &ZERO_RECT,
                                     color,
                                     white_image,
                                     dummy_mask_image);
@@ -2433,6 +2448,7 @@ impl DrawCommandBuilder {
             _ => {
                 self.push_rectangle(sort_key,
                                     rect,
+                                    &ZERO_RECT,
                                     color,
                                     white_image,
                                     dummy_mask_image);
@@ -2444,45 +2460,24 @@ impl DrawCommandBuilder {
     fn push_rectangle(&mut self,
                       sort_key: &DisplayItemKey,
                       rect: &Rect<f32>,
+                      uv_rect: &Rect<f32>,
                       color: &ColorF,
-                      white_image: &TextureCacheItem,
+                      color_image: &TextureCacheItem,
                       mask_image: &TextureCacheItem) {
+
         let mut vertices = [
-            PackedVertex::from_components(rect.origin.x, rect.origin.y, color, 0.0, 0.0, 0.0, 0.0),
-            PackedVertex::from_components(rect.max_x(), rect.origin.y, color, 0.0, 0.0, 0.0, 0.0),
-            PackedVertex::from_components(rect.origin.x, rect.max_y(), color, 0.0, 0.0, 0.0, 0.0),
-            PackedVertex::from_components(rect.max_x(), rect.max_y(), color, 0.0, 0.0, 0.0, 0.0),
+            PackedVertex::from_components(rect.origin.x, rect.origin.y, color,
+                                          uv_rect.origin.x, uv_rect.origin.y, 0.0, 0.0),
+            PackedVertex::from_components(rect.max_x(), rect.origin.y, color,
+                                          uv_rect.max_x(), uv_rect.origin.y, 0.0, 0.0),
+            PackedVertex::from_components(rect.origin.x, rect.max_y(), color,
+                                          uv_rect.origin.x, uv_rect.max_y(), 0.0, 0.0),
+            PackedVertex::from_components(rect.max_x(), rect.max_y(), color,
+                                          uv_rect.max_x(), uv_rect.max_y(), 0.0, 0.0),
         ];
 
         self.add_draw_item(sort_key,
-                           white_image.texture_id,
-                           mask_image.texture_id,
-                           Primitive::Rectangles,
-                           &mut vertices);
-    }
-
-    #[inline]
-    fn push_masked_rectangle(&mut self,
-                             sort_key: &DisplayItemKey,
-                             rect: &Rect<f32>,
-                             muv_rect: &Rect<f32>,
-                             color: &ColorF,
-                             white_image: &TextureCacheItem,
-                             mask_image: &TextureCacheItem) {
-
-        let mut vertices = [
-            PackedVertex::from_components(rect.origin.x, rect.origin.y, color, 0.0, 0.0,
-                                          muv_rect.origin.x, muv_rect.origin.y),
-            PackedVertex::from_components(rect.max_x(), rect.origin.y, color, 0.0, 0.0,
-                                          muv_rect.max_x(), muv_rect.origin.y),
-            PackedVertex::from_components(rect.origin.x, rect.max_y(), color, 0.0, 0.0,
-                                          muv_rect.origin.x, muv_rect.max_y()),
-            PackedVertex::from_components(rect.max_x(), rect.max_y(), color, 0.0, 0.0,
-                                          muv_rect.max_x(), muv_rect.max_y()),
-        ];
-
-        self.add_draw_item(sort_key,
-                           white_image.texture_id,
+                           color_image.texture_id,
                            mask_image.texture_id,
                            Primitive::Rectangles,
                            &mut vertices);
@@ -2503,7 +2498,10 @@ impl DrawCommandBuilder {
                          texture_cache: &TextureCache,
                          clip_buffers: &mut ClipBuffers) {
         // TODO: Check for zero width/height borders!
-        let mask_image = match BorderRadiusRasterOp::create(outer_radius, inner_radius, false) {
+        let mask_image = match BorderRadiusRasterOp::create(outer_radius,
+                                                            inner_radius,
+                                                            false,
+                                                            ImageFormat::A8) {
             Some(raster_item) => {
                 let raster_item = RasterItem::BorderRadius(raster_item);
                 let raster_item_id = raster_to_image_map[&raster_item];
@@ -2793,16 +2791,20 @@ impl BuildRequiredResources for AABBTreeNode {
             for complex_clip_region in display_item.clip.complex.iter() {
                 resource_list.add_radius_raster(&complex_clip_region.radii.top_left,
                                                 &Size2D::new(0.0, 0.0),
-                                                false);
+                                                false,
+                                                ImageFormat::A8);
                 resource_list.add_radius_raster(&complex_clip_region.radii.top_right,
                                                 &Size2D::new(0.0, 0.0),
-                                                false);
+                                                false,
+                                                ImageFormat::A8);
                 resource_list.add_radius_raster(&complex_clip_region.radii.bottom_left,
                                                 &Size2D::new(0.0, 0.0),
-                                                false);
+                                                false,
+                                                ImageFormat::A8);
                 resource_list.add_radius_raster(&complex_clip_region.radii.bottom_right,
                                                 &Size2D::new(0.0, 0.0),
-                                                false);
+                                                false,
+                                                ImageFormat::A8);
             }
 
             match display_item.item {
@@ -2833,40 +2835,48 @@ impl BuildRequiredResources for AABBTreeNode {
                 SpecificDisplayItem::Border(ref info) => {
                     resource_list.add_radius_raster(&info.radius.top_left,
                                                     &info.top_left_inner_radius(),
-                                                    false);
+                                                    false,
+                                                    ImageFormat::A8);
                     resource_list.add_radius_raster(&info.radius.top_right,
                                                     &info.top_right_inner_radius(),
-                                                    false);
+                                                    false,
+                                                    ImageFormat::A8);
                     resource_list.add_radius_raster(&info.radius.bottom_left,
                                                     &info.bottom_left_inner_radius(),
-                                                    false);
+                                                    false,
+                                                    ImageFormat::A8);
                     resource_list.add_radius_raster(&info.radius.bottom_right,
                                                     &info.bottom_right_inner_radius(),
-                                                    false);
+                                                    false,
+                                                    ImageFormat::A8);
 
                     if info.top.style == BorderStyle::Dotted {
                         resource_list.add_radius_raster(&Size2D::new(info.top.width / 2.0,
                                                                      info.top.width / 2.0),
                                                         &Size2D::new(0.0, 0.0),
-                                                        false);
+                                                        false,
+                                                        ImageFormat::RGBA8);
                     }
                     if info.right.style == BorderStyle::Dotted {
                         resource_list.add_radius_raster(&Size2D::new(info.right.width / 2.0,
                                                                      info.right.width / 2.0),
                                                         &Size2D::new(0.0, 0.0),
-                                                        false);
+                                                        false,
+                                                        ImageFormat::RGBA8);
                     }
                     if info.bottom.style == BorderStyle::Dotted {
                         resource_list.add_radius_raster(&Size2D::new(info.bottom.width / 2.0,
                                                                      info.bottom.width / 2.0),
                                                         &Size2D::new(0.0, 0.0),
-                                                        false);
+                                                        false,
+                                                        ImageFormat::RGBA8);
                     }
                     if info.left.style == BorderStyle::Dotted {
                         resource_list.add_radius_raster(&Size2D::new(info.left.width / 2.0,
                                                                      info.left.width / 2.0),
                                                         &Size2D::new(0.0, 0.0),
-                                                        false);
+                                                        false,
+                                                        ImageFormat::RGBA8);
                     }
                 }
             }
@@ -2929,6 +2939,7 @@ fn mask_for_border_radius<'a>(dummy_mask_image: &'a TextureCacheItem,
         inner_radius_x: Au(0),
         inner_radius_y: Au(0),
         inverted: inverted,
+        image_format: ImageFormat::A8,
     })) {
         Some(image_info) => texture_cache.get(*image_info),
         None => panic!("Couldn't find border radius {:?} in raster-to-image map!", border_radius),
