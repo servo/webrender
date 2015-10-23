@@ -8,7 +8,6 @@ attribute vec4 aMatrixIndex;
 
 uniform mat4 uTransform;
 uniform mat4 uMatrixPalette[32];
-uniform float uDevicePixelRatio;
 
 varying vec4 vColor;
 varying vec2 vColorTexCoord;
@@ -16,12 +15,12 @@ varying vec2 vMaskTexCoord;
 
 void main(void)
 {
-    vColor = aColor;
-    vColorTexCoord = aColorTexCoord;
-    vMaskTexCoord = aMaskTexCoord;
+    vColor = aColor / 255.0;
+    vColorTexCoord = aColorTexCoord / 65535.0;
+    vMaskTexCoord = aMaskTexCoord / 65535.0;
 
     mat4 matrix = uMatrixPalette[int(aMatrixIndex.x)];
     vec4 pos = matrix * vec4(aPosition, 1.0);
-    pos.xy = floor(pos.xy * uDevicePixelRatio + 0.5) / uDevicePixelRatio;
+    pos.xy = floor(pos.xy + 0.5);
     gl_Position = uTransform * pos;
 }
