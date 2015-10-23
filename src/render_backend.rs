@@ -65,17 +65,6 @@ pub static MAX_RECT: Rect<f32> = Rect {
     },
 };
 
-pub static ZERO_RECT: Rect<f32> = Rect {
-    origin: Point2D {
-        x: 0.0,
-        y: 0.0,
-    },
-    size: Size2D {
-        width: 0.0,
-        height: 0.0,
-    },
-};
-
 const BORDER_DASH_SIZE: f32 = 3.0;
 
 #[derive(Debug)]
@@ -2294,13 +2283,16 @@ impl DrawCommandBuilder {
     fn add_border_edge(&mut self,
                        sort_key: &DisplayItemKey,
                        rect: &Rect<f32>,
+                       clip: &Rect<f32>,
+                       clip_region: &ClipRegion,
                        direction: BorderEdgeDirection,
                        color: &ColorF,
                        border_style: BorderStyle,
                        white_image: &TextureCacheItem,
                        dummy_mask_image: &TextureCacheItem,
                        raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
-                       texture_cache: &TextureCache) {
+                       texture_cache: &TextureCache,
+                       clip_buffers: &mut clipper::ClipBuffers) {
         // TODO: Check for zero width/height borders!
         if color.a <= 0.0 {
             return
@@ -2330,12 +2322,18 @@ impl DrawCommandBuilder {
                                                   f32::min(step, extent - origin)))
                         }
                     };
-                    self.push_rectangle(sort_key,
-                                        &dash_rect,
-                                        &ZERO_RECT,
-                                        color,
-                                        white_image,
-                                        dummy_mask_image);
+
+                    self.add_rectangle(sort_key,
+                                       &dash_rect,
+                                       clip,
+                                       BoxShadowClipMode::Inset,
+                                       clip_region,
+                                       white_image,
+                                       dummy_mask_image,
+                                       raster_to_image_map,
+                                       texture_cache,
+                                       clip_buffers,
+                                       color);
 
                     origin += step + step;
                 }
@@ -2371,46 +2369,66 @@ impl DrawCommandBuilder {
                     let raster_item = RasterItem::BorderRadius(raster_op);
                     let raster_item_id = raster_to_image_map[&raster_item];
                     let color_image = texture_cache.get(raster_item_id);
-                    let uv_rect = Rect::new(Point2D::new(color_image.u0, color_image.v0),
-                                             Size2D::new(color_image.u1 - color_image.u0,
-                                                         color_image.v1 - color_image.v0));
 
                     // Top left:
-                    self.push_rectangle(sort_key,
-                                        &Rect::new(dot_rect.origin,
-                                                   Size2D::new(dot_rect.size.width / 2.0,
-                                                               dot_rect.size.height / 2.0)),
-                                        &uv_rect,
-                                        color,
-                                        color_image,
-                                        dummy_mask_image);
+                    self.add_rectangle(sort_key,
+                                       &Rect::new(dot_rect.origin,
+                                                  Size2D::new(dot_rect.size.width / 2.0,
+                                                              dot_rect.size.height / 2.0)),
+                                       clip,
+                                       BoxShadowClipMode::Inset,
+                                       clip_region,
+                                       color_image,
+                                       dummy_mask_image,
+                                       raster_to_image_map,
+                                       texture_cache,
+                                       clip_buffers,
+                                       color);
+
                     // Top right:
-                    self.push_rectangle(sort_key,
-                                        &Rect::new(dot_rect.top_right(),
-                                                   Size2D::new(-dot_rect.size.width / 2.0,
-                                                               dot_rect.size.height / 2.0)),
-                                        &uv_rect,
-                                        color,
-                                        color_image,
-                                        dummy_mask_image);
+                    self.add_rectangle(sort_key,
+                                       &Rect::new(dot_rect.top_right(),
+                                                  Size2D::new(-dot_rect.size.width / 2.0,
+                                                              dot_rect.size.height / 2.0)),
+                                       clip,
+                                       BoxShadowClipMode::Inset,
+                                       clip_region,
+                                       color_image,
+                                       dummy_mask_image,
+                                       raster_to_image_map,
+                                       texture_cache,
+                                       clip_buffers,
+                                       color);
+
                     // Bottom right:
-                    self.push_rectangle(sort_key,
-                                        &Rect::new(dot_rect.bottom_right(),
+                    self.add_rectangle(sort_key,
+                                       &Rect::new(dot_rect.bottom_right(),
                                                    Size2D::new(-dot_rect.size.width / 2.0,
                                                                -dot_rect.size.height / 2.0)),
-                                        &uv_rect,
-                                        color,
-                                        color_image,
-                                        dummy_mask_image);
+                                       clip,
+                                       BoxShadowClipMode::Inset,
+                                       clip_region,
+                                       color_image,
+                                       dummy_mask_image,
+                                       raster_to_image_map,
+                                       texture_cache,
+                                       clip_buffers,
+                                       color);
+
                     // Bottom left:
-                    self.push_rectangle(sort_key,
-                                        &Rect::new(dot_rect.bottom_left(),
-                                                   Size2D::new(dot_rect.size.width / 2.0,
-                                                               -dot_rect.size.height / 2.0)),
-                                        &uv_rect,
-                                        color,
-                                        color_image,
-                                        dummy_mask_image);
+                    self.add_rectangle(sort_key,
+                                       &Rect::new(dot_rect.bottom_left(),
+                                                  Size2D::new(dot_rect.size.width / 2.0,
+                                                              -dot_rect.size.height / 2.0)),
+                                       clip,
+                                       BoxShadowClipMode::Inset,
+                                       clip_region,
+                                       color_image,
+                                       dummy_mask_image,
+                                       raster_to_image_map,
+                                       texture_cache,
+                                       clip_buffers,
+                                       color);
 
                     origin += step + step;
                 }
@@ -2432,55 +2450,43 @@ impl DrawCommandBuilder {
                                    Size2D::new(rect.size.width / 3.0, rect.size.height)))
                     }
                 };
-                self.push_rectangle(sort_key,
-                                    &outer_rect,
-                                    &ZERO_RECT,
-                                    color,
-                                    white_image,
-                                    dummy_mask_image);
-                self.push_rectangle(sort_key,
-                                    &inner_rect,
-                                    &ZERO_RECT,
-                                    color,
-                                    white_image,
-                                    dummy_mask_image);
+                self.add_rectangle(sort_key,
+                                   &outer_rect,
+                                   clip,
+                                   BoxShadowClipMode::Inset,
+                                   clip_region,
+                                   white_image,
+                                   dummy_mask_image,
+                                   raster_to_image_map,
+                                   texture_cache,
+                                   clip_buffers,
+                                   color);
+                self.add_rectangle(sort_key,
+                                   &inner_rect,
+                                   clip,
+                                   BoxShadowClipMode::Inset,
+                                   clip_region,
+                                   white_image,
+                                   dummy_mask_image,
+                                   raster_to_image_map,
+                                   texture_cache,
+                                   clip_buffers,
+                                   color);
             }
             _ => {
-                self.push_rectangle(sort_key,
-                                    rect,
-                                    &ZERO_RECT,
-                                    color,
-                                    white_image,
-                                    dummy_mask_image);
+                self.add_rectangle(sort_key,
+                                   rect,
+                                   clip,
+                                   BoxShadowClipMode::Inset,
+                                   clip_region,
+                                   white_image,
+                                   dummy_mask_image,
+                                   raster_to_image_map,
+                                   texture_cache,
+                                   clip_buffers,
+                                   color);
             }
         }
-    }
-
-    #[inline]
-    fn push_rectangle(&mut self,
-                      sort_key: &DisplayItemKey,
-                      rect: &Rect<f32>,
-                      uv_rect: &Rect<f32>,
-                      color: &ColorF,
-                      color_image: &TextureCacheItem,
-                      mask_image: &TextureCacheItem) {
-
-        let mut vertices = [
-            PackedVertex::from_components(rect.origin.x, rect.origin.y, color,
-                                          uv_rect.origin.x, uv_rect.origin.y, 0.0, 0.0),
-            PackedVertex::from_components(rect.max_x(), rect.origin.y, color,
-                                          uv_rect.max_x(), uv_rect.origin.y, 0.0, 0.0),
-            PackedVertex::from_components(rect.origin.x, rect.max_y(), color,
-                                          uv_rect.origin.x, uv_rect.max_y(), 0.0, 0.0),
-            PackedVertex::from_components(rect.max_x(), rect.max_y(), color,
-                                          uv_rect.max_x(), uv_rect.max_y(), 0.0, 0.0),
-        ];
-
-        self.add_draw_item(sort_key,
-                           color_image.texture_id,
-                           mask_image.texture_id,
-                           Primitive::Rectangles,
-                           &mut vertices);
     }
 
     #[inline]
@@ -2591,6 +2597,8 @@ impl DrawCommandBuilder {
     fn add_border(&mut self,
                   sort_key: &DisplayItemKey,
                   rect: &Rect<f32>,
+                  clip: &Rect<f32>,
+                  clip_region: &ClipRegion,
                   info: &BorderDisplayItem,
                   white_image: &TextureCacheItem,
                   dummy_mask_image: &TextureCacheItem,
@@ -2631,48 +2639,60 @@ impl DrawCommandBuilder {
         self.add_border_edge(sort_key,
                              &Rect::new(Point2D::new(tl_outer.x, tl_inner.y),
                                         Size2D::new(left.width, bl_inner.y - tl_inner.y)),
+                             clip,
+                             clip_region,
                              BorderEdgeDirection::Vertical,
                              &left_color,
                              info.left.style,
                              white_image,
                              dummy_mask_image,
                              raster_to_image_map,
-                             texture_cache);
+                             texture_cache,
+                             clip_buffers);
 
         self.add_border_edge(sort_key,
                              &Rect::new(Point2D::new(tl_inner.x, tl_outer.y),
                                         Size2D::new(tr_inner.x - tl_inner.x,
                                                     tr_outer.y + top.width - tl_outer.y)),
+                             clip,
+                             clip_region,
                              BorderEdgeDirection::Horizontal,
                              &top_color,
                              info.top.style,
                              white_image,
                              dummy_mask_image,
                              raster_to_image_map,
-                             texture_cache);
+                             texture_cache,
+                             clip_buffers);
 
         self.add_border_edge(sort_key,
                              &Rect::new(Point2D::new(br_outer.x - right.width, tr_inner.y),
                                         Size2D::new(right.width, br_inner.y - tr_inner.y)),
+                             clip,
+                             clip_region,
                              BorderEdgeDirection::Vertical,
                              &right_color,
                              info.right.style,
                              white_image,
                              dummy_mask_image,
                              raster_to_image_map,
-                             texture_cache);
+                             texture_cache,
+                             clip_buffers);
 
         self.add_border_edge(sort_key,
                              &Rect::new(Point2D::new(bl_inner.x, bl_outer.y - bottom.width),
                                         Size2D::new(br_inner.x - bl_inner.x,
                                                     br_outer.y - bl_outer.y + bottom.width)),
+                             clip,
+                             clip_region,
                              BorderEdgeDirection::Horizontal,
                              &bottom_color,
                              info.bottom.style,
                              white_image,
                              dummy_mask_image,
                              raster_to_image_map,
-                             texture_cache);
+                             texture_cache,
+                             clip_buffers);
 
         // Corners
         self.add_border_corner(sort_key,
@@ -3091,6 +3111,8 @@ impl NodeCompiler for AABBTreeNode {
                             SpecificDisplayItem::Border(ref info) => {
                                 builder.add_border(&key,
                                                    &display_item.rect,
+                                                   &clip_rect,
+                                                   &display_item.clip,
                                                    info,
                                                    white_image_info,
                                                    mask_image_info,
