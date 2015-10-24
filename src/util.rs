@@ -1,4 +1,5 @@
 use euclid::{Matrix4, Point2D, Rect, Size2D};
+use std::num::Zero;
 use time::precise_time_ns;
 
 #[allow(dead_code)]
@@ -63,5 +64,11 @@ impl MatrixHelpers for Matrix4 {
 
 pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
     (b - a) * t + a
+}
+
+// Don't use `euclid`'s `is_empty` because that has effectively has an "and" in the conditional
+// below instead of an "or".
+pub fn rect_is_empty<N:PartialEq + Zero>(rect: &Rect<N>) -> bool {
+    rect.size.width == Zero::zero() || rect.size.height == Zero::zero()
 }
 

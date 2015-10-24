@@ -1,4 +1,4 @@
-#![feature(step_by, convert)]
+#![feature(step_by, convert, zero_one)]
 #![feature(plugin)]
 #![feature(custom_derive)]
 #![plugin(serde_macros)]
@@ -15,7 +15,6 @@ extern crate libc;
 extern crate time;
 extern crate string_cache;
 extern crate serde;
-extern crate bit_vec;
 extern crate scoped_threadpool;
 extern crate simd;
 
