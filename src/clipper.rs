@@ -5,6 +5,7 @@ use render_backend::MAX_RECT;
 use simd::f32x4;
 use std::mem;
 use types::{BoxShadowClipMode, ClipRegion, ColorF};
+use util;
 
 /// Computes whether the point c is inside the clipping edge ab.
 ///
@@ -212,7 +213,7 @@ fn clip_to_region<P>(polygon: P,
                              complex_region.rect.origin.y + border_radius),
                 Size2D::new(complex_region.rect.size.width,
                             complex_region.rect.size.height - (border_radius + border_radius)));
-            if !rect_is_empty(&inner_rect) {
+            if !util::rect_is_empty(&inner_rect) {
                 intermediate_polygon.clip_to_rect(sh_clip_buffers, &inner_rect, polygon_scratch);
                 push_results(output, polygon_scratch, None);
             }
@@ -233,7 +234,7 @@ fn clip_to_region<P>(polygon: P,
                              complex_region.rect.origin.y),
                 Size2D::new(complex_region.rect.size.width - (border_radius + border_radius),
                             border_radius));
-            if !rect_is_empty(&top_rect) {
+            if !util::rect_is_empty(&top_rect) {
                 intermediate_polygon.clip_to_rect(sh_clip_buffers, &top_rect, polygon_scratch);
                 push_results(output, polygon_scratch, None);
             }
@@ -254,7 +255,7 @@ fn clip_to_region<P>(polygon: P,
                              complex_region.rect.max_y() - border_radius),
                 Size2D::new(complex_region.rect.size.width - (border_radius + border_radius),
                             border_radius));
-            if !rect_is_empty(&bottom_rect) {
+            if !util::rect_is_empty(&bottom_rect) {
                 intermediate_polygon.clip_to_rect(sh_clip_buffers, &bottom_rect, polygon_scratch);
                 push_results(output, polygon_scratch, None);
             }
@@ -277,7 +278,7 @@ fn clip_to_region<P>(polygon: P,
             // Compute A:
             let mut corner_rect = Rect::new(complex_region.rect.origin,
                                             Size2D::new(border_radius, border_radius));
-            if !rect_is_empty(&corner_rect) {
+            if !util::rect_is_empty(&corner_rect) {
                 let mask_rect = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(1.0, 1.0));
                 intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
                 push_results(output,
@@ -290,7 +291,7 @@ fn clip_to_region<P>(polygon: P,
             // B:
             corner_rect.origin = Point2D::new(complex_region.rect.max_x() - border_radius,
                                               complex_region.rect.origin.y);
-            if !rect_is_empty(&corner_rect) {
+            if !util::rect_is_empty(&corner_rect) {
                 intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
                 let mask_rect = Rect::new(Point2D::new(1.0, 0.0), Size2D::new(-1.0, 1.0));
                 push_results(output,
@@ -303,7 +304,7 @@ fn clip_to_region<P>(polygon: P,
             // C:
             corner_rect.origin = Point2D::new(complex_region.rect.origin.x,
                                               complex_region.rect.max_y() - border_radius);
-            if !rect_is_empty(&corner_rect) {
+            if !util::rect_is_empty(&corner_rect) {
                 intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
                 let mask_rect = Rect::new(Point2D::new(0.0, 1.0), Size2D::new(1.0, -1.0));
                 push_results(output,
@@ -316,7 +317,7 @@ fn clip_to_region<P>(polygon: P,
             // D:
             corner_rect.origin = Point2D::new(complex_region.rect.max_x() - border_radius,
                                               complex_region.rect.max_y() - border_radius);
-            if !rect_is_empty(&corner_rect) {
+            if !util::rect_is_empty(&corner_rect) {
                 intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
                 let mask_rect = Rect::new(Point2D::new(1.0, 1.0), Size2D::new(-1.0, -1.0));
                 push_results(output,
@@ -367,12 +368,6 @@ pub fn clip_rect_with_mode_and_to_region<P>(polygon: P,
     }
 }
 
-// Don't use `euclid`'s `is_empty` because that has effectively has an "and" in the conditional
-// below instead of an "or".
-fn rect_is_empty(rect: &Rect<f32>) -> bool {
-    rect.size.width == 0.0 || rect.size.height == 0.0
-}
-
 pub trait Polygon : Sized {
     fn clip_to_rect(&self,
                     sh_clip_buffers: &mut ShClipBuffers,
@@ -391,7 +386,7 @@ impl Polygon for RectPosUv {
                     clip_rect: &Rect<f32>,
                     output: &mut Vec<RectPosUv>) {
         for clipped_rect in self.pos.intersection(clip_rect).into_iter() {
-            if rect_is_empty(&clipped_rect) {
+            if util::rect_is_empty(&clipped_rect) {
                 continue
             }
 
