@@ -1436,6 +1436,7 @@ impl RenderBackend {
                         }
                         ApiMsg::TranslatePointToLayerSpace(point, tx) => {
                             // TODO(pcwalton): Select other layers for mouse events.
+                            let point = point / self.device_pixel_ratio;
                             match self.scene.layers.get_mut(&ScrollLayerId(0)) {
                                 None => tx.send(point).unwrap(),
                                 Some(layer) => tx.send(point - layer.scroll_offset).unwrap(),
