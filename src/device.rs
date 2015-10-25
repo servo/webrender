@@ -717,11 +717,36 @@ impl Device {
         gl::enable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
         gl::enable_vertex_attrib_array(VertexAttribute::MatrixIndex as gl::GLuint);
 
-        gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint, 2, gl::FLOAT, false, vertex_stride, 0);
-        gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint, 4, gl::UNSIGNED_BYTE, true, vertex_stride, 8);
-        gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 12);
-        gl::vertex_attrib_pointer(VertexAttribute::MaskTexCoord as gl::GLuint, 2, gl::UNSIGNED_SHORT, true, vertex_stride, 16);
-        gl::vertex_attrib_pointer(VertexAttribute::MatrixIndex as gl::GLuint, 4, gl::UNSIGNED_BYTE, false, vertex_stride, 20);
+        gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint,
+                                  2,
+                                  gl::FLOAT,
+                                  false,
+                                  vertex_stride,
+                                  0);
+        gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint,
+                                  4,
+                                  gl::UNSIGNED_BYTE,
+                                  false,
+                                  vertex_stride,
+                                  8);
+        gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint,
+                                  2,
+                                  gl::UNSIGNED_SHORT,
+                                  false,
+                                  vertex_stride,
+                                  12);
+        gl::vertex_attrib_pointer(VertexAttribute::MaskTexCoord as gl::GLuint,
+                                  2,
+                                  gl::UNSIGNED_SHORT,
+                                  false,
+                                  vertex_stride,
+                                  16);
+        gl::vertex_attrib_pointer(VertexAttribute::MatrixIndex as gl::GLuint,
+                                  4,
+                                  gl::UNSIGNED_BYTE,
+                                  false,
+                                  vertex_stride,
+                                  20);
 
         gl::bind_vertex_array(0);
 
