@@ -3,11 +3,11 @@ use device::TextureId;
 use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
-use internal_types::{RenderTargetMode, TextureUpdateList};
+use internal_types::{RasterItem, RenderTargetMode, TextureUpdateList};
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::mem;
-use types::{ImageFormat, ImageID, RasterItem};
+use types::{ImageFormat, ImageID};
 use util;
 
 /// A texture allocator using the guillotine algorithm with the rectangle merge improvement. See

@@ -1,13 +1,13 @@
 use app_units::Au;
 use euclid::Size2D;
 use fnv::FnvHasher;
-use internal_types::GlyphKey;
+use internal_types::{BorderRadiusRasterOp, BoxShadowCornerRasterOp};
+use internal_types::{Glyph, GlyphKey, RasterItem};
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
 use string_cache::Atom;
-use types::{BorderRadiusRasterOp, BoxShadowCornerRasterOp};
-use types::{Glyph, ImageFormat, ImageID, RasterItem};
+use types::{ImageFormat, ImageID};
 
 type RequiredImageSet = HashSet<ImageID, DefaultState<FnvHasher>>;
 type RequiredGlyphMap = HashMap<Atom, HashSet<Glyph>, DefaultState<FnvHasher>>;
