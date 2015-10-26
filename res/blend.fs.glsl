@@ -1,16 +1,3 @@
-#version 110
-
-#ifdef GL_ES
-    precision mediump float;
-#endif
-
-uniform sampler2D sDiffuse;
-uniform sampler2D sMask;
-uniform vec4 uBlendParams;
-
-varying vec2 vColorTexCoord;
-varying vec2 vMaskTexCoord;
-
 vec3 Multiply(vec3 Cb, vec3 Cs) {
     return Cb * Cs;
 }
@@ -154,8 +141,8 @@ vec3 Luminosity(vec3 Cb, vec3 Cs) {
 
 void main(void)
 {
-    vec3 Cs = texture2D(sDiffuse, vColorTexCoord).xyz;
-    vec3 Cb = texture2D(sMask, vMaskTexCoord).xyz;
+    vec3 Cs = Texture(sDiffuse, vColorTexCoord).xyz;
+    vec3 Cb = Texture(sMask, vMaskTexCoord).xyz;
 
     // TODO: Relies on the ordering of MixBlendMode enum!
     // TODO: May be best to have separate shaders (esp. on Tegra)
@@ -197,5 +184,6 @@ void main(void)
     }
 
     // TODO: Handle output alpha correctly.
-    gl_FragColor = vec4(result, 1.0);
+    SetFragColor(vec4(result, 1.0));
 }
+

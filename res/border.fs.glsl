@@ -1,16 +1,3 @@
-#version 110
-
-#ifdef GL_ES
-    precision mediump float;
-#endif
-
-uniform sampler2D sDiffuse;
-
-varying vec4 vColor;
-varying vec2 vPosition;
-varying vec4 vBorderPosition;
-varying vec4 vBorderRadii;
-
 /*
     Ellipse equation:
 
@@ -37,8 +24,9 @@ void main(void)
 
     if ((outer_dx + outer_dy <= 1.0) &&
         (inner_dx + inner_dy >= 1.0)) {
-        gl_FragColor = vColor;
+        SetFragColor(vColor);
     } else {
-        gl_FragColor = vec4(1.0) - vColor;
+        SetFragColor(vec4(1.0) - vColor);
     }
 }
+
