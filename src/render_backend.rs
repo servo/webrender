@@ -663,6 +663,7 @@ impl Scene {
                     let clip_rect = clip_rect.intersection(&iframe_info.clip_rect);
 
                     if let Some(clip_rect) = clip_rect {
+                        let clip_rect = clip_rect.translate(&-iframe_info.offset);
                         self.flatten_stacking_context(StackingContextKind::Root(iframe),
                                                       &iframe_transform,
                                                       &perspective_transform,
