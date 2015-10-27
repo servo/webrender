@@ -622,6 +622,8 @@ impl Renderer {
                 draw_calls: 0,
             };
 
+            debug_assert!(frame.layers.len() > 0);
+
             for layer in frame.layers.iter().rev() {
                 render_context.layer_size = layer.size;
                 render_context.projection = Matrix4::ortho(0.0,

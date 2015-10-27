@@ -1492,17 +1492,30 @@ impl RenderBackend {
     }
 
     fn render(&mut self, notifier: &mut RenderNotifier) {
-        let frame = self.scene.build_frame(&self.viewport,
-                                           self.device_pixel_ratio,
-                                           &mut self.raster_to_image_map,
-                                           &mut self.glyph_to_image_map,
-                                           &self.image_templates,
-                                           &self.font_templates,
-                                           &mut self.texture_cache,
-                                           self.white_image_id,
-                                           self.dummy_mask_image_id,
-                                           self.quad_program_id,
-                                           self.glyph_program_id);
+        let mut frame = self.scene.build_frame(&self.viewport,
+                                               self.device_pixel_ratio,
+                                               &mut self.raster_to_image_map,
+                                               &mut self.glyph_to_image_map,
+                                               &self.image_templates,
+                                               &self.font_templates,
+                                               &mut self.texture_cache,
+                                               self.white_image_id,
+                                               self.dummy_mask_image_id,
+                                               self.quad_program_id,
+                                               self.glyph_program_id);
+
+        // Bit of a hack - if there was nothing visible, at least
+        // add one layer to the frame so that the screen gets
+        // cleared to the default UA background color. Perhaps
+        // there is a better way to handle this...
+        if frame.layers.len() == 0 {
+            frame.layers.push(DrawLayer {
+                texture_id: None,
+                size: Size2D::new(self.viewport.size.width as u32,
+                                   self.viewport.size.height as u32),
+                commands: Vec::new(),
+            });
+        }
 
         let pending_update = self.texture_cache.pending_updates();
         if pending_update.updates.len() > 0 {
