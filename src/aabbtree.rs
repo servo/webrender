@@ -1,7 +1,6 @@
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::{CompiledNode, DisplayItemKey};
 use resource_list::ResourceList;
-use std::mem;
 use types::NodeIndex;
 use util;
 
@@ -43,13 +42,6 @@ impl AABBTreeNode {
         self.actual_rect = self.actual_rect.union(rect);
         let key = DisplayItemKey::new(draw_list_index, item_index);
         self.src_items.push(key);
-    }
-
-    fn take_compiled_data_from(&mut self, other_aabb_tree_node: &mut AABBTreeNode) {
-        if self.compiled_node.is_none() && self.resource_list.is_none() {
-            mem::swap(&mut self.compiled_node, &mut other_aabb_tree_node.compiled_node);
-            mem::swap(&mut self.resource_list, &mut other_aabb_tree_node.resource_list);
-        }
     }
 }
 
@@ -236,13 +228,4 @@ impl AABBTree {
             self.check_node_visibility(NodeIndex(0), &rect);
         }
     }
-
-    pub fn take_compiled_data_from(&mut self, other_aabb_tree: &mut AABBTree) {
-        debug_assert!(self.nodes.len() == other_aabb_tree.nodes.len());
-        for (this_node, other_node) in self.nodes.iter_mut().zip(other_aabb_tree.nodes
-                                                                                .iter_mut()) {
-            this_node.take_compiled_data_from(other_node)
-        }
-    }
 }
-

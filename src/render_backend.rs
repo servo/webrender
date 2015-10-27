@@ -336,6 +336,10 @@ impl Scene {
         debug_assert!(self.render_target_stack.len() == 0);
         self.pipeline_epoch_map.clear();
 
+        for (_, layer) in &mut self.layers {
+            layer.reset(&mut self.pending_updates);
+        }
+
         // Free any render targets from last frame.
         // TODO: This should really re-use existing targets here...
         for render_target in &mut self.render_targets {
@@ -684,11 +688,11 @@ impl Scene {
         }
     }
 
-    fn build_layers(&mut self, scene_rect: &Rect<f32>, can_reuse_old_batches: bool) {
+    fn build_layers(&mut self, scene_rect: &Rect<f32>) {
         let _pf = util::ProfileScope::new("  build_layers");
 
-        let mut old_layers = mem::replace(&mut self.layers,
-                                          HashMap::with_hash_state(Default::default()));
+        let old_layers = mem::replace(&mut self.layers,
+                                      HashMap::with_hash_state(Default::default()));
 
         // push all visible draw lists into aabb tree
         for (draw_list_index, flat_draw_list) in self.flat_draw_lists.iter_mut().enumerate() {
@@ -715,18 +719,6 @@ impl Scene {
                 let rect = flat_draw_list.draw_context.final_transform.transform_rect(&item.rect);
                 item.node_index = layer.insert(&rect, draw_list_index, item_index);
             }
-        }
-
-        if can_reuse_old_batches {
-            for (scroll_layer_id, new_layer) in &mut self.layers {
-                if let Some(ref mut old_layer) = old_layers.get_mut(&scroll_layer_id) {
-                    new_layer.take_compiled_data_from(old_layer)
-                }
-            }
-        }
-
-        for (_, old_layer) in &mut old_layers {
-            old_layer.reset(&mut self.pending_updates)
         }
     }
 
@@ -1069,30 +1061,6 @@ impl Scene {
             println!("unable to find root scroll layer (may be an empty stacking context)");
         }
     }
-
-    fn draw_lists_are_identical(&self, old_draw_lists: &Vec<DrawList>) -> bool {
-        if self.flat_draw_lists.len() != old_draw_lists.len() {
-            return false
-        }
-        for (new_flat_draw_list, old_draw_list) in
-                self.flat_draw_lists.iter().zip(old_draw_lists.iter()) {
-            if new_flat_draw_list.draw_list.items.len() != old_draw_list.items.len() {
-                return false
-            }
-            for (new_flat_draw_item, old_flat_draw_item) in
-                    new_flat_draw_list.draw_list
-                                      .items
-                                      .iter()
-                                      .zip(old_draw_list.items.iter()) {
-                if new_flat_draw_item.item != old_flat_draw_item.item ||
-                        new_flat_draw_item.rect != old_flat_draw_item.rect ||
-                        new_flat_draw_item.clip != old_flat_draw_item.clip {
-                    return false
-                }
-            }
-        }
-        true
-    }
 }
 
 struct FontTemplate {
@@ -1350,11 +1318,9 @@ impl RenderBackend {
         backend
     }
 
-    fn remove_and_save_draw_list(&mut self,
-                                 saved_old_draw_lists: &mut HashMap<DrawListID, DrawList>,
-                                 draw_list_id: Option<DrawListID>) {
+    fn remove_draw_list(&mut self, draw_list_id: Option<DrawListID>) {
         if let Some(id) = draw_list_id {
-            saved_old_draw_lists.insert(id, self.draw_list_map.remove(&id).unwrap());
+            self.draw_list_map.remove(&id).unwrap();
         }
     }
 
@@ -1414,8 +1380,14 @@ impl RenderBackend {
                         ApiMsg::SetRootStackingContext(stacking_context, background_color, epoch, pipeline_id) => {
                             let _pf = util::ProfileScope::new("SetRootStackingContext");
 
-                            let old_draw_lists = mem::replace(&mut self.scene.flat_draw_lists,
-                                                              Vec::new());
+                            // Return all current draw lists to the hash
+                            for flat_draw_list in self.scene.flat_draw_lists.drain(..) {
+                                if let Some(id) = flat_draw_list.id {
+                                    self.draw_list_map.insert(id, flat_draw_list.draw_list);
+                                }
+                            }
+
+                            // Remove any old draw lists and display lists for this pipeline
                             let old_display_list_keys: Vec<_> = self.display_list_map.iter()
                                                                     .filter(|&(_, ref v)| {
                                                                         v.pipeline_id == pipeline_id &&
@@ -1424,6 +1396,16 @@ impl RenderBackend {
                                                                     .map(|(k, _)| k.clone())
                                                                     .collect();
 
+                            for key in &old_display_list_keys {
+                                let display_list = self.display_list_map.remove(key).unwrap();
+                                self.remove_draw_list(display_list.background_and_borders_id);
+                                self.remove_draw_list(display_list.block_backgrounds_and_borders_id);
+                                self.remove_draw_list(display_list.floats_id);
+                                self.remove_draw_list(display_list.content_id);
+                                self.remove_draw_list(display_list.positioned_content_id);
+                                self.remove_draw_list(display_list.outlines_id);
+                            }
+
                             self.stacking_contexts.insert(pipeline_id, RootStackingContext {
                                 pipeline_id: pipeline_id,
                                 epoch: epoch,
@@ -1431,17 +1413,21 @@ impl RenderBackend {
                                 stacking_context: stacking_context,
                             });
 
-                            self.build_scene(old_draw_lists, &old_display_list_keys[..]);
+                            self.build_scene();
                             self.render(&mut *notifier);
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
                             let _pf = util::ProfileScope::new("SetRootPipeline");
 
-                            let old_draw_lists = mem::replace(&mut self.scene.flat_draw_lists,
-                                                              Vec::new());
-                            self.root_pipeline_id = Some(pipeline_id);
-                            self.build_scene(old_draw_lists, &[]);
+                            // Return all current draw lists to the hash
+                            for flat_draw_list in self.scene.flat_draw_lists.drain(..) {
+                                if let Some(id) = flat_draw_list.id {
+                                    self.draw_list_map.insert(id, flat_draw_list.draw_list);
+                                }
+                            }
 
+                            self.root_pipeline_id = Some(pipeline_id);
+                            self.build_scene();
                             self.render(&mut *notifier);
                         }
                         ApiMsg::Scroll(delta) => {
@@ -1467,46 +1453,7 @@ impl RenderBackend {
         }
     }
 
-    fn build_scene(&mut self,
-                   old_draw_lists: Vec<FlatDrawList>,
-                   old_display_list_keys: &[DisplayListID]) {
-        // Return all current draw lists to the hash
-        let mut old_draw_lists_or_ids = Vec::new();
-        for flat_draw_list in old_draw_lists.into_iter() {
-            match flat_draw_list.id {
-                Some(id) => {
-                    old_draw_lists_or_ids.push(DrawListOrId::Id(id));
-                    self.draw_list_map.insert(id, flat_draw_list.draw_list);
-                }
-                None => {
-                    old_draw_lists_or_ids.push(DrawListOrId::DrawList(flat_draw_list.draw_list));
-                }
-            }
-        }
-
-        // Remove any old draw lists and display lists for this pipeline
-        let mut saved_old_draw_lists = HashMap::new();
-        for key in old_display_list_keys {
-            let display_list = self.display_list_map.remove(key).unwrap();
-            self.remove_and_save_draw_list(&mut saved_old_draw_lists,
-                                           display_list.background_and_borders_id);
-            self.remove_and_save_draw_list(&mut saved_old_draw_lists,
-                                           display_list.block_backgrounds_and_borders_id);
-            self.remove_and_save_draw_list(&mut saved_old_draw_lists, display_list.floats_id);
-            self.remove_and_save_draw_list(&mut saved_old_draw_lists, display_list.content_id);
-            self.remove_and_save_draw_list(&mut saved_old_draw_lists,
-                                           display_list.positioned_content_id);
-            self.remove_and_save_draw_list(&mut saved_old_draw_lists, display_list.outlines_id);
-        }
-
-        // Recreate the old flat draw lists.
-        let old_draw_lists: Vec<_> = old_draw_lists_or_ids.into_iter().map(|draw_list_or_id| {
-            match draw_list_or_id {
-                DrawListOrId::DrawList(draw_list) => draw_list,
-                DrawListOrId::Id(id) => saved_old_draw_lists.remove(&id).unwrap(),
-            }
-        }).collect();
-
+    fn build_scene(&mut self) {
         // Flatten the stacking context hierarchy
         if let Some(root_pipeline_id) = self.root_pipeline_id {
             if let Some(root_sc) = self.stacking_contexts.get(&root_pipeline_id) {
@@ -1531,22 +1478,12 @@ impl RenderBackend {
                                                     &mut self.texture_cache,
                                                     &root_sc.stacking_context.overflow);
                 self.scene.pop_render_target();
-            }
-        }
 
-        let can_reuse_old_batches = old_draw_lists.len() > 0 &&
-            self.scene.draw_lists_are_identical(&old_draw_lists);
-
-        if let Some(root_pipeline_id) = self.root_pipeline_id {
-            if let Some(root_sc) = self.stacking_contexts.get(&root_pipeline_id) {
                 // Init the AABB culling tree(s)
-                self.scene.build_layers(&root_sc.stacking_context.overflow, can_reuse_old_batches);
+                self.scene.build_layers(&root_sc.stacking_context.overflow);
 
                 // FIXME(pcwalton): This should be done somewhere else, probably when building the
                 // layer.
-                let root_scroll_layer_id = root_sc.stacking_context
-                                                  .scroll_layer_id
-                                                  .expect("root layer must be a scroll layer!");
                 if let Some(root_scroll_layer) = self.scene.layers.get_mut(&root_scroll_layer_id) {
                     root_scroll_layer.scroll_boundaries = root_sc.stacking_context.overflow.size;
                 }
@@ -3377,10 +3314,5 @@ fn compute_box_shadow_rect(box_bounds: &Rect<f32>,
     rect.origin.x += box_offset.x;
     rect.origin.y += box_offset.y;
     rect.inflate(spread_radius, spread_radius)
-}
-
-enum DrawListOrId {
-    DrawList(DrawList),
-    Id(DrawListID),
 }
 
