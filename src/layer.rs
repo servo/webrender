@@ -47,4 +47,13 @@ impl Layer {
         let adjusted_viewport = viewport_rect.translate(&-self.scroll_offset);
         self.aabb_tree.cull(&adjusted_viewport);
     }
+
+    pub fn take_compiled_data_from(&mut self, other_layer: &mut Layer) {
+        self.aabb_tree.take_compiled_data_from(&mut other_layer.aabb_tree)
+    }
+
+    #[allow(dead_code)]
+    pub fn print(&self) {
+        self.aabb_tree.print(NodeIndex(0), 0);
+    }
 }
