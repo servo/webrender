@@ -1,5 +1,6 @@
 use aabbtree::{AABBTreeNode, AABBTreeNodeInfo};
 use app_units::Au;
+use batch::RenderBatch;
 use clipper::{self, ClipBuffers};
 use device::{ProgramId, TextureId};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
@@ -14,7 +15,6 @@ use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, Glyp
 use internal_types::{Glyph, PolygonPosColorUv, RectPosUv};
 use layer::Layer;
 use optimizer;
-use renderbatch::RenderBatch;
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_list::ResourceList;
 use std::cell::RefCell;

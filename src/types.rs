@@ -693,7 +693,7 @@ pub enum FilterOp {
     Sepia(f32),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BlurDirection {
     Horizontal,
     Vertical,

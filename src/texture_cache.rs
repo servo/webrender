@@ -3,12 +3,14 @@ use device::TextureId;
 use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
-use internal_types::{RasterItem, RenderTargetMode, TextureUpdateList};
+use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::mem;
 use types::{ImageFormat, ImageID};
 use util;
+
+const TEXTURE_SIZE: u32 = 1024;
 
 /// A texture allocator using the guillotine algorithm with the rectangle merge improvement. See
 /// sections 2.2 and 2.2.5 in "A Thousand Ways to Pack the Bin - A Practical Approach to Two-
@@ -165,12 +167,23 @@ impl TextureCacheItem {
             format: format,
         }
     }
+
+    fn to_image(&self) -> TextureImage {
+        TextureImage {
+            texture_id: self.texture_id,
+            texel_uv: Rect::new(Point2D::new(self.u0, self.v0), Size2D::new(self.u1 - self.u0,
+                                                                            self.v1 - self.v0)),
+            pixel_uv: Point2D::new((self.u0 * (TEXTURE_SIZE as f32)) as u32,
+                                   (self.v0 * (TEXTURE_SIZE as f32)) as u32),
+        }
+    }
 }
 
 struct TextureCacheArena {
     pages_a8: Vec<TexturePage>,
     pages_rgb8: Vec<TexturePage>,
     pages_rgba8: Vec<TexturePage>,
+    alternate_pages_a8: Vec<TexturePage>,
 }
 
 impl TextureCacheArena {
@@ -179,6 +192,7 @@ impl TextureCacheArena {
             pages_a8: Vec::new(),
             pages_rgb8: Vec::new(),
             pages_rgba8: Vec::new(),
+            alternate_pages_a8: Vec::new(),
         }
     }
 }
@@ -198,8 +212,7 @@ pub enum AllocationKind {
 
 pub struct AllocationResult {
     texture_id: TextureId,
-    x: u32,
-    y: u32,
+    uv: Point2D<u32>,
     kind: AllocationKind,
 }
 
@@ -245,12 +258,19 @@ impl TextureCache {
                     y0: i32,
                     width: u32,
                     height: u32,
-                    format: ImageFormat) -> AllocationResult {
-        let (page_list, mode) = match format {
-            ImageFormat::A8 => (&mut self.arena.pages_a8, RenderTargetMode::RenderTarget),
-            ImageFormat::RGBA8 => (&mut self.arena.pages_rgba8, RenderTargetMode::RenderTarget),
-            ImageFormat::RGB8 => (&mut self.arena.pages_rgb8, RenderTargetMode::None),
-            ImageFormat::Invalid => unreachable!(),
+                    format: ImageFormat,
+                    alternate: bool)
+                    -> AllocationResult {
+        let (page_list, mode) = match (format, alternate) {
+            (ImageFormat::A8, false) => (&mut self.arena.pages_a8, RenderTargetMode::RenderTarget),
+            (ImageFormat::A8, true) => {
+                (&mut self.arena.alternate_pages_a8, RenderTargetMode::RenderTarget)
+            }
+            (ImageFormat::RGBA8, false) => {
+                (&mut self.arena.pages_rgba8, RenderTargetMode::RenderTarget)
+            }
+            (ImageFormat::RGB8, false) => (&mut self.arena.pages_rgb8, RenderTargetMode::None),
+            (ImageFormat::Invalid, false) | (_, true) => unreachable!(),
         };
 
         let size = Size2D::new(width, height);
@@ -288,8 +308,7 @@ impl TextureCache {
 
                         return AllocationResult {
                             texture_id: texture_id,
-                            x: 0,
-                            y: 0,
+                            uv: Point2D::new(0, 0),
                             kind: AllocationKind::Standalone,
                         }
                     }
@@ -319,8 +338,7 @@ impl TextureCache {
 
         AllocationResult {
             texture_id: page.texture_id,
-            x: tx0,
-            y: ty0,
+            uv: Point2D::new(tx0, ty0),
             kind: AllocationKind::TexturePage,
         }
     }
@@ -338,14 +356,15 @@ impl TextureCache {
                                                0,
                                                width,
                                                height,
-                                               op.image_format);
+                                               op.image_format,
+                                               false);
 
                 assert!(allocation.kind == AllocationKind::TexturePage);        // TODO: Handle large border radii not fitting in texture cache page
 
                 TextureUpdate {
                     id: allocation.texture_id,
-                    op: TextureUpdateOp::Update(allocation.x,
-                                                allocation.y,
+                    op: TextureUpdateOp::Update(allocation.uv.x,
+                                                allocation.uv.y,
                                                 width,
                                                 height,
                                                 TextureUpdateDetails::BorderRadius(
@@ -363,7 +382,8 @@ impl TextureCache {
                                                0,
                                                size.to_nearest_px() as u32,
                                                size.to_nearest_px() as u32,
-                                               ImageFormat::A8);
+                                               ImageFormat::A8,
+                                               false);
 
                 // TODO(pcwalton): Handle large box shadows not fitting in texture cache page.
                 assert!(allocation.kind == AllocationKind::TexturePage);
@@ -371,8 +391,8 @@ impl TextureCache {
                 TextureUpdate {
                     id: allocation.texture_id,
                     op: TextureUpdateOp::Update(
-                        allocation.x,
-                        allocation.y,
+                        allocation.uv.x,
+                        allocation.uv.y,
                         size.to_nearest_px() as u32,
                         size.to_nearest_px() as u32,
                         TextureUpdateDetails::BoxShadowCorner(op.blur_radius,
@@ -394,31 +414,41 @@ impl TextureCache {
                   format: ImageFormat,
                   insert_op: TextureInsertOp) {
 
-        let result = self.allocate(image_id, x0, y0, width, height, format);
+        let result = self.allocate(image_id, x0, y0, width, height, format, false);
 
         let op = match (result.kind, insert_op) {
             (AllocationKind::TexturePage, TextureInsertOp::Blit(bytes)) => {
-                TextureUpdateOp::Update(result.x,
-                                        result.y,
+                TextureUpdateOp::Update(result.uv.x,
+                                        result.uv.y,
                                         width,
                                         height,
                                         TextureUpdateDetails::Blit(bytes))
             }
             (AllocationKind::TexturePage,
              TextureInsertOp::Blur(bytes, glyph_size, blur_radius)) => {
-                let unblurred_glyph_texture_id =
-                    self.free_texture_ids.pop().expect("TODO: Handle running out of texture IDs!");
-                let horizontal_blur_texture_id =
-                    self.free_texture_ids.pop().expect("TODO: Handle running out of texture IDs!");
-                TextureUpdateOp::Update(result.x,
-                                        result.y,
-                                        width,
-                                        height,
-                                        TextureUpdateDetails::Blur(bytes,
-                                                                   glyph_size,
-                                                                   blur_radius,
-                                                                   unblurred_glyph_texture_id,
-                                                                   horizontal_blur_texture_id))
+                let unblurred_glyph_image_id = ImageID::new();
+                let horizontal_blur_image_id = ImageID::new();
+                // TODO(pcwalton): Destroy these!
+                self.allocate(unblurred_glyph_image_id,
+                              0, 0,
+                              glyph_size.width, glyph_size.height,
+                              ImageFormat::A8,
+                              false);
+                self.allocate(horizontal_blur_image_id,
+                              0, 0,
+                              width, height,
+                              ImageFormat::A8,
+                              true);
+                let unblurred_glyph_item = self.get(unblurred_glyph_image_id);
+                let horizontal_blur_item = self.get(horizontal_blur_image_id);
+                TextureUpdateOp::Update(
+                    result.uv.x, result.uv.y,
+                    width, height,
+                    TextureUpdateDetails::Blur(bytes,
+                                               glyph_size,
+                                               blur_radius,
+                                               unblurred_glyph_item.to_image(),
+                                               horizontal_blur_item.to_image()))
             }
             (AllocationKind::Standalone, TextureInsertOp::Blit(bytes)) => {
                 TextureUpdateOp::Create(width, height, format, RenderTargetMode::None, Some(bytes))

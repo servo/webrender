@@ -1,7 +1,8 @@
 use euclid::Matrix4;
 use fnv::FnvHasher;
 use gleam::gl;
-use internal_types::{TextureSampler, VertexAttribute, PackedVertex, RenderTargetMode};
+use internal_types::{TextureSampler, VertexAttribute, PackedVertex};
+use internal_types::{PackedVertexForTextureCacheUpdate, RenderTargetMode};
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::fs::File;
@@ -442,9 +443,22 @@ impl Device {
 
         gl::bind_attrib_location(pid, VertexAttribute::Position as gl::GLuint, "aPosition");
         gl::bind_attrib_location(pid, VertexAttribute::Color as gl::GLuint, "aColor");
-        gl::bind_attrib_location(pid, VertexAttribute::ColorTexCoord as gl::GLuint, "aColorTexCoord");
+        gl::bind_attrib_location(pid,
+                                 VertexAttribute::ColorTexCoord as gl::GLuint,
+                                 "aColorTexCoord");
         gl::bind_attrib_location(pid, VertexAttribute::MaskTexCoord as gl::GLuint, "aMaskTexCoord");
         gl::bind_attrib_location(pid, VertexAttribute::MatrixIndex as gl::GLuint, "aMatrixIndex");
+        gl::bind_attrib_location(pid, VertexAttribute::BorderRadii as gl::GLuint, "aBorderRadii");
+        gl::bind_attrib_location(pid,
+                                 VertexAttribute::BorderPosition as gl::GLuint,
+                                 "aBorderPosition");
+        gl::bind_attrib_location(pid, VertexAttribute::BlurRadius as gl::GLuint, "aBlurRadius");
+        gl::bind_attrib_location(pid,
+                                 VertexAttribute::DestTextureSize as gl::GLuint,
+                                 "aDestTextureSize");
+        gl::bind_attrib_location(pid,
+                                 VertexAttribute::SourceTextureSize as gl::GLuint,
+                                 "aSourceTextureSize");
 
         gl::link_program(pid);
         if gl::get_program_iv(pid, gl::LINK_STATUS) == (0 as gl::GLint) {
@@ -484,12 +498,6 @@ impl Device {
         debug_assert!(self.inside_frame);
         let ProgramId(program_id) = program_id;
         UniformLocation(gl::get_uniform_location(program_id, name))
-    }
-
-    pub fn set_uniform_1f(&self, uniform: UniformLocation, x: f32) {
-        debug_assert!(self.inside_frame);
-        let UniformLocation(location) = uniform;
-        gl::uniform_1f(location, x);
     }
 
     pub fn set_uniform_2f(&self, uniform: UniformLocation, x: f32, y: f32) {
@@ -594,6 +602,11 @@ impl Device {
         gl::disable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
         gl::disable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
         gl::disable_vertex_attrib_array(VertexAttribute::MatrixIndex as gl::GLuint);
+        gl::disable_vertex_attrib_array(VertexAttribute::BorderRadii as gl::GLuint);
+        gl::disable_vertex_attrib_array(VertexAttribute::BorderPosition as gl::GLuint);
+        gl::disable_vertex_attrib_array(VertexAttribute::BlurRadius as gl::GLuint);
+        gl::disable_vertex_attrib_array(VertexAttribute::DestTextureSize as gl::GLuint);
+        gl::disable_vertex_attrib_array(VertexAttribute::SourceTextureSize as gl::GLuint);
     }
 
     #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
@@ -646,6 +659,81 @@ impl Device {
                                       vertex_stride,
                                       20);
         }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
+    pub fn bind_vao_for_texture_cache_update(&mut self, vao_id: VAOId) {
+        debug_assert!(self.inside_frame);
+
+        if self.bound_vao == vao_id {
+            return
+        }
+
+        self.bound_vao = vao_id;
+
+        let vao = self.vaos.get(&vao_id).unwrap();
+        vao.vbo_id.bind();
+        vao.ibo_id.bind();
+
+        let vertex_stride = mem::size_of::<PackedVertexForTextureCacheUpdate>() as gl::GLint;
+
+        gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
+        gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
+        gl::enable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
+        gl::enable_vertex_attrib_array(VertexAttribute::BorderRadii as gl::GLuint);
+        gl::enable_vertex_attrib_array(VertexAttribute::BorderPosition as gl::GLuint);
+        gl::enable_vertex_attrib_array(VertexAttribute::BlurRadius as gl::GLuint);
+        gl::enable_vertex_attrib_array(VertexAttribute::DestTextureSize as gl::GLuint);
+        gl::enable_vertex_attrib_array(VertexAttribute::SourceTextureSize as gl::GLuint);
+
+        gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint,
+                                  2,
+                                  gl::FLOAT,
+                                  false,
+                                  vertex_stride,
+                                  0);
+        gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint,
+                                  4,
+                                  gl::UNSIGNED_BYTE,
+                                  true,
+                                  vertex_stride,
+                                  8);
+        gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint,
+                                  2,
+                                  gl::UNSIGNED_SHORT,
+                                  true,
+                                  vertex_stride,
+                                  12);
+        gl::vertex_attrib_pointer(VertexAttribute::BorderRadii as gl::GLuint,
+                                  4,
+                                  gl::FLOAT,
+                                  false,
+                                  vertex_stride,
+                                  16);
+        gl::vertex_attrib_pointer(VertexAttribute::BorderPosition as gl::GLuint,
+                                  4,
+                                  gl::FLOAT,
+                                  false,
+                                  vertex_stride,
+                                  32);
+        gl::vertex_attrib_pointer(VertexAttribute::DestTextureSize as gl::GLuint,
+                                  2,
+                                  gl::FLOAT,
+                                  false,
+                                  vertex_stride,
+                                  48);
+        gl::vertex_attrib_pointer(VertexAttribute::SourceTextureSize as gl::GLuint,
+                                  2,
+                                  gl::FLOAT,
+                                  false,
+                                  vertex_stride,
+                                  56);
+        gl::vertex_attrib_pointer(VertexAttribute::BlurRadius as gl::GLuint,
+                                  1,
+                                  gl::FLOAT,
+                                  false,
+                                  vertex_stride,
+                                  64);
     }
 
     #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
