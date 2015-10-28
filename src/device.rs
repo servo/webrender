@@ -89,12 +89,12 @@ impl Drop for Program {
 }
 
 struct VAO {
-    id: gl::GLuint,
+    //id: gl::GLuint,
     vbo_id: VBOId,
     ibo_id: IBOId,
 }
 
-#[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
+//#[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
 impl Drop for VAO {
     fn drop(&mut self) {
         // todo(gw): maybe make these there own type with hashmap?
@@ -105,6 +105,7 @@ impl Drop for VAO {
     }
 }
 
+/*
 #[cfg(not(any(target_os = "android", target_os = "gonk", target_os = "macos")))]
 impl Drop for VAO {
     fn drop(&mut self) {
@@ -116,7 +117,7 @@ impl Drop for VAO {
         gl::delete_buffers(&[vbo_id]);
         gl::delete_buffers(&[ibo_id]);
     }
-}
+}*/
 
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 pub struct TextureId(pub gl::GLuint);       // TODO: HACK: Should not be public!
@@ -593,7 +594,7 @@ impl Device {
         gl::copy_tex_sub_image_2d(gl::TEXTURE_2D, 0, 0, 0, x as gl::GLint, y as gl::GLint, width as gl::GLint, height as gl::GLint);
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
+    //#[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
     fn clear_vertex_array(&mut self) {
         debug_assert!(self.inside_frame);
 
@@ -609,7 +610,7 @@ impl Device {
         gl::disable_vertex_attrib_array(VertexAttribute::SourceTextureSize as gl::GLuint);
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
+    //#[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
     pub fn bind_vao(&mut self, vao_id: VAOId) {
         debug_assert!(self.inside_frame);
 
@@ -661,7 +662,7 @@ impl Device {
         }
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
+    //#[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
     pub fn bind_vao_for_texture_cache_update(&mut self, vao_id: VAOId) {
         debug_assert!(self.inside_frame);
 
@@ -736,7 +737,7 @@ impl Device {
                                   64);
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
+    //#[cfg(any(target_os = "android", target_os = "gonk", target_os = "macos"))]
     pub fn create_vao(&mut self) -> VAOId {
         debug_assert!(self.inside_frame);
 
@@ -751,7 +752,7 @@ impl Device {
         let ibo_id = IBOId(ibo_id);
 
         let vao = VAO {
-            id: vao_id,
+            //id: vao_id,
             vbo_id: vbo_id,
             ibo_id: ibo_id,
         };
@@ -764,6 +765,7 @@ impl Device {
         vao_id
     }
 
+/*
     #[cfg(not(any(target_os = "android", target_os = "gonk", target_os = "macos")))]
     fn clear_vertex_array(&mut self) {
         debug_assert!(self.inside_frame);
@@ -853,7 +855,7 @@ impl Device {
         self.vaos.insert(vao_id, vao);
 
         vao_id
-    }
+    }*/
 
     pub fn update_vao_vertices<V>(&mut self,
                                   vao_id: VAOId,
