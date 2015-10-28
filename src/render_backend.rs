@@ -6,7 +6,7 @@ use device::{ProgramId, TextureId};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
 use font::{FontContext, RasterizedGlyph};
 use fnv::FnvHasher;
-use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, Primitive, ClearInfo};
+use internal_types::{ApiMsg, FontTemplate, Frame, ImageResource, ResultMsg, DrawLayer, Primitive, ClearInfo};
 use internal_types::{BorderRadiusRasterOp, BoxShadowCornerRasterOp, RasterItem};
 use internal_types::{BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp, CompiledNode};
 use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo};
@@ -16,6 +16,7 @@ use internal_types::{Glyph, PolygonPosColorUv, RectPosUv};
 use layer::Layer;
 use optimizer;
 use renderer::BLUR_INFLATION_FACTOR;
+use resource_cache::ResourceCache;
 use resource_list::ResourceList;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -44,8 +45,6 @@ use scoped_threadpool;
 type DisplayListMap = HashMap<DisplayListID, DisplayList, DefaultState<FnvHasher>>;
 type DrawListMap = HashMap<DrawListID, DrawList, DefaultState<FnvHasher>>;
 type FlatDrawListArray = Vec<FlatDrawList>;
-type GlyphToImageMap = HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>;
-type RasterToImageMap = HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>;
 type FontTemplateMap = HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>;
 type ImageTemplateMap = HashMap<ImageID, ImageResource, DefaultState<FnvHasher>>;
 type StackingContextMap = HashMap<PipelineId, RootStackingContext, DefaultState<FnvHasher>>;
@@ -724,11 +723,8 @@ impl Scene {
     fn build_frame(&mut self,
                    viewport: &Rect<i32>,
                    device_pixel_ratio: f32,
-                   raster_to_image_map: &mut RasterToImageMap,
-                   glyph_to_image_map: &mut GlyphToImageMap,
-                   image_templates: &ImageTemplateMap,
-                   font_templates: &FontTemplateMap,
                    texture_cache: &mut TextureCache,
+                   resource_cache: &mut ResourceCache,
                    white_image_id: ImageID,
                    dummy_mask_image_id: ImageID,
                    quad_program_id: ProgramId,
@@ -746,20 +742,17 @@ impl Scene {
         self.update_resource_lists();
 
         // Update texture cache and build list of raster jobs.
-        let raster_jobs = self.update_texture_cache_and_build_raster_jobs(raster_to_image_map,
-                                                                          glyph_to_image_map,
-                                                                          image_templates,
-                                                                          texture_cache);
+        let raster_jobs = self.update_texture_cache_and_build_raster_jobs(texture_cache,
+                                                                          resource_cache);
 
         // Rasterize needed glyphs on worker threads
         self.raster_glyphs(raster_jobs,
-                           font_templates,
+                           resource_cache,
                            texture_cache,
                            device_pixel_ratio);
 
         // Compile nodes that have become visible
-        self.compile_visible_nodes(glyph_to_image_map,
-                                   raster_to_image_map,
+        self.compile_visible_nodes(resource_cache,
                                    texture_cache,
                                    white_image_id,
                                    dummy_mask_image_id,
@@ -841,8 +834,7 @@ impl Scene {
     }
 
     fn compile_visible_nodes(&mut self,
-                             glyph_to_image_map: &GlyphToImageMap,
-                             raster_to_image_map: &RasterToImageMap,
+                             resource_cache: &ResourceCache,
                              texture_cache: &TextureCache,
                              white_image_id: ImageID,
                              dummy_mask_image_id: ImageID,
@@ -872,8 +864,7 @@ impl Scene {
                             node.compile(flat_draw_list_array,
                                          white_image_info,
                                          mask_image_info,
-                                         glyph_to_image_map,
-                                         raster_to_image_map,
+                                         resource_cache,
                                          texture_cache,
                                          node_info_map,
                                          quad_program_id,
@@ -910,12 +901,9 @@ impl Scene {
     }
 
     fn update_texture_cache_and_build_raster_jobs(&mut self,
-                                                  raster_to_image_map: &mut RasterToImageMap,
-                                                  glyph_to_image_map: &mut GlyphToImageMap,
-                                                  image_templates: &ImageTemplateMap,
-                                                  texture_cache: &mut TextureCache) -> Vec<GlyphRasterJob> {
+                                                  texture_cache: &mut TextureCache,
+                                                  resource_cache: &mut ResourceCache) -> Vec<GlyphRasterJob> {
         let _pf = util::ProfileScope::new("  update_texture_cache_and_build_raster_jobs");
-
         let mut raster_jobs = Vec::new();
 
         for (_, layer) in &self.layers {
@@ -925,17 +913,17 @@ impl Scene {
 
                     // Update texture cache with any GPU generated procedural items.
                     resource_list.for_each_raster(|raster_item| {
-                        if !raster_to_image_map.contains_key(raster_item) {
+                        resource_cache.cache_raster_if_required(raster_item, || {
                             let image_id = ImageID::new();
                             texture_cache.insert_raster_op(image_id, raster_item);
-                            raster_to_image_map.insert(raster_item.clone(), image_id);
-                        }
+                            image_id
+                        });
                     });
 
                     // Update texture cache with any images that aren't yet uploaded to GPU.
                     resource_list.for_each_image(|image_id| {
                         if !texture_cache.exists(image_id) {
-                            let image_template = image_templates.get(&image_id).expect("TODO: image not available yet! ");
+                            let image_template = resource_cache.get_image(image_id);
                             // TODO: Can we avoid the clone of the bytes here?
                             texture_cache.insert(image_id,
                                                  0,
@@ -949,15 +937,15 @@ impl Scene {
 
                     // Update texture cache with any newly rasterized glyphs.
                     resource_list.for_each_glyph(|glyph_key| {
-                        if !glyph_to_image_map.contains_key(&glyph_key) {
+                        resource_cache.cache_glyph_if_required(glyph_key, || {
                             let image_id = ImageID::new();
                             raster_jobs.push(GlyphRasterJob {
                                 image_id: image_id,
                                 glyph_key: glyph_key.clone(),
                                 result: None,
                             });
-                            glyph_to_image_map.insert(glyph_key.clone(), image_id);
-                        }
+                            image_id
+                        });
                     });
                 }
             }
@@ -968,7 +956,7 @@ impl Scene {
 
     fn raster_glyphs(&mut self,
                      mut jobs: Vec<GlyphRasterJob>,
-                     font_templates: &FontTemplateMap,
+                     resource_cache: &mut ResourceCache,
                      texture_cache: &mut TextureCache,
                      device_pixel_ratio: f32) {
         let _pf = util::ProfileScope::new("  raster_glyphs");
@@ -976,10 +964,10 @@ impl Scene {
         // Run raster jobs in parallel
         self.thread_pool.scoped(|scope| {
             for job in &mut jobs {
-                scope.execute(move || {
-                    FONT_CONTEXT.with(|font_context| {
+                scope.execute(|| {
+                    let font_template = resource_cache.get_font(job.glyph_key.font_key);
+                    FONT_CONTEXT.with(move |font_context| {
                         let mut font_context = font_context.borrow_mut();
-                        let font_template = &font_templates[&job.glyph_key.font_key];
                         font_context.add_font(job.glyph_key.font_key, &font_template.bytes);
                         job.result = font_context.get_glyph(job.glyph_key.font_key,
                                                             job.glyph_key.size,
@@ -1060,10 +1048,6 @@ impl Scene {
             println!("unable to find root scroll layer (may be an empty stacking context)");
         }
     }
-}
-
-struct FontTemplate {
-    bytes: Arc<Vec<u8>>,
 }
 
 struct GlyphRasterJob {
@@ -1253,11 +1237,8 @@ pub struct RenderBackend {
     white_image_id: ImageID,
     dummy_mask_image_id: ImageID,
 
+    resource_cache: ResourceCache,
     texture_cache: TextureCache,
-    font_templates: FontTemplateMap,
-    image_templates: ImageTemplateMap,
-    glyph_to_image_map: GlyphToImageMap,
-    raster_to_image_map: RasterToImageMap,
 
     display_list_map: DisplayListMap,
     draw_list_map: DrawListMap,
@@ -1288,11 +1269,7 @@ impl RenderBackend {
             white_image_id: white_image_id,
             dummy_mask_image_id: dummy_mask_image_id,
             texture_cache: texture_cache,
-
-            font_templates: HashMap::with_hash_state(Default::default()),
-            image_templates: HashMap::with_hash_state(Default::default()),
-            glyph_to_image_map: HashMap::with_hash_state(Default::default()),
-            raster_to_image_map: HashMap::with_hash_state(Default::default()),
+            resource_cache: ResourceCache::new(),
 
             scene: Scene::new(),
             display_list_map: HashMap::with_hash_state(Default::default()),
@@ -1343,7 +1320,7 @@ impl RenderBackend {
                 Ok(msg) => {
                     match msg {
                         ApiMsg::AddFont(id, bytes) => {
-                            self.font_templates.insert(id, FontTemplate {
+                            self.resource_cache.add_font(id, FontTemplate {
                                 bytes: Arc::new(bytes),
                             });
                         }
@@ -1354,7 +1331,7 @@ impl RenderBackend {
                                 height: height,
                                 format: format,
                             };
-                            self.image_templates.insert(id, image);
+                            self.resource_cache.add_image(id, image);
                         }
                         ApiMsg::AddDisplayList(id,
                                                pipeline_id,
@@ -1493,11 +1470,8 @@ impl RenderBackend {
     fn render(&mut self, notifier: &mut RenderNotifier) {
         let mut frame = self.scene.build_frame(&self.viewport,
                                                self.device_pixel_ratio,
-                                               &mut self.raster_to_image_map,
-                                               &mut self.glyph_to_image_map,
-                                               &self.image_templates,
-                                               &self.font_templates,
                                                &mut self.texture_cache,
+                                               &mut self.resource_cache,
                                                self.white_image_id,
                                                self.dummy_mask_image_id,
                                                self.quad_program_id,
@@ -1547,7 +1521,7 @@ impl DrawCommandBuilder {
                      clip_region: &ClipRegion,
                      image_info: &TextureCacheItem,
                      dummy_mask_image: &TextureCacheItem,
-                     raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                     resource_cache: &ResourceCache,
                      texture_cache: &TextureCache,
                      clip_buffers: &mut ClipBuffers,
                      color: &ColorF) {
@@ -1558,7 +1532,7 @@ impl DrawCommandBuilder {
                                        clip_region,
                                        image_info,
                                        dummy_mask_image,
-                                       raster_to_image_map,
+                                       resource_cache,
                                        texture_cache,
                                        clip_buffers,
                                        &[*color, *color, *color, *color])
@@ -1590,7 +1564,7 @@ impl DrawCommandBuilder {
                  stretch_size: &Size2D<f32>,
                  image_info: &TextureCacheItem,
                  dummy_mask_image: &TextureCacheItem,
-                 raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                 resource_cache: &ResourceCache,
                  texture_cache: &TextureCache,
                  clip_buffers: &mut ClipBuffers,
                  color: &ColorF) {
@@ -1608,7 +1582,7 @@ impl DrawCommandBuilder {
                                  clip_rect,
                                  clip_region,
                                  &sort_key,
-                                 raster_to_image_map,
+                                 resource_cache,
                                  texture_cache,
                                  clip_buffers,
                                  rect,
@@ -1628,7 +1602,7 @@ impl DrawCommandBuilder {
                                          clip_rect,
                                          clip_region,
                                          &sort_key,
-                                         raster_to_image_map,
+                                         resource_cache,
                                          texture_cache,
                                          clip_buffers,
                                          &tiled_rect,
@@ -1649,7 +1623,7 @@ impl DrawCommandBuilder {
                        clip_rect: &Rect<f32>,
                        clip_region: &ClipRegion,
                        sort_key: &DisplayItemKey,
-                       raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                       resource_cache: &ResourceCache,
                        texture_cache: &TextureCache,
                        clip_buffers: &mut ClipBuffers,
                        rect: &Rect<f32>,
@@ -1666,7 +1640,7 @@ impl DrawCommandBuilder {
             clip_region);
         for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
             let mask = mask_for_clip_region(dummy_mask_image,
-                                            raster_to_image_map,
+                                            resource_cache,
                                             texture_cache,
                                             &clip_region,
                                             false);
@@ -1691,7 +1665,7 @@ impl DrawCommandBuilder {
                 color: &ColorF,
                 glyphs: &Vec<GlyphInstance>,
                 dummy_mask_image: &TextureCacheItem,
-                glyph_to_image_map: &HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
+                resource_cache: &ResourceCache,
                 texture_cache: &TextureCache) {
         // Logic below to pick the primary render item depends on len > 0!
         assert!(glyphs.len() > 0);
@@ -1707,8 +1681,8 @@ impl DrawCommandBuilder {
 
         for glyph in glyphs {
             glyph_key.index = glyph.index;
-            let image_id = glyph_to_image_map.get(&glyph_key).unwrap();
-            let image_info = texture_cache.get(*image_id);
+            let image_id = resource_cache.get_glyph(&glyph_key);
+            let image_info = texture_cache.get(image_id);
 
             if image_info.width > 0 && image_info.height > 0 {
                 let x0 = glyph.x + image_info.x0 as f32 / device_pixel_ratio - blur_offset;
@@ -1762,9 +1736,7 @@ impl DrawCommandBuilder {
                                  clip_region: &ClipRegion,
                                  image_info: &TextureCacheItem,
                                  dummy_mask_image: &TextureCacheItem,
-                                 raster_to_image_map: &HashMap<RasterItem,
-                                                               ImageID,
-                                                               DefaultState<FnvHasher>>,
+                                 resource_cache: &ResourceCache,
                                  texture_cache: &TextureCache,
                                  clip_buffers: &mut ClipBuffers,
                                  colors: &[ColorF; 4]) {
@@ -1788,7 +1760,7 @@ impl DrawCommandBuilder {
             clip_region);
         for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
             let mask = mask_for_clip_region(dummy_mask_image,
-                                            raster_to_image_map,
+                                            resource_cache,
                                             texture_cache,
                                             &clip_region,
                                             false);
@@ -1812,7 +1784,7 @@ impl DrawCommandBuilder {
                     stops: &[GradientStop],
                     image: &TextureCacheItem,
                     dummy_mask_image: &TextureCacheItem,
-                    raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                    resource_cache: &ResourceCache,
                     texture_cache: &TextureCache,
                     clip_buffers: &mut ClipBuffers) {
         debug_assert!(stops.len() >= 2);
@@ -1877,7 +1849,7 @@ impl DrawCommandBuilder {
                                                .clip_rect_to_region_result_output
                                                .drain(..) {
                     let mask = mask_for_clip_region(dummy_mask_image,
-                                                    raster_to_image_map,
+                                                    resource_cache,
                                                     texture_cache,
                                                     &clip_result,
                                                     false);
@@ -1917,7 +1889,7 @@ impl DrawCommandBuilder {
                       clip_mode: BoxShadowClipMode,
                       white_image: &TextureCacheItem,
                       dummy_mask_image: &TextureCacheItem,
-                      raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                      resource_cache: &ResourceCache,
                       texture_cache: &TextureCache,
                       clip_buffers: &mut ClipBuffers) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
@@ -1931,7 +1903,7 @@ impl DrawCommandBuilder {
                                clip_region,
                                white_image,
                                dummy_mask_image,
-                               raster_to_image_map,
+                               resource_cache,
                                texture_cache,
                                clip_buffers,
                                color);
@@ -1949,7 +1921,7 @@ impl DrawCommandBuilder {
                                     clip_mode,
                                     white_image,
                                     dummy_mask_image,
-                                    raster_to_image_map,
+                                    resource_cache,
                                     texture_cache,
                                     clip_buffers);
 
@@ -1965,7 +1937,7 @@ impl DrawCommandBuilder {
                                   clip_mode,
                                   white_image,
                                   dummy_mask_image,
-                                  raster_to_image_map,
+                                  resource_cache,
                                   texture_cache,
                                   clip_buffers);
 
@@ -1986,7 +1958,7 @@ impl DrawCommandBuilder {
                                    clip_region,
                                    white_image,
                                    dummy_mask_image,
-                                   raster_to_image_map,
+                                   resource_cache,
                                    texture_cache,
                                    clip_buffers,
                                    color);
@@ -2004,7 +1976,7 @@ impl DrawCommandBuilder {
                                                            clip_mode,
                                                            white_image,
                                                            dummy_mask_image,
-                                                           raster_to_image_map,
+                                                           resource_cache,
                                                            texture_cache,
                                                            clip_buffers);
             }
@@ -2022,9 +1994,7 @@ impl DrawCommandBuilder {
                               clip_mode: BoxShadowClipMode,
                               white_image: &TextureCacheItem,
                               dummy_mask_image: &TextureCacheItem,
-                              raster_to_image_map: &HashMap<RasterItem,
-                                                            ImageID,
-                                                            DefaultState<FnvHasher>>,
+                              resource_cache: &ResourceCache,
                               texture_cache: &TextureCache,
                               clip_buffers: &mut ClipBuffers) {
         // Draw the corners.
@@ -2051,7 +2021,7 @@ impl DrawCommandBuilder {
                                    clip_mode,
                                    white_image,
                                    dummy_mask_image,
-                                   raster_to_image_map,
+                                   resource_cache,
                                    texture_cache,
                                    clip_buffers);
         self.add_box_shadow_corner(sort_key,
@@ -2064,7 +2034,7 @@ impl DrawCommandBuilder {
                                    clip_mode,
                                    white_image,
                                    dummy_mask_image,
-                                   raster_to_image_map,
+                                   resource_cache,
                                    texture_cache,
                                    clip_buffers);
         self.add_box_shadow_corner(sort_key,
@@ -2077,7 +2047,7 @@ impl DrawCommandBuilder {
                                    clip_mode,
                                    white_image,
                                    dummy_mask_image,
-                                   raster_to_image_map,
+                                   resource_cache,
                                    texture_cache,
                                    clip_buffers);
         self.add_box_shadow_corner(sort_key,
@@ -2090,7 +2060,7 @@ impl DrawCommandBuilder {
                                    clip_mode,
                                    white_image,
                                    dummy_mask_image,
-                                   raster_to_image_map,
+                                   resource_cache,
                                    texture_cache,
                                    clip_buffers);
     }
@@ -2107,9 +2077,7 @@ impl DrawCommandBuilder {
                             clip_mode: BoxShadowClipMode,
                             white_image: &TextureCacheItem,
                             dummy_mask_image: &TextureCacheItem,
-                            raster_to_image_map: &HashMap<RasterItem,
-                                                          ImageID,
-                                                          DefaultState<FnvHasher>>,
+                            resource_cache: &ResourceCache,
                             texture_cache: &TextureCache,
                             clip_buffers: &mut ClipBuffers) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
@@ -2158,7 +2126,7 @@ impl DrawCommandBuilder {
                                        clip_region,
                                        white_image,
                                        dummy_mask_image,
-                                       raster_to_image_map,
+                                       resource_cache,
                                        texture_cache,
                                        clip_buffers,
                                        &[start_color, start_color, end_color, end_color]);
@@ -2169,7 +2137,7 @@ impl DrawCommandBuilder {
                                        clip_region,
                                        white_image,
                                        dummy_mask_image,
-                                       raster_to_image_map,
+                                       resource_cache,
                                        texture_cache,
                                        clip_buffers,
                                        &[end_color, start_color, start_color, end_color]);
@@ -2180,7 +2148,7 @@ impl DrawCommandBuilder {
                                        clip_region,
                                        white_image,
                                        dummy_mask_image,
-                                       raster_to_image_map,
+                                       resource_cache,
                                        texture_cache,
                                        clip_buffers,
                                        &[end_color, end_color, start_color, start_color]);
@@ -2191,7 +2159,7 @@ impl DrawCommandBuilder {
                                        clip_region,
                                        white_image,
                                        dummy_mask_image,
-                                       raster_to_image_map,
+                                       resource_cache,
                                        texture_cache,
                                        clip_buffers,
                                        &[start_color, end_color, end_color, start_color]);
@@ -2209,10 +2177,7 @@ impl DrawCommandBuilder {
                                              clip_mode: BoxShadowClipMode,
                                              white_image: &TextureCacheItem,
                                              dummy_mask_image: &TextureCacheItem,
-                                             raster_to_image_map:
-                                                &HashMap<RasterItem,
-                                                         ImageID,
-                                                         DefaultState<FnvHasher>>,
+                                             resource_cache: &ResourceCache,
                                              texture_cache: &TextureCache,
                                              clip_buffers: &mut ClipBuffers) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
@@ -2244,7 +2209,7 @@ impl DrawCommandBuilder {
                            clip_region,
                            white_image,
                            dummy_mask_image,
-                           raster_to_image_map,
+                           resource_cache,
                            texture_cache,
                            clip_buffers,
                            color);
@@ -2259,7 +2224,7 @@ impl DrawCommandBuilder {
                            clip_region,
                            white_image,
                            dummy_mask_image,
-                           raster_to_image_map,
+                           resource_cache,
                            texture_cache,
                            clip_buffers,
                            color);
@@ -2274,7 +2239,7 @@ impl DrawCommandBuilder {
                            clip_region,
                            white_image,
                            dummy_mask_image,
-                           raster_to_image_map,
+                           resource_cache,
                            texture_cache,
                            clip_buffers,
                            color);
@@ -2289,7 +2254,7 @@ impl DrawCommandBuilder {
                            clip_region,
                            white_image,
                            dummy_mask_image,
-                           raster_to_image_map,
+                           resource_cache,
                            texture_cache,
                            clip_buffers,
                            color);
@@ -2306,7 +2271,7 @@ impl DrawCommandBuilder {
                        border_style: BorderStyle,
                        white_image: &TextureCacheItem,
                        dummy_mask_image: &TextureCacheItem,
-                       raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                       resource_cache: &ResourceCache,
                        texture_cache: &TextureCache,
                        clip_buffers: &mut clipper::ClipBuffers) {
         // TODO: Check for zero width/height borders!
@@ -2346,7 +2311,7 @@ impl DrawCommandBuilder {
                                        clip_region,
                                        white_image,
                                        dummy_mask_image,
-                                       raster_to_image_map,
+                                       resource_cache,
                                        texture_cache,
                                        clip_buffers,
                                        color);
@@ -2383,7 +2348,7 @@ impl DrawCommandBuilder {
                                                      ImageFormat::RGBA8).expect(
                         "Didn't find border radius mask for dashed border!");
                     let raster_item = RasterItem::BorderRadius(raster_op);
-                    let raster_item_id = raster_to_image_map[&raster_item];
+                    let raster_item_id = resource_cache.get_raster(&raster_item);
                     let color_image = texture_cache.get(raster_item_id);
 
                     // Top left:
@@ -2396,7 +2361,7 @@ impl DrawCommandBuilder {
                                        clip_region,
                                        color_image,
                                        dummy_mask_image,
-                                       raster_to_image_map,
+                                       resource_cache,
                                        texture_cache,
                                        clip_buffers,
                                        color);
@@ -2411,7 +2376,7 @@ impl DrawCommandBuilder {
                                        clip_region,
                                        color_image,
                                        dummy_mask_image,
-                                       raster_to_image_map,
+                                       resource_cache,
                                        texture_cache,
                                        clip_buffers,
                                        color);
@@ -2426,7 +2391,7 @@ impl DrawCommandBuilder {
                                        clip_region,
                                        color_image,
                                        dummy_mask_image,
-                                       raster_to_image_map,
+                                       resource_cache,
                                        texture_cache,
                                        clip_buffers,
                                        color);
@@ -2441,7 +2406,7 @@ impl DrawCommandBuilder {
                                        clip_region,
                                        color_image,
                                        dummy_mask_image,
-                                       raster_to_image_map,
+                                       resource_cache,
                                        texture_cache,
                                        clip_buffers,
                                        color);
@@ -2473,7 +2438,7 @@ impl DrawCommandBuilder {
                                    clip_region,
                                    white_image,
                                    dummy_mask_image,
-                                   raster_to_image_map,
+                                   resource_cache,
                                    texture_cache,
                                    clip_buffers,
                                    color);
@@ -2484,7 +2449,7 @@ impl DrawCommandBuilder {
                                    clip_region,
                                    white_image,
                                    dummy_mask_image,
-                                   raster_to_image_map,
+                                   resource_cache,
                                    texture_cache,
                                    clip_buffers,
                                    color);
@@ -2497,7 +2462,7 @@ impl DrawCommandBuilder {
                                    clip_region,
                                    white_image,
                                    dummy_mask_image,
-                                   raster_to_image_map,
+                                   resource_cache,
                                    texture_cache,
                                    clip_buffers,
                                    color);
@@ -2517,7 +2482,7 @@ impl DrawCommandBuilder {
                          inner_radius: &Size2D<f32>,
                          white_image: &TextureCacheItem,
                          dummy_mask_image: &TextureCacheItem,
-                         raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                         resource_cache: &ResourceCache,
                          texture_cache: &TextureCache) {
         if color0.a <= 0.0 && color1.a <= 0.0 {
             return
@@ -2530,7 +2495,7 @@ impl DrawCommandBuilder {
                                                             ImageFormat::A8) {
             Some(raster_item) => {
                 let raster_item = RasterItem::BorderRadius(raster_item);
-                let raster_item_id = raster_to_image_map[&raster_item];
+                let raster_item_id = resource_cache.get_raster(&raster_item);
                 texture_cache.get(raster_item_id)
             }
             None => {
@@ -2662,7 +2627,7 @@ impl DrawCommandBuilder {
                   info: &BorderDisplayItem,
                   white_image: &TextureCacheItem,
                   dummy_mask_image: &TextureCacheItem,
-                  raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+                  resource_cache: &ResourceCache,
                   texture_cache: &TextureCache,
                   clip_buffers: &mut ClipBuffers) {
         // TODO: If any border segment is alpha, place all in alpha pass.
@@ -2706,7 +2671,7 @@ impl DrawCommandBuilder {
                              info.left.style,
                              white_image,
                              dummy_mask_image,
-                             raster_to_image_map,
+                             resource_cache,
                              texture_cache,
                              clip_buffers);
 
@@ -2721,7 +2686,7 @@ impl DrawCommandBuilder {
                              info.top.style,
                              white_image,
                              dummy_mask_image,
-                             raster_to_image_map,
+                             resource_cache,
                              texture_cache,
                              clip_buffers);
 
@@ -2735,7 +2700,7 @@ impl DrawCommandBuilder {
                              info.right.style,
                              white_image,
                              dummy_mask_image,
-                             raster_to_image_map,
+                             resource_cache,
                              texture_cache,
                              clip_buffers);
 
@@ -2750,7 +2715,7 @@ impl DrawCommandBuilder {
                              info.bottom.style,
                              white_image,
                              dummy_mask_image,
-                             raster_to_image_map,
+                             resource_cache,
                              texture_cache,
                              clip_buffers);
 
@@ -2765,7 +2730,7 @@ impl DrawCommandBuilder {
                                &info.top_left_inner_radius(),
                                white_image,
                                dummy_mask_image,
-                               raster_to_image_map,
+                               resource_cache,
                                texture_cache);
 
         self.add_border_corner(sort_key,
@@ -2778,7 +2743,7 @@ impl DrawCommandBuilder {
                                &info.top_right_inner_radius(),
                                white_image,
                                dummy_mask_image,
-                               raster_to_image_map,
+                               resource_cache,
                                texture_cache);
 
         self.add_border_corner(sort_key,
@@ -2791,7 +2756,7 @@ impl DrawCommandBuilder {
                                &info.bottom_right_inner_radius(),
                                white_image,
                                dummy_mask_image,
-                               raster_to_image_map,
+                               resource_cache,
                                texture_cache);
 
         self.add_border_corner(sort_key,
@@ -2804,7 +2769,7 @@ impl DrawCommandBuilder {
                                &info.bottom_left_inner_radius(),
                                white_image,
                                dummy_mask_image,
-                               raster_to_image_map,
+                               resource_cache,
                                texture_cache);
     }
 
@@ -2820,9 +2785,7 @@ impl DrawCommandBuilder {
                              clip_mode: BoxShadowClipMode,
                              white_image: &TextureCacheItem,
                              dummy_mask_image: &TextureCacheItem,
-                             raster_to_image_map: &HashMap<RasterItem,
-                                                           ImageID,
-                                                           DefaultState<FnvHasher>>,
+                             resource_cache: &ResourceCache,
                              texture_cache: &TextureCache,
                              clip_buffers: &mut ClipBuffers) {
         let (inverted, clip_rect) = match clip_mode {
@@ -2836,7 +2799,7 @@ impl DrawCommandBuilder {
                                                                inverted) {
             Some(raster_item) => {
                 let raster_item = RasterItem::BoxShadowCorner(raster_item);
-                let raster_item_id = raster_to_image_map[&raster_item];
+                let raster_item_id = resource_cache.get_raster(&raster_item);
                 texture_cache.get(raster_item_id)
             }
             None => dummy_mask_image,
@@ -3001,9 +2964,7 @@ impl BorderSideHelpers for BorderSide {
 }
 
 fn mask_for_border_radius<'a>(dummy_mask_image: &'a TextureCacheItem,
-                              raster_to_image_map: &HashMap<RasterItem,
-                                                            ImageID,
-                                                            DefaultState<FnvHasher>>,
+                              resource_cache: &'a ResourceCache,
                               texture_cache: &'a TextureCache,
                               border_radius: f32,
                               inverted: bool)
@@ -3013,23 +2974,19 @@ fn mask_for_border_radius<'a>(dummy_mask_image: &'a TextureCacheItem,
     }
 
     let border_radius = Au::from_f32_px(border_radius);
-    match raster_to_image_map.get(&RasterItem::BorderRadius(BorderRadiusRasterOp {
+    let image_id = resource_cache.get_raster(&RasterItem::BorderRadius(BorderRadiusRasterOp {
         outer_radius_x: border_radius,
         outer_radius_y: border_radius,
         inner_radius_x: Au(0),
         inner_radius_y: Au(0),
         inverted: inverted,
         image_format: ImageFormat::A8,
-    })) {
-        Some(image_info) => texture_cache.get(*image_info),
-        None => panic!("Couldn't find border radius {:?} in raster-to-image map!", border_radius),
-    }
+    }));
+    texture_cache.get(image_id)
 }
 
 fn mask_for_clip_region<'a,P>(dummy_mask_image: &'a TextureCacheItem,
-                              raster_to_image_map: &HashMap<RasterItem,
-                                                            ImageID,
-                                                            DefaultState<FnvHasher>>,
+                              resource_cache: &'a ResourceCache,
                               texture_cache: &'a TextureCache,
                               clip_region: &ClipRectToRegionResult<P>,
                               inverted: bool)
@@ -3038,7 +2995,7 @@ fn mask_for_clip_region<'a,P>(dummy_mask_image: &'a TextureCacheItem,
         None => dummy_mask_image,
         Some(ref mask_result) => {
             mask_for_border_radius(dummy_mask_image,
-                                   raster_to_image_map,
+                                   resource_cache,
                                    texture_cache,
                                    mask_result.border_radius,
                                    inverted)
@@ -3051,8 +3008,7 @@ trait NodeCompiler {
                flat_draw_lists: &FlatDrawListArray,
                white_image_info: &TextureCacheItem,
                mask_image_info: &TextureCacheItem,
-               glyph_to_image_map: &HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
-               raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+               resource_cache: &ResourceCache,
                texture_cache: &TextureCache,
                node_info_map: &HashMap<ScrollLayerId, Vec<AABBTreeNodeInfo>, DefaultState<FnvHasher>>,
                quad_program_id: ProgramId,
@@ -3065,8 +3021,7 @@ impl NodeCompiler for AABBTreeNode {
                flat_draw_lists: &FlatDrawListArray,
                white_image_info: &TextureCacheItem,
                mask_image_info: &TextureCacheItem,
-               glyph_to_image_map: &HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
-               raster_to_image_map: &HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+               resource_cache: &ResourceCache,
                texture_cache: &TextureCache,
                node_info_map: &HashMap<ScrollLayerId, Vec<AABBTreeNodeInfo>, DefaultState<FnvHasher>>,
                quad_program_id: ProgramId,
@@ -3107,8 +3062,8 @@ impl NodeCompiler for AABBTreeNode {
                                                   &info.stretch_size,
                                                   image,
                                                   mask_image_info,
-                                                  raster_to_image_map,
-                                                  &texture_cache,
+                                                  resource_cache,
+                                                  texture_cache,
                                                   &mut clip_buffers,
                                                   &color_white);
                             }
@@ -3121,8 +3076,8 @@ impl NodeCompiler for AABBTreeNode {
                                                  &info.color,
                                                  &info.glyphs,
                                                  mask_image_info,
-                                                 &glyph_to_image_map,
-                                                 &texture_cache);
+                                                 resource_cache,
+                                                 texture_cache);
                             }
                             SpecificDisplayItem::Rectangle(ref info) => {
                                 builder.add_rectangle(&key,
@@ -3132,8 +3087,8 @@ impl NodeCompiler for AABBTreeNode {
                                                       &display_item.clip,
                                                       white_image_info,
                                                       mask_image_info,
-                                                      raster_to_image_map,
-                                                      &texture_cache,
+                                                      resource_cache,
+                                                      texture_cache,
                                                       &mut clip_buffers,
                                                       &info.color);
                             }
@@ -3147,8 +3102,8 @@ impl NodeCompiler for AABBTreeNode {
                                                      &info.stops,
                                                      white_image_info,
                                                      mask_image_info,
-                                                     raster_to_image_map,
-                                                     &texture_cache,
+                                                     resource_cache,
+                                                     texture_cache,
                                                      &mut clip_buffers);
                             }
                             SpecificDisplayItem::BoxShadow(ref info) => {
@@ -3164,7 +3119,7 @@ impl NodeCompiler for AABBTreeNode {
                                                        info.clip_mode,
                                                        white_image_info,
                                                        mask_image_info,
-                                                       raster_to_image_map,
+                                                       resource_cache,
                                                        texture_cache,
                                                        &mut clip_buffers);
                             }
@@ -3176,7 +3131,7 @@ impl NodeCompiler for AABBTreeNode {
                                                    info,
                                                    white_image_info,
                                                    mask_image_info,
-                                                   raster_to_image_map,
+                                                   resource_cache,
                                                    texture_cache,
                                                    &mut clip_buffers);
                             }
