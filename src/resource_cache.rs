@@ -1,13 +1,14 @@
 use fnv::FnvHasher;
-use internal_types::{FontTemplate, ImageID, ImageResource, GlyphKey, RasterItem};
+use internal_types::{FontTemplate, ImageResource, GlyphKey, RasterItem};
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
+use texture_cache::TextureCacheItemId;
 use types::{FontKey, ImageKey};
 
 pub struct ResourceCache {
-    cached_glyphs: HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
-    cached_rasters: HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
-    cached_images: HashMap<ImageKey, ImageID, DefaultState<FnvHasher>>,
+    cached_glyphs: HashMap<GlyphKey, TextureCacheItemId, DefaultState<FnvHasher>>,
+    cached_rasters: HashMap<RasterItem, TextureCacheItemId, DefaultState<FnvHasher>>,
+    cached_images: HashMap<ImageKey, TextureCacheItemId, DefaultState<FnvHasher>>,
 
     font_templates: HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>,
     image_templates: HashMap<ImageKey, ImageResource, DefaultState<FnvHasher>>,
@@ -42,7 +43,7 @@ impl ResourceCache {
 
     pub fn cache_raster_if_required<F>(&mut self,
                                        raster_item: &RasterItem,
-                                       mut f: F) where F: FnMut() -> ImageID {
+                                       mut f: F) where F: FnMut() -> TextureCacheItemId {
         if !self.cached_rasters.contains_key(raster_item) {
             let image_id = f();
             self.cached_rasters.insert(raster_item.clone(), image_id);
@@ -51,7 +52,7 @@ impl ResourceCache {
 
     pub fn cache_glyph_if_required<F>(&mut self,
                                       glyph_key: &GlyphKey,
-                                      mut f: F) where F: FnMut() -> ImageID {
+                                      mut f: F) where F: FnMut() -> TextureCacheItemId {
         if !self.cached_glyphs.contains_key(glyph_key) {
             let image_id = f();
             self.cached_glyphs.insert(glyph_key.clone(), image_id);
@@ -60,7 +61,7 @@ impl ResourceCache {
 
     pub fn cache_image_if_required<F>(&mut self,
                                       image_key: ImageKey,
-                                      mut f: F) where F: FnMut(&ImageResource) -> ImageID {
+                                      mut f: F) where F: FnMut(&ImageResource) -> TextureCacheItemId {
         if !self.cached_images.contains_key(&image_key) {
             let image_id = {
                 let image_template = self.get_image_template(image_key);
@@ -70,15 +71,15 @@ impl ResourceCache {
         }
     }
 
-    pub fn get_glyph(&self, glyph_key: &GlyphKey) -> ImageID {
+    pub fn get_glyph(&self, glyph_key: &GlyphKey) -> TextureCacheItemId {
         self.cached_glyphs[glyph_key]
     }
 
-    pub fn get_raster(&self, raster_item: &RasterItem) -> ImageID {
+    pub fn get_raster(&self, raster_item: &RasterItem) -> TextureCacheItemId {
         self.cached_rasters[raster_item]
     }
 
-    pub fn get_image(&self, image_key: ImageKey) -> ImageID {
+    pub fn get_image(&self, image_key: ImageKey) -> TextureCacheItemId {
         self.cached_images[&image_key]
     }
 }
