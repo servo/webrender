@@ -30,7 +30,7 @@ fn optimize_draw_list(draw_list: &mut DrawList) {
                         while x < item.rect.max_x() {
                             draw_list.push(DisplayItem {
                                 item: SpecificDisplayItem::Image(ImageDisplayItem {
-                                    image_id: image.image_id,
+                                    image_key: image.image_key,
                                     stretch_size: image.stretch_size,
                                 }),
                                 rect: Rect::new(Point2D::new(x, y), tile_size),

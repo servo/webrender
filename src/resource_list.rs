@@ -6,9 +6,9 @@ use internal_types::{Glyph, GlyphKey, RasterItem};
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
-use types::{FontKey, ImageFormat, ImageID};
+use types::{FontKey, ImageFormat, ImageKey};
 
-type RequiredImageSet = HashSet<ImageID, DefaultState<FnvHasher>>;
+type RequiredImageSet = HashSet<ImageKey, DefaultState<FnvHasher>>;
 type RequiredGlyphMap = HashMap<FontKey, HashSet<Glyph>, DefaultState<FnvHasher>>;
 type RequiredRasterSet = HashSet<RasterItem, DefaultState<FnvHasher>>;
 
@@ -27,8 +27,8 @@ impl ResourceList {
         }
     }
 
-    pub fn add_image(&mut self, image_id: ImageID) {
-        self.required_images.insert(image_id);
+    pub fn add_image(&mut self, key: ImageKey) {
+        self.required_images.insert(key);
     }
 
     pub fn add_glyph(&mut self, font_key: FontKey, glyph: Glyph) {
@@ -68,7 +68,7 @@ impl ResourceList {
         }
     }
 
-    pub fn for_each_image<F>(&self, mut f: F) where F: FnMut(ImageID) {
+    pub fn for_each_image<F>(&self, mut f: F) where F: FnMut(ImageKey) {
         for image_id in &self.required_images {
             f(*image_id);
         }

@@ -12,7 +12,7 @@ use internal_types::{BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp, Compi
 use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo};
 use internal_types::{ClipRectToRegionResult, DrawListIndex, DrawListItemIndex, DisplayItemKey};
 use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey};
-use internal_types::{Glyph, PolygonPosColorUv, RectPosUv};
+use internal_types::{Glyph, ImageID, PolygonPosColorUv, RectPosUv};
 use layer::Layer;
 use optimizer;
 use renderer::BLUR_INFLATION_FACTOR;
@@ -31,10 +31,10 @@ use std::sync::Arc;
 use std::sync::mpsc::{Sender, Receiver};
 use std::thread;
 use texture_cache::{TextureCache, TextureCacheItem, TextureInsertOp};
-use types::{DisplayListID, Epoch, FontKey, BorderDisplayItem, ScrollPolicy};
+use types::{DisplayListID, Epoch, FontKey, ImageKey, BorderDisplayItem, ScrollPolicy};
 use types::{RectangleDisplayItem, ScrollLayerId, ClearDisplayItem};
 use types::{GradientStop, DisplayListMode, ClipRegion};
-use types::{GlyphInstance, ImageID, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
+use types::{GlyphInstance, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
 use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF, DrawListID};
 use types::{RenderTargetID, MixBlendMode, CompositeDisplayItem, BorderSide, BorderStyle};
 use types::{NodeIndex, CompositionOp, FilterOp, LowLevelFilterOp, BlurDirection};
@@ -45,8 +45,6 @@ use scoped_threadpool;
 type DisplayListMap = HashMap<DisplayListID, DisplayList, DefaultState<FnvHasher>>;
 type DrawListMap = HashMap<DrawListID, DrawList, DefaultState<FnvHasher>>;
 type FlatDrawListArray = Vec<FlatDrawList>;
-type FontTemplateMap = HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>;
-type ImageTemplateMap = HashMap<ImageID, ImageResource, DefaultState<FnvHasher>>;
 type StackingContextMap = HashMap<PipelineId, RootStackingContext, DefaultState<FnvHasher>>;
 
 static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
@@ -921,9 +919,9 @@ impl Scene {
                     });
 
                     // Update texture cache with any images that aren't yet uploaded to GPU.
-                    resource_list.for_each_image(|image_id| {
-                        if !texture_cache.exists(image_id) {
-                            let image_template = resource_cache.get_image(image_id);
+                    resource_list.for_each_image(|image_key| {
+                        resource_cache.cache_image_if_required(image_key, |image_template| {
+                            let image_id = ImageID::new();
                             // TODO: Can we avoid the clone of the bytes here?
                             texture_cache.insert(image_id,
                                                  0,
@@ -932,7 +930,8 @@ impl Scene {
                                                  image_template.height,
                                                  image_template.format,
                                                  TextureInsertOp::Blit(image_template.bytes.clone()));
-                        }
+                            image_id
+                        });
                     });
 
                     // Update texture cache with any newly rasterized glyphs.
@@ -965,7 +964,7 @@ impl Scene {
         self.thread_pool.scoped(|scope| {
             for job in &mut jobs {
                 scope.execute(|| {
-                    let font_template = resource_cache.get_font(job.glyph_key.font_key);
+                    let font_template = resource_cache.get_font_template(job.glyph_key.font_key);
                     FONT_CONTEXT.with(move |font_context| {
                         let mut font_context = font_context.borrow_mut();
                         font_context.add_font(job.glyph_key.font_key, &font_template.bytes);
@@ -1320,7 +1319,7 @@ impl RenderBackend {
                 Ok(msg) => {
                     match msg {
                         ApiMsg::AddFont(id, bytes) => {
-                            self.resource_cache.add_font(id, FontTemplate {
+                            self.resource_cache.add_font_template(id, FontTemplate {
                                 bytes: Arc::new(bytes),
                             });
                         }
@@ -1331,7 +1330,7 @@ impl RenderBackend {
                                 height: height,
                                 format: format,
                             };
-                            self.resource_cache.add_image(id, image);
+                            self.resource_cache.add_image_template(id, image);
                         }
                         ApiMsg::AddDisplayList(id,
                                                pipeline_id,
@@ -1562,13 +1561,16 @@ impl DrawCommandBuilder {
                  clip_rect: &Rect<f32>,
                  clip_region: &ClipRegion,
                  stretch_size: &Size2D<f32>,
-                 image_info: &TextureCacheItem,
+                 image_key: ImageKey,
                  dummy_mask_image: &TextureCacheItem,
                  resource_cache: &ResourceCache,
                  texture_cache: &TextureCache,
                  clip_buffers: &mut ClipBuffers,
                  color: &ColorF) {
         debug_assert!(stretch_size.width > 0.0 && stretch_size.height > 0.0);       // Should be caught higher up
+
+        let image_id = resource_cache.get_image(image_key);
+        let image_info = texture_cache.get(image_id);
 
         let uv_origin = Point2D::new(image_info.u0, image_info.v0);
         let uv_size = Size2D::new(image_info.u1 - image_info.u0,
@@ -2852,7 +2854,7 @@ impl BuildRequiredResources for AABBTreeNode {
 
             match display_item.item {
                 SpecificDisplayItem::Image(ref info) => {
-                    resource_list.add_image(info.image_id);
+                    resource_list.add_image(info.image_key);
                 }
                 SpecificDisplayItem::Text(ref info) => {
                     for glyph in &info.glyphs {
@@ -3054,13 +3056,12 @@ impl NodeCompiler for AABBTreeNode {
 
                         match display_item.item {
                             SpecificDisplayItem::Image(ref info) => {
-                                let image = texture_cache.get(info.image_id);
                                 builder.add_image(&key,
                                                   &display_item.rect,
                                                   &clip_rect,
                                                   &display_item.clip,
                                                   &info.stretch_size,
-                                                  image,
+                                                  info.image_key,
                                                   mask_image_info,
                                                   resource_cache,
                                                   texture_cache,

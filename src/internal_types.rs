@@ -8,8 +8,8 @@ use std::collections::hash_state::DefaultState;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCacheItem;
-use types::{FontKey, Epoch, ColorF, PipelineId, ImageFormat, DisplayListID, DrawListID};
-use types::{ImageID, StackingContext, DisplayListBuilder, DisplayListMode, CompositionOp};
+use types::{FontKey, ImageKey, Epoch, ColorF, PipelineId, ImageFormat, DisplayListID, DrawListID};
+use types::{StackingContext, DisplayListBuilder, DisplayListMode, CompositionOp};
 use types::{new_resource_id};
 use util;
 
@@ -29,6 +29,15 @@ pub struct BatchId(pub usize);
 impl BatchId {
     pub fn new() -> BatchId {
         BatchId(new_resource_id())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ImageID(usize);
+
+impl ImageID {
+    pub fn new() -> ImageID {
+        ImageID(new_resource_id())
     }
 }
 
@@ -329,7 +338,7 @@ impl Frame {
 
 pub enum ApiMsg {
     AddFont(FontKey, Vec<u8>),
-    AddImage(ImageID, u32, u32, ImageFormat, Vec<u8>),
+    AddImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
     AddDisplayList(DisplayListID, PipelineId, Epoch, DisplayListBuilder),
     SetRootStackingContext(StackingContext, ColorF, Epoch, PipelineId),
     SetRootPipeline(PipelineId),

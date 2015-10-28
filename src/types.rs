@@ -11,6 +11,15 @@ impl FontKey {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct ImageKey(u64);
+
+impl ImageKey {
+    pub fn new(key: u64) -> ImageKey {
+        ImageKey(key)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NodeIndex(pub u32);
 
@@ -118,15 +127,6 @@ pub struct DisplayListID(usize);
 impl DisplayListID {
     pub fn new() -> DisplayListID {
         DisplayListID(new_resource_id())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ImageID(usize);
-
-impl ImageID {
-    pub fn new() -> ImageID {
-        ImageID(new_resource_id())
     }
 }
 
@@ -242,7 +242,7 @@ pub struct TextDisplayItem {
 
 #[derive(Debug)]
 pub struct ImageDisplayItem {
-    pub image_id: ImageID,
+    pub image_key: ImageKey,
     pub stretch_size: Size2D<f32>,
 }
 
@@ -434,9 +434,9 @@ impl DisplayListBuilder {
                       rect: Rect<f32>,
                       clip: ClipRegion,
                       stretch_size: Size2D<f32>,
-                      id: ImageID) {
+                      key: ImageKey) {
         let item = ImageDisplayItem {
-            image_id: id,
+            image_key: key,
             stretch_size: stretch_size,
         };
 

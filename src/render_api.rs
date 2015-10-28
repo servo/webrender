@@ -1,7 +1,7 @@
 use euclid::Point2D;
 use internal_types::ApiMsg;
 use std::sync::mpsc::{self, Sender};
-use types::{PipelineId, ImageID, ImageFormat, StackingContext};
+use types::{PipelineId, ImageKey, ImageFormat, StackingContext};
 use types::{ColorF, DisplayListID, DisplayListBuilder, Epoch, FontKey};
 
 #[derive(Clone)]
@@ -15,15 +15,20 @@ impl RenderApi {
         self.tx.send(msg).unwrap();
     }
 
-    pub fn add_image(&self, width: u32, height: u32, format: ImageFormat, bytes: Vec<u8>) -> ImageID {
-        let id = ImageID::new();
-        let msg = ApiMsg::AddImage(id, width, height, format, bytes);
+    pub fn add_image(&self,
+                     key: ImageKey,
+                     width: u32,
+                     height: u32,
+                     format: ImageFormat,
+                     bytes: Vec<u8>) {
+        let msg = ApiMsg::AddImage(key, width, height, format, bytes);
         self.tx.send(msg).unwrap();
-        id
     }
 
     // TODO: Support changing dimensions (and format) during image update?
-    pub fn update_image(&self, _image_id: ImageID, _bytes: Vec<u8>) {
+    pub fn update_image(&self,
+                        _image_key: ImageKey,
+                        _bytes: Vec<u8>) {
         //println!("TODO!");
         //let msg = ApiMsg::UpdateImage(id, bytes);
         //self.tx.send(msg).unwrap();

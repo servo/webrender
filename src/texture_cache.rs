@@ -3,11 +3,11 @@ use device::TextureId;
 use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
-use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
+use internal_types::{ImageID, RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::mem;
-use types::{ImageFormat, ImageID};
+use types::ImageFormat;
 use util;
 
 const TEXTURE_SIZE: u32 = 1024;
@@ -465,10 +465,6 @@ impl TextureCache {
         };
 
         self.pending_updates.push(update_op);
-    }
-
-    pub fn exists(&self, id: ImageID) -> bool {
-        self.items.get(&id).is_some()
     }
 
     pub fn get(&self, id: ImageID) -> &TextureCacheItem {

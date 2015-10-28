@@ -7,7 +7,7 @@ use gleam::gl;
 use internal_types::{ApiMsg, Frame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{BatchId, ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DrawCommandInfo};
-use internal_types::{PackedVertexForTextureCacheUpdate};
+use internal_types::{ImageID, PackedVertexForTextureCacheUpdate};
 use render_api::RenderApi;
 use render_backend::RenderBackend;
 use std::collections::HashMap;
@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
 use texture_cache::{TextureCache, TextureInsertOp};
-use types::{ColorF, Epoch, PipelineId, RenderNotifier, ImageID, ImageFormat, MixBlendMode};
+use types::{ColorF, Epoch, PipelineId, RenderNotifier, ImageFormat, MixBlendMode};
 use types::{CompositionOp, LowLevelFilterOp, BlurDirection};
 //use util;
 
