@@ -6,11 +6,10 @@ use internal_types::{Glyph, GlyphKey, RasterItem};
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
-use string_cache::Atom;
-use types::{ImageFormat, ImageID};
+use types::{FontKey, ImageFormat, ImageID};
 
 type RequiredImageSet = HashSet<ImageID, DefaultState<FnvHasher>>;
-type RequiredGlyphMap = HashMap<Atom, HashSet<Glyph>, DefaultState<FnvHasher>>;
+type RequiredGlyphMap = HashMap<FontKey, HashSet<Glyph>, DefaultState<FnvHasher>>;
 type RequiredRasterSet = HashSet<RasterItem, DefaultState<FnvHasher>>;
 
 pub struct ResourceList {
@@ -32,8 +31,8 @@ impl ResourceList {
         self.required_images.insert(image_id);
     }
 
-    pub fn add_glyph(&mut self, font_id: Atom, glyph: Glyph) {
-        match self.required_glyphs.entry(font_id) {
+    pub fn add_glyph(&mut self, font_key: FontKey, glyph: Glyph) {
+        match self.required_glyphs.entry(font_key) {
             Occupied(entry) => {
                 entry.into_mut().insert(glyph);
             }

@@ -13,7 +13,6 @@ extern crate freetype;
 extern crate gleam;
 extern crate libc;
 extern crate time;
-extern crate string_cache;
 extern crate serde;
 extern crate scoped_threadpool;
 extern crate simd;
@@ -36,7 +35,7 @@ mod stats;
 mod texture_cache;
 mod util;
 
-pub use types::{ImageID, StackingLevel, DisplayListID, StackingContext, DisplayListBuilder};
+pub use types::{FontKey, ImageID, StackingLevel, DisplayListID, StackingContext, DisplayListBuilder};
 pub use types::{ColorF, ImageFormat, GradientStop, PipelineId, GlyphInstance, RenderNotifier};
 pub use types::{BorderSide, BorderRadius, BorderStyle, Epoch, BoxShadowClipMode, ClipRegion};
 pub use types::{ScrollLayerId, ScrollPolicy, MixBlendMode, ComplexClipRegion, FilterOp};

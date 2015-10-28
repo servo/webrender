@@ -1,9 +1,8 @@
 use euclid::Point2D;
 use internal_types::ApiMsg;
 use std::sync::mpsc::{self, Sender};
-use string_cache::Atom;
 use types::{PipelineId, ImageID, ImageFormat, StackingContext};
-use types::{ColorF, DisplayListID, DisplayListBuilder, Epoch};
+use types::{ColorF, DisplayListID, DisplayListBuilder, Epoch, FontKey};
 
 #[derive(Clone)]
 pub struct RenderApi {
@@ -11,8 +10,8 @@ pub struct RenderApi {
 }
 
 impl RenderApi {
-    pub fn add_font(&self, id: Atom, bytes: Vec<u8>) {
-        let msg = ApiMsg::AddFont(id, bytes);
+    pub fn add_font(&self, key: FontKey, bytes: Vec<u8>) {
+        let msg = ApiMsg::AddFont(key, bytes);
         self.tx.send(msg).unwrap();
     }
 

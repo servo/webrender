@@ -1,4 +1,5 @@
 use app_units::Au;
+use types::FontKey;
 
 use freetype::freetype::{FTErrorMethods, FT_PIXEL_MODE_GRAY};
 use freetype::freetype::{FT_Done_FreeType, FT_LOAD_RENDER};
@@ -9,7 +10,6 @@ use freetype::freetype::{FT_New_Memory_Face, FT_GlyphSlot};
 
 use std::{mem, ptr, slice};
 use std::collections::HashMap;
-use string_cache::Atom;
 //use util;
 
 struct Face {
@@ -18,7 +18,7 @@ struct Face {
 
 pub struct FontContext {
     lib: FT_Library,
-    faces: HashMap<Atom, Face>,
+    faces: HashMap<FontKey, Face>,
 }
 
 pub struct RasterizedGlyph {
@@ -52,8 +52,8 @@ impl FontContext {
         }
     }
 
-    pub fn add_font(&mut self, font_id: &Atom, bytes: &[u8]) {
-        if !self.faces.contains_key(font_id) {
+    pub fn add_font(&mut self, font_key: FontKey, bytes: &[u8]) {
+        if !self.faces.contains_key(&font_key) {
             let mut face: FT_Face = ptr::null_mut();
             let face_index = 0 as FT_Long;
             let result = unsafe {
@@ -64,24 +64,24 @@ impl FontContext {
                                    &mut face)
             };
             if result.succeeded() && !face.is_null() {
-                self.faces.insert(font_id.clone(), Face {
+                self.faces.insert(font_key, Face {
                     face: face,
                     //_bytes: bytes
                 });
             } else {
-                println!("WARN: webrender failed to load font {:?}", font_id);
+                println!("WARN: webrender failed to load font {:?}", font_key);
             }
         }
     }
 
     pub fn get_glyph(&mut self,
-                     font_id: &Atom,
+                     font_key: FontKey,
                      size: Au,
                      character: u32,
                      device_pixel_ratio: f32) -> Option<RasterizedGlyph> {
-        debug_assert!(self.faces.contains_key(&font_id));
+        debug_assert!(self.faces.contains_key(&font_key));
 
-        let face = self.faces.get(&font_id).unwrap();
+        let face = self.faces.get(&font_key).unwrap();
 
         unsafe {
             let char_size = float_to_fixed_ft(((0.5f64 + size.to_f64_px()) *

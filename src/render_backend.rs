@@ -29,9 +29,8 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Arc;
 use std::sync::mpsc::{Sender, Receiver};
 use std::thread;
-use string_cache::Atom;
 use texture_cache::{TextureCache, TextureCacheItem, TextureInsertOp};
-use types::{DisplayListID, Epoch, BorderDisplayItem, ScrollPolicy};
+use types::{DisplayListID, Epoch, FontKey, BorderDisplayItem, ScrollPolicy};
 use types::{RectangleDisplayItem, ScrollLayerId, ClearDisplayItem};
 use types::{GradientStop, DisplayListMode, ClipRegion};
 use types::{GlyphInstance, ImageID, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
@@ -47,7 +46,7 @@ type DrawListMap = HashMap<DrawListID, DrawList, DefaultState<FnvHasher>>;
 type FlatDrawListArray = Vec<FlatDrawList>;
 type GlyphToImageMap = HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>;
 type RasterToImageMap = HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>;
-type FontTemplateMap = HashMap<Atom, FontTemplate, DefaultState<FnvHasher>>;
+type FontTemplateMap = HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>;
 type ImageTemplateMap = HashMap<ImageID, ImageResource, DefaultState<FnvHasher>>;
 type StackingContextMap = HashMap<PipelineId, RootStackingContext, DefaultState<FnvHasher>>;
 
@@ -980,9 +979,9 @@ impl Scene {
                 scope.execute(move || {
                     FONT_CONTEXT.with(|font_context| {
                         let mut font_context = font_context.borrow_mut();
-                        let font_template = &font_templates[&job.glyph_key.font_id];
-                        font_context.add_font(&job.glyph_key.font_id, &font_template.bytes);
-                        job.result = font_context.get_glyph(&job.glyph_key.font_id,
+                        let font_template = &font_templates[&job.glyph_key.font_key];
+                        font_context.add_font(job.glyph_key.font_key, &font_template.bytes);
+                        job.result = font_context.get_glyph(job.glyph_key.font_key,
                                                             job.glyph_key.size,
                                                             job.glyph_key.index,
                                                             device_pixel_ratio);
@@ -1255,10 +1254,10 @@ pub struct RenderBackend {
     dummy_mask_image_id: ImageID,
 
     texture_cache: TextureCache,
-    font_templates: HashMap<Atom, FontTemplate, DefaultState<FnvHasher>>,
-    image_templates: HashMap<ImageID, ImageResource, DefaultState<FnvHasher>>,
-    glyph_to_image_map: HashMap<GlyphKey, ImageID, DefaultState<FnvHasher>>,
-    raster_to_image_map: HashMap<RasterItem, ImageID, DefaultState<FnvHasher>>,
+    font_templates: FontTemplateMap,
+    image_templates: ImageTemplateMap,
+    glyph_to_image_map: GlyphToImageMap,
+    raster_to_image_map: RasterToImageMap,
 
     display_list_map: DisplayListMap,
     draw_list_map: DrawListMap,
@@ -1686,7 +1685,7 @@ impl DrawCommandBuilder {
     fn add_text(&mut self,
                 sort_key: &DisplayItemKey,
                 draw_context: &DrawContext,
-                font_id: Atom,
+                font_key: FontKey,
                 size: Au,
                 blur_radius: Au,
                 color: &ColorF,
@@ -1699,7 +1698,7 @@ impl DrawCommandBuilder {
 
         let device_pixel_ratio = draw_context.device_pixel_ratio;
 
-        let mut glyph_key = GlyphKey::new(font_id, size, blur_radius, glyphs[0].index);
+        let mut glyph_key = GlyphKey::new(font_key, size, blur_radius, glyphs[0].index);
 
         let blur_offset = blur_radius.to_f32_px() * (BLUR_INFLATION_FACTOR as f32) / 2.0;
 
@@ -2895,7 +2894,7 @@ impl BuildRequiredResources for AABBTreeNode {
                 SpecificDisplayItem::Text(ref info) => {
                     for glyph in &info.glyphs {
                         let glyph = Glyph::new(info.size, info.blur_radius, glyph.index);
-                        resource_list.add_glyph(info.font_id.clone(), glyph);
+                        resource_list.add_glyph(info.font_key, glyph);
                     }
                 }
                 SpecificDisplayItem::Rectangle(..) => {}
@@ -3116,7 +3115,7 @@ impl NodeCompiler for AABBTreeNode {
                             SpecificDisplayItem::Text(ref info) => {
                                 builder.add_text(&key,
                                                  draw_context,
-                                                 info.font_id.clone(),
+                                                 info.font_key,
                                                  info.size,
                                                  info.blur_radius,
                                                  &info.color,

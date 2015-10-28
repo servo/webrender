@@ -1,7 +1,15 @@
 use app_units::Au;
 use euclid::{Point2D, Rect, Size2D, Matrix4};
 use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
-use string_cache::Atom;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct FontKey(u64);
+
+impl FontKey {
+    pub fn new(key: u64) -> FontKey {
+        FontKey(key)
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NodeIndex(pub u32);
@@ -226,7 +234,7 @@ impl StackingContext {
 #[derive(Debug)]
 pub struct TextDisplayItem {
     pub glyphs: Vec<GlyphInstance>,
-    pub font_id: Atom,
+    pub font_key: FontKey,
     pub size: Au,
     pub color: ColorF,
     pub blur_radius: Au,
@@ -447,14 +455,14 @@ impl DisplayListBuilder {
                      rect: Rect<f32>,
                      clip: ClipRegion,
                      glyphs: Vec<GlyphInstance>,
-                     font_id: Atom,
+                     font_key: FontKey,
                      color: ColorF,
                      size: Au,
                      blur_radius: Au) {
         let item = TextDisplayItem {
             color: color,
             glyphs: glyphs,
-            font_id: font_id,
+            font_key: font_key,
             size: size,
             blur_radius: blur_radius,
         };

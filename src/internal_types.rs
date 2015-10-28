@@ -6,9 +6,8 @@ use renderbatch::RenderBatch;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::sync::mpsc::Sender;
-use string_cache::Atom;
 use texture_cache::TextureCacheItem;
-use types::{Epoch, ColorF, PipelineId, ImageFormat, DisplayListID, DrawListID};
+use types::{FontKey, Epoch, ColorF, PipelineId, ImageFormat, DisplayListID, DrawListID};
 use types::{ImageID, StackingContext, DisplayListBuilder, DisplayListMode, CompositionOp};
 use types::{new_resource_id};
 use util;
@@ -312,7 +311,7 @@ impl Frame {
 }
 
 pub enum ApiMsg {
-    AddFont(Atom, Vec<u8>),
+    AddFont(FontKey, Vec<u8>),
     AddImage(ImageID, u32, u32, ImageFormat, Vec<u8>),
     AddDisplayList(DisplayListID, PipelineId, Epoch, DisplayListBuilder),
     SetRootStackingContext(StackingContext, ColorF, Epoch, PipelineId),
@@ -445,16 +444,16 @@ pub enum BorderEdgeDirection {
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub struct GlyphKey {
-    pub font_id: Atom,
+    pub font_key: FontKey,
     pub size: Au,
     pub blur_radius: Au,
     pub index: u32,
 }
 
 impl GlyphKey {
-    pub fn new(font_id: Atom, size: Au, blur_radius: Au, index: u32) -> GlyphKey {
+    pub fn new(font_key: FontKey, size: Au, blur_radius: Au, index: u32) -> GlyphKey {
         GlyphKey {
-            font_id: font_id,
+            font_key: font_key,
             size: size,
             blur_radius: blur_radius,
             index: index,
