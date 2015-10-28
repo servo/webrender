@@ -1,21 +1,7 @@
-#version 110
-
-attribute vec3 aPosition;
-attribute vec2 aColorTexCoord;
-attribute float aBlurRadius;
-attribute vec2 aDestTextureSize;
-attribute vec2 aSourceTextureSize;
-
-uniform mat4 uTransform;
-
-varying vec2 vColorTexCoord;
-varying float vBlurRadius;
-varying vec2 vDestTextureSize;
-varying vec2 vSourceTextureSize;
-
 void main(void)
 {
-	vColorTexCoord = aColorTexCoord;
+	vColorTexCoord = vec3(aColorTexCoord, aMisc.y);
+    vBorderPosition = aBorderPosition;
     vBlurRadius = aBlurRadius;
     vDestTextureSize = aDestTextureSize;
     vSourceTextureSize = aSourceTextureSize;

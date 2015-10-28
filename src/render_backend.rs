@@ -2,7 +2,7 @@ use aabbtree::{AABBTreeNode, AABBTreeNodeInfo};
 use app_units::Au;
 use batch::RenderBatch;
 use clipper::{self, ClipBuffers};
-use device::{ProgramId, TextureId};
+use device::{ProgramId, TextureId, TextureIndex};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
 use font::{FontContext, RasterizedGlyph};
 use fnv::FnvHasher;
@@ -12,7 +12,7 @@ use internal_types::{BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp, Compi
 use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo};
 use internal_types::{ClipRectToRegionResult, DrawListIndex, DrawListItemIndex, DisplayItemKey};
 use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey};
-use internal_types::{Glyph, ImageID, PolygonPosColorUv, RectPosUv};
+use internal_types::{Glyph, ImageID, PolygonPosColorUv, RectPosUv, TextureTarget};
 use layer::Layer;
 use optimizer;
 use renderer::BLUR_INFLATION_FACTOR;
@@ -536,7 +536,11 @@ impl Scene {
             for composition_operation in composition_operations.iter() {
                 let size = Size2D::new(stacking_context.overflow.size.width as u32,
                                        stacking_context.overflow.size.height as u32);
-                let texture_id = texture_cache.allocate_render_target(size.width, size.height, ImageFormat::RGBA8);
+                let texture_id = texture_cache.allocate_render_target(TextureTarget::Texture2D,
+                                                                      size.width,
+                                                                      size.height,
+                                                                      1,
+                                                                      ImageFormat::RGBA8);
                 let TextureId(render_target_id) = texture_id;
 
                 let mut composite_draw_list = DrawList::new();
@@ -1567,7 +1571,8 @@ impl DrawCommandBuilder {
                  texture_cache: &TextureCache,
                  clip_buffers: &mut ClipBuffers,
                  color: &ColorF) {
-        debug_assert!(stretch_size.width > 0.0 && stretch_size.height > 0.0);       // Should be caught higher up
+        // Should be caught higher up
+        debug_assert!(stretch_size.width > 0.0 && stretch_size.height > 0.0);
 
         let image_id = resource_cache.get_image(image_key);
         let image_info = texture_cache.get(image_id);
@@ -1648,7 +1653,9 @@ impl DrawCommandBuilder {
                                             false);
 
             let colors = [*color, *color, *color, *color];
-            let mut vertices = clip_region.make_packed_vertices_for_rect(&colors, mask);
+            let mut vertices = clip_region.make_packed_vertices_for_rect(&colors,
+                                                                         mask,
+                                                                         image_info.texture_index);
 
             self.add_draw_item(sort_key,
                                image_info.texture_id,
@@ -1704,19 +1711,27 @@ impl DrawCommandBuilder {
                 vertex_buffer.push(PackedVertex::from_components(x0, y0,
                                                                  color,
                                                                  image_info.u0, image_info.v0,
-                                                                 0.0, 0.0));
+                                                                 0.0, 0.0,
+                                                                 image_info.texture_index,
+                                                                 TextureIndex(0)));
                 vertex_buffer.push(PackedVertex::from_components(x1, y0,
                                                                  color,
                                                                  image_info.u1, image_info.v0,
-                                                                 0.0, 0.0));
+                                                                 0.0, 0.0,
+                                                                 image_info.texture_index,
+                                                                 TextureIndex(0)));
                 vertex_buffer.push(PackedVertex::from_components(x0, y1,
                                                                  color,
                                                                  image_info.u0, image_info.v1,
-                                                                 0.0, 0.0));
+                                                                 0.0, 0.0,
+                                                                 image_info.texture_index,
+                                                                 TextureIndex(0)));
                 vertex_buffer.push(PackedVertex::from_components(x1, y1,
                                                                  color,
                                                                  image_info.u1, image_info.v1,
-                                                                 0.0, 0.0));
+                                                                 0.0, 0.0,
+                                                                 image_info.texture_index,
+                                                                 TextureIndex(0)));
             }
         }
 
@@ -1767,7 +1782,9 @@ impl DrawCommandBuilder {
                                             &clip_region,
                                             false);
 
-            let mut vertices = clip_region.make_packed_vertices_for_rect(colors, mask);
+            let mut vertices = clip_region.make_packed_vertices_for_rect(colors,
+                                                                         mask,
+                                                                         image_info.texture_index);
 
             self.add_draw_item(sort_key,
                                image_info.texture_id,
@@ -1859,10 +1876,12 @@ impl DrawCommandBuilder {
                     let mut packed_vertices = Vec::new();
                     if clip_result.rect_result.vertices.len() >= 3 {
                         for vert in clip_result.rect_result.vertices.iter() {
-                            packed_vertices.push(clip_result.make_packed_vertex(&vert.position(),
-                                                                                &vert.uv(),
-                                                                                &vert.color(),
-                                                                                &mask));
+                            packed_vertices.push(clip_result.make_packed_vertex(
+                                    &vert.position(),
+                                    &vert.uv(),
+                                    &vert.color(),
+                                    &mask,
+                                    image.texture_index));
                         }
                     }
 
@@ -2510,43 +2529,37 @@ impl DrawCommandBuilder {
         let vertices_rect = Rect::new(vmin, Size2D::new(vmax.x - vmin.x, vmax.y - vmin.y));
         if vertices_rect.intersects(clip) {
             let mut vertices = [
-                PackedVertex::from_components(v0.x,
-                                              v0.y,
+                PackedVertex::from_components(v0.x, v0.y,
                                               color0,
                                               0.0, 0.0,
-                                              mask_image.u0,
-                                              mask_image.v0),
-                PackedVertex::from_components(v1.x,
-                                              v1.y,
+                                              mask_image.u0, mask_image.v0,
+                                              white_image.texture_index,
+                                              mask_image.texture_index),
+                PackedVertex::from_components(v1.x, v1.y,
                                               color0,
                                               0.0, 0.0,
-                                              mask_image.u1,
-                                              mask_image.v1),
-                PackedVertex::from_components(v0.x,
-                                              v1.y,
+                                              mask_image.u1, mask_image.v1,
+                                              white_image.texture_index, mask_image.texture_index),
+                PackedVertex::from_components(v0.x, v1.y,
                                               color0,
                                               0.0, 0.0,
-                                              mask_image.u0,
-                                              mask_image.v1),
-
-                PackedVertex::from_components(v0.x,
-                                              v0.y,
+                                              mask_image.u0, mask_image.v1,
+                                              white_image.texture_index, mask_image.texture_index),
+                PackedVertex::from_components(v0.x, v0.y,
                                               color1,
                                               0.0, 0.0,
-                                              mask_image.u0,
-                                              mask_image.v0),
-                PackedVertex::from_components(v1.x,
-                                              v0.y,
+                                              mask_image.u0, mask_image.v0,
+                                              white_image.texture_index, mask_image.texture_index),
+                PackedVertex::from_components(v1.x, v0.y,
                                               color1,
                                               0.0, 0.0,
-                                              mask_image.u1,
-                                              mask_image.v0),
-                PackedVertex::from_components(v1.x,
-                                              v1.y,
+                                              mask_image.u1, mask_image.v0,
+                                              white_image.texture_index, mask_image.texture_index),
+                PackedVertex::from_components(v1.x, v1.y,
                                               color1,
                                               0.0, 0.0,
-                                              mask_image.u1,
-                                              mask_image.v1),
+                                              mask_image.u1, mask_image.v1,
+                                              white_image.texture_index, mask_image.texture_index),
             ];
 
             self.add_draw_item(sort_key,
@@ -2587,30 +2600,31 @@ impl DrawCommandBuilder {
                                      &mut clip_buffers.rect_pos_uv.polygon_output);
         for clip_result in clip_buffers.rect_pos_uv.polygon_output.drain(..) {
             let mut vertices = [
-                PackedVertex::from_components(clip_result.pos.origin.x,
-                                              clip_result.pos.origin.y,
+                PackedVertex::from_components(clip_result.pos.origin.x, clip_result.pos.origin.y,
                                               color0,
                                               0.0, 0.0,
-                                              clip_result.uv.origin.x,
-                                              clip_result.uv.origin.y),
-                PackedVertex::from_components(clip_result.pos.max_x(),
-                                              clip_result.pos.origin.y,
+                                              clip_result.uv.origin.x, clip_result.uv.origin.y,
+                                              white_image.texture_index,
+                                              mask_image.texture_index),
+                PackedVertex::from_components(clip_result.pos.max_x(), clip_result.pos.origin.y,
                                               color0,
                                               0.0, 0.0,
                                               clip_result.uv.max_x(),
-                                              clip_result.uv.origin.y),
-                PackedVertex::from_components(clip_result.pos.origin.x,
-                                              clip_result.pos.max_y(),
+                                              clip_result.uv.origin.y,
+                                              white_image.texture_index,
+                                              mask_image.texture_index),
+                PackedVertex::from_components(clip_result.pos.origin.x, clip_result.pos.max_y(),
                                               color1,
                                               0.0, 0.0,
-                                              clip_result.uv.origin.x,
-                                              clip_result.uv.max_y()),
-                PackedVertex::from_components(clip_result.pos.max_x(),
-                                              clip_result.pos.max_y(),
+                                              clip_result.uv.origin.x, clip_result.uv.max_y(),
+                                              white_image.texture_index,
+                                              mask_image.texture_index),
+                PackedVertex::from_components(clip_result.pos.max_x(), clip_result.pos.max_y(),
                                               color1,
                                               0.0, 0.0,
-                                              clip_result.uv.max_x(),
-                                              clip_result.uv.max_y()),
+                                              clip_result.uv.max_x(), clip_result.uv.max_y(),
+                                              white_image.texture_index,
+                                              mask_image.texture_index),
             ];
 
             self.add_draw_item(sort_key,
@@ -3012,7 +3026,9 @@ trait NodeCompiler {
                mask_image_info: &TextureCacheItem,
                resource_cache: &ResourceCache,
                texture_cache: &TextureCache,
-               node_info_map: &HashMap<ScrollLayerId, Vec<AABBTreeNodeInfo>, DefaultState<FnvHasher>>,
+               node_info_map: &HashMap<ScrollLayerId,
+                                       Vec<AABBTreeNodeInfo>,
+                                       DefaultState<FnvHasher>>,
                quad_program_id: ProgramId,
                glyph_program_id: ProgramId,
                node_scroll_layer_id: ScrollLayerId);
@@ -3025,7 +3041,9 @@ impl NodeCompiler for AABBTreeNode {
                mask_image_info: &TextureCacheItem,
                resource_cache: &ResourceCache,
                texture_cache: &TextureCache,
-               node_info_map: &HashMap<ScrollLayerId, Vec<AABBTreeNodeInfo>, DefaultState<FnvHasher>>,
+               node_info_map: &HashMap<ScrollLayerId,
+                                       Vec<AABBTreeNodeInfo>,
+                                       DefaultState<FnvHasher>>,
                quad_program_id: ProgramId,
                glyph_program_id: ProgramId,
                node_scroll_layer_id: ScrollLayerId) {
