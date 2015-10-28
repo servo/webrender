@@ -30,6 +30,7 @@ mod internal_types;
 mod layer;
 mod optimizer;
 mod render_backend;
+mod resource_cache;
 mod resource_list;
 mod stats;
 mod texture_cache;

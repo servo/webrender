@@ -5,6 +5,7 @@ use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
+use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCacheItem;
 use types::{FontKey, Epoch, ColorF, PipelineId, ImageFormat, DisplayListID, DrawListID};
@@ -17,6 +18,10 @@ const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
 pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
+
+pub struct FontTemplate {
+    pub bytes: Arc<Vec<u8>>,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct BatchId(pub usize);
@@ -454,25 +459,6 @@ pub enum BorderEdgeDirection {
     Vertical,
 }
 
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub struct GlyphKey {
-    pub font_key: FontKey,
-    pub size: Au,
-    pub blur_radius: Au,
-    pub index: u32,
-}
-
-impl GlyphKey {
-    pub fn new(font_key: FontKey, size: Au, blur_radius: Au, index: u32) -> GlyphKey {
-        GlyphKey {
-            font_key: font_key,
-            size: size,
-            blur_radius: blur_radius,
-            index: index,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq, Hash)]
 pub struct DrawListIndex(pub u32);
 
@@ -665,9 +651,27 @@ impl BoxShadowCornerRasterOp {
     }
 }
 
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub struct GlyphKey {
+    pub font_key: FontKey,
+    pub size: Au,
+    pub blur_radius: Au,
+    pub index: u32,
+}
+
+impl GlyphKey {
+    pub fn new(font_key: FontKey, size: Au, blur_radius: Au, index: u32) -> GlyphKey {
+        GlyphKey {
+            font_key: font_key,
+            size: size,
+            blur_radius: blur_radius,
+            index: index,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub enum RasterItem {
     BorderRadius(BorderRadiusRasterOp),
     BoxShadowCorner(BoxShadowCornerRasterOp),
 }
-
