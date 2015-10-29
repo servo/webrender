@@ -9,7 +9,7 @@ git = "https://github.com/servo/rust-freetype"
 [dependencies]
 gleam = "*"
 libc = "*"
-euclid = "0.2"
+euclid = "0.3"
 time = "*"
 serde = "0.6"
 serde_macros = "0.5"
