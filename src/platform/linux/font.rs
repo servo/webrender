@@ -13,6 +13,7 @@ use std::collections::HashMap;
 //use util;
 
 /// Native fonts are not used on Linux; all fonts are raw.
+#[derive(Clone)]
 pub struct NativeFontHandle;
 
 struct Face {
@@ -55,7 +56,7 @@ impl FontContext {
         }
     }
 
-    pub fn add_font(&mut self, font_key: FontKey, bytes: &[u8]) {
+    pub fn add_raw_font(&mut self, font_key: &FontKey, bytes: &[u8]) {
         if !self.faces.contains_key(&font_key) {
             let mut face: FT_Face = ptr::null_mut();
             let face_index = 0 as FT_Long;
@@ -67,7 +68,7 @@ impl FontContext {
                                    &mut face)
             };
             if result.succeeded() && !face.is_null() {
-                self.faces.insert(font_key, Face {
+                self.faces.insert(*font_key, Face {
                     face: face,
                     //_bytes: bytes
                 });
@@ -75,6 +76,10 @@ impl FontContext {
                 println!("WARN: webrender failed to load font {:?}", font_key);
             }
         }
+    }
+
+    pub fn add_native_font(&mut self, _font_key: &FontKey, _native_font_handle: NativeFontHandle) {
+        panic!("TODO: Not supported on Linux");
     }
 
     pub fn get_glyph(&mut self,
