@@ -10,9 +10,8 @@ use std::collections::hash_state::DefaultState;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCacheItem;
-use types::{FontKey, ImageKey, Epoch, ColorF, PipelineId, ImageFormat, DisplayListID, DrawListID};
+use types::{FontKey, ImageKey, Epoch, ColorF, PipelineId, ImageFormat, DisplayListID};
 use types::{StackingContext, DisplayListBuilder, DisplayListMode, CompositionOp};
-use types::{new_resource_id};
 use util;
 
 const UV_FLOAT_TO_FIXED: f32 = 65535.0;
@@ -29,11 +28,8 @@ pub enum FontTemplate {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct BatchId(pub usize);
 
-impl BatchId {
-    pub fn new() -> BatchId {
-        BatchId(new_resource_id())
-    }
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DrawListID(pub usize);
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TextureSampler {

@@ -83,19 +83,6 @@ pub fn new_resource_id() -> usize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DrawListID(usize);
-
-impl DrawListID {
-    pub fn new() -> DrawListID {
-        DrawListID(new_resource_id())
-    }
-
-    pub fn invalid() -> DrawListID {
-        DrawListID(0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RenderTargetID(pub u32);     // TODO: HACK HACK HACK this is an alias for device::TextureId
 
 impl RenderTargetID {
