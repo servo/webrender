@@ -6,7 +6,7 @@ use device::{ProgramId, TextureId};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
 use fnv::FnvHasher;
 use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, Primitive, ClearInfo};
-use internal_types::{BorderRadiusRasterOp, BoxShadowCornerRasterOp, RasterItem};
+use internal_types::{BorderRadiusRasterOp, BoxShadowCornerRasterOp, DrawListID, RasterItem};
 use internal_types::{BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp, CompiledNode};
 use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo};
 use internal_types::{ClipRectToRegionResult, DrawListIndex, DrawListItemIndex, DisplayItemKey};
@@ -35,7 +35,7 @@ use types::{DisplayListID, Epoch, FontKey, ImageKey, BorderDisplayItem, ScrollPo
 use types::{RectangleDisplayItem, ScrollLayerId, ClearDisplayItem};
 use types::{GradientStop, DisplayListMode, ClipRegion};
 use types::{GlyphInstance, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem};
-use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF, DrawListID};
+use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF};
 use types::{RenderTargetID, MixBlendMode, CompositeDisplayItem, BorderSide, BorderStyle};
 use types::{NodeIndex, CompositionOp, FilterOp, LowLevelFilterOp, BlurDirection};
 use util;
@@ -51,6 +51,13 @@ static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
+static ID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
+
+#[inline]
+pub fn new_id() -> usize {
+    ID_COUNTER.fetch_add(1, SeqCst)
+}
+
 pub static MAX_RECT: Rect<f32> = Rect {
     origin: Point2D {
         x: -1000.0,
@@ -63,6 +70,12 @@ pub static MAX_RECT: Rect<f32> = Rect {
 };
 
 const BORDER_DASH_SIZE: f32 = 3.0;
+
+impl BatchId {
+    fn new() -> BatchId {
+        BatchId(new_id())
+    }
+}
 
 #[derive(Debug)]
 struct RenderTarget {
@@ -1238,6 +1251,7 @@ pub struct RenderBackend {
     display_list_map: DisplayListMap,
     draw_list_map: DrawListMap,
     stacking_contexts: StackingContextMap,
+    next_draw_list_id: DrawListID,
 
     scene: Scene,
 }
@@ -1268,6 +1282,8 @@ impl RenderBackend {
             display_list_map: HashMap::with_hash_state(Default::default()),
             draw_list_map: HashMap::with_hash_state(Default::default()),
             stacking_contexts: HashMap::with_hash_state(Default::default()),
+
+            next_draw_list_id: DrawListID(0),
         };
 
         let thread_count = backend.scene.thread_pool.thread_count() as usize;
@@ -1295,7 +1311,11 @@ impl RenderBackend {
 
     fn add_draw_list(&mut self, draw_list: DrawList) -> Option<DrawListID> {
         if draw_list.item_count() > 0 {
-            let id = DrawListID::new();
+            let id = self.next_draw_list_id;
+
+            let DrawListID(current_id) = id;
+            self.next_draw_list_id = DrawListID(current_id+1);
+
             self.draw_list_map.insert(id, draw_list);
             Some(id)
         } else {
