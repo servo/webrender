@@ -112,12 +112,18 @@ impl FontContext {
                     (bitmap.width * bitmap.rows) as usize
                 );
 
+                // Convert to RGBA.
+                let mut final_buffer = Vec::with_capacity(buffer.len() * 4);
+                for &byte in buffer.iter() {
+                    final_buffer.push_all(&[ byte, byte, byte, byte ]);
+                }
+
                 let glyph = RasterizedGlyph {
                     left: (*slot).bitmap_left as i32,
                     top: (*slot).bitmap_top as i32,
                     width: bitmap.width as u32,
                     height: bitmap.rows as u32,
-                    bytes: buffer.to_vec(),
+                    bytes: final_buffer.to_vec(),
                 };
 
                 Some(glyph)

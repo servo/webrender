@@ -56,9 +56,6 @@ pub struct Renderer {
     quad_program_id: ProgramId,
     u_quad_transform_array: UniformLocation,
 
-    glyph_program_id: ProgramId,
-    u_glyph_transform_array: UniformLocation,
-
     border_program_id: ProgramId,
 
     blend_program_id: ProgramId,
@@ -89,7 +86,6 @@ impl Renderer {
         device.begin_frame();
 
         let quad_program_id = device.create_program("quad.vs.glsl", "quad.fs.glsl");
-        let glyph_program_id = device.create_program("glyph.vs.glsl", "glyph.fs.glsl");
         let border_program_id = device.create_program("border.vs.glsl", "border.fs.glsl");
         let blend_program_id = device.create_program("blend.vs.glsl", "blend.fs.glsl");
         let filter_program_id = device.create_program("filter.vs.glsl", "filter.fs.glsl");
@@ -98,8 +94,6 @@ impl Renderer {
         let blur_program_id = device.create_program("blur.vs.glsl", "blur.fs.glsl");
 
         let u_quad_transform_array = device.get_uniform_location(quad_program_id, "uMatrixPalette");
-
-        let u_glyph_transform_array = device.get_uniform_location(glyph_program_id, "uMatrixPalette");
 
         let u_blend_params = device.get_uniform_location(blend_program_id, "uBlendParams");
 
@@ -147,7 +141,6 @@ impl Renderer {
                                                  initial_viewport,
                                                  device_pixel_ratio,
                                                  quad_program_id,
-                                                 glyph_program_id,
                                                  white_image_id,
                                                  dummy_mask_image_id,
                                                  texture_cache);
@@ -169,7 +162,6 @@ impl Renderer {
             blend_program_id: blend_program_id,
             filter_program_id: filter_program_id,
             quad_program_id: quad_program_id,
-            glyph_program_id: glyph_program_id,
             box_shadow_corner_program_id: box_shadow_corner_program_id,
             blur_program_id: blur_program_id,
             u_blend_params: u_blend_params,
@@ -177,7 +169,6 @@ impl Renderer {
             u_filter_texture_size: u_filter_texture_size,
             u_direction: u_direction,
             u_quad_transform_array: u_quad_transform_array,
-            u_glyph_transform_array: u_glyph_transform_array,
         }
     }
 
@@ -837,8 +828,6 @@ impl Renderer {
                             // TODO: hack - bind the uniform locations? this goes away if only one shader anyway...
                             let u_transform_array = if batch.program_id == self.quad_program_id {
                                 self.u_quad_transform_array
-                            } else if batch.program_id == self.glyph_program_id {
-                                self.u_glyph_transform_array
                             } else {
                                 panic!("unexpected batch shader!");
                             };

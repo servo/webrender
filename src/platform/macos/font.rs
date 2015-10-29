@@ -111,6 +111,9 @@ impl FontContext {
                                                               rasterized_width as size_t * 4,
                                                               &CGColorSpace::create_device_rgb(),
                                                               kCGImageAlphaPremultipliedLast);
+        cg_context.set_allows_font_smoothing(true);
+        cg_context.set_should_smooth_fonts(true);
+        cg_context.set_rgb_fill_color(1.0, 1.0, 1.0, 1.0);
 
         let rasterization_origin = CGPoint {
             x: bounds.origin.x - (rasterized_left as f64),
@@ -118,11 +121,14 @@ impl FontContext {
         };
         ct_font.draw_glyphs(&[glyph], &[rasterization_origin], cg_context.clone());
 
-        let rasterized_area = rasterized_width * rasterized_height;
-        let rasterized_pixels = cg_context.data();
-        let mut final_pixels = Vec::with_capacity(rasterized_area as usize);
-        for i in 0..(rasterized_area as usize) {
-            final_pixels.push(rasterized_pixels[i * 4 + 3]);
+        let rasterized_area = (rasterized_width * rasterized_height) as usize;
+        let mut rasterized_pixels = cg_context.data().to_vec();
+        for i in 0..rasterized_area {
+            let alpha = (rasterized_pixels[i * 4 + 3] as f32) / 255.0;
+            for j in 0..3 {
+                rasterized_pixels[i * 4 + j] =
+                    ((rasterized_pixels[i * 4 + j] as f32) / alpha) as u8;
+            }
         }
 
         Some(RasterizedGlyph {
@@ -130,7 +136,7 @@ impl FontContext {
             top: (bounds.size.height + bounds.origin.y).ceil() as i32,
             width: rasterized_width,
             height: rasterized_height,
-            bytes: final_pixels,
+            bytes: rasterized_pixels,
         })
     }
 }
