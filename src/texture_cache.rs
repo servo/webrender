@@ -3,10 +3,11 @@ use device::{TextureId, TextureIndex};
 use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use internal_types::{TextureTarget, TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
-use internal_types::{ImageID, RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
+use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::collections::hash_state::DefaultState;
+use freelist::{FreeList, FreeListItem, FreeListItemId};
 use std::mem;
 use types::ImageFormat;
 use util;
@@ -16,6 +17,8 @@ const LEVELS_PER_TEXTURE: u8 = 8;
 // TODO(pcwalton): This is pretty small. Maybe detect the max GL texture size at runtime and use
 // that?
 const TEXTURE_SIZE: u32 = 1024;
+
+pub type TextureCacheItemId = FreeListItemId;
 
 /// A texture allocator using the guillotine algorithm with the rectangle merge improvement. See
 /// sections 2.2 and 2.2.5 in "A Thousand Ways to Pack the Bin - A Practical Approach to Two-
@@ -160,6 +163,32 @@ pub struct TextureCacheItem {
     pub texture_index: TextureIndex,
 }
 
+// Structure squat the width/height fields to maintain the free list information :)
+impl FreeListItem for TextureCacheItem {
+    fn next_free_id(&self) -> Option<FreeListItemId> {
+        if self.width == 0 {
+            debug_assert!(self.height == 0);
+            None
+        } else {
+            debug_assert!(self.width == 1);
+            Some(FreeListItemId::new(self.height))
+        }
+    }
+
+    fn set_next_free_id(&mut self, id: Option<FreeListItemId>) {
+        match id {
+            Some(id) => {
+                self.width = 1;
+                self.height = id.value();
+            }
+            None => {
+                self.width = 0;
+                self.height = 0;
+            }
+        }
+    }
+}
+
 impl TextureCacheItem {
     fn new(texture_id: TextureId,
            texture_index: TextureIndex,
@@ -220,7 +249,7 @@ pub struct TextureCache {
     alternate_free_texture_levels: HashMap<ImageFormat,
                                            Vec<FreeTextureLevel>,
                                            DefaultState<FnvHasher>>,
-    items: HashMap<ImageID, TextureCacheItem, DefaultState<FnvHasher>>,
+    items: FreeList<TextureCacheItem>,
     arena: TextureCacheArena,
     pending_updates: TextureUpdateList,
 }
@@ -244,7 +273,7 @@ impl TextureCache {
             free_texture_ids: free_texture_ids,
             free_texture_levels: HashMap::with_hash_state(Default::default()),
             alternate_free_texture_levels: HashMap::with_hash_state(Default::default()),
-            items: HashMap::with_hash_state(Default::default()),
+            items: FreeList::new(),
             pending_updates: TextureUpdateList::new(),
             arena: TextureCacheArena::new(),
         }
@@ -252,6 +281,26 @@ impl TextureCache {
 
     pub fn pending_updates(&mut self) -> TextureUpdateList {
         mem::replace(&mut self.pending_updates, TextureUpdateList::new())
+    }
+
+    // TODO(gw): This API is a bit ugly (having to allocate an ID and
+    //           then use it). But it has to be that way for now due to
+    //           how the raster_jobs code works.
+    pub fn new_item_id(&mut self) -> TextureCacheItemId {
+        let new_item = TextureCacheItem {
+            u0: 0.0,
+            v0: 0.0,
+            u1: 0.0,
+            v1: 0.0,
+            x0: 0,
+            y0: 0,
+            width: 0,
+            height: 0,
+            texture_id: TextureId::invalid(),
+            format: ImageFormat::Invalid,
+            texture_index: TextureIndex(0),
+        };
+        self.items.insert(new_item)
     }
 
     pub fn allocate_render_target(&mut self,
@@ -290,7 +339,7 @@ impl TextureCache {
     }
 
     pub fn allocate(&mut self,
-                    image_id: ImageID,
+                    image_id: TextureCacheItemId,
                     x0: i32,
                     y0: i32,
                     width: u32,
@@ -356,7 +405,7 @@ impl TextureCache {
                                                                width, height,
                                                                0.0, 0.0,
                                                                1.0, 1.0);
-                        self.items.insert(image_id, cache_item);
+                        *self.items.get_mut(image_id) = cache_item;
 
                         return AllocationResult {
                             texture_id: texture_id,
@@ -388,7 +437,7 @@ impl TextureCache {
                                                width, height,
                                                u0, v0,
                                                u1, v1);
-        self.items.insert(image_id, cache_item);
+        *self.items.get_mut(image_id) = cache_item;
 
         // TODO(pcwalton): Select a texture index if we're using texture arrays.
         AllocationResult {
@@ -400,7 +449,7 @@ impl TextureCache {
     }
 
     pub fn insert_raster_op(&mut self,
-                            image_id: ImageID,
+                            image_id: TextureCacheItemId,
                             item: &RasterItem) {
         let update_op = match item {
             &RasterItem::BorderRadius(ref op) => {
@@ -464,7 +513,7 @@ impl TextureCache {
     }
 
     pub fn insert(&mut self,
-                  image_id: ImageID,
+                  image_id: TextureCacheItemId,
                   x0: i32,
                   y0: i32,
                   width: u32,
@@ -484,8 +533,8 @@ impl TextureCache {
             }
             (AllocationKind::TexturePage,
              TextureInsertOp::Blur(bytes, glyph_size, blur_radius)) => {
-                let unblurred_glyph_image_id = ImageID::new();
-                let horizontal_blur_image_id = ImageID::new();
+                let unblurred_glyph_image_id = self.new_item_id();
+                let horizontal_blur_image_id = self.new_item_id();
                 // TODO(pcwalton): Destroy these!
                 self.allocate(unblurred_glyph_image_id,
                               0, 0,
@@ -542,11 +591,8 @@ impl TextureCache {
         TextureTarget::TextureArray
     }
 
-    pub fn get(&self, id: ImageID) -> &TextureCacheItem {
-        match self.items.get(&id) {
-            Some(item) => item,
-            None => panic!("id {:?} was not cached!", id),
-        }
+    pub fn get(&self, id: TextureCacheItemId) -> &TextureCacheItem {
+        self.items.get(id)
     }
 
 }

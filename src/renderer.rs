@@ -7,7 +7,7 @@ use gleam::gl;
 use internal_types::{ApiMsg, Frame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{BatchId, ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DrawCommandInfo};
-use internal_types::{ImageID, PackedVertexForTextureCacheUpdate, TextureTarget};
+use internal_types::{PackedVertexForTextureCacheUpdate, TextureTarget};
 use render_api::RenderApi;
 use render_backend::RenderBackend;
 use std::collections::HashMap;
@@ -121,7 +121,7 @@ impl Renderer {
             0xff, 0xff,
         ];
         // TODO: Ensure that the white texture can never get evicted when the cache supports LRU eviction!
-        let white_image_id = ImageID::new();
+        let white_image_id = texture_cache.new_item_id();
         texture_cache.insert(white_image_id,
                              0,
                              0,
@@ -130,7 +130,7 @@ impl Renderer {
                              ImageFormat::RGBA8,
                              TextureInsertOp::Blit(white_pixels));
 
-        let dummy_mask_image_id = ImageID::new();
+        let dummy_mask_image_id = texture_cache.new_item_id();
         texture_cache.insert(dummy_mask_image_id,
                              0,
                              0,

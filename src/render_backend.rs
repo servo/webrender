@@ -11,7 +11,7 @@ use internal_types::{BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp, Compi
 use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo};
 use internal_types::{ClipRectToRegionResult, DrawListIndex, DrawListItemIndex, DisplayItemKey};
 use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey};
-use internal_types::{FontTemplate, Glyph, ImageID, PolygonPosColorUv, RectPosUv, TextureTarget};
+use internal_types::{FontTemplate, Glyph, PolygonPosColorUv, RectPosUv, TextureTarget};
 use layer::Layer;
 use optimizer;
 use platform::font::{FontContext, RasterizedGlyph};
@@ -30,7 +30,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Arc;
 use std::sync::mpsc::{Sender, Receiver};
 use std::thread;
-use texture_cache::{TextureCache, TextureCacheItem, TextureInsertOp};
+use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId, TextureInsertOp};
 use types::{DisplayListID, Epoch, FontKey, ImageKey, BorderDisplayItem, ScrollPolicy};
 use types::{RectangleDisplayItem, ScrollLayerId, ClearDisplayItem};
 use types::{GradientStop, DisplayListMode, ClipRegion};
@@ -727,8 +727,8 @@ impl Scene {
                    device_pixel_ratio: f32,
                    texture_cache: &mut TextureCache,
                    resource_cache: &mut ResourceCache,
-                   white_image_id: ImageID,
-                   dummy_mask_image_id: ImageID,
+                   white_image_id: TextureCacheItemId,
+                   dummy_mask_image_id: TextureCacheItemId,
                    quad_program_id: ProgramId,
                    glyph_program_id: ProgramId) -> Frame {
         let origin = Point2D::new(viewport.origin.x as f32, viewport.origin.y as f32);
@@ -838,8 +838,8 @@ impl Scene {
     fn compile_visible_nodes(&mut self,
                              resource_cache: &ResourceCache,
                              texture_cache: &TextureCache,
-                             white_image_id: ImageID,
-                             dummy_mask_image_id: ImageID,
+                             white_image_id: TextureCacheItemId,
+                             dummy_mask_image_id: TextureCacheItemId,
                              quad_program_id: ProgramId,
                              glyph_program_id: ProgramId) {
         let _pf = util::ProfileScope::new("  compile_visible_nodes");
@@ -916,7 +916,7 @@ impl Scene {
                     // Update texture cache with any GPU generated procedural items.
                     resource_list.for_each_raster(|raster_item| {
                         resource_cache.cache_raster_if_required(raster_item, || {
-                            let image_id = ImageID::new();
+                            let image_id = texture_cache.new_item_id();
                             texture_cache.insert_raster_op(image_id, raster_item);
                             image_id
                         });
@@ -925,7 +925,7 @@ impl Scene {
                     // Update texture cache with any images that aren't yet uploaded to GPU.
                     resource_list.for_each_image(|image_key| {
                         resource_cache.cache_image_if_required(image_key, |image_template| {
-                            let image_id = ImageID::new();
+                            let image_id = texture_cache.new_item_id();
                             // TODO: Can we avoid the clone of the bytes here?
                             texture_cache.insert(image_id,
                                                  0,
@@ -941,7 +941,7 @@ impl Scene {
                     // Update texture cache with any newly rasterized glyphs.
                     resource_list.for_each_glyph(|glyph_key| {
                         resource_cache.cache_glyph_if_required(glyph_key, || {
-                            let image_id = ImageID::new();
+                            let image_id = texture_cache.new_item_id();
                             raster_jobs.push(GlyphRasterJob {
                                 image_id: image_id,
                                 glyph_key: glyph_key.clone(),
@@ -1062,7 +1062,7 @@ impl Scene {
 }
 
 struct GlyphRasterJob {
-    image_id: ImageID,
+    image_id: TextureCacheItemId,
     glyph_key: GlyphKey,
     result: Option<RasterizedGlyph>,
 }
@@ -1245,8 +1245,8 @@ pub struct RenderBackend {
 
     quad_program_id: ProgramId,
     glyph_program_id: ProgramId,
-    white_image_id: ImageID,
-    dummy_mask_image_id: ImageID,
+    white_image_id: TextureCacheItemId,
+    dummy_mask_image_id: TextureCacheItemId,
 
     resource_cache: ResourceCache,
     texture_cache: TextureCache,
@@ -1265,8 +1265,8 @@ impl RenderBackend {
                device_pixel_ratio: f32,
                quad_program_id: ProgramId,
                glyph_program_id: ProgramId,
-               white_image_id: ImageID,
-               dummy_mask_image_id: ImageID,
+               white_image_id: TextureCacheItemId,
+               dummy_mask_image_id: TextureCacheItemId,
                texture_cache: TextureCache) -> RenderBackend {
         let mut backend = RenderBackend {
             api_rx: rx,

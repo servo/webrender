@@ -35,15 +35,6 @@ impl BatchId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ImageID(usize);
-
-impl ImageID {
-    pub fn new() -> ImageID {
-        ImageID(new_resource_id())
-    }
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum TextureSampler {
     Color,

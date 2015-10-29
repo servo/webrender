@@ -40,6 +40,10 @@ impl TextureId {
         let TextureId(id) = *self;
         gl::bind_texture(target.to_gl(), id);
     }
+
+    pub fn invalid() -> TextureId {
+        TextureId(0)
+    }
 }
 
 impl ProgramId {
