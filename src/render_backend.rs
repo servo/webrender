@@ -12,13 +12,15 @@ use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCom
 use internal_types::{ClipRectToRegionResult, DrawListIndex, DrawListItemIndex, DisplayItemKey};
 use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey};
 use internal_types::{FontTemplate, Glyph, PolygonPosColorUv, RectPosUv, TextureTarget};
+use internal_types::{ResourceId, IdNamespace};
 use layer::Layer;
 use optimizer;
 use platform::font::{FontContext, RasterizedGlyph};
+use render_api::RenderApi;
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use resource_list::ResourceList;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
@@ -1236,6 +1238,7 @@ enum StackingContextKind<'a> {
 
 pub struct RenderBackend {
     api_rx: Receiver<ApiMsg>,
+    api_tx: Sender<ApiMsg>,
     result_tx: Sender<ResultMsg>,
     viewport: Rect<i32>,
     device_pixel_ratio: f32,
@@ -1252,13 +1255,15 @@ pub struct RenderBackend {
     draw_list_map: DrawListMap,
     stacking_contexts: StackingContextMap,
     next_draw_list_id: DrawListID,
+    next_namespace_id: IdNamespace,
 
     scene: Scene,
 }
 
 impl RenderBackend {
-    pub fn new(rx: Receiver<ApiMsg>,
-               tx: Sender<ResultMsg>,
+    pub fn new(api_rx: Receiver<ApiMsg>,
+               api_tx: Sender<ApiMsg>,
+               result_tx: Sender<ResultMsg>,
                viewport: Rect<i32>,
                device_pixel_ratio: f32,
                quad_program_id: ProgramId,
@@ -1266,8 +1271,9 @@ impl RenderBackend {
                dummy_mask_image_id: TextureCacheItemId,
                texture_cache: TextureCache) -> RenderBackend {
         let mut backend = RenderBackend {
-            api_rx: rx,
-            result_tx: tx,
+            api_rx: api_rx,
+            api_tx: api_tx,
+            result_tx: result_tx,
             viewport: viewport,
             device_pixel_ratio: device_pixel_ratio,
             root_pipeline_id: None,
@@ -1283,6 +1289,7 @@ impl RenderBackend {
             draw_list_map: HashMap::with_hash_state(Default::default()),
             stacking_contexts: HashMap::with_hash_state(Default::default()),
 
+            next_namespace_id: IdNamespace(1),
             next_draw_list_id: DrawListID(0),
         };
 
@@ -1368,6 +1375,18 @@ impl RenderBackend {
                             };
 
                             self.display_list_map.insert(id, display_list);
+                        }
+                        ApiMsg::CloneApi(sender) => {
+                            let new_api = RenderApi {
+                                tx: self.api_tx.clone(),
+                                id_namespace: self.next_namespace_id,
+                                next_id: Cell::new(ResourceId(0)),
+                            };
+
+                            let IdNamespace(id_namespace) = self.next_namespace_id;
+                            self.next_namespace_id = IdNamespace(id_namespace + 1);
+
+                            sender.send(new_api).unwrap();
                         }
                         ApiMsg::SetRootStackingContext(stacking_context, background_color, epoch, pipeline_id) => {
                             let _pf = util::ProfileScope::new("SetRootStackingContext");

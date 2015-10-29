@@ -4,18 +4,19 @@ use device::{Device, ProgramId, TextureId, TextureIndex, UniformLocation, VAOId,
 use euclid::{Rect, Matrix4, Point2D, Size2D};
 use fnv::FnvHasher;
 use gleam::gl;
-use internal_types::{ApiMsg, Frame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
+use internal_types::{Frame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{BatchId, ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DrawCommandInfo};
-use internal_types::{PackedVertexForTextureCacheUpdate, TextureTarget};
+use internal_types::{PackedVertexForTextureCacheUpdate, TextureTarget, IdNamespace, ResourceId};
 use render_api::RenderApi;
 use render_backend::RenderBackend;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::f32;
 use std::mem;
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Sender, Receiver};
+use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use texture_cache::{TextureCache, TextureInsertOp};
 use types::{ColorF, Epoch, PipelineId, RenderNotifier, ImageFormat, MixBlendMode};
@@ -42,7 +43,6 @@ struct RenderContext {
 }
 
 pub struct Renderer {
-    api_tx: Sender<ApiMsg>,
     result_rx: Receiver<ResultMsg>,
     device: Device,
     pending_texture_updates: Vec<TextureUpdateList>,
@@ -76,7 +76,7 @@ impl Renderer {
                width: u32,
                height: u32,
                device_pixel_ratio: f32,
-               resource_path: PathBuf) -> Renderer {
+               resource_path: PathBuf) -> (Renderer, RenderApi) {
         let (api_tx, api_rx) = channel();
         let (result_tx, result_rx) = channel();
 
@@ -135,8 +135,10 @@ impl Renderer {
 
         device.end_frame();
 
+        let backend_api_tx = api_tx.clone();
         thread::spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
+                                                 backend_api_tx,
                                                  result_tx,
                                                  initial_viewport,
                                                  device_pixel_ratio,
@@ -147,8 +149,7 @@ impl Renderer {
             backend.run(notifier);
         });
 
-        Renderer {
-            api_tx: api_tx,
+        let renderer = Renderer {
             result_rx: result_rx,
             device: device,
             current_frame: None,
@@ -169,13 +170,15 @@ impl Renderer {
             u_filter_texture_size: u_filter_texture_size,
             u_direction: u_direction,
             u_quad_transform_array: u_quad_transform_array,
-        }
-    }
+        };
 
-    pub fn new_api(&self) -> RenderApi {
-        RenderApi {
-            tx: self.api_tx.clone()
-        }
+        let api = RenderApi {
+            tx: api_tx,
+            id_namespace: IdNamespace(0),   // special case
+            next_id: Cell::new(ResourceId(0)),
+        };
+
+        (renderer, api)
     }
 
     pub fn current_epoch(&self, pipeline_id: PipelineId) -> Option<Epoch> {
