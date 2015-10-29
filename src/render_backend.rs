@@ -4,17 +4,17 @@ use batch::RenderBatch;
 use clipper::{self, ClipBuffers};
 use device::{ProgramId, TextureId, TextureIndex};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
-use font::{FontContext, RasterizedGlyph};
 use fnv::FnvHasher;
-use internal_types::{ApiMsg, FontTemplate, Frame, ImageResource, ResultMsg, DrawLayer, Primitive, ClearInfo};
+use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, Primitive, ClearInfo};
 use internal_types::{BorderRadiusRasterOp, BoxShadowCornerRasterOp, RasterItem};
 use internal_types::{BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp, CompiledNode};
 use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo};
 use internal_types::{ClipRectToRegionResult, DrawListIndex, DrawListItemIndex, DisplayItemKey};
 use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey};
-use internal_types::{Glyph, ImageID, PolygonPosColorUv, RectPosUv, TextureTarget};
+use internal_types::{FontTemplate, Glyph, ImageID, PolygonPosColorUv, RectPosUv, TextureTarget};
 use layer::Layer;
 use optimizer;
+use platform::font::{FontContext, RasterizedGlyph};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use resource_list::ResourceList;
@@ -971,8 +971,16 @@ impl Scene {
                     let font_template = resource_cache.get_font_template(job.glyph_key.font_key);
                     FONT_CONTEXT.with(move |font_context| {
                         let mut font_context = font_context.borrow_mut();
-                        font_context.add_font(job.glyph_key.font_key, &font_template.bytes);
-                        job.result = font_context.get_glyph(job.glyph_key.font_key,
+                        match *font_template {
+                            FontTemplate::Raw(ref bytes) => {
+                                font_context.add_raw_font(&job.glyph_key.font_key, &**bytes);
+                            }
+                            FontTemplate::Native(ref native_font_handle) => {
+                                font_context.add_native_font(&job.glyph_key.font_key,
+                                                             (*native_font_handle).clone());
+                            }
+                        }
+                        job.result = font_context.get_glyph(&job.glyph_key.font_key,
                                                             job.glyph_key.size,
                                                             job.glyph_key.index,
                                                             device_pixel_ratio);
@@ -1322,10 +1330,13 @@ impl RenderBackend {
             match msg {
                 Ok(msg) => {
                     match msg {
-                        ApiMsg::AddFont(id, bytes) => {
-                            self.resource_cache.add_font_template(id, FontTemplate {
-                                bytes: Arc::new(bytes),
-                            });
+                        ApiMsg::AddRawFont(id, bytes) => {
+                            self.resource_cache
+                                .add_font_template(id, FontTemplate::Raw(Arc::new(bytes)));
+                        }
+                        ApiMsg::AddNativeFont(id, native_font_handle) => {
+                            self.resource_cache
+                                .add_font_template(id, FontTemplate::Native(native_font_handle));
                         }
                         ApiMsg::AddImage(id, width, height, format, bytes) => {
                             let image = ImageResource {
