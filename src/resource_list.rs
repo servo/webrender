@@ -2,7 +2,7 @@ use app_units::Au;
 use euclid::Size2D;
 use fnv::FnvHasher;
 use internal_types::{BorderRadiusRasterOp, BoxShadowCornerRasterOp};
-use internal_types::{Glyph, GlyphKey, RasterItem};
+use internal_types::{Glyph, GlyphKey, RasterItem, TiledImageKey};
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
@@ -11,11 +11,24 @@ use types::{FontKey, ImageFormat, ImageKey};
 type RequiredImageSet = HashSet<ImageKey, DefaultState<FnvHasher>>;
 type RequiredGlyphMap = HashMap<FontKey, HashSet<Glyph>, DefaultState<FnvHasher>>;
 type RequiredRasterSet = HashSet<RasterItem, DefaultState<FnvHasher>>;
+type RequiredTiledImageSet = HashSet<TiledImageKey, DefaultState<FnvHasher>>;
+
+/// The number of repeats of an image we allow within the viewport before we add a tile
+/// rasterization op.
+const MAX_IMAGE_REPEATS: u32 = 64;
+
+/// The dimensions (horizontal and vertical) of the area that we tile an image to.
+const TILE_SIZE: u32 = 128;
+
+/// The size of the virtual viewport used to estimate the number of image repeats we'll have to
+/// display.
+const APPROXIMATE_VIEWPORT_SIZE: u32 = 1024;
 
 pub struct ResourceList {
     required_images: RequiredImageSet,
     required_glyphs: RequiredGlyphMap,
     required_rasters: RequiredRasterSet,
+    required_tiled_images: RequiredTiledImageSet,
 }
 
 impl ResourceList {
@@ -24,11 +37,16 @@ impl ResourceList {
             required_glyphs: HashMap::with_hash_state(Default::default()),
             required_images: HashSet::with_hash_state(Default::default()),
             required_rasters: HashSet::with_hash_state(Default::default()),
+            required_tiled_images: HashSet::with_hash_state(Default::default()),
         }
     }
 
-    pub fn add_image(&mut self, key: ImageKey) {
+    pub fn add_image(&mut self,
+                     key: ImageKey,
+                     tiled_size: &Size2D<f32>,
+                     stretch_size: &Size2D<f32>) {
         self.required_images.insert(key);
+        self.add_tiled_image(key, tiled_size, stretch_size);
     }
 
     pub fn add_glyph(&mut self, font_key: FontKey, glyph: Glyph) {
@@ -68,6 +86,17 @@ impl ResourceList {
         }
     }
 
+    pub fn add_tiled_image(&mut self,
+                           image_key: ImageKey,
+                           tiled_size: &Size2D<f32>,
+                           stretch_size: &Size2D<f32>) {
+        if let Some(tiled_image_op) = TiledImageKey::create_if_necessary(image_key,
+                                                                         tiled_size,
+                                                                         stretch_size) {
+            self.required_tiled_images.insert(tiled_image_op);
+        }
+    }
+
     pub fn for_each_image<F>(&self, mut f: F) where F: FnMut(ImageKey) {
         for image_id in &self.required_images {
             f(*image_id);
@@ -77,6 +106,12 @@ impl ResourceList {
     pub fn for_each_raster<F>(&self, mut f: F) where F: FnMut(&RasterItem) {
         for raster_item in &self.required_rasters {
             f(raster_item);
+        }
+    }
+
+    pub fn for_each_tiled_image<F>(&self, mut f: F) where F: FnMut(&TiledImageKey) {
+        for tiled_image_key in &self.required_tiled_images {
+            f(tiled_image_key);
         }
     }
 
@@ -94,3 +129,29 @@ impl ResourceList {
         }
     }
 }
+
+impl TiledImageKey {
+    pub fn create_if_necessary(image_key: ImageKey,
+                               tiled_size: &Size2D<f32>,
+                               stretch_size: &Size2D<f32>)
+                               -> Option<TiledImageKey> {
+        let tiled_size = Size2D::new(tiled_size.width.min(APPROXIMATE_VIEWPORT_SIZE as f32),
+                                     tiled_size.height.min(APPROXIMATE_VIEWPORT_SIZE as f32));
+        let image_repeats = ((tiled_size.width / stretch_size.width).ceil() *
+                (tiled_size.height / stretch_size.height).ceil()) as u32;
+        if image_repeats <= MAX_IMAGE_REPEATS {
+            return None
+        }
+        let prerendered_tile_size = Size2D::new(
+            (((TILE_SIZE as f32) / stretch_size.width).ceil() * stretch_size.width) as u32,
+            (((TILE_SIZE as f32) / stretch_size.height).ceil() * stretch_size.height) as u32);
+        Some(TiledImageKey {
+            image_key: image_key,
+            tiled_width: prerendered_tile_size.width,
+            tiled_height: prerendered_tile_size.height,
+            stretch_width: stretch_size.width as u32,
+            stretch_height: stretch_size.height as u32,
+        })
+    }
+}
+

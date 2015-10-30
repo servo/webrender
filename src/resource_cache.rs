@@ -1,5 +1,5 @@
 use fnv::FnvHasher;
-use internal_types::{FontTemplate, ImageResource, GlyphKey, RasterItem};
+use internal_types::{FontTemplate, ImageResource, GlyphKey, RasterItem, TiledImageKey};
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use texture_cache::TextureCacheItemId;
@@ -9,6 +9,7 @@ pub struct ResourceCache {
     cached_glyphs: HashMap<GlyphKey, TextureCacheItemId, DefaultState<FnvHasher>>,
     cached_rasters: HashMap<RasterItem, TextureCacheItemId, DefaultState<FnvHasher>>,
     cached_images: HashMap<ImageKey, TextureCacheItemId, DefaultState<FnvHasher>>,
+    cached_tiled_images: HashMap<TiledImageKey, TextureCacheItemId, DefaultState<FnvHasher>>,
 
     font_templates: HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>,
     image_templates: HashMap<ImageKey, ImageResource, DefaultState<FnvHasher>>,
@@ -20,6 +21,7 @@ impl ResourceCache {
             cached_glyphs: HashMap::with_hash_state(Default::default()),
             cached_rasters: HashMap::with_hash_state(Default::default()),
             cached_images: HashMap::with_hash_state(Default::default()),
+            cached_tiled_images: HashMap::with_hash_state(Default::default()),
             font_templates: HashMap::with_hash_state(Default::default()),
             image_templates: HashMap::with_hash_state(Default::default()),
         }
@@ -71,6 +73,17 @@ impl ResourceCache {
         }
     }
 
+    pub fn cache_tiled_image_if_required<F>(&mut self, tiled_image_key: &TiledImageKey, mut f: F)
+                                            where F: FnMut(&ImageResource) -> TextureCacheItemId {
+        if !self.cached_tiled_images.contains_key(&tiled_image_key) {
+            let image_id = {
+                let image_template = self.get_image_template(tiled_image_key.image_key);
+                f(image_template)
+            };
+            self.cached_tiled_images.insert((*tiled_image_key).clone(), image_id);
+        }
+    }
+
     pub fn get_glyph(&self, glyph_key: &GlyphKey) -> TextureCacheItemId {
         self.cached_glyphs[glyph_key]
     }
@@ -81,5 +94,9 @@ impl ResourceCache {
 
     pub fn get_image(&self, image_key: ImageKey) -> TextureCacheItemId {
         self.cached_images[&image_key]
+    }
+
+    pub fn get_tiled_image(&self, tiled_image_key: &TiledImageKey) -> TextureCacheItemId {
+        self.cached_tiled_images[tiled_image_key]
     }
 }
