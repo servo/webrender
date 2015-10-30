@@ -69,6 +69,8 @@ pub struct Renderer {
 
     blur_program_id: ProgramId,
     u_direction: UniformLocation,
+
+    tile_program_id: ProgramId,
 }
 
 impl Renderer {
@@ -92,6 +94,7 @@ impl Renderer {
         let box_shadow_corner_program_id = device.create_program("box-shadow-corner.vs.glsl",
                                                                  "box-shadow-corner.fs.glsl");
         let blur_program_id = device.create_program("blur.vs.glsl", "blur.fs.glsl");
+        let tile_program_id = device.create_program("tile.vs.glsl", "tile.fs.glsl");
 
         let u_quad_transform_array = device.get_uniform_location(quad_program_id, "uMatrixPalette");
 
@@ -165,6 +168,7 @@ impl Renderer {
             quad_program_id: quad_program_id,
             box_shadow_corner_program_id: box_shadow_corner_program_id,
             blur_program_id: blur_program_id,
+            tile_program_id: tile_program_id,
             u_blend_params: u_blend_params,
             u_filter_params: u_filter_params,
             u_filter_texture_size: u_filter_texture_size,
@@ -557,6 +561,86 @@ impl Renderer {
                                     blur_radius,
                                     border_radius,
                                     inverted)
+                            }
+                            TextureUpdateDetails::Tile(bytes,
+                                                       stretch_size,
+                                                       scratch_texture_image) => {
+                                self.device.update_texture_for_noncomposite_operation(
+                                    scratch_texture_image.texture_id,
+                                    scratch_texture_image.texture_index,
+                                    scratch_texture_image.pixel_uv.x,
+                                    scratch_texture_image.pixel_uv.y,
+                                    stretch_size.width,
+                                    stretch_size.height,
+                                    bytes.as_slice());
+
+                                let white = ColorF::new(1.0, 1.0, 1.0, 1.0);
+                                let zero_point = Point2D::new(0.0, 0.0);
+                                let zero_size = Size2D::new(0.0, 0.0);
+                                let scaled_bottom_right =
+                                    Point2D::new((width as f32) / (stretch_size.width as f32),
+                                                 (height as f32) / (stretch_size.height as f32));
+
+                                let tile_program_id = self.tile_program_id;
+                                let mut batch = self.get_or_create_raster_batch(
+                                    update.id,
+                                    update.index,
+                                    scratch_texture_image.texture_id,
+                                    tile_program_id,
+                                    None);
+                                let vertices = [
+                                    PackedVertexForTextureCacheUpdate::new(
+                                        &Point2D::new(x as f32, y as f32),
+                                        &white,
+                                        &zero_point,
+                                        scratch_texture_image.texture_index,
+                                        &Point2D::new(0.0, 0.0),
+                                        &zero_point,
+                                        &scratch_texture_image.texel_uv.origin,
+                                        &scratch_texture_image.texel_uv.bottom_right(),
+                                        &zero_size,
+                                        &zero_size,
+                                        0.0),
+                                    PackedVertexForTextureCacheUpdate::new(
+                                        &Point2D::new((x + width) as f32, y as f32),
+                                        &white,
+                                        &zero_point,
+                                        scratch_texture_image.texture_index,
+                                        &Point2D::new(scaled_bottom_right.x, 0.0),
+                                        &zero_point,
+                                        &scratch_texture_image.texel_uv.origin,
+                                        &scratch_texture_image.texel_uv.bottom_right(),
+                                        &zero_size,
+                                        &zero_size,
+                                        0.0),
+                                    PackedVertexForTextureCacheUpdate::new(
+                                        &Point2D::new(x as f32, (y + height) as f32),
+                                        &white,
+                                        &zero_point,
+                                        scratch_texture_image.texture_index,
+                                        &Point2D::new(0.0, scaled_bottom_right.y),
+                                        &zero_point,
+                                        &scratch_texture_image.texel_uv.origin,
+                                        &scratch_texture_image.texel_uv.bottom_right(),
+                                        &zero_size,
+                                        &zero_size,
+                                        0.0),
+                                    PackedVertexForTextureCacheUpdate::new(
+                                        &Point2D::new((x + width) as f32, (y + height) as f32),
+                                        &white,
+                                        &zero_point,
+                                        scratch_texture_image.texture_index,
+                                        &scaled_bottom_right,
+                                        &zero_point,
+                                        &scratch_texture_image.texel_uv.origin,
+                                        &scratch_texture_image.texel_uv.bottom_right(),
+                                        &zero_size,
+                                        &zero_size,
+                                        0.0),
+                                ];
+                                batch.add_draw_item(update.id,
+                                                    scratch_texture_image.texture_id,
+                                                    &vertices);
                             }
                         }
                     }

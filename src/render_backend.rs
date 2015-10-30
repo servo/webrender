@@ -12,7 +12,7 @@ use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCom
 use internal_types::{ClipRectToRegionResult, DrawListIndex, DrawListItemIndex, DisplayItemKey};
 use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey};
 use internal_types::{FontTemplate, Glyph, PolygonPosColorUv, RectPosUv, TextureTarget};
-use internal_types::{ResourceId, IdNamespace};
+use internal_types::{ResourceId, IdNamespace, TiledImageKey};
 use layer::Layer;
 use optimizer;
 use platform::font::{FontContext, RasterizedGlyph};
@@ -951,6 +951,27 @@ impl Scene {
                         });
                     });
 
+                    // Update texture cache with any new image tile operations.
+                    resource_list.for_each_tiled_image(|tiled_image_key| {
+                        resource_cache.cache_tiled_image_if_required(tiled_image_key,
+                                                                     |tiled_image_template| {
+                            let image_id = texture_cache.new_item_id();
+                            // TODO: Can we avoid the clone of the bytes here?
+                            let stretch_size = Size2D::new(tiled_image_key.stretch_width,
+                                                           tiled_image_key.stretch_height);
+                            texture_cache.insert(image_id,
+                                                 0,
+                                                 0,
+                                                 tiled_image_key.tiled_width,
+                                                 tiled_image_key.tiled_height,
+                                                 tiled_image_template.format,
+                                                 TextureInsertOp::Tile(
+                                                     tiled_image_template.bytes.clone(),
+                                                     stretch_size));
+                            image_id
+                        });
+                    });
+
                     // Update texture cache with any newly rasterized glyphs.
                     resource_list.for_each_glyph(|glyph_key| {
                         resource_cache.cache_glyph_if_required(glyph_key, || {
@@ -993,7 +1014,7 @@ impl Scene {
                                                              (*native_font_handle).clone());
                             }
                         }
-                        job.result = font_context.get_glyph(job.glyph_key.font_key,
+                        job.result = font_context.get_glyph(&job.glyph_key.font_key,
                                                             job.glyph_key.size,
                                                             job.glyph_key.index,
                                                             device_pixel_ratio);
@@ -1608,12 +1629,12 @@ impl DrawCommandBuilder {
         let image_id = resource_cache.get_image(image_key);
         let image_info = texture_cache.get(image_id);
 
-        let uv_origin = Point2D::new(image_info.u0, image_info.v0);
-        let uv_size = Size2D::new(image_info.u1 - image_info.u0,
-                                  image_info.v1 - image_info.v0);
-        let uv = Rect::new(uv_origin, uv_size);
-
         if rect.size.width == stretch_size.width && rect.size.height == stretch_size.height {
+            let uv_origin = Point2D::new(image_info.u0, image_info.v0);
+            let uv_size = Size2D::new(image_info.u1 - image_info.u0,
+                                      image_info.v1 - image_info.v0);
+            let uv = Rect::new(uv_origin, uv_size);
+
             self.push_image_rect(color,
                                  image_info,
                                  dummy_mask_image,
@@ -1625,32 +1646,49 @@ impl DrawCommandBuilder {
                                  clip_buffers,
                                  rect,
                                  &uv);
-        } else {
-            let mut y_offset = 0.0;
-            while y_offset < rect.size.height {
-                let mut x_offset = 0.0;
-                while x_offset < rect.size.width {
+            return
+        }
 
-                    let origin = Point2D::new(rect.origin.x + x_offset, rect.origin.y + y_offset);
-                    let tiled_rect = Rect::new(origin, stretch_size.clone());
-
-                    self.push_image_rect(color,
-                                         image_info,
-                                         dummy_mask_image,
-                                         clip_rect,
-                                         clip_region,
-                                         &sort_key,
-                                         resource_cache,
-                                         texture_cache,
-                                         clip_buffers,
-                                         &tiled_rect,
-                                         &uv);
-
-                    x_offset = x_offset + stretch_size.width;
-                }
-
-                y_offset = y_offset + stretch_size.height;
+        let (image_info, tiled_size) = match TiledImageKey::create_if_necessary(image_key,
+                                                                                &rect.size,
+                                                                                stretch_size) {
+            Some(ref tiled_image_key) => {
+                let tiled_image_id = resource_cache.get_tiled_image(tiled_image_key);
+                (texture_cache.get(tiled_image_id),
+                 Size2D::new(tiled_image_key.tiled_width as f32,
+                             tiled_image_key.tiled_height as f32))
             }
+            None => (image_info, *stretch_size),
+        };
+
+        let uv_origin = Point2D::new(image_info.u0, image_info.v0);
+        let uv_size = Size2D::new(image_info.u1 - image_info.u0,
+                                  image_info.v1 - image_info.v0);
+        let uv = Rect::new(uv_origin, uv_size);
+
+        let mut y_offset = 0.0;
+        while y_offset < rect.size.height {
+            let mut x_offset = 0.0;
+            while x_offset < rect.size.width {
+                let origin = Point2D::new(rect.origin.x + x_offset, rect.origin.y + y_offset);
+                let tiled_rect = Rect::new(origin, tiled_size.clone());
+
+                self.push_image_rect(color,
+                                     image_info,
+                                     dummy_mask_image,
+                                     clip_rect,
+                                     clip_region,
+                                     &sort_key,
+                                     resource_cache,
+                                     texture_cache,
+                                     clip_buffers,
+                                     &tiled_rect,
+                                     &uv);
+
+                x_offset = x_offset + tiled_size.width;
+            }
+
+            y_offset = y_offset + tiled_size.height;
         }
     }
 
@@ -2903,7 +2941,9 @@ impl BuildRequiredResources for AABBTreeNode {
 
             match display_item.item {
                 SpecificDisplayItem::Image(ref info) => {
-                    resource_list.add_image(info.image_key);
+                    resource_list.add_image(info.image_key,
+                                            &display_item.rect.size,
+                                            &info.stretch_size);
                 }
                 SpecificDisplayItem::Text(ref info) => {
                     for glyph in &info.glyphs {

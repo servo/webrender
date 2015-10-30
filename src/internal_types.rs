@@ -204,6 +204,8 @@ pub enum TextureUpdateDetails {
     BorderRadius(Au, Au, Au, Au, bool),
     /// Blur radius border radius, and whether inverted, respectively.
     BoxShadowCorner(Au, Au, bool),
+    /// Bytes, stretch size, and scratch texture image, respectively.
+    Tile(Vec<u8>, Size2D<u32>, TextureImage),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -728,5 +730,14 @@ impl GlyphKey {
 pub enum RasterItem {
     BorderRadius(BorderRadiusRasterOp),
     BoxShadowCorner(BoxShadowCornerRasterOp),
+}
+
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub struct TiledImageKey {
+    pub image_key: ImageKey,
+    pub tiled_width: u32,
+    pub tiled_height: u32,
+    pub stretch_width: u32,
+    pub stretch_height: u32,
 }
 
