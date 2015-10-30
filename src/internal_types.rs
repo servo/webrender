@@ -5,6 +5,7 @@ use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use gleam::gl;
 use platform::font::NativeFontHandle;
+use render_api::RenderApi;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::sync::Arc;
@@ -19,6 +20,12 @@ const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
 pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
+
+#[derive(Clone, Copy, Debug)]
+pub struct IdNamespace(pub u32);
+
+#[derive(Clone, Copy, Debug)]
+pub struct ResourceId(pub u32);
 
 pub enum FontTemplate {
     Raw(Arc<Vec<u8>>),
@@ -343,6 +350,7 @@ pub enum ApiMsg {
     AddNativeFont(FontKey, NativeFontHandle),
     AddImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
     AddDisplayList(DisplayListID, PipelineId, Epoch, DisplayListBuilder),
+    CloneApi(Sender<RenderApi>),
     SetRootStackingContext(StackingContext, ColorF, Epoch, PipelineId),
     SetRootPipeline(PipelineId),
     Scroll(Point2D<f32>),

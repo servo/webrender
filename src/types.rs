@@ -1,22 +1,21 @@
 use app_units::Au;
 use euclid::{Point2D, Rect, Size2D, Matrix4};
-use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct FontKey(u64);
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct FontKey(u32, u32);
 
 impl FontKey {
-    pub fn new(key: u64) -> FontKey {
-        FontKey(key)
+    pub fn new(key0: u32, key1: u32) -> FontKey {
+        FontKey(key0, key1)
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct ImageKey(u64);
+pub struct ImageKey(u32, u32);
 
 impl ImageKey {
-    pub fn new(key: u64) -> ImageKey {
-        ImageKey(key)
+    pub fn new(key0: u32, key1: u32) -> ImageKey {
+        ImageKey(key0, key1)
     }
 }
 
@@ -75,13 +74,6 @@ pub struct Epoch(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PipelineId(pub u32, pub u32);
 
-static RESOURCE_ID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
-
-#[inline]
-pub fn new_resource_id() -> usize {
-    RESOURCE_ID_COUNTER.fetch_add(1, Ordering::SeqCst)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RenderTargetID(pub u32);     // TODO: HACK HACK HACK this is an alias for device::TextureId
 
@@ -109,13 +101,7 @@ impl ScrollLayerId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DisplayListID(usize);
-
-impl DisplayListID {
-    pub fn new() -> DisplayListID {
-        DisplayListID(new_resource_id())
-    }
-}
+pub struct DisplayListID(pub u32, pub u32);
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BoxShadowClipMode {
