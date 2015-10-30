@@ -351,6 +351,7 @@ pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>),
     AddNativeFont(FontKey, NativeFontHandle),
     AddImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
+    UpdateImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
     AddDisplayList(DisplayListID, PipelineId, Epoch, DisplayListBuilder),
     CloneApi(Sender<RenderApi>),
     SetRootStackingContext(StackingContext, ColorF, Epoch, PipelineId),

@@ -1014,7 +1014,7 @@ impl Scene {
                                                              (*native_font_handle).clone());
                             }
                         }
-                        job.result = font_context.get_glyph(&job.glyph_key.font_key,
+                        job.result = font_context.get_glyph(job.glyph_key.font_key,
                                                             job.glyph_key.size,
                                                             job.glyph_key.index,
                                                             device_pixel_ratio);
@@ -1376,6 +1376,15 @@ impl RenderBackend {
                                 format: format,
                             };
                             self.resource_cache.add_image_template(id, image);
+                        }
+                        ApiMsg::UpdateImage(id, width, height, format, bytes) => {
+                            let image = ImageResource {
+                                bytes: bytes,
+                                width: width,
+                                height: height,
+                                format: format,
+                            };
+                            self.resource_cache.update_image_template(id, image);
                         }
                         ApiMsg::AddDisplayList(id,
                                                pipeline_id,

@@ -29,6 +29,11 @@ impl RenderApi {
         key
     }
 
+    pub fn alloc_image(&self) -> ImageKey {
+        let new_id = self.next_unique_id();
+        ImageKey::new(new_id.0, new_id.1)
+    }
+
     pub fn add_image(&self,
                      width: u32,
                      height: u32,
@@ -43,11 +48,13 @@ impl RenderApi {
 
     // TODO: Support changing dimensions (and format) during image update?
     pub fn update_image(&self,
-                        _image_key: ImageKey,
-                        _bytes: Vec<u8>) {
-        //println!("TODO!");
-        //let msg = ApiMsg::UpdateImage(id, bytes);
-        //self.tx.send(msg).unwrap();
+                        key: ImageKey,
+                        width: u32,
+                        height: u32,
+                        format: ImageFormat,
+                        bytes: Vec<u8>) {
+        let msg = ApiMsg::UpdateImage(key, width, height, format, bytes);
+        self.tx.send(msg).unwrap();
     }
 
     pub fn add_display_list(&self,

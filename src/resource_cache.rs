@@ -35,6 +35,10 @@ impl ResourceCache {
         self.image_templates.insert(image_key, resource);
     }
 
+    pub fn update_image_template(&mut self, image_key: ImageKey, resource: ImageResource) {
+        self.image_templates.insert(image_key, resource);
+    }
+
     pub fn get_font_template(&self, font_key: FontKey) -> &FontTemplate {
         &self.font_templates[&font_key]
     }
