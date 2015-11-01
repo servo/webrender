@@ -93,11 +93,9 @@ impl FontContext {
         let glyph = character as CGGlyph;
         let bounds = ct_font.get_bounding_rects_for_glyphs(kCTFontDefaultOrientation, &[glyph]);
 
-        // We add in one extra pixel of width in the horizontal direction to account for
-        // antialiasing.
         let rasterized_left = bounds.origin.x.floor() as i32;
         let rasterized_width =
-            (bounds.origin.x - (rasterized_left as f64) + bounds.size.width).ceil() as u32 + 1;
+            (bounds.origin.x - (rasterized_left as f64) + bounds.size.width).ceil() as u32;
         let rasterized_descent = (-bounds.origin.y).ceil() as i32;
         let rasterized_ascent = (bounds.size.height + bounds.origin.y).ceil() as i32;
         let rasterized_height = (rasterized_descent + rasterized_ascent) as u32;
@@ -116,7 +114,7 @@ impl FontContext {
         cg_context.set_rgb_fill_color(1.0, 1.0, 1.0, 1.0);
 
         let rasterization_origin = CGPoint {
-            x: bounds.origin.x - (rasterized_left as f64),
+            x: -rasterized_left as f64,
             y: rasterized_descent as f64,
         };
         ct_font.draw_glyphs(&[glyph], &[rasterization_origin], cg_context.clone());
