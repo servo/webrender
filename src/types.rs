@@ -30,7 +30,7 @@ pub enum ImageFormat {
     RGBA8,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ColorF {
     pub r: f32,
     pub g: f32,
@@ -110,20 +110,20 @@ pub enum BoxShadowClipMode {
     Inset,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct BorderSide {
     pub width: f32,
     pub color: ColorF,
     pub style: BorderStyle,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct GradientStop {
     pub offset: f32,
     pub color: ColorF,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BorderRadius {
     pub top_left: Size2D<f32>,
     pub top_right: Size2D<f32>,
@@ -145,7 +145,7 @@ pub enum BorderStyle {
     Outset,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct GlyphInstance {
     pub index: u32,
     pub x: f32,
@@ -204,7 +204,7 @@ impl StackingContext {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct TextDisplayItem {
     pub glyphs: Vec<GlyphInstance>,
     pub font_key: FontKey,
@@ -213,18 +213,18 @@ pub struct TextDisplayItem {
     pub blur_radius: Au,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ImageDisplayItem {
     pub image_key: ImageKey,
     pub stretch_size: Size2D<f32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct RectangleDisplayItem {
     pub color: ColorF,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct BorderDisplayItem {
     pub left: BorderSide,
     pub right: BorderSide,
@@ -255,7 +255,7 @@ impl BorderDisplayItem {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct BoxShadowDisplayItem {
     pub box_bounds: Rect<f32>,
     pub offset: Point2D<f32>,
@@ -266,32 +266,32 @@ pub struct BoxShadowDisplayItem {
     pub clip_mode: BoxShadowClipMode,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct GradientDisplayItem {
     pub start_point: Point2D<f32>,
     pub end_point: Point2D<f32>,
     pub stops: Vec<GradientStop>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct IframeDisplayItem {
     pub iframe: PipelineId,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ClearDisplayItem {
     pub clear_color: bool,
     pub clear_z: bool,
     pub clear_stencil: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct CompositeDisplayItem {
     pub texture_id: RenderTargetID,
     pub operation: CompositionOp,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SpecificDisplayItem {
     Rectangle(RectangleDisplayItem),
     Text(TextDisplayItem),
@@ -306,7 +306,7 @@ pub enum SpecificDisplayItem {
     Clear(ClearDisplayItem),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct DisplayItem {
     pub item: SpecificDisplayItem,
     pub rect: Rect<f32>,
@@ -582,7 +582,25 @@ pub trait RenderNotifier : Send {
     fn new_frame_ready(&mut self);
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+pub struct Glyph {
+    pub size: Au,
+    pub blur_radius: Au,
+    pub index: u32,
+}
+
+impl Glyph {
+    #[inline]
+    pub fn new(size: Au, blur_radius: Au, index: u32) -> Glyph {
+        Glyph {
+            size: size,
+            blur_radius: blur_radius,
+            index: index,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClipRegion {
     pub main: Rect<f32>,
     pub complex: Vec<ComplexClipRegion>,
@@ -597,7 +615,7 @@ impl ClipRegion {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ComplexClipRegion {
     /// The boundaries of the rectangle.
     pub rect: Rect<f32>,
@@ -620,7 +638,7 @@ pub enum ScrollPolicy {
     Fixed,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MixBlendMode {
     Normal,
     Multiply,
@@ -640,7 +658,7 @@ pub enum MixBlendMode {
     Luminosity,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LowLevelFilterOp {
     Blur(Au, BlurDirection),
     Brightness(f32),
@@ -672,7 +690,7 @@ pub enum BlurDirection {
     Vertical,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CompositionOp {
     MixBlend(MixBlendMode),
     Filter(LowLevelFilterOp),
