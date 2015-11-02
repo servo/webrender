@@ -15,12 +15,11 @@ use internal_types::{FontTemplate, Glyph, PolygonPosColorUv, RectPosUv, TextureT
 use internal_types::{ResourceId, IdNamespace, TiledImageKey};
 use layer::Layer;
 use optimizer;
-use platform::font::{FontContext, RasterizedGlyph};
 use render_api::RenderApi;
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use resource_list::ResourceList;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
@@ -31,8 +30,7 @@ use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Arc;
 use std::sync::mpsc::{Sender, Receiver};
-use std::thread;
-use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId, TextureInsertOp};
+use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
 use types::{DisplayListID, Epoch, FontKey, ImageKey, BorderDisplayItem, ScrollPolicy};
 use types::{RectangleDisplayItem, ScrollLayerId, ClearDisplayItem};
 use types::{GradientStop, DisplayListMode, ClipRegion};
@@ -48,10 +46,6 @@ type DisplayListMap = HashMap<DisplayListID, DisplayList, DefaultState<FnvHasher
 type DrawListMap = HashMap<DrawListID, DrawList, DefaultState<FnvHasher>>;
 type FlatDrawListArray = Vec<FlatDrawList>;
 type StackingContextMap = HashMap<PipelineId, RootStackingContext, DefaultState<FnvHasher>>;
-
-static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
-
-thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
 static ID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
@@ -311,7 +305,6 @@ impl CollectDrawListsForStackingContext for StackingContext {
 
 struct Scene {
     // Internal state
-    thread_pool: scoped_threadpool::Pool,
     layers: HashMap<ScrollLayerId, Layer, DefaultState<FnvHasher>>,
 
     // Source data
@@ -322,12 +315,14 @@ struct Scene {
     render_targets: Vec<RenderTarget>,
     render_target_stack: Vec<RenderTargetIndex>,
     pending_updates: BatchUpdateList,
+
+    // Constants
+    quad_program_id: ProgramId,
 }
 
 impl Scene {
-    fn new() -> Scene {
+    fn new(quad_program_id: ProgramId) -> Scene {
         Scene {
-            thread_pool: scoped_threadpool::Pool::new(8),
             layers: HashMap::with_hash_state(Default::default()),
 
             flat_draw_lists: Vec::new(),
@@ -336,6 +331,8 @@ impl Scene {
             render_targets: Vec::new(),
             render_target_stack: Vec::new(),
             pending_updates: BatchUpdateList::new(),
+
+            quad_program_id: quad_program_id,
         }
     }
 
@@ -343,7 +340,7 @@ impl Scene {
         mem::replace(&mut self.pending_updates, BatchUpdateList::new())
     }
 
-    fn reset(&mut self, texture_cache: &mut TextureCache) {
+    fn reset(&mut self, resource_cache: &mut ResourceCache) {
         debug_assert!(self.render_target_stack.len() == 0);
         self.pipeline_epoch_map.clear();
 
@@ -351,7 +348,7 @@ impl Scene {
         // TODO: This should really re-use existing targets here...
         for render_target in &mut self.render_targets {
             if let Some(texture_id) = render_target.texture_id {
-                texture_cache.free_render_target(texture_id);
+                resource_cache.free_render_target(texture_id);
             }
         }
 
@@ -425,7 +422,7 @@ impl Scene {
                                 parent_scroll_layer: ScrollLayerId,
                                 stacking_contexts: &StackingContextMap,
                                 device_pixel_ratio: f32,
-                                texture_cache: &mut TextureCache,
+                                resource_cache: &mut ResourceCache,
                                 clip_rect: &Rect<f32>) {
         let _pf = util::ProfileScope::new("  flatten_stacking_context");
         let stacking_context = match stacking_context_kind {
@@ -547,11 +544,11 @@ impl Scene {
             for composition_operation in composition_operations.iter() {
                 let size = Size2D::new(stacking_context.overflow.size.width as u32,
                                        stacking_context.overflow.size.height as u32);
-                let texture_id = texture_cache.allocate_render_target(TextureTarget::Texture2D,
-                                                                      size.width,
-                                                                      size.height,
-                                                                      1,
-                                                                      ImageFormat::RGBA8);
+                let texture_id = resource_cache.allocate_render_target(TextureTarget::Texture2D,
+                                                                       size.width,
+                                                                       size.height,
+                                                                       1,
+                                                                       ImageFormat::RGBA8);
                 let TextureId(render_target_id) = texture_id;
 
                 let mut composite_draw_list = DrawList::new();
@@ -625,7 +622,7 @@ impl Scene {
                                               parent_scroll_layer,
                                               stacking_contexts,
                                               device_pixel_ratio,
-                                              texture_cache,
+                                              resource_cache,
                                               clip_rect);
             }
 
@@ -657,7 +654,7 @@ impl Scene {
                                               parent_scroll_layer,
                                               stacking_contexts,
                                               device_pixel_ratio,
-                                              texture_cache,
+                                              resource_cache,
                                               clip_rect);
             }
 
@@ -683,7 +680,7 @@ impl Scene {
                                                       parent_scroll_layer,
                                                       stacking_contexts,
                                                       device_pixel_ratio,
-                                                      texture_cache,
+                                                      resource_cache,
                                                       &clip_rect);
                     }
                 }
@@ -747,13 +744,8 @@ impl Scene {
 
     fn build_frame(&mut self,
                    viewport: &Rect<i32>,
-                   device_pixel_ratio: f32,
-                   texture_cache: &mut TextureCache,
                    resource_cache: &mut ResourceCache,
-                   white_image_id: TextureCacheItemId,
-                   dummy_mask_image_id: TextureCacheItemId,
-                   quad_program_id: ProgramId)
-                   -> Frame {
+                   thread_pool: &mut scoped_threadpool::Pool) -> Frame {
         let origin = Point2D::new(viewport.origin.x as f32, viewport.origin.y as f32);
         let size = Size2D::new(viewport.size.width as f32, viewport.size.height as f32);
         let viewport_rect = Rect::new(origin, size);
@@ -764,24 +756,18 @@ impl Scene {
         }
 
         // Build resource list for newly visible nodes
-        self.update_resource_lists();
+        self.update_resource_lists(thread_pool);
 
         // Update texture cache and build list of raster jobs.
-        let raster_jobs = self.update_texture_cache_and_build_raster_jobs(texture_cache,
-                                                                          resource_cache);
+        self.update_texture_cache_and_build_raster_jobs(resource_cache);
 
         // Rasterize needed glyphs on worker threads
-        self.raster_glyphs(raster_jobs,
-                           resource_cache,
-                           texture_cache,
-                           device_pixel_ratio);
+        self.raster_glyphs(thread_pool,
+                           resource_cache);
 
         // Compile nodes that have become visible
-        self.compile_visible_nodes(resource_cache,
-                                   texture_cache,
-                                   white_image_id,
-                                   dummy_mask_image_id,
-                                   quad_program_id);
+        self.compile_visible_nodes(thread_pool,
+                                   resource_cache);
 
         // Update the batch cache from newly compiled nodes
         self.update_batch_cache();
@@ -858,11 +844,8 @@ impl Scene {
     }
 
     fn compile_visible_nodes(&mut self,
-                             resource_cache: &ResourceCache,
-                             texture_cache: &TextureCache,
-                             white_image_id: TextureCacheItemId,
-                             dummy_mask_image_id: TextureCacheItemId,
-                             quad_program_id: ProgramId) {
+                             thread_pool: &mut scoped_threadpool::Pool,
+                             resource_cache: &ResourceCache) {
         let _pf = util::ProfileScope::new("  compile_visible_nodes");
 
         // TODO(gw): This is a bit messy with layers - work out a cleaner interface
@@ -873,22 +856,18 @@ impl Scene {
         }
 
         let flat_draw_list_array = &self.flat_draw_lists;
-        let white_image_info = texture_cache.get(white_image_id);
-        let mask_image_info = texture_cache.get(dummy_mask_image_id);
         let layers = &mut self.layers;
         let node_info_map = &node_info_map;
+        let quad_program_id = self.quad_program_id;
 
-        self.thread_pool.scoped(|scope| {
+        thread_pool.scoped(|scope| {
             for (scroll_layer_id, layer) in layers {
                 let nodes = &mut layer.aabb_tree.nodes;
                 for node in nodes {
                     if node.is_visible && node.compiled_node.is_none() {
                         scope.execute(move || {
                             node.compile(flat_draw_list_array,
-                                         white_image_info,
-                                         mask_image_info,
                                          resource_cache,
-                                         texture_cache,
                                          node_info_map,
                                          quad_program_id,
                                          *scroll_layer_id);
@@ -922,148 +901,28 @@ impl Scene {
         }
     }
 
-    fn update_texture_cache_and_build_raster_jobs(&mut self,
-                                                  texture_cache: &mut TextureCache,
-                                                  resource_cache: &mut ResourceCache)
-                                                  -> Vec<GlyphRasterJob> {
+    fn update_texture_cache_and_build_raster_jobs(&mut self, resource_cache: &mut ResourceCache) {
         let _pf = util::ProfileScope::new("  update_texture_cache_and_build_raster_jobs");
-        let mut raster_jobs = Vec::new();
 
         for (_, layer) in &self.layers {
             for node in &layer.aabb_tree.nodes {
                 if node.is_visible {
                     let resource_list = node.resource_list.as_ref().unwrap();
-
-                    // Update texture cache with any GPU generated procedural items.
-                    resource_list.for_each_raster(|raster_item| {
-                        resource_cache.cache_raster_if_required(raster_item, || {
-                            let image_id = texture_cache.new_item_id();
-                            texture_cache.insert_raster_op(image_id, raster_item);
-                            image_id
-                        });
-                    });
-
-                    // Update texture cache with any images that aren't yet uploaded to GPU.
-                    resource_list.for_each_image(|image_key| {
-                        resource_cache.cache_image_if_required(image_key, |image_template| {
-                            let image_id = texture_cache.new_item_id();
-                            // TODO: Can we avoid the clone of the bytes here?
-                            texture_cache.insert(image_id,
-                                                 0,
-                                                 0,
-                                                 image_template.width,
-                                                 image_template.height,
-                                                 image_template.format,
-                                                 TextureInsertOp::Blit(image_template.bytes.clone()));
-                            image_id
-                        });
-                    });
-
-                    // Update texture cache with any new image tile operations.
-                    resource_list.for_each_tiled_image(|tiled_image_key| {
-                        resource_cache.cache_tiled_image_if_required(tiled_image_key,
-                                                                     |tiled_image_template| {
-                            let image_id = texture_cache.new_item_id();
-                            // TODO: Can we avoid the clone of the bytes here?
-                            let stretch_size = Size2D::new(tiled_image_key.stretch_width,
-                                                           tiled_image_key.stretch_height);
-                            texture_cache.insert(image_id,
-                                                 0,
-                                                 0,
-                                                 tiled_image_key.tiled_width,
-                                                 tiled_image_key.tiled_height,
-                                                 tiled_image_template.format,
-                                                 TextureInsertOp::Tile(
-                                                     tiled_image_template.bytes.clone(),
-                                                     stretch_size));
-                            image_id
-                        });
-                    });
-
-                    // Update texture cache with any newly rasterized glyphs.
-                    resource_list.for_each_glyph(|glyph_key| {
-                        resource_cache.cache_glyph_if_required(glyph_key, || {
-                            let image_id = texture_cache.new_item_id();
-                            raster_jobs.push(GlyphRasterJob {
-                                image_id: image_id,
-                                glyph_key: glyph_key.clone(),
-                                result: None,
-                            });
-                            image_id
-                        });
-                    });
+                    resource_cache.add_resource_list(resource_list);
                 }
             }
         }
-
-        raster_jobs
     }
 
     fn raster_glyphs(&mut self,
-                     mut jobs: Vec<GlyphRasterJob>,
-                     resource_cache: &mut ResourceCache,
-                     texture_cache: &mut TextureCache,
-                     device_pixel_ratio: f32) {
+                     thread_pool: &mut scoped_threadpool::Pool,
+                     resource_cache: &mut ResourceCache) {
         let _pf = util::ProfileScope::new("  raster_glyphs");
-
-        // Run raster jobs in parallel
-        self.thread_pool.scoped(|scope| {
-            for job in &mut jobs {
-                scope.execute(|| {
-                    let font_template = resource_cache.get_font_template(job.glyph_key.font_key);
-                    FONT_CONTEXT.with(move |font_context| {
-                        let mut font_context = font_context.borrow_mut();
-                        match *font_template {
-                            FontTemplate::Raw(ref bytes) => {
-                                font_context.add_raw_font(&job.glyph_key.font_key, &**bytes);
-                            }
-                            FontTemplate::Native(ref native_font_handle) => {
-                                font_context.add_native_font(&job.glyph_key.font_key,
-                                                             (*native_font_handle).clone());
-                            }
-                        }
-                        job.result = font_context.get_glyph(&job.glyph_key.font_key,
-                                                            job.glyph_key.size,
-                                                            job.glyph_key.index,
-                                                            device_pixel_ratio);
-                    });
-                });
-            }
-        });
-
-        // Add completed raster jobs to the texture cache
-        for job in jobs {
-            let result = job.result.expect("Failed to rasterize the glyph?");
-            let texture_width;
-            let texture_height;
-            let insert_op;
-            match job.glyph_key.blur_radius {
-                Au(0) => {
-                    texture_width = result.width;
-                    texture_height = result.height;
-                    insert_op = TextureInsertOp::Blit(result.bytes);
-                }
-                blur_radius => {
-                    let blur_radius_px = f32::ceil(blur_radius.to_f32_px() * device_pixel_ratio)
-                        as u32;
-                    texture_width = result.width + blur_radius_px * BLUR_INFLATION_FACTOR;
-                    texture_height = result.height + blur_radius_px * BLUR_INFLATION_FACTOR;
-                    insert_op = TextureInsertOp::Blur(result.bytes,
-                                                      Size2D::new(result.width, result.height),
-                                                      blur_radius);
-                }
-            }
-            texture_cache.insert(job.image_id,
-                                 result.left,
-                                 result.top,
-                                 texture_width,
-                                 texture_height,
-                                 ImageFormat::RGBA8,
-                                 insert_op);
-        }
+        resource_cache.raster_pending_glyphs(thread_pool);
     }
 
-    fn update_resource_lists(&mut self) {
+    fn update_resource_lists(&mut self,
+                             thread_pool: &mut scoped_threadpool::Pool) {
         let _pf = util::ProfileScope::new("  update_resource_lists");
 
         let flat_draw_lists = &self.flat_draw_lists;
@@ -1071,7 +930,7 @@ impl Scene {
         for (_, layer) in &mut self.layers {
             let nodes = &mut layer.aabb_tree.nodes;
 
-            self.thread_pool.scoped(|scope| {
+            thread_pool.scoped(|scope| {
                 for node in nodes {
                     if node.is_visible && node.compiled_node.is_none() {
                         scope.execute(move || {
@@ -1125,12 +984,6 @@ impl Scene {
         }
         true
     }
-}
-
-struct GlyphRasterJob {
-    image_id: TextureCacheItemId,
-    glyph_key: GlyphKey,
-    result: Option<RasterizedGlyph>,
 }
 
 struct DrawCommandBuilder {
@@ -1290,20 +1143,14 @@ enum StackingContextKind<'a> {
 }
 
 pub struct RenderBackend {
+    thread_pool: scoped_threadpool::Pool,
     api_rx: Receiver<ApiMsg>,
     api_tx: Sender<ApiMsg>,
     result_tx: Sender<ResultMsg>,
     viewport: Rect<i32>,
     device_pixel_ratio: f32,
     root_pipeline_id: Option<PipelineId>,
-
-    quad_program_id: ProgramId,
-    white_image_id: TextureCacheItemId,
-    dummy_mask_image_id: TextureCacheItemId,
-
     resource_cache: ResourceCache,
-    texture_cache: TextureCache,
-
     display_list_map: DisplayListMap,
     draw_list_map: DrawListMap,
     stacking_contexts: StackingContextMap,
@@ -1323,21 +1170,24 @@ impl RenderBackend {
                white_image_id: TextureCacheItemId,
                dummy_mask_image_id: TextureCacheItemId,
                texture_cache: TextureCache) -> RenderBackend {
-        let mut backend = RenderBackend {
+        let mut thread_pool = scoped_threadpool::Pool::new(8);
+
+        let resource_cache = ResourceCache::new(&mut thread_pool,
+                                                texture_cache,
+                                                white_image_id,
+                                                dummy_mask_image_id,
+                                                device_pixel_ratio);
+
+        let backend = RenderBackend {
+            thread_pool: thread_pool,
             api_rx: api_rx,
             api_tx: api_tx,
             result_tx: result_tx,
             viewport: viewport,
             device_pixel_ratio: device_pixel_ratio,
             root_pipeline_id: None,
-
-            quad_program_id: quad_program_id,
-            white_image_id: white_image_id,
-            dummy_mask_image_id: dummy_mask_image_id,
-            texture_cache: texture_cache,
-            resource_cache: ResourceCache::new(),
-
-            scene: Scene::new(),
+            resource_cache: resource_cache,
+            scene: Scene::new(quad_program_id),
             display_list_map: HashMap::with_hash_state(Default::default()),
             draw_list_map: HashMap::with_hash_state(Default::default()),
             stacking_contexts: HashMap::with_hash_state(Default::default()),
@@ -1345,20 +1195,6 @@ impl RenderBackend {
             next_namespace_id: IdNamespace(1),
             next_draw_list_id: DrawListID(0),
         };
-
-        let thread_count = backend.scene.thread_pool.thread_count() as usize;
-        backend.scene.thread_pool.scoped(|scope| {
-            for _ in 0..thread_count {
-                scope.execute(|| {
-                    FONT_CONTEXT.with(|_| {
-                        FONT_CONTEXT_COUNT.fetch_add(1, SeqCst);
-                        while FONT_CONTEXT_COUNT.load(SeqCst) != thread_count {
-                            thread::sleep_ms(1);
-                        }
-                    });
-                });
-            }
-        });
 
         backend
     }
@@ -1552,7 +1388,7 @@ impl RenderBackend {
         if let Some(root_pipeline_id) = self.root_pipeline_id {
             if let Some(root_sc) = self.stacking_contexts.get(&root_pipeline_id) {
                 // Clear out any state and return draw lists (if needed)
-                self.scene.reset(&mut self.texture_cache);
+                self.scene.reset(&mut self.resource_cache);
 
                 let size = Size2D::new(self.viewport.size.width as u32,
                                        self.viewport.size.height as u32);
@@ -1569,7 +1405,7 @@ impl RenderBackend {
                                                     root_scroll_layer_id,
                                                     &self.stacking_contexts,
                                                     self.device_pixel_ratio,
-                                                    &mut self.texture_cache,
+                                                    &mut self.resource_cache,
                                                     &root_sc.stacking_context.overflow);
                 self.scene.pop_render_target();
             }
@@ -1597,12 +1433,8 @@ impl RenderBackend {
 
     fn render(&mut self, notifier: &mut RenderNotifier) {
         let mut frame = self.scene.build_frame(&self.viewport,
-                                               self.device_pixel_ratio,
-                                               &mut self.texture_cache,
                                                &mut self.resource_cache,
-                                               self.white_image_id,
-                                               self.dummy_mask_image_id,
-                                               self.quad_program_id);
+                                               &mut self.thread_pool);
 
         // Bit of a hack - if there was nothing visible, at least
         // add one layer to the frame so that the screen gets
@@ -1617,7 +1449,7 @@ impl RenderBackend {
             });
         }
 
-        let pending_update = self.texture_cache.pending_updates();
+        let pending_update = self.resource_cache.pending_updates();
         if pending_update.updates.len() > 0 {
             self.result_tx.send(ResultMsg::UpdateTextureCache(pending_update)).unwrap();
         }
@@ -1640,27 +1472,44 @@ impl RenderBackend {
 }
 
 impl DrawCommandBuilder {
-    fn add_rectangle(&mut self,
-                     sort_key: &DisplayItemKey,
-                     rect: &Rect<f32>,
-                     clip: &Rect<f32>,
-                     clip_mode: BoxShadowClipMode,
-                     clip_region: &ClipRegion,
-                     image_info: &TextureCacheItem,
-                     dummy_mask_image: &TextureCacheItem,
-                     resource_cache: &ResourceCache,
-                     texture_cache: &TextureCache,
-                     clip_buffers: &mut ClipBuffers,
-                     color: &ColorF) {
+    #[inline]
+    fn add_textured_rectangle(&mut self,
+                              sort_key: &DisplayItemKey,
+                              rect: &Rect<f32>,
+                              clip: &Rect<f32>,
+                              clip_mode: BoxShadowClipMode,
+                              clip_region: &ClipRegion,
+                              image_info: &TextureCacheItem,
+                              resource_cache: &ResourceCache,
+                              clip_buffers: &mut ClipBuffers,
+                              color: &ColorF) {
+        self.add_axis_aligned_gradient_with_texture(sort_key,
+                                                    rect,
+                                                    clip,
+                                                    clip_mode,
+                                                    clip_region,
+                                                    image_info,
+                                                    resource_cache,
+                                                    clip_buffers,
+                                                    &[*color, *color, *color, *color])
+    }
+
+    #[inline]
+    fn add_color_rectangle(&mut self,
+                           sort_key: &DisplayItemKey,
+                           rect: &Rect<f32>,
+                           clip: &Rect<f32>,
+                           clip_mode: BoxShadowClipMode,
+                           clip_region: &ClipRegion,
+                           resource_cache: &ResourceCache,
+                           clip_buffers: &mut ClipBuffers,
+                           color: &ColorF) {
         self.add_axis_aligned_gradient(sort_key,
                                        rect,
                                        clip,
                                        clip_mode,
                                        clip_region,
-                                       image_info,
-                                       dummy_mask_image,
                                        resource_cache,
-                                       texture_cache,
                                        clip_buffers,
                                        &[*color, *color, *color, *color])
     }
@@ -1690,16 +1539,13 @@ impl DrawCommandBuilder {
                  clip_region: &ClipRegion,
                  stretch_size: &Size2D<f32>,
                  image_key: ImageKey,
-                 dummy_mask_image: &TextureCacheItem,
                  resource_cache: &ResourceCache,
-                 texture_cache: &TextureCache,
                  clip_buffers: &mut ClipBuffers,
                  color: &ColorF) {
         // Should be caught higher up
         debug_assert!(stretch_size.width > 0.0 && stretch_size.height > 0.0);
 
-        let image_id = resource_cache.get_image(image_key);
-        let image_info = texture_cache.get(image_id);
+        let image_info = resource_cache.get_image(image_key);
 
         if rect.size.width == stretch_size.width && rect.size.height == stretch_size.height {
             let uv_origin = Point2D::new(image_info.u0, image_info.v0);
@@ -1709,12 +1555,10 @@ impl DrawCommandBuilder {
 
             self.push_image_rect(color,
                                  image_info,
-                                 dummy_mask_image,
                                  clip_rect,
                                  clip_region,
                                  &sort_key,
                                  resource_cache,
-                                 texture_cache,
                                  clip_buffers,
                                  rect,
                                  &uv);
@@ -1725,8 +1569,7 @@ impl DrawCommandBuilder {
                                                                                 &rect.size,
                                                                                 stretch_size) {
             Some(ref tiled_image_key) => {
-                let tiled_image_id = resource_cache.get_tiled_image(tiled_image_key);
-                (texture_cache.get(tiled_image_id),
+                (resource_cache.get_tiled_image(tiled_image_key),
                  Size2D::new(tiled_image_key.tiled_width as f32,
                              tiled_image_key.tiled_height as f32))
             }
@@ -1747,12 +1590,10 @@ impl DrawCommandBuilder {
 
                 self.push_image_rect(color,
                                      image_info,
-                                     dummy_mask_image,
                                      clip_rect,
                                      clip_region,
                                      &sort_key,
                                      resource_cache,
-                                     texture_cache,
                                      clip_buffers,
                                      &tiled_rect,
                                      &uv);
@@ -1767,12 +1608,10 @@ impl DrawCommandBuilder {
     fn push_image_rect(&mut self,
                        color: &ColorF,
                        image_info: &TextureCacheItem,
-                       dummy_mask_image: &TextureCacheItem,
                        clip_rect: &Rect<f32>,
                        clip_region: &ClipRegion,
                        sort_key: &DisplayItemKey,
                        resource_cache: &ResourceCache,
-                       texture_cache: &TextureCache,
                        clip_buffers: &mut ClipBuffers,
                        rect: &Rect<f32>,
                        uv: &Rect<f32>) {
@@ -1787,9 +1626,7 @@ impl DrawCommandBuilder {
             BoxShadowClipMode::Inset,
             clip_region);
         for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
-            let mask = mask_for_clip_region(dummy_mask_image,
-                                            resource_cache,
-                                            texture_cache,
+            let mask = mask_for_clip_region(resource_cache,
                                             &clip_region,
                                             false);
 
@@ -1814,9 +1651,10 @@ impl DrawCommandBuilder {
                 blur_radius: Au,
                 color: &ColorF,
                 glyphs: &Vec<GlyphInstance>,
-                dummy_mask_image: &TextureCacheItem,
-                resource_cache: &ResourceCache,
-                texture_cache: &TextureCache) {
+                resource_cache: &ResourceCache) {
+        let dummy_mask_image = resource_cache.get_dummy_mask_image();
+        //let dummy_mask_image = texture_cache.get(resource_cache.dummy_mask_image_id);
+
         // Logic below to pick the primary render item depends on len > 0!
         assert!(glyphs.len() > 0);
 
@@ -1831,8 +1669,7 @@ impl DrawCommandBuilder {
 
         for glyph in glyphs {
             glyph_key.index = glyph.index;
-            let image_id = resource_cache.get_glyph(&glyph_key);
-            let image_info = texture_cache.get(image_id);
+            let image_info = resource_cache.get_glyph(&glyph_key);
 
             if image_info.width > 0 && image_info.height > 0 {
                 let x0 = glyph.x + image_info.x0 as f32 / device_pixel_ratio - blur_offset;
@@ -1890,18 +1727,39 @@ impl DrawCommandBuilder {
     }
 
     // Colors are in the order: top left, top right, bottom right, bottom left.
+    #[inline]
     fn add_axis_aligned_gradient(&mut self,
                                  sort_key: &DisplayItemKey,
                                  rect: &Rect<f32>,
                                  clip: &Rect<f32>,
                                  clip_mode: BoxShadowClipMode,
                                  clip_region: &ClipRegion,
-                                 image_info: &TextureCacheItem,
-                                 dummy_mask_image: &TextureCacheItem,
                                  resource_cache: &ResourceCache,
-                                 texture_cache: &TextureCache,
                                  clip_buffers: &mut ClipBuffers,
                                  colors: &[ColorF; 4]) {
+        let white_image = resource_cache.get_dummy_color_image();
+        self.add_axis_aligned_gradient_with_texture(sort_key,
+                                                    rect,
+                                                    clip,
+                                                    clip_mode,
+                                                    clip_region,
+                                                    white_image,
+                                                    resource_cache,
+                                                    clip_buffers,
+                                                    colors);
+    }
+
+    // Colors are in the order: top left, top right, bottom right, bottom left.
+    fn add_axis_aligned_gradient_with_texture(&mut self,
+                                              sort_key: &DisplayItemKey,
+                                              rect: &Rect<f32>,
+                                              clip: &Rect<f32>,
+                                              clip_mode: BoxShadowClipMode,
+                                              clip_region: &ClipRegion,
+                                              image_info: &TextureCacheItem,
+                                              resource_cache: &ResourceCache,
+                                              clip_buffers: &mut ClipBuffers,
+                                              colors: &[ColorF; 4]) {
         if rect.size.width == 0.0 || rect.size.height == 0.0 {
             return
         }
@@ -1921,9 +1779,7 @@ impl DrawCommandBuilder {
             clip_mode,
             clip_region);
         for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
-            let mask = mask_for_clip_region(dummy_mask_image,
-                                            resource_cache,
-                                            texture_cache,
+            let mask = mask_for_clip_region(resource_cache,
                                             &clip_region,
                                             false);
 
@@ -1946,11 +1802,10 @@ impl DrawCommandBuilder {
                     start_point: &Point2D<f32>,
                     end_point: &Point2D<f32>,
                     stops: &[GradientStop],
-                    image: &TextureCacheItem,
-                    dummy_mask_image: &TextureCacheItem,
                     resource_cache: &ResourceCache,
-                    texture_cache: &TextureCache,
                     clip_buffers: &mut ClipBuffers) {
+        let white_image = resource_cache.get_dummy_color_image();
+
         debug_assert!(stops.len() >= 2);
 
         let dir_x = end_point.x - start_point.x;
@@ -2012,9 +1867,7 @@ impl DrawCommandBuilder {
                 for clip_result in clip_buffers.polygon_pos_color_uv
                                                .clip_rect_to_region_result_output
                                                .drain(..) {
-                    let mask = mask_for_clip_region(dummy_mask_image,
-                                                    resource_cache,
-                                                    texture_cache,
+                    let mask = mask_for_clip_region(resource_cache,
                                                     &clip_result,
                                                     false);
 
@@ -2026,13 +1879,13 @@ impl DrawCommandBuilder {
                                     &vert.uv(),
                                     &vert.color(),
                                     &mask,
-                                    image.texture_index));
+                                    white_image.texture_index));
                         }
                     }
 
                     if packed_vertices.len() > 0 {
                         self.add_draw_item(sort_key,
-                                           image.texture_id,
+                                           white_image.texture_id,
                                            mask.texture_id,
                                            Primitive::TriangleFan,
                                            &mut packed_vertices);
@@ -2053,26 +1906,20 @@ impl DrawCommandBuilder {
                       spread_radius: f32,
                       border_radius: f32,
                       clip_mode: BoxShadowClipMode,
-                      white_image: &TextureCacheItem,
-                      dummy_mask_image: &TextureCacheItem,
                       resource_cache: &ResourceCache,
-                      texture_cache: &TextureCache,
                       clip_buffers: &mut ClipBuffers) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
 
         // Fast path.
         if blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None {
-            self.add_rectangle(sort_key,
-                               &rect,
-                               clip,
-                               BoxShadowClipMode::Inset,
-                               clip_region,
-                               white_image,
-                               dummy_mask_image,
-                               resource_cache,
-                               texture_cache,
-                               clip_buffers,
-                               color);
+            self.add_color_rectangle(sort_key,
+                                    &rect,
+                                    clip,
+                                    BoxShadowClipMode::Inset,
+                                    clip_region,
+                                    resource_cache,
+                                    clip_buffers,
+                                    color);
             return;
         }
 
@@ -2085,10 +1932,7 @@ impl DrawCommandBuilder {
                                     spread_radius,
                                     border_radius,
                                     clip_mode,
-                                    white_image,
-                                    dummy_mask_image,
                                     resource_cache,
-                                    texture_cache,
                                     clip_buffers);
 
         // Draw the sides.
@@ -2101,10 +1945,7 @@ impl DrawCommandBuilder {
                                   spread_radius,
                                   border_radius,
                                   clip_mode,
-                                  white_image,
-                                  dummy_mask_image,
                                   resource_cache,
-                                  texture_cache,
                                   clip_buffers);
 
         match clip_mode {
@@ -2117,17 +1958,14 @@ impl DrawCommandBuilder {
                     Rect::new(metrics.tl_outer + Point2D::new(blur_diameter, blur_diameter),
                               Size2D::new(rect.size.width - twice_blur_diameter,
                                           rect.size.height - twice_blur_diameter));
-                self.add_rectangle(sort_key,
-                                   &center_rect,
-                                   box_bounds,
-                                   clip_mode,
-                                   clip_region,
-                                   white_image,
-                                   dummy_mask_image,
-                                   resource_cache,
-                                   texture_cache,
-                                   clip_buffers,
-                                   color);
+                self.add_color_rectangle(sort_key,
+                                         &center_rect,
+                                         box_bounds,
+                                         clip_mode,
+                                         clip_region,
+                                         resource_cache,
+                                         clip_buffers,
+                                         color);
             }
             BoxShadowClipMode::Inset => {
                 // Fill in the outsides.
@@ -2140,10 +1978,7 @@ impl DrawCommandBuilder {
                                                            spread_radius,
                                                            border_radius,
                                                            clip_mode,
-                                                           white_image,
-                                                           dummy_mask_image,
                                                            resource_cache,
-                                                           texture_cache,
                                                            clip_buffers);
             }
         }
@@ -2158,10 +1993,7 @@ impl DrawCommandBuilder {
                               spread_radius: f32,
                               border_radius: f32,
                               clip_mode: BoxShadowClipMode,
-                              white_image: &TextureCacheItem,
-                              dummy_mask_image: &TextureCacheItem,
                               resource_cache: &ResourceCache,
-                              texture_cache: &TextureCache,
                               clip_buffers: &mut ClipBuffers) {
         // Draw the corners.
         //
@@ -2185,10 +2017,7 @@ impl DrawCommandBuilder {
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
-                                   white_image,
-                                   dummy_mask_image,
                                    resource_cache,
-                                   texture_cache,
                                    clip_buffers);
         self.add_box_shadow_corner(sort_key,
                                    &metrics.tr_outer,
@@ -2198,10 +2027,7 @@ impl DrawCommandBuilder {
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
-                                   white_image,
-                                   dummy_mask_image,
                                    resource_cache,
-                                   texture_cache,
                                    clip_buffers);
         self.add_box_shadow_corner(sort_key,
                                    &metrics.bl_outer,
@@ -2211,10 +2037,7 @@ impl DrawCommandBuilder {
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
-                                   white_image,
-                                   dummy_mask_image,
                                    resource_cache,
-                                   texture_cache,
                                    clip_buffers);
         self.add_box_shadow_corner(sort_key,
                                    &metrics.br_outer,
@@ -2224,10 +2047,7 @@ impl DrawCommandBuilder {
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
-                                   white_image,
-                                   dummy_mask_image,
                                    resource_cache,
-                                   texture_cache,
                                    clip_buffers);
     }
 
@@ -2241,10 +2061,7 @@ impl DrawCommandBuilder {
                             spread_radius: f32,
                             border_radius: f32,
                             clip_mode: BoxShadowClipMode,
-                            white_image: &TextureCacheItem,
-                            dummy_mask_image: &TextureCacheItem,
                             resource_cache: &ResourceCache,
-                            texture_cache: &TextureCache,
                             clip_buffers: &mut ClipBuffers) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
         let metrics = BoxShadowMetrics::new(clip_mode, &rect, border_radius, blur_radius);
@@ -2290,10 +2107,7 @@ impl DrawCommandBuilder {
                                        box_bounds,
                                        clip_mode,
                                        clip_region,
-                                       white_image,
-                                       dummy_mask_image,
                                        resource_cache,
-                                       texture_cache,
                                        clip_buffers,
                                        &[start_color, start_color, end_color, end_color]);
         self.add_axis_aligned_gradient(sort_key,
@@ -2301,10 +2115,7 @@ impl DrawCommandBuilder {
                                        box_bounds,
                                        clip_mode,
                                        clip_region,
-                                       white_image,
-                                       dummy_mask_image,
                                        resource_cache,
-                                       texture_cache,
                                        clip_buffers,
                                        &[end_color, start_color, start_color, end_color]);
         self.add_axis_aligned_gradient(sort_key,
@@ -2312,10 +2123,7 @@ impl DrawCommandBuilder {
                                        box_bounds,
                                        clip_mode,
                                        clip_region,
-                                       white_image,
-                                       dummy_mask_image,
                                        resource_cache,
-                                       texture_cache,
                                        clip_buffers,
                                        &[end_color, end_color, start_color, start_color]);
         self.add_axis_aligned_gradient(sort_key,
@@ -2323,10 +2131,7 @@ impl DrawCommandBuilder {
                                        box_bounds,
                                        clip_mode,
                                        clip_region,
-                                       white_image,
-                                       dummy_mask_image,
                                        resource_cache,
-                                       texture_cache,
                                        clip_buffers,
                                        &[start_color, end_color, end_color, start_color]);
     }
@@ -2341,10 +2146,7 @@ impl DrawCommandBuilder {
                                              spread_radius: f32,
                                              border_radius: f32,
                                              clip_mode: BoxShadowClipMode,
-                                             white_image: &TextureCacheItem,
-                                             dummy_mask_image: &TextureCacheItem,
                                              resource_cache: &ResourceCache,
-                                             texture_cache: &TextureCache,
                                              clip_buffers: &mut ClipBuffers) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
         let metrics = BoxShadowMetrics::new(clip_mode, &rect, border_radius, blur_radius);
@@ -2366,64 +2168,52 @@ impl DrawCommandBuilder {
         //            +------------------------------+
 
         // A:
-        self.add_rectangle(sort_key,
-                           &Rect::new(box_bounds.origin,
-                                      Size2D::new(box_bounds.size.width,
-                                                  metrics.tl_outer.y - box_bounds.origin.y)),
-                           box_bounds,
-                           clip_mode,
-                           clip_region,
-                           white_image,
-                           dummy_mask_image,
-                           resource_cache,
-                           texture_cache,
-                           clip_buffers,
-                           color);
+        self.add_color_rectangle(sort_key,
+                                 &Rect::new(box_bounds.origin,
+                                            Size2D::new(box_bounds.size.width,
+                                                        metrics.tl_outer.y - box_bounds.origin.y)),
+                                 box_bounds,
+                                 clip_mode,
+                                 clip_region,
+                                 resource_cache,
+                                 clip_buffers,
+                                 color);
 
         // B:
-        self.add_rectangle(sort_key,
-                           &Rect::new(metrics.tr_outer,
-                                      Size2D::new(box_bounds.max_x() - metrics.tr_outer.x,
-                                                  metrics.br_outer.y - metrics.tr_outer.y)),
-                           box_bounds,
-                           clip_mode,
-                           clip_region,
-                           white_image,
-                           dummy_mask_image,
-                           resource_cache,
-                           texture_cache,
-                           clip_buffers,
-                           color);
+        self.add_color_rectangle(sort_key,
+                                 &Rect::new(metrics.tr_outer,
+                                            Size2D::new(box_bounds.max_x() - metrics.tr_outer.x,
+                                                        metrics.br_outer.y - metrics.tr_outer.y)),
+                                 box_bounds,
+                                 clip_mode,
+                                 clip_region,
+                                 resource_cache,
+                                 clip_buffers,
+                                 color);
 
         // C:
-        self.add_rectangle(sort_key,
-                           &Rect::new(Point2D::new(box_bounds.origin.x, metrics.bl_outer.y),
-                                      Size2D::new(box_bounds.size.width,
-                                                  box_bounds.max_y() - metrics.br_outer.y)),
-                           box_bounds,
-                           clip_mode,
-                           clip_region,
-                           white_image,
-                           dummy_mask_image,
-                           resource_cache,
-                           texture_cache,
-                           clip_buffers,
-                           color);
+        self.add_color_rectangle(sort_key,
+                                 &Rect::new(Point2D::new(box_bounds.origin.x, metrics.bl_outer.y),
+                                            Size2D::new(box_bounds.size.width,
+                                                        box_bounds.max_y() - metrics.br_outer.y)),
+                                 box_bounds,
+                                 clip_mode,
+                                 clip_region,
+                                 resource_cache,
+                                 clip_buffers,
+                                 color);
 
         // D:
-        self.add_rectangle(sort_key,
-                           &Rect::new(Point2D::new(box_bounds.origin.x, metrics.tl_outer.y),
-                                      Size2D::new(metrics.tl_outer.x - box_bounds.origin.x,
-                                                  metrics.bl_outer.y - metrics.tl_outer.y)),
-                           box_bounds,
-                           clip_mode,
-                           clip_region,
-                           white_image,
-                           dummy_mask_image,
-                           resource_cache,
-                           texture_cache,
-                           clip_buffers,
-                           color);
+        self.add_color_rectangle(sort_key,
+                                 &Rect::new(Point2D::new(box_bounds.origin.x, metrics.tl_outer.y),
+                                            Size2D::new(metrics.tl_outer.x - box_bounds.origin.x,
+                                                        metrics.bl_outer.y - metrics.tl_outer.y)),
+                                 box_bounds,
+                                 clip_mode,
+                                 clip_region,
+                                 resource_cache,
+                                 clip_buffers,
+                                 color);
     }
 
     #[inline]
@@ -2435,10 +2225,7 @@ impl DrawCommandBuilder {
                        direction: BorderEdgeDirection,
                        color: &ColorF,
                        border_style: BorderStyle,
-                       white_image: &TextureCacheItem,
-                       dummy_mask_image: &TextureCacheItem,
                        resource_cache: &ResourceCache,
-                       texture_cache: &TextureCache,
                        clip_buffers: &mut clipper::ClipBuffers) {
         // TODO: Check for zero width/height borders!
         if color.a <= 0.0 {
@@ -2470,17 +2257,14 @@ impl DrawCommandBuilder {
                         }
                     };
 
-                    self.add_rectangle(sort_key,
-                                       &dash_rect,
-                                       clip,
-                                       BoxShadowClipMode::Inset,
-                                       clip_region,
-                                       white_image,
-                                       dummy_mask_image,
-                                       resource_cache,
-                                       texture_cache,
-                                       clip_buffers,
-                                       color);
+                    self.add_color_rectangle(sort_key,
+                                             &dash_rect,
+                                             clip,
+                                             BoxShadowClipMode::Inset,
+                                             clip_region,
+                                             resource_cache,
+                                             clip_buffers,
+                                             color);
 
                     origin += step + step;
                 }
@@ -2514,68 +2298,59 @@ impl DrawCommandBuilder {
                                                      ImageFormat::RGBA8).expect(
                         "Didn't find border radius mask for dashed border!");
                     let raster_item = RasterItem::BorderRadius(raster_op);
-                    let raster_item_id = resource_cache.get_raster(&raster_item);
-                    let color_image = texture_cache.get(raster_item_id);
+                    let color_image = resource_cache.get_raster(&raster_item);
 
                     // Top left:
-                    self.add_rectangle(sort_key,
-                                       &Rect::new(dot_rect.origin,
-                                                  Size2D::new(dot_rect.size.width / 2.0,
-                                                              dot_rect.size.height / 2.0)),
-                                       clip,
-                                       BoxShadowClipMode::Inset,
-                                       clip_region,
-                                       color_image,
-                                       dummy_mask_image,
-                                       resource_cache,
-                                       texture_cache,
-                                       clip_buffers,
-                                       color);
+                    self.add_textured_rectangle(sort_key,
+                                                &Rect::new(dot_rect.origin,
+                                                           Size2D::new(dot_rect.size.width / 2.0,
+                                                                       dot_rect.size.height / 2.0)),
+                                                clip,
+                                                BoxShadowClipMode::Inset,
+                                                clip_region,
+                                                color_image,
+                                                resource_cache,
+                                                clip_buffers,
+                                                color);
 
                     // Top right:
-                    self.add_rectangle(sort_key,
-                                       &Rect::new(dot_rect.top_right(),
-                                                  Size2D::new(-dot_rect.size.width / 2.0,
-                                                              dot_rect.size.height / 2.0)),
-                                       clip,
-                                       BoxShadowClipMode::Inset,
-                                       clip_region,
-                                       color_image,
-                                       dummy_mask_image,
-                                       resource_cache,
-                                       texture_cache,
-                                       clip_buffers,
-                                       color);
+                    self.add_textured_rectangle(sort_key,
+                                                &Rect::new(dot_rect.top_right(),
+                                                           Size2D::new(-dot_rect.size.width / 2.0,
+                                                                       dot_rect.size.height / 2.0)),
+                                                clip,
+                                                BoxShadowClipMode::Inset,
+                                                clip_region,
+                                                color_image,
+                                                resource_cache,
+                                                clip_buffers,
+                                                color);
 
                     // Bottom right:
-                    self.add_rectangle(sort_key,
-                                       &Rect::new(dot_rect.bottom_right(),
-                                                   Size2D::new(-dot_rect.size.width / 2.0,
-                                                               -dot_rect.size.height / 2.0)),
-                                       clip,
-                                       BoxShadowClipMode::Inset,
-                                       clip_region,
-                                       color_image,
-                                       dummy_mask_image,
-                                       resource_cache,
-                                       texture_cache,
-                                       clip_buffers,
-                                       color);
+                    self.add_textured_rectangle(sort_key,
+                                                &Rect::new(dot_rect.bottom_right(),
+                                                            Size2D::new(-dot_rect.size.width / 2.0,
+                                                                        -dot_rect.size.height / 2.0)),
+                                                clip,
+                                                BoxShadowClipMode::Inset,
+                                                clip_region,
+                                                color_image,
+                                                resource_cache,
+                                                clip_buffers,
+                                                color);
 
                     // Bottom left:
-                    self.add_rectangle(sort_key,
-                                       &Rect::new(dot_rect.bottom_left(),
-                                                  Size2D::new(dot_rect.size.width / 2.0,
-                                                              -dot_rect.size.height / 2.0)),
-                                       clip,
-                                       BoxShadowClipMode::Inset,
-                                       clip_region,
-                                       color_image,
-                                       dummy_mask_image,
-                                       resource_cache,
-                                       texture_cache,
-                                       clip_buffers,
-                                       color);
+                    self.add_textured_rectangle(sort_key,
+                                                &Rect::new(dot_rect.bottom_left(),
+                                                           Size2D::new(dot_rect.size.width / 2.0,
+                                                                       -dot_rect.size.height / 2.0)),
+                                                clip,
+                                                BoxShadowClipMode::Inset,
+                                                clip_region,
+                                                color_image,
+                                                resource_cache,
+                                                clip_buffers,
+                                                color);
 
                     origin += step + step;
                 }
@@ -2597,41 +2372,32 @@ impl DrawCommandBuilder {
                                    Size2D::new(rect.size.width / 3.0, rect.size.height)))
                     }
                 };
-                self.add_rectangle(sort_key,
-                                   &outer_rect,
-                                   clip,
-                                   BoxShadowClipMode::Inset,
-                                   clip_region,
-                                   white_image,
-                                   dummy_mask_image,
-                                   resource_cache,
-                                   texture_cache,
-                                   clip_buffers,
-                                   color);
-                self.add_rectangle(sort_key,
-                                   &inner_rect,
-                                   clip,
-                                   BoxShadowClipMode::Inset,
-                                   clip_region,
-                                   white_image,
-                                   dummy_mask_image,
-                                   resource_cache,
-                                   texture_cache,
-                                   clip_buffers,
-                                   color);
+                self.add_color_rectangle(sort_key,
+                                         &outer_rect,
+                                         clip,
+                                         BoxShadowClipMode::Inset,
+                                         clip_region,
+                                         resource_cache,
+                                         clip_buffers,
+                                         color);
+                self.add_color_rectangle(sort_key,
+                                         &inner_rect,
+                                         clip,
+                                         BoxShadowClipMode::Inset,
+                                         clip_region,
+                                         resource_cache,
+                                         clip_buffers,
+                                         color);
             }
             _ => {
-                self.add_rectangle(sort_key,
-                                   rect,
-                                   clip,
-                                   BoxShadowClipMode::Inset,
-                                   clip_region,
-                                   white_image,
-                                   dummy_mask_image,
-                                   resource_cache,
-                                   texture_cache,
-                                   clip_buffers,
-                                   color);
+                self.add_color_rectangle(sort_key,
+                                         rect,
+                                         clip,
+                                         BoxShadowClipMode::Inset,
+                                         clip_region,
+                                         resource_cache,
+                                         clip_buffers,
+                                         color);
             }
         }
     }
@@ -2646,26 +2412,23 @@ impl DrawCommandBuilder {
                          color1: &ColorF,
                          outer_radius: &Size2D<f32>,
                          inner_radius: &Size2D<f32>,
-                         white_image: &TextureCacheItem,
-                         dummy_mask_image: &TextureCacheItem,
-                         resource_cache: &ResourceCache,
-                         texture_cache: &TextureCache) {
+                         resource_cache: &ResourceCache) {
         if color0.a <= 0.0 && color1.a <= 0.0 {
             return
         }
 
         // TODO: Check for zero width/height borders!
+        let white_image = resource_cache.get_dummy_color_image();
         let mask_image = match BorderRadiusRasterOp::create(outer_radius,
                                                             inner_radius,
                                                             false,
                                                             ImageFormat::A8) {
             Some(raster_item) => {
                 let raster_item = RasterItem::BorderRadius(raster_item);
-                let raster_item_id = resource_cache.get_raster(&raster_item);
-                texture_cache.get(raster_item_id)
+                resource_cache.get_raster(&raster_item)
             }
             None => {
-                dummy_mask_image
+                resource_cache.get_dummy_mask_image()
             }
         };
 
@@ -2723,13 +2486,14 @@ impl DrawCommandBuilder {
                             clip_mode: BoxShadowClipMode,
                             color0: &ColorF,
                             color1: &ColorF,
-                            white_image: &TextureCacheItem,
                             mask_image: &TextureCacheItem,
+                            resource_cache: &ResourceCache,
                             clip_buffers: &mut ClipBuffers) {
         if color0.a <= 0.0 || color1.a <= 0.0 {
             return
         }
 
+        let white_image = resource_cache.get_dummy_color_image();
         let vertices_rect = Rect::new(*v0, Size2D::new(v1.x - v0.x, v1.y - v0.y));
         let mask_uv_rect = Rect::new(Point2D::new(mask_image.u0, mask_image.v0),
                                      Size2D::new(mask_image.u1 - mask_image.u0,
@@ -2786,10 +2550,7 @@ impl DrawCommandBuilder {
                   clip: &Rect<f32>,
                   clip_region: &ClipRegion,
                   info: &BorderDisplayItem,
-                  white_image: &TextureCacheItem,
-                  dummy_mask_image: &TextureCacheItem,
                   resource_cache: &ResourceCache,
-                  texture_cache: &TextureCache,
                   clip_buffers: &mut ClipBuffers) {
         // TODO: If any border segment is alpha, place all in alpha pass.
         //       Is it ever worth batching at a per-segment level?
@@ -2830,10 +2591,7 @@ impl DrawCommandBuilder {
                              BorderEdgeDirection::Vertical,
                              &left_color,
                              info.left.style,
-                             white_image,
-                             dummy_mask_image,
                              resource_cache,
-                             texture_cache,
                              clip_buffers);
 
         self.add_border_edge(sort_key,
@@ -2845,10 +2603,7 @@ impl DrawCommandBuilder {
                              BorderEdgeDirection::Horizontal,
                              &top_color,
                              info.top.style,
-                             white_image,
-                             dummy_mask_image,
                              resource_cache,
-                             texture_cache,
                              clip_buffers);
 
         self.add_border_edge(sort_key,
@@ -2859,10 +2614,7 @@ impl DrawCommandBuilder {
                              BorderEdgeDirection::Vertical,
                              &right_color,
                              info.right.style,
-                             white_image,
-                             dummy_mask_image,
                              resource_cache,
-                             texture_cache,
                              clip_buffers);
 
         self.add_border_edge(sort_key,
@@ -2874,10 +2626,7 @@ impl DrawCommandBuilder {
                              BorderEdgeDirection::Horizontal,
                              &bottom_color,
                              info.bottom.style,
-                             white_image,
-                             dummy_mask_image,
                              resource_cache,
-                             texture_cache,
                              clip_buffers);
 
         // Corners
@@ -2889,10 +2638,7 @@ impl DrawCommandBuilder {
                                &top_color,
                                &radius.top_left,
                                &info.top_left_inner_radius(),
-                               white_image,
-                               dummy_mask_image,
-                               resource_cache,
-                               texture_cache);
+                               resource_cache);
 
         self.add_border_corner(sort_key,
                                clip,
@@ -2902,10 +2648,7 @@ impl DrawCommandBuilder {
                                &top_color,
                                &radius.top_right,
                                &info.top_right_inner_radius(),
-                               white_image,
-                               dummy_mask_image,
-                               resource_cache,
-                               texture_cache);
+                               resource_cache);
 
         self.add_border_corner(sort_key,
                                clip,
@@ -2915,10 +2658,7 @@ impl DrawCommandBuilder {
                                &bottom_color,
                                &radius.bottom_right,
                                &info.bottom_right_inner_radius(),
-                               white_image,
-                               dummy_mask_image,
-                               resource_cache,
-                               texture_cache);
+                               resource_cache);
 
         self.add_border_corner(sort_key,
                                clip,
@@ -2928,10 +2668,7 @@ impl DrawCommandBuilder {
                                &bottom_color,
                                &radius.bottom_left,
                                &info.bottom_left_inner_radius(),
-                               white_image,
-                               dummy_mask_image,
-                               resource_cache,
-                               texture_cache);
+                               resource_cache);
     }
 
     // FIXME(pcwalton): Assumes rectangles are well-formed with origin in TL
@@ -2944,10 +2681,7 @@ impl DrawCommandBuilder {
                              blur_radius: f32,
                              border_radius: f32,
                              clip_mode: BoxShadowClipMode,
-                             white_image: &TextureCacheItem,
-                             dummy_mask_image: &TextureCacheItem,
                              resource_cache: &ResourceCache,
-                             texture_cache: &TextureCache,
                              clip_buffers: &mut ClipBuffers) {
         let (inverted, clip_rect) = match clip_mode {
             BoxShadowClipMode::Outset => (false, *box_bounds),
@@ -2960,10 +2694,9 @@ impl DrawCommandBuilder {
                                                                inverted) {
             Some(raster_item) => {
                 let raster_item = RasterItem::BoxShadowCorner(raster_item);
-                let raster_item_id = resource_cache.get_raster(&raster_item);
-                texture_cache.get(raster_item_id)
+                resource_cache.get_raster(&raster_item)
             }
-            None => dummy_mask_image,
+            None => resource_cache.get_dummy_mask_image(),
         };
 
         self.add_masked_rectangle(sort_key,
@@ -2973,8 +2706,8 @@ impl DrawCommandBuilder {
                                   clip_mode,
                                   color,
                                   color,
-                                  white_image,
                                   &mask_image,
+                                  resource_cache,
                                   clip_buffers)
     }
 }
@@ -3126,40 +2859,35 @@ impl BorderSideHelpers for BorderSide {
     }
 }
 
-fn mask_for_border_radius<'a>(dummy_mask_image: &'a TextureCacheItem,
-                              resource_cache: &'a ResourceCache,
-                              texture_cache: &'a TextureCache,
+fn mask_for_border_radius<'a>(resource_cache: &'a ResourceCache,
                               border_radius: f32,
                               inverted: bool)
                               -> &'a TextureCacheItem {
     if border_radius == 0.0 {
-        return dummy_mask_image
+        return resource_cache.get_dummy_mask_image()
     }
 
     let border_radius = Au::from_f32_px(border_radius);
-    let image_id = resource_cache.get_raster(&RasterItem::BorderRadius(BorderRadiusRasterOp {
+    resource_cache.get_raster(&RasterItem::BorderRadius(BorderRadiusRasterOp {
         outer_radius_x: border_radius,
         outer_radius_y: border_radius,
         inner_radius_x: Au(0),
         inner_radius_y: Au(0),
         inverted: inverted,
         image_format: ImageFormat::A8,
-    }));
-    texture_cache.get(image_id)
+    }))
 }
 
-fn mask_for_clip_region<'a,P>(dummy_mask_image: &'a TextureCacheItem,
-                              resource_cache: &'a ResourceCache,
-                              texture_cache: &'a TextureCache,
+fn mask_for_clip_region<'a,P>(resource_cache: &'a ResourceCache,
                               clip_region: &ClipRectToRegionResult<P>,
                               inverted: bool)
                               -> &'a TextureCacheItem {
     match clip_region.mask_result {
-        None => dummy_mask_image,
+        None => {
+            resource_cache.get_dummy_mask_image()
+        }
         Some(ref mask_result) => {
-            mask_for_border_radius(dummy_mask_image,
-                                   resource_cache,
-                                   texture_cache,
+            mask_for_border_radius(resource_cache,
                                    mask_result.border_radius,
                                    inverted)
         }
@@ -3169,10 +2897,7 @@ fn mask_for_clip_region<'a,P>(dummy_mask_image: &'a TextureCacheItem,
 trait NodeCompiler {
     fn compile(&mut self,
                flat_draw_lists: &FlatDrawListArray,
-               white_image_info: &TextureCacheItem,
-               mask_image_info: &TextureCacheItem,
                resource_cache: &ResourceCache,
-               texture_cache: &TextureCache,
                node_info_map: &HashMap<ScrollLayerId,
                                        Vec<AABBTreeNodeInfo>,
                                        DefaultState<FnvHasher>>,
@@ -3183,10 +2908,7 @@ trait NodeCompiler {
 impl NodeCompiler for AABBTreeNode {
     fn compile(&mut self,
                flat_draw_lists: &FlatDrawListArray,
-               white_image_info: &TextureCacheItem,
-               mask_image_info: &TextureCacheItem,
                resource_cache: &ResourceCache,
-               texture_cache: &TextureCache,
                node_info_map: &HashMap<ScrollLayerId,
                                        Vec<AABBTreeNodeInfo>,
                                        DefaultState<FnvHasher>>,
@@ -3225,9 +2947,7 @@ impl NodeCompiler for AABBTreeNode {
                                                   &display_item.clip,
                                                   &info.stretch_size,
                                                   info.image_key,
-                                                  mask_image_info,
                                                   resource_cache,
-                                                  texture_cache,
                                                   &mut clip_buffers,
                                                   &color_white);
                             }
@@ -3239,22 +2959,17 @@ impl NodeCompiler for AABBTreeNode {
                                                  info.blur_radius,
                                                  &info.color,
                                                  &info.glyphs,
-                                                 mask_image_info,
-                                                 resource_cache,
-                                                 texture_cache);
+                                                 resource_cache);
                             }
                             SpecificDisplayItem::Rectangle(ref info) => {
-                                builder.add_rectangle(&key,
-                                                      &display_item.rect,
-                                                      &clip_rect,
-                                                      BoxShadowClipMode::Inset,
-                                                      &display_item.clip,
-                                                      white_image_info,
-                                                      mask_image_info,
-                                                      resource_cache,
-                                                      texture_cache,
-                                                      &mut clip_buffers,
-                                                      &info.color);
+                                builder.add_color_rectangle(&key,
+                                                            &display_item.rect,
+                                                            &clip_rect,
+                                                            BoxShadowClipMode::Inset,
+                                                            &display_item.clip,
+                                                            resource_cache,
+                                                            &mut clip_buffers,
+                                                            &info.color);
                             }
                             SpecificDisplayItem::Iframe(..) => {}
                             SpecificDisplayItem::Gradient(ref info) => {
@@ -3264,10 +2979,7 @@ impl NodeCompiler for AABBTreeNode {
                                                      &info.start_point,
                                                      &info.end_point,
                                                      &info.stops,
-                                                     white_image_info,
-                                                     mask_image_info,
                                                      resource_cache,
-                                                     texture_cache,
                                                      &mut clip_buffers);
                             }
                             SpecificDisplayItem::BoxShadow(ref info) => {
@@ -3281,10 +2993,7 @@ impl NodeCompiler for AABBTreeNode {
                                                        info.spread_radius,
                                                        info.border_radius,
                                                        info.clip_mode,
-                                                       white_image_info,
-                                                       mask_image_info,
                                                        resource_cache,
-                                                       texture_cache,
                                                        &mut clip_buffers);
                             }
                             SpecificDisplayItem::Border(ref info) => {
@@ -3293,10 +3002,7 @@ impl NodeCompiler for AABBTreeNode {
                                                    &clip_rect,
                                                    &display_item.clip,
                                                    info,
-                                                   white_image_info,
-                                                   mask_image_info,
                                                    resource_cache,
-                                                   texture_cache,
                                                    &mut clip_buffers);
                             }
                             SpecificDisplayItem::Composite(ref info) => {
