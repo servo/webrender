@@ -44,13 +44,6 @@ pub enum TextureSampler {
     Mask,
 }
 
-pub struct ImageResource {
-    pub bytes: Vec<u8>,
-    pub width: u32,
-    pub height: u32,
-    pub format: ImageFormat,
-}
-
 pub enum VertexAttribute {
     Position,
     Color,

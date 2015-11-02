@@ -2,7 +2,7 @@ use app_units::Au;
 use device::{TextureId};
 use euclid::Size2D;
 use fnv::FnvHasher;
-use internal_types::{FontTemplate, ImageResource, GlyphKey, RasterItem, TiledImageKey};
+use internal_types::{FontTemplate, GlyphKey, RasterItem, TiledImageKey};
 use internal_types::{TextureTarget, TextureUpdateList};
 use platform::font::{FontContext, RasterizedGlyph};
 use renderer::BLUR_INFLATION_FACTOR;
@@ -10,16 +10,25 @@ use resource_list::ResourceList;
 use scoped_threadpool;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 use std::sync::atomic::Ordering::SeqCst;
 use std::thread;
 use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId, TextureInsertOp};
-use types::{FontKey, ImageKey, ImageFormat};
+use types::{Epoch, FontKey, ImageKey, ImageFormat};
 
 static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
+
+struct ImageResource {
+    bytes: Vec<u8>,
+    width: u32,
+    height: u32,
+    format: ImageFormat,
+    epoch: Epoch,
+}
 
 struct GlyphRasterJob {
     image_id: TextureCacheItemId,
@@ -27,10 +36,15 @@ struct GlyphRasterJob {
     result: Option<RasterizedGlyph>,
 }
 
+struct CachedImageInfo {
+    texture_cache_id: TextureCacheItemId,
+    epoch: Epoch,
+}
+
 pub struct ResourceCache {
     cached_glyphs: HashMap<GlyphKey, TextureCacheItemId, DefaultState<FnvHasher>>,
     cached_rasters: HashMap<RasterItem, TextureCacheItemId, DefaultState<FnvHasher>>,
-    cached_images: HashMap<ImageKey, TextureCacheItemId, DefaultState<FnvHasher>>,
+    cached_images: HashMap<ImageKey, CachedImageInfo, DefaultState<FnvHasher>>,
     cached_tiled_images: HashMap<TiledImageKey, TextureCacheItemId, DefaultState<FnvHasher>>,
 
     font_templates: HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>,
@@ -85,11 +99,47 @@ impl ResourceCache {
         self.font_templates.insert(font_key, template);
     }
 
-    pub fn add_image_template(&mut self, image_key: ImageKey, resource: ImageResource) {
+    pub fn add_image_template(&mut self,
+                              image_key: ImageKey,
+                              width: u32,
+                              height: u32,
+                              format: ImageFormat,
+                              bytes: Vec<u8>) {
+        let resource = ImageResource {
+            width: width,
+            height: height,
+            format: format,
+            bytes: bytes,
+            epoch: Epoch(0),
+        };
+
         self.image_templates.insert(image_key, resource);
     }
 
-    pub fn update_image_template(&mut self, image_key: ImageKey, resource: ImageResource) {
+    pub fn update_image_template(&mut self,
+                                 image_key: ImageKey,
+                                 width: u32,
+                                 height: u32,
+                                 format: ImageFormat,
+                                 bytes: Vec<u8>) {
+        let next_epoch = match self.image_templates.get(&image_key) {
+            Some(image) => {
+                let Epoch(current_epoch) = image.epoch;
+                Epoch(current_epoch + 1)
+            }
+            None => {
+                Epoch(0)
+            }
+        };
+
+        let resource = ImageResource {
+            width: width,
+            height: height,
+            format: format,
+            bytes: bytes,
+            epoch: next_epoch,
+        };
+
         self.image_templates.insert(image_key, resource);
     }
 
@@ -105,19 +155,46 @@ impl ResourceCache {
 
         // Update texture cache with any images that aren't yet uploaded to GPU.
         resource_list.for_each_image(|image_key| {
-            if !self.cached_images.contains_key(&image_key) {
-                let image_id = self.texture_cache.new_item_id();
-                let image_template = &self.image_templates[&image_key];
-                // TODO: Can we avoid the clone of the bytes here?
-                self.texture_cache.insert(image_id,
-                                     0,
-                                     0,
-                                     image_template.width,
-                                     image_template.height,
-                                     image_template.format,
-                                     TextureInsertOp::Blit(image_template.bytes.clone()));
-                self.cached_images.insert(image_key, image_id);
-            }
+            let cached_images = &mut self.cached_images;
+            let image_template = &self.image_templates[&image_key];
+
+            match cached_images.entry(image_key) {
+                Occupied(entry) => {
+                    if entry.get().epoch != image_template.epoch {
+                        let image_id = entry.get().texture_cache_id;
+
+                        // TODO: Can we avoid the clone of the bytes here?
+                        self.texture_cache.update(image_id,
+                                                  image_template.width,
+                                                  image_template.height,
+                                                  image_template.format,
+                                                  image_template.bytes.clone());
+
+                        // Update the cached epoch
+                        *entry.into_mut() = CachedImageInfo {
+                            texture_cache_id: image_id,
+                            epoch: image_template.epoch,
+                        };
+                    }
+                }
+                Vacant(entry) => {
+                    let image_id = self.texture_cache.new_item_id();
+
+                    // TODO: Can we avoid the clone of the bytes here?
+                    self.texture_cache.insert(image_id,
+                                              0,
+                                              0,
+                                              image_template.width,
+                                              image_template.height,
+                                              image_template.format,
+                                              TextureInsertOp::Blit(image_template.bytes.clone()));
+
+                    entry.insert(CachedImageInfo {
+                        texture_cache_id: image_id,
+                        epoch: image_template.epoch,
+                    });
+                }
+            };
         });
 
         // Update texture cache with any new image tile operations.
@@ -235,8 +312,8 @@ impl ResourceCache {
 
     #[inline]
     pub fn get_image(&self, image_key: ImageKey) -> &TextureCacheItem {
-        let image_id = self.cached_images[&image_key];
-        self.texture_cache.get(image_id)
+        let image_info = &self.cached_images[&image_key];
+        self.texture_cache.get(image_info.texture_cache_id)
     }
 
     #[inline]

@@ -5,7 +5,7 @@ use clipper::{self, ClipBuffers};
 use device::{ProgramId, TextureId};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
 use fnv::FnvHasher;
-use internal_types::{ApiMsg, Frame, ImageResource, ResultMsg, DrawLayer, Primitive, ClearInfo};
+use internal_types::{ApiMsg, Frame, ResultMsg, DrawLayer, Primitive, ClearInfo};
 use internal_types::{BorderRadiusRasterOp, BoxShadowCornerRasterOp, DrawListID, RasterItem};
 use internal_types::{BatchUpdateList, BatchId, BatchUpdate, BatchUpdateOp, CompiledNode};
 use internal_types::{PackedVertex, WorkVertex, DisplayList, DrawCommand, DrawCommandInfo};
@@ -1239,22 +1239,18 @@ impl RenderBackend {
                                 .add_font_template(id, FontTemplate::Native(native_font_handle));
                         }
                         ApiMsg::AddImage(id, width, height, format, bytes) => {
-                            let image = ImageResource {
-                                bytes: bytes,
-                                width: width,
-                                height: height,
-                                format: format,
-                            };
-                            self.resource_cache.add_image_template(id, image);
+                            self.resource_cache.add_image_template(id,
+                                                                   width,
+                                                                   height,
+                                                                   format,
+                                                                   bytes);
                         }
                         ApiMsg::UpdateImage(id, width, height, format, bytes) => {
-                            let image = ImageResource {
-                                bytes: bytes,
-                                width: width,
-                                height: height,
-                                format: format,
-                            };
-                            self.resource_cache.update_image_template(id, image);
+                            self.resource_cache.update_image_template(id,
+                                                                      width,
+                                                                      height,
+                                                                      format,
+                                                                      bytes);
                         }
                         ApiMsg::AddDisplayList(id,
                                                pipeline_id,
@@ -1672,8 +1668,8 @@ impl DrawCommandBuilder {
             let image_info = resource_cache.get_glyph(&glyph_key);
 
             if image_info.width > 0 && image_info.height > 0 {
-                let x0 = glyph.x + image_info.x0 as f32 / device_pixel_ratio - blur_offset;
-                let y0 = glyph.y - image_info.y0 as f32 / device_pixel_ratio - blur_offset;
+                let x0 = glyph.x + image_info.user_x0 as f32 / device_pixel_ratio - blur_offset;
+                let y0 = glyph.y - image_info.user_y0 as f32 / device_pixel_ratio - blur_offset;
 
                 let x1 = x0 + image_info.width as f32 / device_pixel_ratio;
                 let y1 = y0 + image_info.height as f32 / device_pixel_ratio;
