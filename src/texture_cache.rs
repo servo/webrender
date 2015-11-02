@@ -154,8 +154,10 @@ pub struct TextureCacheItem {
     pub v0: f32,
     pub u1: f32,
     pub v1: f32,
-    pub x0: i32,
-    pub y0: i32,
+    pub user_x0: i32,
+    pub user_y0: i32,
+    pub page_x0: u32,
+    pub page_y0: u32,
     pub width: u32,
     pub height: u32,
     pub texture_id: TextureId,      // todo(gw): can this ever get invalidated? (page defragmentation?)
@@ -193,7 +195,8 @@ impl TextureCacheItem {
     fn new(texture_id: TextureId,
            texture_index: TextureIndex,
            format: ImageFormat,
-           x0: i32, y0: i32,
+           user_x0: i32, user_y0: i32,
+           page_x0: u32, page_y0: u32,
            width: u32, height: u32,
            u0: f32, v0: f32,
            u1: f32, v1: f32)
@@ -205,8 +208,10 @@ impl TextureCacheItem {
             v0: v0,
             u1: u1,
             v1: v1,
-            x0: x0,
-            y0: y0,
+            user_x0: user_x0,
+            user_y0: user_y0,
+            page_x0: page_x0,
+            page_y0: page_y0,
             width: width,
             height: height,
             format: format,
@@ -294,8 +299,10 @@ impl TextureCache {
             v0: 0.0,
             u1: 0.0,
             v1: 0.0,
-            x0: 0,
-            y0: 0,
+            user_x0: 0,
+            user_y0: 0,
+            page_x0: 0,
+            page_y0: 0,
             width: 0,
             height: 0,
             texture_id: TextureId::invalid(),
@@ -407,6 +414,7 @@ impl TextureCache {
                                                                TextureIndex(0),
                                                                format,
                                                                x0, y0,
+                                                               0, 0,
                                                                width, height,
                                                                0.0, 0.0,
                                                                1.0, 1.0);
@@ -439,6 +447,7 @@ impl TextureCache {
                                                page.texture_index,
                                                format,
                                                x0, y0,
+                                               tx0, ty0,
                                                width, height,
                                                u0, v0,
                                                u1, v1);
@@ -512,6 +521,34 @@ impl TextureCache {
                                                               op.inverted)),
                 }
             }
+        };
+
+        self.pending_updates.push(update_op);
+    }
+
+    pub fn update(&mut self,
+                  image_id: TextureCacheItemId,
+                  width: u32,
+                  height: u32,
+                  format: ImageFormat,
+                  bytes: Vec<u8>) {
+        let existing_item = self.items.get(image_id);
+
+        // TODO(gw): Handle updates to size/format!
+        debug_assert!(existing_item.width == width);
+        debug_assert!(existing_item.height == height);
+        debug_assert!(existing_item.format == format);
+
+        let op = TextureUpdateOp::Update(existing_item.page_x0,
+                                         existing_item.page_y0,
+                                         width,
+                                         height,
+                                         TextureUpdateDetails::Blit(bytes));
+
+        let update_op = TextureUpdate {
+            id: existing_item.texture_id,
+            index: existing_item.texture_index,
+            op: op,
         };
 
         self.pending_updates.push(update_op);
