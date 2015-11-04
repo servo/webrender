@@ -1,7 +1,7 @@
 use app_units::Au;
 use euclid::Size2D;
 use fnv::FnvHasher;
-use internal_types::{BorderRadiusRasterOp, BoxShadowCornerRasterOp};
+use internal_types::{BorderRadiusRasterOp, BoxShadowRasterOp};
 use internal_types::{Glyph, GlyphKey, RasterItem, TiledImageKey};
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
@@ -75,14 +75,19 @@ impl ResourceList {
         }
     }
 
-    pub fn add_box_shadow_corner(&mut self,
-                                 blur_radius: f32,
-                                 border_radius: f32,
-                                 inverted: bool) {
-        if let Some(raster_item) = BoxShadowCornerRasterOp::create(blur_radius,
-                                                                   border_radius,
-                                                                   inverted) {
-            self.required_rasters.insert(RasterItem::BoxShadowCorner(raster_item));
+    pub fn add_box_shadow_corner(&mut self, blur_radius: f32, border_radius: f32, inverted: bool) {
+        if let Some(raster_item) = BoxShadowRasterOp::create_corner(blur_radius,
+                                                                    border_radius,
+                                                                    inverted) {
+            self.required_rasters.insert(RasterItem::BoxShadow(raster_item));
+        }
+    }
+
+    pub fn add_box_shadow_edge(&mut self, blur_radius: f32, border_radius: f32, inverted: bool) {
+        if let Some(raster_item) = BoxShadowRasterOp::create_edge(blur_radius,
+                                                                  border_radius,
+                                                                  inverted) {
+            self.required_rasters.insert(RasterItem::BoxShadow(raster_item));
         }
     }
 

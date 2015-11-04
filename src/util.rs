@@ -1,4 +1,5 @@
 use euclid::{Matrix4, Point2D, Rect, Size2D};
+use internal_types::RectUv;
 use std::num::Zero;
 use time::precise_time_ns;
 
@@ -64,6 +65,14 @@ impl MatrixHelpers for Matrix4 {
 
 pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
     (b - a) * t + a
+}
+
+pub fn bilerp(point: &Point2D<f32>, quad: &Rect<f32>, uv: &RectUv) -> Point2D<f32> {
+    let (x1, y1, x2, y2) = (quad.origin.x, quad.origin.y, quad.max_x(), quad.max_y());
+    (uv.top_left * (x2 - point.x) * (y2 - point.y) +
+     uv.top_right * (point.x - x1) * (y2 - point.y) +
+     uv.bottom_left * (x2 - point.x) * (point.y - y1) +
+     uv.bottom_right * (point.x - x1) * (point.y - y1)) / ((x2 - x1) * (y2 - y1))
 }
 
 // Don't use `euclid`'s `is_empty` because that has effectively has an "and" in the conditional

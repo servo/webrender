@@ -6,7 +6,7 @@ use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{Frame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
-use internal_types::{BatchId, ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DrawCommandInfo};
+use internal_types::{BatchId, ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DrawCommandInfo, BoxShadowPart};
 use internal_types::{PackedVertexForTextureCacheUpdate, TextureTarget, IdNamespace, ResourceId};
 use render_api::RenderApi;
 use render_backend::RenderBackend;
@@ -67,7 +67,7 @@ pub struct Renderer {
     u_filter_params: UniformLocation,
     u_filter_texture_size: UniformLocation,
 
-    box_shadow_corner_program_id: ProgramId,
+    shadow_corner_program_id: ProgramId,
 
     blur_program_id: ProgramId,
     u_direction: UniformLocation,
@@ -94,8 +94,8 @@ impl Renderer {
         let border_program_id = device.create_program("border.vs.glsl", "border.fs.glsl");
         let blend_program_id = device.create_program("blend.vs.glsl", "blend.fs.glsl");
         let filter_program_id = device.create_program("filter.vs.glsl", "filter.fs.glsl");
-        let box_shadow_corner_program_id = device.create_program("box-shadow-corner.vs.glsl",
-                                                                 "box-shadow-corner.fs.glsl");
+        let shadow_corner_program_id = device.create_program("shadow_corner.vs.glsl",
+                                                             "shadow_corner.fs.glsl");
         let blur_program_id = device.create_program("blur.vs.glsl", "blur.fs.glsl");
         let tile_program_id = device.create_program("tile.vs.glsl", "tile.fs.glsl");
 
@@ -170,7 +170,7 @@ impl Renderer {
             filter_program_id: filter_program_id,
             quad_program_id: quad_program_id,
             blit_program_id: blit_program_id,
-            box_shadow_corner_program_id: box_shadow_corner_program_id,
+            shadow_corner_program_id: shadow_corner_program_id,
             blur_program_id: blur_program_id,
             tile_program_id: tile_program_id,
             u_blend_params: u_blend_params,
@@ -554,16 +554,14 @@ impl Renderer {
                                                                                 None);
                                 batch.add_draw_item(update.id, TextureId(0), &vertices);
                             }
-                            TextureUpdateDetails::BoxShadowCorner(blur_radius,
-                                                                  border_radius,
-                                                                  inverted) => {
-                                self.update_texture_cache_for_box_shadow_corner(
+                            TextureUpdateDetails::BoxShadow(blur_radius, part, inverted) => {
+                                self.update_texture_cache_for_box_shadow(
                                     update.id,
                                     update.index,
                                     &Rect::new(Point2D::new(x as f32, y as f32),
                                                Size2D::new(width as f32, height as f32)),
                                     blur_radius,
-                                    border_radius,
+                                    part,
                                     inverted)
                             }
                             TextureUpdateDetails::Tile(bytes,
@@ -655,17 +653,16 @@ impl Renderer {
         self.flush_raster_batches();
     }
 
-    fn update_texture_cache_for_box_shadow_corner(&mut self,
-                                                  update_id: TextureId,
-                                                  update_index: TextureIndex,
-                                                  rect: &Rect<f32>,
-                                                  blur_radius: Au,
-                                                  border_radius: Au,
-                                                  inverted: bool) {
-        let box_shadow_corner_program_id = self.box_shadow_corner_program_id;
+    fn update_texture_cache_for_box_shadow(&mut self,
+                                           update_id: TextureId,
+                                           update_index: TextureIndex,
+                                           rect: &Rect<f32>,
+                                           blur_radius: Au,
+                                           box_shadow_part: BoxShadowPart,
+                                           inverted: bool) {
+        let shadow_corner_program_id = self.shadow_corner_program_id;
 
         let blur_radius = blur_radius.to_f32_px();
-        let border_radius = border_radius.to_f32_px();
 
         let color = if inverted {
             ColorF::new(0.0, 0.0, 0.0, 0.0)
@@ -676,7 +673,12 @@ impl Renderer {
         let zero_point = Point2D::new(0.0, 0.0);
         let zero_size = Size2D::new(0.0, 0.0);
 
-        let arc_radius = Point2D::new(border_radius, border_radius);
+        let arc_radius = match box_shadow_part {
+            BoxShadowPart::Edge => Point2D::new(rect.size.width, 0.0),
+            BoxShadowPart::Corner(border_radius) => {
+                Point2D::new(border_radius.to_f32_px(), border_radius.to_f32_px())
+            }
+        };
 
         let vertices: [PackedVertexForTextureCacheUpdate; 4] = [
             PackedVertexForTextureCacheUpdate::new(&rect.origin,
@@ -728,7 +730,7 @@ impl Renderer {
         let mut batch = self.get_or_create_raster_batch(update_id,
                                                         update_index,
                                                         TextureId(0),
-                                                        box_shadow_corner_program_id,
+                                                        shadow_corner_program_id,
                                                         None);
         batch.add_draw_item(update_id, TextureId(0), &vertices);
     }

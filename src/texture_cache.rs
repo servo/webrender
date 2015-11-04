@@ -495,13 +495,12 @@ impl TextureCache {
                                                     op.inverted)),
                 }
             }
-            &RasterItem::BoxShadowCorner(ref op) => {
-                let size = op.border_radius + op.blur_radius;
+            &RasterItem::BoxShadow(ref op) => {
                 let allocation = self.allocate(image_id,
                                                0,
                                                0,
-                                               size.to_nearest_px() as u32,
-                                               size.to_nearest_px() as u32,
+                                               op.raster_size.to_nearest_px() as u32,
+                                               op.raster_size.to_nearest_px() as u32,
                                                ImageFormat::A8,
                                                false);
 
@@ -514,11 +513,9 @@ impl TextureCache {
                     op: TextureUpdateOp::Update(
                         allocation.uv.x,
                         allocation.uv.y,
-                        size.to_nearest_px() as u32,
-                        size.to_nearest_px() as u32,
-                        TextureUpdateDetails::BoxShadowCorner(op.blur_radius,
-                                                              op.border_radius,
-                                                              op.inverted)),
+                        op.raster_size.to_nearest_px() as u32,
+                        op.raster_size.to_nearest_px() as u32,
+                        TextureUpdateDetails::BoxShadow(op.blur_radius, op.part, op.inverted)),
                 }
             }
         };
