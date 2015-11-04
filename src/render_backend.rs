@@ -2921,7 +2921,8 @@ impl NodeCompiler for AABBTreeNode {
             let (display_item, draw_context) = flat_draw_lists.get_item_and_draw_context(&key);
 
             if let Some(item_node_index) = display_item.node_index {
-                if item_node_index == self.node_index {
+                if item_node_index == self.node_index &&
+                   node_scroll_layer_id == draw_context.scroll_layer_id {
                     let clip_rect = display_item.clip.main.intersection(&draw_context.overflow);
 
                     if let Some(clip_rect) = clip_rect {
