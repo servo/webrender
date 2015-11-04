@@ -56,6 +56,8 @@ pub struct Renderer {
     quad_program_id: ProgramId,
     u_quad_transform_array: UniformLocation,
 
+    blit_program_id: ProgramId,
+
     border_program_id: ProgramId,
 
     blend_program_id: ProgramId,
@@ -88,6 +90,7 @@ impl Renderer {
         device.begin_frame();
 
         let quad_program_id = device.create_program("quad.vs.glsl", "quad.fs.glsl");
+        let blit_program_id = device.create_program("blit.vs.glsl", "blit.fs.glsl");
         let border_program_id = device.create_program("border.vs.glsl", "border.fs.glsl");
         let blend_program_id = device.create_program("blend.vs.glsl", "blend.fs.glsl");
         let filter_program_id = device.create_program("filter.vs.glsl", "filter.fs.glsl");
@@ -166,6 +169,7 @@ impl Renderer {
             blend_program_id: blend_program_id,
             filter_program_id: filter_program_id,
             quad_program_id: quad_program_id,
+            blit_program_id: blit_program_id,
             box_shadow_corner_program_id: box_shadow_corner_program_id,
             blur_program_id: blur_program_id,
             tile_program_id: tile_program_id,
@@ -1080,8 +1084,7 @@ impl Renderer {
                                     _ => unreachable!(),
                                 }
 
-                                self.device.bind_program(self.quad_program_id, &render_context.projection);
-                                self.device.set_uniform_mat4_array(self.u_quad_transform_array, &[Matrix4::identity()]);
+                                self.device.bind_program(self.blit_program_id, &render_context.projection);
                             }
 
                             let color = ColorF::new(1.0, 1.0, 1.0, 1.0);

@@ -682,6 +682,14 @@ impl Device {
         if u_mask != -1 {
             gl::uniform_1i(u_mask, TextureSampler::Mask as i32);
         }
+        let u_diffuse2d = gl::get_uniform_location(pid, "sDiffuse2D");
+        if u_diffuse2d != -1 {
+            gl::uniform_1i(u_diffuse2d, TextureSampler::Color as i32);
+        }
+        let u_mask2d = gl::get_uniform_location(pid, "sMask2D");
+        if u_mask2d != -1 {
+            gl::uniform_1i(u_mask2d, TextureSampler::Mask as i32);
+        }
         let u_device_pixel_ratio = gl::get_uniform_location(pid, "uDevicePixelRatio");
         if u_device_pixel_ratio != -1 {
             gl::uniform_1f(u_device_pixel_ratio, self.device_pixel_ratio);

@@ -1,7 +1,5 @@
 #version 150
 
-uniform sampler2DArray sDiffuse;
-uniform sampler2DArray sMask;
 uniform mat4 uTransform;
 uniform mat4 uMatrixPalette[32];
 uniform vec2 uDirection;

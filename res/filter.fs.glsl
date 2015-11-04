@@ -113,7 +113,7 @@ void main(void)
         // Gaussian blur is specially handled:
         result = Blur(amount, uFilterParams.zw);
     } else {
-        vec4 Cs = Texture(sDiffuse, vColorTexCoord);
+        vec4 Cs = Texture2D(sDiffuse2D, vColorTexCoord.xy);
 
         if (filterOp == 1) {
             result = Contrast(Cs, amount);
