@@ -481,7 +481,7 @@ impl Device {
     }
 
     #[cfg(any(target_os = "android", target_os = "gonk"))]
-    fn deinit_texture_image(&mut self) {
+    fn deinit_texture_image(&mut self, _: TextureTarget) {
         gl::tex_image_2d(gl::TEXTURE_2D,
                          0,
                          gl::RGB as gl::GLint,
@@ -494,8 +494,8 @@ impl Device {
     }
 
     #[cfg(not(any(target_os = "android", target_os = "gonk")))]
-    fn deinit_texture_image(&mut self) {
-        gl::tex_image_3d(gl::TEXTURE_2D_ARRAY,
+    fn deinit_texture_image(&mut self, target: TextureTarget) {
+        gl::tex_image_3d(target.to_gl(),
                          0,
                          gl::RGB as gl::GLint,
                          0,
@@ -600,8 +600,7 @@ impl Device {
         debug_assert!(self.inside_frame);
 
         self.bind_color_texture(target, texture_id);
-
-        self.deinit_texture_image();
+        self.deinit_texture_image(target);
 
         let texture = self.textures.get_mut(&texture_id).unwrap();
         if !texture.fbo_ids.is_empty() {
