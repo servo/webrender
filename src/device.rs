@@ -495,16 +495,31 @@ impl Device {
 
     #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     fn deinit_texture_image(&mut self, target: TextureTarget) {
-        gl::tex_image_3d(target.to_gl(),
-                         0,
-                         gl::RGB as gl::GLint,
-                         0,
-                         0,
-                         0,
-                         0,
-                         gl::RGB,
-                         gl::UNSIGNED_BYTE,
-                         None);
+        match target {
+            TextureTarget::Texture2D => {
+                gl::tex_image_2d(gl::TEXTURE_2D,
+                                 0,
+                                 gl::RGB as gl::GLint,
+                                 0,
+                                 0,
+                                 0,
+                                 gl::RGB,
+                                 gl::UNSIGNED_BYTE,
+                                 None);
+            }
+            TextureTarget::TextureArray => {
+                gl::tex_image_3d(gl::TEXTURE_2D_ARRAY,
+                                 0,
+                                 gl::RGB as gl::GLint,
+                                 0,
+                                 0,
+                                 0,
+                                 0,
+                                 gl::RGB,
+                                 gl::UNSIGNED_BYTE,
+                                 None);
+            }
+        }
     }
 
     pub fn init_texture(&mut self,

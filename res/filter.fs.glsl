@@ -59,7 +59,7 @@ vec4 Blur(float radius, vec2 direction) {
             texCoord.x <= 1.0 &&
             texCoord.y >= 0.0 &&
             texCoord.y <= 1.0 ?
-            Texture(sDiffuse, vec3(texCoord, 0.0)) :
+            Texture2D(sDiffuse2D, texCoord) :
             vec4(0.0);
         color += x * gauss(offsetF, sigma);
     }

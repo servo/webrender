@@ -273,21 +273,21 @@ impl BatchUpdateList {
 // TODO(gw): Use bitflags crate for ClearInfo...
 // TODO(gw): Expand clear info to handle color, depth etc as needed.
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ClearInfo {
     pub clear_color: bool,
     pub clear_z: bool,
     pub clear_stencil: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CompositeInfo {
     pub operation: CompositionOp,
     pub rect: Rect<u32>,
     pub color_texture_id: TextureId,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum DrawCommandInfo {
     Batch(BatchId),
     Composite(CompositeInfo),
@@ -297,13 +297,14 @@ pub enum DrawCommandInfo {
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq, Hash)]
 pub struct RenderTargetIndex(pub u32);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DrawCommand {
     pub render_target: RenderTargetIndex,
     pub sort_key: DisplayItemKey,
     pub info: DrawCommandInfo,
 }
 
+#[derive(Debug)]
 pub struct DrawLayer {
     pub texture_id: Option<TextureId>,
     pub size: Size2D<u32>,
