@@ -349,7 +349,7 @@ fn run_raster_jobs(thread_pool: &mut scoped_threadpool::Pool,
                                                          (*native_font_handle).clone());
                         }
                     }
-                    job.result = font_context.get_glyph(job.glyph_key.font_key,
+                    job.result = font_context.get_glyph(&job.glyph_key.font_key,
                                                         job.glyph_key.size,
                                                         job.glyph_key.index,
                                                         device_pixel_ratio);

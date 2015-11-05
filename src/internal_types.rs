@@ -195,10 +195,21 @@ pub enum TextureUpdateDetails {
     Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage),
     /// All four corners and whether inverted, respectively.
     BorderRadius(Au, Au, Au, Au, bool),
-    /// Blur radius border radius, and whether inverted, respectively.
-    BoxShadowCorner(Au, Au, bool),
+    /// Blur radius, box shadow part, and whether inverted, respectively.
+    BoxShadow(Au, BoxShadowPart, bool),
     /// Bytes, stretch size, and scratch texture image, respectively.
     Tile(Vec<u8>, Size2D<u32>, TextureImage),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum BoxShadowPart {
+    /// The edge.
+    Edge,
+
+    /// A corner with a border radius.
+    ///
+    /// TODO(pcwalton): Elliptical radii.
+    Corner(Au),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -460,22 +471,22 @@ impl ClipRectToRegionResult<RectPosUv> {
                                          -> [PackedVertex; 4] {
         [
             self.make_packed_vertex(&self.rect_result.pos.origin,
-                                    &self.rect_result.uv.origin,
+                                    &self.rect_result.uv.top_left,
                                     &colors[0],
                                     mask,
                                     uv_index),
             self.make_packed_vertex(&self.rect_result.pos.top_right(),
-                                    &self.rect_result.uv.top_right(),
+                                    &self.rect_result.uv.top_right,
                                     &colors[1],
                                     mask,
                                     uv_index),
             self.make_packed_vertex(&self.rect_result.pos.bottom_left(),
-                                    &self.rect_result.uv.bottom_left(),
+                                    &self.rect_result.uv.bottom_left,
                                     &colors[3],
                                     mask,
                                     uv_index),
             self.make_packed_vertex(&self.rect_result.pos.bottom_right(),
-                                    &self.rect_result.uv.bottom_right(),
+                                    &self.rect_result.uv.bottom_right,
                                     &colors[2],
                                     mask,
                                     uv_index),
@@ -541,7 +552,56 @@ impl CompiledNode {
 #[derive(Clone, Copy, Debug)]
 pub struct RectPosUv {
     pub pos: Rect<f32>,
-    pub uv: Rect<f32>,
+    pub uv: RectUv,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RectUv {
+    pub top_left: Point2D<f32>,
+    pub top_right: Point2D<f32>,
+    pub bottom_left: Point2D<f32>,
+    pub bottom_right: Point2D<f32>,
+}
+
+impl RectUv {
+    pub fn from_image_and_rotation_angle(image: &TextureCacheItem,
+                                         rotation_angle: BasicRotationAngle)
+                                         -> RectUv {
+        match rotation_angle {
+            BasicRotationAngle::Upright => {
+                RectUv {
+                    top_left: Point2D::new(image.u0, image.v0),
+                    top_right: Point2D::new(image.u1, image.v0),
+                    bottom_right: Point2D::new(image.u1, image.v1),
+                    bottom_left: Point2D::new(image.u0, image.v1),
+                }
+            }
+            BasicRotationAngle::Clockwise90 => {
+                RectUv {
+                    top_right: Point2D::new(image.u0, image.v0),
+                    bottom_right: Point2D::new(image.u1, image.v0),
+                    bottom_left: Point2D::new(image.u1, image.v1),
+                    top_left: Point2D::new(image.u0, image.v1),
+                }
+            }
+            BasicRotationAngle::Clockwise180 => {
+                RectUv {
+                    bottom_right: Point2D::new(image.u0, image.v0),
+                    bottom_left: Point2D::new(image.u1, image.v0),
+                    top_left: Point2D::new(image.u1, image.v1),
+                    top_right: Point2D::new(image.u0, image.v1),
+                }
+            }
+            BasicRotationAngle::Clockwise270 => {
+                RectUv {
+                    bottom_left: Point2D::new(image.u0, image.v0),
+                    top_left: Point2D::new(image.u1, image.v0),
+                    top_right: Point2D::new(image.u1, image.v1),
+                    bottom_right: Point2D::new(image.u0, image.v1),
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -681,19 +741,41 @@ impl BorderRadiusRasterOp {
 }
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub struct BoxShadowCornerRasterOp {
+pub struct BoxShadowRasterOp {
     pub blur_radius: Au,
-    pub border_radius: Au,
+    pub part: BoxShadowPart,
+    pub raster_size: Au,
     pub inverted: bool,
 }
 
-impl BoxShadowCornerRasterOp {
-    pub fn create(blur_radius: f32, border_radius: f32, inverted: bool)
-                  -> Option<BoxShadowCornerRasterOp> {
+impl BoxShadowRasterOp {
+    pub fn raster_size(blur_radius: f32, border_radius: f32) -> f32 {
+        (3.0 * blur_radius).max(border_radius) + 3.0 * blur_radius
+    }
+
+    pub fn create_corner(blur_radius: f32, border_radius: f32, inverted: bool)
+                         -> Option<BoxShadowRasterOp> {
         if blur_radius > 0.0 || border_radius > 0.0 {
-            Some(BoxShadowCornerRasterOp {
+            Some(BoxShadowRasterOp {
                 blur_radius: Au::from_f32_px(blur_radius),
-                border_radius: Au::from_f32_px(border_radius),
+                part: BoxShadowPart::Corner(Au::from_f32_px(border_radius)),
+                raster_size: Au::from_f32_px(BoxShadowRasterOp::raster_size(blur_radius,
+                                                                            border_radius)),
+                inverted: inverted,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn create_edge(blur_radius: f32, border_radius: f32, inverted: bool)
+                       -> Option<BoxShadowRasterOp> {
+        if blur_radius > 0.0 {
+            Some(BoxShadowRasterOp {
+                blur_radius: Au::from_f32_px(blur_radius),
+                part: BoxShadowPart::Edge,
+                raster_size: Au::from_f32_px(BoxShadowRasterOp::raster_size(blur_radius,
+                                                                            border_radius)),
                 inverted: inverted,
             })
         } else {
@@ -724,7 +806,7 @@ impl GlyphKey {
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub enum RasterItem {
     BorderRadius(BorderRadiusRasterOp),
-    BoxShadowCorner(BoxShadowCornerRasterOp),
+    BoxShadow(BoxShadowRasterOp),
 }
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
@@ -734,5 +816,13 @@ pub struct TiledImageKey {
     pub tiled_height: u32,
     pub stretch_width: u32,
     pub stretch_height: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum BasicRotationAngle {
+    Upright,
+    Clockwise90,
+    Clockwise180,
+    Clockwise270,
 }
 

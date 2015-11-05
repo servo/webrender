@@ -1,6 +1,6 @@
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::{ClipRectToRegionMaskResult, ClipRectToRegionResult, PolygonPosColorUv};
-use internal_types::{RectPosUv, WorkVertex};
+use internal_types::{RectPosUv, RectUv, WorkVertex};
 use render_backend::MAX_RECT;
 use simd::f32x4;
 use std::mem;
@@ -380,63 +380,36 @@ pub trait Polygon : Sized {
     fn intersects_rect(&self, rect: &Rect<f32>) -> bool;
 }
 
+impl RectPosUv {
+    fn push_clipped_rect(&self, clipped_rect: &Rect<f32>, output: &mut Vec<RectPosUv>) {
+        if util::rect_is_empty(&clipped_rect) {
+            return
+        }
+
+        let uv_tl = util::bilerp(&clipped_rect.origin, &self.pos, &self.uv);
+        let uv_tr = util::bilerp(&clipped_rect.top_right(), &self.pos, &self.uv);
+        let uv_br = util::bilerp(&clipped_rect.bottom_right(), &self.pos, &self.uv);
+        let uv_bl = util::bilerp(&clipped_rect.bottom_left(), &self.pos, &self.uv);
+
+        output.push(RectPosUv {
+            pos: *clipped_rect,
+            uv: RectUv {
+                top_left: uv_tl,
+                top_right: uv_tr,
+                bottom_left: uv_bl,
+                bottom_right: uv_br,
+            }
+        });
+    }
+}
+
 impl Polygon for RectPosUv {
     fn clip_to_rect(&self,
                     _: &mut ShClipBuffers,
                     clip_rect: &Rect<f32>,
                     output: &mut Vec<RectPosUv>) {
-        for clipped_rect in self.pos.intersection(clip_rect).into_iter() {
-            if util::rect_is_empty(&clipped_rect) {
-                continue
-            }
-
-            // de-simd'd code:
-            // let cx0 = clipped_rect.origin.x;
-            // let cy0 = clipped_rect.origin.y;
-            // let cx1 = cx0 + clipped_rect.size.width;
-            // let cy1 = cy0 + clipped_rect.size.height;
-
-            // let f0 = (cx0 - pos.origin.x) / pos.size.width;
-            // let f1 = (cy0 - pos.origin.y) / pos.size.height;
-            // let f2 = (cx1 - pos.origin.x) / pos.size.width;
-            // let f3 = (cy1 - pos.origin.y) / pos.size.height;
-
-            // ClipRectResult {
-            //     x0: cx0,
-            //     y0: cy0,
-            //     x1: cx1,
-            //     y1: cy1,
-            //     u0: uv.origin.x + f0 * uv.size.width,
-            //     v0: uv.origin.y + f1 * uv.size.height,
-            //     u1: uv.origin.x + f2 * uv.size.width,
-            //     v1: uv.origin.y + f3 * uv.size.height,
-            // }
-
-            let clip = f32x4::new(clipped_rect.origin.x,
-                                  clipped_rect.origin.y,
-                                  clipped_rect.origin.x + clipped_rect.size.width,
-                                  clipped_rect.origin.y + clipped_rect.size.height);
-
-            let origins = f32x4::new(self.pos.origin.x, self.pos.origin.y,
-                                     self.pos.origin.x, self.pos.origin.y);
-
-            let sizes = f32x4::new(self.pos.size.width, self.pos.size.height,
-                                   self.pos.size.width, self.pos.size.height);
-
-            let uv_origins = f32x4::new(self.uv.origin.x, self.uv.origin.y,
-                                        self.uv.origin.x, self.uv.origin.y);
-            let uv_sizes = f32x4::new(self.uv.size.width, self.uv.size.height,
-                                      self.uv.size.width, self.uv.size.height);
-            let f = ((clip - origins) / sizes) * uv_sizes + uv_origins;
-
-            output.push(RectPosUv {
-                pos: Rect::new(Point2D::new(clip.extract(0), clip.extract(1)),
-                               Size2D::new(clip.extract(2) - clip.extract(0),
-                                           clip.extract(3) - clip.extract(1))),
-                uv: Rect::new(Point2D::new(f.extract(0), f.extract(1)),
-                              Size2D::new(f.extract(2) - f.extract(0),
-                                          f.extract(3) - f.extract(1))),
-            })
+        for clipped_rect in self.pos.intersection(clip_rect).iter() {
+            self.push_clipped_rect(clipped_rect, output)
         }
     }
 
@@ -452,38 +425,22 @@ impl Polygon for RectPosUv {
             }
         };
 
-        // FIXME(pcwalton): Clip the u and v too.
-        push(output,
-             &self.uv,
-             &self.pos.origin,
-             &Point2D::new(self.pos.max_x(), clip_rect.origin.y));
-        push(output,
-             &self.uv,
-             &Point2D::new(self.pos.origin.x, clip_rect.origin.y),
-             &clip_rect.bottom_left());
-        push(output,
-             &self.uv,
-             &clip_rect.top_right(),
-             &Point2D::new(self.pos.max_x(), clip_rect.max_y()));
-        push(output,
-             &self.uv,
-             &Point2D::new(self.pos.origin.x, clip_rect.max_y()),
-             &self.pos.bottom_right());
-
-        fn push(result: &mut Vec<RectPosUv>,
-                uv: &Rect<f32>,
-                top_left: &Point2D<f32>,
-                bottom_right: &Point2D<f32>) {
-            if top_left.x >= bottom_right.x || top_left.y >= bottom_right.y {
-                return
-            }
-            result.push(RectPosUv {
-                pos: Rect::new(*top_left,
-                               Size2D::new(bottom_right.x - top_left.x,
-                                           bottom_right.y - top_left.y)),
-                uv: *uv,
-            })
-        }
+        self.push_clipped_rect(&Rect::new(self.pos.origin,
+                                          Size2D::new(self.pos.size.width,
+                                                      clip_rect.origin.y - self.pos.origin.y)),
+                               output);
+        self.push_clipped_rect(&Rect::new(Point2D::new(self.pos.origin.x, clip_rect.origin.y),
+                                          Size2D::new(clip_rect.origin.x - self.pos.origin.x,
+                                                      clip_rect.size.height)),
+                               output);
+        self.push_clipped_rect(&Rect::new(Point2D::new(clip_rect.max_x(), clip_rect.origin.y),
+                                          Size2D::new(self.pos.max_x() - clip_rect.max_x(),
+                                                      clip_rect.size.height)),
+                               output);
+        self.push_clipped_rect(&Rect::new(Point2D::new(self.pos.origin.x, clip_rect.max_y()),
+                                          Size2D::new(self.pos.size.width,
+                                                      self.pos.max_y() - clip_rect.max_y())),
+                               output);
     }
 
     fn intersects_rect(&self, rect: &Rect<f32>) -> bool {
