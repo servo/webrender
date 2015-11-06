@@ -1,7 +1,8 @@
 use aabbtree::AABBTree;
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::{BatchUpdate, BatchUpdateList, BatchUpdateOp};
-use types::NodeIndex;
+use render_backend::FlatDrawList;
+use types::{DrawList, NodeIndex};
 
 pub struct Layer {
     // TODO: Remove pub from here if possible in the future
@@ -48,8 +49,13 @@ impl Layer {
         self.aabb_tree.cull(&adjusted_viewport);
     }
 
-    pub fn take_compiled_data_from(&mut self, other_layer: &mut Layer) {
-        self.aabb_tree.take_compiled_data_from(&mut other_layer.aabb_tree)
+    pub fn reuse_compiled_data_from_old_layer_if_possible(&mut self,
+                                                          other_layer: &mut Layer,
+                                                          these_draw_lists: &Vec<FlatDrawList>,
+                                                          old_draw_lists: &Vec<DrawList>) {
+        self.aabb_tree.reuse_compiled_data_from_old_tree_if_possible(&mut other_layer.aabb_tree,
+                                                                     these_draw_lists,
+                                                                     old_draw_lists)
     }
 
     #[allow(dead_code)]

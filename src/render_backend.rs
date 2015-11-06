@@ -201,7 +201,7 @@ impl StackingContextHelpers for StackingContext {
 }
 
 #[derive(Clone)]
-struct DrawContext {
+pub struct DrawContext {
     render_target_index: RenderTargetIndex,
     overflow: Rect<f32>,
     device_pixel_ratio: f32,
@@ -209,7 +209,7 @@ struct DrawContext {
     scroll_layer_id: ScrollLayerId,
 }
 
-struct FlatDrawList {
+pub struct FlatDrawList {
     pub id: Option<DrawListID>,
     pub draw_context: DrawContext,
     pub draw_list: DrawList,
@@ -697,7 +697,7 @@ impl Scene {
         }
     }
 
-    fn build_layers(&mut self, scene_rect: &Rect<f32>, can_reuse_old_batches: bool) {
+    fn build_layers(&mut self, scene_rect: &Rect<f32>, old_draw_lists: &Vec<DrawList>) {
         let _pf = util::ProfileScope::new("  build_layers");
 
         let mut old_layers = mem::replace(&mut self.layers,
@@ -730,11 +730,11 @@ impl Scene {
             }
         }
 
-        if can_reuse_old_batches {
-            for (scroll_layer_id, new_layer) in &mut self.layers {
-                if let Some(ref mut old_layer) = old_layers.get_mut(&scroll_layer_id) {
-                    new_layer.take_compiled_data_from(old_layer)
-                }
+        for (scroll_layer_id, new_layer) in &mut self.layers {
+            if let Some(ref mut old_layer) = old_layers.get_mut(&scroll_layer_id) {
+                new_layer.reuse_compiled_data_from_old_layer_if_possible(old_layer,
+                                                                         &mut self.flat_draw_lists,
+                                                                         old_draw_lists)
             }
         }
 
@@ -960,30 +960,6 @@ impl Scene {
         } else {
             println!("unable to find root scroll layer (may be an empty stacking context)");
         }
-    }
-
-    fn draw_lists_are_identical(&self, old_draw_lists: &Vec<DrawList>) -> bool {
-        if self.flat_draw_lists.len() != old_draw_lists.len() {
-            return false
-        }
-        for (new_flat_draw_list, old_draw_list) in
-                self.flat_draw_lists.iter().zip(old_draw_lists.iter()) {
-            if new_flat_draw_list.draw_list.items.len() != old_draw_list.items.len() {
-                return false
-            }
-            for (new_flat_draw_item, old_flat_draw_item) in
-                    new_flat_draw_list.draw_list
-                                      .items
-                                      .iter()
-                                      .zip(old_draw_list.items.iter()) {
-                if new_flat_draw_item.item != old_flat_draw_item.item ||
-                        new_flat_draw_item.rect != old_flat_draw_item.rect ||
-                        new_flat_draw_item.clip != old_flat_draw_item.clip {
-                    return false
-                }
-            }
-        }
-        true
     }
 }
 
@@ -1408,13 +1384,10 @@ impl RenderBackend {
             }
         }
 
-        let can_reuse_old_batches = old_draw_lists.len() > 0 &&
-            self.scene.draw_lists_are_identical(&old_draw_lists);
-
         if let Some(root_pipeline_id) = self.root_pipeline_id {
             if let Some(root_sc) = self.stacking_contexts.get(&root_pipeline_id) {
                 // Init the AABB culling tree(s)
-                self.scene.build_layers(&root_sc.stacking_context.overflow, can_reuse_old_batches);
+                self.scene.build_layers(&root_sc.stacking_context.overflow, &old_draw_lists);
 
                 // FIXME(pcwalton): This should be done somewhere else, probably when building the
                 // layer.

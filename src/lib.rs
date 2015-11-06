@@ -6,6 +6,9 @@
 #![feature(hashmap_hasher)]
 #![feature(vec_push_all)]
 
+#[macro_use]
+extern crate log;
+
 extern crate app_units;
 extern crate euclid;
 extern crate fnv;
