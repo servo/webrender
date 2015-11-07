@@ -11,8 +11,9 @@ use std::collections::hash_state::DefaultState;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCacheItem;
-use types::{FontKey, ImageKey, Epoch, ColorF, PipelineId, ImageFormat, DisplayListID};
-use types::{StackingContext, DisplayListBuilder, DisplayListMode, CompositionOp};
+use types::{DisplayListID, FontKey, ImageKey, Epoch, ColorF, PipelineId};
+use types::{ImageFormat, StackingContext, DisplayListBuilder, DisplayListMode, CompositionOp};
+use types::{ComplexClipRegion};
 use util;
 
 const UV_FLOAT_TO_FIXED: f32 = 65535.0;
@@ -20,6 +21,17 @@ const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
 pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
+
+static ZERO_RECT_F32: Rect<f32> = Rect {
+    origin: Point2D {
+        x: 0.0,
+        y: 0.0,
+    },
+    size: Size2D {
+        width: 0.0,
+        height: 0.0,
+    },
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct IdNamespace(pub u32);
@@ -824,5 +836,43 @@ pub enum BasicRotationAngle {
     Clockwise90,
     Clockwise180,
     Clockwise270,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CombinedClipRegion<'a> {
+    pub clip_in_rect: Rect<f32>,
+    pub clip_in_complex: Option<ComplexClipRegion>,
+    pub clip_in_complex_stack: &'a [ComplexClipRegion],
+    pub clip_out_complex: Option<ComplexClipRegion>,
+}
+
+impl<'a> CombinedClipRegion<'a> {
+    pub fn from_clip_in_rect_and_stack<'b>(clip_in_rect: &Rect<f32>,
+                                           clip_in_complex_stack: &'b [ComplexClipRegion])
+                                           -> CombinedClipRegion<'b> {
+        CombinedClipRegion {
+            clip_in_rect: *clip_in_rect,
+            clip_in_complex: None,
+            clip_in_complex_stack: clip_in_complex_stack,
+            clip_out_complex: None,
+        }
+    }
+
+    pub fn clip_in_rect(&mut self, rect: &Rect<f32>) -> &mut CombinedClipRegion<'a> {
+        self.clip_in_rect = self.clip_in_rect.intersection(rect).unwrap_or(ZERO_RECT_F32);
+        self
+    }
+
+    pub fn clip_in(&mut self, region: &ComplexClipRegion) -> &mut CombinedClipRegion<'a> {
+        debug_assert!(self.clip_in_complex.is_none());
+        self.clip_in_complex = Some(*region);
+        self
+    }
+
+    pub fn clip_out(&mut self, region: &ComplexClipRegion) -> &mut CombinedClipRegion<'a> {
+        debug_assert!(self.clip_out_complex.is_none());
+        self.clip_out_complex = Some(*region);
+        self
+    }
 }
 

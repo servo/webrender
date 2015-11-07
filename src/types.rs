@@ -131,6 +131,26 @@ pub struct BorderRadius {
     pub bottom_right: Size2D<f32>,
 }
 
+impl BorderRadius {
+    pub fn zero() -> BorderRadius {
+        BorderRadius {
+            top_left: Size2D::new(0.0, 0.0),
+            top_right: Size2D::new(0.0, 0.0),
+            bottom_left: Size2D::new(0.0, 0.0),
+            bottom_right: Size2D::new(0.0, 0.0),
+        }
+    }
+
+    pub fn uniform(radius: f32) -> BorderRadius {
+        BorderRadius {
+            top_left: Size2D::new(radius, radius),
+            top_right: Size2D::new(radius, radius),
+            bottom_left: Size2D::new(radius, radius),
+            bottom_right: Size2D::new(radius, radius),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BorderStyle {
     None,
@@ -615,7 +635,7 @@ impl ClipRegion {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ComplexClipRegion {
     /// The boundaries of the rectangle.
     pub rect: Rect<f32>,
@@ -628,6 +648,13 @@ impl ComplexClipRegion {
         ComplexClipRegion {
             rect: rect,
             radii: radii,
+        }
+    }
+
+    pub fn from_rect(rect: &Rect<f32>) -> ComplexClipRegion {
+        ComplexClipRegion {
+            rect: *rect,
+            radii: BorderRadius::zero(),
         }
     }
 }
