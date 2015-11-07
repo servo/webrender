@@ -67,7 +67,7 @@ pub struct Renderer {
     u_filter_params: UniformLocation,
     u_filter_texture_size: UniformLocation,
 
-    shadow_corner_program_id: ProgramId,
+    box_shadow_program_id: ProgramId,
 
     blur_program_id: ProgramId,
     u_direction: UniformLocation,
@@ -94,8 +94,8 @@ impl Renderer {
         let border_program_id = device.create_program("border.vs.glsl", "border.fs.glsl");
         let blend_program_id = device.create_program("blend.vs.glsl", "blend.fs.glsl");
         let filter_program_id = device.create_program("filter.vs.glsl", "filter.fs.glsl");
-        let shadow_corner_program_id = device.create_program("shadow_corner.vs.glsl",
-                                                             "shadow_corner.fs.glsl");
+        let box_shadow_program_id = device.create_program("box_shadow.vs.glsl",
+                                                          "box_shadow.fs.glsl");
         let blur_program_id = device.create_program("blur.vs.glsl", "blur.fs.glsl");
         let tile_program_id = device.create_program("tile.vs.glsl", "tile.fs.glsl");
 
@@ -170,7 +170,7 @@ impl Renderer {
             filter_program_id: filter_program_id,
             quad_program_id: quad_program_id,
             blit_program_id: blit_program_id,
-            shadow_corner_program_id: shadow_corner_program_id,
+            box_shadow_program_id: box_shadow_program_id,
             blur_program_id: blur_program_id,
             tile_program_id: tile_program_id,
             u_blend_params: u_blend_params,
@@ -486,7 +486,7 @@ impl Renderer {
 
                                 let border_program_id = self.border_program_id;
                                 let color = if inverted {
-                                    ColorF::new(0.0, 0.0, 0.0, 0.0)
+                                    ColorF::new(0.0, 0.0, 0.0, 1.0)
                                 } else {
                                     ColorF::new(1.0, 1.0, 1.0, 1.0)
                                 };
@@ -660,12 +660,12 @@ impl Renderer {
                                            blur_radius: Au,
                                            box_shadow_part: BoxShadowPart,
                                            inverted: bool) {
-        let shadow_corner_program_id = self.shadow_corner_program_id;
+        let box_shadow_program_id = self.box_shadow_program_id;
 
         let blur_radius = blur_radius.to_f32_px();
 
         let color = if inverted {
-            ColorF::new(0.0, 0.0, 0.0, 0.0)
+            ColorF::new(1.0, 1.0, 1.0, 0.0)
         } else {
             ColorF::new(1.0, 1.0, 1.0, 1.0)
         };
@@ -730,7 +730,7 @@ impl Renderer {
         let mut batch = self.get_or_create_raster_batch(update_id,
                                                         update_index,
                                                         TextureId(0),
-                                                        shadow_corner_program_id,
+                                                        box_shadow_program_id,
                                                         None);
         batch.add_draw_item(update_id, TextureId(0), &vertices);
     }
