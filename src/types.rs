@@ -335,6 +335,12 @@ pub struct DisplayItem {
     pub node_index: Option<NodeIndex>,
 }
 
+impl DisplayItem {
+    pub fn is_identical_to(&self, other: &DisplayItem) -> bool {
+        self.item == other.item && self.rect == other.rect && self.clip == other.clip
+    }
+}
+
 pub enum DisplayListMode {
     Default,
     PseudoFloat,

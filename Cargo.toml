@@ -16,6 +16,7 @@ serde_macros = "0.5"
 fnv="*"
 scoped_threadpool = "0.1.6"
 app_units = "0.1"
+log = "*"
 simd = { git = "https://github.com/huonw/simd" }
 
 [target.x86_64-apple-darwin.dependencies]

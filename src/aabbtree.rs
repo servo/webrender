@@ -1,8 +1,9 @@
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::{CompiledNode, DisplayItemKey};
+use render_backend::FlatDrawList;
 use resource_list::ResourceList;
 use std::mem;
-use types::NodeIndex;
+use types::{DrawList, NodeIndex};
 use util;
 
 pub struct AABBTreeNode {
@@ -45,11 +46,55 @@ impl AABBTreeNode {
         self.src_items.push(key);
     }
 
-    fn take_compiled_data_from(&mut self, other_aabb_tree_node: &mut AABBTreeNode) {
-        if self.compiled_node.is_none() && self.resource_list.is_none() {
-            mem::swap(&mut self.compiled_node, &mut other_aabb_tree_node.compiled_node);
-            mem::swap(&mut self.resource_list, &mut other_aabb_tree_node.resource_list);
+    fn reuse_compiled_data_from_old_node_if_possible(&mut self,
+                                                     old_aabb_tree_node: &mut AABBTreeNode,
+                                                     these_draw_lists: &Vec<FlatDrawList>,
+                                                     old_draw_lists: &Vec<DrawList>) {
+        if self.compiled_node.is_some() || self.resource_list.is_some() {
+            debug!("couldn't reuse batch: already compiled ({:?})", self.src_items.len());
+            return
         }
+
+        if self.src_items.len() != old_aabb_tree_node.src_items.len() {
+            debug!("couldn't reuse batch: different numbers of items ({:?})",
+                   self.src_items.len());
+            return
+        }
+
+        if old_aabb_tree_node.compiled_node.is_none() {
+            debug!("couldn't reuse batch: no old compiled node ({:?})",
+                     self.src_items.len());
+            return
+        }
+
+        for (this_item_key, old_item_key) in self.src_items.iter().zip(old_aabb_tree_node.src_items
+                                                                                         .iter()) {
+            let this_draw_list_index = this_item_key.draw_list_index.0 as usize;
+            let old_draw_list_index = old_item_key.draw_list_index.0 as usize;
+            debug_assert!(this_draw_list_index < these_draw_lists.len());
+            if old_draw_list_index >= old_draw_lists.len() {
+                debug!("couldn't reuse batch: old draw list no longer present ({})",
+                       self.src_items.len());
+                return
+            }
+
+            let this_draw_list = &these_draw_lists[this_draw_list_index];
+            let old_draw_list = &old_draw_lists[old_draw_list_index];
+            let this_index = this_item_key.item_index.0 as usize;
+            let old_index = old_item_key.item_index.0 as usize;
+            debug_assert!(this_index < this_draw_list.draw_list.items.len());
+            debug_assert!(old_index < old_draw_list.items.len());
+            if !this_draw_list.draw_list.items[this_index].is_identical_to(
+                    &old_draw_list.items[old_index]) {
+                debug!("couldn't reuse batch: different numbers of items ({:?})",
+                       self.src_items.len());
+                return
+            }
+        }
+
+        debug!("reusing batch! ({})", self.src_items.len());
+        mem::swap(&mut self.compiled_node, &mut old_aabb_tree_node.compiled_node);
+        mem::swap(&mut self.resource_list, &mut old_aabb_tree_node.resource_list);
     }
 }
 
@@ -237,12 +282,44 @@ impl AABBTree {
         }
     }
 
-    pub fn take_compiled_data_from(&mut self, other_aabb_tree: &mut AABBTree) {
-        debug_assert!(self.nodes.len() == other_aabb_tree.nodes.len());
-        for (this_node, other_node) in self.nodes.iter_mut().zip(other_aabb_tree.nodes
-                                                                                .iter_mut()) {
-            this_node.take_compiled_data_from(other_node)
+    fn reuse_compiled_data_from_old_nodes_if_possible(&mut self,
+                                                      old_aabb_tree: &mut AABBTree,
+                                                      these_draw_lists: &Vec<FlatDrawList>,
+                                                      old_draw_lists: &Vec<DrawList>,
+                                                      this_index: NodeIndex,
+                                                      old_index: NodeIndex) {
+        let child_indices = {
+            let this_node = self.node_mut(this_index);
+            let old_node = old_aabb_tree.node_mut(old_index);
+            this_node.reuse_compiled_data_from_old_node_if_possible(old_node,
+                                                                    these_draw_lists,
+                                                                    old_draw_lists);
+            (this_node.children, old_node.children)
+        };
+
+        if let (Some(this_child_index), Some(old_child_index)) = child_indices {
+            self.reuse_compiled_data_from_old_nodes_if_possible(old_aabb_tree,
+                                                                these_draw_lists,
+                                                                old_draw_lists,
+                                                                this_child_index,
+                                                                old_child_index);
+            self.reuse_compiled_data_from_old_nodes_if_possible(old_aabb_tree,
+                                                                these_draw_lists,
+                                                                old_draw_lists,
+                                                                NodeIndex(this_child_index.0 + 1),
+                                                                NodeIndex(old_child_index.0 + 1));
         }
+    }
+
+    pub fn reuse_compiled_data_from_old_tree_if_possible(&mut self,
+                                                         old_aabb_tree: &mut AABBTree,
+                                                         these_draw_lists: &Vec<FlatDrawList>,
+                                                         old_draw_lists: &Vec<DrawList>) {
+        self.reuse_compiled_data_from_old_nodes_if_possible(old_aabb_tree,
+                                                            these_draw_lists,
+                                                            old_draw_lists,
+                                                            NodeIndex(0),
+                                                            NodeIndex(0));
     }
 }
 
