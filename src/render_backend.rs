@@ -13,7 +13,7 @@ use internal_types::{ClipRectToRegionResult, DrawListIndex, DrawListItemIndex, D
 use internal_types::{CompositeInfo, BorderEdgeDirection, RenderTargetIndex, GlyphKey};
 use internal_types::{FontTemplate, Glyph, PolygonPosColorUv, RectPosUv, TextureTarget};
 use internal_types::{ResourceId, IdNamespace, TiledImageKey, BasicRotationAngle};
-use internal_types::{RectUv};
+use internal_types::{RectUv, CombinedClipRegion};
 use layer::Layer;
 use optimizer;
 use render_api::RenderApi;
@@ -39,6 +39,7 @@ use types::{GlyphInstance, DrawList, ImageFormat, BoxShadowClipMode, DisplayItem
 use types::{PipelineId, RenderNotifier, StackingContext, SpecificDisplayItem, ColorF};
 use types::{RenderTargetID, MixBlendMode, CompositeDisplayItem, BorderSide, BorderStyle};
 use types::{NodeIndex, CompositionOp, FilterOp, LowLevelFilterOp, BlurDirection};
+use types::{ComplexClipRegion, BorderRadius};
 use util;
 use util::MatrixHelpers;
 use scoped_threadpool;
@@ -1473,9 +1474,7 @@ impl DrawCommandBuilder {
     fn add_textured_rectangle(&mut self,
                               sort_key: &DisplayItemKey,
                               rect: &Rect<f32>,
-                              clip: &Rect<f32>,
-                              clip_mode: BoxShadowClipMode,
-                              clip_region: &ClipRegion,
+                              clip: &CombinedClipRegion,
                               image_info: &TextureCacheItem,
                               resource_cache: &ResourceCache,
                               clip_buffers: &mut ClipBuffers,
@@ -1483,8 +1482,6 @@ impl DrawCommandBuilder {
         self.add_axis_aligned_gradient_with_texture(sort_key,
                                                     rect,
                                                     clip,
-                                                    clip_mode,
-                                                    clip_region,
                                                     image_info,
                                                     resource_cache,
                                                     clip_buffers,
@@ -1495,17 +1492,13 @@ impl DrawCommandBuilder {
     fn add_color_rectangle(&mut self,
                            sort_key: &DisplayItemKey,
                            rect: &Rect<f32>,
-                           clip: &Rect<f32>,
-                           clip_mode: BoxShadowClipMode,
-                           clip_region: &ClipRegion,
+                           clip: &CombinedClipRegion,
                            resource_cache: &ResourceCache,
                            clip_buffers: &mut ClipBuffers,
                            color: &ColorF) {
         self.add_axis_aligned_gradient(sort_key,
                                        rect,
                                        clip,
-                                       clip_mode,
-                                       clip_region,
                                        resource_cache,
                                        clip_buffers,
                                        &[*color, *color, *color, *color])
@@ -1532,8 +1525,7 @@ impl DrawCommandBuilder {
     fn add_image(&mut self,
                  sort_key: &DisplayItemKey,
                  rect: &Rect<f32>,
-                 clip_rect: &Rect<f32>,
-                 clip_region: &ClipRegion,
+                 clip: &CombinedClipRegion,
                  stretch_size: &Size2D<f32>,
                  image_key: ImageKey,
                  resource_cache: &ResourceCache,
@@ -1554,8 +1546,7 @@ impl DrawCommandBuilder {
 
             self.push_image_rect(color,
                                  image_info,
-                                 clip_rect,
-                                 clip_region,
+                                 clip,
                                  &sort_key,
                                  resource_cache,
                                  clip_buffers,
@@ -1591,8 +1582,7 @@ impl DrawCommandBuilder {
 
                 self.push_image_rect(color,
                                      image_info,
-                                     clip_rect,
-                                     clip_region,
+                                     clip,
                                      &sort_key,
                                      resource_cache,
                                      clip_buffers,
@@ -1609,28 +1599,21 @@ impl DrawCommandBuilder {
     fn push_image_rect(&mut self,
                        color: &ColorF,
                        image_info: &TextureCacheItem,
-                       clip_rect: &Rect<f32>,
-                       clip_region: &ClipRegion,
+                       clip: &CombinedClipRegion,
                        sort_key: &DisplayItemKey,
                        resource_cache: &ResourceCache,
                        clip_buffers: &mut ClipBuffers,
                        rect: &Rect<f32>,
                        uv: &RectUv) {
-        clipper::clip_rect_with_mode_and_to_region(
-            RectPosUv {
-                pos: *rect,
-                uv: *uv
-            },
-            &mut clip_buffers.sh_clip_buffers,
-            &mut clip_buffers.rect_pos_uv,
-            clip_rect,
-            BoxShadowClipMode::Inset,
-            clip_region);
+        clipper::clip_rect_to_combined_region(RectPosUv {
+                                                pos: *rect,
+                                                uv: *uv
+                                              },
+                                              &mut clip_buffers.sh_clip_buffers,
+                                              &mut clip_buffers.rect_pos_uv,
+                                              clip);
         for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
-            let mask = mask_for_clip_region(resource_cache,
-                                            &clip_region,
-                                            false);
-
+            let mask = mask_for_clip_region(resource_cache, &clip_region, false);
             let colors = [*color, *color, *color, *color];
             let mut vertices = clip_region.make_packed_vertices_for_rect(&colors,
                                                                          mask,
@@ -1732,9 +1715,7 @@ impl DrawCommandBuilder {
     fn add_axis_aligned_gradient(&mut self,
                                  sort_key: &DisplayItemKey,
                                  rect: &Rect<f32>,
-                                 clip: &Rect<f32>,
-                                 clip_mode: BoxShadowClipMode,
-                                 clip_region: &ClipRegion,
+                                 clip: &CombinedClipRegion,
                                  resource_cache: &ResourceCache,
                                  clip_buffers: &mut ClipBuffers,
                                  colors: &[ColorF; 4]) {
@@ -1742,8 +1723,6 @@ impl DrawCommandBuilder {
         self.add_axis_aligned_gradient_with_texture(sort_key,
                                                     rect,
                                                     clip,
-                                                    clip_mode,
-                                                    clip_region,
                                                     white_image,
                                                     resource_cache,
                                                     clip_buffers,
@@ -1754,9 +1733,7 @@ impl DrawCommandBuilder {
     fn add_axis_aligned_gradient_with_texture(&mut self,
                                               sort_key: &DisplayItemKey,
                                               rect: &Rect<f32>,
-                                              clip: &Rect<f32>,
-                                              clip_mode: BoxShadowClipMode,
-                                              clip_region: &ClipRegion,
+                                              clip: &CombinedClipRegion,
                                               image_info: &TextureCacheItem,
                                               resource_cache: &ResourceCache,
                                               clip_buffers: &mut ClipBuffers,
@@ -1772,20 +1749,16 @@ impl DrawCommandBuilder {
             bottom_right: Point2D::new(image_info.u1, image_info.v1),
         };
 
-        clipper::clip_rect_with_mode_and_to_region(
+        clipper::clip_rect_to_combined_region(
             RectPosUv {
                 pos: *rect,
                 uv: uv,
             },
             &mut clip_buffers.sh_clip_buffers,
             &mut clip_buffers.rect_pos_uv,
-            clip,
-            clip_mode,
-            clip_region);
+            clip);
         for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
-            let mask = mask_for_clip_region(resource_cache,
-                                            &clip_region,
-                                            false);
+            let mask = mask_for_clip_region(resource_cache, &clip_region, false);
 
             let mut vertices = clip_region.make_packed_vertices_for_rect(colors,
                                                                          mask,
@@ -1801,8 +1774,7 @@ impl DrawCommandBuilder {
 
     fn add_gradient(&mut self,
                     sort_key: &DisplayItemKey,
-                    rect: &Rect<f32>,
-                    clip_region: &ClipRegion,
+                    clip: &CombinedClipRegion,
                     start_point: &Point2D<f32>,
                     end_point: &Point2D<f32>,
                     stops: &[GradientStop],
@@ -1861,19 +1833,14 @@ impl DrawCommandBuilder {
             };
 
             { // scope for buffers
-                clipper::clip_rect_with_mode_and_to_region(
-                    gradient_polygon,
-                    &mut clip_buffers.sh_clip_buffers,
-                    &mut clip_buffers.polygon_pos_color_uv,
-                    &rect,
-                    BoxShadowClipMode::Inset,
-                    &clip_region);
+                clipper::clip_rect_to_combined_region(gradient_polygon,
+                                                      &mut clip_buffers.sh_clip_buffers,
+                                                      &mut clip_buffers.polygon_pos_color_uv,
+                                                      clip);
                 for clip_result in clip_buffers.polygon_pos_color_uv
                                                .clip_rect_to_region_result_output
                                                .drain(..) {
-                    let mask = mask_for_clip_region(resource_cache,
-                                                    &clip_result,
-                                                    false);
+                    let mask = mask_for_clip_region(resource_cache, &clip_result, false);
 
                     let mut packed_vertices = Vec::new();
                     if clip_result.rect_result.vertices.len() >= 3 {
@@ -1902,8 +1869,7 @@ impl DrawCommandBuilder {
     fn add_box_shadow(&mut self,
                       sort_key: &DisplayItemKey,
                       box_bounds: &Rect<f32>,
-                      clip: &Rect<f32>,
-                      clip_region: &ClipRegion,
+                      clip: &CombinedClipRegion,
                       box_offset: &Point2D<f32>,
                       color: &ColorF,
                       blur_radius: f32,
@@ -1916,14 +1882,7 @@ impl DrawCommandBuilder {
 
         // Fast path.
         if blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None {
-            self.add_color_rectangle(sort_key,
-                                    &rect,
-                                    clip,
-                                    BoxShadowClipMode::Inset,
-                                    clip_region,
-                                    resource_cache,
-                                    clip_buffers,
-                                    color);
+            self.add_color_rectangle(sort_key, &rect, clip, resource_cache, clip_buffers, color);
             return;
         }
 
@@ -1936,13 +1895,14 @@ impl DrawCommandBuilder {
                                     spread_radius,
                                     border_radius,
                                     clip_mode,
+                                    clip,
                                     resource_cache,
                                     clip_buffers);
 
         // Draw the sides.
         self.add_box_shadow_sides(sort_key,
                                   box_bounds,
-                                  clip_region,
+                                  clip,
                                   box_offset,
                                   color,
                                   blur_radius,
@@ -1953,17 +1913,26 @@ impl DrawCommandBuilder {
                                   clip_buffers);
 
         match clip_mode {
-            BoxShadowClipMode::None | BoxShadowClipMode::Outset => {
+            BoxShadowClipMode::None => {
+                // Fill the center area.
+                self.add_color_rectangle(sort_key,
+                                         box_bounds,
+                                         clip,
+                                         resource_cache,
+                                         clip_buffers,
+                                         color);
+            }
+            BoxShadowClipMode::Outset => {
                 // Fill the center area.
                 let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
                 let center_rect = Rect::new(metrics.tl_inner,
                                             Size2D::new(metrics.br_inner.x - metrics.tl_inner.x,
                                                         metrics.br_inner.y - metrics.tl_inner.y));
+                let mut clip = *clip;
+                clip.clip_out(&ComplexClipRegion::from_rect(&box_bounds));
                 self.add_color_rectangle(sort_key,
                                          &center_rect,
-                                         box_bounds,
-                                         clip_mode,
-                                         clip_region,
+                                         &clip,
                                          resource_cache,
                                          clip_buffers,
                                          color);
@@ -1972,13 +1941,12 @@ impl DrawCommandBuilder {
                 // Fill in the outsides.
                 self.fill_outside_area_of_inset_box_shadow(sort_key,
                                                            box_bounds,
-                                                           clip_region,
+                                                           clip,
                                                            box_offset,
                                                            color,
                                                            blur_radius,
                                                            spread_radius,
                                                            border_radius,
-                                                           clip_mode,
                                                            resource_cache,
                                                            clip_buffers);
             }
@@ -1994,6 +1962,7 @@ impl DrawCommandBuilder {
                               spread_radius: f32,
                               border_radius: f32,
                               clip_mode: BoxShadowClipMode,
+                              clip: &CombinedClipRegion,
                               resource_cache: &ResourceCache,
                               clip_buffers: &mut ClipBuffers) {
         // Draw the corners.
@@ -2010,47 +1979,53 @@ impl DrawCommandBuilder {
 
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
         let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
+
+        let clip = self.adjust_clip_for_box_shadow_clip_mode(clip,
+                                                             box_bounds,
+                                                             border_radius,
+                                                             clip_mode);
+
         self.add_box_shadow_corner(sort_key,
                                    &metrics.tl_outer,
                                    &metrics.tl_inner,
-                                   box_bounds,
                                    &color,
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
+                                   &clip,
                                    resource_cache,
                                    clip_buffers,
                                    BasicRotationAngle::Upright);
         self.add_box_shadow_corner(sort_key,
                                    &Point2D::new(metrics.tr_inner.x, metrics.tr_outer.y),
                                    &Point2D::new(metrics.tr_outer.x, metrics.tr_inner.y),
-                                   box_bounds,
                                    &color,
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
+                                   &clip,
                                    resource_cache,
                                    clip_buffers,
                                    BasicRotationAngle::Clockwise90);
         self.add_box_shadow_corner(sort_key,
                                    &metrics.br_inner,
                                    &metrics.br_outer,
-                                   box_bounds,
                                    &color,
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
+                                   &clip,
                                    resource_cache,
                                    clip_buffers,
                                    BasicRotationAngle::Clockwise180);
         self.add_box_shadow_corner(sort_key,
                                    &Point2D::new(metrics.bl_outer.x, metrics.bl_inner.y),
                                    &Point2D::new(metrics.bl_inner.x, metrics.bl_outer.y),
-                                   box_bounds,
                                    &color,
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
+                                   &clip,
                                    resource_cache,
                                    clip_buffers,
                                    BasicRotationAngle::Clockwise270);
@@ -2059,7 +2034,7 @@ impl DrawCommandBuilder {
     fn add_box_shadow_sides(&mut self,
                             sort_key: &DisplayItemKey,
                             box_bounds: &Rect<f32>,
-                            clip_region: &ClipRegion,
+                            clip: &CombinedClipRegion,
                             box_offset: &Point2D<f32>,
                             color: &ColorF,
                             blur_radius: f32,
@@ -2070,6 +2045,11 @@ impl DrawCommandBuilder {
                             clip_buffers: &mut ClipBuffers) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
         let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
+
+        let clip = self.adjust_clip_for_box_shadow_clip_mode(clip,
+                                                             box_bounds,
+                                                             border_radius,
+                                                             clip_mode);
 
         // Draw the sides.
         //
@@ -2101,48 +2081,44 @@ impl DrawCommandBuilder {
         self.add_box_shadow_edge(sort_key,
                                  &top_rect.origin,
                                  &top_rect.bottom_right(),
-                                 box_bounds,
                                  color,
                                  blur_radius,
                                  border_radius,
                                  clip_mode,
-                                 clip_region,
+                                 &clip,
                                  resource_cache,
                                  clip_buffers,
                                  BasicRotationAngle::Clockwise270);
         self.add_box_shadow_edge(sort_key,
                                  &right_rect.origin,
                                  &right_rect.bottom_right(),
-                                 box_bounds,
                                  color,
                                  blur_radius,
                                  border_radius,
                                  clip_mode,
-                                 clip_region,
+                                 &clip,
                                  resource_cache,
                                  clip_buffers,
                                  BasicRotationAngle::Upright);
         self.add_box_shadow_edge(sort_key,
                                  &bottom_rect.origin,
                                  &bottom_rect.bottom_right(),
-                                 box_bounds,
                                  color,
                                  blur_radius,
                                  border_radius,
                                  clip_mode,
-                                 clip_region,
+                                 &clip,
                                  resource_cache,
                                  clip_buffers,
                                  BasicRotationAngle::Clockwise90);
         self.add_box_shadow_edge(sort_key,
                                  &left_rect.origin,
                                  &left_rect.bottom_right(),
-                                 box_bounds,
                                  color,
                                  blur_radius,
                                  border_radius,
                                  clip_mode,
-                                 clip_region,
+                                 &clip,
                                  resource_cache,
                                  clip_buffers,
                                  BasicRotationAngle::Clockwise180);
@@ -2151,17 +2127,21 @@ impl DrawCommandBuilder {
     fn fill_outside_area_of_inset_box_shadow(&mut self,
                                              sort_key: &DisplayItemKey,
                                              box_bounds: &Rect<f32>,
-                                             clip_region: &ClipRegion,
+                                             clip: &CombinedClipRegion,
                                              box_offset: &Point2D<f32>,
                                              color: &ColorF,
                                              blur_radius: f32,
                                              spread_radius: f32,
                                              border_radius: f32,
-                                             clip_mode: BoxShadowClipMode,
                                              resource_cache: &ResourceCache,
                                              clip_buffers: &mut ClipBuffers) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
         let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
+
+        let clip = self.adjust_clip_for_box_shadow_clip_mode(clip,
+                                                             box_bounds,
+                                                             border_radius,
+                                                             BoxShadowClipMode::Inset);
 
         // Fill in the outside area of the box.
         //
@@ -2184,9 +2164,7 @@ impl DrawCommandBuilder {
                                  &Rect::new(box_bounds.origin,
                                             Size2D::new(box_bounds.size.width,
                                                         metrics.tl_outer.y - box_bounds.origin.y)),
-                                 box_bounds,
-                                 clip_mode,
-                                 clip_region,
+                                 &clip,
                                  resource_cache,
                                  clip_buffers,
                                  color);
@@ -2196,9 +2174,7 @@ impl DrawCommandBuilder {
                                  &Rect::new(metrics.tr_outer,
                                             Size2D::new(box_bounds.max_x() - metrics.tr_outer.x,
                                                         metrics.br_outer.y - metrics.tr_outer.y)),
-                                 box_bounds,
-                                 clip_mode,
-                                 clip_region,
+                                 &clip,
                                  resource_cache,
                                  clip_buffers,
                                  color);
@@ -2208,9 +2184,7 @@ impl DrawCommandBuilder {
                                  &Rect::new(Point2D::new(box_bounds.origin.x, metrics.bl_outer.y),
                                             Size2D::new(box_bounds.size.width,
                                                         box_bounds.max_y() - metrics.br_outer.y)),
-                                 box_bounds,
-                                 clip_mode,
-                                 clip_region,
+                                 &clip,
                                  resource_cache,
                                  clip_buffers,
                                  color);
@@ -2220,20 +2194,41 @@ impl DrawCommandBuilder {
                                  &Rect::new(Point2D::new(box_bounds.origin.x, metrics.tl_outer.y),
                                             Size2D::new(metrics.tl_outer.x - box_bounds.origin.x,
                                                         metrics.bl_outer.y - metrics.tl_outer.y)),
-                                 box_bounds,
-                                 clip_mode,
-                                 clip_region,
+                                 &clip,
                                  resource_cache,
                                  clip_buffers,
                                  color);
+    }
+
+    fn adjust_clip_for_box_shadow_clip_mode<'a>(&mut self,
+                                                clip: &CombinedClipRegion<'a>,
+                                                box_bounds: &Rect<f32>,
+                                                border_radius: f32,
+                                                clip_mode: BoxShadowClipMode)
+                                                -> CombinedClipRegion<'a> {
+        let mut clip = *clip;
+        match clip_mode {
+            BoxShadowClipMode::None => {}
+            BoxShadowClipMode::Inset => {
+                clip.clip_in(&ComplexClipRegion {
+                    rect: *box_bounds,
+                    radii: BorderRadius::uniform(border_radius),
+                });
+            }
+            BoxShadowClipMode::Outset => {
+                // TODO(pcwalton): Support border radii here too, once we have inverted rounded
+                // rect clip masks.
+                clip.clip_out(&ComplexClipRegion::from_rect(box_bounds));
+            }
+        }
+        clip
     }
 
     #[inline]
     fn add_border_edge(&mut self,
                        sort_key: &DisplayItemKey,
                        rect: &Rect<f32>,
-                       clip: &Rect<f32>,
-                       clip_region: &ClipRegion,
+                       clip: &CombinedClipRegion,
                        direction: BorderEdgeDirection,
                        color: &ColorF,
                        border_style: BorderStyle,
@@ -2272,8 +2267,6 @@ impl DrawCommandBuilder {
                     self.add_color_rectangle(sort_key,
                                              &dash_rect,
                                              clip,
-                                             BoxShadowClipMode::Inset,
-                                             clip_region,
                                              resource_cache,
                                              clip_buffers,
                                              color);
@@ -2318,8 +2311,6 @@ impl DrawCommandBuilder {
                                                            Size2D::new(dot_rect.size.width / 2.0,
                                                                        dot_rect.size.height / 2.0)),
                                                 clip,
-                                                BoxShadowClipMode::Inset,
-                                                clip_region,
                                                 color_image,
                                                 resource_cache,
                                                 clip_buffers,
@@ -2331,8 +2322,6 @@ impl DrawCommandBuilder {
                                                            Size2D::new(-dot_rect.size.width / 2.0,
                                                                        dot_rect.size.height / 2.0)),
                                                 clip,
-                                                BoxShadowClipMode::Inset,
-                                                clip_region,
                                                 color_image,
                                                 resource_cache,
                                                 clip_buffers,
@@ -2344,8 +2333,6 @@ impl DrawCommandBuilder {
                                                             Size2D::new(-dot_rect.size.width / 2.0,
                                                                         -dot_rect.size.height / 2.0)),
                                                 clip,
-                                                BoxShadowClipMode::Inset,
-                                                clip_region,
                                                 color_image,
                                                 resource_cache,
                                                 clip_buffers,
@@ -2357,8 +2344,6 @@ impl DrawCommandBuilder {
                                                            Size2D::new(dot_rect.size.width / 2.0,
                                                                        -dot_rect.size.height / 2.0)),
                                                 clip,
-                                                BoxShadowClipMode::Inset,
-                                                clip_region,
                                                 color_image,
                                                 resource_cache,
                                                 clip_buffers,
@@ -2387,16 +2372,12 @@ impl DrawCommandBuilder {
                 self.add_color_rectangle(sort_key,
                                          &outer_rect,
                                          clip,
-                                         BoxShadowClipMode::Inset,
-                                         clip_region,
                                          resource_cache,
                                          clip_buffers,
                                          color);
                 self.add_color_rectangle(sort_key,
                                          &inner_rect,
                                          clip,
-                                         BoxShadowClipMode::Inset,
-                                         clip_region,
                                          resource_cache,
                                          clip_buffers,
                                          color);
@@ -2405,8 +2386,6 @@ impl DrawCommandBuilder {
                 self.add_color_rectangle(sort_key,
                                          rect,
                                          clip,
-                                         BoxShadowClipMode::Inset,
-                                         clip_region,
                                          resource_cache,
                                          clip_buffers,
                                          color);
@@ -2417,13 +2396,14 @@ impl DrawCommandBuilder {
     #[inline]
     fn add_border_corner(&mut self,
                          sort_key: &DisplayItemKey,
-                         clip: &Rect<f32>,
+                         clip: &CombinedClipRegion,
                          vertices_rect: &Rect<f32>,
                          color0: &ColorF,
                          color1: &ColorF,
                          outer_radius: &Size2D<f32>,
                          inner_radius: &Size2D<f32>,
                          resource_cache: &ResourceCache,
+                         clip_buffers: &mut clipper::ClipBuffers,
                          rotation_angle: BasicRotationAngle) {
         if color0.a <= 0.0 && color1.a <= 0.0 {
             return
@@ -2444,36 +2424,46 @@ impl DrawCommandBuilder {
             }
         };
 
+        // FIXME(pcwalton): Either use RGBA8 textures instead of alpha masks here, or implement
+        // a mask combiner.
         let mask_uv = RectUv::from_image_and_rotation_angle(mask_image, rotation_angle);
-        if vertices_rect.intersects(clip) {
+        clipper::clip_rect_to_combined_region(
+            RectPosUv {
+                pos: *vertices_rect,
+                uv: mask_uv,
+            },
+            &mut clip_buffers.sh_clip_buffers,
+            &mut clip_buffers.rect_pos_uv,
+            clip);
+        for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
             let v0;
             let v1;
             let muv0;
             let muv1;
             match rotation_angle {
                 BasicRotationAngle::Upright => {
-                    v0 = vertices_rect.origin;
-                    muv0 = mask_uv.top_left;
-                    v1 = vertices_rect.bottom_right();
-                    muv1 = mask_uv.bottom_right;
+                    v0 = clip_region.rect_result.pos.origin;
+                    muv0 = clip_region.rect_result.uv.top_left;
+                    v1 = clip_region.rect_result.pos.bottom_right();
+                    muv1 = clip_region.rect_result.uv.bottom_right;
                 }
                 BasicRotationAngle::Clockwise90 => {
-                    v0 = vertices_rect.top_right();
-                    muv0 = mask_uv.top_right;
-                    v1 = vertices_rect.bottom_left();
-                    muv1 = mask_uv.bottom_left;
+                    v0 = clip_region.rect_result.pos.top_right();
+                    muv0 = clip_region.rect_result.uv.top_right;
+                    v1 = clip_region.rect_result.pos.bottom_left();
+                    muv1 = clip_region.rect_result.uv.bottom_left;
                 }
                 BasicRotationAngle::Clockwise180 => {
-                    v0 = vertices_rect.bottom_right();
-                    muv0 = mask_uv.bottom_right;
-                    v1 = vertices_rect.origin;
-                    muv1 = mask_uv.top_left;
+                    v0 = clip_region.rect_result.pos.bottom_right();
+                    muv0 = clip_region.rect_result.uv.bottom_right;
+                    v1 = clip_region.rect_result.pos.origin;
+                    muv1 = clip_region.rect_result.uv.top_left;
                 }
                 BasicRotationAngle::Clockwise270 => {
-                    v0 = vertices_rect.bottom_left();
-                    muv0 = mask_uv.bottom_left;
-                    v1 = vertices_rect.top_right();
-                    muv1 = mask_uv.top_right;
+                    v0 = clip_region.rect_result.pos.bottom_left();
+                    muv0 = clip_region.rect_result.uv.bottom_left;
+                    v1 = clip_region.rect_result.pos.top_right();
+                    muv1 = clip_region.rect_result.uv.top_right;
                 }
             }
 
@@ -2519,68 +2509,43 @@ impl DrawCommandBuilder {
         }
     }
 
-    fn add_masked_rectangle(&mut self,
-                            sort_key: &DisplayItemKey,
-                            v0: &Point2D<f32>,
-                            v1: &Point2D<f32>,
-                            clip: &Rect<f32>,
-                            clip_mode: BoxShadowClipMode,
-                            color0: &ColorF,
-                            color1: &ColorF,
-                            mask_image: &TextureCacheItem,
-                            resource_cache: &ResourceCache,
-                            clip_buffers: &mut ClipBuffers,
-                            rotation_angle: BasicRotationAngle) {
+    fn add_color_image_rectangle(&mut self,
+                                 sort_key: &DisplayItemKey,
+                                 v0: &Point2D<f32>,
+                                 v1: &Point2D<f32>,
+                                 clip: &CombinedClipRegion,
+                                 color0: &ColorF,
+                                 color1: &ColorF,
+                                 color_image: &TextureCacheItem,
+                                 resource_cache: &ResourceCache,
+                                 clip_buffers: &mut ClipBuffers,
+                                 rotation_angle: BasicRotationAngle) {
         if color0.a <= 0.0 || color1.a <= 0.0 {
             return
         }
 
-        let white_image = resource_cache.get_dummy_color_image();
         let vertices_rect = Rect::new(*v0, Size2D::new(v1.x - v0.x, v1.y - v0.y));
-        let mask_uv = RectUv::from_image_and_rotation_angle(mask_image, rotation_angle);
+        let color_uv = RectUv::from_image_and_rotation_angle(color_image, rotation_angle);
 
-        clipper::clip_rect_with_mode(RectPosUv {
-                                        pos: vertices_rect,
-                                        uv: mask_uv,
-                                     },
-                                     &mut clip_buffers.sh_clip_buffers,
-                                     clip,
-                                     clip_mode,
-                                     &mut clip_buffers.rect_pos_uv.polygon_output);
-        for clip_result in clip_buffers.rect_pos_uv.polygon_output.drain(..) {
-            let mut vertices = [
-                PackedVertex::from_components(clip_result.pos.origin.x, clip_result.pos.origin.y,
-                                              color0,
-                                              0.0, 0.0,
-                                              clip_result.uv.top_left.x, clip_result.uv.top_left.y,
-                                              white_image.texture_index,
-                                              mask_image.texture_index),
-                PackedVertex::from_components(clip_result.pos.max_x(), clip_result.pos.origin.y,
-                                              color0,
-                                              0.0, 0.0,
-                                              clip_result.uv.top_right.x,
-                                              clip_result.uv.top_right.y,
-                                              white_image.texture_index,
-                                              mask_image.texture_index),
-                PackedVertex::from_components(clip_result.pos.origin.x, clip_result.pos.max_y(),
-                                              color1,
-                                              0.0, 0.0,
-                                              clip_result.uv.bottom_left.x,
-                                              clip_result.uv.bottom_left.y,
-                                              white_image.texture_index,
-                                              mask_image.texture_index),
-                PackedVertex::from_components(clip_result.pos.max_x(), clip_result.pos.max_y(),
-                                              color1,
-                                              0.0, 0.0,
-                                              clip_result.uv.bottom_right.x,
-                                              clip_result.uv.bottom_right.y,
-                                              white_image.texture_index,
-                                              mask_image.texture_index),
-            ];
+        clipper::clip_rect_to_combined_region(RectPosUv {
+                                                pos: vertices_rect,
+                                                uv: color_uv,
+                                              },
+                                              &mut clip_buffers.sh_clip_buffers,
+                                              &mut clip_buffers.rect_pos_uv,
+                                              clip);
+        for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
+            let mask = mask_for_clip_region(resource_cache,
+                                            &clip_region,
+                                            false);
+            let colors = [*color0, *color0, *color1, *color1];
+            let mut vertices = clip_region.make_packed_vertices_for_rect(&colors,
+                                                                         mask,
+                                                                         color_image.texture_index);
 
             self.add_draw_item(sort_key,
-                               white_image.texture_id,
-                               mask_image.texture_id,
+                               color_image.texture_id,
+                               mask.texture_id,
                                Primitive::Rectangles,
                                &mut vertices);
         }
@@ -2589,8 +2554,7 @@ impl DrawCommandBuilder {
     fn add_border(&mut self,
                   sort_key: &DisplayItemKey,
                   rect: &Rect<f32>,
-                  clip: &Rect<f32>,
-                  clip_region: &ClipRegion,
+                  clip: &CombinedClipRegion,
                   info: &BorderDisplayItem,
                   resource_cache: &ResourceCache,
                   clip_buffers: &mut ClipBuffers) {
@@ -2629,7 +2593,6 @@ impl DrawCommandBuilder {
                              &Rect::new(Point2D::new(tl_outer.x, tl_inner.y),
                                         Size2D::new(left.width, bl_inner.y - tl_inner.y)),
                              clip,
-                             clip_region,
                              BorderEdgeDirection::Vertical,
                              &left_color,
                              info.left.style,
@@ -2641,7 +2604,6 @@ impl DrawCommandBuilder {
                                         Size2D::new(tr_inner.x - tl_inner.x,
                                                     tr_outer.y + top.width - tl_outer.y)),
                              clip,
-                             clip_region,
                              BorderEdgeDirection::Horizontal,
                              &top_color,
                              info.top.style,
@@ -2652,7 +2614,6 @@ impl DrawCommandBuilder {
                              &Rect::new(Point2D::new(br_outer.x - right.width, tr_inner.y),
                                         Size2D::new(right.width, br_inner.y - tr_inner.y)),
                              clip,
-                             clip_region,
                              BorderEdgeDirection::Vertical,
                              &right_color,
                              info.right.style,
@@ -2664,7 +2625,6 @@ impl DrawCommandBuilder {
                                         Size2D::new(br_inner.x - bl_inner.x,
                                                     br_outer.y - bl_outer.y + bottom.width)),
                              clip,
-                             clip_region,
                              BorderEdgeDirection::Horizontal,
                              &bottom_color,
                              info.bottom.style,
@@ -2682,6 +2642,7 @@ impl DrawCommandBuilder {
                                &radius.top_left,
                                &info.top_left_inner_radius(),
                                resource_cache,
+                               clip_buffers,
                                BasicRotationAngle::Upright);
 
         self.add_border_corner(sort_key,
@@ -2694,6 +2655,7 @@ impl DrawCommandBuilder {
                                &radius.top_right,
                                &info.top_right_inner_radius(),
                                resource_cache,
+                               clip_buffers,
                                BasicRotationAngle::Clockwise90);
 
         self.add_border_corner(sort_key,
@@ -2706,6 +2668,7 @@ impl DrawCommandBuilder {
                                &radius.bottom_right,
                                &info.bottom_right_inner_radius(),
                                resource_cache,
+                               clip_buffers,
                                BasicRotationAngle::Clockwise180);
 
         self.add_border_corner(sort_key,
@@ -2718,6 +2681,7 @@ impl DrawCommandBuilder {
                                &radius.bottom_left,
                                &info.bottom_left_inner_radius(),
                                resource_cache,
+                               clip_buffers,
                                BasicRotationAngle::Clockwise270);
     }
 
@@ -2726,83 +2690,78 @@ impl DrawCommandBuilder {
                              sort_key: &DisplayItemKey,
                              top_left: &Point2D<f32>,
                              bottom_right: &Point2D<f32>,
-                             box_bounds: &Rect<f32>,
                              color: &ColorF,
                              blur_radius: f32,
                              border_radius: f32,
                              clip_mode: BoxShadowClipMode,
+                             clip: &CombinedClipRegion,
                              resource_cache: &ResourceCache,
                              clip_buffers: &mut ClipBuffers,
                              rotation_angle: BasicRotationAngle) {
-        let (inverted, clip_rect) = match clip_mode {
-            BoxShadowClipMode::Outset => (false, *box_bounds),
-            BoxShadowClipMode::Inset => (true, *box_bounds),
-            BoxShadowClipMode::None => (false, MAX_RECT),
+        let inverted = match clip_mode {
+            BoxShadowClipMode::Outset | BoxShadowClipMode::None => false,
+            BoxShadowClipMode::Inset => true,
         };
 
-        let mask_image = match BoxShadowRasterOp::create_corner(blur_radius,
-                                                                border_radius,
-                                                                inverted) {
+        let color_image = match BoxShadowRasterOp::create_corner(blur_radius,
+                                                                 border_radius,
+                                                                 inverted) {
             Some(raster_item) => {
                 let raster_item = RasterItem::BoxShadow(raster_item);
                 resource_cache.get_raster(&raster_item)
             }
-            None => resource_cache.get_dummy_mask_image(),
+            None => resource_cache.get_dummy_color_image(),
         };
 
-        self.add_masked_rectangle(sort_key,
-                                  top_left,
-                                  bottom_right,
-                                  &clip_rect,
-                                  clip_mode,
-                                  color,
-                                  color,
-                                  &mask_image,
-                                  resource_cache,
-                                  clip_buffers,
-                                  rotation_angle)
+        self.add_color_image_rectangle(sort_key,
+                                       top_left,
+                                       bottom_right,
+                                       clip,
+                                       color,
+                                       color,
+                                       &color_image,
+                                       resource_cache,
+                                       clip_buffers,
+                                       rotation_angle)
     }
 
     fn add_box_shadow_edge(&mut self,
                            sort_key: &DisplayItemKey,
                            top_left: &Point2D<f32>,
                            bottom_right: &Point2D<f32>,
-                           box_bounds: &Rect<f32>,
                            color: &ColorF,
                            blur_radius: f32,
                            border_radius: f32,
                            clip_mode: BoxShadowClipMode,
-                           _: &ClipRegion,
+                           clip: &CombinedClipRegion,
                            resource_cache: &ResourceCache,
                            clip_buffers: &mut ClipBuffers,
                            rotation_angle: BasicRotationAngle) {
-        let (inverted, clip_rect) = match clip_mode {
-            BoxShadowClipMode::Outset => (false, *box_bounds),
-            BoxShadowClipMode::Inset => (true, *box_bounds),
-            BoxShadowClipMode::None => (false, MAX_RECT),
+        let inverted = match clip_mode {
+            BoxShadowClipMode::Outset | BoxShadowClipMode::None => false,
+            BoxShadowClipMode::Inset => true,
         };
 
-        let mask_image = match BoxShadowRasterOp::create_edge(blur_radius,
-                                                              border_radius,
-                                                              inverted) {
+        let color_image = match BoxShadowRasterOp::create_edge(blur_radius,
+                                                               border_radius,
+                                                               inverted) {
             Some(raster_item) => {
                 let raster_item = RasterItem::BoxShadow(raster_item);
                 resource_cache.get_raster(&raster_item)
             }
-            None => resource_cache.get_dummy_mask_image(),
+            None => resource_cache.get_dummy_color_image(),
         };
 
-        self.add_masked_rectangle(sort_key,
-                                  top_left,
-                                  bottom_right,
-                                  &clip_rect,
-                                  clip_mode,
-                                  color,
-                                  color,
-                                  &mask_image,
-                                  resource_cache,
-                                  clip_buffers,
-                                  rotation_angle)
+        self.add_color_image_rectangle(sort_key,
+                                       top_left,
+                                       bottom_right,
+                                       clip,
+                                       color,
+                                       color,
+                                       &color_image,
+                                       resource_cache,
+                                       clip_buffers,
+                                       rotation_angle)
     }
 }
 
@@ -2820,22 +2779,7 @@ impl BuildRequiredResources for AABBTreeNode {
 
             // Handle border radius for complex clipping regions.
             for complex_clip_region in display_item.clip.complex.iter() {
-                resource_list.add_radius_raster(&complex_clip_region.radii.top_left,
-                                                &Size2D::new(0.0, 0.0),
-                                                false,
-                                                ImageFormat::A8);
-                resource_list.add_radius_raster(&complex_clip_region.radii.top_right,
-                                                &Size2D::new(0.0, 0.0),
-                                                false,
-                                                ImageFormat::A8);
-                resource_list.add_radius_raster(&complex_clip_region.radii.bottom_left,
-                                                &Size2D::new(0.0, 0.0),
-                                                false,
-                                                ImageFormat::A8);
-                resource_list.add_radius_raster(&complex_clip_region.radii.bottom_right,
-                                                &Size2D::new(0.0, 0.0),
-                                                false,
-                                                ImageFormat::A8);
+                resource_list.add_radius_raster_for_border_radii(&complex_clip_region.radii);
             }
 
             match display_item.item {
@@ -2856,6 +2800,8 @@ impl BuildRequiredResources for AABBTreeNode {
                 SpecificDisplayItem::Composite(..) => {}
                 SpecificDisplayItem::Clear(..) => {}
                 SpecificDisplayItem::BoxShadow(ref info) => {
+                    resource_list.add_radius_raster_for_border_radii(
+                        &BorderRadius::uniform(info.border_radius));
                     resource_list.add_box_shadow_corner(info.blur_radius,
                                                         info.border_radius,
                                                         false);
@@ -3027,7 +2973,10 @@ impl NodeCompiler for AABBTreeNode {
                    node_scroll_layer_id == draw_context.scroll_layer_id {
                     let clip_rect = display_item.clip.main.intersection(&draw_context.overflow);
 
-                    if let Some(clip_rect) = clip_rect {
+                    if let Some(ref clip_rect) = clip_rect {
+                        let mut clip = CombinedClipRegion::from_clip_in_rect_and_stack(
+                            clip_rect,
+                            &display_item.clip.complex[..]);
 
                         let builder = match draw_cmd_builders.entry(draw_context.render_target_index) {
                             Vacant(entry) => {
@@ -3042,8 +2991,7 @@ impl NodeCompiler for AABBTreeNode {
                             SpecificDisplayItem::Image(ref info) => {
                                 builder.add_image(&key,
                                                   &display_item.rect,
-                                                  &clip_rect,
-                                                  &display_item.clip,
+                                                  &clip,
                                                   &info.stretch_size,
                                                   info.image_key,
                                                   resource_cache,
@@ -3063,18 +3011,16 @@ impl NodeCompiler for AABBTreeNode {
                             SpecificDisplayItem::Rectangle(ref info) => {
                                 builder.add_color_rectangle(&key,
                                                             &display_item.rect,
-                                                            &clip_rect,
-                                                            BoxShadowClipMode::Inset,
-                                                            &display_item.clip,
+                                                            &clip,
                                                             resource_cache,
                                                             &mut clip_buffers,
                                                             &info.color);
                             }
                             SpecificDisplayItem::Iframe(..) => {}
                             SpecificDisplayItem::Gradient(ref info) => {
+                                clip.clip_in_rect(&display_item.rect);
                                 builder.add_gradient(&key,
-                                                     &display_item.rect,
-                                                     &display_item.clip,
+                                                     &clip,
                                                      &info.start_point,
                                                      &info.end_point,
                                                      &info.stops,
@@ -3084,8 +3030,7 @@ impl NodeCompiler for AABBTreeNode {
                             SpecificDisplayItem::BoxShadow(ref info) => {
                                 builder.add_box_shadow(&key,
                                                        &info.box_bounds,
-                                                       &clip_rect,
-                                                       &display_item.clip,
+                                                       &clip,
                                                        &info.offset,
                                                        &info.color,
                                                        info.blur_radius,
@@ -3098,8 +3043,7 @@ impl NodeCompiler for AABBTreeNode {
                             SpecificDisplayItem::Border(ref info) => {
                                 builder.add_border(&key,
                                                    &display_item.rect,
-                                                   &clip_rect,
-                                                   &display_item.clip,
+                                                   &clip,
                                                    info,
                                                    resource_cache,
                                                    &mut clip_buffers);

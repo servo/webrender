@@ -1,10 +1,11 @@
 use euclid::{Point2D, Rect, Size2D};
-use internal_types::{ClipRectToRegionMaskResult, ClipRectToRegionResult, PolygonPosColorUv};
-use internal_types::{RectPosUv, RectUv, WorkVertex};
+use internal_types::{ClipRectToRegionMaskResult, ClipRectToRegionResult};
+use internal_types::{CombinedClipRegion, PolygonPosColorUv, RectPosUv, RectUv, WorkVertex};
 use render_backend::MAX_RECT;
 use simd::f32x4;
+use std::fmt::Debug;
 use std::mem;
-use types::{BoxShadowClipMode, ClipRegion, ColorF};
+use types::{ColorF, ComplexClipRegion};
 use util;
 
 /// Computes whether the point c is inside the clipping edge ab.
@@ -149,183 +150,166 @@ pub fn clip_polygon<'a>(buffers: &'a mut ShClipBuffers,
     result
 }
 
-pub fn clip_rect_with_mode<P>(polygon: P,
-                              sh_clip_buffers: &mut ShClipBuffers,
-                              clip_rect: &Rect<f32>,
-                              clip_mode: BoxShadowClipMode,
-                              output: &mut Vec<P>)
-                              where P: Polygon {
-    match clip_mode {
-        BoxShadowClipMode::None => output.push(polygon),
-        BoxShadowClipMode::Inset => polygon.clip_to_rect(sh_clip_buffers, clip_rect, output),
-        BoxShadowClipMode::Outset => polygon.clip_out_rect(sh_clip_buffers, clip_rect, output),
-    }
-}
+fn clip_to_complex_region<P>(
+        sh_clip_buffers: &mut ShClipBuffers,
+        polygon_scratch: &mut Vec<P>,
+        clip_rect_to_region_result_scratch: &mut Vec<ClipRectToRegionResult<P>>,
+        output: &mut Vec<ClipRectToRegionResult<P>>,
+        complex_region: &ComplexClipRegion)
+        where P: Polygon + Clone {
+    mem::swap(clip_rect_to_region_result_scratch, output);
+    for intermediate_result in clip_rect_to_region_result_scratch.drain(..) {
+        // Quick rejection:
+        let intermediate_polygon = intermediate_result.rect_result.clone();
+        if !intermediate_polygon.intersects_rect(&complex_region.rect) {
+            continue
+        }
 
-fn clip_to_region<P>(polygon: P,
-                     sh_clip_buffers: &mut ShClipBuffers,
-                     polygon_scratch: &mut Vec<P>,
-                     clip_rect_to_region_result_scratch: &mut Vec<ClipRectToRegionResult<P>>,
-                     output: &mut Vec<ClipRectToRegionResult<P>>,
-                     region: &ClipRegion)
-                     where P: Polygon + Clone {
-    polygon_scratch.clear();
-    polygon.clip_to_rect(sh_clip_buffers, &region.main, polygon_scratch);
-    if polygon_scratch.is_empty() {
-        return
-    }
+        // FIXME(pcwalton): This is pretty bogus. I guess we should create a region for the
+        // inner area -- which may not be rectangular due to nonequal border radii! -- and use
+        // Sutherland-Hodgman clipping for it.
+        let border_radius =
+            f32::max(f32::max(f32::max(size_max(&complex_region.radii.top_left),
+                                       size_max(&complex_region.radii.top_right)),
+                              size_max(&complex_region.radii.bottom_left)),
+                     size_max(&complex_region.radii.bottom_right));
 
-    for main_result in polygon_scratch.drain(..) {
-        output.push(ClipRectToRegionResult::new(main_result, None));
-    }
+        if border_radius == 0.0 {
+            intermediate_polygon.clip_to_rect(sh_clip_buffers,
+                                              &complex_region.rect,
+                                              polygon_scratch);
+            push_results(output, polygon_scratch, None);
+            continue
+        }
 
-    for complex_region in region.complex.iter() {
-        mem::swap(clip_rect_to_region_result_scratch, output);
-        for intermediate_result in clip_rect_to_region_result_scratch.drain(..) {
-            // Quick rejection:
-            let intermediate_polygon = intermediate_result.rect_result.clone();
-            if !intermediate_polygon.intersects_rect(&complex_region.rect) {
-                continue
-            }
+        // Compute the middle intersected region:
+        //
+        //   +--+-----------------+--+
+        //   | /|                 |\ | 
+        //   +--+-----------------+--+
+        //   |#######################|
+        //   |#######################|
+        //   |#######################|
+        //   +--+-----------------+--+
+        //   | \|                 |/ | 
+        //   +--+-----------------+--+
+        let inner_rect = Rect::new(
+            Point2D::new(complex_region.rect.origin.x,
+                         complex_region.rect.origin.y + border_radius),
+            Size2D::new(complex_region.rect.size.width,
+                        complex_region.rect.size.height - (border_radius + border_radius)));
+        if !util::rect_is_empty(&inner_rect) {
+            intermediate_polygon.clip_to_rect(sh_clip_buffers, &inner_rect, polygon_scratch);
+            push_results(output, polygon_scratch, None);
+        }
 
-            // FIXME(pcwalton): This is pretty bogus. I guess we should create a region for the
-            // inner area -- which may not be rectangular due to nonequal border radii! -- and use
-            // Sutherland-Hodgman clipping for it.
-            let border_radius =
-                f32::max(f32::max(f32::max(size_max(&complex_region.radii.top_left),
-                                           size_max(&complex_region.radii.top_right)),
-                                  size_max(&complex_region.radii.bottom_left)),
-                         size_max(&complex_region.radii.bottom_right));
+        // Compute the top region:
+        //
+        //   +--+-----------------+--+
+        //   | /|#################|\ |
+        //   +--+-----------------+--+
+        //   |                       |
+        //   |                       |
+        //   |                       |
+        //   +--+-----------------+--+
+        //   | \|                 |/ |
+        //   +--+-----------------+--+
+        let top_rect = Rect::new(
+            Point2D::new(complex_region.rect.origin.x + border_radius,
+                         complex_region.rect.origin.y),
+            Size2D::new(complex_region.rect.size.width - (border_radius + border_radius),
+                        border_radius));
+        if !util::rect_is_empty(&top_rect) {
+            intermediate_polygon.clip_to_rect(sh_clip_buffers, &top_rect, polygon_scratch);
+            push_results(output, polygon_scratch, None);
+        }
 
-            // Compute the middle intersected region:
-            //
-            //   +--+-----------------+--+
-            //   | /|                 |\ | 
-            //   +--+-----------------+--+
-            //   |#######################|
-            //   |#######################|
-            //   |#######################|
-            //   +--+-----------------+--+
-            //   | \|                 |/ | 
-            //   +--+-----------------+--+
-            let inner_rect = Rect::new(
-                Point2D::new(complex_region.rect.origin.x,
-                             complex_region.rect.origin.y + border_radius),
-                Size2D::new(complex_region.rect.size.width,
-                            complex_region.rect.size.height - (border_radius + border_radius)));
-            if !util::rect_is_empty(&inner_rect) {
-                intermediate_polygon.clip_to_rect(sh_clip_buffers, &inner_rect, polygon_scratch);
-                push_results(output, polygon_scratch, None);
-            }
+        // Compute the bottom region:
+        //
+        //   +--+-----------------+--+
+        //   | /|                 |\ |
+        //   +--+-----------------+--+
+        //   |                       |
+        //   |                       |
+        //   |                       |
+        //   +--+-----------------+--+
+        //   | \|#################|/ |
+        //   +--+-----------------+--+
+        let bottom_rect = Rect::new(
+            Point2D::new(complex_region.rect.origin.x + border_radius,
+                         complex_region.rect.max_y() - border_radius),
+            Size2D::new(complex_region.rect.size.width - (border_radius + border_radius),
+                        border_radius));
+        if !util::rect_is_empty(&bottom_rect) {
+            intermediate_polygon.clip_to_rect(sh_clip_buffers, &bottom_rect, polygon_scratch);
+            push_results(output, polygon_scratch, None);
+        }
 
-            // Compute the top region:
-            //
-            //   +--+-----------------+--+
-            //   | /|#################|\ |
-            //   +--+-----------------+--+
-            //   |                       |
-            //   |                       |
-            //   |                       |
-            //   +--+-----------------+--+
-            //   | \|                 |/ |
-            //   +--+-----------------+--+
-            let top_rect = Rect::new(
-                Point2D::new(complex_region.rect.origin.x + border_radius,
-                             complex_region.rect.origin.y),
-                Size2D::new(complex_region.rect.size.width - (border_radius + border_radius),
-                            border_radius));
-            if !util::rect_is_empty(&top_rect) {
-                intermediate_polygon.clip_to_rect(sh_clip_buffers, &top_rect, polygon_scratch);
-                push_results(output, polygon_scratch, None);
-            }
+        // Now for the corners:
+        //
+        //     +--+-----------------+--+
+        //   A | /|                 |\ | B
+        //     +--+-----------------+--+
+        //     |                       |
+        //     |                       |
+        //     |                       |
+        //     +--+-----------------+--+
+        //   C | \|                 |/ | D
+        //     +--+-----------------+--+
+        //
+        // FIXME(pcwalton): This should clip the mask u and v properly too. For now we just
+        // blindly assume that the border was not clipped.
 
-            // Compute the bottom region:
-            //
-            //   +--+-----------------+--+
-            //   | /|                 |\ |
-            //   +--+-----------------+--+
-            //   |                       |
-            //   |                       |
-            //   |                       |
-            //   +--+-----------------+--+
-            //   | \|#################|/ |
-            //   +--+-----------------+--+
-            let bottom_rect = Rect::new(
-                Point2D::new(complex_region.rect.origin.x + border_radius,
-                             complex_region.rect.max_y() - border_radius),
-                Size2D::new(complex_region.rect.size.width - (border_radius + border_radius),
-                            border_radius));
-            if !util::rect_is_empty(&bottom_rect) {
-                intermediate_polygon.clip_to_rect(sh_clip_buffers, &bottom_rect, polygon_scratch);
-                push_results(output, polygon_scratch, None);
-            }
+        // Compute A:
+        let mut corner_rect = Rect::new(complex_region.rect.origin,
+                                        Size2D::new(border_radius, border_radius));
+        if !util::rect_is_empty(&corner_rect) {
+            let mask_rect = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(1.0, 1.0));
+            intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
+            push_results(output,
+                         polygon_scratch,
+                         Some(ClipRectToRegionMaskResult::new(&mask_rect,
+                                                              &corner_rect,
+                                                              border_radius)))
+        }
 
-            // Now for the corners:
-            //
-            //     +--+-----------------+--+
-            //   A | /|                 |\ | B
-            //     +--+-----------------+--+
-            //     |                       |
-            //     |                       |
-            //     |                       |
-            //     +--+-----------------+--+
-            //   C | \|                 |/ | D
-            //     +--+-----------------+--+
-            //
-            // FIXME(pcwalton): This should clip the mask u and v properly too. For now we just
-            // blindly assume that the border was not clipped.
+        // B:
+        corner_rect.origin = Point2D::new(complex_region.rect.max_x() - border_radius,
+                                          complex_region.rect.origin.y);
+        if !util::rect_is_empty(&corner_rect) {
+            intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
+            let mask_rect = Rect::new(Point2D::new(1.0, 0.0), Size2D::new(-1.0, 1.0));
+            push_results(output,
+                         polygon_scratch,
+                         Some(ClipRectToRegionMaskResult::new(&mask_rect,
+                                                              &corner_rect,
+                                                              border_radius)))
+        }
 
-            // Compute A:
-            let mut corner_rect = Rect::new(complex_region.rect.origin,
-                                            Size2D::new(border_radius, border_radius));
-            if !util::rect_is_empty(&corner_rect) {
-                let mask_rect = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(1.0, 1.0));
-                intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
-                push_results(output,
-                             polygon_scratch,
-                             Some(ClipRectToRegionMaskResult::new(&mask_rect,
-                                                                  &corner_rect,
-                                                                  border_radius)))
-            }
+        // C:
+        corner_rect.origin = Point2D::new(complex_region.rect.origin.x,
+                                          complex_region.rect.max_y() - border_radius);
+        if !util::rect_is_empty(&corner_rect) {
+            intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
+            let mask_rect = Rect::new(Point2D::new(0.0, 1.0), Size2D::new(1.0, -1.0));
+            push_results(output,
+                         polygon_scratch,
+                         Some(ClipRectToRegionMaskResult::new(&mask_rect,
+                                                              &corner_rect,
+                                                              border_radius)))
+        }
 
-            // B:
-            corner_rect.origin = Point2D::new(complex_region.rect.max_x() - border_radius,
-                                              complex_region.rect.origin.y);
-            if !util::rect_is_empty(&corner_rect) {
-                intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
-                let mask_rect = Rect::new(Point2D::new(1.0, 0.0), Size2D::new(-1.0, 1.0));
-                push_results(output,
-                             polygon_scratch,
-                             Some(ClipRectToRegionMaskResult::new(&mask_rect,
-                                                                  &corner_rect,
-                                                                  border_radius)))
-            }
-
-            // C:
-            corner_rect.origin = Point2D::new(complex_region.rect.origin.x,
-                                              complex_region.rect.max_y() - border_radius);
-            if !util::rect_is_empty(&corner_rect) {
-                intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
-                let mask_rect = Rect::new(Point2D::new(0.0, 1.0), Size2D::new(1.0, -1.0));
-                push_results(output,
-                             polygon_scratch,
-                             Some(ClipRectToRegionMaskResult::new(&mask_rect,
-                                                                  &corner_rect,
-                                                                  border_radius)))
-            }
-
-            // D:
-            corner_rect.origin = Point2D::new(complex_region.rect.max_x() - border_radius,
-                                              complex_region.rect.max_y() - border_radius);
-            if !util::rect_is_empty(&corner_rect) {
-                intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
-                let mask_rect = Rect::new(Point2D::new(1.0, 1.0), Size2D::new(-1.0, -1.0));
-                push_results(output,
-                             polygon_scratch,
-                             Some(ClipRectToRegionMaskResult::new(&mask_rect,
-                                                                  &corner_rect,
-                                                                  border_radius)))
-            }
+        // D:
+        corner_rect.origin = Point2D::new(complex_region.rect.max_x() - border_radius,
+                                          complex_region.rect.max_y() - border_radius);
+        if !util::rect_is_empty(&corner_rect) {
+            intermediate_polygon.clip_to_rect(sh_clip_buffers, &corner_rect, polygon_scratch);
+            let mask_rect = Rect::new(Point2D::new(1.0, 1.0), Size2D::new(-1.0, -1.0));
+            push_results(output,
+                         polygon_scratch,
+                         Some(ClipRectToRegionMaskResult::new(&mask_rect,
+                                                              &corner_rect,
+                                                              border_radius)))
         }
     }
 
@@ -344,27 +328,44 @@ fn clip_to_region<P>(polygon: P,
 }
 
 /// NB: Clobbers both `polygon_scratch` and `polygon_output` in the typed clip buffers.
-pub fn clip_rect_with_mode_and_to_region<P>(polygon: P,
-                                            sh_clip_buffers: &mut ShClipBuffers,
-                                            typed_clip_buffers: &mut TypedClipBuffers<P>,
-                                            clip_rect: &Rect<f32>,
-                                            clip_mode: BoxShadowClipMode,
-                                            clip_region: &ClipRegion)
-                                            where P: Polygon + Clone {
-    typed_clip_buffers.polygon_scratch.clear();
-    clip_rect_with_mode(polygon,
-                        sh_clip_buffers,
-                        clip_rect,
-                        clip_mode,
-                        &mut typed_clip_buffers.polygon_scratch);
+pub fn clip_rect_to_combined_region<P>(polygon: P,
+                                       sh_clip_buffers: &mut ShClipBuffers,
+                                       typed_clip_buffers: &mut TypedClipBuffers<P>,
+                                       clip_region: &CombinedClipRegion)
+                                       where P: Polygon + Debug + Clone {
+    polygon.clip_to_rect(sh_clip_buffers,
+                         &clip_region.clip_in_rect,
+                         &mut typed_clip_buffers.polygon_scratch);
 
-    for initial_clip_result in typed_clip_buffers.polygon_scratch.drain(..) {
-        clip_to_region(initial_clip_result,
-                       sh_clip_buffers,
-                       &mut typed_clip_buffers.polygon_output,
-                       &mut typed_clip_buffers.clip_rect_to_region_result_scratch,
-                       &mut typed_clip_buffers.clip_rect_to_region_result_output,
-                       clip_region)
+    if let Some(ref clip_out_complex) = clip_region.clip_out_complex {
+        for initial_clip_result in typed_clip_buffers.polygon_scratch.drain(..) {
+            initial_clip_result.clip_out_rect(sh_clip_buffers,
+                                              &clip_out_complex.rect,
+                                              &mut typed_clip_buffers.polygon_output);
+        }
+        mem::swap(&mut typed_clip_buffers.polygon_output,
+                  &mut typed_clip_buffers.polygon_scratch)
+    }
+
+    typed_clip_buffers.clip_rect_to_region_result_output
+                      .extend(typed_clip_buffers.polygon_scratch.drain(..).map(|clip_rect_result| {
+        ClipRectToRegionResult::new(clip_rect_result, None)
+    }));
+
+    if let Some(ref clip_in_complex) = clip_region.clip_in_complex {
+        clip_to_complex_region(sh_clip_buffers,
+                               &mut typed_clip_buffers.polygon_output,
+                               &mut typed_clip_buffers.clip_rect_to_region_result_scratch,
+                               &mut typed_clip_buffers.clip_rect_to_region_result_output,
+                               clip_in_complex);
+    }
+
+    for clip_in_complex in clip_region.clip_in_complex_stack {
+        clip_to_complex_region(sh_clip_buffers,
+                               &mut typed_clip_buffers.polygon_output,
+                               &mut typed_clip_buffers.clip_rect_to_region_result_scratch,
+                               &mut typed_clip_buffers.clip_rect_to_region_result_output,
+                               clip_in_complex)
     }
 }
 

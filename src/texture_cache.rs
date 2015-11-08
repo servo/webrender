@@ -501,7 +501,7 @@ impl TextureCache {
                                                0,
                                                op.raster_size.to_nearest_px() as u32,
                                                op.raster_size.to_nearest_px() as u32,
-                                               ImageFormat::A8,
+                                               ImageFormat::RGBA8,
                                                false);
 
                 // TODO(pcwalton): Handle large box shadows not fitting in texture cache page.

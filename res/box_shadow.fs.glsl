@@ -16,18 +16,26 @@ void main(void)
     float sigma = vBlurRadius / 2.0;
     float sigmaSqrt2 = sigma * 1.41421356237;
 
+    float length;
+    float value;
     vec2 position = vPosition - vBorderPosition.zw;
-    vec2 arcCenter = vDestTextureSize;
-    float arcRadius = vBorderRadii.x;
-    float distance = distance(position, vec2(arcCenter));
-    float value = clamp(distance, arcRadius - vBlurRadius, arcRadius + vBlurRadius);
-    float minValue = min(value - range, arcRadius) - value;
-    float maxValue = min(value + range, arcRadius) - value;
+    if (vBorderRadii.y == 0.0) {
+        length = range;
+        value = position.x;
+    } else {
+        length = vBorderRadii.x;
+        vec2 center = vec2(max(position.x - range, length),
+                           max(position.y - range, length));
+        value = distance(position - range, center);
+    }
+
+    float minValue = min(value - range, length) - value;
+    float maxValue = min(value + range, length) - value;
     if (minValue < maxValue) {
         value = 1.0 - 0.5 * (erf(maxValue / sigmaSqrt2) - erf(minValue / sigmaSqrt2));
     } else {
-        value = 0.0;
+        value = 1.0;
     }
-    SetFragColor(vColor - vec4(value));
+    SetFragColor(vec4(vColor.rgb, vColor.a == 0.0 ? value : 1.0 - value));
 }
 

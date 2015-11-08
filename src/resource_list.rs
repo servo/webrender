@@ -6,7 +6,7 @@ use internal_types::{Glyph, GlyphKey, RasterItem, TiledImageKey};
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
-use types::{FontKey, ImageFormat, ImageKey};
+use types::{BorderRadius, FontKey, ImageFormat, ImageKey};
 
 type RequiredImageSet = HashSet<ImageKey, DefaultState<FnvHasher>>;
 type RequiredGlyphMap = HashMap<FontKey, HashSet<Glyph>, DefaultState<FnvHasher>>;
@@ -73,6 +73,14 @@ impl ResourceList {
                                                                 image_format) {
             self.required_rasters.insert(RasterItem::BorderRadius(raster_item));
         }
+    }
+
+    pub fn add_radius_raster_for_border_radii(&mut self, radii: &BorderRadius) {
+        let zero_size = Size2D::new(0.0, 0.0);
+        self.add_radius_raster(&radii.top_left, &zero_size, false, ImageFormat::A8);
+        self.add_radius_raster(&radii.top_right, &zero_size, false, ImageFormat::A8);
+        self.add_radius_raster(&radii.bottom_left, &zero_size, false, ImageFormat::A8);
+        self.add_radius_raster(&radii.bottom_right, &zero_size, false, ImageFormat::A8);
     }
 
     pub fn add_box_shadow_corner(&mut self, blur_radius: f32, border_radius: f32, inverted: bool) {
