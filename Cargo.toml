@@ -1,0 +1,14 @@
+[package]
+name = "webrender_traits"
+version = "0.1.0"
+authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
+
+[dependencies]
+app_units = "0.1"
+euclid = "0.3"
+serde = "0.6"
+serde_macros = "0.5"
+
+[target.x86_64-apple-darwin.dependencies]
+core-graphics = "*"
+

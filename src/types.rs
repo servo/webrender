@@ -1,0 +1,263 @@
+use app_units::Au;
+use euclid::{Rect, Size2D};
+
+#[cfg(target_os="macos")]
+use core_graphics::font::CGFont;
+
+// TODO: This is bogus - work out a clean way to generate scroll layer IDs that integrates well with servo...
+const FIXED_SCROLL_LAYER_ID: usize = 0xffffffff;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BorderRadius {
+    pub top_left: Size2D<f32>,
+    pub top_right: Size2D<f32>,
+    pub bottom_left: Size2D<f32>,
+    pub bottom_right: Size2D<f32>,
+}
+
+impl BorderRadius {
+    pub fn zero() -> BorderRadius {
+        BorderRadius {
+            top_left: Size2D::new(0.0, 0.0),
+            top_right: Size2D::new(0.0, 0.0),
+            bottom_left: Size2D::new(0.0, 0.0),
+            bottom_right: Size2D::new(0.0, 0.0),
+        }
+    }
+
+    pub fn uniform(radius: f32) -> BorderRadius {
+        BorderRadius {
+            top_left: Size2D::new(radius, radius),
+            top_right: Size2D::new(radius, radius),
+            bottom_left: Size2D::new(radius, radius),
+            bottom_right: Size2D::new(radius, radius),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct BorderSide {
+    pub width: f32,
+    pub color: ColorF,
+    pub style: BorderStyle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BorderStyle {
+    None,
+    Solid,
+    Double,
+    Dotted,
+    Dashed,
+    Hidden,
+    Groove,
+    Ridge,
+    Inset,
+    Outset,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum BoxShadowClipMode {
+    None,
+    Outset,
+    Inset,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClipRegion {
+    pub main: Rect<f32>,
+    pub complex: Vec<ComplexClipRegion>,
+}
+
+impl ClipRegion {
+    pub fn new(rect: Rect<f32>, complex: Vec<ComplexClipRegion>) -> ClipRegion {
+        ClipRegion {
+            main: rect,
+            complex: complex,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ComplexClipRegion {
+    /// The boundaries of the rectangle.
+    pub rect: Rect<f32>,
+    /// Border radii of this rectangle.
+    pub radii: BorderRadius,
+}
+
+impl ComplexClipRegion {
+    pub fn new(rect: Rect<f32>, radii: BorderRadius) -> ComplexClipRegion {
+        ComplexClipRegion {
+            rect: rect,
+            radii: radii,
+        }
+    }
+
+    pub fn from_rect(rect: &Rect<f32>) -> ComplexClipRegion {
+        ComplexClipRegion {
+            rect: *rect,
+            radii: BorderRadius::zero(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ColorF {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
+impl ColorF {
+    pub fn new(r: f32, g: f32, b: f32, a: f32) -> ColorF {
+        ColorF {
+            r: r,
+            g: g,
+            b: b,
+            a: a,
+        }
+    }
+
+    pub fn scale_rgb(&self, scale: f32) -> ColorF {
+        ColorF {
+            r: self.r * scale,
+            g: self.g * scale,
+            b: self.b * scale,
+            a: self.a,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StackingContextId(pub u32, pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DisplayListId(pub u32, pub u32);
+
+pub enum DisplayListMode {
+    Default,
+    PseudoFloat,
+    PseudoPositionedContent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct Epoch(pub u32);
+
+#[derive(Clone, Copy, Debug)]
+pub enum FilterOp {
+    Blur(Au),
+    Brightness(f32),
+    Contrast(f32),
+    Grayscale(f32),
+    HueRotate(f32),
+    Invert(f32),
+    Opacity(f32),
+    Saturate(f32),
+    Sepia(f32),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct FontKey(u32, u32);
+
+impl FontKey {
+    pub fn new(key0: u32, key1: u32) -> FontKey {
+        FontKey(key0, key1)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct GlyphInstance {
+    pub index: u32,
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct GradientStop {
+    pub offset: f32,
+    pub color: ColorF,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ImageFormat {
+    Invalid,
+    A8,
+    RGB8,
+    RGBA8,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct ImageKey(u32, u32);
+
+impl ImageKey {
+    pub fn new(key0: u32, key1: u32) -> ImageKey {
+        ImageKey(key0, key1)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MixBlendMode {
+    Normal,
+    Multiply,
+    Screen,
+    Overlay,
+    Darken,
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity,
+}
+
+#[cfg(target_os="macos")]
+pub type NativeFontHandle = CGFont;
+
+/// Native fonts are not used on Linux; all fonts are raw.
+#[cfg(not(target_os="macos"))]
+#[derive(Clone)]
+pub struct NativeFontHandle;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PipelineId(pub u32, pub u32);
+
+pub trait RenderNotifier : Send {
+    fn new_frame_ready(&mut self);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ScrollLayerId(pub usize);
+
+impl ScrollLayerId {
+    pub fn new(value: usize) -> ScrollLayerId {
+        debug_assert!(value != FIXED_SCROLL_LAYER_ID);
+        ScrollLayerId(value)
+    }
+
+    pub fn fixed_layer() -> ScrollLayerId {
+        ScrollLayerId(FIXED_SCROLL_LAYER_ID)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Copy, Deserialize, Serialize, Debug)]
+pub enum ScrollPolicy {
+    Scrollable,
+    Fixed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum StackingLevel {
+    BackgroundAndBorders,
+    BlockBackgroundAndBorders,
+    Floats,
+    Content,
+    PositionedContent,
+    Outlines,
+}
