@@ -1,7 +1,7 @@
-use aabbtree::AABBTree;
+use aabbtree::{AABBTree, NodeIndex};
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::{BatchUpdate, BatchUpdateList, BatchUpdateOp};
-use types::NodeIndex;
+use internal_types::{DrawListItemIndex, DrawListId};
 
 pub struct Layer {
     // TODO: Remove pub from here if possible in the future
@@ -25,12 +25,11 @@ impl Layer {
     pub fn reset(&mut self, pending_updates: &mut BatchUpdateList) {
         for node in &mut self.aabb_tree.nodes {
             if let Some(ref mut compiled_node) = node.compiled_node {
-                for batch_id in compiled_node.batch_id_list.drain(..) {
-                    pending_updates.push(BatchUpdate {
-                        id: batch_id,
-                        op: BatchUpdateOp::Destroy,
-                    });
-                }
+                let vertex_buffer_id = compiled_node.vertex_buffer_id.take().unwrap();
+                pending_updates.push(BatchUpdate {
+                    id: vertex_buffer_id,
+                    op: BatchUpdateOp::Destroy,
+                });
             }
         }
     }
@@ -38,18 +37,14 @@ impl Layer {
     #[inline]
     pub fn insert(&mut self,
                   rect: &Rect<f32>,
-                  draw_list_index: usize,
-                  item_index: usize) -> Option<NodeIndex> {
-        self.aabb_tree.insert(rect, draw_list_index, item_index)
+                  draw_list_id: DrawListId,
+                  item_index: DrawListItemIndex) {
+        self.aabb_tree.insert(rect, draw_list_id, item_index);
     }
 
     pub fn cull(&mut self, viewport_rect: &Rect<f32>) {
         let adjusted_viewport = viewport_rect.translate(&-self.scroll_offset);
         self.aabb_tree.cull(&adjusted_viewport);
-    }
-
-    pub fn take_compiled_data_from(&mut self, other_layer: &mut Layer) {
-        self.aabb_tree.take_compiled_data_from(&mut other_layer.aabb_tree)
     }
 
     #[allow(dead_code)]

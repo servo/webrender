@@ -8,10 +8,9 @@ use core_graphics::geometry::CGPoint;
 use core_text::font::CTFont;
 use core_text::font_descriptor::kCTFontDefaultOrientation;
 use core_text;
-use libc::size_t;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use types::FontKey;
+use webrender_traits::FontKey;
 
 pub type NativeFontHandle = CGFont;
 
@@ -70,15 +69,15 @@ impl FontContext {
     }
 
     pub fn get_glyph(&mut self,
-                     font_key: &FontKey,
+                     font_key: FontKey,
                      size: Au,
                      character: u32,
                      device_pixel_ratio: f32)
                      -> Option<RasterizedGlyph> {
-        let ct_font = match self.ct_fonts.entry(((*font_key).clone(), size)) {
+        let ct_font = match self.ct_fonts.entry(((font_key).clone(), size)) {
             Entry::Occupied(entry) => (*entry.get()).clone(),
             Entry::Vacant(entry) => {
-                let cg_font = match self.cg_fonts.get(font_key) {
+                let cg_font = match self.cg_fonts.get(&font_key) {
                     None => return Some(RasterizedGlyph::blank()),
                     Some(cg_font) => cg_font,
                 };
@@ -103,10 +102,10 @@ impl FontContext {
             return Some(RasterizedGlyph::blank())
         }
 
-        let mut cg_context = CGContext::create_bitmap_context(rasterized_width as size_t,
-                                                              rasterized_height as size_t,
+        let mut cg_context = CGContext::create_bitmap_context(rasterized_width as usize,
+                                                              rasterized_height as usize,
                                                               8,
-                                                              rasterized_width as size_t * 4,
+                                                              rasterized_width as usize * 4,
                                                               &CGColorSpace::create_device_rgb(),
                                                               kCGImageAlphaPremultipliedLast);
         cg_context.set_allows_font_smoothing(true);

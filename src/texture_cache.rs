@@ -9,7 +9,7 @@ use std::collections::hash_map::Entry;
 use std::collections::hash_state::DefaultState;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
 use std::mem;
-use types::ImageFormat;
+use webrender_traits::ImageFormat;
 use util;
 
 const LEVELS_PER_TEXTURE: u8 = 8;
@@ -148,7 +148,7 @@ impl TexturePage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TextureCacheItem {
     pub u0: f32,        // todo(gw): don't precalc these?
     pub v0: f32,
@@ -724,4 +724,3 @@ fn create_new_texture_page(pending_updates: &mut TextureUpdateList,
         })
     }
 }
-

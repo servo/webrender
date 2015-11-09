@@ -1,9 +1,15 @@
 use euclid::{Point2D, Rect, Size2D};
-use internal_types::{CompiledNode, DisplayItemKey};
+use internal_types::{CompiledNode, DrawListId, DrawListItemIndex};
 use resource_list::ResourceList;
-use std::mem;
-use types::NodeIndex;
 use util;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NodeIndex(pub u32);
+
+pub struct DrawListIndexBuffer {
+    pub draw_list_id: DrawListId,
+    pub indices: Vec<DrawListItemIndex>,
+}
 
 pub struct AABBTreeNode {
     pub split_rect: Rect<f32>,
@@ -15,7 +21,7 @@ pub struct AABBTreeNode {
 
     pub is_visible: bool,
 
-    pub src_items: Vec<DisplayItemKey>,
+    pub draw_lists: Vec<DrawListIndexBuffer>,
 
     pub resource_list: Option<ResourceList>,
     pub compiled_node: Option<CompiledNode>,
@@ -30,37 +36,51 @@ impl AABBTreeNode {
             children: None,
             is_visible: false,
             resource_list: None,
-            src_items: Vec::new(),
+            draw_lists: Vec::new(),
             compiled_node: None,
         }
     }
 
     #[inline]
     fn append_item(&mut self,
-                   draw_list_index: usize,
-                   item_index: usize,
+                   draw_list_id: DrawListId,
+                   item_index: DrawListItemIndex,
                    rect: &Rect<f32>) {
         self.actual_rect = self.actual_rect.union(rect);
-        let key = DisplayItemKey::new(draw_list_index, item_index);
-        self.src_items.push(key);
+
+        let need_new_list = match self.draw_lists.last_mut() {
+            Some(draw_list) => {
+                draw_list.draw_list_id != draw_list_id
+            }
+            None => {
+                true
+            }
+        };
+
+        if need_new_list {
+            self.draw_lists.push(DrawListIndexBuffer {
+                draw_list_id: draw_list_id,
+                indices: Vec::new(),
+            });
+        }
+
+        self.draw_lists.last_mut().unwrap().indices.push(item_index);
     }
 
-    fn take_compiled_data_from(&mut self, other_aabb_tree_node: &mut AABBTreeNode) {
-        if self.compiled_node.is_none() && self.resource_list.is_none() {
-            mem::swap(&mut self.compiled_node, &mut other_aabb_tree_node.compiled_node);
-            mem::swap(&mut self.resource_list, &mut other_aabb_tree_node.resource_list);
+    fn item_count(&self) -> usize {
+        let mut count = 0;
+        for list in &self.draw_lists {
+            count += list.indices.len();
         }
+        count
     }
 }
 
 pub struct AABBTree {
     pub nodes: Vec<AABBTreeNode>,
     pub split_size: f32,
-}
 
-pub struct AABBTreeNodeInfo {
-    pub rect: Rect<f32>,
-    pub is_visible: bool,
+    work_node_indices: Vec<NodeIndex>,
 }
 
 impl AABBTree {
@@ -68,6 +88,8 @@ impl AABBTree {
         AABBTree {
             nodes: Vec::new(),
             split_size: split_size,
+
+            work_node_indices: Vec::new(),
         }
     }
 
@@ -86,13 +108,14 @@ impl AABBTree {
         }
 
         let node = self.node(node_index);
-        println!("{}n={:?} sr={:?} ar={:?} c={:?} items={}",
+        println!("{}n={:?} sr={:?} ar={:?} c={:?} lists={} items={}",
                  indent,
                  node_index,
                  node.split_rect,
                  node.actual_rect,
                  node.children,
-                 node.src_items.len());
+                 node.draw_lists.len(),
+                 node.item_count());
 
         if let Some(child_index) = node.children {
             let NodeIndex(child_index) = child_index;
@@ -113,21 +136,10 @@ impl AABBTree {
         &mut self.nodes[index as usize]
     }
 
-    pub fn node_info(&self) -> Vec<AABBTreeNodeInfo> {
-        let mut info = Vec::new();
-        for node in &self.nodes {
-            info.push(AABBTreeNodeInfo {
-                rect: node.actual_rect,
-                is_visible: node.is_visible,
-            });
-        }
-        info
-    }
-
     #[inline]
-    fn find_best_node(&mut self,
-                      node_index: NodeIndex,
-                      rect: &Rect<f32>) -> Option<NodeIndex> {
+    fn find_best_nodes(&mut self,
+                       node_index: NodeIndex,
+                       rect: &Rect<f32>) {
         self.split_if_needed(node_index);
 
         if let Some(child_node_index) = self.node(node_index).children {
@@ -136,33 +148,31 @@ impl AABBTree {
             let right_node_index = NodeIndex(child_node_index + 1);
 
             let left_intersect = self.node(left_node_index).split_rect.intersects(rect);
-            let right_intersect = self.node(right_node_index).split_rect.intersects(rect);
+            if left_intersect {
+                self.find_best_nodes(left_node_index, rect);
+            }
 
-            if left_intersect && right_intersect {
-                Some(node_index)
-            } else if left_intersect {
-                self.find_best_node(left_node_index, rect)
-            } else if right_intersect {
-                self.find_best_node(right_node_index, rect)
-            } else {
-                None
+            let right_intersect = self.node(right_node_index).split_rect.intersects(rect);
+            if right_intersect {
+                self.find_best_nodes(right_node_index, rect);
             }
         } else {
-            Some(node_index)
+            self.work_node_indices.push(node_index);
         }
     }
 
     #[inline]
     pub fn insert(&mut self,
                   rect: &Rect<f32>,
-                  draw_list_index: usize,
-                  item_index: usize) -> Option<NodeIndex> {
-        let node_index = self.find_best_node(NodeIndex(0), rect);
-        if let Some(node_index) = node_index {
-            let node = self.node_mut(node_index);
-            node.append_item(draw_list_index, item_index, rect);
+                  draw_list_id: DrawListId,
+                  item_index: DrawListItemIndex) {
+        debug_assert!(self.work_node_indices.len() == 0);
+        self.find_best_nodes(NodeIndex(0), rect);
+        for node_index in self.work_node_indices.drain(..) {
+            let NodeIndex(node_index) = node_index;
+            let node = &mut self.nodes[node_index as usize];
+            node.append_item(draw_list_id, item_index, rect);
         }
-        node_index
     }
 
     fn split_if_needed(&mut self, node_index: NodeIndex) {
@@ -210,8 +220,9 @@ impl AABBTree {
         let children = {
             let node = self.node_mut(node_index);
             if node.split_rect.intersects(rect) {
-                if node.src_items.len() > 0 &&
+                if node.draw_lists.len() > 0 &&
                    node.actual_rect.intersects(rect) {
+                    debug_assert!(node.children.is_none());
                     node.is_visible = true;
                 }
                 node.children
@@ -236,13 +247,4 @@ impl AABBTree {
             self.check_node_visibility(NodeIndex(0), &rect);
         }
     }
-
-    pub fn take_compiled_data_from(&mut self, other_aabb_tree: &mut AABBTree) {
-        debug_assert!(self.nodes.len() == other_aabb_tree.nodes.len());
-        for (this_node, other_node) in self.nodes.iter_mut().zip(other_aabb_tree.nodes
-                                                                                .iter_mut()) {
-            this_node.take_compiled_data_from(other_node)
-        }
-    }
 }
-

@@ -2,8 +2,9 @@ use app_units::Au;
 use device::{TextureId};
 use euclid::Size2D;
 use fnv::FnvHasher;
+use freelist::FreeList;
 use internal_types::{FontTemplate, GlyphKey, RasterItem, TiledImageKey};
-use internal_types::{TextureTarget, TextureUpdateList};
+use internal_types::{TextureTarget, TextureUpdateList, DrawListId, DrawList};
 use platform::font::{FontContext, RasterizedGlyph};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_list::ResourceList;
@@ -16,7 +17,7 @@ use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 use std::sync::atomic::Ordering::SeqCst;
 use std::thread;
 use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId, TextureInsertOp};
-use types::{Epoch, FontKey, ImageKey, ImageFormat};
+use webrender_traits::{Epoch, FontKey, ImageKey, ImageFormat, DisplayItem};
 
 static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
 
@@ -47,6 +48,7 @@ pub struct ResourceCache {
     cached_images: HashMap<ImageKey, CachedImageInfo, DefaultState<FnvHasher>>,
     cached_tiled_images: HashMap<TiledImageKey, TextureCacheItemId, DefaultState<FnvHasher>>,
 
+    draw_lists: FreeList<DrawList>,
     font_templates: HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>,
     image_templates: HashMap<ImageKey, ImageResource, DefaultState<FnvHasher>>,
     device_pixel_ratio: f32,
@@ -85,6 +87,7 @@ impl ResourceCache {
             cached_rasters: HashMap::with_hash_state(Default::default()),
             cached_images: HashMap::with_hash_state(Default::default()),
             cached_tiled_images: HashMap::with_hash_state(Default::default()),
+            draw_lists: FreeList::new(),
             font_templates: HashMap::with_hash_state(Default::default()),
             image_templates: HashMap::with_hash_state(Default::default()),
             texture_cache: texture_cache,
@@ -272,6 +275,22 @@ impl ResourceCache {
         }
     }
 
+    pub fn add_draw_list(&mut self, items: Vec<DisplayItem>) -> DrawListId {
+        self.draw_lists.insert(DrawList::new(items))
+    }
+
+    pub fn get_draw_list(&self, draw_list_id: DrawListId) -> &DrawList {
+        self.draw_lists.get(draw_list_id)
+    }
+
+    pub fn get_draw_list_mut(&mut self, draw_list_id: DrawListId) -> &mut DrawList {
+        self.draw_lists.get_mut(draw_list_id)
+    }
+
+    pub fn remove_draw_list(&mut self, draw_list_id: DrawListId) {
+        self.draw_lists.free(draw_list_id);
+    }
+
     pub fn allocate_render_target(&mut self,
                                   target: TextureTarget,
                                   width: u32,
@@ -349,7 +368,7 @@ fn run_raster_jobs(thread_pool: &mut scoped_threadpool::Pool,
                                                          (*native_font_handle).clone());
                         }
                     }
-                    job.result = font_context.get_glyph(&job.glyph_key.font_key,
+                    job.result = font_context.get_glyph(job.glyph_key.font_key,
                                                         job.glyph_key.size,
                                                         job.glyph_key.index,
                                                         device_pixel_ratio);

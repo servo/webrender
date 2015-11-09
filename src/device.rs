@@ -9,7 +9,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::mem;
 use std::io::Read;
-use types::ImageFormat;
+use webrender_traits::ImageFormat;
 
 #[cfg(not(any(target_os = "android", target_os = "gonk")))]
 const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA;
@@ -1343,9 +1343,12 @@ impl Device {
         gl::buffer_data(gl::ELEMENT_ARRAY_BUFFER, &indices, usage_hint.to_gl());
     }
 
-    pub fn draw_triangles_u16(&mut self, index_count: i32) {
+    pub fn draw_triangles_u16(&mut self, first_vertex: i32, index_count: i32) {
         debug_assert!(self.inside_frame);
-        gl::draw_elements(gl::TRIANGLES, index_count, gl::UNSIGNED_SHORT, 0);
+        gl::draw_elements(gl::TRIANGLES,
+                          index_count,
+                          gl::UNSIGNED_SHORT,
+                          first_vertex as u32 * 2);
     }
 
     pub fn delete_vao(&mut self, vao_id: VAOId) {

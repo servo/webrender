@@ -1,19 +1,17 @@
 use app_units::Au;
-use batch::RenderBatch;
-use device::{ProgramId, TextureId, TextureIndex};
+use batch::{VertexBuffer, Batch, VertexBufferId};
+use device::{TextureId, TextureIndex};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
+use freelist::{FreeListItem, FreeListItemId};
 use gleam::gl;
-use platform::font::NativeFontHandle;
-use render_api::RenderApi;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::sync::Arc;
-use std::sync::mpsc::Sender;
 use texture_cache::TextureCacheItem;
-use types::{DisplayListID, FontKey, ImageKey, Epoch, ColorF, PipelineId};
-use types::{ImageFormat, StackingContext, DisplayListBuilder, DisplayListMode, CompositionOp};
-use types::{ComplexClipRegion};
+use webrender_traits::{FontKey, ImageKey, Epoch, ColorF, PipelineId};
+use webrender_traits::{ImageFormat};
+use webrender_traits::{ComplexClipRegion, MixBlendMode, NativeFontHandle, DisplayItem};
 use util;
 
 const UV_FLOAT_TO_FIXED: f32 = 65535.0;
@@ -33,22 +31,12 @@ static ZERO_RECT_F32: Rect<f32> = Rect {
     },
 };
 
-#[derive(Clone, Copy, Debug)]
-pub struct IdNamespace(pub u32);
-
-#[derive(Clone, Copy, Debug)]
-pub struct ResourceId(pub u32);
-
 pub enum FontTemplate {
     Raw(Arc<Vec<u8>>),
     Native(NativeFontHandle),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct BatchId(pub usize);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DrawListID(pub usize);
+pub type DrawListId = FreeListItemId;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TextureSampler {
@@ -262,17 +250,12 @@ impl TextureUpdateList {
 }
 
 pub enum BatchUpdateOp {
-    Create(Vec<PackedVertex>,
-           Vec<u16>,
-           ProgramId,
-           TextureId,
-           TextureId),
-    UpdateUniforms(Vec<Matrix4>),
+    Create(Vec<PackedVertex>, Vec<u16>),
     Destroy,
 }
 
 pub struct BatchUpdate {
-    pub id: BatchId,
+    pub id: VertexBufferId,
     pub op: BatchUpdateOp,
 }
 
@@ -311,21 +294,38 @@ pub struct CompositeInfo {
 }
 
 #[derive(Clone, Debug)]
-pub enum DrawCommandInfo {
-    Batch(BatchId),
+pub struct DrawCall {
+    pub vertex_buffer_id: VertexBufferId,
+    pub color_texture_id: TextureId,
+    pub mask_texture_id: TextureId,
+    pub first_vertex: u16,
+    pub index_count: u16,
+}
+
+#[derive(Clone, Debug)]
+pub struct BatchInfo {
+    pub matrix_palette: Vec<Matrix4>,
+    pub draw_calls: Vec<DrawCall>,
+}
+
+impl BatchInfo {
+    pub fn new(matrix_palette: Vec<Matrix4>) -> BatchInfo {
+        BatchInfo {
+            matrix_palette: matrix_palette,
+            draw_calls: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum DrawCommand {
+    Batch(BatchInfo),
     Composite(CompositeInfo),
     Clear(ClearInfo),
 }
 
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq, Hash)]
 pub struct RenderTargetIndex(pub u32);
-
-#[derive(Clone, Debug)]
-pub struct DrawCommand {
-    pub render_target: RenderTargetIndex,
-    pub sort_key: DisplayItemKey,
-    pub info: DrawCommandInfo,
-}
 
 #[derive(Debug)]
 pub struct DrawLayer {
@@ -346,55 +346,24 @@ impl DrawLayer {
     }
 }
 
-pub struct Frame {
+pub struct RendererFrame {
     pub pipeline_epoch_map: HashMap<PipelineId, Epoch, DefaultState<FnvHasher>>,
     pub layers: Vec<DrawLayer>,
 }
 
-impl Frame {
-    pub fn new(pipeline_epoch_map: HashMap<PipelineId, Epoch, DefaultState<FnvHasher>>) -> Frame {
-        Frame {
+impl RendererFrame {
+    pub fn new(pipeline_epoch_map: HashMap<PipelineId, Epoch, DefaultState<FnvHasher>>) -> RendererFrame {
+        RendererFrame {
             pipeline_epoch_map: pipeline_epoch_map,
             layers: Vec::new(),
         }
     }
-
-    pub fn add_layer(&mut self, layer: DrawLayer) {
-        self.layers.push(layer);
-    }
-}
-
-pub enum ApiMsg {
-    AddRawFont(FontKey, Vec<u8>),
-    AddNativeFont(FontKey, NativeFontHandle),
-    AddImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
-    UpdateImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
-    AddDisplayList(DisplayListID, PipelineId, Epoch, DisplayListBuilder),
-    CloneApi(Sender<RenderApi>),
-    SetRootStackingContext(StackingContext, ColorF, Epoch, PipelineId),
-    SetRootPipeline(PipelineId),
-    Scroll(Point2D<f32>),
-    TranslatePointToLayerSpace(Point2D<f32>, Sender<Point2D<f32>>),
 }
 
 pub enum ResultMsg {
     UpdateTextureCache(TextureUpdateList),
     UpdateBatches(BatchUpdateList),
-    NewFrame(Frame),
-}
-
-pub struct DisplayList {
-    pub mode: DisplayListMode,
-
-    pub pipeline_id: PipelineId,
-    pub epoch: Epoch,
-
-    pub background_and_borders_id: Option<DrawListID>,
-    pub block_backgrounds_and_borders_id: Option<DrawListID>,
-    pub floats_id: Option<DrawListID>,
-    pub content_id: Option<DrawListID>,
-    pub positioned_content_id: Option<DrawListID>,
-    pub outlines_id: Option<DrawListID>,
+    NewFrame(RendererFrame),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -512,28 +481,47 @@ pub enum BorderEdgeDirection {
     Vertical,
 }
 
-#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq, Hash)]
-pub struct DrawListIndex(pub u32);
-
-#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq)]
-pub struct DrawListItemIndex(pub u32);
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisplayItemKey {
-    pub draw_list_index: DrawListIndex,
-    pub item_index: DrawListItemIndex,
+#[derive(Debug)]
+pub struct DrawListContext {
+    pub origin: Point2D<f32>,
+    pub overflow: Rect<f32>,
+    pub final_transform: Matrix4,
 }
 
-impl DisplayItemKey {
-    pub fn new(draw_list_index: usize, item_index: usize) -> DisplayItemKey {
-        DisplayItemKey {
-            draw_list_index: DrawListIndex(draw_list_index as u32),
-            item_index: DrawListItemIndex(item_index as u32),
+#[derive(Debug)]
+pub struct DrawList {
+    pub items: Vec<DisplayItem>,
+
+    pub context: Option<DrawListContext>,
+
+    // TODO(gw): Structure squat to remove this field.
+    next_free_id: Option<FreeListItemId>,
+}
+
+impl DrawList {
+    pub fn new(items: Vec<DisplayItem>) -> DrawList {
+        DrawList {
+            items: items,
+            context: None,
+            next_free_id: None,
         }
     }
 }
 
-#[derive(Debug)]
+impl FreeListItem for DrawList {
+    fn next_free_id(&self) -> Option<FreeListItemId> {
+        self.next_free_id
+    }
+
+    fn set_next_free_id(&mut self, id: Option<FreeListItemId>) {
+        self.next_free_id = id;
+    }
+}
+
+#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq)]
+pub struct DrawListItemIndex(pub u32);
+
+#[derive(Debug, Copy, Clone)]
 pub enum Primitive {
     Triangles,
     Rectangles,     // 4 vertices per rect
@@ -541,22 +529,25 @@ pub enum Primitive {
     Glyphs,         // font glyphs (some platforms may specialize shader)
 }
 
+pub struct BatchList {
+    pub batches: Vec<Batch>,
+    pub first_draw_list_id: DrawListId,
+}
+
 pub struct CompiledNode {
-    pub batches: Vec<RenderBatch>,
-    pub commands: Vec<DrawCommand>,
-    pub batch_id_list: Vec<BatchId>,
-    pub matrix_maps: HashMap<BatchId,
-                             HashMap<DrawListIndex, u8, DefaultState<FnvHasher>>,
-                             DefaultState<FnvHasher>>,
+    // TODO(gw): These are mutually exclusive - unify into an enum?
+    pub vertex_buffer: Option<VertexBuffer>,
+    pub vertex_buffer_id: Option<VertexBufferId>,
+
+    pub batch_list: Vec<BatchList>,
 }
 
 impl CompiledNode {
     pub fn new() -> CompiledNode {
         CompiledNode {
-            batches: Vec::new(),
-            commands: Vec::new(),
-            batch_id_list: Vec::new(),
-            matrix_maps: HashMap::with_hash_state(Default::default()),
+            batch_list: Vec::new(),
+            vertex_buffer: None,
+            vertex_buffer_id: None,
         }
     }
 }
@@ -876,3 +867,27 @@ impl<'a> CombinedClipRegion<'a> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LowLevelFilterOp {
+    Blur(Au, BlurDirection),
+    Brightness(f32),
+    Contrast(f32),
+    Grayscale(f32),
+    HueRotate(f32),
+    Invert(f32),
+    Opacity(f32),
+    Saturate(f32),
+    Sepia(f32),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CompositionOp {
+    MixBlend(MixBlendMode),
+    Filter(LowLevelFilterOp),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BlurDirection {
+    Horizontal,
+    Vertical,
+}

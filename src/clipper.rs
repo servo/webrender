@@ -1,12 +1,22 @@
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::{ClipRectToRegionMaskResult, ClipRectToRegionResult};
 use internal_types::{CombinedClipRegion, PolygonPosColorUv, RectPosUv, RectUv, WorkVertex};
-use render_backend::MAX_RECT;
 use simd::f32x4;
 use std::fmt::Debug;
 use std::mem;
-use types::{ColorF, ComplexClipRegion};
+use webrender_traits::{ColorF, ComplexClipRegion};
 use util;
+
+pub static MAX_RECT: Rect<f32> = Rect {
+    origin: Point2D {
+        x: -1000.0,
+        y: -1000.0,
+    },
+    size: Size2D {
+        width: 10000.0,
+        height: 10000.0,
+    },
+};
 
 /// Computes whether the point c is inside the clipping edge ab.
 ///
@@ -516,4 +526,3 @@ impl Polygon for PolygonPosColorUv {
         self.vertices.iter().any(|vertex| rect.contains(&Point2D::new(vertex.x, vertex.y)))
     }
 }
-
