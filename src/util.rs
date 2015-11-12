@@ -24,7 +24,6 @@ impl Drop for ProfileScope {
         if self.name.chars().next() != Some(' ') {
             let t1 = precise_time_ns();
             let ms = (t1 - self.t0) as f64 / 1000000f64;
-            //if ms > 0.1 {
             println!("{} {}", self.name, ms);
         }
     }
@@ -80,4 +79,3 @@ pub fn bilerp(point: &Point2D<f32>, quad: &Rect<f32>, uv: &RectUv) -> Point2D<f3
 pub fn rect_is_empty<N:PartialEq + Zero>(rect: &Rect<N>) -> bool {
     rect.size.width == Zero::zero() || rect.size.height == Zero::zero()
 }
-

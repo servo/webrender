@@ -1,121 +1,166 @@
 use device::{ProgramId, TextureId, TextureIndex};
-use fnv::FnvHasher;
-use internal_types::{BatchId, DisplayItemKey, DrawListIndex};
-use internal_types::{PackedVertex, PackedVertexForTextureCacheUpdate, Primitive};
-use std::collections::HashMap;
-use std::collections::hash_map::Entry::{Occupied, Vacant};
-use std::collections::hash_state::DefaultState;
-use types::BlurDirection;
+use internal_types::{BlurDirection, PackedVertex};
+use internal_types::{PackedVertexForTextureCacheUpdate, Primitive};
+use std::sync::atomic::Ordering::SeqCst;
+use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 
-const MAX_MATRICES_PER_BATCH: usize = 32;
+pub const MAX_MATRICES_PER_BATCH: usize = 32;
 
-pub struct RenderBatch {
-    pub batch_id: BatchId,
-    pub sort_key: DisplayItemKey,
-    pub program_id: ProgramId,
-    pub color_texture_id: TextureId,
-    pub mask_texture_id: TextureId,
-    pub vertices: Vec<PackedVertex>,
-    pub indices: Vec<u16>,
-    pub matrix_map: HashMap<DrawListIndex, u8, DefaultState<FnvHasher>>,
+static ID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
+
+#[inline]
+pub fn new_id() -> usize {
+    ID_COUNTER.fetch_add(1, SeqCst)
 }
 
-impl RenderBatch {
-    pub fn new(batch_id: BatchId,
-           sort_key: DisplayItemKey,
-           program_id: ProgramId,
-           color_texture_id: TextureId,
-           mask_texture_id: TextureId) -> RenderBatch {
-        RenderBatch {
-            sort_key: sort_key,
-            batch_id: batch_id,
-            program_id: program_id,
-            color_texture_id: color_texture_id,
-            mask_texture_id: mask_texture_id,
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct VertexBufferId(pub usize);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MatrixIndex(pub u8);
+
+impl VertexBufferId {
+    fn new() -> VertexBufferId {
+        VertexBufferId(new_id())
+    }
+}
+
+pub struct VertexBuffer {
+    pub id: VertexBufferId,
+    pub vertices: Vec<PackedVertex>,
+    pub indices: Vec<u16>,
+}
+
+impl VertexBuffer {
+    pub fn new() -> VertexBuffer {
+        VertexBuffer {
+            id: VertexBufferId::new(),
             vertices: Vec::new(),
             indices: Vec::new(),
-            matrix_map: HashMap::with_hash_state(Default::default()),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Batch {
+    pub color_texture_id: TextureId,
+    pub mask_texture_id: TextureId,
+    pub first_vertex: u16,
+    pub index_count: u16,
+}
+
+impl Batch {
+    pub fn new(color_texture_id: TextureId,
+               mask_texture_id: TextureId,
+               first_vertex: u16) -> Batch {
+        Batch {
+            color_texture_id: color_texture_id,
+            mask_texture_id: mask_texture_id,
+            first_vertex: first_vertex,
+            index_count: 0,
         }
     }
 
     pub fn can_add_to_batch(&self,
-                        color_texture_id: TextureId,
-                        mask_texture_id: TextureId,
-                        key: &DisplayItemKey,
-                        program_id: ProgramId) -> bool {
-        let matrix_ok = self.matrix_map.len() < MAX_MATRICES_PER_BATCH ||
-                        self.matrix_map.contains_key(&key.draw_list_index);
-        let program_ok = program_id == self.program_id;
+                            color_texture_id: TextureId,
+                            mask_texture_id: TextureId) -> bool {
         let color_texture_ok = color_texture_id == self.color_texture_id;
         let mask_texture_ok = mask_texture_id == self.mask_texture_id;
-        let vertices_ok = self.vertices.len() < 65535;  // to ensure we can use u16 index buffers
+        color_texture_ok && mask_texture_ok
+    }
 
-        let batch_ok = matrix_ok &&
-                       program_ok &&
-                       color_texture_ok &&
-                       mask_texture_ok &&
-                       vertices_ok;
+    pub fn add_draw_item(&mut self, index_count: u16) {
+        self.index_count += index_count;
+    }
+}
 
-        if !batch_ok {
-            //println!("break batch! matrix={} program={} color={} mask={} vertices={} [{:?} vs {:?}]",
-            //         matrix_ok, program_ok, color_texture_ok, mask_texture_ok, vertices_ok, color_texture_id, self.color_texture_id);
+pub struct BatchBuilder<'a> {
+    vertex_buffer: &'a mut VertexBuffer,
+    batches: Vec<Batch>,
+}
+
+impl<'a> BatchBuilder<'a> {
+    pub fn new(vertex_buffer: &mut VertexBuffer) -> BatchBuilder {
+        BatchBuilder {
+            vertex_buffer: vertex_buffer,
+            batches: Vec::new(),
         }
+    }
 
-        batch_ok
+    pub fn finalize(self) -> Vec<Batch> {
+        self.batches
     }
 
     pub fn add_draw_item(&mut self,
+                         matrix_index: MatrixIndex,
                          color_texture_id: TextureId,
                          mask_texture_id: TextureId,
                          primitive: Primitive,
-                         vertices: &mut [PackedVertex],
-                         key: &DisplayItemKey) {
-        debug_assert!(color_texture_id == self.color_texture_id);
-        debug_assert!(mask_texture_id == self.mask_texture_id);
+                         vertices: &mut [PackedVertex]) {
 
-        let next_matrix_index = self.matrix_map.len() as u8;
-        let matrix_index = match self.matrix_map.entry(key.draw_list_index) {
-            Vacant(entry) => *entry.insert(next_matrix_index),
-            Occupied(entry) => *entry.get(),
+        let need_new_batch = match self.batches.last_mut() {
+            Some(batch) => {
+                !batch.can_add_to_batch(color_texture_id,
+                                        mask_texture_id)
+            }
+            None => {
+                true
+            }
         };
-        debug_assert!(self.matrix_map.len() <= MAX_MATRICES_PER_BATCH);
 
-        let index_offset = self.vertices.len();
+        let index_offset = self.vertex_buffer.vertices.len();
+
+        if need_new_batch {
+            self.batches.push(Batch::new(color_texture_id,
+                                         mask_texture_id,
+                                         self.vertex_buffer.indices.len() as u16));
+        }
+
+        let mut index_count = 0;
 
         match primitive {
             Primitive::Rectangles | Primitive::Glyphs => {
                 for i in (0..vertices.len()).step_by(4) {
                     let index_base = (index_offset + i) as u16;
-                    self.indices.push(index_base + 0);
-                    self.indices.push(index_base + 1);
-                    self.indices.push(index_base + 2);
-                    self.indices.push(index_base + 2);
-                    self.indices.push(index_base + 3);
-                    self.indices.push(index_base + 1);
+                    self.vertex_buffer.indices.push(index_base + 0);
+                    self.vertex_buffer.indices.push(index_base + 1);
+                    self.vertex_buffer.indices.push(index_base + 2);
+                    self.vertex_buffer.indices.push(index_base + 2);
+                    self.vertex_buffer.indices.push(index_base + 3);
+                    self.vertex_buffer.indices.push(index_base + 1);
+                    index_count += 6;
                 }
             }
             Primitive::Triangles => {
                 for i in (0..vertices.len()).step_by(3) {
                     let index_base = (index_offset + i) as u16;
-                    self.indices.push(index_base + 0);
-                    self.indices.push(index_base + 1);
-                    self.indices.push(index_base + 2);
+                    self.vertex_buffer.indices.push(index_base + 0);
+                    self.vertex_buffer.indices.push(index_base + 1);
+                    self.vertex_buffer.indices.push(index_base + 2);
+                    index_count += 3;
                 }
             }
             Primitive::TriangleFan => {
                 for i in (1..vertices.len() - 1) {
-                    self.indices.push(index_offset as u16);        // center vertex
-                    self.indices.push((index_offset + i + 0) as u16);
-                    self.indices.push((index_offset + i + 1) as u16);
+                    self.vertex_buffer.indices.push(index_offset as u16);        // center vertex
+                    self.vertex_buffer.indices.push((index_offset + i + 0) as u16);
+                    self.vertex_buffer.indices.push((index_offset + i + 1) as u16);
+                    index_count += 3;
                 }
             }
         }
 
+        self.batches.last_mut().unwrap().add_draw_item(index_count);
+
+        let MatrixIndex(matrix_index) = matrix_index;
         for vertex in vertices.iter_mut() {
             vertex.matrix_index = matrix_index;
         }
 
-        self.vertices.push_all(vertices);
+        self.vertex_buffer.vertices.push_all(vertices);
+
+        // TODO(gw): Handle exceeding u16 index buffer!
+        debug_assert!(self.vertex_buffer.vertices.len() < 65535);
     }
 }
 
@@ -194,4 +239,3 @@ impl RasterBatch {
         self.vertices.push_all(vertices);
     }
 }
-

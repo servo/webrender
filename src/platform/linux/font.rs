@@ -1,5 +1,5 @@
 use app_units::Au;
-use types::FontKey;
+use webrender_traits::{FontKey, NativeFontHandle};
 
 use freetype::freetype::{FTErrorMethods, FT_PIXEL_MODE_GRAY};
 use freetype::freetype::{FT_Done_FreeType, FT_LOAD_RENDER};
@@ -11,10 +11,6 @@ use freetype::freetype::{FT_New_Memory_Face, FT_GlyphSlot};
 use std::{mem, ptr, slice};
 use std::collections::HashMap;
 //use util;
-
-/// Native fonts are not used on Linux; all fonts are raw.
-#[derive(Clone)]
-pub struct NativeFontHandle;
 
 struct Face {
     face: FT_Face,

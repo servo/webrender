@@ -1,16 +1,15 @@
 use app_units::Au;
-use batch::RasterBatch;
+use batch::{RasterBatch, VertexBufferId};
 use device::{Device, ProgramId, TextureId, TextureIndex, UniformLocation, VAOId, VertexUsageHint};
 use euclid::{Rect, Matrix4, Point2D, Size2D};
 use fnv::FnvHasher;
 use gleam::gl;
-use internal_types::{Frame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
+use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
-use internal_types::{BatchId, ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DrawCommandInfo, BoxShadowPart};
-use internal_types::{PackedVertexForTextureCacheUpdate, TextureTarget, IdNamespace, ResourceId};
-use render_api::RenderApi;
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, BoxShadowPart};
+use internal_types::{PackedVertexForTextureCacheUpdate, TextureTarget};
+use internal_types::{CompositionOp, LowLevelFilterOp, BlurDirection, DrawCommand};
 use render_backend::RenderBackend;
-use std::cell::Cell;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::f32;
@@ -19,18 +18,14 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use texture_cache::{TextureCache, TextureInsertOp};
-use types::{ColorF, Epoch, PipelineId, RenderNotifier, ImageFormat, MixBlendMode};
-use types::{CompositionOp, LowLevelFilterOp, BlurDirection};
+use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
+use webrender_traits::{ImageFormat, MixBlendMode, RenderApi};
 //use util;
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
 
-struct Batch {
-    program_id: ProgramId,
-    color_texture_id: TextureId,
-    mask_texture_id: TextureId,
+struct VertexBuffer {
     vao_id: VAOId,
-    index_count: gl::GLint,
 }
 
 struct RenderContext {
@@ -47,10 +42,9 @@ pub struct Renderer {
     device: Device,
     pending_texture_updates: Vec<TextureUpdateList>,
     pending_batch_updates: Vec<BatchUpdateList>,
-    current_frame: Option<Frame>,
+    current_frame: Option<RendererFrame>,
     device_pixel_ratio: f32,
-    batches: HashMap<BatchId, Batch, DefaultState<FnvHasher>>,
-    batch_matrices: HashMap<BatchId, Vec<Matrix4>, DefaultState<FnvHasher>>,
+    vertex_buffers: HashMap<VertexBufferId, VertexBuffer, DefaultState<FnvHasher>>,
     raster_batches: Vec<RasterBatch>,
 
     quad_program_id: ProgramId,
@@ -148,7 +142,6 @@ impl Renderer {
                                                  result_tx,
                                                  initial_viewport,
                                                  device_pixel_ratio,
-                                                 quad_program_id,
                                                  white_image_id,
                                                  dummy_mask_image_id,
                                                  texture_cache);
@@ -159,8 +152,7 @@ impl Renderer {
             result_rx: result_rx,
             device: device,
             current_frame: None,
-            batches: HashMap::with_hash_state(Default::default()),
-            batch_matrices: HashMap::with_hash_state(Default::default()),
+            vertex_buffers: HashMap::with_hash_state(Default::default()),
             raster_batches: Vec::new(),
             pending_texture_updates: Vec::new(),
             pending_batch_updates: Vec::new(),
@@ -180,11 +172,7 @@ impl Renderer {
             u_quad_transform_array: u_quad_transform_array,
         };
 
-        let api = RenderApi {
-            tx: api_tx,
-            id_namespace: IdNamespace(0),   // special case
-            next_id: Cell::new(ResourceId(0)),
-        };
+        let api = RenderApi::new(api_tx);
 
         (renderer, api)
     }
@@ -231,37 +219,24 @@ impl Renderer {
         for update_list in pending_batch_updates.drain(..) {
             for update in update_list.updates {
                 match update.op {
-                    BatchUpdateOp::Create(vertices,
-                                          indices,
-                                          program_id,
-                                          color_texture_id,
-                                          mask_texture_id) => {
+                    BatchUpdateOp::Create(vertices, indices) => {
                         let vao_id = self.device.create_vao();
                         self.device.bind_vao(vao_id);
 
-                        self.device.update_vao_indices(vao_id, &indices, VertexUsageHint::Static);
+                        self.device.update_vao_indices(vao_id,
+                                                       &indices,
+                                                       VertexUsageHint::Static);
                         self.device.update_vao_vertices(vao_id,
                                                         &vertices,
                                                         VertexUsageHint::Static);
 
-                        self.batches.insert(update.id, Batch {
+                        self.vertex_buffers.insert(update.id, VertexBuffer {
                             vao_id: vao_id,
-                            program_id: program_id,
-                            color_texture_id: color_texture_id,
-                            mask_texture_id: mask_texture_id,
-                            index_count: indices.len() as gl::GLint,
                         });
                     }
-                    BatchUpdateOp::UpdateUniforms(matrices) => {
-                        self.batch_matrices.insert(update.id, matrices);
-                    }
                     BatchUpdateOp::Destroy => {
-                        let batch = self.batches.remove(&update.id).unwrap();
-                        self.device.delete_vao(batch.vao_id);
-                        /*for (_, batch) in self.batches.iter() {
-                            self.device.delete_vao(batch.vao_id);
-                        }
-                        self.batches.clear();*/
+                        let vertex_buffer = self.vertex_buffers.remove(&update.id).unwrap();
+                        self.device.delete_vao(vertex_buffer.vao_id);
                     }
                 }
             }
@@ -844,7 +819,7 @@ impl Renderer {
         self.device.update_vao_indices(vao_id, &batch.indices[..], VertexUsageHint::Dynamic);
         self.device.update_vao_vertices(vao_id, &batch.vertices[..], VertexUsageHint::Dynamic);
 
-        self.device.draw_triangles_u16(batch.indices.len() as gl::GLint);
+        self.device.draw_triangles_u16(0, batch.indices.len() as gl::GLint);
         self.device.delete_vao(vao_id);
     }
 
@@ -894,8 +869,8 @@ impl Renderer {
                           gl::STENCIL_BUFFER_BIT);
 
                 for cmd in &layer.commands {
-                    match cmd.info {
-                        DrawCommandInfo::Clear(ref info) => {
+                    match cmd {
+                        &DrawCommand::Clear(ref info) => {
                             let mut clear_bits = 0;
                             if info.clear_color {
                                 clear_bits |= gl::COLOR_BUFFER_BIT;
@@ -908,30 +883,32 @@ impl Renderer {
                             }
                             gl::clear(clear_bits);
                         }
-                        DrawCommandInfo::Batch(batch_id) => {
+                        &DrawCommand::Batch(ref info) => {
                             // TODO: probably worth sorting front to back to minimize overdraw (if profiling shows fragment / rop bound)
 
                             gl::enable(gl::BLEND);
                             gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
                             gl::blend_equation(gl::FUNC_ADD);
 
-                            let batch = &self.batches[&batch_id];
-                            let matrices = &self.batch_matrices[&batch_id];
+                            self.device.bind_program(self.quad_program_id,
+                                                     &render_context.projection);
 
-                            // TODO: hack - bind the uniform locations? this goes away if only one shader anyway...
-                            let u_transform_array = if batch.program_id == self.quad_program_id {
-                                self.u_quad_transform_array
-                            } else {
-                                panic!("unexpected batch shader!");
-                            };
+                            self.device.set_uniform_mat4_array(self.u_quad_transform_array,
+                                                               &info.matrix_palette);
 
-                            Renderer::draw_batch(&mut self.device,
-                                                 batch,
-                                                 matrices,
-                                                 &mut render_context,
-                                                 u_transform_array);
+                            for draw_call in &info.draw_calls {
+                                let vao_id = self.vertex_buffers[&draw_call.vertex_buffer_id].vao_id;
+                                self.device.bind_vao(vao_id);
+
+                                self.device.bind_mask_texture_for_noncomposite_operation(draw_call.mask_texture_id);
+                                self.device.bind_color_texture_for_noncomposite_operation(draw_call.color_texture_id);
+
+                                self.device.draw_triangles_u16(draw_call.first_vertex as i32,
+                                                               draw_call.index_count as i32);
+                                render_context.draw_calls += 1;
+                            }
                         }
-                        DrawCommandInfo::Composite(ref info) => {
+                        &DrawCommand::Composite(ref info) => {
                             let needs_fb = match info.operation {
                                 CompositionOp::MixBlend(MixBlendMode::Normal) => unreachable!(),
 
@@ -1127,7 +1104,7 @@ impl Renderer {
                             self.device.update_vao_indices(vao_id, &indices, VertexUsageHint::Dynamic);
                             self.device.update_vao_vertices(vao_id, &vertices, VertexUsageHint::Dynamic);
 
-                            self.device.draw_triangles_u16(indices.len() as gl::GLint);
+                            self.device.draw_triangles_u16(0, indices.len() as gl::GLint);
                             render_context.draw_calls += 1;
 
                             self.device.delete_vao(vao_id);
@@ -1138,22 +1115,5 @@ impl Renderer {
 
             //println!("draw_calls {}", render_context.draw_calls);
         }
-    }
-
-    fn draw_batch(device: &mut Device,
-                  batch: &Batch,
-                  matrices: &Vec<Matrix4>,
-                  context: &mut RenderContext,
-                  u_transform_array: UniformLocation) {
-        device.bind_program(batch.program_id, &context.projection);
-        device.set_uniform_mat4_array(u_transform_array, matrices);     // The uniform loc here isn't always right!
-
-        device.bind_mask_texture_for_noncomposite_operation(batch.mask_texture_id);
-        device.bind_color_texture_for_noncomposite_operation(batch.color_texture_id);
-
-        device.bind_vao(batch.vao_id);
-
-        device.draw_triangles_u16(batch.index_count);
-        context.draw_calls += 1;
     }
 }

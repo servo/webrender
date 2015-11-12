@@ -4,13 +4,17 @@
 
 use euclid::{Point2D, Rect, Size2D};
 use std::mem;
-use types::{DisplayItem, DisplayListBuilder, DrawList, ImageDisplayItem, SpecificDisplayItem};
+use webrender_traits::{DisplayItem, DisplayListBuilder};
+use webrender_traits::{ImageDisplayItem, SpecificDisplayItem, SpecificDisplayListItem};
 
 pub const IMAGE_TILE_THRESHOLD: f32 = 5000.0;
 
-fn optimize_draw_list(draw_list: &mut DrawList) {
-    let old_draw_list = mem::replace(draw_list, DrawList::new());
-    for item in old_draw_list.items.into_iter() {
+// TODO(gw): Store in each display list which lists have images, skip this step in common case.
+//           Or perhaps just do this in DisplayItem::add_image().
+fn optimize_draw_list(draw_list: &mut Vec<DisplayItem>) {
+    let old_draw_list = mem::replace(draw_list, Vec::new());
+
+    for item in old_draw_list.into_iter() {
         match item.item {
             SpecificDisplayItem::Image(ref image) => {
                 // Break up large tiled images into smaller ones so that large background images
@@ -35,7 +39,6 @@ fn optimize_draw_list(draw_list: &mut DrawList) {
                                 }),
                                 rect: Rect::new(Point2D::new(x, y), tile_size),
                                 clip: item.clip.clone(),
-                                node_index: item.node_index,
                             });
                             x += tile_size.width;
                         }
@@ -52,11 +55,13 @@ fn optimize_draw_list(draw_list: &mut DrawList) {
 }
 
 pub fn optimize_display_list_builder(display_list_builder: &mut DisplayListBuilder) {
-    optimize_draw_list(&mut display_list_builder.background_and_borders);
-    optimize_draw_list(&mut display_list_builder.block_backgrounds_and_borders);
-    optimize_draw_list(&mut display_list_builder.floats);
-    optimize_draw_list(&mut display_list_builder.content);
-    optimize_draw_list(&mut display_list_builder.positioned_content);
-    optimize_draw_list(&mut display_list_builder.outlines);
+    for item in &mut display_list_builder.items {
+        match item.specific {
+            SpecificDisplayListItem::DrawList(ref mut info) => {
+                optimize_draw_list(&mut info.items);
+            }
+            SpecificDisplayListItem::StackingContext(..) |
+            SpecificDisplayListItem::Iframe(..) => {}
+        }
+    }
 }
-
