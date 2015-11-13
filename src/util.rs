@@ -74,6 +74,19 @@ pub fn bilerp(point: &Point2D<f32>, quad: &Rect<f32>, uv: &RectUv) -> Point2D<f3
      uv.bottom_right * (point.x - x1) * (point.y - y1)) / ((x2 - x1) * (y2 - y1))
 }
 
+pub fn bilerp_rect(clipped_rect: &Rect<f32>, quad: &Rect<f32>, uv: &RectUv) -> RectUv {
+    let uv_tl = bilerp(&clipped_rect.origin, quad, uv);
+    let uv_tr = bilerp(&clipped_rect.top_right(), quad, uv);
+    let uv_br = bilerp(&clipped_rect.bottom_right(), quad, uv);
+    let uv_bl = bilerp(&clipped_rect.bottom_left(), quad, uv);
+    RectUv {
+        top_left: uv_tl,
+        top_right: uv_tr,
+        bottom_left: uv_bl,
+        bottom_right: uv_br,
+    }
+}
+
 // Don't use `euclid`'s `is_empty` because that has effectively has an "and" in the conditional
 // below instead of an "or".
 pub fn rect_is_empty<N:PartialEq + Zero>(rect: &Rect<N>) -> bool {

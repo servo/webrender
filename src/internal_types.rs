@@ -193,8 +193,8 @@ pub enum RenderTargetMode {
 pub enum TextureUpdateDetails {
     Blit(Vec<u8>),
     Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage),
-    /// All four corners and whether inverted, respectively.
-    BorderRadius(Au, Au, Au, Au, bool),
+    /// All four corners, the tessellation index, and whether inverted, respectively.
+    BorderRadius(Au, Au, Au, Au, u32, bool),
     /// Blur radius, box shadow part, and whether inverted, respectively.
     BoxShadow(Au, BoxShadowPart, bool),
     /// Bytes, stretch size, and scratch texture image, respectively.
@@ -582,9 +582,9 @@ impl RectUv {
             BasicRotationAngle::Clockwise90 => {
                 RectUv {
                     top_right: Point2D::new(image.u0, image.v0),
-                    bottom_right: Point2D::new(image.u1, image.v0),
+                    top_left: Point2D::new(image.u1, image.v0),
                     bottom_left: Point2D::new(image.u1, image.v1),
-                    top_left: Point2D::new(image.u0, image.v1),
+                    bottom_right: Point2D::new(image.u0, image.v1),
                 }
             }
             BasicRotationAngle::Clockwise180 => {
@@ -598,9 +598,9 @@ impl RectUv {
             BasicRotationAngle::Clockwise270 => {
                 RectUv {
                     bottom_left: Point2D::new(image.u0, image.v0),
-                    top_left: Point2D::new(image.u1, image.v0),
+                    bottom_right: Point2D::new(image.u1, image.v0),
                     top_right: Point2D::new(image.u1, image.v1),
-                    bottom_right: Point2D::new(image.u0, image.v1),
+                    top_left: Point2D::new(image.u0, image.v1),
                 }
             }
         }
@@ -718,14 +718,16 @@ pub struct BorderRadiusRasterOp {
     pub outer_radius_y: Au,
     pub inner_radius_x: Au,
     pub inner_radius_y: Au,
-    pub inverted: bool,
+    pub index: u32,
     pub image_format: ImageFormat,
+    pub inverted: bool,
 }
 
 impl BorderRadiusRasterOp {
     pub fn create(outer_radius: &Size2D<f32>,
                   inner_radius: &Size2D<f32>,
                   inverted: bool,
+                  index: u32,
                   image_format: ImageFormat)
                   -> Option<BorderRadiusRasterOp> {
         if outer_radius.width > 0.0 || outer_radius.height > 0.0 {
@@ -734,6 +736,7 @@ impl BorderRadiusRasterOp {
                 outer_radius_y: Au::from_f32_px(outer_radius.height),
                 inner_radius_x: Au::from_f32_px(inner_radius.width),
                 inner_radius_y: Au::from_f32_px(inner_radius.height),
+                index: index,
                 inverted: inverted,
                 image_format: image_format,
             })

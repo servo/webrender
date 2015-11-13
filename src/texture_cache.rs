@@ -5,12 +5,14 @@ use fnv::FnvHasher;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureTarget, TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
+use internal_types::{BasicRotationAngle};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::collections::hash_state::DefaultState;
 use std::mem;
-use webrender_traits::ImageFormat;
+use tessellator::BorderCornerTessellation;
 use util;
+use webrender_traits::ImageFormat;
 
 /// The number of bytes we're allowed to use for a texture.
 const MAX_BYTES_PER_TEXTURE: u32 = 64 * 1024 * 1024;
@@ -506,8 +508,16 @@ impl TextureCache {
                             item: &RasterItem) {
         let update_op = match item {
             &RasterItem::BorderRadius(ref op) => {
-                let width = op.outer_radius_x.to_nearest_px() as u32;
-                let height = op.outer_radius_y.to_nearest_px() as u32;
+                let rect = Rect::new(Point2D::new(0.0, 0.0),
+                                     Size2D::new(op.outer_radius_x.to_f32_px(),
+                                                 op.outer_radius_y.to_f32_px()));
+                let tessellated_rect = rect.tessellate_border_corner(
+                    &Size2D::new(op.outer_radius_x.to_f32_px(), op.outer_radius_y.to_f32_px()),
+                    &Size2D::new(op.inner_radius_x.to_f32_px(), op.inner_radius_y.to_f32_px()),
+                    BasicRotationAngle::Upright,
+                    op.index);
+                let width = tessellated_rect.size.width.round() as u32;
+                let height = tessellated_rect.size.height.round() as u32;
 
                 let allocation = self.allocate(image_id,
                                                0,
@@ -531,6 +541,7 @@ impl TextureCache {
                                                     op.outer_radius_y,
                                                     op.inner_radius_x,
                                                     op.inner_radius_y,
+                                                    op.index,
                                                     op.inverted)),
                 }
             }
