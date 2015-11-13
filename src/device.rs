@@ -35,6 +35,14 @@ static VERTEX_SHADER_PREAMBLE: &'static str = "es2_common.vs.glsl";
 #[cfg(not(any(target_os = "android", target_os = "gonk")))]
 static VERTEX_SHADER_PREAMBLE: &'static str = "gl3_common.vs.glsl";
 
+lazy_static! {
+    pub static ref MAX_TEXTURE_SIZE: gl::GLint = {
+        let mut value = 0;
+        gl::get_integer_v(gl::MAX_TEXTURE_SIZE, &mut value);
+        value
+    };
+}
+
 impl TextureId {
     fn bind(&self, target: TextureTarget) {
         let TextureId(id) = *self;
