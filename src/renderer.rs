@@ -6,9 +6,9 @@ use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, BoxShadowPart};
-use internal_types::{PackedVertexForTextureCacheUpdate, TextureTarget};
-use internal_types::{CompositionOp, LowLevelFilterOp, BlurDirection, DrawCommand};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, BoxShadowPart, BasicRotationAngle};
+use internal_types::{PackedVertexForTextureCacheUpdate, TextureTarget, CompositionOp};
+use internal_types::{BlurDirection, LowLevelFilterOp, DrawCommand};
 use render_backend::RenderBackend;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
@@ -17,6 +17,7 @@ use std::mem;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
 use std::thread;
+use tessellator::BorderCornerTessellation;
 use texture_cache::{TextureCache, TextureInsertOp};
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
 use webrender_traits::{ImageFormat, MixBlendMode, RenderApi};
@@ -451,7 +452,11 @@ impl Renderer {
                                                                outer_ry,
                                                                inner_rx,
                                                                inner_ry,
+                                                               index,
                                                                inverted) => {
+                                println!("outer_rx={:?} outer_ry={:?} inner_rx={:?} inner_ry={:?}",
+                                         outer_rx, outer_ry,
+                                         inner_rx, inner_ry);
                                 let x = x as f32;
                                 let y = y as f32;
                                 let inner_rx = inner_rx.to_f32_px();
@@ -468,9 +473,25 @@ impl Renderer {
 
                                 let border_radii_outer = Point2D::new(outer_rx, outer_ry);
                                 let border_radii_inner = Point2D::new(inner_rx, inner_ry);
-                                let border_position = Point2D::new(x + outer_rx, y + outer_ry);
+
+                                let tessellated_rect =
+                                    Rect::new(Point2D::new(0.0, 0.0),
+                                              Size2D::new(outer_rx, outer_ry));
+                                let tessellated_rect =
+                                    tessellated_rect.tessellate_border_corner(
+                                        &Size2D::new(outer_rx, outer_ry),
+                                        &Size2D::new(inner_rx, inner_ry),
+                                        BasicRotationAngle::Upright,
+                                        index);
+                                let border_position =
+                                    Point2D::new(x - tessellated_rect.origin.x + outer_rx,
+                                                 y - tessellated_rect.origin.y + outer_ry);
                                 let zero_point = Point2D::new(0.0, 0.0);
                                 let zero_size = Size2D::new(0.0, 0.0);
+
+                                let (x, y) = (x as f32, y as f32);
+                                let (width, height) = (width as f32, height as f32);
+
                                 let vertices: [PackedVertexForTextureCacheUpdate; 4] = [
                                     PackedVertexForTextureCacheUpdate::new(
                                         &Point2D::new(x, y),
@@ -485,7 +506,7 @@ impl Renderer {
                                         &zero_size,
                                         0.0),
                                     PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(x + outer_rx, y),
+                                        &Point2D::new(x + width, y),
                                         &color,
                                         &zero_point,
                                         TextureIndex(0),
@@ -497,7 +518,7 @@ impl Renderer {
                                         &zero_size,
                                         0.0),
                                     PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(x, y + outer_ry),
+                                        &Point2D::new(x, y + height),
                                         &color,
                                         &zero_point,
                                         TextureIndex(0),
@@ -509,7 +530,7 @@ impl Renderer {
                                         &zero_size,
                                         0.0),
                                     PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(x + outer_rx, y + outer_ry),
+                                        &Point2D::new(x + width, y + height),
                                         &color,
                                         &zero_point,
                                         TextureIndex(0),

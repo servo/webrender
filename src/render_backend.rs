@@ -225,3 +225,4 @@ impl RenderBackend {
         notifier.new_frame_ready();
     }
 }
+

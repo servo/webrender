@@ -1,7 +1,6 @@
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::{ClipRectToRegionMaskResult, ClipRectToRegionResult};
 use internal_types::{CombinedClipRegion, PolygonPosColorUv, RectPosUv, WorkVertex};
-use render_backend::MAX_RECT;
 use simd::f32x4;
 use std::fmt::Debug;
 use std::mem;
