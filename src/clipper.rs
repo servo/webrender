@@ -1,6 +1,7 @@
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::{ClipRectToRegionMaskResult, ClipRectToRegionResult};
-use internal_types::{CombinedClipRegion, PolygonPosColorUv, RectPosUv, RectUv, WorkVertex};
+use internal_types::{CombinedClipRegion, PolygonPosColorUv, RectPosUv, WorkVertex};
+use render_backend::MAX_RECT;
 use simd::f32x4;
 use std::fmt::Debug;
 use std::mem;
@@ -397,19 +398,9 @@ impl RectPosUv {
             return
         }
 
-        let uv_tl = util::bilerp(&clipped_rect.origin, &self.pos, &self.uv);
-        let uv_tr = util::bilerp(&clipped_rect.top_right(), &self.pos, &self.uv);
-        let uv_br = util::bilerp(&clipped_rect.bottom_right(), &self.pos, &self.uv);
-        let uv_bl = util::bilerp(&clipped_rect.bottom_left(), &self.pos, &self.uv);
-
         output.push(RectPosUv {
             pos: *clipped_rect,
-            uv: RectUv {
-                top_left: uv_tl,
-                top_right: uv_tr,
-                bottom_left: uv_bl,
-                bottom_right: uv_br,
-            }
+            uv: util::bilerp_rect(clipped_rect, &self.pos, &self.uv),
         });
     }
 }
