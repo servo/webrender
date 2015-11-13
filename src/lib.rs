@@ -3,6 +3,9 @@
 #![feature(vec_push_all)]
 #![feature(step_by, convert, zero_one)]
 
+#[macro_use]
+extern crate lazy_static;
+
 mod aabbtree;
 mod batch;
 mod batch_builder;

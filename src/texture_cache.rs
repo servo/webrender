@@ -1,22 +1,26 @@
 use app_units::Au;
-use device::{TextureId, TextureIndex};
+use device::{MAX_TEXTURE_SIZE, TextureId, TextureIndex};
 use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
+use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureTarget, TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::collections::hash_state::DefaultState;
-use freelist::{FreeList, FreeListItem, FreeListItemId};
 use std::mem;
 use webrender_traits::ImageFormat;
 use util;
 
-const LEVELS_PER_TEXTURE: u8 = 8;
+/// The number of bytes we're allowed to use for a texture.
+const MAX_BYTES_PER_TEXTURE: u32 = 64 * 1024 * 1024;
 
-// TODO(pcwalton): This is pretty small. Maybe detect the max GL texture size at runtime and use
-// that?
-const TEXTURE_SIZE: u32 = 1024;
+/// The number of RGBA pixels we're allowed to use for a texture.
+const MAX_RGBA_PIXELS_PER_TEXTURE: u32 = MAX_BYTES_PER_TEXTURE / 4;
+
+/// The square root of the number of RGBA pixels we're allowed to use for a texture, rounded down.
+/// to the next power of two.
+const SQRT_MAX_RGBA_PIXELS_PER_TEXTURE: u32 = 4096;
 
 pub type TextureCacheItemId = FreeListItemId;
 
@@ -49,18 +53,31 @@ impl TexturePage {
         }
     }
 
+    fn find_index_of_best_rect(&self, requested_dimensions: &Size2D<u32>) -> Option<usize> {
+        let mut smallest_index_and_area = None;
+        for (candidate_index, candidate_rect) in self.free_list.iter().enumerate() {
+            if !requested_dimensions.fits_inside(&candidate_rect.size) {
+                continue
+            }
+
+            let candidate_area = candidate_rect.size.width * candidate_rect.size.height;
+            match smallest_index_and_area {
+                Some((_, smallest_area_so_far)) if candidate_area > smallest_area_so_far => {}
+                _ => smallest_index_and_area = Some((candidate_index, candidate_area)),
+            }
+        }
+        smallest_index_and_area.map(|(index, _)| index)
+    }
+
     fn allocate(&mut self, requested_dimensions: &Size2D<u32>) -> Option<Point2D<u32>> {
-        // First, try to find a suitable rect in the free list.
-        let mut index = self.free_list.iter().position(|rect| {
-            requested_dimensions.fits_inside(&rect.size)
-        });
+        // First, try to find a suitable rect in the free list. We choose the smallest such rect
+        // in terms of area (Best-Area-Fit, BAF).
+        let mut index = self.find_index_of_best_rect(requested_dimensions);
 
         // If one couldn't be found and we're dirty, coalesce rects and try again.
         if index.is_none() && self.dirty {
             self.coalesce();
-            index = self.free_list.iter().position(|rect| {
-                requested_dimensions.fits_inside(&rect.size)
-            })
+            index = self.find_index_of_best_rect(requested_dimensions)
         }
 
         // If a rect still can't be found, fail.
@@ -69,18 +86,39 @@ impl TexturePage {
             Some(index) => index,
         };
 
-        // Remove the rect from the free list and guillotine it.
+        // Remove the rect from the free list and decide how to guillotine it. We choose the split
+        // that results in the single largest area (Min Area Split Rule, MINAS).
         let chosen_rect = self.free_list.swap_remove(index);
-        let new_free_rect_to_right =
+        let candidate_free_rect_to_right =
             Rect::new(Point2D::new(chosen_rect.origin.x + requested_dimensions.width,
                                    chosen_rect.origin.y),
                       Size2D::new(chosen_rect.size.width - requested_dimensions.width,
                                   requested_dimensions.height));
-        let new_free_rect_to_bottom =
+        let candidate_free_rect_to_bottom =
             Rect::new(Point2D::new(chosen_rect.origin.x,
                                    chosen_rect.origin.y + requested_dimensions.height),
-                      Size2D::new(chosen_rect.size.width,
+                      Size2D::new(requested_dimensions.width,
                                   chosen_rect.size.height - requested_dimensions.height));
+        let candidate_free_rect_to_right_area = candidate_free_rect_to_right.size.width *
+            candidate_free_rect_to_right.size.height;
+        let candidate_free_rect_to_bottom_area = candidate_free_rect_to_bottom.size.width *
+            candidate_free_rect_to_bottom.size.height;
+
+        // Guillotine the rectangle.
+        let new_free_rect_to_right;
+        let new_free_rect_to_bottom;
+        if candidate_free_rect_to_right_area > candidate_free_rect_to_bottom_area {
+            new_free_rect_to_right = Rect::new(candidate_free_rect_to_right.origin,
+                                               Size2D::new(candidate_free_rect_to_right.size.width,
+                                                           chosen_rect.size.height));
+            new_free_rect_to_bottom = candidate_free_rect_to_bottom
+        } else {
+            new_free_rect_to_right = candidate_free_rect_to_right;
+            new_free_rect_to_bottom =
+                Rect::new(candidate_free_rect_to_bottom.origin,
+                          Size2D::new(chosen_rect.size.width,
+                                      candidate_free_rect_to_bottom.size.height))
+        }
 
         // Add the guillotined rects back to the free list. If any changes were made, we're now
         // dirty since coalescing might be able to defragment.
@@ -219,13 +257,14 @@ impl TextureCacheItem {
     }
 
     fn to_image(&self) -> TextureImage {
+        let texture_size = texture_size() as f32;
         TextureImage {
             texture_id: self.texture_id,
             texture_index: self.texture_index,
             texel_uv: Rect::new(Point2D::new(self.u0, self.v0), Size2D::new(self.u1 - self.u0,
                                                                             self.v1 - self.v0)),
-            pixel_uv: Point2D::new((self.u0 * (TEXTURE_SIZE as f32)) as u32,
-                                   (self.v0 * (TEXTURE_SIZE as f32)) as u32),
+            pixel_uv: Point2D::new((self.u0 * texture_size) as u32,
+                                   (self.v0 * texture_size) as u32),
         }
     }
 }
@@ -377,7 +416,7 @@ impl TextureCache {
             Some(location) => location,
             None => {
                 // We need a new page.
-                let texture_size = TEXTURE_SIZE;
+                let texture_size = texture_size();
                 let (texture_id, texture_index) = {
                     let free_texture_levels_entry = if !alternate {
                         self.free_texture_levels.entry(format)
@@ -713,14 +752,31 @@ fn create_new_texture_page(pending_updates: &mut TextureUpdateList,
     let update_op = TextureUpdate {
         id: texture_id,
         index: TextureIndex(0),
-        op: texture_create_op(texture_size, LEVELS_PER_TEXTURE as u32, format, mode),
+        op: texture_create_op(texture_size, levels_per_texture() as u32, format, mode),
     };
     pending_updates.push(update_op);
 
-    for i in 0..LEVELS_PER_TEXTURE {
+    for i in 0..levels_per_texture() {
         free_texture_levels.push(FreeTextureLevel {
             texture_id: texture_id,
             texture_index: TextureIndex(i),
         })
     }
 }
+
+/// Returns the number of pixels on a side we're allowed to use for our texture atlases.
+fn texture_size() -> u32 {
+    let max_hardware_texture_size = *MAX_TEXTURE_SIZE as u32;
+    if max_hardware_texture_size * max_hardware_texture_size > MAX_RGBA_PIXELS_PER_TEXTURE {
+        SQRT_MAX_RGBA_PIXELS_PER_TEXTURE
+    } else {
+        max_hardware_texture_size
+    }
+}
+
+/// Returns the number of texture levels we're allowed to use.
+fn levels_per_texture() -> u8 {
+    let texture_size = texture_size();
+    (MAX_RGBA_PIXELS_PER_TEXTURE / (texture_size * texture_size)) as u8
+}
+
