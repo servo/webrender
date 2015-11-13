@@ -582,9 +582,9 @@ impl RectUv {
             BasicRotationAngle::Clockwise90 => {
                 RectUv {
                     top_right: Point2D::new(image.u0, image.v0),
-                    bottom_right: Point2D::new(image.u1, image.v0),
+                    top_left: Point2D::new(image.u1, image.v0),
                     bottom_left: Point2D::new(image.u1, image.v1),
-                    top_left: Point2D::new(image.u0, image.v1),
+                    bottom_right: Point2D::new(image.u0, image.v1),
                 }
             }
             BasicRotationAngle::Clockwise180 => {
@@ -598,9 +598,9 @@ impl RectUv {
             BasicRotationAngle::Clockwise270 => {
                 RectUv {
                     bottom_left: Point2D::new(image.u0, image.v0),
-                    top_left: Point2D::new(image.u1, image.v0),
+                    bottom_right: Point2D::new(image.u1, image.v0),
                     top_right: Point2D::new(image.u1, image.v1),
-                    bottom_right: Point2D::new(image.u0, image.v1),
+                    top_left: Point2D::new(image.u0, image.v1),
                 }
             }
         }
