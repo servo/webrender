@@ -225,13 +225,13 @@ impl DisplayListBuilder {
     pub fn push_iframe(&mut self,
                        level: StackingLevel,
                        rect: Rect<f32>,
-                       clip: ClipRegion,
+                       _clip: ClipRegion,
                        iframe: PipelineId) {
         self.flush_list(level);
         let info = Box::new(IframeInfo {
             id: iframe,
             offset: rect.origin,
-            clip: clip.main,
+            clip: rect,
         });
         let item = DisplayListItem {
             stacking_level: level,
