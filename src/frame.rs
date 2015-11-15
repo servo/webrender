@@ -498,13 +498,16 @@ impl Frame {
 
                         if let Some(pipeline) = pipeline {
                             // TODO: Doesn't handle transforms on iframes yet!
-                            let iframe_transform = Matrix4::identity().translate(iframe_info.offset.x,
-                                                                                 iframe_info.offset.y,
+                            let child_offset = child_offset + iframe_info.offset;
+
+                            let iframe_transform = Matrix4::identity().translate(child_offset.x,
+                                                                                 child_offset.y,
                                                                                  0.0);
 
                             let clip_rect = clip_rect.intersection(&iframe_info.clip);
 
                             if let Some(clip_rect) = clip_rect {
+                                let clip_rect = clip_rect.translate(&-iframe_info.offset);
                                 self.flatten(SceneItemKind::Pipeline(pipeline),
                                              &child_offset,
                                              &iframe_transform,
