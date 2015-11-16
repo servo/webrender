@@ -5,6 +5,8 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 
 pub const MAX_MATRICES_PER_BATCH: usize = 32;
+pub const MAX_TILE_PARAMS_PER_BATCH: usize = 256;       // TODO(gw): Constrain to max FS uniform vectors...
+pub const INVALID_TILE_PARAM: u8 = 0;
 
 static ID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
@@ -18,6 +20,14 @@ pub struct VertexBufferId(pub usize);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MatrixIndex(pub u8);
+
+#[derive(Clone, Debug)]
+pub struct TileParams {
+    pub u0: f32,
+    pub v0: f32,
+    pub u_size: f32,
+    pub v_size: f32,
+}
 
 impl VertexBufferId {
     fn new() -> VertexBufferId {
@@ -47,30 +57,56 @@ pub struct Batch {
     pub mask_texture_id: TextureId,
     pub first_vertex: u16,
     pub index_count: u16,
+    pub tile_params: Vec<TileParams>,
 }
 
 impl Batch {
     pub fn new(color_texture_id: TextureId,
                mask_texture_id: TextureId,
                first_vertex: u16) -> Batch {
+        let default_tile_params = vec![
+            TileParams {
+                u0: 0.0,
+                v0: 0.0,
+                u_size: 1.0,
+                v_size: 1.0,
+            }
+        ];
+
         Batch {
             color_texture_id: color_texture_id,
             mask_texture_id: mask_texture_id,
             first_vertex: first_vertex,
             index_count: 0,
+            tile_params: default_tile_params,
         }
     }
 
     pub fn can_add_to_batch(&self,
                             color_texture_id: TextureId,
-                            mask_texture_id: TextureId) -> bool {
+                            mask_texture_id: TextureId,
+                            needs_tile_params: bool) -> bool {
         let color_texture_ok = color_texture_id == self.color_texture_id;
         let mask_texture_ok = mask_texture_id == self.mask_texture_id;
-        color_texture_ok && mask_texture_ok
+        let tile_params_ok = !needs_tile_params ||
+                             self.tile_params.len() < MAX_TILE_PARAMS_PER_BATCH;
+
+        color_texture_ok &&
+        mask_texture_ok &&
+        tile_params_ok
     }
 
-    pub fn add_draw_item(&mut self, index_count: u16) {
+    pub fn add_draw_item(&mut self,
+                         index_count: u16,
+                         tile_params: Option<TileParams>) -> u8 {
         self.index_count += index_count;
+
+        tile_params.map_or(INVALID_TILE_PARAM, |tile_params| {
+            let index = self.tile_params.len();
+            debug_assert!(index < MAX_TILE_PARAMS_PER_BATCH);
+            self.tile_params.push(tile_params);
+            index as u8
+        })
     }
 }
 
@@ -96,12 +132,14 @@ impl<'a> BatchBuilder<'a> {
                          color_texture_id: TextureId,
                          mask_texture_id: TextureId,
                          primitive: Primitive,
-                         vertices: &mut [PackedVertex]) {
+                         vertices: &mut [PackedVertex],
+                         tile_params: Option<TileParams>) {
 
         let need_new_batch = match self.batches.last_mut() {
             Some(batch) => {
                 !batch.can_add_to_batch(color_texture_id,
-                                        mask_texture_id)
+                                        mask_texture_id,
+                                        tile_params.is_some())
             }
             None => {
                 true
@@ -150,11 +188,13 @@ impl<'a> BatchBuilder<'a> {
             }
         }
 
-        self.batches.last_mut().unwrap().add_draw_item(index_count);
+        let tile_params_index = self.batches.last_mut().unwrap().add_draw_item(index_count,
+                                                                               tile_params);
 
         let MatrixIndex(matrix_index) = matrix_index;
         for vertex in vertices.iter_mut() {
             vertex.matrix_index = matrix_index;
+            vertex.tile_params_index = tile_params_index;
         }
 
         self.vertex_buffer.vertices.push_all(vertices);

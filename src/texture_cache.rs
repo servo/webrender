@@ -646,20 +646,6 @@ impl TextureCache {
                                                unblurred_glyph_item.to_image(),
                                                horizontal_blur_item.to_image()))
             }
-            (AllocationKind::TexturePage, TextureInsertOp::Tile(bytes, stretch_size)) => {
-                let scratch_image_id = self.new_item_id();
-                // TODO(pcwalton): Destroy these!
-                self.allocate(scratch_image_id,
-                              0, 0,
-                              stretch_size.width, stretch_size.height,
-                              ImageFormat::RGBA8,
-                              true);
-                let scratch_item = self.get(scratch_image_id);
-                TextureUpdateOp::Update(
-                    result.uv.x, result.uv.y,
-                    width, height,
-                    TextureUpdateDetails::Tile(bytes, stretch_size, scratch_item.to_image()))
-            }
             (AllocationKind::Standalone, TextureInsertOp::Blit(bytes)) => {
                 TextureUpdateOp::Create(self.texture_target_for_standalone_texture(),
                                         width,
@@ -670,10 +656,6 @@ impl TextureCache {
                                         Some(bytes))
             }
             (AllocationKind::Standalone, TextureInsertOp::Blur(_, _, _)) => {
-                println!("ERROR: Can't blur with a standalone texture yet!");
-                return
-            }
-            (AllocationKind::Standalone, TextureInsertOp::Tile(..)) => {
                 println!("ERROR: Can't blur with a standalone texture yet!");
                 return
             }
@@ -732,8 +714,6 @@ fn texture_create_op(texture_size: u32, levels: u32, format: ImageFormat, mode: 
 pub enum TextureInsertOp {
     Blit(Vec<u8>),
     Blur(Vec<u8>, Size2D<u32>, Au),
-    /// Bytes and stretch size, respectively.
-    Tile(Vec<u8>, Size2D<u32>),
 }
 
 trait FitsInside {

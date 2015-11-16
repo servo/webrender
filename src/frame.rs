@@ -740,6 +740,7 @@ impl Frame {
 
                                     for batch in &batch_list.batches {
                                         batch_info.draw_calls.push(DrawCall {
+                                            tile_params: batch.tile_params.clone(),     // TODO(gw): Move this instead?
                                             vertex_buffer_id: vertex_buffer_id,
                                             color_texture_id: batch.color_texture_id,
                                             mask_texture_id: batch.mask_texture_id,

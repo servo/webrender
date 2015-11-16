@@ -18,6 +18,7 @@ in vec4 vBorderRadii;
 in vec2 vDestTextureSize;
 in vec2 vSourceTextureSize;
 in float vBlurRadius;
+in vec4 vTileParams;
 
 out vec4 oFragColor;
 

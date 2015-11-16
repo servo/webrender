@@ -18,6 +18,7 @@ varying vec4 vBorderRadii;
 varying vec2 vDestTextureSize;
 varying vec2 vSourceTextureSize;
 varying float vBlurRadius;
+varying vec4 vTileParams;
 
 vec4 Texture(sampler2D sampler, vec3 texCoord) {
     return texture2D(sampler, texCoord.xy);

@@ -3,7 +3,7 @@ use device::{TextureId};
 use euclid::Size2D;
 use fnv::FnvHasher;
 use freelist::FreeList;
-use internal_types::{FontTemplate, GlyphKey, RasterItem, TiledImageKey};
+use internal_types::{FontTemplate, GlyphKey, RasterItem};
 use internal_types::{TextureTarget, TextureUpdateList, DrawListId, DrawList};
 use platform::font::{FontContext, RasterizedGlyph};
 use renderer::BLUR_INFLATION_FACTOR;
@@ -46,7 +46,6 @@ pub struct ResourceCache {
     cached_glyphs: HashMap<GlyphKey, TextureCacheItemId, DefaultState<FnvHasher>>,
     cached_rasters: HashMap<RasterItem, TextureCacheItemId, DefaultState<FnvHasher>>,
     cached_images: HashMap<ImageKey, CachedImageInfo, DefaultState<FnvHasher>>,
-    cached_tiled_images: HashMap<TiledImageKey, TextureCacheItemId, DefaultState<FnvHasher>>,
 
     draw_lists: FreeList<DrawList>,
     font_templates: HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>,
@@ -86,7 +85,6 @@ impl ResourceCache {
             cached_glyphs: HashMap::with_hash_state(Default::default()),
             cached_rasters: HashMap::with_hash_state(Default::default()),
             cached_images: HashMap::with_hash_state(Default::default()),
-            cached_tiled_images: HashMap::with_hash_state(Default::default()),
             draw_lists: FreeList::new(),
             font_templates: HashMap::with_hash_state(Default::default()),
             image_templates: HashMap::with_hash_state(Default::default()),
@@ -198,27 +196,6 @@ impl ResourceCache {
                     });
                 }
             };
-        });
-
-        // Update texture cache with any new image tile operations.
-        resource_list.for_each_tiled_image(|tiled_image_key| {
-            if !self.cached_tiled_images.contains_key(&tiled_image_key) {
-                let image_id = self.texture_cache.new_item_id();
-                let image_template = &self.image_templates[&tiled_image_key.image_key];
-                // TODO: Can we avoid the clone of the bytes here?
-                let stretch_size = Size2D::new(tiled_image_key.stretch_width,
-                                               tiled_image_key.stretch_height);
-                self.texture_cache.insert(image_id,
-                                          0,
-                                          0,
-                                          tiled_image_key.tiled_width,
-                                          tiled_image_key.tiled_height,
-                                          image_template.format,
-                                          TextureInsertOp::Tile(
-                                              image_template.bytes.clone(),
-                                              stretch_size));
-                self.cached_tiled_images.insert((*tiled_image_key).clone(), image_id);
-            }
         });
 
         // Update texture cache with any newly rasterized glyphs.
@@ -333,12 +310,6 @@ impl ResourceCache {
     pub fn get_image(&self, image_key: ImageKey) -> &TextureCacheItem {
         let image_info = &self.cached_images[&image_key];
         self.texture_cache.get(image_info.texture_cache_id)
-    }
-
-    #[inline]
-    pub fn get_tiled_image(&self, tiled_image_key: &TiledImageKey) -> &TextureCacheItem {
-        let image_id = self.cached_tiled_images[tiled_image_key];
-        self.texture_cache.get(image_id)
     }
 
     #[inline]

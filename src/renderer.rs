@@ -50,6 +50,7 @@ pub struct Renderer {
 
     quad_program_id: ProgramId,
     u_quad_transform_array: UniformLocation,
+    u_tile_params: UniformLocation,
 
     blit_program_id: ProgramId,
 
@@ -66,8 +67,6 @@ pub struct Renderer {
 
     blur_program_id: ProgramId,
     u_direction: UniformLocation,
-
-    tile_program_id: ProgramId,
 }
 
 impl Renderer {
@@ -92,9 +91,9 @@ impl Renderer {
         let box_shadow_program_id = device.create_program("box_shadow.vs.glsl",
                                                           "box_shadow.fs.glsl");
         let blur_program_id = device.create_program("blur.vs.glsl", "blur.fs.glsl");
-        let tile_program_id = device.create_program("tile.vs.glsl", "tile.fs.glsl");
 
         let u_quad_transform_array = device.get_uniform_location(quad_program_id, "uMatrixPalette");
+        let u_tile_params = device.get_uniform_location(quad_program_id, "uTileParams");
 
         let u_blend_params = device.get_uniform_location(blend_program_id, "uBlendParams");
 
@@ -165,12 +164,12 @@ impl Renderer {
             blit_program_id: blit_program_id,
             box_shadow_program_id: box_shadow_program_id,
             blur_program_id: blur_program_id,
-            tile_program_id: tile_program_id,
             u_blend_params: u_blend_params,
             u_filter_params: u_filter_params,
             u_filter_texture_size: u_filter_texture_size,
             u_direction: u_direction,
             u_quad_transform_array: u_quad_transform_array,
+            u_tile_params: u_tile_params,
         };
 
         let api = RenderApi::new(api_tx);
@@ -560,86 +559,6 @@ impl Renderer {
                                     part,
                                     inverted)
                             }
-                            TextureUpdateDetails::Tile(bytes,
-                                                       stretch_size,
-                                                       scratch_texture_image) => {
-                                self.device.update_texture_for_noncomposite_operation(
-                                    scratch_texture_image.texture_id,
-                                    scratch_texture_image.texture_index,
-                                    scratch_texture_image.pixel_uv.x,
-                                    scratch_texture_image.pixel_uv.y,
-                                    stretch_size.width,
-                                    stretch_size.height,
-                                    bytes.as_slice());
-
-                                let white = ColorF::new(1.0, 1.0, 1.0, 1.0);
-                                let zero_point = Point2D::new(0.0, 0.0);
-                                let zero_size = Size2D::new(0.0, 0.0);
-                                let scaled_bottom_right =
-                                    Point2D::new((width as f32) / (stretch_size.width as f32),
-                                                 (height as f32) / (stretch_size.height as f32));
-
-                                let tile_program_id = self.tile_program_id;
-                                let mut batch = self.get_or_create_raster_batch(
-                                    update.id,
-                                    update.index,
-                                    scratch_texture_image.texture_id,
-                                    tile_program_id,
-                                    None);
-                                let vertices = [
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(x as f32, y as f32),
-                                        &white,
-                                        &zero_point,
-                                        scratch_texture_image.texture_index,
-                                        &Point2D::new(0.0, 0.0),
-                                        &zero_point,
-                                        &scratch_texture_image.texel_uv.origin,
-                                        &scratch_texture_image.texel_uv.bottom_right(),
-                                        &zero_size,
-                                        &zero_size,
-                                        0.0),
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new((x + width) as f32, y as f32),
-                                        &white,
-                                        &zero_point,
-                                        scratch_texture_image.texture_index,
-                                        &Point2D::new(scaled_bottom_right.x, 0.0),
-                                        &zero_point,
-                                        &scratch_texture_image.texel_uv.origin,
-                                        &scratch_texture_image.texel_uv.bottom_right(),
-                                        &zero_size,
-                                        &zero_size,
-                                        0.0),
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(x as f32, (y + height) as f32),
-                                        &white,
-                                        &zero_point,
-                                        scratch_texture_image.texture_index,
-                                        &Point2D::new(0.0, scaled_bottom_right.y),
-                                        &zero_point,
-                                        &scratch_texture_image.texel_uv.origin,
-                                        &scratch_texture_image.texel_uv.bottom_right(),
-                                        &zero_size,
-                                        &zero_size,
-                                        0.0),
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new((x + width) as f32, (y + height) as f32),
-                                        &white,
-                                        &zero_point,
-                                        scratch_texture_image.texture_index,
-                                        &scaled_bottom_right,
-                                        &zero_point,
-                                        &scratch_texture_image.texel_uv.origin,
-                                        &scratch_texture_image.texel_uv.bottom_right(),
-                                        &zero_size,
-                                        &zero_size,
-                                        0.0),
-                                ];
-                                batch.add_draw_item(update.id,
-                                                    scratch_texture_image.texture_id,
-                                                    &vertices);
-                            }
                         }
                     }
                 }
@@ -920,6 +839,20 @@ impl Renderer {
                             for draw_call in &info.draw_calls {
                                 let vao_id = self.vertex_buffers[&draw_call.vertex_buffer_id].vao_id;
                                 self.device.bind_vao(vao_id);
+
+                                if draw_call.tile_params.len() > 0 {
+                                    // TODO(gw): Avoid alloc here...
+                                    let mut floats = Vec::new();
+                                    for vec in &draw_call.tile_params {
+                                        floats.push(vec.u0);
+                                        floats.push(vec.v0);
+                                        floats.push(vec.u_size);
+                                        floats.push(vec.v_size);
+                                    }
+
+                                    self.device.set_uniform_vec4_array(self.u_tile_params,
+                                                                       &floats);
+                                }
 
                                 self.device.bind_mask_texture_for_noncomposite_operation(draw_call.mask_texture_id);
                                 self.device.bind_color_texture_for_noncomposite_operation(draw_call.color_texture_id);

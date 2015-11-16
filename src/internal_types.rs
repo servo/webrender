@@ -1,5 +1,5 @@
 use app_units::Au;
-use batch::{VertexBuffer, Batch, VertexBufferId};
+use batch::{VertexBuffer, Batch, VertexBufferId, TileParams};
 use device::{TextureId, TextureIndex};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::sync::Arc;
 use texture_cache::TextureCacheItem;
-use webrender_traits::{FontKey, ImageKey, Epoch, ColorF, PipelineId};
+use webrender_traits::{FontKey, Epoch, ColorF, PipelineId};
 use webrender_traits::{ImageFormat};
 use webrender_traits::{ComplexClipRegion, MixBlendMode, NativeFontHandle, DisplayItem};
 use util;
@@ -138,7 +138,7 @@ pub struct PackedVertex {
     pub matrix_index: u8,
     pub uv_index: u8,
     pub muv_index: u8,
-    pub unused: u8,
+    pub tile_params_index: u8,
 }
 
 impl PackedVertex {
@@ -163,7 +163,7 @@ impl PackedVertex {
             matrix_index: 0,
             uv_index: uv_index.0,
             muv_index: muv_index.0,
-            unused: 0,
+            tile_params_index: 0,
         }
     }
 
@@ -197,8 +197,6 @@ pub enum TextureUpdateDetails {
     BorderRadius(Au, Au, Au, Au, u32, bool),
     /// Blur radius, box shadow part, and whether inverted, respectively.
     BoxShadow(Au, BoxShadowPart, bool),
-    /// Bytes, stretch size, and scratch texture image, respectively.
-    Tile(Vec<u8>, Size2D<u32>, TextureImage),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -295,6 +293,7 @@ pub struct CompositeInfo {
 
 #[derive(Clone, Debug)]
 pub struct DrawCall {
+    pub tile_params: Vec<TileParams>,
     pub vertex_buffer_id: VertexBufferId,
     pub color_texture_id: TextureId,
     pub mask_texture_id: TextureId,
@@ -813,15 +812,6 @@ impl GlyphKey {
 pub enum RasterItem {
     BorderRadius(BorderRadiusRasterOp),
     BoxShadow(BoxShadowRasterOp),
-}
-
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub struct TiledImageKey {
-    pub image_key: ImageKey,
-    pub tiled_width: u32,
-    pub tiled_height: u32,
-    pub stretch_width: u32,
-    pub stretch_height: u32,
 }
 
 #[derive(Clone, Copy, Debug)]

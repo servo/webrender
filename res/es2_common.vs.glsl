@@ -7,6 +7,7 @@ uniform vec2 uTextureSize;
 uniform vec4 uBlendParams;
 uniform vec4 uFilterParams;
 uniform float uDevicePixelRatio;
+uniform vec4 uTileParams[256];
 
 attribute vec3 aPosition;
 attribute vec4 aColor;
@@ -17,7 +18,7 @@ attribute vec4 aBorderRadii;
 attribute vec2 aSourceTextureSize;
 attribute vec2 aDestTextureSize;
 attribute float aBlurRadius;
-attribute vec4 aMisc;   // x = matrix index; y = color tex index; z = mask tex index
+attribute vec4 aMisc;   // x = matrix index; y = color tex index; z = mask tex index; w=tile params index
 
 varying vec2 vPosition;
 varying vec4 vColor;
@@ -28,4 +29,4 @@ varying vec4 vBorderRadii;
 varying vec2 vDestTextureSize;
 varying vec2 vSourceTextureSize;
 varying float vBlurRadius;
-
+varying vec4 vTileParams;

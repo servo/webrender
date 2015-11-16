@@ -1,5 +1,6 @@
 void main(void)
 {
+    vTileParams = uTileParams[int(aMisc.w)];
     vColor = aColor / 255.0;
     vColorTexCoord = vec3(aColorTexCoord.xy, aMisc.y);
     vMaskTexCoord = vec3(aMaskTexCoord.xy / 65535.0, aMisc.z);

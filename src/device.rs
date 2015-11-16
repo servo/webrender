@@ -743,6 +743,14 @@ impl Device {
         gl::uniform_4f(location, x, y, z, w);
     }
 
+    pub fn set_uniform_vec4_array(&self,
+                                  uniform: UniformLocation,
+                                  vectors: &[f32]) {
+        debug_assert!(self.inside_frame);
+        let UniformLocation(location) = uniform;
+        gl::uniform_4fv(location, vectors);
+    }
+
     pub fn set_uniform_mat4_array(&self,
                                   uniform: UniformLocation,
                                   matrices: &[Matrix4]) {

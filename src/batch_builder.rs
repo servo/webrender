@@ -1,5 +1,5 @@
 use app_units::Au;
-use batch::{BatchBuilder, MatrixIndex};
+use batch::{BatchBuilder, MatrixIndex, TileParams};
 use clipper::{self, ClipBuffers, Polygon};
 use device::{TextureId, TextureIndex};
 use euclid::{Rect, Point2D, Size2D};
@@ -8,7 +8,7 @@ use internal_types::{CombinedClipRegion, RectPosUv};
 use internal_types::{RectUv, Primitive, BorderRadiusRasterOp, RasterItem, ClipRectToRegionResult};
 use internal_types::{GlyphKey, PackedVertex, WorkVertex};
 use internal_types::{PolygonPosColorUv, BorderEdgeDirection};
-use internal_types::{BasicRotationAngle, BoxShadowRasterOp, TiledImageKey};
+use internal_types::{BasicRotationAngle, BoxShadowRasterOp};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use std::collections::HashMap;
@@ -68,81 +68,28 @@ impl<'a> BatchBuilder<'a> {
                      color: &ColorF) {
         // Should be caught higher up
         debug_assert!(stretch_size.width > 0.0 && stretch_size.height > 0.0);
-
         let image_info = resource_cache.get_image(image_key);
 
-        if rect.size.width == stretch_size.width && rect.size.height == stretch_size.height {
-            let uv = RectUv {
-                top_left: Point2D::new(image_info.u0, image_info.v0),
-                top_right: Point2D::new(image_info.u1, image_info.v0),
-                bottom_left: Point2D::new(image_info.u0, image_info.v1),
-                bottom_right: Point2D::new(image_info.u1, image_info.v1),
-            };
-
-            self.push_image_rect(color,
-                                 image_info,
-                                 clip,
-                                 matrix_index,
-                                 resource_cache,
-                                 clip_buffers,
-                                 rect,
-                                 &uv);
-            return
-        }
-
-        let (image_info, tiled_size) = match TiledImageKey::create_if_necessary(image_key,
-                                                                                &rect.size,
-                                                                                stretch_size) {
-            Some(ref tiled_image_key) => {
-                (resource_cache.get_tiled_image(tiled_image_key),
-                 Size2D::new(tiled_image_key.tiled_width as f32,
-                             tiled_image_key.tiled_height as f32))
-            }
-            None => (image_info, *stretch_size),
-        };
+        let u1 = rect.size.width / stretch_size.width;
+        let v1 = rect.size.height / stretch_size.height;
 
         let uv = RectUv {
-            top_left: Point2D::new(image_info.u0, image_info.v0),
-            top_right: Point2D::new(image_info.u1, image_info.v0),
-            bottom_left: Point2D::new(image_info.u0, image_info.v1),
-            bottom_right: Point2D::new(image_info.u1, image_info.v1),
+            top_left: Point2D::zero(),
+            top_right: Point2D::new(u1, 0.0),
+            bottom_left: Point2D::new(0.0, v1),
+            bottom_right: Point2D::new(u1, v1),
         };
 
-        let mut y_offset = 0.0;
-        while y_offset < rect.size.height {
-            let mut x_offset = 0.0;
-            while x_offset < rect.size.width {
-                let origin = Point2D::new(rect.origin.x + x_offset, rect.origin.y + y_offset);
-                let tiled_rect = Rect::new(origin, tiled_size.clone());
+        let tile_params = TileParams {
+            u0: image_info.u0,
+            v0: image_info.v0,
+            u_size: image_info.u1 - image_info.u0,
+            v_size: image_info.v1 - image_info.v0,
+        };
 
-                self.push_image_rect(color,
-                                     image_info,
-                                     clip,
-                                     matrix_index,
-                                     resource_cache,
-                                     clip_buffers,
-                                     &tiled_rect,
-                                     &uv);
-
-                x_offset = x_offset + tiled_size.width;
-            }
-
-            y_offset = y_offset + tiled_size.height;
-        }
-    }
-
-    fn push_image_rect(&mut self,
-                       color: &ColorF,
-                       image_info: &TextureCacheItem,
-                       clip: &CombinedClipRegion,
-                       matrix_index: MatrixIndex,
-                       resource_cache: &ResourceCache,
-                       clip_buffers: &mut ClipBuffers,
-                       rect: &Rect<f32>,
-                       uv: &RectUv) {
         clipper::clip_rect_to_combined_region(RectPosUv {
                                                 pos: *rect,
-                                                uv: *uv
+                                                uv: uv
                                               },
                                               &mut clip_buffers.sh_clip_buffers,
                                               &mut clip_buffers.rect_pos_uv,
@@ -158,7 +105,8 @@ impl<'a> BatchBuilder<'a> {
                                image_info.texture_id,
                                mask.texture_id,
                                Primitive::Rectangles,
-                               &mut vertices);
+                               &mut vertices,
+                               Some(tile_params.clone()));
         }
     }
 
@@ -281,7 +229,8 @@ impl<'a> BatchBuilder<'a> {
                                texture_id,
                                dummy_mask_image.texture_id,
                                Primitive::Glyphs,
-                               &mut vertex_buffer);
+                               &mut vertex_buffer,
+                               None);
         }
     }
 
@@ -343,7 +292,8 @@ impl<'a> BatchBuilder<'a> {
                                image_info.texture_id,
                                mask.texture_id,
                                Primitive::Rectangles,
-                               &mut vertices);
+                               &mut vertices,
+                               None);
         }
     }
 
@@ -434,7 +384,8 @@ impl<'a> BatchBuilder<'a> {
                                            white_image.texture_id,
                                            mask.texture_id,
                                            Primitive::TriangleFan,
-                                           &mut packed_vertices);
+                                           &mut packed_vertices,
+                                           None);
                     }
                 }
             }
@@ -1108,7 +1059,8 @@ impl<'a> BatchBuilder<'a> {
                                    white_image.texture_id,
                                    mask_image.texture_id,
                                    Primitive::Triangles,
-                                   &mut vertices);
+                                   &mut vertices,
+                                   None);
             }
         }
     }
@@ -1151,7 +1103,8 @@ impl<'a> BatchBuilder<'a> {
                                color_image.texture_id,
                                mask.texture_id,
                                Primitive::Rectangles,
-                               &mut vertices);
+                               &mut vertices,
+                               None);
         }
     }
 
