@@ -405,15 +405,16 @@ impl<P> ClipRectToRegionResult<P> {
 
     pub fn muv_for_position(&self, position: &Point2D<f32>, mask: &TextureCacheItem)
                             -> Point2D<f32> {
-        let mask_uv_size = Size2D::new(mask.u1 - mask.u0, mask.v1 - mask.v0);
+        let mask_uv_size = Size2D::new(mask.uv_rect.bottom_right.x - mask.uv_rect.top_left.x,
+                                       mask.uv_rect.bottom_right.y - mask.uv_rect.top_left.y);
         let mask_result = match self.mask_result {
             None => return Point2D::new(0.0, 0.0),
             Some(ref mask_result) => mask_result,
         };
 
         let muv_rect =
-            Rect::new(Point2D::new(mask.u0 + mask_result.muv_rect.origin.x * mask_uv_size.width,
-                                   mask.v0 + mask_result.muv_rect.origin.y * mask_uv_size.height),
+            Rect::new(Point2D::new(mask.uv_rect.top_left.x + mask_result.muv_rect.origin.x * mask_uv_size.width,
+                                   mask.uv_rect.top_left.y + mask_result.muv_rect.origin.y * mask_uv_size.height),
                       Size2D::new(mask_result.muv_rect.size.width * mask_uv_size.width,
                                   mask_result.muv_rect.size.height * mask_uv_size.height));
         let position_rect = &mask_result.position_rect;
@@ -572,34 +573,34 @@ impl RectUv {
         match rotation_angle {
             BasicRotationAngle::Upright => {
                 RectUv {
-                    top_left: Point2D::new(image.u0, image.v0),
-                    top_right: Point2D::new(image.u1, image.v0),
-                    bottom_right: Point2D::new(image.u1, image.v1),
-                    bottom_left: Point2D::new(image.u0, image.v1),
+                    top_left: image.uv_rect.top_left,
+                    top_right: image.uv_rect.top_right,
+                    bottom_right: image.uv_rect.bottom_right,
+                    bottom_left: image.uv_rect.bottom_left,
                 }
             }
             BasicRotationAngle::Clockwise90 => {
                 RectUv {
-                    top_right: Point2D::new(image.u0, image.v0),
-                    top_left: Point2D::new(image.u1, image.v0),
-                    bottom_left: Point2D::new(image.u1, image.v1),
-                    bottom_right: Point2D::new(image.u0, image.v1),
+                    top_right: image.uv_rect.top_left,
+                    top_left: image.uv_rect.top_right,
+                    bottom_left: image.uv_rect.bottom_right,
+                    bottom_right: image.uv_rect.bottom_left,
                 }
             }
             BasicRotationAngle::Clockwise180 => {
                 RectUv {
-                    bottom_right: Point2D::new(image.u0, image.v0),
-                    bottom_left: Point2D::new(image.u1, image.v0),
-                    top_left: Point2D::new(image.u1, image.v1),
-                    top_right: Point2D::new(image.u0, image.v1),
+                    bottom_right: image.uv_rect.top_left,
+                    bottom_left: image.uv_rect.top_right,
+                    top_left: image.uv_rect.bottom_right,
+                    top_right: image.uv_rect.bottom_left,
                 }
             }
             BasicRotationAngle::Clockwise270 => {
                 RectUv {
-                    bottom_left: Point2D::new(image.u0, image.v0),
-                    bottom_right: Point2D::new(image.u1, image.v0),
-                    top_right: Point2D::new(image.u1, image.v1),
-                    top_left: Point2D::new(image.u0, image.v1),
+                    bottom_left: image.uv_rect.top_left,
+                    bottom_right: image.uv_rect.top_right,
+                    top_right: image.uv_rect.bottom_right,
+                    top_left: image.uv_rect.bottom_left,
                 }
             }
         }

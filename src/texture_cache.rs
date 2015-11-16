@@ -5,7 +5,7 @@ use fnv::FnvHasher;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureTarget, TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
-use internal_types::{BasicRotationAngle};
+use internal_types::{BasicRotationAngle, RectUv};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::collections::hash_state::DefaultState;
@@ -188,44 +188,44 @@ impl TexturePage {
     }
 }
 
+// TODO(gw): This is used to store data specific to glyphs.
+//           Perhaps find a better place to store it.
+#[derive(Debug, Clone)]
+pub struct TextureCacheItemUserData {
+    pub x0: i32,
+    pub y0: i32,
+}
+
 #[derive(Debug, Clone)]
 pub struct TextureCacheItem {
-    pub u0: f32,        // todo(gw): don't precalc these?
-    pub v0: f32,
-    pub u1: f32,
-    pub v1: f32,
-    pub user_x0: i32,
-    pub user_y0: i32,
-    pub page_x0: u32,
-    pub page_y0: u32,
-    pub width: u32,
-    pub height: u32,
-    pub texture_id: TextureId,      // todo(gw): can this ever get invalidated? (page defragmentation?)
-    pub format: ImageFormat,
+    pub user_data: TextureCacheItemUserData,
+    pub rect: Rect<u32>,
+    pub uv_rect: RectUv,
+    pub texture_id: TextureId,
     pub texture_index: TextureIndex,
 }
 
 // Structure squat the width/height fields to maintain the free list information :)
 impl FreeListItem for TextureCacheItem {
     fn next_free_id(&self) -> Option<FreeListItemId> {
-        if self.width == 0 {
-            debug_assert!(self.height == 0);
+        if self.rect.size.width == 0 {
+            debug_assert!(self.rect.size.height == 0);
             None
         } else {
-            debug_assert!(self.width == 1);
-            Some(FreeListItemId::new(self.height))
+            debug_assert!(self.rect.size.width == 1);
+            Some(FreeListItemId::new(self.rect.size.height))
         }
     }
 
     fn set_next_free_id(&mut self, id: Option<FreeListItemId>) {
         match id {
             Some(id) => {
-                self.width = 1;
-                self.height = id.value();
+                self.rect.size.width = 1;
+                self.rect.size.height = id.value();
             }
             None => {
-                self.width = 0;
-                self.height = 0;
+                self.rect.size.width = 0;
+                self.rect.size.height = 0;
             }
         }
     }
@@ -234,27 +234,19 @@ impl FreeListItem for TextureCacheItem {
 impl TextureCacheItem {
     fn new(texture_id: TextureId,
            texture_index: TextureIndex,
-           format: ImageFormat,
            user_x0: i32, user_y0: i32,
-           page_x0: u32, page_y0: u32,
-           width: u32, height: u32,
-           u0: f32, v0: f32,
-           u1: f32, v1: f32)
+           rect: Rect<u32>,
+           uv_rect: RectUv)
            -> TextureCacheItem {
         TextureCacheItem {
             texture_id: texture_id,
             texture_index: texture_index,
-            u0: u0,
-            v0: v0,
-            u1: u1,
-            v1: v1,
-            user_x0: user_x0,
-            user_y0: user_y0,
-            page_x0: page_x0,
-            page_y0: page_y0,
-            width: width,
-            height: height,
-            format: format,
+            uv_rect: uv_rect,
+            user_data: TextureCacheItemUserData {
+                x0: user_x0,
+                y0: user_y0,
+            },
+            rect: rect,
         }
     }
 
@@ -263,10 +255,12 @@ impl TextureCacheItem {
         TextureImage {
             texture_id: self.texture_id,
             texture_index: self.texture_index,
-            texel_uv: Rect::new(Point2D::new(self.u0, self.v0), Size2D::new(self.u1 - self.u0,
-                                                                            self.v1 - self.v0)),
-            pixel_uv: Point2D::new((self.u0 * texture_size) as u32,
-                                   (self.v0 * texture_size) as u32),
+            texel_uv: Rect::new(Point2D::new(self.uv_rect.top_left.x,
+                                             self.uv_rect.top_left.y),
+                                Size2D::new(self.uv_rect.bottom_right.x - self.uv_rect.top_left.x,
+                                            self.uv_rect.bottom_right.y - self.uv_rect.top_left.y)),
+            pixel_uv: Point2D::new((self.uv_rect.top_left.x * texture_size) as u32,
+                                   (self.uv_rect.top_left.y * texture_size) as u32),
         }
     }
 }
@@ -336,18 +330,18 @@ impl TextureCache {
     //           how the raster_jobs code works.
     pub fn new_item_id(&mut self) -> TextureCacheItemId {
         let new_item = TextureCacheItem {
-            u0: 0.0,
-            v0: 0.0,
-            u1: 0.0,
-            v1: 0.0,
-            user_x0: 0,
-            user_y0: 0,
-            page_x0: 0,
-            page_y0: 0,
-            width: 0,
-            height: 0,
+            uv_rect: RectUv {
+                top_left: Point2D::zero(),
+                top_right: Point2D::zero(),
+                bottom_left: Point2D::zero(),
+                bottom_right: Point2D::zero(),
+            },
+            user_data: TextureCacheItemUserData {
+                x0: 0,
+                y0: 0,
+            },
+            rect: Rect::zero(),
             texture_id: TextureId::invalid(),
-            format: ImageFormat::Invalid,
             texture_index: TextureIndex(0),
         };
         self.items.insert(new_item)
@@ -453,12 +447,15 @@ impl TextureCache {
                                              .expect("TODO: Handle running out of texture ids!");
                         let cache_item = TextureCacheItem::new(texture_id,
                                                                TextureIndex(0),
-                                                               format,
                                                                x0, y0,
-                                                               0, 0,
-                                                               width, height,
-                                                               0.0, 0.0,
-                                                               1.0, 1.0);
+                                                               Rect::new(Point2D::zero(),
+                                                                         Size2D::new(width, height)),
+                                                               RectUv {
+                                                                    top_left: Point2D::new(0.0, 0.0),
+                                                                    top_right: Point2D::new(1.0, 0.0),
+                                                                    bottom_left: Point2D::new(0.0, 1.0),
+                                                                    bottom_right: Point2D::new(1.0, 1.0),
+                                                               });
                         *self.items.get_mut(image_id) = cache_item;
 
                         return AllocationResult {
@@ -486,12 +483,15 @@ impl TextureCache {
         let v1 = v0 + height as f32 / page.texture_size as f32;
         let cache_item = TextureCacheItem::new(page.texture_id,
                                                page.texture_index,
-                                               format,
                                                x0, y0,
-                                               tx0, ty0,
-                                               width, height,
-                                               u0, v0,
-                                               u1, v1);
+                                               Rect::new(Point2D::new(tx0, ty0),
+                                                         Size2D::new(width, height)),
+                                               RectUv {
+                                                    top_left: Point2D::new(u0, v0),
+                                                    top_right: Point2D::new(u1, v0),
+                                                    bottom_left: Point2D::new(u0, v1),
+                                                    bottom_right: Point2D::new(u1, v1)
+                                               });
         *self.items.get_mut(image_id) = cache_item;
 
         // TODO(pcwalton): Select a texture index if we're using texture arrays.
@@ -577,17 +577,16 @@ impl TextureCache {
                   image_id: TextureCacheItemId,
                   width: u32,
                   height: u32,
-                  format: ImageFormat,
+                  _format: ImageFormat,
                   bytes: Vec<u8>) {
         let existing_item = self.items.get(image_id);
 
         // TODO(gw): Handle updates to size/format!
-        debug_assert!(existing_item.width == width);
-        debug_assert!(existing_item.height == height);
-        debug_assert!(existing_item.format == format);
+        debug_assert!(existing_item.rect.size.width == width);
+        debug_assert!(existing_item.rect.size.height == height);
 
-        let op = TextureUpdateOp::Update(existing_item.page_x0,
-                                         existing_item.page_y0,
+        let op = TextureUpdateOp::Update(existing_item.rect.origin.x,
+                                         existing_item.rect.origin.y,
                                          width,
                                          height,
                                          TextureUpdateDetails::Blit(bytes));
