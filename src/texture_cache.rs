@@ -201,7 +201,6 @@ pub struct TextureCacheItem {
     pub width: u32,
     pub height: u32,
     pub texture_id: TextureId,      // todo(gw): can this ever get invalidated? (page defragmentation?)
-    pub format: ImageFormat,
     pub texture_index: TextureIndex,
 }
 
@@ -234,7 +233,6 @@ impl FreeListItem for TextureCacheItem {
 impl TextureCacheItem {
     fn new(texture_id: TextureId,
            texture_index: TextureIndex,
-           format: ImageFormat,
            user_x0: i32, user_y0: i32,
            page_x0: u32, page_y0: u32,
            width: u32, height: u32,
@@ -254,7 +252,6 @@ impl TextureCacheItem {
             page_y0: page_y0,
             width: width,
             height: height,
-            format: format,
         }
     }
 
@@ -347,7 +344,6 @@ impl TextureCache {
             width: 0,
             height: 0,
             texture_id: TextureId::invalid(),
-            format: ImageFormat::Invalid,
             texture_index: TextureIndex(0),
         };
         self.items.insert(new_item)
@@ -453,7 +449,6 @@ impl TextureCache {
                                              .expect("TODO: Handle running out of texture ids!");
                         let cache_item = TextureCacheItem::new(texture_id,
                                                                TextureIndex(0),
-                                                               format,
                                                                x0, y0,
                                                                0, 0,
                                                                width, height,
@@ -486,7 +481,6 @@ impl TextureCache {
         let v1 = v0 + height as f32 / page.texture_size as f32;
         let cache_item = TextureCacheItem::new(page.texture_id,
                                                page.texture_index,
-                                               format,
                                                x0, y0,
                                                tx0, ty0,
                                                width, height,
@@ -577,14 +571,13 @@ impl TextureCache {
                   image_id: TextureCacheItemId,
                   width: u32,
                   height: u32,
-                  format: ImageFormat,
+                  _format: ImageFormat,
                   bytes: Vec<u8>) {
         let existing_item = self.items.get(image_id);
 
         // TODO(gw): Handle updates to size/format!
         debug_assert!(existing_item.width == width);
         debug_assert!(existing_item.height == height);
-        debug_assert!(existing_item.format == format);
 
         let op = TextureUpdateOp::Update(existing_item.page_x0,
                                          existing_item.page_y0,
