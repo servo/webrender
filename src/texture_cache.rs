@@ -199,15 +199,12 @@ pub struct TextureCacheItemUserData {
 #[derive(Debug, Clone)]
 pub struct TextureCacheItem {
     pub user_data: TextureCacheItemUserData,
+    pub rect: Rect<u32>,
 
     pub u0: f32,        // todo(gw): don't precalc these?
     pub v0: f32,
     pub u1: f32,
     pub v1: f32,
-    pub page_x0: u32,
-    pub page_y0: u32,
-    pub width: u32,
-    pub height: u32,
     pub texture_id: TextureId,      // todo(gw): can this ever get invalidated? (page defragmentation?)
     pub texture_index: TextureIndex,
 }
@@ -215,24 +212,24 @@ pub struct TextureCacheItem {
 // Structure squat the width/height fields to maintain the free list information :)
 impl FreeListItem for TextureCacheItem {
     fn next_free_id(&self) -> Option<FreeListItemId> {
-        if self.width == 0 {
-            debug_assert!(self.height == 0);
+        if self.rect.size.width == 0 {
+            debug_assert!(self.rect.size.height == 0);
             None
         } else {
-            debug_assert!(self.width == 1);
-            Some(FreeListItemId::new(self.height))
+            debug_assert!(self.rect.size.width == 1);
+            Some(FreeListItemId::new(self.rect.size.height))
         }
     }
 
     fn set_next_free_id(&mut self, id: Option<FreeListItemId>) {
         match id {
             Some(id) => {
-                self.width = 1;
-                self.height = id.value();
+                self.rect.size.width = 1;
+                self.rect.size.height = id.value();
             }
             None => {
-                self.width = 0;
-                self.height = 0;
+                self.rect.size.width = 0;
+                self.rect.size.height = 0;
             }
         }
     }
@@ -242,8 +239,7 @@ impl TextureCacheItem {
     fn new(texture_id: TextureId,
            texture_index: TextureIndex,
            user_x0: i32, user_y0: i32,
-           page_x0: u32, page_y0: u32,
-           width: u32, height: u32,
+           rect: Rect<u32>,
            u0: f32, v0: f32,
            u1: f32, v1: f32)
            -> TextureCacheItem {
@@ -258,10 +254,7 @@ impl TextureCacheItem {
                 x0: user_x0,
                 y0: user_y0,
             },
-            page_x0: page_x0,
-            page_y0: page_y0,
-            width: width,
-            height: height,
+            rect: rect,
         }
     }
 
@@ -351,10 +344,7 @@ impl TextureCache {
                 x0: 0,
                 y0: 0,
             },
-            page_x0: 0,
-            page_y0: 0,
-            width: 0,
-            height: 0,
+            rect: Rect::zero(),
             texture_id: TextureId::invalid(),
             texture_index: TextureIndex(0),
         };
@@ -462,8 +452,8 @@ impl TextureCache {
                         let cache_item = TextureCacheItem::new(texture_id,
                                                                TextureIndex(0),
                                                                x0, y0,
-                                                               0, 0,
-                                                               width, height,
+                                                               Rect::new(Point2D::zero(),
+                                                                         Size2D::new(width, height)),
                                                                0.0, 0.0,
                                                                1.0, 1.0);
                         *self.items.get_mut(image_id) = cache_item;
@@ -494,8 +484,8 @@ impl TextureCache {
         let cache_item = TextureCacheItem::new(page.texture_id,
                                                page.texture_index,
                                                x0, y0,
-                                               tx0, ty0,
-                                               width, height,
+                                               Rect::new(Point2D::new(tx0, ty0),
+                                                         Size2D::new(width, height)),
                                                u0, v0,
                                                u1, v1);
         *self.items.get_mut(image_id) = cache_item;
@@ -588,11 +578,11 @@ impl TextureCache {
         let existing_item = self.items.get(image_id);
 
         // TODO(gw): Handle updates to size/format!
-        debug_assert!(existing_item.width == width);
-        debug_assert!(existing_item.height == height);
+        debug_assert!(existing_item.rect.size.width == width);
+        debug_assert!(existing_item.rect.size.height == height);
 
-        let op = TextureUpdateOp::Update(existing_item.page_x0,
-                                         existing_item.page_y0,
+        let op = TextureUpdateOp::Update(existing_item.rect.origin.x,
+                                         existing_item.rect.origin.y,
                                          width,
                                          height,
                                          TextureUpdateDetails::Blit(bytes));
