@@ -992,7 +992,7 @@ impl Device {
                                       8);
             gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint,
                                       2,
-                                      gl::UNSIGNED_SHORT,
+                                      gl::FLOAT,
                                       false,
                                       vertex_stride,
                                       12);
@@ -1001,13 +1001,13 @@ impl Device {
                                       gl::UNSIGNED_SHORT,
                                       false,
                                       vertex_stride,
-                                      16);
+                                      20);
             gl::vertex_attrib_pointer(VertexAttribute::Misc as gl::GLuint,
                                       4,
                                       gl::UNSIGNED_BYTE,
                                       false,
                                       vertex_stride,
-                                      20);
+                                      24);
         }
     }
 
@@ -1188,7 +1188,7 @@ impl Device {
                                   8);
         gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint,
                                   2,
-                                  gl::UNSIGNED_SHORT,
+                                  gl::FLOAT,
                                   false,
                                   vertex_stride,
                                   12);
@@ -1197,13 +1197,13 @@ impl Device {
                                   gl::UNSIGNED_SHORT,
                                   false,
                                   vertex_stride,
-                                  16);
+                                  20);
         gl::vertex_attrib_pointer(VertexAttribute::Misc as gl::GLuint,
                                   4,
                                   gl::UNSIGNED_BYTE,
                                   false,
                                   vertex_stride,
-                                  20);
+                                  24);
 
         gl::bind_vertex_array(0);
 

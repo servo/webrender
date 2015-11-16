@@ -1,7 +1,7 @@
 void main(void)
 {
     vColor = aColor / 255.0;
-    vColorTexCoord = vec3(aColorTexCoord.xy / 65535.0, aMisc.y);
+    vColorTexCoord = vec3(aColorTexCoord.xy, aMisc.y);
     vMaskTexCoord = vec3(aMaskTexCoord.xy / 65535.0, aMisc.z);
     mat4 matrix = uMatrixPalette[int(aMisc.x)];
     vec4 pos = matrix * vec4(aPosition, 1.0);
