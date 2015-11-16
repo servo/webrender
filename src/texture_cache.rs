@@ -188,14 +188,22 @@ impl TexturePage {
     }
 }
 
+// TODO(gw): This is used to store data specific to glyphs.
+//           Perhaps find a better place to store it.
+#[derive(Debug, Clone)]
+pub struct TextureCacheItemUserData {
+    pub x0: i32,
+    pub y0: i32,
+}
+
 #[derive(Debug, Clone)]
 pub struct TextureCacheItem {
+    pub user_data: TextureCacheItemUserData,
+
     pub u0: f32,        // todo(gw): don't precalc these?
     pub v0: f32,
     pub u1: f32,
     pub v1: f32,
-    pub user_x0: i32,
-    pub user_y0: i32,
     pub page_x0: u32,
     pub page_y0: u32,
     pub width: u32,
@@ -246,8 +254,10 @@ impl TextureCacheItem {
             v0: v0,
             u1: u1,
             v1: v1,
-            user_x0: user_x0,
-            user_y0: user_y0,
+            user_data: TextureCacheItemUserData {
+                x0: user_x0,
+                y0: user_y0,
+            },
             page_x0: page_x0,
             page_y0: page_y0,
             width: width,
@@ -337,8 +347,10 @@ impl TextureCache {
             v0: 0.0,
             u1: 0.0,
             v1: 0.0,
-            user_x0: 0,
-            user_y0: 0,
+            user_data: TextureCacheItemUserData {
+                x0: 0,
+                y0: 0,
+            },
             page_x0: 0,
             page_y0: 0,
             width: 0,
