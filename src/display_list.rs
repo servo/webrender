@@ -112,21 +112,29 @@ impl DisplayListBuilder {
                      color: ColorF,
                      size: Au,
                      blur_radius: Au) {
-        let item = TextDisplayItem {
-            color: color,
-            glyphs: glyphs,
-            font_key: font_key,
-            size: size,
-            blur_radius: blur_radius,
-        };
+        // Sanity check - anything with glyphs bigger than this
+        // is probably going to consume too much memory to render
+        // efficiently anyway. This is specifically to work around
+        // the font_advance.html reftest, which creates a very large
+        // font as a crash test - the rendering is also ignored
+        // by the azure renderer.
+        if size < Au::from_px(4096) {
+            let item = TextDisplayItem {
+                color: color,
+                glyphs: glyphs,
+                font_key: font_key,
+                size: size,
+                blur_radius: blur_radius,
+            };
 
-        let display_item = DisplayItem {
-            item: SpecificDisplayItem::Text(item),
-            rect: rect,
-            clip: clip,
-        };
+            let display_item = DisplayItem {
+                item: SpecificDisplayItem::Text(item),
+                rect: rect,
+                clip: clip,
+            };
 
-        self.push_item(level, display_item);
+            self.push_item(level, display_item);
+        }
     }
 
     pub fn push_border(&mut self,
