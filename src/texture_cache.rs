@@ -5,7 +5,7 @@ use fnv::FnvHasher;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureTarget, TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
-use internal_types::{BasicRotationAngle};
+use internal_types::{BasicRotationAngle, RectUv};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::collections::hash_state::DefaultState;
@@ -200,12 +200,8 @@ pub struct TextureCacheItemUserData {
 pub struct TextureCacheItem {
     pub user_data: TextureCacheItemUserData,
     pub rect: Rect<u32>,
-
-    pub u0: f32,        // todo(gw): don't precalc these?
-    pub v0: f32,
-    pub u1: f32,
-    pub v1: f32,
-    pub texture_id: TextureId,      // todo(gw): can this ever get invalidated? (page defragmentation?)
+    pub uv_rect: RectUv,
+    pub texture_id: TextureId,
     pub texture_index: TextureIndex,
 }
 
@@ -240,16 +236,12 @@ impl TextureCacheItem {
            texture_index: TextureIndex,
            user_x0: i32, user_y0: i32,
            rect: Rect<u32>,
-           u0: f32, v0: f32,
-           u1: f32, v1: f32)
+           uv_rect: RectUv)
            -> TextureCacheItem {
         TextureCacheItem {
             texture_id: texture_id,
             texture_index: texture_index,
-            u0: u0,
-            v0: v0,
-            u1: u1,
-            v1: v1,
+            uv_rect: uv_rect,
             user_data: TextureCacheItemUserData {
                 x0: user_x0,
                 y0: user_y0,
@@ -263,10 +255,12 @@ impl TextureCacheItem {
         TextureImage {
             texture_id: self.texture_id,
             texture_index: self.texture_index,
-            texel_uv: Rect::new(Point2D::new(self.u0, self.v0), Size2D::new(self.u1 - self.u0,
-                                                                            self.v1 - self.v0)),
-            pixel_uv: Point2D::new((self.u0 * texture_size) as u32,
-                                   (self.v0 * texture_size) as u32),
+            texel_uv: Rect::new(Point2D::new(self.uv_rect.top_left.x,
+                                             self.uv_rect.top_left.y),
+                                Size2D::new(self.uv_rect.bottom_right.x - self.uv_rect.top_left.x,
+                                            self.uv_rect.bottom_right.y - self.uv_rect.top_left.y)),
+            pixel_uv: Point2D::new((self.uv_rect.top_left.x * texture_size) as u32,
+                                   (self.uv_rect.top_left.y * texture_size) as u32),
         }
     }
 }
@@ -336,10 +330,12 @@ impl TextureCache {
     //           how the raster_jobs code works.
     pub fn new_item_id(&mut self) -> TextureCacheItemId {
         let new_item = TextureCacheItem {
-            u0: 0.0,
-            v0: 0.0,
-            u1: 0.0,
-            v1: 0.0,
+            uv_rect: RectUv {
+                top_left: Point2D::zero(),
+                top_right: Point2D::zero(),
+                bottom_left: Point2D::zero(),
+                bottom_right: Point2D::zero(),
+            },
             user_data: TextureCacheItemUserData {
                 x0: 0,
                 y0: 0,
@@ -454,8 +450,12 @@ impl TextureCache {
                                                                x0, y0,
                                                                Rect::new(Point2D::zero(),
                                                                          Size2D::new(width, height)),
-                                                               0.0, 0.0,
-                                                               1.0, 1.0);
+                                                               RectUv {
+                                                                    top_left: Point2D::new(0.0, 0.0),
+                                                                    top_right: Point2D::new(1.0, 0.0),
+                                                                    bottom_left: Point2D::new(0.0, 1.0),
+                                                                    bottom_right: Point2D::new(1.0, 1.0),
+                                                               });
                         *self.items.get_mut(image_id) = cache_item;
 
                         return AllocationResult {
@@ -486,8 +486,12 @@ impl TextureCache {
                                                x0, y0,
                                                Rect::new(Point2D::new(tx0, ty0),
                                                          Size2D::new(width, height)),
-                                               u0, v0,
-                                               u1, v1);
+                                               RectUv {
+                                                    top_left: Point2D::new(u0, v0),
+                                                    top_right: Point2D::new(u1, v0),
+                                                    bottom_left: Point2D::new(u0, v1),
+                                                    bottom_right: Point2D::new(u1, v1)
+                                               });
         *self.items.get_mut(image_id) = cache_item;
 
         // TODO(pcwalton): Select a texture index if we're using texture arrays.

@@ -80,11 +80,13 @@ impl<'a> BatchBuilder<'a> {
             bottom_right: Point2D::new(u1, v1),
         };
 
+        let uv_size = image_info.uv_rect.bottom_right - image_info.uv_rect.top_left;
+
         let tile_params = TileParams {
-            u0: image_info.u0,
-            v0: image_info.v0,
-            u_size: image_info.u1 - image_info.u0,
-            v_size: image_info.v1 - image_info.v0,
+            u0: image_info.uv_rect.top_left.x,
+            v0: image_info.uv_rect.top_left.y,
+            u_size: uv_size.x,
+            v_size: uv_size.y,
         };
 
         clipper::clip_rect_to_combined_region(RectPosUv {
@@ -145,17 +147,10 @@ impl<'a> BatchBuilder<'a> {
                 let width = image_info.rect.size.width as f32 / device_pixel_ratio;
                 let height = image_info.rect.size.height as f32 / device_pixel_ratio;
 
-                let uv = RectUv {
-                    top_left: Point2D::new(image_info.u0, image_info.v0),
-                    top_right: Point2D::new(image_info.u1, image_info.v0),
-                    bottom_left: Point2D::new(image_info.u0, image_info.v1),
-                    bottom_right: Point2D::new(image_info.u1, image_info.v1),
-                };
-
                 let rect = RectPosUv {
                     pos: Rect::new(Point2D::new(x, y),
                                    Size2D::new(width, height)),
-                    uv: uv,
+                    uv: image_info.uv_rect,
                 };
 
                 let rect_buffer = match text_batches.entry((image_info.texture_id,
@@ -198,28 +193,28 @@ impl<'a> BatchBuilder<'a> {
                         x0, y0,
                         color,
                         rect.uv.top_left.x, rect.uv.top_left.y,
-                        dummy_mask_image.u0, dummy_mask_image.v0,
+                        dummy_mask_image.uv_rect.top_left.x, dummy_mask_image.uv_rect.top_left.y,
                         texture_index,
                         dummy_mask_image.texture_index));
                 vertex_buffer.push(PackedVertex::from_components(
                         x1, y0,
                         color,
                         rect.uv.top_right.x, rect.uv.top_right.y,
-                        dummy_mask_image.u1, dummy_mask_image.v0,
+                        dummy_mask_image.uv_rect.top_right.x, dummy_mask_image.uv_rect.top_right.y,
                         texture_index,
                         dummy_mask_image.texture_index));
                 vertex_buffer.push(PackedVertex::from_components(
                         x0, y1,
                         color,
                         rect.uv.bottom_left.x, rect.uv.bottom_left.y,
-                        dummy_mask_image.u0, dummy_mask_image.v1,
+                        dummy_mask_image.uv_rect.bottom_left.x, dummy_mask_image.uv_rect.bottom_left.y,
                         texture_index,
                         dummy_mask_image.texture_index));
                 vertex_buffer.push(PackedVertex::from_components(
                         x1, y1,
                         color,
                         rect.uv.bottom_right.x, rect.uv.bottom_right.y,
-                        dummy_mask_image.v0, dummy_mask_image.v1,
+                        dummy_mask_image.uv_rect.bottom_right.x, dummy_mask_image.uv_rect.bottom_right.y,
                         texture_index,
                         dummy_mask_image.texture_index));
             }
@@ -265,17 +260,10 @@ impl<'a> BatchBuilder<'a> {
             return
         }
 
-        let uv = RectUv {
-            top_left: Point2D::new(image_info.u0, image_info.v0),
-            top_right: Point2D::new(image_info.u1, image_info.v0),
-            bottom_left: Point2D::new(image_info.u0, image_info.v1),
-            bottom_right: Point2D::new(image_info.u1, image_info.v1),
-        };
-
         clipper::clip_rect_to_combined_region(
             RectPosUv {
                 pos: *rect,
-                uv: uv,
+                uv: image_info.uv_rect,
             },
             &mut clip_buffers.sh_clip_buffers,
             &mut clip_buffers.rect_pos_uv,
