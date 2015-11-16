@@ -417,8 +417,8 @@ impl Frame {
             for composition_operation in composition_operations.iter() {
                 let size = Size2D::new(stacking_context.overflow.size.width as u32,
                                        stacking_context.overflow.size.height as u32);
-                let origin = final_transform.transform_point(&stacking_context.bounds.origin);
-                let origin = Point2D::new(origin.x as u32, origin.y as u32);
+                // TODO(gw): Get composition ops working with transforms
+                let origin = Point2D::new(child_offset.x as u32, child_offset.y as u32);
 
                 let texture_id = resource_cache.allocate_render_target(TextureTarget::Texture2D,
                                                                        size.width,
