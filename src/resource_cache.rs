@@ -32,7 +32,6 @@ struct ImageResource {
 }
 
 struct GlyphRasterJob {
-    image_id: TextureCacheItemId,
     glyph_key: GlyphKey,
     result: Option<RasterizedGlyph>,
 }
@@ -43,7 +42,7 @@ struct CachedImageInfo {
 }
 
 pub struct ResourceCache {
-    cached_glyphs: HashMap<GlyphKey, TextureCacheItemId, DefaultState<FnvHasher>>,
+    cached_glyphs: HashMap<GlyphKey, Option<TextureCacheItemId>, DefaultState<FnvHasher>>,
     cached_rasters: HashMap<RasterItem, TextureCacheItemId, DefaultState<FnvHasher>>,
     cached_images: HashMap<ImageKey, CachedImageInfo, DefaultState<FnvHasher>>,
 
@@ -201,13 +200,10 @@ impl ResourceCache {
         // Update texture cache with any newly rasterized glyphs.
         resource_list.for_each_glyph(|glyph_key| {
             if !self.cached_glyphs.contains_key(glyph_key) {
-                let image_id = self.texture_cache.new_item_id();
                 self.pending_raster_jobs.push(GlyphRasterJob {
-                    image_id: image_id,
                     glyph_key: glyph_key.clone(),
                     result: None,
                 });
-                self.cached_glyphs.insert(glyph_key.clone(), image_id);
             }
         });
     }
@@ -223,32 +219,39 @@ impl ResourceCache {
         // Add completed raster jobs to the texture cache
         for job in self.pending_raster_jobs.drain(..) {
             let result = job.result.expect("Failed to rasterize the glyph?");
-            let texture_width;
-            let texture_height;
-            let insert_op;
-            match job.glyph_key.blur_radius {
-                Au(0) => {
-                    texture_width = result.width;
-                    texture_height = result.height;
-                    insert_op = TextureInsertOp::Blit(result.bytes);
+            let image_id = if result.width > 0 && result.height > 0 {
+                let image_id = self.texture_cache.new_item_id();
+                let texture_width;
+                let texture_height;
+                let insert_op;
+                match job.glyph_key.blur_radius {
+                    Au(0) => {
+                        texture_width = result.width;
+                        texture_height = result.height;
+                        insert_op = TextureInsertOp::Blit(result.bytes);
+                    }
+                    blur_radius => {
+                        let blur_radius_px = f32::ceil(blur_radius.to_f32_px() * self.device_pixel_ratio)
+                            as u32;
+                        texture_width = result.width + blur_radius_px * BLUR_INFLATION_FACTOR;
+                        texture_height = result.height + blur_radius_px * BLUR_INFLATION_FACTOR;
+                        insert_op = TextureInsertOp::Blur(result.bytes,
+                                                          Size2D::new(result.width, result.height),
+                                                          blur_radius);
+                    }
                 }
-                blur_radius => {
-                    let blur_radius_px = f32::ceil(blur_radius.to_f32_px() * self.device_pixel_ratio)
-                        as u32;
-                    texture_width = result.width + blur_radius_px * BLUR_INFLATION_FACTOR;
-                    texture_height = result.height + blur_radius_px * BLUR_INFLATION_FACTOR;
-                    insert_op = TextureInsertOp::Blur(result.bytes,
-                                                      Size2D::new(result.width, result.height),
-                                                      blur_radius);
-                }
-            }
-            self.texture_cache.insert(job.image_id,
-                                      result.left,
-                                      result.top,
-                                      texture_width,
-                                      texture_height,
-                                      ImageFormat::RGBA8,
-                                      insert_op);
+                self.texture_cache.insert(image_id,
+                                          result.left,
+                                          result.top,
+                                          texture_width,
+                                          texture_height,
+                                          ImageFormat::RGBA8,
+                                          insert_op);
+                Some(image_id)
+            } else {
+                None
+            };
+            self.cached_glyphs.insert(job.glyph_key, image_id);
         }
     }
 
@@ -301,9 +304,9 @@ impl ResourceCache {
     }
 
     #[inline]
-    pub fn get_glyph(&self, glyph_key: &GlyphKey) -> &TextureCacheItem {
+    pub fn get_glyph(&self, glyph_key: &GlyphKey) -> Option<&TextureCacheItem> {
         let image_id = self.cached_glyphs[glyph_key];
-        self.texture_cache.get(image_id)
+        image_id.map(|image_id| self.texture_cache.get(image_id))
     }
 
     #[inline]

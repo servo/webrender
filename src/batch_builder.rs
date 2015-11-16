@@ -139,8 +139,7 @@ impl<'a> BatchBuilder<'a> {
         for glyph in glyphs {
             glyph_key.index = glyph.index;
             let image_info = resource_cache.get_glyph(&glyph_key);
-
-            if image_info.width > 0 && image_info.height > 0 {
+            if let Some(image_info) = image_info {
                 let x = glyph.x + image_info.user_data.x0 as f32 / device_pixel_ratio - blur_offset;
                 let y = glyph.y - image_info.user_data.y0 as f32 / device_pixel_ratio - blur_offset;
                 let width = image_info.width as f32 / device_pixel_ratio;
