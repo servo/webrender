@@ -198,34 +198,46 @@ pub struct TextureCacheItemUserData {
 
 #[derive(Debug, Clone)]
 pub struct TextureCacheItem {
-    pub user_data: TextureCacheItemUserData,
-    pub rect: Rect<u32>,
-    pub uv_rect: RectUv,
+    // Identifies the texture and array slice
     pub texture_id: TextureId,
     pub texture_index: TextureIndex,
+
+    // Custom data - unused by texture cache itself
+    pub user_data: TextureCacheItemUserData,
+
+    // The texture coordinates for this item
+    pub uv_rect: RectUv,
+
+    // The size of the actual allocated rectangle,
+    // and the requested size. The allocated size
+    // is the same as the requested in most cases,
+    // unless the item has a border added for
+    // bilinear filtering / texture bleeding purposes.
+    pub allocated_rect: Rect<u32>,
+    pub requested_rect: Rect<u32>,
 }
 
 // Structure squat the width/height fields to maintain the free list information :)
 impl FreeListItem for TextureCacheItem {
     fn next_free_id(&self) -> Option<FreeListItemId> {
-        if self.rect.size.width == 0 {
-            debug_assert!(self.rect.size.height == 0);
+        if self.requested_rect.size.width == 0 {
+            debug_assert!(self.requested_rect.size.height == 0);
             None
         } else {
-            debug_assert!(self.rect.size.width == 1);
-            Some(FreeListItemId::new(self.rect.size.height))
+            debug_assert!(self.requested_rect.size.width == 1);
+            Some(FreeListItemId::new(self.requested_rect.size.height))
         }
     }
 
     fn set_next_free_id(&mut self, id: Option<FreeListItemId>) {
         match id {
             Some(id) => {
-                self.rect.size.width = 1;
-                self.rect.size.height = id.value();
+                self.requested_rect.size.width = 1;
+                self.requested_rect.size.height = id.value();
             }
             None => {
-                self.rect.size.width = 0;
-                self.rect.size.height = 0;
+                self.requested_rect.size.width = 0;
+                self.requested_rect.size.height = 0;
             }
         }
     }
@@ -235,7 +247,8 @@ impl TextureCacheItem {
     fn new(texture_id: TextureId,
            texture_index: TextureIndex,
            user_x0: i32, user_y0: i32,
-           rect: Rect<u32>,
+           allocated_rect: Rect<u32>,
+           requested_rect: Rect<u32>,
            uv_rect: RectUv)
            -> TextureCacheItem {
         TextureCacheItem {
@@ -246,7 +259,8 @@ impl TextureCacheItem {
                 x0: user_x0,
                 y0: user_y0,
             },
-            rect: rect,
+            allocated_rect: allocated_rect,
+            requested_rect: requested_rect,
         }
     }
 
@@ -340,7 +354,8 @@ impl TextureCache {
                 x0: 0,
                 y0: 0,
             },
-            rect: Rect::zero(),
+            allocated_rect: Rect::zero(),
+            requested_rect: Rect::zero(),
             texture_id: TextureId::invalid(),
             texture_index: TextureIndex(0),
         };
@@ -450,6 +465,8 @@ impl TextureCache {
                                                                x0, y0,
                                                                Rect::new(Point2D::zero(),
                                                                          Size2D::new(width, height)),
+                                                               Rect::new(Point2D::zero(),
+                                                                         Size2D::new(width, height)),
                                                                RectUv {
                                                                     top_left: Point2D::new(0.0, 0.0),
                                                                     top_right: Point2D::new(1.0, 0.0),
@@ -484,6 +501,8 @@ impl TextureCache {
         let cache_item = TextureCacheItem::new(page.texture_id,
                                                page.texture_index,
                                                x0, y0,
+                                               Rect::new(Point2D::new(tx0, ty0),
+                                                         Size2D::new(width, height)),
                                                Rect::new(Point2D::new(tx0, ty0),
                                                          Size2D::new(width, height)),
                                                RectUv {
@@ -582,11 +601,11 @@ impl TextureCache {
         let existing_item = self.items.get(image_id);
 
         // TODO(gw): Handle updates to size/format!
-        debug_assert!(existing_item.rect.size.width == width);
-        debug_assert!(existing_item.rect.size.height == height);
+        debug_assert!(existing_item.requested_rect.size.width == width);
+        debug_assert!(existing_item.requested_rect.size.height == height);
 
-        let op = TextureUpdateOp::Update(existing_item.rect.origin.x,
-                                         existing_item.rect.origin.y,
+        let op = TextureUpdateOp::Update(existing_item.requested_rect.origin.x,
+                                         existing_item.requested_rect.origin.y,
                                          width,
                                          height,
                                          TextureUpdateDetails::Blit(bytes));
