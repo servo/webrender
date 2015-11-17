@@ -6,7 +6,7 @@ use euclid::{Point2D, Rect, Size2D};
 use std::mem;
 use types::{ClipRegion, ColorF, FontKey, ImageKey, PipelineId, StackingLevel};
 use types::{BorderRadius, BorderSide, BoxShadowClipMode, GlyphInstance};
-use types::{DisplayListMode, GradientStop, StackingContextId};
+use types::{DisplayListMode, GradientStop, StackingContextId, ImageRendering};
 
 pub struct DrawListInfo {
     pub items: Vec<DisplayItem>,
@@ -88,10 +88,12 @@ impl DisplayListBuilder {
                       rect: Rect<f32>,
                       clip: ClipRegion,
                       stretch_size: Size2D<f32>,
+                      image_rendering: ImageRendering,
                       key: ImageKey) {
         let item = ImageDisplayItem {
             image_key: key,
             stretch_size: stretch_size,
+            image_rendering: image_rendering,
         };
 
         let display_item = DisplayItem {

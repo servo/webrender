@@ -188,6 +188,13 @@ pub enum ImageFormat {
     RGBA8,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ImageRendering {
+    Auto,
+    CrispEdges,
+    Pixelated,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ImageKey(u32, u32);
 

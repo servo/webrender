@@ -1,6 +1,6 @@
 use app_units::Au;
 use types::{ClipRegion, ColorF, GlyphInstance, FontKey, ImageKey, BorderSide};
-use types::{GradientStop, BorderRadius, BoxShadowClipMode};
+use types::{GradientStop, BorderRadius, BoxShadowClipMode, ImageRendering};
 use euclid::{Point2D, Rect, Size2D};
 
 #[derive(Debug, PartialEq)]
@@ -56,6 +56,7 @@ pub struct GradientDisplayItem {
 pub struct ImageDisplayItem {
     pub image_key: ImageKey,
     pub stretch_size: Size2D<f32>,
+    pub image_rendering: ImageRendering,
 }
 
 #[derive(Debug, PartialEq)]
