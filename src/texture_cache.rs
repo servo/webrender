@@ -1,5 +1,5 @@
 use app_units::Au;
-use device::{MAX_TEXTURE_SIZE, TextureId, TextureIndex};
+use device::{MAX_TEXTURE_SIZE, TextureId, TextureIndex, TextureFilter};
 use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
@@ -12,7 +12,7 @@ use std::collections::hash_state::DefaultState;
 use std::mem;
 use tessellator::BorderCornerTessellation;
 use util;
-use webrender_traits::ImageFormat;
+use webrender_traits::{ImageFormat};
 
 /// The number of bytes we're allowed to use for a texture.
 const MAX_BYTES_PER_TEXTURE: u32 = 64 * 1024 * 1024;
@@ -91,7 +91,21 @@ impl TexturePage {
         smallest_index_and_area.map(|(index, _)| index)
     }
 
-    fn allocate(&mut self, requested_dimensions: &Size2D<u32>) -> Option<Point2D<u32>> {
+    fn allocate(&mut self,
+                requested_dimensions: &Size2D<u32>,
+                filter: TextureFilter) -> Option<Point2D<u32>> {
+        // TODO(gw): For now, anything that requests nearest filtering
+        //           just fails to allocate in a texture page, and gets a standalone
+        //           texture. This isn't ideal, as it causes lots of batch breaks,
+        //           but is probably rare enough that it can be fixed up later (it's also
+        //           fairly trivial to implement, just tedious).
+        match filter {
+            TextureFilter::Nearest => {
+                return None;
+            }
+            TextureFilter::Linear => {}
+        }
+
         // First, try to find a suitable rect in the free list. We choose the smallest such rect
         // in terms of area (Best-Area-Fit, BAF).
         let mut index = self.find_index_of_best_rect(requested_dimensions);
@@ -398,6 +412,7 @@ impl TextureCache {
                                         height,
                                         levels,
                                         format,
+                                        TextureFilter::Nearest,
                                         RenderTargetMode::RenderTarget,
                                         None),
         };
@@ -423,7 +438,8 @@ impl TextureCache {
                     requested_height: u32,
                     format: ImageFormat,
                     alternate: bool,
-                    border_type: BorderType)
+                    border_type: BorderType,
+                    filter: TextureFilter)
                     -> AllocationResult {
         let (page_list, mode) = match (format, alternate) {
             (ImageFormat::A8, false) => (&mut self.arena.pages_a8, RenderTargetMode::RenderTarget),
@@ -447,7 +463,8 @@ impl TextureCache {
         let requested_size = Size2D::new(requested_width, requested_height);
         let allocation_size = Size2D::new(requested_width + border_size * 2,
                                           requested_height + border_size * 2);
-        let location = page_list.last_mut().and_then(|last_page| last_page.allocate(&allocation_size));
+        let location = page_list.last_mut().and_then(|last_page| last_page.allocate(&allocation_size,
+                                                                                    filter));
         let location = match location {
             Some(location) => location,
             None => {
@@ -478,7 +495,8 @@ impl TextureCache {
                 let page = TexturePage::new(texture_id, texture_index, texture_size);
                 page_list.push(page);
 
-                match page_list.last_mut().unwrap().allocate(&allocation_size) {
+                match page_list.last_mut().unwrap().allocate(&allocation_size,
+                                                             filter) {
                     Some(location) => location,
                     None => {
                         // Fall back to standalone texture allocation.
@@ -563,7 +581,8 @@ impl TextureCache {
                                                height,
                                                op.image_format,
                                                false,
-                                               BorderType::NoBorder);
+                                               BorderType::NoBorder,
+                                               TextureFilter::Linear);
 
                 assert!(allocation.kind == AllocationKind::TexturePage);        // TODO: Handle large border radii not fitting in texture cache page
 
@@ -591,7 +610,8 @@ impl TextureCache {
                                                op.raster_size.to_nearest_px() as u32,
                                                ImageFormat::RGBA8,
                                                false,
-                                               BorderType::NoBorder);
+                                               BorderType::NoBorder,
+                                               TextureFilter::Linear);
 
                 // TODO(pcwalton): Handle large box shadows not fitting in texture cache page.
                 assert!(allocation.kind == AllocationKind::TexturePage);
@@ -646,6 +666,7 @@ impl TextureCache {
                   width: u32,
                   height: u32,
                   format: ImageFormat,
+                  filter: TextureFilter,
                   insert_op: TextureInsertOp,
                   border_type: BorderType) {
 
@@ -656,7 +677,8 @@ impl TextureCache {
                                    height,
                                    format,
                                    false,
-                                   border_type);
+                                   border_type,
+                                   filter);
 
         let op = match (result.kind, insert_op) {
             (AllocationKind::TexturePage, TextureInsertOp::Blit(bytes)) => {
@@ -752,13 +774,15 @@ impl TextureCache {
                               glyph_size.width, glyph_size.height,
                               ImageFormat::A8,
                               false,
-                              BorderType::NoBorder);
+                              BorderType::NoBorder,
+                              TextureFilter::Linear);
                 self.allocate(horizontal_blur_image_id,
                               0, 0,
                               width, height,
                               ImageFormat::A8,
                               true,
-                              BorderType::NoBorder);
+                              BorderType::NoBorder,
+                              TextureFilter::Linear);
                 let unblurred_glyph_item = self.get(unblurred_glyph_image_id);
                 let horizontal_blur_item = self.get(horizontal_blur_image_id);
                 TextureUpdateOp::Update(
@@ -778,6 +802,7 @@ impl TextureCache {
                                         height,
                                         1,
                                         format,
+                                        filter,
                                         RenderTargetMode::None,
                                         Some(bytes))
             }
@@ -821,6 +846,7 @@ fn texture_create_op(texture_size: u32, levels: u32, format: ImageFormat, mode: 
                             texture_size,
                             levels,
                             format,
+                            TextureFilter::Linear,
                             mode,
                             None)
 }
@@ -833,6 +859,7 @@ fn texture_create_op(texture_size: u32, levels: u32, format: ImageFormat, mode: 
                             texture_size,
                             levels,
                             format,
+                            TextureFilter::Linear,
                             mode,
                             None)
 }

@@ -43,6 +43,12 @@ lazy_static! {
     };
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum TextureFilter {
+    Nearest,
+    Linear,
+}
+
 impl TextureId {
     fn bind(&self, target: TextureTarget) {
         let TextureId(id) = *self;
@@ -417,9 +423,20 @@ impl Device {
         (texture.width, texture.height)
     }
 
-    fn set_texture_parameters(&mut self, target: TextureTarget) {
-        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_MAG_FILTER, gl::LINEAR as gl::GLint);
-        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_MIN_FILTER, gl::LINEAR as gl::GLint);
+    fn set_texture_parameters(&mut self,
+                              target: TextureTarget,
+                              filter: TextureFilter) {
+        let filter = match filter {
+            TextureFilter::Nearest => {
+                gl::NEAREST
+            }
+            TextureFilter::Linear => {
+                gl::LINEAR
+            }
+        };
+
+        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_MAG_FILTER, filter as gl::GLint);
+        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_MIN_FILTER, filter as gl::GLint);
 
         gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as gl::GLint);
         gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as gl::GLint);
@@ -540,6 +557,7 @@ impl Device {
                         height: u32,
                         levels: u32,
                         format: ImageFormat,
+                        filter: TextureFilter,
                         mode: RenderTargetMode,
                         pixels: Option<&[u8]>) {
         debug_assert!(self.inside_frame);
@@ -556,7 +574,7 @@ impl Device {
         match mode {
             RenderTargetMode::RenderTarget => {
                 self.bind_color_texture(target, texture_id);
-                self.set_texture_parameters(target);
+                self.set_texture_parameters(target, filter);
 
                 match target {
                     TextureTarget::Texture2D => {
@@ -611,7 +629,7 @@ impl Device {
             }
             RenderTargetMode::None => {
                 texture_id.bind(target);
-                self.set_texture_parameters(target);
+                self.set_texture_parameters(target, filter);
 
                 self.upload_texture_image(target,
                                           width, height, levels,

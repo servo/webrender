@@ -67,6 +67,7 @@ impl NodeCompiler for AABBTreeNode {
                                                                   &clip,
                                                                   &info.stretch_size,
                                                                   info.image_key,
+                                                                  info.image_rendering,
                                                                   resource_cache,
                                                                   &mut clip_buffers,
                                                                   &color_white);

@@ -9,10 +9,10 @@ use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
 use tessellator;
-use webrender_traits::{BorderRadius, BorderStyle, BoxShadowClipMode};
+use webrender_traits::{BorderRadius, BorderStyle, BoxShadowClipMode, ImageRendering};
 use webrender_traits::{FontKey, ImageFormat, ImageKey, SpecificDisplayItem};
 
-type RequiredImageSet = HashSet<ImageKey, DefaultState<FnvHasher>>;
+type RequiredImageSet = HashSet<(ImageKey, ImageRendering), DefaultState<FnvHasher>>;
 type RequiredGlyphMap = HashMap<FontKey, HashSet<Glyph>, DefaultState<FnvHasher>>;
 type RequiredRasterSet = HashSet<RasterItem, DefaultState<FnvHasher>>;
 
@@ -31,8 +31,10 @@ impl ResourceList {
         }
     }
 
-    pub fn add_image(&mut self, key: ImageKey) {
-        self.required_images.insert(key);
+    pub fn add_image(&mut self,
+                     key: ImageKey,
+                     image_rendering: ImageRendering) {
+        self.required_images.insert((key, image_rendering));
     }
 
     pub fn add_glyph(&mut self, font_key: FontKey, glyph: Glyph) {
@@ -87,9 +89,9 @@ impl ResourceList {
         }
     }
 
-    pub fn for_each_image<F>(&self, mut f: F) where F: FnMut(ImageKey) {
-        for image_id in &self.required_images {
-            f(*image_id);
+    pub fn for_each_image<F>(&self, mut f: F) where F: FnMut(ImageKey, ImageRendering) {
+        for &(image_id, image_rendering) in &self.required_images {
+            f(image_id, image_rendering);
         }
     }
 
@@ -137,7 +139,7 @@ impl BuildRequiredResources for AABBTreeNode {
 
                 match display_item.item {
                     SpecificDisplayItem::Image(ref info) => {
-                        resource_list.add_image(info.image_key);
+                        resource_list.add_image(info.image_key, info.image_rendering);
                     }
                     SpecificDisplayItem::Text(ref info) => {
                         for glyph in &info.glyphs {

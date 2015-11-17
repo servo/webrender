@@ -36,6 +36,7 @@ fn optimize_draw_list(draw_list: &mut Vec<DisplayItem>) {
                                 item: SpecificDisplayItem::Image(ImageDisplayItem {
                                     image_key: image.image_key,
                                     stretch_size: image.stretch_size,
+                                    image_rendering: image.image_rendering,
                                 }),
                                 rect: Rect::new(Point2D::new(x, y), tile_size),
                                 clip: item.clip.clone(),

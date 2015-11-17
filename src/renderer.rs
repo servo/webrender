@@ -1,6 +1,7 @@
 use app_units::Au;
 use batch::{RasterBatch, VertexBufferId};
-use device::{Device, ProgramId, TextureId, TextureIndex, UniformLocation, VAOId, VertexUsageHint};
+use device::{Device, ProgramId, TextureId, TextureIndex, UniformLocation};
+use device::{TextureFilter, VAOId, VertexUsageHint};
 use euclid::{Rect, Matrix4, Point2D, Size2D};
 use fnv::FnvHasher;
 use gleam::gl;
@@ -122,6 +123,7 @@ impl Renderer {
                              2,
                              2,
                              ImageFormat::RGBA8,
+                             TextureFilter::Linear,
                              TextureInsertOp::Blit(white_pixels),
                              BorderType::SinglePixel);
 
@@ -132,6 +134,7 @@ impl Renderer {
                              2,
                              2,
                              ImageFormat::A8,
+                             TextureFilter::Linear,
                              TextureInsertOp::Blit(mask_pixels),
                              BorderType::SinglePixel);
 
@@ -253,6 +256,7 @@ impl Renderer {
                     TextureUpdateOp::Create(target,
                                             width, height, levels,
                                             format,
+                                            filter,
                                             mode,
                                             maybe_bytes) => {
                         // TODO: clean up match
@@ -262,6 +266,7 @@ impl Renderer {
                                                          update.id,
                                                          width, height, levels,
                                                          format,
+                                                         filter,
                                                          mode,
                                                          Some(bytes.as_slice()));
                             }
@@ -270,6 +275,7 @@ impl Renderer {
                                                          update.id,
                                                          width, height, levels,
                                                          format,
+                                                         filter,
                                                          mode,
                                                          None);
                             }
@@ -910,6 +916,7 @@ impl Renderer {
                                                          info.rect.size.height,
                                                          1,
                                                          ImageFormat::RGBA8,
+                                                         TextureFilter::Nearest,
                                                          RenderTargetMode::None,
                                                          None);
                                 self.device.read_framebuffer_rect(

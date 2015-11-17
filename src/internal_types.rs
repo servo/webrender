@@ -1,6 +1,6 @@
 use app_units::Au;
 use batch::{VertexBuffer, Batch, VertexBufferId, TileParams};
-use device::{TextureId, TextureIndex};
+use device::{TextureId, TextureIndex, TextureFilter};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeListItem, FreeListItemId};
@@ -219,7 +219,7 @@ pub struct TextureImage {
 }
 
 pub enum TextureUpdateOp {
-    Create(TextureTarget, u32, u32, u32, ImageFormat, RenderTargetMode, Option<Vec<u8>>),
+    Create(TextureTarget, u32, u32, u32, ImageFormat, TextureFilter, RenderTargetMode, Option<Vec<u8>>),
     Update(u32, u32, u32, u32, TextureUpdateDetails),
     DeinitRenderTarget(TextureId),
 }

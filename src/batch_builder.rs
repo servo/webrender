@@ -18,7 +18,7 @@ use tessellator::{self, BorderCornerTessellation};
 use texture_cache::{TextureCacheItem};
 use webrender_traits::{ColorF, ImageFormat, BorderStyle, BoxShadowClipMode};
 use webrender_traits::{BorderRadius, BorderSide, FontKey, GlyphInstance, ImageKey};
-use webrender_traits::{BorderDisplayItem, GradientStop, ComplexClipRegion};
+use webrender_traits::{BorderDisplayItem, GradientStop, ComplexClipRegion, ImageRendering};
 
 const BORDER_DASH_SIZE: f32 = 3.0;
 
@@ -63,12 +63,13 @@ impl<'a> BatchBuilder<'a> {
                      clip: &CombinedClipRegion,
                      stretch_size: &Size2D<f32>,
                      image_key: ImageKey,
+                     image_rendering: ImageRendering,
                      resource_cache: &ResourceCache,
                      clip_buffers: &mut ClipBuffers,
                      color: &ColorF) {
         // Should be caught higher up
         debug_assert!(stretch_size.width > 0.0 && stretch_size.height > 0.0);
-        let image_info = resource_cache.get_image(image_key);
+        let image_info = resource_cache.get_image(image_key, image_rendering);
 
         let u1 = rect.size.width / stretch_size.width;
         let v1 = rect.size.height / stretch_size.height;

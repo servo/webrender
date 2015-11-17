@@ -1,5 +1,5 @@
 use app_units::Au;
-use device::{TextureId};
+use device::{TextureId, TextureFilter};
 use euclid::Size2D;
 use fnv::FnvHasher;
 use freelist::FreeList;
@@ -18,7 +18,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::thread;
 use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
 use texture_cache::{BorderType, TextureInsertOp};
-use webrender_traits::{Epoch, FontKey, ImageKey, ImageFormat, DisplayItem};
+use webrender_traits::{Epoch, FontKey, ImageKey, ImageFormat, DisplayItem, ImageRendering};
 
 static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
 
@@ -45,7 +45,7 @@ struct CachedImageInfo {
 pub struct ResourceCache {
     cached_glyphs: HashMap<GlyphKey, Option<TextureCacheItemId>, DefaultState<FnvHasher>>,
     cached_rasters: HashMap<RasterItem, TextureCacheItemId, DefaultState<FnvHasher>>,
-    cached_images: HashMap<ImageKey, CachedImageInfo, DefaultState<FnvHasher>>,
+    cached_images: HashMap<(ImageKey, ImageRendering), CachedImageInfo, DefaultState<FnvHasher>>,
 
     draw_lists: FreeList<DrawList>,
     font_templates: HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>,
@@ -155,11 +155,11 @@ impl ResourceCache {
         });
 
         // Update texture cache with any images that aren't yet uploaded to GPU.
-        resource_list.for_each_image(|image_key| {
+        resource_list.for_each_image(|image_key, image_rendering| {
             let cached_images = &mut self.cached_images;
             let image_template = &self.image_templates[&image_key];
 
-            match cached_images.entry(image_key) {
+            match cached_images.entry((image_key, image_rendering)) {
                 Occupied(entry) => {
                     if entry.get().epoch != image_template.epoch {
                         let image_id = entry.get().texture_cache_id;
@@ -181,6 +181,11 @@ impl ResourceCache {
                 Vacant(entry) => {
                     let image_id = self.texture_cache.new_item_id();
 
+                    let filter = match image_rendering {
+                        ImageRendering::Pixelated => TextureFilter::Nearest,
+                        ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
+                    };
+
                     // TODO: Can we avoid the clone of the bytes here?
                     self.texture_cache.insert(image_id,
                                               0,
@@ -188,6 +193,7 @@ impl ResourceCache {
                                               image_template.width,
                                               image_template.height,
                                               image_template.format,
+                                              filter,
                                               TextureInsertOp::Blit(image_template.bytes.clone()),
                                               BorderType::SinglePixel);
 
@@ -248,6 +254,7 @@ impl ResourceCache {
                                           texture_width,
                                           texture_height,
                                           ImageFormat::RGBA8,
+                                          TextureFilter::Linear,
                                           insert_op,
                                           BorderType::NoBorder);
                 Some(image_id)
@@ -313,8 +320,10 @@ impl ResourceCache {
     }
 
     #[inline]
-    pub fn get_image(&self, image_key: ImageKey) -> &TextureCacheItem {
-        let image_info = &self.cached_images[&image_key];
+    pub fn get_image(&self,
+                     image_key: ImageKey,
+                     image_rendering: ImageRendering) -> &TextureCacheItem {
+        let image_info = &self.cached_images[&(image_key, image_rendering)];
         self.texture_cache.get(image_info.texture_cache_id)
     }
 
