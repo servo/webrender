@@ -26,9 +26,24 @@ const SQRT_MAX_RGBA_PIXELS_PER_TEXTURE: u32 = 4096;
 
 pub type TextureCacheItemId = FreeListItemId;
 
+#[derive(Copy, Clone, Debug)]
 pub enum BorderType {
     NoBorder,
     SinglePixel,
+}
+
+#[inline]
+fn copy_pixels(src: &Vec<u8>,
+               target: &mut Vec<u8>,
+               x: u32,
+               y: u32,
+               count: u32,
+               width: u32,
+               bpp: u32) {
+    let pixel_index = (y * width + x) * bpp;
+    for byte in src.iter().skip(pixel_index as usize).take((count * bpp) as usize) {
+        target.push(*byte);
+    }
 }
 
 /// A texture allocator using the guillotine algorithm with the rectangle merge improvement. See
@@ -631,12 +646,96 @@ impl TextureCache {
                   width: u32,
                   height: u32,
                   format: ImageFormat,
-                  insert_op: TextureInsertOp) {
+                  insert_op: TextureInsertOp,
+                  border_type: BorderType) {
 
-        let result = self.allocate(image_id, x0, y0, width, height, format, false, BorderType::NoBorder);
+        let result = self.allocate(image_id,
+                                   x0,
+                                   y0,
+                                   width,
+                                   height,
+                                   format,
+                                   false,
+                                   border_type);
 
         let op = match (result.kind, insert_op) {
             (AllocationKind::TexturePage, TextureInsertOp::Blit(bytes)) => {
+
+                match border_type {
+                    BorderType::NoBorder => {}
+                    BorderType::SinglePixel => {
+                        let bpp = match format {
+                            ImageFormat::A8 => 1,
+                            ImageFormat::RGB8 => 3,
+                            ImageFormat::RGBA8 => 4,
+                            ImageFormat::Invalid => unreachable!(),
+                        };
+
+                        let mut top_row_bytes = Vec::new();
+                        let mut bottom_row_bytes = Vec::new();
+                        let mut left_column_bytes = Vec::new();
+                        let mut right_column_bytes = Vec::new();
+
+                        copy_pixels(&bytes, &mut top_row_bytes, 0, 0, 1, width, bpp);
+                        copy_pixels(&bytes, &mut top_row_bytes, 0, 0, width, width, bpp);
+                        copy_pixels(&bytes, &mut top_row_bytes, width-1, 0, 1, width, bpp);
+
+                        copy_pixels(&bytes, &mut bottom_row_bytes, 0, height-1, 1, width, bpp);
+                        copy_pixels(&bytes, &mut bottom_row_bytes, 0, height-1, width, width, bpp);
+                        copy_pixels(&bytes, &mut bottom_row_bytes, width-1, height-1, 1, width, bpp);
+
+                        for y in 0..height {
+                            copy_pixels(&bytes, &mut left_column_bytes, 0, y, 1, width, bpp);
+                            copy_pixels(&bytes, &mut right_column_bytes, width-1, y, 1, width, bpp);
+                        }
+
+                        let border_update_op_top = TextureUpdate {
+                            id: result.item.texture_id,
+                            index: result.item.texture_index,
+                            op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x,
+                                                        result.item.allocated_rect.origin.y,
+                                                        result.item.allocated_rect.size.width,
+                                                        1,
+                                                        TextureUpdateDetails::Blit(top_row_bytes))
+                        };
+
+                        let border_update_op_bottom = TextureUpdate {
+                            id: result.item.texture_id,
+                            index: result.item.texture_index,
+                            op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x,
+                                                        result.item.allocated_rect.origin.y + result.item.requested_rect.size.height + 1,
+                                                        result.item.allocated_rect.size.width,
+                                                        1,
+                                                        TextureUpdateDetails::Blit(bottom_row_bytes))
+                        };
+
+                        let border_update_op_left = TextureUpdate {
+                            id: result.item.texture_id,
+                            index: result.item.texture_index,
+                            op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x,
+                                                        result.item.requested_rect.origin.y,
+                                                        1,
+                                                        result.item.requested_rect.size.height,
+                                                        TextureUpdateDetails::Blit(left_column_bytes))
+                        };
+
+                        let border_update_op_right = TextureUpdate {
+                            id: result.item.texture_id,
+                            index: result.item.texture_index,
+                            op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x + result.item.requested_rect.size.width + 1,
+                                                        result.item.requested_rect.origin.y,
+                                                        1,
+                                                        result.item.requested_rect.size.height,
+                                                        TextureUpdateDetails::Blit(right_column_bytes))
+                        };
+
+                        self.pending_updates.push(border_update_op_top);
+                        self.pending_updates.push(border_update_op_bottom);
+                        self.pending_updates.push(border_update_op_left);
+                        self.pending_updates.push(border_update_op_right);
+                    }
+                }
+
                 TextureUpdateOp::Update(result.item.requested_rect.origin.x,
                                         result.item.requested_rect.origin.y,
                                         width,

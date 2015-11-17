@@ -16,7 +16,8 @@ use std::collections::hash_state::DefaultState;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 use std::sync::atomic::Ordering::SeqCst;
 use std::thread;
-use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId, TextureInsertOp};
+use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
+use texture_cache::{BorderType, TextureInsertOp};
 use webrender_traits::{Epoch, FontKey, ImageKey, ImageFormat, DisplayItem};
 
 static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
@@ -187,7 +188,8 @@ impl ResourceCache {
                                               image_template.width,
                                               image_template.height,
                                               image_template.format,
-                                              TextureInsertOp::Blit(image_template.bytes.clone()));
+                                              TextureInsertOp::Blit(image_template.bytes.clone()),
+                                              BorderType::SinglePixel);
 
                     entry.insert(CachedImageInfo {
                         texture_cache_id: image_id,
@@ -246,7 +248,8 @@ impl ResourceCache {
                                           texture_width,
                                           texture_height,
                                           ImageFormat::RGBA8,
-                                          insert_op);
+                                          insert_op,
+                                          BorderType::NoBorder);
                 Some(image_id)
             } else {
                 None
