@@ -418,8 +418,11 @@ impl Device {
     }
 
     fn set_texture_parameters(&mut self, target: TextureTarget) {
-        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_MAG_FILTER, gl::NEAREST as gl::GLint);
-        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_MIN_FILTER, gl::NEAREST as gl::GLint);
+        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_MAG_FILTER, gl::LINEAR as gl::GLint);
+        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_MIN_FILTER, gl::LINEAR as gl::GLint);
+
+        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as gl::GLint);
+        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as gl::GLint);
     }
 
     fn upload_2d_texture_image(&mut self,

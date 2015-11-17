@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use tessellator::BorderCornerTessellation;
-use texture_cache::{TextureCache, TextureInsertOp};
+use texture_cache::{BorderType, TextureCache, TextureInsertOp};
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
 use webrender_traits::{ImageFormat, MixBlendMode, RenderApi};
 //use util;
@@ -122,7 +122,8 @@ impl Renderer {
                              2,
                              2,
                              ImageFormat::RGBA8,
-                             TextureInsertOp::Blit(white_pixels));
+                             TextureInsertOp::Blit(white_pixels),
+                             BorderType::SinglePixel);
 
         let dummy_mask_image_id = texture_cache.new_item_id();
         texture_cache.insert(dummy_mask_image_id,
@@ -131,7 +132,8 @@ impl Renderer {
                              2,
                              2,
                              ImageFormat::A8,
-                             TextureInsertOp::Blit(mask_pixels));
+                             TextureInsertOp::Blit(mask_pixels),
+                             BorderType::SinglePixel);
 
         device.end_frame();
 
