@@ -1,6 +1,7 @@
 use app_units::Au;
 use types::{ClipRegion, ColorF, GlyphInstance, FontKey, ImageKey, BorderSide};
 use types::{GradientStop, BorderRadius, BoxShadowClipMode, ImageRendering};
+use types::{WebGLContextId};
 use euclid::{Point2D, Rect, Size2D};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -60,6 +61,11 @@ pub struct ImageDisplayItem {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct WebGLDisplayItem {
+    pub context_id: WebGLContextId,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct RectangleDisplayItem {
     pub color: ColorF,
 }
@@ -78,6 +84,7 @@ pub enum SpecificDisplayItem {
     Rectangle(RectangleDisplayItem),
     Text(TextDisplayItem),
     Image(ImageDisplayItem),
+    WebGL(WebGLDisplayItem),
     Border(BorderDisplayItem),
     BoxShadow(BoxShadowDisplayItem),
     Gradient(GradientDisplayItem),
