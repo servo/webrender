@@ -351,7 +351,8 @@ impl Frame {
                                                        .mul(&stacking_context.perspective)
                                                        .translate(-origin.x, -origin.y, 0.0);
 
-        let overflow = stacking_context.overflow.intersection(&clip_rect);
+        let overflow = clip_rect.translate(&stacking_context.overflow.origin)
+                                .intersection(&stacking_context.overflow);
 
         if let Some(overflow) = overflow {
             // When establishing a new 3D context, clear Z. This is only needed if there
@@ -481,13 +482,15 @@ impl Frame {
                                                     .get(&id)
                                                     .unwrap();
 
+                        let clip_rect = clip_rect.translate(&-child_offset);
+
                         self.flatten(SceneItemKind::StackingContext(stacking_context),
                                      &child_offset,
                                      &final_transform,
                                      &perspective_transform,
                                      parent_scroll_layer,
                                      resource_cache,
-                                     clip_rect,
+                                     &clip_rect,
                                      scene,
                                      old_layers,
                                      scene_rect);
