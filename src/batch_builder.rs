@@ -20,6 +20,7 @@ use util;
 use webrender_traits::{ColorF, ImageFormat, BorderStyle, BoxShadowClipMode};
 use webrender_traits::{BorderRadius, BorderSide, FontKey, GlyphInstance, ImageKey};
 use webrender_traits::{BorderDisplayItem, GradientStop, ComplexClipRegion, ImageRendering};
+use webrender_traits::{WebGLContextId};
 
 const BORDER_DASH_SIZE: f32 = 3.0;
 
@@ -56,6 +57,51 @@ impl<'a> BatchBuilder<'a> {
                                        resource_cache,
                                        clip_buffers,
                                        &[*color, *color, *color, *color])
+    }
+
+    pub fn add_webgl_rectangle(&mut self,
+                               matrix_index: MatrixIndex,
+                               rect: &Rect<f32>,
+                               clip: &CombinedClipRegion,
+                               resource_cache: &ResourceCache,
+                               clip_buffers: &mut ClipBuffers,
+                               webgl_context_id: &WebGLContextId) {
+        let texture_id = resource_cache.get_webgl_texture(webgl_context_id);
+
+        let uv = RectUv {
+            top_left: Point2D::zero(),
+            top_right: Point2D::new(1.0, 0.0),
+            bottom_left: Point2D::new(0.0, 1.0),
+            bottom_right: Point2D::new(1.0, 1.0),
+        };
+
+        clipper::clip_rect_to_combined_region(
+            RectPolygon {
+                pos: *rect,
+                varyings: uv,
+            },
+            &mut clip_buffers.sh_clip_buffers,
+            &mut clip_buffers.rect_pos_uv,
+            clip);
+
+        let tile_params = TileParams {
+            u0: 0.0,
+            v0: 0.0,
+            u_size: 1.0,
+            v_size: 1.0,
+        };
+
+        for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
+            let mask = mask_for_clip_region(resource_cache, &clip_region, false);
+            let mut vertices = clip_region.make_packed_vertices_for_rect(mask);
+
+            self.add_draw_item(matrix_index,
+                               texture_id,
+                               mask.texture_id,
+                               Primitive::Rectangles,
+                               &mut vertices,
+                               Some(tile_params.clone()));
+        }
     }
 
     pub fn add_image(&mut self,
@@ -118,7 +164,7 @@ impl<'a> BatchBuilder<'a> {
                     size: Au,
                     blur_radius: Au,
                     color: &ColorF,
-                    glyphs: &Vec<GlyphInstance>,
+                    glyphs: &[GlyphInstance],
                     resource_cache: &ResourceCache,
                     clip_buffers: &mut ClipBuffers,
                     device_pixel_ratio: f32) {

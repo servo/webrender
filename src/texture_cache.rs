@@ -43,7 +43,7 @@ pub enum BorderType {
 }
 
 #[inline]
-fn copy_pixels(src: &Vec<u8>,
+fn copy_pixels(src: &[u8],
                target: &mut Vec<u8>,
                x: u32,
                y: u32,
@@ -793,6 +793,16 @@ impl TextureCache {
         };
 
         self.pending_updates.push(update_op);
+    }
+
+    pub fn add_raw_update(&mut self, id: TextureId, size: Size2D<i32>) {
+        self.pending_updates.push(TextureUpdate {
+            id: id,
+            op: TextureUpdateOp::Update(
+                0, 0,
+                size.width as u32, size.height as u32,
+                TextureUpdateDetails::Raw),
+        })
     }
 
     pub fn update(&mut self,

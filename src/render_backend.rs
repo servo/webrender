@@ -6,11 +6,17 @@ use profiler::BackendProfileCounters;
 use resource_cache::ResourceCache;
 use scene::Scene;
 use scoped_threadpool;
+use std::mem;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::{TextureCache, TextureCacheItemId};
 use webrender_traits::{ApiMsg, IdNamespace, RenderNotifier, ScrollLayerId};
+use webrender_traits::{WebGLContextId, WebGLCommand};
+use batch::new_id;
+use device::TextureId;
+use offscreen_gl_context::{NativeGLContext, GLContext, ColorAttachmentType, NativeGLContextMethods, NativeGLContextHandle};
+use gleam::gl;
 
 pub struct RenderBackend {
     api_rx: IpcReceiver<ApiMsg>,
@@ -27,6 +33,9 @@ pub struct RenderBackend {
     frame: Frame,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
+    webrender_context_handle: Option<NativeGLContextHandle>,
+    webgl_contexts: HashMap<WebGLContextId, GLContext<NativeGLContext>>,
+    pending_webgl_commands: Vec<(WebGLContextId, WebGLCommand)>,
 }
 
 impl RenderBackend {
@@ -38,7 +47,8 @@ impl RenderBackend {
                dummy_mask_image_id: TextureCacheItemId,
                texture_cache: TextureCache,
                enable_aa: bool,
-               notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>) -> RenderBackend {
+               notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
+               webrender_context_handle: Option<NativeGLContextHandle>) -> RenderBackend {
         let mut thread_pool = scoped_threadpool::Pool::new(8);
 
         let resource_cache = ResourceCache::new(&mut thread_pool,
@@ -59,6 +69,9 @@ impl RenderBackend {
             frame: Frame::new(),
             next_namespace_id: IdNamespace(1),
             notifier: notifier,
+            webrender_context_handle: webrender_context_handle,
+            webgl_contexts: HashMap::new(),
+            pending_webgl_commands: Vec::new(),
         };
 
         backend
@@ -169,6 +182,35 @@ impl RenderBackend {
                                 Some(layer) => tx.send(point - layer.scroll_offset).unwrap(),
                             }
                         }
+                        ApiMsg::RequestWebGLContext(size, attributes, tx) => {
+                            if let Some(ref handle) = self.webrender_context_handle {
+                                match GLContext::<NativeGLContext>::new(size, attributes, ColorAttachmentType::Texture, Some(handle)) {
+                                    Ok(ctx) => {
+                                        let id = WebGLContextId(new_id());
+
+                                        let (real_size, texture_id) = {
+                                            let draw_buffer = ctx.borrow_draw_buffer().unwrap();
+                                            (draw_buffer.size(), draw_buffer.get_bound_texture_id().unwrap())
+                                        };
+
+                                        self.webgl_contexts.insert(id, ctx);
+
+                                        self.resource_cache
+                                            .add_webgl_texture(id, TextureId(texture_id), real_size);
+
+                                        tx.send(Ok(id)).unwrap();
+                                    },
+                                    Err(msg) => {
+                                        tx.send(Err(msg.to_owned())).unwrap();
+                                    }
+                                }
+                            } else {
+                                tx.send(Err("Not implemented yet".to_owned())).unwrap();
+                            }
+                        }
+                        ApiMsg::WebGLCommand(context_id, command) => {
+                            self.pending_webgl_commands.push((context_id, command));
+                        }
                     }
                 }
                 Err(..) => {
@@ -177,6 +219,45 @@ impl RenderBackend {
             }
         }
     }
+
+    fn apply_webgl_command(&self, command: WebGLCommand) {
+        match command {
+            WebGLCommand::Clear(what)
+                => gl::clear(what),
+            WebGLCommand::ClearColor(r, g, b, a)
+                => gl::clear_color(r, g, b, a),
+        }
+    }
+
+    fn apply_webgl_commands(&mut self) {
+        if self.pending_webgl_commands.is_empty() {
+            return; // Early return in easy case
+        }
+
+        let mut current_context_id = None;
+        let mut current_context: Option<&GLContext<NativeGLContext>> = None;
+
+        // Sort by context id to minimize context switching
+        self.pending_webgl_commands.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut pending = mem::replace(&mut self.pending_webgl_commands, Vec::new());
+
+        for (context_id, command) in pending.drain(..) {
+            if current_context_id != Some(context_id) {
+                current_context_id = Some(context_id);
+                current_context = Some(self.webgl_contexts.get(&context_id).unwrap());
+                current_context.unwrap().make_current().unwrap();
+            }
+
+            self.apply_webgl_command(command);
+        }
+
+        // Without this the changes in the texture are not seen in the renderer.
+        if let Some(ctx) = current_context {
+            ctx.unbind().unwrap();
+        }
+    }
+
 
     fn build_scene(&mut self) {
         // Flatten the stacking context hierarchy
@@ -235,6 +316,8 @@ impl RenderBackend {
     }
 
     fn render(&mut self) -> RendererFrame {
+        self.apply_webgl_commands();
+
         let mut frame = self.frame.build(&self.viewport,
                                          &mut self.resource_cache,
                                          &mut self.thread_pool,

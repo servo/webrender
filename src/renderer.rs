@@ -28,6 +28,7 @@ use texture_cache::{BorderType, TextureCache, TextureInsertOp};
 use time::precise_time_ns;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
 use webrender_traits::{ImageFormat, MixBlendMode, RenderApiSender};
+use offscreen_gl_context::{NativeGLContext, NativeGLContextMethods};
 //use util;
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
@@ -175,6 +176,10 @@ impl Renderer {
         let notifier = Arc::new(Mutex::new(None));
         let backend_notifier = notifier.clone();
 
+        // We need a reference to the webrender context from the render backend in order to share
+        // texture ids
+        let context_handle = NativeGLContext::current_handle();
+
         thread::spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  result_tx,
@@ -184,7 +189,8 @@ impl Renderer {
                                                  dummy_mask_image_id,
                                                  texture_cache,
                                                  enable_aa,
-                                                 backend_notifier);
+                                                 backend_notifier,
+                                                 context_handle);
             backend.run();
         });
 
@@ -238,23 +244,18 @@ impl Renderer {
 
     pub fn update(&mut self) {
         // Pull any pending results and return the most recent.
-        loop {
-            match self.result_rx.try_recv() {
-                Ok(msg) => {
-                    match msg {
-                        ResultMsg::UpdateTextureCache(update_list) => {
-                            self.pending_texture_updates.push(update_list);
-                        }
-                        ResultMsg::UpdateBatches(update_list) => {
-                            self.pending_batch_updates.push(update_list);
-                        }
-                        ResultMsg::NewFrame(frame, profile_counters) => {
-                            self.backend_profile_counters = profile_counters;
-                            self.current_frame = Some(frame);
-                        }
-                    }
+        while let Ok(msg) = self.result_rx.try_recv() {
+            match msg {
+                ResultMsg::UpdateTextureCache(update_list) => {
+                    self.pending_texture_updates.push(update_list);
                 }
-                Err(..) => break,
+                ResultMsg::UpdateBatches(update_list) => {
+                    self.pending_batch_updates.push(update_list);
+                }
+                ResultMsg::NewFrame(frame, profile_counters) => {
+                    self.backend_profile_counters = profile_counters;
+                    self.current_frame = Some(frame);
+                }
             }
         }
     }
@@ -350,6 +351,9 @@ impl Renderer {
                     }
                     TextureUpdateOp::Update(x, y, width, height, details) => {
                         match details {
+                            TextureUpdateDetails::Raw => {
+                                self.device.update_raw_texture(update.id, x, y, width, height);
+                            }
                             TextureUpdateDetails::Blit(bytes) => {
                                 self.device.update_texture_for_noncomposite_operation(
                                     update.id,

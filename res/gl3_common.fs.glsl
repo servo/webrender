@@ -1,4 +1,4 @@
-#version 150
+#version 130
 
 #define SERVO_GL3
 

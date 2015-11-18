@@ -62,6 +62,7 @@ extern crate ipc_channel;
 extern crate scoped_threadpool;
 extern crate time;
 extern crate webrender_traits;
+extern crate offscreen_gl_context;
 
 pub use renderer::Renderer;
 
