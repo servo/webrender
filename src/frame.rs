@@ -13,7 +13,6 @@ use resource_cache::ResourceCache;
 use resource_list::BuildRequiredResources;
 use scene::{SceneStackingContext, ScenePipeline, Scene, SceneItem, SpecificSceneItem};
 use scoped_threadpool;
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
@@ -117,15 +116,20 @@ enum SceneItemKind<'a> {
     Pipeline(&'a ScenePipeline)
 }
 
-struct FrameItem {
-    scene_item: SceneItem,
-    sort_key: u32,
+#[derive(Clone)]
+struct SceneItemWithZOrder {
+    item: SceneItem,
+    z_index: i32,
 }
 
 impl<'a> SceneItemKind<'a> {
-    fn collect_frame_items(&self, scene: &Scene) -> Vec<FrameItem> {
-        let mut result = Vec::new();
-        let mut current_sort_key = 0;
+    fn collect_scene_items(&self, scene: &Scene) -> Vec<SceneItem> {
+        let mut background_and_borders = Vec::new();
+        let mut positioned_content = Vec::new();
+        let mut block_background_and_borders = Vec::new();
+        let mut floats = Vec::new();
+        let mut content = Vec::new();
+        let mut outlines = Vec::new();
 
         let stacking_context = match *self {
             SceneItemKind::StackingContext(stacking_context) => {
@@ -133,14 +137,10 @@ impl<'a> SceneItemKind<'a> {
             }
             SceneItemKind::Pipeline(pipeline) => {
                 if let Some(background_draw_list) = pipeline.background_draw_list {
-                    result.push(FrameItem {
-                        scene_item: SceneItem {
-                            stacking_level: StackingLevel::BackgroundAndBorders,
-                            specific: SpecificSceneItem::DrawList(background_draw_list),
-                        },
-                        sort_key: current_sort_key,
+                    background_and_borders.push(SceneItem {
+                        stacking_level: StackingLevel::BackgroundAndBorders,
+                        specific: SpecificSceneItem::DrawList(background_draw_list),
                     });
-                    current_sort_key += 1;
                 }
 
                 &scene.stacking_context_map
@@ -153,27 +153,71 @@ impl<'a> SceneItemKind<'a> {
         for display_list_id in &stacking_context.display_lists {
             let display_list = &scene.display_list_map[display_list_id];
             for item in &display_list.items {
-                result.push(FrameItem {
-                    scene_item: item.clone(),
-                    sort_key: current_sort_key,
-                });
-                current_sort_key += 1;
+                match item.stacking_level {
+                    StackingLevel::BackgroundAndBorders => {
+                        background_and_borders.push(item.clone());
+                    }
+                    StackingLevel::BlockBackgroundAndBorders => {
+                        block_background_and_borders.push(item.clone());
+                    }
+                    StackingLevel::PositionedContent => {
+                        let z_index = match item.specific {
+                            SpecificSceneItem::StackingContext(id) => {
+                                scene.stacking_context_map
+                                     .get(&id)
+                                     .unwrap()
+                                     .stacking_context
+                                     .z_index
+                            }
+                            SpecificSceneItem::DrawList(..) |
+                            SpecificSceneItem::Iframe(..) => {
+                                // TODO(gw): Probably wrong for an iframe?
+                                0
+                            }
+                        };
+
+                        positioned_content.push(SceneItemWithZOrder {
+                            item: item.clone(),
+                            z_index: z_index,
+                        });
+                    }
+                    StackingLevel::Floats => {
+                        floats.push(item.clone());
+                    }
+                    StackingLevel::Content => {
+                        content.push(item.clone());
+                    }
+                    StackingLevel::Outlines => {
+                        outlines.push(item.clone());
+                    }
+                }
             }
         }
 
-        // TODO: Sort by z-index here?
-        result.sort_by(|a, b| {
-            let result = a.scene_item.stacking_level.cmp(&b.scene_item.stacking_level);
-            match result {
-                Ordering::Equal => {
-                    a.sort_key.cmp(&b.sort_key)
-                }
-                _ => {
-                    result
-                }
-            }
+        positioned_content.sort_by(|a, b| {
+            a.z_index.cmp(&b.z_index)
         });
 
+        let mut result = Vec::new();
+        result.extend(background_and_borders);
+        result.extend(positioned_content.iter().filter_map(|item| {
+            if item.z_index < 0 {
+                Some(item.item.clone())
+            } else {
+                None
+            }
+        }));
+        result.extend(block_background_and_borders);
+        result.extend(floats);
+        result.extend(content);
+        result.extend(positioned_content.iter().filter_map(|item| {
+            if item.z_index < 0 {
+                None
+            } else {
+                Some(item.item.clone())
+            }
+        }));
+        result.extend(outlines);
         result
     }
 }
@@ -437,10 +481,10 @@ impl Frame {
                 final_transform = Matrix4::identity();
             }
 
-            let frame_items = item_kind.collect_frame_items(scene);
+            let scene_items = item_kind.collect_scene_items(scene);
 
-            for item in frame_items {
-                match item.scene_item.specific {
+            for item in scene_items {
+                match item.specific {
                     SpecificSceneItem::DrawList(draw_list_id) => {
                         self.push_draw_list(draw_list_id, this_scroll_layer);
 
