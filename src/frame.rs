@@ -522,11 +522,11 @@ impl Frame {
                         }
                     }
                     SpecificSceneItem::StackingContext(id) => {
+                        let clip_rect = overflow.translate(&-stacking_context.overflow.origin);
+
                         let stacking_context = scene.stacking_context_map
                                                     .get(&id)
                                                     .unwrap();
-
-                        let clip_rect = clip_rect.translate(&-child_offset);
 
                         self.flatten(SceneItemKind::StackingContext(stacking_context),
                                      &child_offset,
@@ -551,7 +551,8 @@ impl Frame {
                                                                                  child_offset.y,
                                                                                  0.0);
 
-                            let clip_rect = clip_rect.intersection(&iframe_info.clip);
+                            let clip_rect = overflow.translate(&-stacking_context.overflow.origin)
+                                                    .intersection(&iframe_info.clip);
 
                             if let Some(clip_rect) = clip_rect {
                                 let clip_rect = clip_rect.translate(&-iframe_info.offset);
