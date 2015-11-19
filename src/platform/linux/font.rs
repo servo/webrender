@@ -111,7 +111,7 @@ impl FontContext {
                 // Convert to RGBA.
                 let mut final_buffer = Vec::with_capacity(buffer.len() * 4);
                 for &byte in buffer.iter() {
-                    final_buffer.push_all(&[ byte, byte, byte, byte ]);
+                    final_buffer.push_all(&[ 0xff, 0xff, 0xff, byte ]);
                 }
 
                 let glyph = RasterizedGlyph {
