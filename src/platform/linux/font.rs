@@ -1,8 +1,8 @@
 use app_units::Au;
 use webrender_traits::{FontKey, NativeFontHandle};
 
-use freetype::freetype::{FTErrorMethods, FT_PIXEL_MODE_GRAY};
-use freetype::freetype::{FT_Done_FreeType, FT_LOAD_RENDER};
+use freetype::freetype::{FTErrorMethods, FT_PIXEL_MODE_GRAY, FT_PIXEL_MODE_MONO};
+use freetype::freetype::{FT_Done_FreeType, FT_LOAD_RENDER, FT_LOAD_MONOCHROME};
 use freetype::freetype::{FT_Library, FT_Set_Char_Size};
 use freetype::freetype::{FT_Face, FT_Long, FT_UInt, FT_F26Dot6};
 use freetype::freetype::{FT_Init_FreeType, FT_Load_Glyph};
@@ -82,7 +82,8 @@ impl FontContext {
                      font_key: FontKey,
                      size: Au,
                      character: u32,
-                     device_pixel_ratio: f32) -> Option<RasterizedGlyph> {
+                     device_pixel_ratio: f32,
+                     enable_aa: bool) -> Option<RasterizedGlyph> {
         debug_assert!(self.faces.contains_key(&font_key));
 
         let face = self.faces.get(&font_key).unwrap();
@@ -93,7 +94,12 @@ impl FontContext {
             let result = FT_Set_Char_Size(face.face, char_size as FT_F26Dot6, 0, 0, 0);
             assert!(result.succeeded());
 
-            let result =  FT_Load_Glyph(face.face, character as FT_UInt, FT_LOAD_RENDER);
+            let flags = if enable_aa {
+                FT_LOAD_RENDER
+            } else {
+                FT_LOAD_MONOCHROME | FT_LOAD_RENDER
+            };
+            let result =  FT_Load_Glyph(face.face, character as FT_UInt, flags);
             if result.succeeded() {
 
                 let void_glyph = (*face.face).glyph;
@@ -101,17 +107,38 @@ impl FontContext {
                 assert!(!slot.is_null());
 
                 let bitmap = &(*slot).bitmap;
-                assert!(bitmap.pixel_mode == FT_PIXEL_MODE_GRAY as i8);
+                debug_assert!((enable_aa && bitmap.pixel_mode == FT_PIXEL_MODE_GRAY as i8) ||
+                              (!enable_aa && bitmap.pixel_mode == FT_PIXEL_MODE_MONO as i8));
 
-                let buffer = slice::from_raw_parts(
-                    bitmap.buffer,
-                    (bitmap.width * bitmap.rows) as usize
-                );
+                let mut final_buffer = Vec::with_capacity((bitmap.width * bitmap.rows) as usize * 4);
 
-                // Convert to RGBA.
-                let mut final_buffer = Vec::with_capacity(buffer.len() * 4);
-                for &byte in buffer.iter() {
-                    final_buffer.push_all(&[ 0xff, 0xff, 0xff, byte ]);
+                if enable_aa {
+                    let buffer = slice::from_raw_parts(
+                        bitmap.buffer,
+                        (bitmap.width * bitmap.rows) as usize
+                    );
+
+                    // Convert to RGBA.
+                    for &byte in buffer.iter() {
+                        final_buffer.push_all(&[ 0xff, 0xff, 0xff, byte ]);
+                    }
+                } else {
+                    // This is not exactly efficient... but it's only used by the
+                    // reftest pass when we have AA disabled on glyphs.
+                    for y in 0..bitmap.rows {
+                        for x in 0..bitmap.width {
+                            let byte_index = (y * bitmap.pitch) + (x >> 3);
+                            let bit_index = x & 7;
+                            let byte_ptr = bitmap.buffer.offset(byte_index as isize);
+                            let bit = (*byte_ptr & (128 >> bit_index)) != 0;
+                            let byte_value = if bit {
+                                0xff
+                            } else {
+                                0
+                            };
+                            final_buffer.push_all(&[ 0xff, 0xff, 0xff, byte_value ]);
+                        }
+                    }
                 }
 
                 let glyph = RasterizedGlyph {

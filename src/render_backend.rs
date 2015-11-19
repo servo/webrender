@@ -49,14 +49,16 @@ impl RenderBackend {
                device_pixel_ratio: f32,
                white_image_id: TextureCacheItemId,
                dummy_mask_image_id: TextureCacheItemId,
-               texture_cache: TextureCache) -> RenderBackend {
+               texture_cache: TextureCache,
+               enable_aa: bool) -> RenderBackend {
         let mut thread_pool = scoped_threadpool::Pool::new(8);
 
         let resource_cache = ResourceCache::new(&mut thread_pool,
                                                 texture_cache,
                                                 white_image_id,
                                                 dummy_mask_image_id,
-                                                device_pixel_ratio);
+                                                device_pixel_ratio,
+                                                enable_aa);
 
         let backend = RenderBackend {
             thread_pool: thread_pool,

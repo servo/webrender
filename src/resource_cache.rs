@@ -51,6 +51,7 @@ pub struct ResourceCache {
     font_templates: HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>,
     image_templates: HashMap<ImageKey, ImageResource, DefaultState<FnvHasher>>,
     device_pixel_ratio: f32,
+    enable_aa: bool,
 
     texture_cache: TextureCache,
 
@@ -65,7 +66,8 @@ impl ResourceCache {
                texture_cache: TextureCache,
                white_image_id: TextureCacheItemId,
                dummy_mask_image_id: TextureCacheItemId,
-               device_pixel_ratio: f32) -> ResourceCache {
+               device_pixel_ratio: f32,
+               enable_aa: bool) -> ResourceCache {
 
         let thread_count = thread_pool.thread_count() as usize;
         thread_pool.scoped(|scope| {
@@ -93,6 +95,7 @@ impl ResourceCache {
             device_pixel_ratio: device_pixel_ratio,
             white_image_id: white_image_id,
             dummy_mask_image_id: dummy_mask_image_id,
+            enable_aa: enable_aa,
         }
     }
 
@@ -222,7 +225,8 @@ impl ResourceCache {
         run_raster_jobs(thread_pool,
                         &mut self.pending_raster_jobs,
                         &self.font_templates,
-                        self.device_pixel_ratio);
+                        self.device_pixel_ratio,
+                        self.enable_aa);
 
         // Add completed raster jobs to the texture cache
         for job in self.pending_raster_jobs.drain(..) {
@@ -337,7 +341,8 @@ impl ResourceCache {
 fn run_raster_jobs(thread_pool: &mut scoped_threadpool::Pool,
                    pending_raster_jobs: &mut Vec<GlyphRasterJob>,
                    font_templates: &HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>,
-                   device_pixel_ratio: f32) {
+                   device_pixel_ratio: f32,
+                   enable_aa: bool) {
     // Run raster jobs in parallel
     thread_pool.scoped(|scope| {
         for job in pending_raster_jobs {
@@ -357,7 +362,8 @@ fn run_raster_jobs(thread_pool: &mut scoped_threadpool::Pool,
                     job.result = font_context.get_glyph(job.glyph_key.font_key,
                                                         job.glyph_key.size,
                                                         job.glyph_key.index,
-                                                        device_pixel_ratio);
+                                                        device_pixel_ratio,
+                                                        enable_aa);
                 });
             });
         }

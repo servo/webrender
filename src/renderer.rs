@@ -75,7 +75,8 @@ impl Renderer {
                width: u32,
                height: u32,
                device_pixel_ratio: f32,
-               resource_path: PathBuf) -> (Renderer, RenderApi) {
+               resource_path: PathBuf,
+               enable_aa: bool) -> (Renderer, RenderApi) {
         let (api_tx, api_rx) = channel();
         let (result_tx, result_rx) = channel();
 
@@ -149,7 +150,8 @@ impl Renderer {
                                                  device_pixel_ratio,
                                                  white_image_id,
                                                  dummy_mask_image_id,
-                                                 texture_cache);
+                                                 texture_cache,
+                                                 enable_aa);
             backend.run(notifier);
         });
 
