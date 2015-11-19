@@ -69,10 +69,10 @@ pub struct PackedColor {
 impl PackedColor {
     pub fn from_color(color: &ColorF) -> PackedColor {
         PackedColor {
-            r: (color.r * COLOR_FLOAT_TO_FIXED) as u8,
-            g: (color.g * COLOR_FLOAT_TO_FIXED) as u8,
-            b: (color.b * COLOR_FLOAT_TO_FIXED) as u8,
-            a: (color.a * COLOR_FLOAT_TO_FIXED) as u8,
+            r: (0.5 + color.r * COLOR_FLOAT_TO_FIXED).floor() as u8,
+            g: (0.5 + color.g * COLOR_FLOAT_TO_FIXED).floor() as u8,
+            b: (0.5 + color.b * COLOR_FLOAT_TO_FIXED).floor() as u8,
+            a: (0.5 + color.a * COLOR_FLOAT_TO_FIXED).floor() as u8,
         }
     }
 }
