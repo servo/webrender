@@ -5,6 +5,7 @@ uniform sampler2D sMask;
 uniform sampler2D sDiffuse2D;
 uniform sampler2D sMask2D;
 uniform vec4 uBlendParams;
+uniform vec4 uAtlasParams;
 uniform vec2 uDirection;
 uniform vec4 uFilterParams;
 uniform vec2 uTextureSize;

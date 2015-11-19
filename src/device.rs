@@ -562,7 +562,10 @@ impl Device {
                         pixels: Option<&[u8]>) {
         debug_assert!(self.inside_frame);
 
+        // TODO: ugh, messy!
         self.textures.get_mut(&texture_id).unwrap().format = format;
+        self.textures.get_mut(&texture_id).unwrap().width = width;
+        self.textures.get_mut(&texture_id).unwrap().height = height;
 
         let (internal_format, gl_format) = match format {
             ImageFormat::A8 => (GL_FORMAT_A, GL_FORMAT_A),
@@ -622,9 +625,6 @@ impl Device {
 
                 gl::bind_framebuffer(gl::FRAMEBUFFER, self.default_fbo);
 
-                // TODO: ugh, messy!
-                self.textures.get_mut(&texture_id).unwrap().width = width;
-                self.textures.get_mut(&texture_id).unwrap().height = height;
                 self.textures.get_mut(&texture_id).unwrap().fbo_ids = fbo_ids;
             }
             RenderTargetMode::None => {

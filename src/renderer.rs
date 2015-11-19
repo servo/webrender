@@ -52,6 +52,7 @@ pub struct Renderer {
     quad_program_id: ProgramId,
     u_quad_transform_array: UniformLocation,
     u_tile_params: UniformLocation,
+    u_atlas_params: UniformLocation,
 
     blit_program_id: ProgramId,
 
@@ -96,6 +97,7 @@ impl Renderer {
 
         let u_quad_transform_array = device.get_uniform_location(quad_program_id, "uMatrixPalette");
         let u_tile_params = device.get_uniform_location(quad_program_id, "uTileParams");
+        let u_atlas_params = device.get_uniform_location(quad_program_id, "uAtlasParams");
 
         let u_blend_params = device.get_uniform_location(blend_program_id, "uBlendParams");
 
@@ -176,6 +178,7 @@ impl Renderer {
             u_filter_texture_size: u_filter_texture_size,
             u_direction: u_direction,
             u_quad_transform_array: u_quad_transform_array,
+            u_atlas_params: u_atlas_params,
             u_tile_params: u_tile_params,
         };
 
@@ -866,6 +869,19 @@ impl Renderer {
 
                                 self.device.bind_mask_texture_for_noncomposite_operation(draw_call.mask_texture_id);
                                 self.device.bind_color_texture_for_noncomposite_operation(draw_call.color_texture_id);
+
+                                // TODO(gw): Although a minor cost, this is an extra hashtable lookup for every
+                                //           draw call, when the batch textures are (almost) always the same.
+                                //           This could probably be cached or provided elsewhere.
+                                let color_size = self.device
+                                                     .get_texture_dimensions(draw_call.color_texture_id);
+                                let mask_size = self.device
+                                                    .get_texture_dimensions(draw_call.mask_texture_id);
+                                self.device.set_uniform_4f(self.u_atlas_params,
+                                                           color_size.0 as f32,
+                                                           color_size.1 as f32,
+                                                           mask_size.0 as f32,
+                                                           mask_size.1 as f32);
 
                                 self.device.draw_triangles_u16(draw_call.first_vertex as i32,
                                                                draw_call.index_count as i32);
