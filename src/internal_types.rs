@@ -168,6 +168,31 @@ impl PackedVertex {
         }
     }
 
+    /// Just like the above function, but doesn't scale the mask uv coordinates. This is useful
+    /// for the filter fragment shader, which uses the mask uv coordinates to store the texture
+    /// size.
+    pub fn from_components_unscaled_muv(x: f32, y: f32,
+                                        color: &ColorF,
+                                        u: f32, v: f32,
+                                        mu: u16, mv: u16,
+                                        uv_index: TextureIndex,
+                                        muv_index: TextureIndex)
+                                        -> PackedVertex {
+        PackedVertex {
+            x: x,
+            y: y,
+            color: PackedColor::from_color(color),
+            u: u,
+            v: v,
+            mu: mu,
+            mv: mv,
+            matrix_index: 0,
+            uv_index: uv_index.0,
+            muv_index: muv_index.0,
+            tile_params_index: 0,
+        }
+    }
+
     pub fn from_points(position: &Point2D<f32>,
                        color: &ColorF,
                        uv: &Point2D<f32>,

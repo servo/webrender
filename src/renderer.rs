@@ -63,7 +63,6 @@ pub struct Renderer {
 
     filter_program_id: ProgramId,
     u_filter_params: UniformLocation,
-    u_filter_texture_size: UniformLocation,
 
     box_shadow_program_id: ProgramId,
 
@@ -102,7 +101,6 @@ impl Renderer {
         let u_blend_params = device.get_uniform_location(blend_program_id, "uBlendParams");
 
         let u_filter_params = device.get_uniform_location(filter_program_id, "uFilterParams");
-        let u_filter_texture_size = device.get_uniform_location(filter_program_id, "uTextureSize");
 
         let u_direction = device.get_uniform_location(blur_program_id, "uDirection");
 
@@ -175,7 +173,6 @@ impl Renderer {
             blur_program_id: blur_program_id,
             u_blend_params: u_blend_params,
             u_filter_params: u_filter_params,
-            u_filter_texture_size: u_filter_texture_size,
             u_direction: u_direction,
             u_quad_transform_array: u_quad_transform_array,
             u_atlas_params: u_atlas_params,
@@ -1058,34 +1055,42 @@ impl Renderer {
                                 self.device.bind_program(self.blit_program_id, &render_context.projection);
                             }
 
-                            let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
+                            let color = ColorF::new(1.0, 1.0, 1.0, alpha);
                             let indices: [u16; 6] = [ 0, 1, 2, 2, 3, 1 ];
                             let color_texture_index = TextureIndex(0);
                             let vertices: [PackedVertex; 4] = [
-                                PackedVertex::from_components(x0 as f32, y0 as f32,
-                                                              &color,
-                                                              0.0, 1.0,
-                                                              0.0, 1.0,
-                                                              color_texture_index,
-                                                              TextureIndex(0)),
-                                PackedVertex::from_components(x1 as f32, y0 as f32,
-                                                              &color,
-                                                              1.0, 1.0,
-                                                              1.0, 1.0,
-                                                              color_texture_index,
-                                                              TextureIndex(0)),
-                                PackedVertex::from_components(x0 as f32, y1 as f32,
-                                                              &color,
-                                                              0.0, 0.0,
-                                                              0.0, 0.0,
-                                                              color_texture_index,
-                                                              TextureIndex(0)),
-                                PackedVertex::from_components(x1 as f32, y1 as f32,
-                                                              &color,
-                                                              1.0, 0.0,
-                                                              1.0, 0.0,
-                                                              color_texture_index,
-                                                              TextureIndex(0)),
+                                PackedVertex::from_components_unscaled_muv(
+                                    x0 as f32, y0 as f32,
+                                    &color,
+                                    0.0, 1.0,
+                                    info.rect.size.width as u16,
+                                    info.rect.size.height as u16,
+                                    color_texture_index,
+                                    TextureIndex(0)),
+                                PackedVertex::from_components_unscaled_muv(
+                                    x1 as f32, y0 as f32,
+                                    &color,
+                                    1.0, 1.0,
+                                    info.rect.size.width as u16,
+                                    info.rect.size.height as u16,
+                                    color_texture_index,
+                                    TextureIndex(0)),
+                                PackedVertex::from_components_unscaled_muv(
+                                    x0 as f32, y1 as f32,
+                                    &color,
+                                    0.0, 0.0,
+                                    info.rect.size.width as u16,
+                                    info.rect.size.height as u16,
+                                    color_texture_index,
+                                    TextureIndex(0)),
+                                PackedVertex::from_components_unscaled_muv(
+                                    x1 as f32, y1 as f32,
+                                    &color,
+                                    1.0, 0.0,
+                                    info.rect.size.width as u16,
+                                    info.rect.size.height as u16,
+                                    color_texture_index,
+                                    TextureIndex(0)),
                             ];
                             // TODO: Don't re-create this VAO all the time.
                             // Create it once and set positions via uniforms.
