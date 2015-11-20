@@ -126,7 +126,7 @@ impl WorkVertex {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct PackedVertex {
     pub x: f32,
@@ -273,7 +273,6 @@ pub struct TextureImage {
 pub enum TextureUpdateOp {
     Create(u32, u32, ImageFormat, TextureFilter, RenderTargetMode, Option<Vec<u8>>),
     Update(u32, u32, u32, u32, TextureUpdateDetails),
-    DeinitRenderTarget(TextureId),
 }
 
 pub struct TextureUpdate {
@@ -336,10 +335,16 @@ pub struct ClearInfo {
 }
 
 #[derive(Clone, Debug)]
-pub struct CompositeInfo {
+pub struct CompositeBatchInfo {
     pub operation: CompositionOp,
-    pub rect: Rect<u32>,
-    pub color_texture_id: TextureId,
+    pub texture_id: TextureId,
+    pub jobs: Vec<CompositeInfo>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CompositeInfo {
+    pub rect: Rect<i32>,
+    pub render_target_texture: RenderTargetTexture,
 }
 
 #[derive(Clone, Debug)]
@@ -370,7 +375,7 @@ impl BatchInfo {
 #[derive(Clone, Debug)]
 pub enum DrawCommand {
     Batch(BatchInfo),
-    Composite(CompositeInfo),
+    CompositeBatch(CompositeBatchInfo),
     Clear(ClearInfo),
 }
 
@@ -379,18 +384,22 @@ pub struct RenderTargetIndex(pub u32);
 
 #[derive(Debug)]
 pub struct DrawLayer {
-    pub texture_id: Option<TextureId>,
     pub size: Size2D<u32>,
+    pub texture_id: Option<TextureId>,
+    pub render_targets: Vec<FrameRenderTarget>,
     pub commands: Vec<DrawCommand>,
 }
 
 impl DrawLayer {
-    pub fn new(texture_id: Option<TextureId>,
-               size: Size2D<u32>,
-               commands: Vec<DrawCommand>) -> DrawLayer {
+    pub fn new(size: &Size2D<u32>,
+               texture_id: Option<TextureId>,
+               render_targets: Vec<FrameRenderTarget>,
+               commands: Vec<DrawCommand>)
+               -> DrawLayer {
         DrawLayer {
+            size: *size,
             texture_id: texture_id,
-            size: size,
+            render_targets: render_targets,
             commands: commands,
         }
     }
@@ -520,6 +529,22 @@ pub struct DrawListContext {
     pub origin: Point2D<f32>,
     pub overflow: Rect<f32>,
     pub final_transform: Matrix4,
+    pub render_target: FrameRenderTarget,
+}
+
+#[derive(Debug, Clone)]
+pub struct FrameRenderTarget {
+    pub size: Size2D<u32>,
+    pub texture: Option<RenderTargetTexture>,
+}
+
+impl FrameRenderTarget {
+    pub fn new(size: Size2D<u32>, texture: Option<RenderTargetTexture>) -> FrameRenderTarget {
+        FrameRenderTarget {
+            size: size,
+            texture: texture,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -680,6 +705,25 @@ impl RectUv {
                 }
             }
         }
+    }
+
+    pub fn to_rect(&self) -> Rect<f32> {
+        fn min(x: f32, y: f32) -> f32 {
+            if x < y { x } else { y }
+        }
+        fn max(x: f32, y: f32) -> f32 {
+            if x > y { x } else { y }
+        }
+
+        let min_x = min(min(min(self.top_left.x, self.top_right.x), self.bottom_right.x),
+                        self.bottom_left.x);
+        let min_y = min(min(min(self.top_left.y, self.top_right.y), self.bottom_right.y),
+                        self.bottom_left.y);
+        let max_x = max(max(max(self.top_left.x, self.top_right.x), self.bottom_right.x),
+                        self.bottom_left.x);
+        let max_y = max(max(max(self.top_left.y, self.top_right.y), self.bottom_right.y),
+                        self.bottom_left.y);
+        Rect::new(Point2D::new(min_x, min_y), Size2D::new(max_x - min_x, max_y - min_y))
     }
 }
 
@@ -921,7 +965,7 @@ impl<'a> CombinedClipRegion<'a> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LowLevelFilterOp {
     Blur(Au, AxisDirection),
     Brightness(Au),
@@ -935,9 +979,22 @@ pub enum LowLevelFilterOp {
     Sepia(Au),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CompositionOp {
     MixBlend(MixBlendMode),
     Filter(LowLevelFilterOp),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BlurDirection {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RenderTargetTexture {
+    pub texture_id: TextureId,
+    pub uv_rect: Rect<u32>,
+    pub texture_size: Size2D<u32>,
 }
 

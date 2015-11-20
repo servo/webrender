@@ -1,9 +1,9 @@
 use app_units::Au;
-use device::{TextureId, TextureFilter};
+use device::{TextureFilter, TextureId};
 use euclid::Size2D;
 use fnv::FnvHasher;
 use freelist::FreeList;
-use internal_types::{FontTemplate, GlyphKey, RasterItem};
+use internal_types::{FontTemplate, GlyphKey, RasterItem, RenderTargetTexture};
 use internal_types::{TextureUpdateList, DrawListId, DrawList};
 use platform::font::{FontContext, RasterizedGlyph};
 use renderer::BLUR_INFLATION_FACTOR;
@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 use std::sync::atomic::Ordering::SeqCst;
 use std::thread;
 use std::time::Duration;
-use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
+use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId, TextureCacheItemKind};
 use texture_cache::{BorderType, TextureInsertOp};
 use webrender_traits::{Epoch, FontKey, ImageKey, ImageFormat, DisplayItem, ImageRendering};
 use webrender_traits::{WebGLContextId};
@@ -294,13 +294,26 @@ impl ResourceCache {
         self.draw_lists.free(draw_list_id);
     }
 
-    pub fn allocate_render_target(&mut self, width: u32, height: u32, format: ImageFormat)
-                                  -> TextureId {
-        self.texture_cache.allocate_render_target(width, height, format)
+    pub fn allocate_render_target(&mut self,
+                                  width: u32,
+                                  height: u32,
+                                  format: ImageFormat)
+                                  -> RenderTargetTexture {
+        let image_id = self.texture_cache.new_item_id();
+        let texture = self.texture_cache.allocate(image_id,
+                                                  0, 0,
+                                                  width, height,
+                                                  format,
+                                                  TextureCacheItemKind::RenderTarget,
+                                                  BorderType::NoBorder,
+                                                  TextureFilter::Linear);
+        texture.to_render_target_texture()
     }
 
-    pub fn free_render_target(&mut self, texture_id: TextureId) {
-        self.texture_cache.free_render_target(texture_id)
+    pub fn free_render_target(&mut self, texture: RenderTargetTexture) {
+        self.texture_cache.free(texture.texture_id,
+                                &texture.uv_rect,
+                                TextureCacheItemKind::RenderTarget)
     }
 
     pub fn pending_updates(&mut self) -> TextureUpdateList {

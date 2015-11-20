@@ -89,8 +89,11 @@ pub struct Renderer {
     blur_program_id: ProgramId,
     u_direction: UniformLocation,
 
+    clear_program_id: ProgramId,
+
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
     viewport_size: Size2D<u32>,
+    framebuffer_size: Size2D<u32>,
 
     enable_profiler: bool,
     debug: DebugRenderer,
@@ -103,6 +106,7 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(width: u32,
                height: u32,
+               framebuffer_size: &Size2D<u32>,
                device_pixel_ratio: f32,
                resource_path: PathBuf,
                enable_aa: bool,
@@ -123,6 +127,7 @@ impl Renderer {
         let box_shadow_program_id = device.create_program("box_shadow.vs.glsl",
                                                           "box_shadow.fs.glsl");
         let blur_program_id = device.create_program("blur.vs.glsl", "blur.fs.glsl");
+        let clear_program_id = device.create_program("clear.vs.glsl", "clear.fs.glsl");
 
         let u_quad_transform_array = device.get_uniform_location(quad_program_id, "uMatrixPalette");
         let u_tile_params = device.get_uniform_location(quad_program_id, "uTileParams");
@@ -210,6 +215,7 @@ impl Renderer {
             blit_program_id: blit_program_id,
             box_shadow_program_id: box_shadow_program_id,
             blur_program_id: blur_program_id,
+            clear_program_id: clear_program_id,
             u_blend_params: u_blend_params,
             u_filter_params: u_filter_params,
             u_direction: u_direction,
@@ -218,6 +224,7 @@ impl Renderer {
             u_tile_params: u_tile_params,
             notifier: notifier,
             viewport_size: Size2D::new(width, height),
+            framebuffer_size: *framebuffer_size,
             debug: debug_renderer,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
@@ -345,9 +352,6 @@ impl Renderer {
                                                          None);
                             }
                         }
-                    }
-                    TextureUpdateOp::DeinitRenderTarget(id) => {
-                        self.device.deinit_texture(id);
                     }
                     TextureUpdateOp::Update(x, y, width, height, details) => {
                         match details {
@@ -518,9 +522,6 @@ impl Renderer {
                                                                inner_ry,
                                                                index,
                                                                inverted) => {
-                                println!("outer_rx={:?} outer_ry={:?} inner_rx={:?} inner_ry={:?}",
-                                         outer_rx, outer_ry,
-                                         inner_rx, inner_ry);
                                 let x = x as f32;
                                 let y = y as f32;
                                 let inner_rx = inner_rx.to_f32_px();
@@ -646,10 +647,15 @@ impl Renderer {
         let zero_point = Point2D::new(0.0, 0.0);
         let zero_size = Size2D::new(0.0, 0.0);
 
-        let arc_radius = match box_shadow_part {
-            BoxShadowPart::Edge => Point2D::new(rect.size.width, 0.0),
+        // `arc_radius_inner` here is just a flag to specify to the shader whether we're an edge
+        // (zero) or a corner (nonzero).
+        let (arc_radius_outer, arc_radius_inner) = match box_shadow_part {
+            BoxShadowPart::Edge => {
+                (Point2D::new(rect.size.width, 0.0), Point2D::new(0.0, 0.0))
+            }
             BoxShadowPart::Corner(border_radius) => {
-                Point2D::new(border_radius.to_f32_px(), border_radius.to_f32_px())
+                (Point2D::new(border_radius.to_f32_px(), border_radius.to_f32_px()),
+                 Point2D::new(1.0, 1.0))
             }
         };
 
@@ -657,8 +663,8 @@ impl Renderer {
             PackedVertexForTextureCacheUpdate::new(&rect.origin,
                                                    &color,
                                                    &zero_point,
-                                                   &arc_radius,
-                                                   &zero_point,
+                                                   &arc_radius_outer,
+                                                   &arc_radius_inner,
                                                    &zero_point,
                                                    &rect.origin,
                                                    &rect.size,
@@ -667,8 +673,8 @@ impl Renderer {
             PackedVertexForTextureCacheUpdate::new(&rect.top_right(),
                                                    &color,
                                                    &zero_point,
-                                                   &arc_radius,
-                                                   &zero_point,
+                                                   &arc_radius_outer,
+                                                   &arc_radius_inner,
                                                    &zero_point,
                                                    &rect.origin,
                                                    &rect.size,
@@ -677,8 +683,8 @@ impl Renderer {
             PackedVertexForTextureCacheUpdate::new(&rect.bottom_left(),
                                                    &color,
                                                    &zero_point,
-                                                   &arc_radius,
-                                                   &zero_point,
+                                                   &arc_radius_outer,
+                                                   &arc_radius_inner,
                                                    &zero_point,
                                                    &rect.origin,
                                                    &rect.size,
@@ -687,8 +693,8 @@ impl Renderer {
             PackedVertexForTextureCacheUpdate::new(&rect.bottom_right(),
                                                    &color,
                                                    &zero_point,
-                                                   &arc_radius,
-                                                   &zero_point,
+                                                   &arc_radius_outer,
+                                                   &arc_radius_inner,
                                                    &zero_point,
                                                    &rect.origin,
                                                    &rect.size,
@@ -770,6 +776,7 @@ impl Renderer {
                                                 blur_direction: Option<AxisDirection>) {
         gl::disable(gl::BLEND);
         gl::disable(gl::DEPTH_TEST);
+        gl::disable(gl::SCISSOR_TEST);
 
         let (texture_width, texture_height) = self.device.get_texture_dimensions(update_id);
 
@@ -830,31 +837,80 @@ impl Renderer {
             };
 
             debug_assert!(frame.layers.len() > 0);
-            let framebuffer_size = frame.layers[0].size;
+            let framebuffer_size = self.framebuffer_size;
 
             for layer in frame.layers.iter().rev() {
                 render_context.layer_size = layer.size;
-                render_context.projection = Matrix4::ortho(0.0,
-                                                           layer.size.width as f32,
-                                                           layer.size.height as f32,
-                                                           0.0,
-                                                           ORTHO_NEAR_PLANE,
-                                                           ORTHO_FAR_PLANE);
 
-                let layer_texture_id = layer.texture_id;
+                let layer_texture_id = layer.render_targets[0].texture.map(|texture| {
+                    texture.texture_id
+                });
                 self.device.bind_render_target(layer_texture_id);
-                gl::viewport(0,
-                             0,
-                             (layer.size.width as f32 * self.device_pixel_ratio) as gl::GLint,
-                             (layer.size.height as f32 * self.device_pixel_ratio) as gl::GLint);
+
+                let mut uv;
+                let mut uv_rects = vec![];
+                let render_target_size;
+                let scale_factor;
+                let viewport_y;
+                match layer.render_targets[0].texture {
+                    None => {
+                        let v = layer.size.height as f32;
+                        uv = Rect::new(Point2D::new(0, v as u32), layer.size);
+                        uv_rects.push(uv);
+                        scale_factor = framebuffer_size.width as f32 / layer.size.width as f32;
+                        render_target_size = Size2D::new(
+                            (layer.size.width as f32 * scale_factor) as u32,
+                            (layer.size.height as f32 * scale_factor) as u32);
+                        viewport_y = render_target_size.height as f32 - uv.origin.y as f32 *
+                            scale_factor;
+                    }
+                    Some(ref texture) => {
+                        render_target_size = texture.texture_size;
+                        scale_factor = 1.0;
+                        uv = texture.uv_rect;
+                        uv_rects.push(uv);
+
+                        for render_target in &layer.render_targets[1..] {
+                            if let Some(ref texture) = render_target.texture {
+                                uv = uv.union(&texture.uv_rect);
+                                uv_rects.push(texture.uv_rect);
+                            }
+                        }
+
+                        viewport_y = render_target_size.height as f32 -
+                            uv.max_y() as f32 * scale_factor;
+                    }
+                };
+                let viewport = Rect::new(
+                    Point2D::new((uv.origin.x as f32 * scale_factor) as gl::GLint,
+                                 viewport_y as gl::GLint),
+                    Size2D::new((uv.size.width as f32 * scale_factor) as gl::GLint,
+                                (uv.size.height as f32 * scale_factor) as gl::GLint));
+                gl::viewport(viewport.origin.x,
+                             viewport.origin.y,
+                             viewport.size.width,
+                             viewport.size.height);
+
+                // Clear frame buffer
+                clear_framebuffer(&mut self.device,
+                                  &mut render_context,
+                                  &mut self.profile_counters,
+                                  &viewport,
+                                  &uv,
+                                  self.device_pixel_ratio,
+                                  &uv_rects[..],
+                                  self.clear_program_id,
+                                  layer.render_targets[0].texture.is_some());
                 gl::enable(gl::DEPTH_TEST);
                 gl::depth_func(gl::LEQUAL);
 
-                // Clear frame buffer
-                gl::clear_color(1.0, 1.0, 1.0, 1.0);
-                gl::clear(gl::COLOR_BUFFER_BIT |
-                          gl::DEPTH_BUFFER_BIT |
-                          gl::STENCIL_BUFFER_BIT);
+                render_context.projection =
+                    Matrix4::ortho(0.0,
+                                   viewport.size.width as f32 / self.device_pixel_ratio,
+                                   viewport.size.height as f32 / self.device_pixel_ratio,
+                                   0.0,
+                                   ORTHO_NEAR_PLANE,
+                                   ORTHO_FAR_PLANE);
 
                 for cmd in &layer.commands {
                     match cmd {
@@ -919,14 +975,16 @@ impl Renderer {
                                                            mask_size.0 as f32,
                                                            mask_size.1 as f32);
 
-                                self.profile_counters.vertices.add(draw_call.index_count as usize);
+                                let index_count = draw_call.index_count as i32;
+                                assert!(draw_call.first_vertex <= 65535);
+
                                 self.profile_counters.draw_calls.inc();
 
                                 self.device.draw_triangles_u16(draw_call.first_vertex as i32,
-                                                               draw_call.index_count as i32);
+                                                               index_count);
                             }
                         }
-                        &DrawCommand::Composite(ref info) => {
+                        &DrawCommand::CompositeBatch(ref info) => {
                             let needs_fb = match info.operation {
                                 CompositionOp::MixBlend(MixBlendMode::Normal) => unreachable!(),
 
@@ -957,29 +1015,32 @@ impl Renderer {
                                 CompositionOp::MixBlend(MixBlendMode::Lighten) => false,
                             };
 
-                            let x0 = info.rect.origin.x;
-                            let y0 = info.rect.origin.y;
-                            let x1 = x0 + info.rect.size.width;
-                            let y1 = y0 + info.rect.size.height;
-
                             let alpha;
                             if needs_fb {
                                 gl::disable(gl::BLEND);
 
-                                // TODO: No need to re-init this FB working copy texture every time...
-                                self.device.init_texture(render_context.temporary_fb_texture,
-                                                         info.rect.size.width,
-                                                         info.rect.size.height,
-                                                         ImageFormat::RGBA8,
-                                                         TextureFilter::Nearest,
-                                                         RenderTargetMode::None,
-                                                         None);
-                                self.device.read_framebuffer_rect(
-                                    render_context.temporary_fb_texture,
-                                    x0,
-                                    framebuffer_size.height - info.rect.size.height - y0,
-                                    info.rect.size.width,
-                                    info.rect.size.height);
+                                // TODO(glennw): No need to re-init this FB working copy texture
+                                // every time...
+                                for job in &info.jobs {
+                                    let x0 = job.rect.origin.x;
+                                    let y0 = job.rect.origin.y;
+
+                                    self.device.init_texture(render_context.temporary_fb_texture,
+                                                             job.rect.size.width as u32,
+                                                             job.rect.size.height as u32,
+                                                             ImageFormat::RGBA8,
+                                                             TextureFilter::Nearest,
+                                                             RenderTargetMode::None,
+                                                             None);
+                                    self.device.read_framebuffer_rect(
+                                        render_context.temporary_fb_texture,
+                                        x0,
+                                        render_context.layer_size.height as i32 -
+                                            job.rect.size.height -
+                                            y0,
+                                        job.rect.size.width,
+                                        job.rect.size.height);
+                                }
 
                                 match info.operation {
                                     CompositionOp::MixBlend(blend_mode) => {
@@ -1086,55 +1147,173 @@ impl Renderer {
                                     _ => unreachable!(),
                                 }
 
-                                self.device.bind_program(self.blit_program_id, &render_context.projection);
+                                self.device.bind_program(self.blit_program_id,
+                                                         &render_context.projection);
                             }
 
-                            let color = ColorF::new(1.0, 1.0, 1.0, alpha);
-                            let indices: [u16; 6] = [ 0, 1, 2, 2, 3, 1 ];
-                            let vertices: [PackedVertex; 4] = [
-                                PackedVertex::from_components_unscaled_muv(
-                                    x0 as f32, y0 as f32,
-                                    &color,
-                                    0.0, 1.0,
-                                    info.rect.size.width as u16,
-                                    info.rect.size.height as u16),
-                                PackedVertex::from_components_unscaled_muv(
-                                    x1 as f32, y0 as f32,
-                                    &color,
-                                    1.0, 1.0,
-                                    info.rect.size.width as u16,
-                                    info.rect.size.height as u16),
-                                PackedVertex::from_components_unscaled_muv(
-                                    x0 as f32, y1 as f32,
-                                    &color,
-                                    0.0, 0.0,
-                                    info.rect.size.width as u16,
-                                    info.rect.size.height as u16),
-                                PackedVertex::from_components_unscaled_muv(
-                                    x1 as f32, y1 as f32,
-                                    &color,
-                                    1.0, 0.0,
-                                    info.rect.size.width as u16,
-                                    info.rect.size.height as u16),
-                            ];
-                            // TODO: Don't re-create this VAO all the time.
-                            // Create it once and set positions via uniforms.
-                            let vao_id = self.device.create_vao(VertexFormat::Batch);
-                            self.device.bind_color_texture(info.color_texture_id);
-                            self.device.bind_vao(vao_id);
-                            self.device.update_vao_indices(vao_id, &indices, VertexUsageHint::Dynamic);
-                            self.device.update_vao_vertices(vao_id, &vertices, VertexUsageHint::Dynamic);
+                            let (mut indices, mut vertices) = (vec![], vec![]);
+                            for job in &info.jobs {
+                                let x0 = job.rect.origin.x;
+                                let y0 = job.rect.origin.y;
+                                let x1 = job.rect.max_x();
+                                let y1 = job.rect.max_y();
 
-                            self.profile_counters.vertices.add(indices.len());
-                            self.profile_counters.draw_calls.inc();
+                                let vertex_count = vertices.len() as u16;
+                                indices.push(vertex_count + 0);
+                                indices.push(vertex_count + 1);
+                                indices.push(vertex_count + 2);
+                                indices.push(vertex_count + 2);
+                                indices.push(vertex_count + 3);
+                                indices.push(vertex_count + 1);
 
-                            self.device.draw_triangles_u16(0, indices.len() as gl::GLint);
+                                let color = ColorF::new(1.0, 1.0, 1.0, alpha);
 
-                            self.device.delete_vao(vao_id);
+                                let pixel_uv = Rect::new(
+                                    Point2D::new(job.render_target_texture.uv_rect.origin.x,
+                                                 job.render_target_texture.uv_rect.origin.y),
+                                    Size2D::new(
+                                        (job.rect.size.width as f32 * self.device_pixel_ratio) as
+                                        u32,
+                                        (job.rect.size.height as f32 * self.device_pixel_ratio) as
+                                        u32));
+                                let texture_width =
+                                    job.render_target_texture.texture_size.width as f32;
+                                let texture_height =
+                                    job.render_target_texture.texture_size.height as f32;
+                                let texture_uv = Rect::new(
+                                    Point2D::new(
+                                        pixel_uv.origin.x as f32 / texture_width,
+                                        1.0 - (pixel_uv.origin.y + pixel_uv.size.height) as f32 /
+                                            texture_height),
+                                    Size2D::new(pixel_uv.size.width as f32 / texture_width,
+                                                pixel_uv.size.height as f32 / texture_height));
+
+                                vertices.push_all(&[
+                                    PackedVertex::from_components_unscaled_muv(
+                                        x0 as f32, y0 as f32,
+                                        &color,
+                                        texture_uv.origin.x, texture_uv.max_y(),
+                                        job.rect.size.width as u16, job.rect.size.height as u16),
+                                    PackedVertex::from_components_unscaled_muv(
+                                        x1 as f32, y0 as f32,
+                                        &color,
+                                        texture_uv.max_x(), texture_uv.max_y(),
+                                        job.rect.size.width as u16, job.rect.size.height as u16),
+                                    PackedVertex::from_components_unscaled_muv(
+                                        x0 as f32, y1 as f32,
+                                        &color,
+                                        texture_uv.origin.x, texture_uv.origin.y,
+                                        job.rect.size.width as u16, job.rect.size.height as u16),
+                                    PackedVertex::from_components_unscaled_muv(
+                                        x1 as f32, y1 as f32,
+                                        &color,
+                                        texture_uv.max_x(), texture_uv.origin.y,
+                                        job.rect.size.width as u16, job.rect.size.height as u16),
+                                ]);
+                            }
+
+                            draw_simple_triangles(&mut self.device,
+                                                  &mut render_context,
+                                                  &mut self.profile_counters,
+                                                  &indices[..],
+                                                  &vertices[..],
+                                                  info.texture_id);
                         }
                     }
                 }
             }
         }
     }
+
 }
+
+fn clear_framebuffer(device: &mut Device,
+                     render_context: &mut RenderContext,
+                     profile_counters: &mut RendererProfileCounters,
+                     viewport: &Rect<gl::GLint>,
+                     combined_uv: &Rect<u32>,
+                     device_pixel_ratio: f32,
+                     uv_rects: &[Rect<u32>],
+                     program_id: ProgramId,
+                     clear_to_transparent: bool) {
+    let clear_color = ColorF {
+        r: 1.0,
+        g: 1.0,
+        b: 1.0,
+        a: if clear_to_transparent { 0.0 } else { 1.0 },
+    };
+
+    // Fast path if we only have one rect: just use glClear().
+    //
+    // TODO(pcwalton): We could take this path too if the rects all union together precisely
+    // to the viewport. But I kinda doubt it's worth the trouble.
+    if uv_rects.len() < 2 {
+        gl::scissor(viewport.origin.x, viewport.origin.y,
+                    viewport.size.width, viewport.size.height);
+        gl::enable(gl::SCISSOR_TEST);
+        gl::clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
+        gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
+        gl::disable(gl::SCISSOR_TEST);
+        return;
+    }
+
+    // Slow path if we have multiple rects.
+    //
+    // We use [0,1) coordinates here because it's simpler to centralize the scaling to the viewport
+    // in one place.
+    let (mut indices, mut vertices) = (vec![], vec![]);
+    for rect in uv_rects {
+        let x0 = (rect.origin.x as f32 - combined_uv.origin.x as f32 * device_pixel_ratio) /
+            viewport.size.width as f32;
+        let y0 = (rect.origin.y as f32 - combined_uv.origin.y as f32 * device_pixel_ratio) /
+            viewport.size.height as f32;
+        let x1 = (rect.max_x() as f32 - combined_uv.origin.x as f32 * device_pixel_ratio) /
+            viewport.size.width as f32;
+        let y1 = (rect.max_y() as f32 - combined_uv.origin.y as f32 * device_pixel_ratio) /
+            viewport.size.height as f32;
+        indices.extend([0, 1, 2, 1, 3, 2].iter().map(|index| (index + vertices.len()) as u16));
+        vertices.push_all(&[
+            PackedVertex::from_components(x0, y0, &clear_color, 0.0, 0.0, 0.0, 0.0),
+            PackedVertex::from_components(x1, y0, &clear_color, 0.0, 0.0, 0.0, 0.0),
+            PackedVertex::from_components(x0, y1, &clear_color, 0.0, 0.0, 0.0, 0.0),
+            PackedVertex::from_components(x1, y1, &clear_color, 0.0, 0.0, 0.0, 0.0),
+        ]);
+    }
+
+    let projection = Matrix4::ortho(0.0, 1.0,
+                                    1.0, 0.0,
+                                    ORTHO_NEAR_PLANE,
+                                    ORTHO_FAR_PLANE);
+    device.bind_program(program_id, &projection);
+    gl::disable(gl::BLEND);
+    draw_simple_triangles(device,
+                          render_context,
+                          profile_counters,
+                          &indices[..],
+                          &vertices[..],
+                          TextureId(0));
+
+    gl::clear(gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
+}
+
+fn draw_simple_triangles(device: &mut Device,
+                         render_context: &mut RenderContext,
+                         profile_counters: &mut RendererProfileCounters,
+                         indices: &[u16],
+                         vertices: &[PackedVertex],
+                         texture: TextureId) {
+    // TODO(glennw): Don't re-create this VAO all the time. Create it once and set positions
+    // via uniforms.
+    let vao_id = device.create_vao(VertexFormat::Batch);
+    device.bind_color_texture(texture);
+    device.bind_vao(vao_id);
+    device.update_vao_indices(vao_id, &indices[..], VertexUsageHint::Dynamic);
+    device.update_vao_vertices(vao_id, &vertices[..], VertexUsageHint::Dynamic);
+
+    profile_counters.vertices.add(indices.len());
+    profile_counters.draw_calls.inc();
+
+    device.draw_triangles_u16(0, indices.len() as gl::GLint);
+    device.delete_vao(vao_id);
+}
+

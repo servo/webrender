@@ -723,6 +723,7 @@ impl Device {
         }
     }
 
+    #[allow(dead_code)]
     pub fn deinit_texture(&mut self, texture_id: TextureId) {
         debug_assert!(self.inside_frame);
 
@@ -906,13 +907,13 @@ impl Device {
                              data);
     }
 
-    pub fn update_texture(&mut self,
-                          texture_id: TextureId,
-                          x0: u32,
-                          y0: u32,
-                          width: u32,
-                          height: u32,
-                          data: &[u8]) {
+    fn update_texture(&mut self,
+                      texture_id: TextureId,
+                      x0: u32,
+                      y0: u32,
+                      width: u32,
+                      height: u32,
+                      data: &[u8]) {
         debug_assert!(self.inside_frame);
 
         let (gl_format, bpp) = match self.textures.get(&texture_id).unwrap().format {
@@ -945,8 +946,8 @@ impl Device {
 
     fn read_framebuffer_rect_for_2d_texture(&mut self,
                                             texture_id: TextureId,
-                                            x: u32, y: u32,
-                                            width: u32, height: u32) {
+                                            x: i32, y: i32,
+                                            width: i32, height: i32) {
         self.bind_color_texture(texture_id);
         gl::copy_tex_sub_image_2d(gl::TEXTURE_2D,
                                   0,
@@ -958,10 +959,10 @@ impl Device {
 
     pub fn read_framebuffer_rect(&mut self,
                                  texture_id: TextureId,
-                                 x: u32,
-                                 y: u32,
-                                 width: u32,
-                                 height: u32) {
+                                 x: i32,
+                                 y: i32,
+                                 width: i32,
+                                 height: i32) {
         self.read_framebuffer_rect_for_2d_texture(texture_id, x, y, width, height)
     }
 

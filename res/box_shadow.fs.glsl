@@ -19,7 +19,7 @@ void main(void)
     float length;
     float value;
     vec2 position = vPosition - vBorderPosition.zw;
-    if (vBorderRadii.y == 0.0) {
+    if (vBorderRadii.z == 0.0) {
         length = range;
         value = position.x;
     } else {
