@@ -568,10 +568,11 @@ pub struct RectUv {
 
 impl RectUv {
     pub fn from_image_and_rotation_angle(image: &TextureCacheItem,
-                                         rotation_angle: BasicRotationAngle)
+                                         rotation_angle: BasicRotationAngle,
+                                         flip_90_degree_rotations: bool)
                                          -> RectUv {
-        match rotation_angle {
-            BasicRotationAngle::Upright => {
+        match (rotation_angle, flip_90_degree_rotations) {
+            (BasicRotationAngle::Upright, _) => {
                 RectUv {
                     top_left: image.uv_rect.top_left,
                     top_right: image.uv_rect.top_right,
@@ -579,7 +580,7 @@ impl RectUv {
                     bottom_left: image.uv_rect.bottom_left,
                 }
             }
-            BasicRotationAngle::Clockwise90 => {
+            (BasicRotationAngle::Clockwise90, true) => {
                 RectUv {
                     top_right: image.uv_rect.top_left,
                     top_left: image.uv_rect.top_right,
@@ -587,7 +588,15 @@ impl RectUv {
                     bottom_right: image.uv_rect.bottom_left,
                 }
             }
-            BasicRotationAngle::Clockwise180 => {
+            (BasicRotationAngle::Clockwise90, false) => {
+                RectUv {
+                    top_right: image.uv_rect.top_left,
+                    bottom_right: image.uv_rect.top_right,
+                    bottom_left: image.uv_rect.bottom_right,
+                    top_left: image.uv_rect.bottom_left,
+                }
+            }
+            (BasicRotationAngle::Clockwise180, _) => {
                 RectUv {
                     bottom_right: image.uv_rect.top_left,
                     bottom_left: image.uv_rect.top_right,
@@ -595,12 +604,20 @@ impl RectUv {
                     top_right: image.uv_rect.bottom_left,
                 }
             }
-            BasicRotationAngle::Clockwise270 => {
+            (BasicRotationAngle::Clockwise270, true) => {
                 RectUv {
                     bottom_left: image.uv_rect.top_left,
                     bottom_right: image.uv_rect.top_right,
                     top_right: image.uv_rect.bottom_right,
                     top_left: image.uv_rect.bottom_left,
+                }
+            }
+            (BasicRotationAngle::Clockwise270, false) => {
+                RectUv {
+                    bottom_left: image.uv_rect.top_left,
+                    top_left: image.uv_rect.top_right,
+                    top_right: image.uv_rect.bottom_right,
+                    bottom_right: image.uv_rect.bottom_left,
                 }
             }
         }
