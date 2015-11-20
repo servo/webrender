@@ -794,6 +794,7 @@ impl Renderer {
             };
 
             debug_assert!(frame.layers.len() > 0);
+            let framebuffer_size = frame.layers[0].size;
 
             for layer in frame.layers.iter().rev() {
                 render_context.layer_size = layer.size;
@@ -942,7 +943,7 @@ impl Renderer {
                                     render_context.temporary_fb_texture,
                                     TextureIndex(0),
                                     x0,
-                                    render_context.layer_size.height - info.rect.size.height - y0,
+                                    framebuffer_size.height - info.rect.size.height - y0,
                                     info.rect.size.width,
                                     info.rect.size.height);
 
