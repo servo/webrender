@@ -1,3 +1,4 @@
+use app_units::Au;
 use batch::MAX_MATRICES_PER_BATCH;
 use device::{TextureId};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
@@ -6,7 +7,7 @@ use internal_types::{BlurDirection, LowLevelFilterOp, CompositionOp, DrawListIte
 use internal_types::{BatchUpdateList, DrawListId, TextureTarget};
 use internal_types::{RendererFrame, DrawListContext, BatchInfo, DrawCall};
 use internal_types::{BatchUpdate, BatchUpdateOp, DrawLayer};
-use internal_types::{DrawCommand, ClearInfo, CompositeInfo};
+use internal_types::{DrawCommand, ClearInfo, CompositeInfo, ANGLE_FLOAT_TO_FIXED};
 use layer::Layer;
 use node_compiler::NodeCompiler;
 use resource_cache::ResourceCache;
@@ -425,36 +426,37 @@ impl Frame {
                             BlurDirection::Vertical)));
                     }
                     FilterOp::Brightness(amount) => {
-                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Brightness(
-                            amount)));
+                        composition_operations.push(CompositionOp::Filter(
+                                LowLevelFilterOp::Brightness(Au::from_f32_px(amount))));
                     }
                     FilterOp::Contrast(amount) => {
-                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Contrast(
-                            amount)));
+                        composition_operations.push(CompositionOp::Filter(
+                                LowLevelFilterOp::Contrast(Au::from_f32_px(amount))));
                     }
                     FilterOp::Grayscale(amount) => {
-                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Grayscale(
-                            amount)));
+                        composition_operations.push(CompositionOp::Filter(
+                                LowLevelFilterOp::Grayscale(Au::from_f32_px(amount))));
                     }
                     FilterOp::HueRotate(angle) => {
-                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::HueRotate(
-                            angle)));
+                        composition_operations.push(CompositionOp::Filter(
+                                LowLevelFilterOp::HueRotate(f32::round(
+                                        angle * ANGLE_FLOAT_TO_FIXED) as i32)));
                     }
                     FilterOp::Invert(amount) => {
-                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Invert(
-                            amount)));
+                        composition_operations.push(CompositionOp::Filter(
+                                LowLevelFilterOp::Invert(Au::from_f32_px(amount))));
                     }
                     FilterOp::Opacity(amount) => {
-                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Opacity(
-                            amount)));
+                        composition_operations.push(CompositionOp::Filter(
+                                LowLevelFilterOp::Opacity(Au::from_f32_px(amount))));
                     }
                     FilterOp::Saturate(amount) => {
-                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Saturate(
-                            amount)));
+                        composition_operations.push(CompositionOp::Filter(
+                                LowLevelFilterOp::Saturate(Au::from_f32_px(amount))));
                     }
                     FilterOp::Sepia(amount) => {
-                        composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Sepia(
-                            amount)));
+                        composition_operations.push(CompositionOp::Filter(
+                                LowLevelFilterOp::Sepia(Au::from_f32_px(amount))));
                     }
                 }
             }

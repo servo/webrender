@@ -9,7 +9,7 @@ use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp, BatchUpdateOp, B
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, BoxShadowPart, BasicRotationAngle};
 use internal_types::{PackedVertexForTextureCacheUpdate, TextureTarget, CompositionOp};
-use internal_types::{BlurDirection, LowLevelFilterOp, DrawCommand};
+use internal_types::{BlurDirection, LowLevelFilterOp, DrawCommand, ANGLE_FLOAT_TO_FIXED};
 use render_backend::RenderBackend;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
@@ -840,7 +840,8 @@ impl Renderer {
                             // TODO: probably worth sorting front to back to minimize overdraw (if profiling shows fragment / rop bound)
 
                             gl::enable(gl::BLEND);
-                            gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+                            gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
+                                                    gl::ONE, gl::ONE);
                             gl::blend_equation(gl::FUNC_ADD);
 
                             self.device.bind_program(self.quad_program_id,
@@ -924,6 +925,7 @@ impl Renderer {
                             let x1 = x0 + info.rect.size.width;
                             let y1 = y0 + info.rect.size.height;
 
+                            let alpha;
                             if needs_fb {
                                 gl::disable(gl::BLEND);
 
@@ -976,22 +978,25 @@ impl Renderer {
                                                  1.0)
                                             }
                                             LowLevelFilterOp::Contrast(amount) => {
-                                                (1.0, amount, 0.0, 0.0)
+                                                (1.0, amount.to_f32_px(), 0.0, 0.0)
                                             }
                                             LowLevelFilterOp::Grayscale(amount) => {
-                                                (2.0, amount, 0.0, 0.0)
+                                                (2.0, amount.to_f32_px(), 0.0, 0.0)
                                             }
                                             LowLevelFilterOp::HueRotate(angle) => {
-                                                (3.0, angle, 0.0, 0.0)
+                                                (3.0,
+                                                 (angle as f32) / ANGLE_FLOAT_TO_FIXED,
+                                                 0.0,
+                                                 0.0)
                                             }
                                             LowLevelFilterOp::Invert(amount) => {
-                                                (4.0, amount, 0.0, 0.0)
+                                                (4.0, amount.to_f32_px(), 0.0, 0.0)
                                             }
                                             LowLevelFilterOp::Saturate(amount) => {
-                                                (5.0, amount, 0.0, 0.0)
+                                                (5.0, amount.to_f32_px(), 0.0, 0.0)
                                             }
                                             LowLevelFilterOp::Sepia(amount) => {
-                                                (6.0, amount, 0.0, 0.0)
+                                                (6.0, amount.to_f32_px(), 0.0, 0.0)
                                             }
                                             LowLevelFilterOp::Brightness(_) |
                                             LowLevelFilterOp::Opacity(_) => {
@@ -1006,13 +1011,11 @@ impl Renderer {
                                                                    amount,
                                                                    param0,
                                                                    param1);
-                                        self.device.set_uniform_2f(self.u_filter_texture_size,
-                                                                   info.rect.size.width as f32,
-                                                                   info.rect.size.height as f32);
                                     }
                                 }
                                 self.device.bind_mask_texture(TextureTarget::Texture2D,
                                                               render_context.temporary_fb_texture);
+                                alpha = 1.0;
                             } else {
                                 gl::enable(gl::BLEND);
 
@@ -1021,25 +1024,32 @@ impl Renderer {
                                             amount)) => {
                                         gl::blend_func(gl::CONSTANT_COLOR, gl::ZERO);
                                         gl::blend_equation(gl::FUNC_ADD);
-                                        gl::blend_color(amount, amount, amount, 1.0);
+                                        gl::blend_color(amount.to_f32_px(),
+                                                        amount.to_f32_px(),
+                                                        amount.to_f32_px(),
+                                                        1.0);
+                                        alpha = 1.0;
                                     }
                                     CompositionOp::Filter(LowLevelFilterOp::Opacity(amount)) => {
-                                        gl::blend_func(gl::CONSTANT_ALPHA,
-                                                       gl::ONE_MINUS_CONSTANT_ALPHA);
+                                        gl::blend_func(gl::SRC_ALPHA,
+                                                       gl::ONE_MINUS_SRC_ALPHA);
                                         gl::blend_equation(gl::FUNC_ADD);
-                                        gl::blend_color(1.0, 1.0, 1.0, amount);
+                                        alpha = amount.to_f32_px();
                                     }
                                     CompositionOp::MixBlend(MixBlendMode::Multiply) => {
                                         gl::blend_func(gl::DST_COLOR, gl::ZERO);
                                         gl::blend_equation(gl::FUNC_ADD);
+                                        alpha = 1.0;
                                     }
                                     CompositionOp::MixBlend(MixBlendMode::Darken) => {
                                         gl::blend_func(gl::ONE, gl::ONE);
                                         gl::blend_equation(gl::MIN);
+                                        alpha = 1.0;
                                     }
                                     CompositionOp::MixBlend(MixBlendMode::Lighten) => {
                                         gl::blend_func(gl::ONE, gl::ONE);
                                         gl::blend_equation(gl::MAX);
+                                        alpha = 1.0;
                                     }
                                     _ => unreachable!(),
                                 }
