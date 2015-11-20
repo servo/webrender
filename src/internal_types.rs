@@ -16,6 +16,7 @@ use util;
 
 const UV_FLOAT_TO_FIXED: f32 = 65535.0;
 const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
+pub const ANGLE_FLOAT_TO_FIXED: f32 = 65535.0;
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
 pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
@@ -864,14 +865,15 @@ impl<'a> CombinedClipRegion<'a> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LowLevelFilterOp {
     Blur(Au, BlurDirection),
-    Brightness(f32),
-    Contrast(f32),
-    Grayscale(f32),
-    HueRotate(f32),
-    Invert(f32),
-    Opacity(f32),
-    Saturate(f32),
-    Sepia(f32),
+    Brightness(Au),
+    Contrast(Au),
+    Grayscale(Au),
+    /// Fixed-point in `ANGLE_FLOAT_TO_FIXED` units.
+    HueRotate(i32),
+    Invert(Au),
+    Opacity(Au),
+    Saturate(Au),
+    Sepia(Au),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
