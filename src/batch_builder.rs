@@ -950,7 +950,7 @@ impl<'a> BatchBuilder<'a> {
 
             // FIXME(pcwalton): Either use RGBA8 textures instead of alpha masks here, or implement
             // a mask combiner.
-            let mask_uv = RectUv::from_image_and_rotation_angle(mask_image, rotation_angle);
+            let mask_uv = RectUv::from_image_and_rotation_angle(mask_image, rotation_angle, true);
             let tessellated_rect = RectPosUv {
                 pos: tessellated_rect,
                 uv: mask_uv,
@@ -1071,7 +1071,7 @@ impl<'a> BatchBuilder<'a> {
         }
 
         let vertices_rect = Rect::new(*v0, Size2D::new(v1.x - v0.x, v1.y - v0.y));
-        let color_uv = RectUv::from_image_and_rotation_angle(color_image, rotation_angle);
+        let color_uv = RectUv::from_image_and_rotation_angle(color_image, rotation_angle, false);
 
         clipper::clip_rect_to_combined_region(RectPosUv {
                                                 pos: vertices_rect,
