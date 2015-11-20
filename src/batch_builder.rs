@@ -748,8 +748,10 @@ impl<'a> BatchBuilder<'a> {
                        border_style: BorderStyle,
                        resource_cache: &ResourceCache,
                        clip_buffers: &mut clipper::ClipBuffers) {
-        // TODO: Check for zero width/height borders!
         if color.a <= 0.0 {
+            return
+        }
+        if rect.size.width <= 0.0 || rect.size.height <= 0.0 {
             return
         }
 
