@@ -2,7 +2,7 @@ use euclid::Matrix4;
 use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{PackedVertex, PackedVertexForTextureCacheUpdate, RenderTargetMode};
-use internal_types::{TextureSampler, TextureTarget, VertexAttribute};
+use internal_types::{TextureSampler, VertexAttribute};
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::fs::File;
@@ -50,9 +50,9 @@ pub enum TextureFilter {
 }
 
 impl TextureId {
-    fn bind(&self, target: TextureTarget) {
+    fn bind(&self) {
         let TextureId(id) = *self;
-        gl::bind_texture(target.to_gl(), id);
+        gl::bind_texture(gl::TEXTURE_2D, id);
     }
 
     pub fn invalid() -> TextureId {
@@ -150,9 +150,6 @@ impl Drop for VAO {
 
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 pub struct TextureId(pub gl::GLuint);       // TODO: HACK: Should not be public!
-
-#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
-pub struct TextureIndex(pub u8);
 
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 pub struct ProgramId(gl::GLuint);
@@ -278,14 +275,6 @@ impl Device {
         id
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
-    fn unbind_2d_texture_array(&mut self) {}
-
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
-    fn unbind_2d_texture_array(&mut self) {
-        gl::bind_texture(gl::TEXTURE_2D_ARRAY, 0);
-    }
-
     pub fn begin_frame(&mut self) {
         debug_assert!(!self.inside_frame);
         self.inside_frame = true;
@@ -299,12 +288,10 @@ impl Device {
         self.bound_color_texture = TextureId(0);
         gl::active_texture(gl::TEXTURE0);
         gl::bind_texture(gl::TEXTURE_2D, 0);
-        self.unbind_2d_texture_array();
 
         self.bound_mask_texture = TextureId(0);
         gl::active_texture(gl::TEXTURE1);
         gl::bind_texture(gl::TEXTURE_2D, 0);
-        self.unbind_2d_texture_array();
 
         // Shader state
         self.bound_program = ProgramId(0);
@@ -324,54 +311,51 @@ impl Device {
         gl::active_texture(gl::TEXTURE0);
     }
 
-    pub fn bind_color_texture(&mut self, target: TextureTarget, texture_id: TextureId) {
+    pub fn bind_color_texture(&mut self, texture_id: TextureId) {
         debug_assert!(self.inside_frame);
 
         if self.bound_color_texture != texture_id {
             self.bound_color_texture = texture_id;
-            texture_id.bind(target);
+            texture_id.bind();
         }
     }
 
     #[cfg(any(target_os = "android", target_os = "gonk"))]
     pub fn bind_color_texture_for_noncomposite_operation(&mut self, texture_id: TextureId) {
-        self.bind_color_texture(TextureTarget::Texture2D, texture_id);
+        self.bind_color_texture(texture_id);
     }
 
     #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     pub fn bind_color_texture_for_noncomposite_operation(&mut self, texture_id: TextureId) {
-        self.bind_color_texture(TextureTarget::TextureArray, texture_id);
+        self.bind_color_texture(texture_id);
     }
 
-    pub fn bind_mask_texture(&mut self, target: TextureTarget, texture_id: TextureId) {
+    pub fn bind_mask_texture(&mut self, texture_id: TextureId) {
         debug_assert!(self.inside_frame);
 
         if self.bound_mask_texture != texture_id {
             self.bound_mask_texture = texture_id;
             gl::active_texture(gl::TEXTURE1);
-            texture_id.bind(target);
+            texture_id.bind();
             gl::active_texture(gl::TEXTURE0);
         }
     }
 
     #[cfg(any(target_os = "android", target_os = "gonk"))]
     pub fn bind_mask_texture_for_noncomposite_operation(&mut self, texture_id: TextureId) {
-        self.bind_mask_texture(TextureTarget::Texture2D, texture_id);
+        self.bind_mask_texture(texture_id);
     }
 
     #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     pub fn bind_mask_texture_for_noncomposite_operation(&mut self, texture_id: TextureId) {
-        self.bind_mask_texture(TextureTarget::TextureArray, texture_id);
+        self.bind_mask_texture(texture_id);
     }
 
-    pub fn bind_render_target(&mut self, texture_id_and_index: Option<(TextureId, TextureIndex)>) {
+    pub fn bind_render_target(&mut self, texture_id: Option<TextureId>) {
         debug_assert!(self.inside_frame);
 
-        let fbo_id = texture_id_and_index.map_or(FBOId(self.default_fbo), |texture_id_and_index| {
-            self.textures
-                .get(&texture_id_and_index.0)
-                .unwrap()
-                .fbo_ids[(texture_id_and_index.1).0 as usize]
+        let fbo_id = texture_id.map_or(FBOId(self.default_fbo), |texture_id| {
+            self.textures.get(&texture_id).unwrap().fbo_ids[0]
         });
 
         if self.bound_fbo != fbo_id {
@@ -423,9 +407,7 @@ impl Device {
         (texture.width, texture.height)
     }
 
-    fn set_texture_parameters(&mut self,
-                              target: TextureTarget,
-                              filter: TextureFilter) {
+    fn set_texture_parameters(&mut self, filter: TextureFilter) {
         let filter = match filter {
             TextureFilter::Nearest => {
                 gl::NEAREST
@@ -435,11 +417,11 @@ impl Device {
             }
         };
 
-        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_MAG_FILTER, filter as gl::GLint);
-        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_MIN_FILTER, filter as gl::GLint);
+        gl::tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, filter as gl::GLint);
+        gl::tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, filter as gl::GLint);
 
-        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as gl::GLint);
-        gl::tex_parameter_i(target.to_gl(), gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as gl::GLint);
+        gl::tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as gl::GLint);
+        gl::tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as gl::GLint);
     }
 
     fn upload_2d_texture_image(&mut self,
@@ -458,58 +440,16 @@ impl Device {
                          pixels);
     }
 
-    fn upload_texture_array_image(&mut self,
-                                  width: u32,
-                                  height: u32,
-                                  levels: u32,
-                                  internal_format: u32,
-                                  format: u32,
-                                  pixels: Option<&[u8]>) {
-        gl::tex_image_3d(gl::TEXTURE_2D_ARRAY,
-                         0,
-                         internal_format as gl::GLint,
-                         width as gl::GLint, height as gl::GLint, levels as gl::GLint,
-                         0,
-                         format,
-                         gl::UNSIGNED_BYTE,
-                         pixels);
-    }
-
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
     fn upload_texture_image(&mut self,
-                            target: TextureTarget,
-                            width: u32, height: u32, levels: u32,
+                            width: u32,
+                            height: u32,
                             internal_format: u32,
                             format: u32,
                             pixels: Option<&[u8]>) {
-        debug_assert!(target == TextureTarget::Texture2D);
-        debug_assert!(levels == 1);
         self.upload_2d_texture_image(width, height, internal_format, format, pixels)
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
-    fn upload_texture_image(&mut self,
-                            target: TextureTarget,
-                            width: u32, height: u32, levels: u32,
-                            internal_format: u32,
-                            format: u32,
-                            pixels: Option<&[u8]>) {
-        match target {
-            TextureTarget::Texture2D => {
-                debug_assert!(levels == 1);
-                self.upload_2d_texture_image(width, height, internal_format, format, pixels)
-            }
-            TextureTarget::TextureArray => {
-                self.upload_texture_array_image(width, height, levels,
-                                                internal_format,
-                                                format,
-                                                pixels)
-            }
-        }
-    }
-
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
-    fn deinit_texture_image(&mut self, _: TextureTarget) {
+    fn deinit_texture_image(&mut self) {
         gl::tex_image_2d(gl::TEXTURE_2D,
                          0,
                          gl::RGB as gl::GLint,
@@ -521,41 +461,10 @@ impl Device {
                          None);
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
-    fn deinit_texture_image(&mut self, target: TextureTarget) {
-        match target {
-            TextureTarget::Texture2D => {
-                gl::tex_image_2d(gl::TEXTURE_2D,
-                                 0,
-                                 gl::RGB as gl::GLint,
-                                 0,
-                                 0,
-                                 0,
-                                 gl::RGB,
-                                 gl::UNSIGNED_BYTE,
-                                 None);
-            }
-            TextureTarget::TextureArray => {
-                gl::tex_image_3d(gl::TEXTURE_2D_ARRAY,
-                                 0,
-                                 gl::RGB as gl::GLint,
-                                 0,
-                                 0,
-                                 0,
-                                 0,
-                                 gl::RGB,
-                                 gl::UNSIGNED_BYTE,
-                                 None);
-            }
-        }
-    }
-
     pub fn init_texture(&mut self,
-                        target: TextureTarget,
                         texture_id: TextureId,
                         width: u32,
                         height: u32,
-                        levels: u32,
                         format: ImageFormat,
                         filter: TextureFilter,
                         mode: RenderTargetMode,
@@ -576,51 +485,21 @@ impl Device {
 
         match mode {
             RenderTargetMode::RenderTarget => {
-                self.bind_color_texture(target, texture_id);
-                self.set_texture_parameters(target, filter);
+                self.bind_color_texture(texture_id);
+                self.set_texture_parameters(filter);
 
-                match target {
-                    TextureTarget::Texture2D => {
-                        debug_assert!(levels == 1);
-                        self.upload_2d_texture_image(width,
-                                                     height,
-                                                     internal_format,
-                                                     gl_format,
-                                                     None)
-                    }
-                    TextureTarget::TextureArray => {
-                        self.upload_texture_array_image(width,
-                                                        height,
-                                                        levels,
-                                                        internal_format,
-                                                        gl_format,
-                                                        None)
-                    }
-                }
+                self.upload_2d_texture_image(width, height, internal_format, gl_format, None);
 
                 let fbo_ids: Vec<_> =
-                    gl::gen_framebuffers(levels as i32).into_iter()
-                                                       .map(|fbo_id| FBOId(fbo_id))
-                                                       .collect();
-                for (i, fbo_id) in fbo_ids.iter().enumerate() {
+                    gl::gen_framebuffers(1).into_iter().map(|fbo_id| FBOId(fbo_id)).collect();
+                for fbo_id in &fbo_ids[..] {
                     gl::bind_framebuffer(gl::FRAMEBUFFER, fbo_id.0);
 
-                    match target {
-                        TextureTarget::Texture2D => {
-                            gl::framebuffer_texture_2d(gl::FRAMEBUFFER,
-                                                       gl::COLOR_ATTACHMENT0,
-                                                       gl::TEXTURE_2D,
-                                                       texture_id.0,
-                                                       0);
-                        }
-                        TextureTarget::TextureArray => {
-                            gl::framebuffer_texture_layer(gl::FRAMEBUFFER,
-                                                          gl::COLOR_ATTACHMENT0,
-                                                          texture_id.0,
-                                                          0,
-                                                          i as gl::GLint);
-                        }
-                    }
+                    gl::framebuffer_texture_2d(gl::FRAMEBUFFER,
+                                               gl::COLOR_ATTACHMENT0,
+                                               gl::TEXTURE_2D,
+                                               texture_id.0,
+                                               0);
                 }
 
                 gl::bind_framebuffer(gl::FRAMEBUFFER, self.default_fbo);
@@ -628,11 +507,10 @@ impl Device {
                 self.textures.get_mut(&texture_id).unwrap().fbo_ids = fbo_ids;
             }
             RenderTargetMode::None => {
-                texture_id.bind(target);
-                self.set_texture_parameters(target, filter);
+                texture_id.bind();
+                self.set_texture_parameters(filter);
 
-                self.upload_texture_image(target,
-                                          width, height, levels,
+                self.upload_texture_image(width, height,
                                           internal_format,
                                           gl_format,
                                           pixels);
@@ -640,11 +518,11 @@ impl Device {
         }
     }
 
-    pub fn deinit_texture(&mut self, target: TextureTarget, texture_id: TextureId) {
+    pub fn deinit_texture(&mut self, texture_id: TextureId) {
         debug_assert!(self.inside_frame);
 
-        self.bind_color_texture(target, texture_id);
-        self.deinit_texture_image(target);
+        self.bind_color_texture(texture_id);
+        self.deinit_texture_image();
 
         let texture = self.textures.get_mut(&texture_id).unwrap();
         if !texture.fbo_ids.is_empty() {
@@ -823,27 +701,8 @@ impl Device {
                              data);
     }
 
-    fn update_image_for_texture_array(&mut self,
-                                      x0: gl::GLint,
-                                      y0: gl::GLint,
-                                      level: gl::GLint,
-                                      width: gl::GLint,
-                                      height: gl::GLint,
-                                      format: gl::GLuint,
-                                      data: &[u8]) {
-        gl::tex_sub_image_3d(gl::TEXTURE_2D_ARRAY,
-                             0,
-                             x0, y0, level,
-                             width, height, 1,
-                             format,
-                             gl::UNSIGNED_BYTE,
-                             data);
-    }
-
     pub fn update_texture(&mut self,
-                          target: TextureTarget,
                           texture_id: TextureId,
-                          texture_index: TextureIndex,
                           x0: u32,
                           y0: u32,
                           width: u32,
@@ -860,69 +719,30 @@ impl Device {
 
         debug_assert!(data.len() as u32 == bpp * width * height);
 
-        self.bind_color_texture(target, texture_id);
-
-        match target {
-            TextureTarget::TextureArray => {
-                self.update_image_for_texture_array(x0 as gl::GLint,
-                                                    y0 as gl::GLint,
-                                                    texture_index.0 as gl::GLint,
-                                                    width as gl::GLint,
-                                                    height as gl::GLint,
-                                                    gl_format,
-                                                    data);
-            }
-            TextureTarget::Texture2D => {
-                debug_assert!(texture_index == TextureIndex(0));
-                self.update_image_for_2d_texture(x0 as gl::GLint,
-                                                 y0 as gl::GLint,
-                                                 width as gl::GLint,
-                                                 height as gl::GLint,
-                                                 gl_format,
-                                                 data);
-            }
-        }
+        self.bind_color_texture(texture_id);
+        self.update_image_for_2d_texture(x0 as gl::GLint,
+                                         y0 as gl::GLint,
+                                         width as gl::GLint,
+                                         height as gl::GLint,
+                                         gl_format,
+                                         data);
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
     pub fn update_texture_for_noncomposite_operation(&mut self,
                                                      texture_id: TextureId,
-                                                     texture_index: TextureIndex,
                                                      x0: u32,
                                                      y0: u32,
                                                      width: u32,
                                                      height: u32,
                                                      data: &[u8]) {
-        self.update_texture(TextureTarget::Texture2D,
-                            texture_id,
-                            texture_index,
-                            x0, y0,
-                            width, height,
-                            data)
-    }
-
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
-    pub fn update_texture_for_noncomposite_operation(&mut self,
-                                                     texture_id: TextureId,
-                                                     texture_index: TextureIndex,
-                                                     x0: u32,
-                                                     y0: u32,
-                                                     width: u32,
-                                                     height: u32,
-                                                     data: &[u8]) {
-        self.update_texture(TextureTarget::TextureArray,
-                            texture_id,
-                            texture_index,
-                            x0, y0,
-                            width, height,
-                            data)
+        self.update_texture(texture_id, x0, y0, width, height, data)
     }
 
     fn read_framebuffer_rect_for_2d_texture(&mut self,
                                             texture_id: TextureId,
                                             x: u32, y: u32,
                                             width: u32, height: u32) {
-        self.bind_color_texture(TextureTarget::Texture2D, texture_id);
+        self.bind_color_texture(texture_id);
         gl::copy_tex_sub_image_2d(gl::TEXTURE_2D,
                                   0,
                                   0,
@@ -931,45 +751,13 @@ impl Device {
                                   width as gl::GLint, height as gl::GLint);
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
     pub fn read_framebuffer_rect(&mut self,
-                                 texture_target: TextureTarget,
                                  texture_id: TextureId,
-                                 texture_index: TextureIndex,
                                  x: u32,
                                  y: u32,
                                  width: u32,
                                  height: u32) {
-        debug_assert!(texture_target == TextureTarget::Texture2D);
         self.read_framebuffer_rect_for_2d_texture(texture_id, x, y, width, height)
-    }
-
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
-    pub fn read_framebuffer_rect(&mut self,
-                                 texture_target: TextureTarget,
-                                 texture_id: TextureId,
-                                 texture_index: TextureIndex,
-                                 x: u32,
-                                 y: u32,
-                                 width: u32,
-                                 height: u32) {
-        match texture_target {
-            TextureTarget::Texture2D => {
-                self.read_framebuffer_rect_for_2d_texture(texture_id, x, y, width, height)
-            }
-            TextureTarget::TextureArray => {
-                self.bind_color_texture(TextureTarget::TextureArray, texture_id);
-                gl::copy_tex_sub_image_3d(gl::TEXTURE_2D_ARRAY,
-                                          0,
-                                          0,
-                                          0,
-                                          x as gl::GLint,
-                                          y as gl::GLint,
-                                          texture_index.0 as gl::GLint,
-                                          width as gl::GLint,
-                                          height as gl::GLint)
-            }
-        }
     }
 
     #[cfg(any(target_os = "android", target_os = "gonk"))]
@@ -1399,7 +1187,6 @@ impl Device {
         debug_assert!(self.inside_frame);
         self.inside_frame = false;
 
-        self.unbind_2d_texture_array();
         gl::bind_texture(gl::TEXTURE_2D, 0);
         gl::use_program(0);
     }

@@ -20,8 +20,7 @@ void main(void) {
             lColorTexCoord.x <= 1.0 &&
             lColorTexCoord.y >= 0.0 &&
             lColorTexCoord.y <= 1.0 ?
-            Texture(sDiffuse, vec3(lColorTexCoord * sourceTextureUvSize + sourceTextureUvOrigin,
-                                   vColorTexCoord.z)).r :
+            Texture(sDiffuse, lColorTexCoord * sourceTextureUvSize + sourceTextureUvOrigin).r :
             0.0;
         value += x * gauss(offsetF, sigma);
     }

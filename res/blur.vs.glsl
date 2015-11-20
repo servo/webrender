@@ -1,6 +1,6 @@
 void main(void)
 {
-	vColorTexCoord = vec3(aColorTexCoord, aMisc.y);
+	vColorTexCoord = aColorTexCoord;
     vBorderPosition = aBorderPosition;
     vBlurRadius = aBlurRadius;
     vDestTextureSize = aDestTextureSize;

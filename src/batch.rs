@@ -1,4 +1,4 @@
-use device::{ProgramId, TextureId, TextureIndex};
+use device::{ProgramId, TextureId};
 use internal_types::{BlurDirection, PackedVertex};
 use internal_types::{PackedVertexForTextureCacheUpdate, Primitive};
 use std::sync::atomic::Ordering::SeqCst;
@@ -209,7 +209,6 @@ pub struct RasterBatch {
     pub program_id: ProgramId,
     pub blur_direction: Option<BlurDirection>,
     pub dest_texture_id: TextureId,
-    pub dest_texture_index: TextureIndex,
     pub color_texture_id: TextureId,
     pub vertices: Vec<PackedVertexForTextureCacheUpdate>,
     pub indices: Vec<u16>,
@@ -219,7 +218,6 @@ impl RasterBatch {
     pub fn new(program_id: ProgramId,
                blur_direction: Option<BlurDirection>,
                dest_texture_id: TextureId,
-               dest_texture_index: TextureIndex,
                color_texture_id: TextureId)
                -> RasterBatch {
         debug_assert!(dest_texture_id != color_texture_id);
@@ -227,7 +225,6 @@ impl RasterBatch {
             program_id: program_id,
             blur_direction: blur_direction,
             dest_texture_id: dest_texture_id,
-            dest_texture_index: dest_texture_index,
             color_texture_id: color_texture_id,
             vertices: Vec::new(),
             indices: Vec::new(),
@@ -236,7 +233,6 @@ impl RasterBatch {
 
     pub fn can_add_to_batch(&self,
                             dest_texture_id: TextureId,
-                            dest_texture_index: TextureIndex,
                             color_texture_id: TextureId,
                             program_id: ProgramId,
                             blur_direction: Option<BlurDirection>)
@@ -244,16 +240,13 @@ impl RasterBatch {
         let batch_ok = program_id == self.program_id &&
             blur_direction == self.blur_direction &&
             dest_texture_id == self.dest_texture_id &&
-            dest_texture_index == self.dest_texture_index &&
             color_texture_id == self.color_texture_id;
         println!("batch ok? {:?} program_id={:?}/{:?} blur_direction={:?}/{:?} \
-                  dest_texture_id {:?}/{:?} dest_texture_index {:?}/{:?} \
-                  color_texture_id={:?}/{:?}",
+                  dest_texture_id {:?}/{:?} color_texture_id={:?}/{:?}",
                  batch_ok,
                  program_id, self.program_id,
                  blur_direction, self.blur_direction,
                  dest_texture_id, self.dest_texture_id,
-                 dest_texture_index, self.dest_texture_index,
                  color_texture_id, self.color_texture_id);
         batch_ok
     }

@@ -1,9 +1,9 @@
 use app_units::Au;
-use device::{MAX_TEXTURE_SIZE, TextureId, TextureIndex, TextureFilter};
+use device::{MAX_TEXTURE_SIZE, TextureId, TextureFilter};
 use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
-use internal_types::{TextureTarget, TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
+use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
 use internal_types::{BasicRotationAngle, RectUv};
 use std::cmp::Ordering;
@@ -68,16 +68,14 @@ struct TexturePage {
     texture_id: TextureId,
     texture_size: u32,
     free_list: FreeRectList,
-    texture_index: TextureIndex,
     allocations: u32,
     dirty: bool,
 }
 
 impl TexturePage {
-    fn new(texture_id: TextureId, texture_index: TextureIndex, texture_size: u32) -> TexturePage {
+    fn new(texture_id: TextureId, texture_size: u32) -> TexturePage {
         let mut page = TexturePage {
             texture_id: texture_id,
-            texture_index: texture_index,
             texture_size: texture_size,
             free_list: FreeRectList::new(),
             allocations: 0,
@@ -403,7 +401,6 @@ impl FreeListBin {
 pub struct TextureCacheItem {
     // Identifies the texture and array slice
     pub texture_id: TextureId,
-    pub texture_index: TextureIndex,
 
     // Custom data - unused by texture cache itself
     pub user_data: TextureCacheItemUserData,
@@ -451,7 +448,6 @@ impl FreeListItem for TextureCacheItem {
 
 impl TextureCacheItem {
     fn new(texture_id: TextureId,
-           texture_index: TextureIndex,
            user_x0: i32, user_y0: i32,
            allocated_rect: Rect<u32>,
            requested_rect: Rect<u32>,
@@ -460,7 +456,6 @@ impl TextureCacheItem {
            -> TextureCacheItem {
         TextureCacheItem {
             texture_id: texture_id,
-            texture_index: texture_index,
             texture_size: *texture_size,
             uv_rect: uv_rect,
             user_data: TextureCacheItemUserData {
@@ -476,7 +471,6 @@ impl TextureCacheItem {
         let texture_size = texture_size() as f32;
         TextureImage {
             texture_id: self.texture_id,
-            texture_index: self.texture_index,
             texel_uv: Rect::new(Point2D::new(self.uv_rect.top_left.x,
                                              self.uv_rect.top_left.y),
                                 Size2D::new(self.uv_rect.bottom_right.x - self.uv_rect.top_left.x,
@@ -564,28 +558,19 @@ impl TextureCache {
             requested_rect: Rect::zero(),
             texture_id: TextureId::invalid(),
             texture_size: Size2D::zero(),
-            texture_index: TextureIndex(0),
         };
         self.items.insert(new_item)
     }
 
-    pub fn allocate_render_target(&mut self,
-                                  target: TextureTarget,
-                                  width: u32,
-                                  height: u32,
-                                  levels: u32,
-                                  format: ImageFormat)
+    pub fn allocate_render_target(&mut self, width: u32, height: u32, format: ImageFormat)
                                   -> TextureId {
         let texture_id = self.free_texture_ids
                              .pop()
                              .expect("TODO: Handle running out of texture IDs!");
         let update_op = TextureUpdate {
             id: texture_id,
-            index: TextureIndex(0),
-            op: TextureUpdateOp::Create(target,
-                                        width,
+            op: TextureUpdateOp::Create(width,
                                         height,
-                                        levels,
                                         format,
                                         TextureFilter::Nearest,
                                         RenderTargetMode::RenderTarget,
@@ -599,7 +584,6 @@ impl TextureCache {
         self.free_texture_ids.push(texture_id);
         let update_op = TextureUpdate {
             id: texture_id,
-            index: TextureIndex(0),
             op: TextureUpdateOp::DeinitRenderTarget(texture_id),
         };
         self.pending_updates.push(update_op);
@@ -650,7 +634,7 @@ impl TextureCache {
             None => {
                 // We need a new page.
                 let texture_size = texture_size();
-                let (texture_id, texture_index) = {
+                let texture_id = {
                     let free_texture_levels_entry = match kind {
                         TextureCacheItemKind::Standard => self.free_texture_levels.entry(format),
                         TextureCacheItemKind::Alternate => {
@@ -670,14 +654,13 @@ impl TextureCache {
                                                 mode);
                     }
                     let free_texture_level = free_texture_levels.pop().unwrap();
-                    (free_texture_level.texture_id, free_texture_level.texture_index)
+                    free_texture_level.texture_id
                 };
 
-                let page = TexturePage::new(texture_id, texture_index, texture_size);
+                let page = TexturePage::new(texture_id, texture_size);
                 page_list.push(page);
 
-                match page_list.last_mut().unwrap().allocate(&allocation_size,
-                                                             filter) {
+                match page_list.last_mut().unwrap().allocate(&allocation_size, filter) {
                     Some(location) => location,
                     None => {
                         // Fall back to standalone texture allocation.
@@ -685,7 +668,6 @@ impl TextureCache {
                                              .pop()
                                              .expect("TODO: Handle running out of texture ids!");
                         let cache_item = TextureCacheItem::new(texture_id,
-                                                               TextureIndex(0),
                                                                user_x0, user_y0,
                                                                Rect::new(Point2D::zero(),
                                                                          requested_size),
@@ -721,7 +703,6 @@ impl TextureCache {
         let u1 = u0 + requested_size.width as f32 / page.texture_size as f32;
         let v1 = v0 + requested_size.height as f32 / page.texture_size as f32;
         let cache_item = TextureCacheItem::new(page.texture_id,
-                                               page.texture_index,
                                                user_x0, user_y0,
                                                allocated_rect,
                                                requested_rect,
@@ -772,7 +753,6 @@ impl TextureCache {
 
                 TextureUpdate {
                     id: allocation.item.texture_id,
-                    index: allocation.item.texture_index,
                     op: TextureUpdateOp::Update(allocation.item.requested_rect.origin.x,
                                                 allocation.item.requested_rect.origin.y,
                                                 width,
@@ -802,7 +782,6 @@ impl TextureCache {
 
                 TextureUpdate {
                     id: allocation.item.texture_id,
-                    index: allocation.item.texture_index,
                     op: TextureUpdateOp::Update(
                         allocation.item.requested_rect.origin.x,
                         allocation.item.requested_rect.origin.y,
@@ -836,7 +815,6 @@ impl TextureCache {
 
         let update_op = TextureUpdate {
             id: existing_item.texture_id,
-            index: existing_item.texture_index,
             op: op,
         };
 
@@ -897,7 +875,6 @@ impl TextureCache {
 
                         let border_update_op_top = TextureUpdate {
                             id: result.item.texture_id,
-                            index: result.item.texture_index,
                             op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x,
                                                         result.item.allocated_rect.origin.y,
                                                         result.item.allocated_rect.size.width,
@@ -907,27 +884,27 @@ impl TextureCache {
 
                         let border_update_op_bottom = TextureUpdate {
                             id: result.item.texture_id,
-                            index: result.item.texture_index,
-                            op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x,
-                                                        result.item.allocated_rect.origin.y + result.item.requested_rect.size.height + 1,
-                                                        result.item.allocated_rect.size.width,
-                                                        1,
-                                                        TextureUpdateDetails::Blit(bottom_row_bytes))
+                            op: TextureUpdateOp::Update(
+                                result.item.allocated_rect.origin.x,
+                                result.item.allocated_rect.origin.y +
+                                    result.item.requested_rect.size.height + 1,
+                                result.item.allocated_rect.size.width,
+                                1,
+                                TextureUpdateDetails::Blit(bottom_row_bytes))
                         };
 
                         let border_update_op_left = TextureUpdate {
                             id: result.item.texture_id,
-                            index: result.item.texture_index,
-                            op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x,
-                                                        result.item.requested_rect.origin.y,
-                                                        1,
-                                                        result.item.requested_rect.size.height,
-                                                        TextureUpdateDetails::Blit(left_column_bytes))
+                            op: TextureUpdateOp::Update(
+                                result.item.allocated_rect.origin.x,
+                                result.item.requested_rect.origin.y,
+                                1,
+                                result.item.requested_rect.size.height,
+                                TextureUpdateDetails::Blit(left_column_bytes))
                         };
 
                         let border_update_op_right = TextureUpdate {
                             id: result.item.texture_id,
-                            index: result.item.texture_index,
                             op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x + result.item.requested_rect.size.width + 1,
                                                         result.item.requested_rect.origin.y,
                                                         1,
@@ -981,10 +958,8 @@ impl TextureCache {
                                                horizontal_blur_item.to_image()))
             }
             (AllocationKind::Standalone, TextureInsertOp::Blit(bytes)) => {
-                TextureUpdateOp::Create(self.texture_target_for_standalone_texture(),
-                                        width,
+                TextureUpdateOp::Create(width,
                                         height,
-                                        1,
                                         format,
                                         filter,
                                         RenderTargetMode::None,
@@ -998,21 +973,10 @@ impl TextureCache {
 
         let update_op = TextureUpdate {
             id: result.item.texture_id,
-            index: result.item.texture_index,
             op: op,
         };
 
         self.pending_updates.push(update_op);
-    }
-
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
-    pub fn texture_target_for_standalone_texture(&self) -> TextureTarget {
-        TextureTarget::Texture2D
-    }
-
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
-    pub fn texture_target_for_standalone_texture(&self) -> TextureTarget {
-        TextureTarget::TextureArray
     }
 
     pub fn get(&self, id: TextureCacheItemId) -> &TextureCacheItem {
@@ -1021,31 +985,9 @@ impl TextureCache {
 
 }
 
-#[cfg(any(target_os = "android", target_os = "gonk"))]
-fn texture_create_op(texture_size: u32, levels: u32, format: ImageFormat, mode: RenderTargetMode)
+fn texture_create_op(texture_size: u32, format: ImageFormat, mode: RenderTargetMode)
                      -> TextureUpdateOp {
-    debug_assert!(levels == 1);
-    TextureUpdateOp::Create(TextureTarget::Texture2D,
-                            texture_size,
-                            texture_size,
-                            levels,
-                            format,
-                            TextureFilter::Linear,
-                            mode,
-                            None)
-}
-
-#[cfg(not(any(target_os = "android", target_os = "gonk")))]
-fn texture_create_op(texture_size: u32, levels: u32, format: ImageFormat, mode: RenderTargetMode)
-                     -> TextureUpdateOp {
-    TextureUpdateOp::Create(TextureTarget::TextureArray,
-                            texture_size,
-                            texture_size,
-                            levels,
-                            format,
-                            TextureFilter::Linear,
-                            mode,
-                            None)
+    TextureUpdateOp::Create(texture_size, texture_size, format, TextureFilter::Linear, mode, None)
 }
 
 pub enum TextureInsertOp {
@@ -1067,7 +1009,6 @@ impl FitsInside for Size2D<u32> {
 #[derive(Clone, Copy)]
 pub struct FreeTextureLevel {
     texture_id: TextureId,
-    texture_index: TextureIndex,
 }
 
 fn create_new_texture_page(pending_updates: &mut TextureUpdateList,
@@ -1079,17 +1020,13 @@ fn create_new_texture_page(pending_updates: &mut TextureUpdateList,
     let texture_id = free_texture_ids.pop().expect("TODO: Handle running out of texture IDs!");
     let update_op = TextureUpdate {
         id: texture_id,
-        index: TextureIndex(0),
-        op: texture_create_op(texture_size, levels_per_texture() as u32, format, mode),
+        op: texture_create_op(texture_size, format, mode),
     };
     pending_updates.push(update_op);
 
-    for i in 0..levels_per_texture() {
-        free_texture_levels.push(FreeTextureLevel {
-            texture_id: texture_id,
-            texture_index: TextureIndex(i),
-        })
-    }
+    free_texture_levels.push(FreeTextureLevel {
+        texture_id: texture_id,
+    })
 }
 
 /// Returns the number of pixels on a side we're allowed to use for our texture atlases.
@@ -1100,12 +1037,6 @@ fn texture_size() -> u32 {
     } else {
         max_hardware_texture_size
     }
-}
-
-/// Returns the number of texture levels we're allowed to use.
-fn levels_per_texture() -> u8 {
-    let texture_size = texture_size();
-    (MAX_RGBA_PIXELS_PER_TEXTURE / (texture_size * texture_size)) as u8
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

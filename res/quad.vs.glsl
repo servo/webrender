@@ -9,12 +9,12 @@ void main(void)
     vTileParams = uTileParams[int(aMisc.w)];
 
     // Normalize the mask texture coordinates.
-    vec2 maskTexCoord = aMaskTexCoord.xy / 65535.0;
-    vec2 colorTexCoord = aColorTexCoord.xy;
+    vec2 maskTexCoord = aMaskTexCoord / 65535.0;
+    vec2 colorTexCoord = aColorTexCoord;
 
     // Pass through the color and mask texture coordinates to fragment shader
-    vColorTexCoord = vec3(colorTexCoord, aMisc.y);
-    vMaskTexCoord = vec3(maskTexCoord, aMisc.z);
+    vColorTexCoord = colorTexCoord;
+    vMaskTexCoord = maskTexCoord;
 
     // Extract the complete (stacking context + css transform) transform
     // for this vertex. Transform the position by it.
