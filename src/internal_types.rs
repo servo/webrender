@@ -4,6 +4,7 @@ use device::{TextureId, TextureFilter};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeListItem, FreeListItemId};
+use profiler::BackendProfileCounters;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::sync::Arc;
@@ -57,7 +58,7 @@ pub enum VertexAttribute {
     Misc,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct PackedColor {
     pub r: u8,
@@ -194,6 +195,43 @@ impl PackedVertex {
                        muv: &Point2D<f32>)
                        -> PackedVertex {
         PackedVertex::from_components(position.x, position.y, color, uv.x, uv.y, muv.x, muv.y)
+    }
+}
+
+#[derive(Debug)]
+pub struct DebugFontVertex {
+    pub x: f32,
+    pub y: f32,
+    pub color: PackedColor,
+    pub u: f32,
+    pub v: f32,
+}
+
+impl DebugFontVertex {
+    pub fn new(x: f32, y: f32, u: f32, v: f32, color: PackedColor) -> DebugFontVertex {
+        DebugFontVertex {
+            x: x,
+            y: y,
+            color: color,
+            u: u,
+            v: v,
+        }
+    }
+}
+
+pub struct DebugColorVertex {
+    pub x: f32,
+    pub y: f32,
+    pub color: PackedColor,
+}
+
+impl DebugColorVertex {
+    pub fn new(x: f32, y: f32, color: PackedColor) -> DebugColorVertex {
+        DebugColorVertex {
+            x: x,
+            y: y,
+            color: color,
+        }
     }
 }
 
@@ -374,7 +412,7 @@ impl RendererFrame {
 pub enum ResultMsg {
     UpdateTextureCache(TextureUpdateList),
     UpdateBatches(BatchUpdateList),
-    NewFrame(RendererFrame),
+    NewFrame(RendererFrame, BackendProfileCounters),
 }
 
 #[derive(Debug, Clone, Copy)]

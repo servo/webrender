@@ -1,7 +1,8 @@
 use euclid::{Rect, Size2D};
 use frame::Frame;
-use internal_types::{FontTemplate, ResultMsg, DrawLayer};
+use internal_types::{FontTemplate, ResultMsg, DrawLayer, RendererFrame};
 use ipc_channel::ipc::IpcReceiver;
+use profiler::BackendProfileCounters;
 use resource_cache::ResourceCache;
 use scene::Scene;
 use scoped_threadpool;
@@ -9,7 +10,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::{TextureCache, TextureCacheItemId};
-use util;
 use webrender_traits::{ApiMsg, IdNamespace, RenderNotifier, ScrollLayerId};
 
 pub struct RenderBackend {
@@ -65,6 +65,8 @@ impl RenderBackend {
     }
 
     pub fn run(&mut self) {
+        let mut profile_counters = BackendProfileCounters::new();
+
         loop {
             let msg = self.api_rx.recv();
 
@@ -72,6 +74,7 @@ impl RenderBackend {
                 Ok(msg) => {
                     match msg {
                         ApiMsg::AddRawFont(id, bytes) => {
+                            profile_counters.font_templates.inc(bytes.len());
                             self.resource_cache
                                 .add_font_template(id, FontTemplate::Raw(Arc::new(bytes)));
                         }
@@ -80,6 +83,7 @@ impl RenderBackend {
                         //        .add_font_template(id, FontTemplate::Native(native_font_handle));
                         //}
                         ApiMsg::AddImage(id, width, height, format, bytes) => {
+                            profile_counters.image_templates.inc(bytes.len());
                             self.resource_cache.add_image_template(id,
                                                                    width,
                                                                    height,
@@ -124,32 +128,38 @@ impl RenderBackend {
                                                        background_color,
                                                        epoch,
                                                        pipeline_id) => {
-                            let _pf = util::ProfileScope::new("SetRootStackingContext");
+                            let frame = profile_counters.total_time.profile(|| {
+                                self.scene.set_root_stacking_context(pipeline_id,
+                                                                     epoch,
+                                                                     stacking_context_id,
+                                                                     background_color,
+                                                                     &mut self.resource_cache);
 
-                            self.scene.set_root_stacking_context(pipeline_id,
-                                                                 epoch,
-                                                                 stacking_context_id,
-                                                                 background_color,
-                                                                 &mut self.resource_cache);
+                                self.build_scene();
+                                self.render()
+                            });
 
-                            self.build_scene();
-                            self.render();
+                            self.publish_frame(frame, &mut profile_counters);
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
-                            let _pf = util::ProfileScope::new("SetRootPipeline");
+                            let frame = profile_counters.total_time.profile(|| {
+                                self.scene.set_root_pipeline_id(pipeline_id);
 
-                            self.scene.set_root_pipeline_id(pipeline_id);
+                                self.build_scene();
+                                self.render()
+                            });
 
-                            self.build_scene();
-                            self.render();
+                            self.publish_frame(frame, &mut profile_counters);
                         }
                         ApiMsg::Scroll(delta) => {
-                            let _pf = util::ProfileScope::new("Scroll");
+                            let frame = profile_counters.total_time.profile(|| {
+                                let viewport_size = Size2D::new(self.viewport.size.width as f32,
+                                                                self.viewport.size.height as f32);
+                                self.frame.scroll(&delta, &viewport_size);
+                                self.render()
+                            });
 
-                            let viewport_size = Size2D::new(self.viewport.size.width as f32,
-                                                            self.viewport.size.height as f32);
-                            self.frame.scroll(&delta, &viewport_size);
-                            self.render();
+                            self.publish_frame(frame, &mut profile_counters);
                         }
                         ApiMsg::TranslatePointToLayerSpace(point, tx) => {
                             // TODO(pcwalton): Select other layers for mouse events.
@@ -224,7 +234,7 @@ impl RenderBackend {
         self.scene.pipeline_sizes = updated_pipeline_sizes;
     }
 
-    fn render(&mut self) {
+    fn render(&mut self) -> RendererFrame {
         let mut frame = self.frame.build(&self.viewport,
                                          &mut self.resource_cache,
                                          &mut self.thread_pool,
@@ -253,7 +263,15 @@ impl RenderBackend {
             self.result_tx.send(ResultMsg::UpdateBatches(pending_update)).unwrap();
         }
 
-        self.result_tx.send(ResultMsg::NewFrame(frame)).unwrap();
+        frame
+    }
+
+    fn publish_frame(&mut self,
+                     frame: RendererFrame,
+                     profile_counters: &mut BackendProfileCounters) {
+        let msg = ResultMsg::NewFrame(frame, profile_counters.clone());
+        self.result_tx.send(msg).unwrap();
+        profile_counters.reset();
 
         // TODO(gw): This is kindof bogus to have to lock the notifier
         //           each time it's used. This is due to some nastiness

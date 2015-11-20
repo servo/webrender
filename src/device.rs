@@ -3,6 +3,7 @@ use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{PackedVertex, PackedVertexForTextureCacheUpdate, RenderTargetMode};
 use internal_types::{TextureSampler, VertexAttribute};
+use internal_types::{DebugFontVertex, DebugColorVertex};
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::fs::File;
@@ -47,6 +48,13 @@ lazy_static! {
 pub enum TextureFilter {
     Nearest,
     Linear,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum VertexFormat {
+    Batch,
+    DebugFont,
+    DebugColor,
 }
 
 impl TextureId {
@@ -969,7 +977,7 @@ impl Device {
     }
 
     #[cfg(not(any(target_os = "android", target_os = "gonk")))]
-    pub fn create_vao(&mut self) -> VAOId {
+    pub fn create_vao(&mut self, format: VertexFormat) -> VAOId {
         debug_assert!(self.inside_frame);
 
         let buffer_ids = gl::gen_buffers(2);
@@ -983,44 +991,93 @@ impl Device {
         gl::bind_buffer(gl::ARRAY_BUFFER, vbo_id);
         gl::bind_buffer(gl::ELEMENT_ARRAY_BUFFER, ibo_id);
 
-        let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLint;
+        match format {
+            VertexFormat::DebugFont => {
+                gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
+                gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
+                gl::enable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
 
-        gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
-        gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
-        gl::enable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
-        gl::enable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
-        gl::enable_vertex_attrib_array(VertexAttribute::Misc as gl::GLuint);
+                let vertex_stride = mem::size_of::<DebugFontVertex>() as gl::GLint;
 
-        gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint,
-                                  2,
-                                  gl::FLOAT,
-                                  false,
-                                  vertex_stride,
-                                  0);
-        gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint,
-                                  4,
-                                  gl::UNSIGNED_BYTE,
-                                  false,
-                                  vertex_stride,
-                                  8);
-        gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint,
-                                  2,
-                                  gl::FLOAT,
-                                  false,
-                                  vertex_stride,
-                                  12);
-        gl::vertex_attrib_pointer(VertexAttribute::MaskTexCoord as gl::GLuint,
-                                  2,
-                                  gl::UNSIGNED_SHORT,
-                                  false,
-                                  vertex_stride,
-                                  20);
-        gl::vertex_attrib_pointer(VertexAttribute::Misc as gl::GLuint,
-                                  4,
-                                  gl::UNSIGNED_BYTE,
-                                  false,
-                                  vertex_stride,
-                                  24);
+                gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint,
+                                          2,
+                                          gl::FLOAT,
+                                          false,
+                                          vertex_stride,
+                                          0);
+                gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint,
+                                          4,
+                                          gl::UNSIGNED_BYTE,
+                                          true,
+                                          vertex_stride,
+                                          8);
+                gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint,
+                                          2,
+                                          gl::FLOAT,
+                                          false,
+                                          vertex_stride,
+                                          12);
+            }
+            VertexFormat::DebugColor => {
+                gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
+                gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
+
+                let vertex_stride = mem::size_of::<DebugColorVertex>() as gl::GLint;
+
+                gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint,
+                                          2,
+                                          gl::FLOAT,
+                                          false,
+                                          vertex_stride,
+                                          0);
+                gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint,
+                                          4,
+                                          gl::UNSIGNED_BYTE,
+                                          true,
+                                          vertex_stride,
+                                          8);
+            }
+            VertexFormat::Batch => {
+                gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
+                gl::enable_vertex_attrib_array(VertexAttribute::Color as gl::GLuint);
+                gl::enable_vertex_attrib_array(VertexAttribute::ColorTexCoord as gl::GLuint);
+                gl::enable_vertex_attrib_array(VertexAttribute::MaskTexCoord as gl::GLuint);
+                gl::enable_vertex_attrib_array(VertexAttribute::Misc as gl::GLuint);
+
+                let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLint;
+
+                gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint,
+                                          2,
+                                          gl::FLOAT,
+                                          false,
+                                          vertex_stride,
+                                          0);
+                gl::vertex_attrib_pointer(VertexAttribute::Color as gl::GLuint,
+                                          4,
+                                          gl::UNSIGNED_BYTE,
+                                          false,
+                                          vertex_stride,
+                                          8);
+                gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoord as gl::GLuint,
+                                          2,
+                                          gl::FLOAT,
+                                          false,
+                                          vertex_stride,
+                                          12);
+                gl::vertex_attrib_pointer(VertexAttribute::MaskTexCoord as gl::GLuint,
+                                          2,
+                                          gl::UNSIGNED_SHORT,
+                                          false,
+                                          vertex_stride,
+                                          20);
+                gl::vertex_attrib_pointer(VertexAttribute::Misc as gl::GLuint,
+                                          4,
+                                          gl::UNSIGNED_BYTE,
+                                          false,
+                                          vertex_stride,
+                                          24);
+            }
+        }
 
         gl::bind_vertex_array(0);
 
@@ -1174,6 +1231,21 @@ impl Device {
                           index_count,
                           gl::UNSIGNED_SHORT,
                           first_vertex as u32 * 2);
+    }
+
+    pub fn draw_triangles_u32(&mut self, first_vertex: i32, index_count: i32) {
+        debug_assert!(self.inside_frame);
+        gl::draw_elements(gl::TRIANGLES,
+                          index_count,
+                          gl::UNSIGNED_INT,
+                          first_vertex as u32 * 4);
+    }
+
+    pub fn draw_nonindexed_lines(&mut self, first_vertex: i32, vertex_count: i32) {
+        debug_assert!(self.inside_frame);
+        gl::draw_arrays(gl::LINES,
+                          first_vertex,
+                          vertex_count);
     }
 
     pub fn delete_vao(&mut self, vao_id: VAOId) {
