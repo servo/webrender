@@ -54,7 +54,9 @@ vec4 Blur(float radius, vec2 direction) {
     vec4 color = vec4(0.0);
     for (int offset = -range; offset <= range; offset++) {
         float offsetF = float(offset);
-        vec2 texCoord = vColorTexCoord.xy + vec2(offsetF) / uTextureSize * direction;
+
+        // Here, we use the vMaskTexCoord.xy (i.e. the muv) to store the texture size.
+        vec2 texCoord = vColorTexCoord.xy + vec2(offsetF) / vMaskTexCoord.xy * direction;
         vec4 x = texCoord.x >= 0.0 &&
             texCoord.x <= 1.0 &&
             texCoord.y >= 0.0 &&

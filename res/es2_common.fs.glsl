@@ -8,7 +8,6 @@ uniform vec4 uBlendParams;
 uniform vec4 uAtlasParams;
 uniform vec2 uDirection;
 uniform vec4 uFilterParams;
-uniform vec2 uTextureSize;
 
 varying vec2 vPosition;
 varying vec4 vColor;

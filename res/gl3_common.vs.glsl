@@ -3,7 +3,6 @@
 uniform mat4 uTransform;
 uniform mat4 uMatrixPalette[32];
 uniform vec2 uDirection;
-uniform vec2 uTextureSize;
 uniform vec4 uBlendParams;
 uniform vec4 uFilterParams;
 uniform float uDevicePixelRatio;
