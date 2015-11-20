@@ -6,10 +6,12 @@ use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureTarget, TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
 use internal_types::{BasicRotationAngle, RectUv};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::collections::hash_state::DefaultState;
 use std::mem;
+use std::slice::Iter;
 use tessellator::BorderCornerTessellation;
 use util;
 use webrender_traits::{ImageFormat};
@@ -23,6 +25,14 @@ const MAX_RGBA_PIXELS_PER_TEXTURE: u32 = MAX_BYTES_PER_TEXTURE / 4;
 /// The square root of the number of RGBA pixels we're allowed to use for a texture, rounded down.
 /// to the next power of two.
 const SQRT_MAX_RGBA_PIXELS_PER_TEXTURE: u32 = 4096;
+
+/// The minimum number of pixels on each side that we require for rects to be classified as
+/// "medium" within the free list.
+const MINIMUM_MEDIUM_RECT_SIZE: u32 = 16;
+
+/// The minimum number of pixels on each side that we require for rects to be classified as
+/// "large" within the free list.
+const MINIMUM_LARGE_RECT_SIZE: u32 = 32;
 
 pub type TextureCacheItemId = FreeListItemId;
 
@@ -57,38 +67,75 @@ fn copy_pixels(src: &Vec<u8>,
 struct TexturePage {
     texture_id: TextureId,
     texture_size: u32,
-    free_list: Vec<Rect<u32>>,
+    free_list: FreeRectList,
     texture_index: TextureIndex,
+    allocations: u32,
     dirty: bool,
 }
 
 impl TexturePage {
     fn new(texture_id: TextureId, texture_index: TextureIndex, texture_size: u32) -> TexturePage {
-        TexturePage {
+        let mut page = TexturePage {
             texture_id: texture_id,
             texture_index: texture_index,
             texture_size: texture_size,
-            free_list: vec![
-                Rect::new(Point2D::new(0, 0), Size2D::new(texture_size, texture_size))
-            ],
+            free_list: FreeRectList::new(),
+            allocations: 0,
             dirty: false,
-        }
+        };
+        page.clear();
+        page
     }
 
-    fn find_index_of_best_rect(&self, requested_dimensions: &Size2D<u32>) -> Option<usize> {
+    fn find_index_of_best_rect_in_bin(&self, bin: FreeListBin, requested_dimensions: &Size2D<u32>)
+                                      -> Option<FreeListIndex> {
         let mut smallest_index_and_area = None;
-        for (candidate_index, candidate_rect) in self.free_list.iter().enumerate() {
+        for (candidate_index, candidate_rect) in self.free_list.iter(bin).enumerate() {
             if !requested_dimensions.fits_inside(&candidate_rect.size) {
                 continue
             }
 
             let candidate_area = candidate_rect.size.width * candidate_rect.size.height;
-            match smallest_index_and_area {
-                Some((_, smallest_area_so_far)) if candidate_area > smallest_area_so_far => {}
-                _ => smallest_index_and_area = Some((candidate_index, candidate_area)),
+            smallest_index_and_area = Some((candidate_index, candidate_area));
+            break
+        }
+
+        smallest_index_and_area.map(|(index, _)| FreeListIndex(bin, index))
+    }
+
+    fn find_index_of_best_rect(&self, requested_dimensions: &Size2D<u32>)
+                               -> Option<FreeListIndex> {
+        match FreeListBin::for_size(requested_dimensions) {
+            FreeListBin::Large => {
+                self.find_index_of_best_rect_in_bin(FreeListBin::Large, requested_dimensions)
+            }
+            FreeListBin::Medium => {
+                match self.find_index_of_best_rect_in_bin(FreeListBin::Medium,
+                                                          requested_dimensions) {
+                    Some(index) => Some(index),
+                    None => {
+                        self.find_index_of_best_rect_in_bin(FreeListBin::Large,
+                                                            requested_dimensions)
+                    }
+                }
+            }
+            FreeListBin::Small => {
+                match self.find_index_of_best_rect_in_bin(FreeListBin::Small,
+                                                          requested_dimensions) {
+                    Some(index) => Some(index),
+                    None => {
+                        match self.find_index_of_best_rect_in_bin(FreeListBin::Medium,
+                                                                  requested_dimensions) {
+                            Some(index) => Some(index),
+                            None => {
+                                self.find_index_of_best_rect_in_bin(FreeListBin::Large,
+                                                                    requested_dimensions)
+                            }
+                        }
+                    }
+                }
             }
         }
-        smallest_index_and_area.map(|(index, _)| index)
     }
 
     fn allocate(&mut self,
@@ -124,7 +171,7 @@ impl TexturePage {
 
         // Remove the rect from the free list and decide how to guillotine it. We choose the split
         // that results in the single largest area (Min Area Split Rule, MINAS).
-        let chosen_rect = self.free_list.swap_remove(index);
+        let chosen_rect = self.free_list.remove(index);
         let candidate_free_rect_to_right =
             Rect::new(Point2D::new(chosen_rect.origin.x + requested_dimensions.width,
                                    chosen_rect.origin.y),
@@ -159,65 +206,108 @@ impl TexturePage {
         // Add the guillotined rects back to the free list. If any changes were made, we're now
         // dirty since coalescing might be able to defragment.
         if !util::rect_is_empty(&new_free_rect_to_right) {
-            self.free_list.push(new_free_rect_to_right);
+            self.free_list.push(&new_free_rect_to_right);
             self.dirty = true
         }
         if !util::rect_is_empty(&new_free_rect_to_bottom) {
-            self.free_list.push(new_free_rect_to_bottom);
+            self.free_list.push(&new_free_rect_to_bottom);
             self.dirty = true
         }
+
+        // Bump the allocation counter.
+        self.allocations += 1;
 
         // Return the result.
         Some(chosen_rect.origin)
     }
 
+    #[inline(never)]
     fn coalesce(&mut self) {
         // Iterate to a fixed point.
-        loop {
-            let mut changed = false;
+        let mut free_list = mem::replace(&mut self.free_list, FreeRectList::new()).into_vec();
+        let mut changed = false;
 
-            // Attempt to merge rects in the free list.
-            let mut coalesced_free_rects = Vec::new();
-            loop {
-                let work_rect = match self.free_list.pop() {
-                    None => break,
-                    Some(work_rect) => work_rect,
-                };
-
-                let index_of_rect_to_merge_with = self.free_list.iter().position(|candidate_rect| {
-                    (work_rect.origin.x == candidate_rect.origin.x &&
-                        work_rect.size.width == candidate_rect.size.width &&
-                        (work_rect.origin.y == candidate_rect.max_y() ||
-                         work_rect.max_y() == candidate_rect.origin.y)) ||
-                    (work_rect.origin.y == candidate_rect.origin.y &&
-                        work_rect.size.height == candidate_rect.size.height &&
-                        (work_rect.origin.x == candidate_rect.max_x() ||
-                         work_rect.max_x() == candidate_rect.origin.x))
-                });
-
-                match index_of_rect_to_merge_with {
-                    None => coalesced_free_rects.push(work_rect),
-                    Some(index_of_rect_to_merge_with) => {
-                        let rect_to_merge_with =
-                            self.free_list.swap_remove(index_of_rect_to_merge_with);
-                        coalesced_free_rects.push(work_rect.union(&rect_to_merge_with));
-                        changed = true;
-                    }
+        // Combine rects that have the same width and are adjacent.
+        let mut new_free_list = Vec::new();
+        free_list.sort_by(|a, b| {
+            match a.size.width.cmp(&b.size.width) {
+                Ordering::Equal => a.origin.x.cmp(&b.origin.x),
+                ordering => ordering,
+            }
+        });
+        for work_index in 0..free_list.len() {
+            if free_list[work_index].size.width == 0 {
+                continue
+            }
+            for candidate_index in (work_index + 1)..free_list.len() {
+                if free_list[work_index].size.width != free_list[candidate_index].size.width ||
+                        free_list[work_index].origin.x != free_list[candidate_index].origin.x {
+                    break
+                }
+                if free_list[work_index].origin.y == free_list[candidate_index].max_y() ||
+                        free_list[work_index].max_y() == free_list[candidate_index].origin.y {
+                    changed = true;
+                    free_list[work_index] =
+                        free_list[work_index].union(&free_list[candidate_index]);
+                    free_list[candidate_index].size.width = 0
                 }
             }
-
-            self.free_list = coalesced_free_rects;
-            if !changed {
-                break
-            }
+            new_free_list.push(free_list[work_index])
         }
+        free_list = new_free_list;
 
-        self.dirty = false
+        // Combine rects that have the same height and are adjacent.
+        let mut new_free_list = Vec::new();
+        free_list.sort_by(|a, b| {
+            match a.size.height.cmp(&b.size.height) {
+                Ordering::Equal => a.origin.y.cmp(&b.origin.y),
+                ordering => ordering,
+            }
+        });
+        for work_index in 0..free_list.len() {
+            if free_list[work_index].size.height == 0 {
+                continue
+            }
+            for candidate_index in (work_index + 1)..free_list.len() {
+                if free_list[work_index].size.height !=
+                        free_list[candidate_index].size.height ||
+                        free_list[work_index].origin.y != free_list[candidate_index].origin.y {
+                    break
+                }
+                if free_list[work_index].origin.x == free_list[candidate_index].max_x() ||
+                        free_list[work_index].max_x() == free_list[candidate_index].origin.x {
+                    changed = true;
+                    free_list[work_index] =
+                        free_list[work_index].union(&free_list[candidate_index]);
+                    free_list[candidate_index].size.height = 0
+                }
+            }
+            new_free_list.push(free_list[work_index])
+        }
+        free_list = new_free_list;
+
+        self.free_list = FreeRectList::from_slice(&free_list[..]);
+        self.dirty = changed
+    }
+
+    fn clear(&mut self) {
+        self.free_list = FreeRectList::new();
+        self.free_list.push(&Rect::new(Point2D::new(0, 0),
+                                       Size2D::new(self.texture_size, self.texture_size)));
+        self.allocations = 0;
+        self.dirty = false;
     }
 
     #[allow(dead_code)]
     fn free(&mut self, rect: &Rect<u32>) {
-        self.free_list.push(*rect);
+        debug_assert!(self.allocations > 0);
+        self.allocations -= 1;
+        if self.allocations == 0 {
+            self.clear();
+            return
+        }
+
+        self.free_list.push(rect);
         self.dirty = true
     }
 }
@@ -228,6 +318,85 @@ impl TexturePage {
 pub struct TextureCacheItemUserData {
     pub x0: i32,
     pub y0: i32,
+}
+
+/// A binning free list. Binning is important to avoid sifting through lots of small strips when
+/// allocating many texture items.
+struct FreeRectList {
+    small: Vec<Rect<u32>>,
+    medium: Vec<Rect<u32>>,
+    large: Vec<Rect<u32>>,
+}
+
+impl FreeRectList {
+    fn new() -> FreeRectList {
+        FreeRectList {
+            small: vec![],
+            medium: vec![],
+            large: vec![],
+        }
+    }
+
+    fn from_slice(vector: &[Rect<u32>]) -> FreeRectList {
+        let mut free_list = FreeRectList::new();
+        for rect in vector {
+            free_list.push(rect)
+        }
+        free_list
+    }
+
+    fn push(&mut self, rect: &Rect<u32>) {
+        match FreeListBin::for_size(&rect.size) {
+            FreeListBin::Small => self.small.push(*rect),
+            FreeListBin::Medium => self.medium.push(*rect),
+            FreeListBin::Large => self.large.push(*rect),
+        }
+    }
+
+    fn remove(&mut self, index: FreeListIndex) -> Rect<u32> {
+        match index.0 {
+            FreeListBin::Small => self.small.swap_remove(index.1),
+            FreeListBin::Medium => self.medium.swap_remove(index.1),
+            FreeListBin::Large => self.large.swap_remove(index.1),
+        }
+    }
+
+    fn iter(&self, bin: FreeListBin) -> Iter<Rect<u32>> {
+        match bin {
+            FreeListBin::Small => self.small.iter(),
+            FreeListBin::Medium => self.medium.iter(),
+            FreeListBin::Large => self.large.iter(),
+        }
+    }
+
+    fn into_vec(mut self) -> Vec<Rect<u32>> {
+        self.small.extend(self.medium.drain(..));
+        self.small.extend(self.large.drain(..));
+        self.small
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FreeListIndex(FreeListBin, usize);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FreeListBin {
+    Small,
+    Medium,
+    Large,
+}
+
+impl FreeListBin {
+    pub fn for_size(size: &Size2D<u32>) -> FreeListBin {
+        if size.width >= MINIMUM_LARGE_RECT_SIZE && size.height >= MINIMUM_LARGE_RECT_SIZE {
+            FreeListBin::Large
+        } else if size.width >= MINIMUM_MEDIUM_RECT_SIZE &&
+                size.height >= MINIMUM_MEDIUM_RECT_SIZE {
+            FreeListBin::Medium
+        } else {
+            FreeListBin::Small
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -241,6 +410,9 @@ pub struct TextureCacheItem {
 
     // The texture coordinates for this item
     pub uv_rect: RectUv,
+
+    // The size of the entire texture (not just the allocated rectangle)
+    pub texture_size: Size2D<u32>,
 
     // The size of the actual allocated rectangle,
     // and the requested size. The allocated size
@@ -283,11 +455,13 @@ impl TextureCacheItem {
            user_x0: i32, user_y0: i32,
            allocated_rect: Rect<u32>,
            requested_rect: Rect<u32>,
+           texture_size: &Size2D<u32>,
            uv_rect: RectUv)
            -> TextureCacheItem {
         TextureCacheItem {
             texture_id: texture_id,
             texture_index: texture_index,
+            texture_size: *texture_size,
             uv_rect: uv_rect,
             user_data: TextureCacheItemUserData {
                 x0: user_x0,
@@ -389,6 +563,7 @@ impl TextureCache {
             allocated_rect: Rect::zero(),
             requested_rect: Rect::zero(),
             texture_id: TextureId::invalid(),
+            texture_size: Size2D::zero(),
             texture_index: TextureIndex(0),
         };
         self.items.insert(new_item)
@@ -437,23 +612,28 @@ impl TextureCache {
                     requested_width: u32,
                     requested_height: u32,
                     format: ImageFormat,
-                    alternate: bool,
+                    kind: TextureCacheItemKind,
                     border_type: BorderType,
                     filter: TextureFilter)
                     -> AllocationResult {
-        let (page_list, mode) = match (format, alternate) {
-            (ImageFormat::A8, false) => (&mut self.arena.pages_a8, RenderTargetMode::RenderTarget),
-            (ImageFormat::A8, true) => {
+        let (page_list, mode) = match (format, kind) {
+            (ImageFormat::A8, TextureCacheItemKind::Standard) => {
+                (&mut self.arena.pages_a8, RenderTargetMode::RenderTarget)
+            }
+            (ImageFormat::A8, TextureCacheItemKind::Alternate) => {
                 (&mut self.arena.alternate_pages_a8, RenderTargetMode::RenderTarget)
             }
-            (ImageFormat::RGBA8, false) => {
+            (ImageFormat::RGBA8, TextureCacheItemKind::Standard) => {
                 (&mut self.arena.pages_rgba8, RenderTargetMode::RenderTarget)
             }
-            (ImageFormat::RGBA8, true) => {
+            (ImageFormat::RGBA8, TextureCacheItemKind::Alternate) => {
                 (&mut self.arena.alternate_pages_rgba8, RenderTargetMode::RenderTarget)
             }
-            (ImageFormat::RGB8, false) => (&mut self.arena.pages_rgb8, RenderTargetMode::None),
-            (ImageFormat::Invalid, false) | (_, true) => unreachable!(),
+            (ImageFormat::RGB8, TextureCacheItemKind::Standard) => {
+                (&mut self.arena.pages_rgb8, RenderTargetMode::None)
+            }
+            (ImageFormat::Invalid, TextureCacheItemKind::Standard) |
+            (_, TextureCacheItemKind::Alternate) => unreachable!(),
         };
 
         let border_size = match border_type {
@@ -471,10 +651,11 @@ impl TextureCache {
                 // We need a new page.
                 let texture_size = texture_size();
                 let (texture_id, texture_index) = {
-                    let free_texture_levels_entry = if !alternate {
-                        self.free_texture_levels.entry(format)
-                    } else {
-                        self.alternate_free_texture_levels.entry(format)
+                    let free_texture_levels_entry = match kind {
+                        TextureCacheItemKind::Standard => self.free_texture_levels.entry(format),
+                        TextureCacheItemKind::Alternate => {
+                            self.alternate_free_texture_levels.entry(format)
+                        }
                     };
                     let mut free_texture_levels = match free_texture_levels_entry {
                         Entry::Vacant(entry) => entry.insert(Vec::new()),
@@ -510,6 +691,7 @@ impl TextureCache {
                                                                          requested_size),
                                                                Rect::new(Point2D::zero(),
                                                                          requested_size),
+                                                               &requested_size,
                                                                RectUv {
                                                                     top_left: Point2D::new(0.0, 0.0),
                                                                     top_right: Point2D::new(1.0, 0.0),
@@ -543,6 +725,8 @@ impl TextureCache {
                                                user_x0, user_y0,
                                                allocated_rect,
                                                requested_rect,
+                                               &Size2D::new(page.texture_size,
+                                                            page.texture_size),
                                                RectUv {
                                                     top_left: Point2D::new(u0, v0),
                                                     top_right: Point2D::new(u1, v0),
@@ -580,7 +764,7 @@ impl TextureCache {
                                                width,
                                                height,
                                                op.image_format,
-                                               false,
+                                               TextureCacheItemKind::Standard,
                                                BorderType::NoBorder,
                                                TextureFilter::Linear);
 
@@ -609,7 +793,7 @@ impl TextureCache {
                                                op.raster_size.to_nearest_px() as u32,
                                                op.raster_size.to_nearest_px() as u32,
                                                ImageFormat::RGBA8,
-                                               false,
+                                               TextureCacheItemKind::Standard,
                                                BorderType::NoBorder,
                                                TextureFilter::Linear);
 
@@ -676,7 +860,7 @@ impl TextureCache {
                                    width,
                                    height,
                                    format,
-                                   false,
+                                   TextureCacheItemKind::Standard,
                                    border_type,
                                    filter);
 
@@ -773,14 +957,14 @@ impl TextureCache {
                               0, 0,
                               glyph_size.width, glyph_size.height,
                               ImageFormat::A8,
-                              false,
+                              TextureCacheItemKind::Standard,
                               BorderType::NoBorder,
                               TextureFilter::Linear);
                 self.allocate(horizontal_blur_image_id,
                               0, 0,
                               width, height,
                               ImageFormat::A8,
-                              true,
+                              TextureCacheItemKind::Alternate,
                               BorderType::NoBorder,
                               TextureFilter::Linear);
                 let unblurred_glyph_item = self.get(unblurred_glyph_image_id);
@@ -922,5 +1106,11 @@ fn texture_size() -> u32 {
 fn levels_per_texture() -> u8 {
     let texture_size = texture_size();
     (MAX_RGBA_PIXELS_PER_TEXTURE / (texture_size * texture_size)) as u8
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TextureCacheItemKind {
+    Standard,
+    Alternate,
 }
 
