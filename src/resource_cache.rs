@@ -4,7 +4,7 @@ use euclid::Size2D;
 use fnv::FnvHasher;
 use freelist::FreeList;
 use internal_types::{FontTemplate, GlyphKey, RasterItem};
-use internal_types::{TextureTarget, TextureUpdateList, DrawListId, DrawList};
+use internal_types::{TextureUpdateList, DrawListId, DrawList};
 use platform::font::{FontContext, RasterizedGlyph};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_list::ResourceList;
@@ -285,18 +285,9 @@ impl ResourceCache {
         self.draw_lists.free(draw_list_id);
     }
 
-    pub fn allocate_render_target(&mut self,
-                                  target: TextureTarget,
-                                  width: u32,
-                                  height: u32,
-                                  levels: u32,
-                                  format: ImageFormat)
+    pub fn allocate_render_target(&mut self, width: u32, height: u32, format: ImageFormat)
                                   -> TextureId {
-        self.texture_cache.allocate_render_target(target,
-                                                  width,
-                                                  height,
-                                                  levels,
-                                                  format)
+        self.texture_cache.allocate_render_target(width, height, format)
     }
 
     pub fn free_render_target(&mut self, texture_id: TextureId) {

@@ -17,12 +17,12 @@ attribute vec4 aBorderRadii;
 attribute vec2 aSourceTextureSize;
 attribute vec2 aDestTextureSize;
 attribute float aBlurRadius;
-attribute vec4 aMisc;   // x = matrix index; y = color tex index; z = mask tex index; w=tile params index
+attribute vec4 aMisc;   // x = matrix index; w = tile params index
 
 varying vec2 vPosition;
 varying vec4 vColor;
-varying vec3 vColorTexCoord;
-varying vec3 vMaskTexCoord;
+varying vec2 vColorTexCoord;
+varying vec2 vMaskTexCoord;
 varying vec4 vBorderPosition;
 varying vec4 vBorderRadii;
 varying vec2 vDestTextureSize;

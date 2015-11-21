@@ -15,8 +15,8 @@ void main(void)
     vec2 snappedMaskTexCoord = dMask + floor(maskTexCoord * uAtlasParams.zw) / uAtlasParams.zw;
 
     // Fetch the diffuse and mask texels.
-    vec4 diffuse = Texture(sDiffuse, vec3(snappedColorTexCoord, vColorTexCoord.z));
-    vec4 mask = Texture(sMask, vec3(snappedMaskTexCoord, vMaskTexCoord.z));
+    vec4 diffuse = Texture(sDiffuse, snappedColorTexCoord);
+    vec4 mask = Texture(sMask, snappedMaskTexCoord);
 
     // Extract alpha from the mask (component depends on platform)
     float alpha = GetAlphaFromMask(mask);

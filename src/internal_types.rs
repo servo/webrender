@@ -1,10 +1,9 @@
 use app_units::Au;
 use batch::{VertexBuffer, Batch, VertexBufferId, TileParams};
-use device::{TextureId, TextureIndex, TextureFilter};
+use device::{TextureId, TextureFilter};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeListItem, FreeListItemId};
-use gleam::gl;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::sync::Arc;
@@ -137,8 +136,8 @@ pub struct PackedVertex {
     pub mu: u16,
     pub mv: u16,
     pub matrix_index: u8,
-    pub uv_index: u8,
-    pub muv_index: u8,
+    pub unused0: u8,
+    pub unused1: u8,
     pub tile_params_index: u8,
 }
 
@@ -149,9 +148,7 @@ impl PackedVertex {
                            u: f32,
                            v: f32,
                            mu: f32,
-                           mv: f32,
-                           uv_index: TextureIndex,
-                           muv_index: TextureIndex)
+                           mv: f32)
                            -> PackedVertex {
         PackedVertex {
             x: x,
@@ -162,8 +159,8 @@ impl PackedVertex {
             mu: (mu * UV_FLOAT_TO_FIXED) as u16,
             mv: (mv * UV_FLOAT_TO_FIXED) as u16,
             matrix_index: 0,
-            uv_index: uv_index.0,
-            muv_index: muv_index.0,
+            unused0: 0,
+            unused1: 0,
             tile_params_index: 0,
         }
     }
@@ -174,9 +171,7 @@ impl PackedVertex {
     pub fn from_components_unscaled_muv(x: f32, y: f32,
                                         color: &ColorF,
                                         u: f32, v: f32,
-                                        mu: u16, mv: u16,
-                                        uv_index: TextureIndex,
-                                        muv_index: TextureIndex)
+                                        mu: u16, mv: u16)
                                         -> PackedVertex {
         PackedVertex {
             x: x,
@@ -187,8 +182,8 @@ impl PackedVertex {
             mu: mu,
             mv: mv,
             matrix_index: 0,
-            uv_index: uv_index.0,
-            muv_index: muv_index.0,
+            unused0: 0,
+            unused1: 0,
             tile_params_index: 0,
         }
     }
@@ -196,16 +191,9 @@ impl PackedVertex {
     pub fn from_points(position: &Point2D<f32>,
                        color: &ColorF,
                        uv: &Point2D<f32>,
-                       muv: &Point2D<f32>,
-                       uv_index: TextureIndex,
-                       muv_index: TextureIndex)
+                       muv: &Point2D<f32>)
                        -> PackedVertex {
-        PackedVertex::from_components(position.x, position.y,
-                                      color,
-                                      uv.x, uv.y,
-                                      muv.x, muv.y,
-                                      uv_index,
-                                      muv_index)
+        PackedVertex::from_components(position.x, position.y, color, uv.x, uv.y, muv.x, muv.y)
     }
 }
 
@@ -239,20 +227,18 @@ pub enum BoxShadowPart {
 #[derive(Clone, Copy, Debug)]
 pub struct TextureImage {
     pub texture_id: TextureId,
-    pub texture_index: TextureIndex,
     pub texel_uv: Rect<f32>,
     pub pixel_uv: Point2D<u32>,
 }
 
 pub enum TextureUpdateOp {
-    Create(TextureTarget, u32, u32, u32, ImageFormat, TextureFilter, RenderTargetMode, Option<Vec<u8>>),
+    Create(u32, u32, ImageFormat, TextureFilter, RenderTargetMode, Option<Vec<u8>>),
     Update(u32, u32, u32, u32, TextureUpdateDetails),
     DeinitRenderTarget(TextureId),
 }
 
 pub struct TextureUpdate {
     pub id: TextureId,
-    pub index: TextureIndex,
     pub op: TextureUpdateOp,
 }
 
@@ -457,46 +443,33 @@ impl<P> ClipRectToRegionResult<P> {
                               position: &Point2D<f32>,
                               uv: &Point2D<f32>,
                               color: &ColorF,
-                              mask: &TextureCacheItem,
-                              uv_index: TextureIndex)
+                              mask: &TextureCacheItem)
                               -> PackedVertex {
-        PackedVertex::from_points(position,
-                                  color,
-                                  uv,
-                                  &self.muv_for_position(position, mask),
-                                  uv_index,
-                                  mask.texture_index)
+        PackedVertex::from_points(position, color, uv, &self.muv_for_position(position, mask))
     }
 }
 
 impl ClipRectToRegionResult<RectPosUv> {
     // TODO(pcwalton): Clip colors too!
-    pub fn make_packed_vertices_for_rect(&self,
-                                         colors: &[ColorF; 4],
-                                         mask: &TextureCacheItem,
-                                         uv_index: TextureIndex)
+    pub fn make_packed_vertices_for_rect(&self, colors: &[ColorF; 4], mask: &TextureCacheItem)
                                          -> [PackedVertex; 4] {
         [
             self.make_packed_vertex(&self.rect_result.pos.origin,
                                     &self.rect_result.uv.top_left,
                                     &colors[0],
-                                    mask,
-                                    uv_index),
+                                    mask),
             self.make_packed_vertex(&self.rect_result.pos.top_right(),
                                     &self.rect_result.uv.top_right,
                                     &colors[1],
-                                    mask,
-                                    uv_index),
+                                    mask),
             self.make_packed_vertex(&self.rect_result.pos.bottom_left(),
                                     &self.rect_result.uv.bottom_left,
                                     &colors[3],
-                                    mask,
-                                    uv_index),
+                                    mask),
             self.make_packed_vertex(&self.rect_result.pos.bottom_right(),
                                     &self.rect_result.uv.bottom_right,
                                     &colors[2],
-                                    mask,
-                                    uv_index),
+                                    mask),
         ]
     }
 }
@@ -695,7 +668,7 @@ pub struct PackedVertexForTextureCacheUpdate {
     pub source_texture_size_y: f32,
     pub blur_radius: f32,
     pub misc0: u8,
-    pub uv_index: u8,
+    pub misc1: u8,
     pub misc2: u8,
     pub misc3: u8,
 }
@@ -704,7 +677,6 @@ impl PackedVertexForTextureCacheUpdate {
     pub fn new(position: &Point2D<f32>,
                color: &ColorF,
                uv: &Point2D<f32>,
-               uv_index: TextureIndex,
                border_radii_outer: &Point2D<f32>,
                border_radii_inner: &Point2D<f32>,
                border_position: &Point2D<f32>,
@@ -733,24 +705,9 @@ impl PackedVertexForTextureCacheUpdate {
             source_texture_size_y: source_texture_size.height,
             blur_radius: blur_radius,
             misc0: 0,
-            uv_index: uv_index.0 as u8,
+            misc1: 0,
             misc2: 0,
             misc3: 0,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum TextureTarget {
-    Texture2D,
-    TextureArray,
-}
-
-impl TextureTarget {
-    pub fn to_gl(&self) -> gl::GLuint {
-        match *self {
-            TextureTarget::Texture2D => gl::TEXTURE_2D,
-            TextureTarget::TextureArray => gl::TEXTURE_2D_ARRAY,
         }
     }
 }

@@ -4,7 +4,7 @@ use device::{TextureId};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
 use fnv::FnvHasher;
 use internal_types::{BlurDirection, LowLevelFilterOp, CompositionOp, DrawListItemIndex};
-use internal_types::{BatchUpdateList, DrawListId, TextureTarget};
+use internal_types::{BatchUpdateList, DrawListId};
 use internal_types::{RendererFrame, DrawListContext, BatchInfo, DrawCall};
 use internal_types::{BatchUpdate, BatchUpdateOp, DrawLayer};
 use internal_types::{DrawCommand, ClearInfo, CompositeInfo, ANGLE_FLOAT_TO_FIXED};
@@ -467,10 +467,8 @@ impl Frame {
                 // TODO(gw): Get composition ops working with transforms
                 let origin = Point2D::new(child_offset.x as u32, child_offset.y as u32);
 
-                let texture_id = resource_cache.allocate_render_target(TextureTarget::Texture2D,
-                                                                       size.width,
+                let texture_id = resource_cache.allocate_render_target(size.width,
                                                                        size.height,
-                                                                       1,
                                                                        ImageFormat::RGBA8);
 
                 self.push_composite(CompositeInfo {

@@ -141,8 +141,8 @@ vec3 Luminosity(vec3 Cb, vec3 Cs) {
 
 void main(void)
 {
-    vec3 Cs = Texture2D(sDiffuse2D, vColorTexCoord.xy).xyz;
-    vec3 Cb = Texture2D(sMask2D, vMaskTexCoord.xy).xyz;
+    vec3 Cs = Texture(sDiffuse, vColorTexCoord).xyz;
+    vec3 Cb = Texture(sMask, vMaskTexCoord).xyz;
 
     // TODO: Relies on the ordering of MixBlendMode enum!
     // TODO: May be best to have separate shaders (esp. on Tegra)
