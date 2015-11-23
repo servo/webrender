@@ -1,11 +1,11 @@
 use euclid::{Point2D, Rect, Size2D};
-use internal_types::{ClipRectToRegionMaskResult, ClipRectToRegionResult};
-use internal_types::{CombinedClipRegion, PolygonPosColorUv, RectPosUv, WorkVertex};
+use internal_types::{ClipRectToRegionMaskResult, ClipRectToRegionResult, CombinedClipRegion};
+use internal_types::{PolygonPosColorUv, RectColorsUv, RectPolygon, RectUv, WorkVertex};
 use simd::f32x4;
 use std::fmt::Debug;
 use std::mem;
 use webrender_traits::{ColorF, ComplexClipRegion};
-use util;
+use util::{self, RectVaryings, VaryingElement};
 
 pub static MAX_RECT: Rect<f32> = Rect {
     origin: Point2D {
@@ -88,7 +88,8 @@ impl<P> TypedClipBuffers<P> {
 
 pub struct ClipBuffers {
     pub sh_clip_buffers: ShClipBuffers,
-    pub rect_pos_uv: TypedClipBuffers<RectPosUv>,
+    pub rect_pos_uv: TypedClipBuffers<RectPolygon<RectUv>>,
+    pub rect_pos_colors_uv: TypedClipBuffers<RectPolygon<RectColorsUv>>,
     pub polygon_pos_color_uv: TypedClipBuffers<PolygonPosColorUv>,
 }
 
@@ -97,6 +98,7 @@ impl ClipBuffers {
         ClipBuffers {
             sh_clip_buffers: ShClipBuffers::new(),
             rect_pos_uv: TypedClipBuffers::new(),
+            rect_pos_colors_uv: TypedClipBuffers::new(),
             polygon_pos_color_uv: TypedClipBuffers::new(),
         }
     }
@@ -391,24 +393,28 @@ pub trait Polygon : Sized {
     fn intersects_rect(&self, rect: &Rect<f32>) -> bool;
 }
 
-impl RectPosUv {
-    fn push_clipped_rect(&self, clipped_rect: &Rect<f32>, output: &mut Vec<RectPosUv>) {
+impl<Varyings> RectPolygon<Varyings> where Varyings: RectVaryings,
+                                           Varyings::Element: VaryingElement {
+    fn push_clipped_rect(&self,
+                         clipped_rect: &Rect<f32>,
+                         output: &mut Vec<RectPolygon<Varyings>>) {
         if util::rect_is_empty(&clipped_rect) {
             return
         }
 
-        output.push(RectPosUv {
+        output.push(RectPolygon {
             pos: *clipped_rect,
-            uv: util::bilerp_rect(clipped_rect, &self.pos, &self.uv),
+            varyings: util::bilerp_rect(clipped_rect, &self.pos, &self.varyings),
         });
     }
 }
 
-impl Polygon for RectPosUv {
+impl<Varyings> Polygon for RectPolygon<Varyings> where Varyings: RectVaryings + Clone,
+                                                       Varyings::Element: VaryingElement {
     fn clip_to_rect(&self,
                     _: &mut ShClipBuffers,
                     clip_rect: &Rect<f32>,
-                    output: &mut Vec<RectPosUv>) {
+                    output: &mut Vec<RectPolygon<Varyings>>) {
         for clipped_rect in self.pos.intersection(clip_rect).iter() {
             self.push_clipped_rect(clipped_rect, output)
         }
@@ -417,11 +423,11 @@ impl Polygon for RectPosUv {
     fn clip_out_rect(&self,
                      _: &mut ShClipBuffers,
                      clip_rect: &Rect<f32>,
-                     output: &mut Vec<RectPosUv>) {
+                     output: &mut Vec<RectPolygon<Varyings>>) {
         let clip_rect = match self.pos.intersection(clip_rect) {
             Some(clip_rect) => clip_rect,
             None => {
-                output.push(*self);
+                output.push((*self).clone());
                 return
             }
         };

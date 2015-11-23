@@ -8,10 +8,10 @@ use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::sync::Arc;
 use texture_cache::TextureCacheItem;
+use util::{self, RectVaryings, VaryingElement};
 use webrender_traits::{FontKey, Epoch, ColorF, PipelineId};
 use webrender_traits::{ImageFormat};
 use webrender_traits::{ComplexClipRegion, MixBlendMode, NativeFontHandle, DisplayItem};
-use util;
 
 const UV_FLOAT_TO_FIXED: f32 = 65535.0;
 const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
@@ -425,8 +425,9 @@ impl<P> ClipRectToRegionResult<P> {
         };
 
         let muv_rect =
-            Rect::new(Point2D::new(mask.uv_rect.top_left.x + mask_result.muv_rect.origin.x * mask_uv_size.width,
-                                   mask.uv_rect.top_left.y + mask_result.muv_rect.origin.y * mask_uv_size.height),
+            Rect::new(Point2D::new(
+                    mask.uv_rect.top_left.x + mask_result.muv_rect.origin.x * mask_uv_size.width,
+                    mask.uv_rect.top_left.y + mask_result.muv_rect.origin.y * mask_uv_size.height),
                       Size2D::new(mask_result.muv_rect.size.width * mask_uv_size.width,
                                   mask_result.muv_rect.size.height * mask_uv_size.height));
         let position_rect = &mask_result.position_rect;
@@ -439,43 +440,38 @@ impl<P> ClipRectToRegionResult<P> {
                                 (position.y - position_rect.origin.y) / position_rect.size.height))
     }
 
-    pub fn make_packed_vertex(&self,
-                              position: &Point2D<f32>,
-                              uv: &Point2D<f32>,
-                              color: &ColorF,
-                              mask: &TextureCacheItem)
-                              -> PackedVertex {
-        PackedVertex::from_points(position, color, uv, &self.muv_for_position(position, mask))
+    pub fn make_packed_vertex<VE>(&self,
+                                  position: &Point2D<f32>,
+                                  varying_element: &VE,
+                                  mask: &TextureCacheItem)
+                                  -> PackedVertex
+                                  where VE: VaryingElement {
+        varying_element.make_packed_vertex(position, &self.muv_for_position(position, mask))
     }
 }
 
-impl ClipRectToRegionResult<RectPosUv> {
-    // TODO(pcwalton): Clip colors too!
-    pub fn make_packed_vertices_for_rect(&self, colors: &[ColorF; 4], mask: &TextureCacheItem)
-                                         -> [PackedVertex; 4] {
+impl<Varyings> ClipRectToRegionResult<RectPolygon<Varyings>>
+               where Varyings: RectVaryings, Varyings::Element: VaryingElement {
+    pub fn make_packed_vertices_for_rect(&self, mask: &TextureCacheItem) -> [PackedVertex; 4] {
         [
             self.make_packed_vertex(&self.rect_result.pos.origin,
-                                    &self.rect_result.uv.top_left,
-                                    &colors[0],
+                                    &self.rect_result.varyings.top_left(),
                                     mask),
             self.make_packed_vertex(&self.rect_result.pos.top_right(),
-                                    &self.rect_result.uv.top_right,
-                                    &colors[1],
+                                    &self.rect_result.varyings.top_right(),
                                     mask),
             self.make_packed_vertex(&self.rect_result.pos.bottom_left(),
-                                    &self.rect_result.uv.bottom_left,
-                                    &colors[3],
+                                    &self.rect_result.varyings.bottom_left(),
                                     mask),
             self.make_packed_vertex(&self.rect_result.pos.bottom_right(),
-                                    &self.rect_result.uv.bottom_right,
-                                    &colors[2],
+                                    &self.rect_result.varyings.bottom_right(),
                                     mask),
         ]
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum BorderEdgeDirection {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AxisDirection {
     Horizontal,
     Vertical,
 }
@@ -552,9 +548,34 @@ impl CompiledNode {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct RectPosUv {
+pub struct RectPolygon<Varyings> {
     pub pos: Rect<f32>,
+    pub varyings: Varyings,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RectColorsUv {
+    pub colors: RectColors,
     pub uv: RectUv,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RectColors {
+    pub top_left: ColorF,
+    pub top_right: ColorF,
+    pub bottom_right: ColorF,
+    pub bottom_left: ColorF,
+}
+
+impl RectColors {
+    pub fn new(colors: &[ColorF; 4]) -> RectColors {
+        RectColors {
+            top_left: colors[0],
+            top_right: colors[1],
+            bottom_right: colors[2],
+            bottom_left: colors[3],
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -863,7 +884,7 @@ impl<'a> CombinedClipRegion<'a> {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LowLevelFilterOp {
-    Blur(Au, BlurDirection),
+    Blur(Au, AxisDirection),
     Brightness(Au),
     Contrast(Au),
     Grayscale(Au),
@@ -881,8 +902,3 @@ pub enum CompositionOp {
     Filter(LowLevelFilterOp),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum BlurDirection {
-    Horizontal,
-    Vertical,
-}
