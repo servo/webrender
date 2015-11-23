@@ -3,7 +3,7 @@ use types::{ClipRegion, ColorF, GlyphInstance, FontKey, ImageKey, BorderSide};
 use types::{GradientStop, BorderRadius, BoxShadowClipMode, ImageRendering};
 use euclid::{Point2D, Rect, Size2D};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct BorderDisplayItem {
     pub left: BorderSide,
     pub right: BorderSide,
@@ -34,7 +34,7 @@ impl BorderDisplayItem {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct BoxShadowDisplayItem {
     pub box_bounds: Rect<f32>,
     pub offset: Point2D<f32>,
@@ -45,26 +45,26 @@ pub struct BoxShadowDisplayItem {
     pub clip_mode: BoxShadowClipMode,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct GradientDisplayItem {
     pub start_point: Point2D<f32>,
     pub end_point: Point2D<f32>,
     pub stops: Vec<GradientStop>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct ImageDisplayItem {
     pub image_key: ImageKey,
     pub stretch_size: Size2D<f32>,
     pub image_rendering: ImageRendering,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct RectangleDisplayItem {
     pub color: ColorF,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextDisplayItem {
     pub glyphs: Vec<GlyphInstance>,
     pub font_key: FontKey,
@@ -73,7 +73,7 @@ pub struct TextDisplayItem {
     pub blur_radius: Au,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum SpecificDisplayItem {
     Rectangle(RectangleDisplayItem),
     Text(TextDisplayItem),
@@ -83,7 +83,7 @@ pub enum SpecificDisplayItem {
     Gradient(GradientDisplayItem),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct DisplayItem {
     pub item: SpecificDisplayItem,
     pub rect: Rect<f32>,

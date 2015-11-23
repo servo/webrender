@@ -1,6 +1,7 @@
 use euclid::{Matrix4, Rect};
 use types::{DisplayListId, FilterOp, MixBlendMode, ScrollLayerId, ScrollPolicy};
 
+#[derive(Serialize, Deserialize)]
 pub struct StackingContext {
     pub scroll_layer_id: Option<ScrollLayerId>,
     pub scroll_policy: ScrollPolicy,
