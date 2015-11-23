@@ -10,6 +10,7 @@ use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, Rend
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, BoxShadowPart, BasicRotationAngle};
 use internal_types::{PackedVertexForTextureCacheUpdate, TextureTarget, CompositionOp};
 use internal_types::{BlurDirection, LowLevelFilterOp, DrawCommand, ANGLE_FLOAT_TO_FIXED};
+use ipc_channel::ipc;
 use render_backend::RenderBackend;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
@@ -78,7 +79,7 @@ impl Renderer {
                device_pixel_ratio: f32,
                resource_path: PathBuf,
                enable_aa: bool) -> (Renderer, RenderApi) {
-        let (api_tx, api_rx) = channel();
+        let (api_tx, api_rx) = ipc::channel().unwrap();
         let (result_tx, result_rx) = channel();
 
         let initial_viewport = Rect::new(Point2D::zero(), Size2D::new(width as i32, height as i32));
