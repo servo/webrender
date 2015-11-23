@@ -7,7 +7,7 @@ use core_graphics::font::CGFont;
 // TODO: This is bogus - work out a clean way to generate scroll layer IDs that integrates well with servo...
 const FIXED_SCROLL_LAYER_ID: usize = 0xffffffff;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BorderRadius {
     pub top_left: Size2D<f32>,
     pub top_right: Size2D<f32>,
@@ -35,14 +35,14 @@ impl BorderRadius {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct BorderSide {
     pub width: f32,
     pub color: ColorF,
     pub style: BorderStyle,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum BorderStyle {
     None,
     Solid,
@@ -56,14 +56,14 @@ pub enum BorderStyle {
     Outset,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BoxShadowClipMode {
     None,
     Outset,
     Inset,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClipRegion {
     pub main: Rect<f32>,
     pub complex: Vec<ComplexClipRegion>,
@@ -78,7 +78,7 @@ impl ClipRegion {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ComplexClipRegion {
     /// The boundaries of the rectangle.
     pub rect: Rect<f32>,
@@ -102,7 +102,7 @@ impl ComplexClipRegion {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ColorF {
     pub r: f32,
     pub g: f32,
@@ -130,22 +130,23 @@ impl ColorF {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StackingContextId(pub u32, pub u32);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DisplayListId(pub u32, pub u32);
 
+#[derive(Serialize, Deserialize)]
 pub enum DisplayListMode {
     Default,
     PseudoFloat,
     PseudoPositionedContent,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct Epoch(pub u32);
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum FilterOp {
     Blur(Au),
     Brightness(f32),
@@ -167,20 +168,20 @@ impl FontKey {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct GlyphInstance {
     pub index: u32,
     pub x: f32,
     pub y: f32,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct GradientStop {
     pub offset: f32,
     pub color: ColorF,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ImageFormat {
     Invalid,
     A8,
@@ -188,7 +189,7 @@ pub enum ImageFormat {
     RGBA8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ImageRendering {
     Auto,
     CrispEdges,
@@ -204,7 +205,7 @@ impl ImageKey {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum MixBlendMode {
     Normal,
     Multiply,
@@ -229,17 +230,17 @@ pub type NativeFontHandle = CGFont;
 
 /// Native fonts are not used on Linux; all fonts are raw.
 #[cfg(not(target_os="macos"))]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct NativeFontHandle;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PipelineId(pub u32, pub u32);
 
 pub trait RenderNotifier : Send {
     fn new_frame_ready(&mut self);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ScrollLayerId(pub usize);
 
 impl ScrollLayerId {
@@ -259,7 +260,7 @@ pub enum ScrollPolicy {
     Fixed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum StackingLevel {
     BackgroundAndBorders,
     BlockBackgroundAndBorders,

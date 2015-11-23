@@ -1,17 +1,19 @@
 use display_list::DisplayListBuilder;
 use euclid::Point2D;
+use ipc_channel::ipc::{self, IpcSender};
 use stacking_context::StackingContext;
 use std::cell::Cell;
 use std::sync::mpsc::{self, Sender};
 use types::{ColorF, DisplayListId, Epoch, FontKey, StackingContextId};
 use types::{ImageKey, ImageFormat, NativeFontHandle, PipelineId};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct IdNamespace(pub u32);
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ResourceId(pub u32);
 
+#[derive(Serialize, Deserialize)]
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>),
     AddNativeFont(FontKey, NativeFontHandle),
@@ -19,21 +21,21 @@ pub enum ApiMsg {
     UpdateImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
     AddDisplayList(DisplayListId, PipelineId, Epoch, DisplayListBuilder),
     AddStackingContext(StackingContextId, PipelineId, Epoch, StackingContext),
-    CloneApi(Sender<RenderApi>),
+    CloneApi(IpcSender<IdNamespace>),
     SetRootStackingContext(StackingContextId, ColorF, Epoch, PipelineId),
     SetRootPipeline(PipelineId),
     Scroll(Point2D<f32>),
-    TranslatePointToLayerSpace(Point2D<f32>, Sender<Point2D<f32>>),
+    TranslatePointToLayerSpace(Point2D<f32>, IpcSender<Point2D<f32>>),
 }
 
 pub struct RenderApi {
-    pub tx: Sender<ApiMsg>,
+    pub tx: IpcSender<ApiMsg>,
     pub id_namespace: IdNamespace,
     pub next_id: Cell<ResourceId>,
 }
 
 impl RenderApi {
-    pub fn new(api_tx: Sender<ApiMsg>) -> RenderApi {
+    pub fn new(api_tx: IpcSender<ApiMsg>) -> RenderApi {
         RenderApi {
             tx: api_tx,
             id_namespace: IdNamespace(0),   // special case
@@ -136,17 +138,21 @@ impl RenderApi {
     }
 
     pub fn translate_point_to_layer_space(&self, point: &Point2D<f32>) -> Point2D<f32> {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = ipc::channel().unwrap();
         let msg = ApiMsg::TranslatePointToLayerSpace(*point, tx);
         self.tx.send(msg).unwrap();
         rx.recv().unwrap()
     }
 
     pub fn clone_api(&self) -> RenderApi {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = ipc::channel().unwrap();
         let msg = ApiMsg::CloneApi(tx);
         self.tx.send(msg).unwrap();
-        rx.recv().unwrap()
+        RenderApi {
+            tx: self.tx.clone(),
+            id_namespace: rx.recv().unwrap(),
+            next_id: Cell::new(ResourceId(0)),
+        }
     }
 
     fn next_unique_id(&self) -> (u32, u32) {

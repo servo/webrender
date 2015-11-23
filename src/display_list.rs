@@ -8,32 +8,37 @@ use types::{ClipRegion, ColorF, FontKey, ImageKey, PipelineId, StackingLevel};
 use types::{BorderRadius, BorderSide, BoxShadowClipMode, GlyphInstance};
 use types::{DisplayListMode, GradientStop, StackingContextId, ImageRendering};
 
+#[derive(Serialize, Deserialize)]
 pub struct DrawListInfo {
     pub items: Vec<DisplayItem>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct StackingContextInfo {
     pub id: StackingContextId,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IframeInfo {
     pub id: PipelineId,
     pub offset: Point2D<f32>,
     pub clip: Rect<f32>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum SpecificDisplayListItem {
     DrawList(DrawListInfo),
     StackingContext(StackingContextInfo),
     Iframe(Box<IframeInfo>),
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct DisplayListItem {
     pub stacking_level: StackingLevel,
     pub specific: SpecificDisplayListItem,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct DisplayListBuilder {
     pub mode: DisplayListMode,
     pub has_stacking_contexts: bool,

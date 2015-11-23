@@ -4,6 +4,7 @@
 
 extern crate app_units;
 extern crate euclid;
+extern crate ipc_channel;
 extern crate serde;
 
 #[cfg(target_os="macos")]
