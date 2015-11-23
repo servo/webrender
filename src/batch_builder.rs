@@ -276,6 +276,53 @@ impl<'a> BatchBuilder<'a> {
         }
     }
 
+    fn add_axis_aligned_gradient_with_stops(&mut self,
+                                            matrix_index: MatrixIndex,
+                                            clip: &CombinedClipRegion,
+                                            rect: &Rect<f32>,
+                                            direction: AxisDirection,
+                                            stops: &[GradientStop],
+                                            resource_cache: &ResourceCache,
+                                            clip_buffers: &mut ClipBuffers) {
+        for i in 0..(stops.len() - 1) {
+            let (prev_stop, next_stop) = (&stops[i], &stops[i + 1]);
+            let piece_rect;
+            let piece_colors;
+            match direction {
+                AxisDirection::Horizontal => {
+                    let prev_x = util::lerp(rect.origin.x, rect.max_x(), prev_stop.offset);
+                    let next_x = util::lerp(rect.origin.x, rect.max_x(), next_stop.offset);
+                    piece_rect = Rect::new(Point2D::new(prev_x, rect.origin.y),
+                                           Size2D::new(next_x - prev_x, rect.size.height));
+                    piece_colors = [
+                        prev_stop.color,
+                        next_stop.color,
+                        next_stop.color,
+                        prev_stop.color
+                    ];
+                }
+                AxisDirection::Vertical => {
+                    let prev_y = util::lerp(rect.origin.y, rect.max_y(), prev_stop.offset);
+                    let next_y = util::lerp(rect.origin.y, rect.max_y(), next_stop.offset);
+                    piece_rect = Rect::new(Point2D::new(rect.origin.x, prev_y),
+                                           Size2D::new(rect.size.width, next_y - prev_y));
+                    piece_colors = [
+                        prev_stop.color,
+                        prev_stop.color,
+                        next_stop.color,
+                        next_stop.color
+                    ];
+                }
+            }
+            self.add_axis_aligned_gradient(matrix_index,
+                                           &piece_rect,
+                                           clip,
+                                           resource_cache,
+                                           clip_buffers,
+                                           &piece_colors)
+        }
+    }
+
     pub fn add_gradient(&mut self,
                         matrix_index: MatrixIndex,
                         clip: &CombinedClipRegion,
@@ -284,6 +331,34 @@ impl<'a> BatchBuilder<'a> {
                         stops: &[GradientStop],
                         resource_cache: &ResourceCache,
                         clip_buffers: &mut ClipBuffers) {
+        // Fast paths for axis-aligned gradients:
+        //
+        // FIXME(pcwalton): Determine the start and end points properly!
+        if start_point.x == end_point.x {
+            let rect = Rect::new(Point2D::new(-10000.0, start_point.y),
+                                 Size2D::new(20000.0, end_point.y - start_point.y));
+            self.add_axis_aligned_gradient_with_stops(matrix_index,
+                                                      clip,
+                                                      &rect,
+                                                      AxisDirection::Vertical,
+                                                      stops,
+                                                      resource_cache,
+                                                      clip_buffers);
+            return
+        }
+        if start_point.y == end_point.y {
+            let rect = Rect::new(Point2D::new(start_point.x, -10000.0),
+                                 Size2D::new(end_point.x - start_point.x, 20000.0));
+            self.add_axis_aligned_gradient_with_stops(matrix_index,
+                                                      clip,
+                                                      &rect,
+                                                      AxisDirection::Horizontal,
+                                                      stops,
+                                                      resource_cache,
+                                                      clip_buffers);
+            return
+        }
+
         let white_image = resource_cache.get_dummy_color_image();
 
         debug_assert!(stops.len() >= 2);
