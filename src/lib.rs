@@ -16,7 +16,7 @@ mod display_list;
 mod stacking_context;
 mod types;
 
-pub use api::{ApiMsg, IdNamespace, ResourceId, RenderApi};
+pub use api::{ApiMsg, IdNamespace, ResourceId, RenderApi, RenderApiSender};
 pub use display_list::{DisplayListBuilder, DisplayListItem};
 pub use display_list::{SpecificDisplayListItem, IframeInfo};
 pub use display_item::{DisplayItem, SpecificDisplayItem, ImageDisplayItem};

@@ -27,6 +27,27 @@ pub enum ApiMsg {
     TranslatePointToLayerSpace(Point2D<f32>, IpcSender<Point2D<f32>>),
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct RenderApiSender(IpcSender<ApiMsg>);
+
+impl RenderApiSender {
+    pub fn new(tx: IpcSender<ApiMsg>) -> RenderApiSender {
+        RenderApiSender(tx)
+    }
+
+    pub fn create_api(&self) -> RenderApi {
+        let RenderApiSender(ref tx) = *self;
+        let (sync_tx, sync_rx) = ipc::channel().unwrap();
+        let msg = ApiMsg::CloneApi(sync_tx);
+        tx.send(msg).unwrap();
+        RenderApi {
+            tx: tx.clone(),
+            id_namespace: sync_rx.recv().unwrap(),
+            next_id: Cell::new(ResourceId(0)),
+        }
+    }
+}
+
 pub struct RenderApi {
     pub tx: IpcSender<ApiMsg>,
     pub id_namespace: IdNamespace,
@@ -34,12 +55,8 @@ pub struct RenderApi {
 }
 
 impl RenderApi {
-    pub fn new(api_tx: IpcSender<ApiMsg>) -> RenderApi {
-        RenderApi {
-            tx: api_tx,
-            id_namespace: IdNamespace(0),   // special case
-            next_id: Cell::new(ResourceId(0)),
-        }
+    pub fn clone_sender(&self) -> RenderApiSender {
+        RenderApiSender::new(self.tx.clone())
     }
 
     pub fn add_raw_font(&self, bytes: Vec<u8>) -> FontKey {
@@ -141,17 +158,6 @@ impl RenderApi {
         let msg = ApiMsg::TranslatePointToLayerSpace(*point, tx);
         self.tx.send(msg).unwrap();
         rx.recv().unwrap()
-    }
-
-    pub fn clone_api(&self) -> RenderApi {
-        let (tx, rx) = ipc::channel().unwrap();
-        let msg = ApiMsg::CloneApi(tx);
-        self.tx.send(msg).unwrap();
-        RenderApi {
-            tx: self.tx.clone(),
-            id_namespace: rx.recv().unwrap(),
-            next_id: Cell::new(ResourceId(0)),
-        }
     }
 
     fn next_unique_id(&self) -> (u32, u32) {
