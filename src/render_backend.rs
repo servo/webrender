@@ -1,34 +1,18 @@
 use euclid::{Rect, Size2D};
 use frame::Frame;
 use internal_types::{FontTemplate, ResultMsg, DrawLayer};
-use ipc_channel::ipc::{IpcReceiver, IpcSender};
+use ipc_channel::ipc::IpcReceiver;
 use resource_cache::ResourceCache;
 use scene::Scene;
 use scoped_threadpool;
-use std::cell::Cell;
 use std::sync::Arc;
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::Sender;
 use texture_cache::{TextureCache, TextureCacheItemId};
 use util;
-use webrender_traits::{ApiMsg, IdNamespace, ResourceId, RenderApi, RenderNotifier, ScrollLayerId};
-
-/*
-    Add items from parent AABB nodes into both children.
-        Only end up with items in leaf nodes.
-        Need to adjust / change / remove split vs actual rect.
-
-    Compile node:
-        Clip to node boundaries.
-            No need to worry about overlap!
-        Only overlap issues are with layers / aabb trees
-            *Should* be detectable when there is a draw list with different scroll layer
-                This will work for fixed too...
-
- */
+use webrender_traits::{ApiMsg, IdNamespace, RenderNotifier, ScrollLayerId};
 
 pub struct RenderBackend {
     api_rx: IpcReceiver<ApiMsg>,
-    api_tx: IpcSender<ApiMsg>,
     result_tx: Sender<ResultMsg>,
 
     viewport: Rect<i32>,
@@ -44,7 +28,6 @@ pub struct RenderBackend {
 
 impl RenderBackend {
     pub fn new(api_rx: IpcReceiver<ApiMsg>,
-               api_tx: IpcSender<ApiMsg>,
                result_tx: Sender<ResultMsg>,
                viewport: Rect<i32>,
                device_pixel_ratio: f32,
@@ -64,7 +47,6 @@ impl RenderBackend {
         let backend = RenderBackend {
             thread_pool: thread_pool,
             api_rx: api_rx,
-            api_tx: api_tx,
             result_tx: result_tx,
             viewport: viewport,
             device_pixel_ratio: device_pixel_ratio,

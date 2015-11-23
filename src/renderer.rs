@@ -142,10 +142,8 @@ impl Renderer {
 
         device.end_frame();
 
-        let backend_api_tx = api_tx.clone();
         thread::spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
-                                                 backend_api_tx,
                                                  result_tx,
                                                  initial_viewport,
                                                  device_pixel_ratio,
