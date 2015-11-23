@@ -18,7 +18,6 @@ impl NodeCompiler for AABBTreeNode {
                resource_cache: &ResourceCache,
                render_targets: &Vec<FrameRenderTarget>,
                device_pixel_ratio: f32) {
-        let color_white = ColorF::new(1.0, 1.0, 1.0, 1.0);
         let mut compiled_node = CompiledNode::new();
         let mut vertex_buffer = VertexBuffer::new();
 
@@ -69,8 +68,7 @@ impl NodeCompiler for AABBTreeNode {
                                                                   info.image_key,
                                                                   info.image_rendering,
                                                                   resource_cache,
-                                                                  &mut clip_buffers,
-                                                                  &color_white);
+                                                                  &mut clip_buffers);
                                             }
                                             SpecificDisplayItem::Text(ref info) => {
                                                 builder.add_text(matrix_index,

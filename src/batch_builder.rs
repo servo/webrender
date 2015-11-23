@@ -4,7 +4,7 @@ use clipper::{self, ClipBuffers, Polygon};
 use device::TextureId;
 use euclid::{Rect, Point2D, Size2D};
 use fnv::FnvHasher;
-use internal_types::{CombinedClipRegion, RectPosUv};
+use internal_types::{CombinedClipRegion, RectColors, RectColorsUv, RectPolygon};
 use internal_types::{RectUv, Primitive, BorderRadiusRasterOp, RasterItem, ClipRectToRegionResult};
 use internal_types::{GlyphKey, PackedVertex, WorkVertex};
 use internal_types::{PolygonPosColorUv, AxisDirection};
@@ -16,6 +16,7 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
 use tessellator::{self, BorderCornerTessellation};
 use texture_cache::{TextureCacheItem};
+use util;
 use webrender_traits::{ColorF, ImageFormat, BorderStyle, BoxShadowClipMode};
 use webrender_traits::{BorderRadius, BorderSide, FontKey, GlyphInstance, ImageKey};
 use webrender_traits::{BorderDisplayItem, GradientStop, ComplexClipRegion, ImageRendering};
@@ -65,8 +66,7 @@ impl<'a> BatchBuilder<'a> {
                      image_key: ImageKey,
                      image_rendering: ImageRendering,
                      resource_cache: &ResourceCache,
-                     clip_buffers: &mut ClipBuffers,
-                     color: &ColorF) {
+                     clip_buffers: &mut ClipBuffers) {
         // Should be caught higher up
         debug_assert!(stretch_size.width > 0.0 && stretch_size.height > 0.0);
         let image_info = resource_cache.get_image(image_key, image_rendering);
@@ -90,17 +90,16 @@ impl<'a> BatchBuilder<'a> {
             v_size: uv_size.y,
         };
 
-        clipper::clip_rect_to_combined_region(RectPosUv {
+        clipper::clip_rect_to_combined_region(RectPolygon {
                                                 pos: *rect,
-                                                uv: uv
+                                                varyings: uv,
                                               },
                                               &mut clip_buffers.sh_clip_buffers,
                                               &mut clip_buffers.rect_pos_uv,
                                               clip);
         for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
             let mask = mask_for_clip_region(resource_cache, &clip_region, false);
-            let colors = [*color, *color, *color, *color];
-            let mut vertices = clip_region.make_packed_vertices_for_rect(&colors, mask);
+            let mut vertices = clip_region.make_packed_vertices_for_rect(mask);
 
             self.add_draw_item(matrix_index,
                                image_info.texture_id,
@@ -134,7 +133,9 @@ impl<'a> BatchBuilder<'a> {
         let mut glyph_key = GlyphKey::new(font_key, size, blur_radius, glyphs[0].index);
         let blur_offset = blur_radius.to_f32_px() * (BLUR_INFLATION_FACTOR as f32) / 2.0;
 
-        let mut text_batches: HashMap<TextureId, Vec<RectPosUv>, DefaultState<FnvHasher>> =
+        let mut text_batches: HashMap<TextureId,
+                                      Vec<RectPolygon<RectUv>>,
+                                      DefaultState<FnvHasher>> =
             HashMap::with_hash_state(Default::default());
 
         for glyph in glyphs {
@@ -146,10 +147,10 @@ impl<'a> BatchBuilder<'a> {
                 let width = image_info.requested_rect.size.width as f32 / device_pixel_ratio;
                 let height = image_info.requested_rect.size.height as f32 / device_pixel_ratio;
 
-                let rect = RectPosUv {
+                let rect = RectPolygon {
                     pos: Rect::new(Point2D::new(x, y),
                                    Size2D::new(width, height)),
-                    uv: image_info.uv_rect,
+                    varyings: image_info.uv_rect,
                 };
 
                 let rect_buffer = match text_batches.entry(image_info.texture_id) {
@@ -186,25 +187,25 @@ impl<'a> BatchBuilder<'a> {
                 vertex_buffer.push(PackedVertex::from_components(
                         x0, y0,
                         color,
-                        rect.uv.top_left.x, rect.uv.top_left.y,
+                        rect.varyings.top_left.x, rect.varyings.top_left.y,
                         dummy_mask_image.uv_rect.top_left.x,
                         dummy_mask_image.uv_rect.top_left.y));
                 vertex_buffer.push(PackedVertex::from_components(
                         x1, y0,
                         color,
-                        rect.uv.top_right.x, rect.uv.top_right.y,
+                        rect.varyings.top_right.x, rect.varyings.top_right.y,
                         dummy_mask_image.uv_rect.top_right.x,
                         dummy_mask_image.uv_rect.top_right.y));
                 vertex_buffer.push(PackedVertex::from_components(
                         x0, y1,
                         color,
-                        rect.uv.bottom_left.x, rect.uv.bottom_left.y,
+                        rect.varyings.bottom_left.x, rect.varyings.bottom_left.y,
                         dummy_mask_image.uv_rect.bottom_left.x,
                         dummy_mask_image.uv_rect.bottom_left.y));
                 vertex_buffer.push(PackedVertex::from_components(
                         x1, y1,
                         color,
-                        rect.uv.bottom_right.x, rect.uv.bottom_right.y,
+                        rect.varyings.bottom_right.x, rect.varyings.bottom_right.y,
                         dummy_mask_image.uv_rect.bottom_right.x,
                         dummy_mask_image.uv_rect.bottom_right.y));
             }
@@ -251,18 +252,21 @@ impl<'a> BatchBuilder<'a> {
         }
 
         clipper::clip_rect_to_combined_region(
-            RectPosUv {
+            RectPolygon {
                 pos: *rect,
-                uv: image_info.uv_rect,
+                varyings: RectColorsUv {
+                    colors: RectColors::new(colors),
+                    uv: image_info.uv_rect,
+                },
             },
             &mut clip_buffers.sh_clip_buffers,
-            &mut clip_buffers.rect_pos_uv,
+            &mut clip_buffers.rect_pos_colors_uv,
             clip);
-        for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
+        for clip_region in clip_buffers.rect_pos_colors_uv
+                                       .clip_rect_to_region_result_output
+                                       .drain(..) {
             let mask = mask_for_clip_region(resource_cache, &clip_region, false);
-
-            let mut vertices = clip_region.make_packed_vertices_for_rect(colors, mask);
-
+            let mut vertices = clip_region.make_packed_vertices_for_rect(mask);
             self.add_draw_item(matrix_index,
                                image_info.texture_id,
                                mask.texture_id,
@@ -345,10 +349,10 @@ impl<'a> BatchBuilder<'a> {
                     let mut packed_vertices = Vec::new();
                     if clip_result.rect_result.vertices.len() >= 3 {
                         for vert in clip_result.rect_result.vertices.iter() {
-                            packed_vertices.push(clip_result.make_packed_vertex(&vert.position(),
-                                                                                &vert.uv(),
-                                                                                &vert.color(),
-                                                                                &mask));
+                            packed_vertices.push(clip_result.make_packed_vertex(
+                                    &vert.position(),
+                                    &(vert.color(), vert.uv()),
+                                    &mask));
                         }
                     }
 
@@ -936,9 +940,9 @@ impl<'a> BatchBuilder<'a> {
             // FIXME(pcwalton): Either use RGBA8 textures instead of alpha masks here, or implement
             // a mask combiner.
             let mask_uv = RectUv::from_image_and_rotation_angle(mask_image, rotation_angle, true);
-            let tessellated_rect = RectPosUv {
+            let tessellated_rect = RectPolygon {
                 pos: tessellated_rect,
-                uv: mask_uv,
+                varyings: mask_uv,
             };
 
             clipper::clip_rect_to_combined_region(tessellated_rect,
@@ -960,34 +964,34 @@ impl<'a> BatchBuilder<'a> {
                     BasicRotationAngle::Upright => {
                         v0 = rect_pos_uv.pos.origin;
                         v1 = rect_pos_uv.pos.bottom_right();
-                        muv0 = rect_pos_uv.uv.top_left;
-                        muv1 = rect_pos_uv.uv.top_right;
-                        muv2 = rect_pos_uv.uv.bottom_right;
-                        muv3 = rect_pos_uv.uv.bottom_left;
+                        muv0 = rect_pos_uv.varyings.top_left;
+                        muv1 = rect_pos_uv.varyings.top_right;
+                        muv2 = rect_pos_uv.varyings.bottom_right;
+                        muv3 = rect_pos_uv.varyings.bottom_left;
                     }
                     BasicRotationAngle::Clockwise90 => {
                         v0 = rect_pos_uv.pos.top_right();
                         v1 = rect_pos_uv.pos.bottom_left();
-                        muv0 = rect_pos_uv.uv.top_right;
-                        muv1 = rect_pos_uv.uv.top_left;
-                        muv2 = rect_pos_uv.uv.bottom_left;
-                        muv3 = rect_pos_uv.uv.bottom_right;
+                        muv0 = rect_pos_uv.varyings.top_right;
+                        muv1 = rect_pos_uv.varyings.top_left;
+                        muv2 = rect_pos_uv.varyings.bottom_left;
+                        muv3 = rect_pos_uv.varyings.bottom_right;
                     }
                     BasicRotationAngle::Clockwise180 => {
                         v0 = rect_pos_uv.pos.bottom_right();
                         v1 = rect_pos_uv.pos.origin;
-                        muv0 = rect_pos_uv.uv.bottom_right;
-                        muv1 = rect_pos_uv.uv.bottom_left;
-                        muv2 = rect_pos_uv.uv.top_left;
-                        muv3 = rect_pos_uv.uv.top_right;
+                        muv0 = rect_pos_uv.varyings.bottom_right;
+                        muv1 = rect_pos_uv.varyings.bottom_left;
+                        muv2 = rect_pos_uv.varyings.top_left;
+                        muv3 = rect_pos_uv.varyings.top_right;
                     }
                     BasicRotationAngle::Clockwise270 => {
                         v0 = rect_pos_uv.pos.bottom_left();
                         v1 = rect_pos_uv.pos.top_right();
-                        muv0 = rect_pos_uv.uv.bottom_left;
-                        muv1 = rect_pos_uv.uv.bottom_right;
-                        muv2 = rect_pos_uv.uv.top_right;
-                        muv3 = rect_pos_uv.uv.top_left;
+                        muv0 = rect_pos_uv.varyings.bottom_left;
+                        muv1 = rect_pos_uv.varyings.bottom_right;
+                        muv2 = rect_pos_uv.varyings.top_right;
+                        muv3 = rect_pos_uv.varyings.top_left;
                     }
                 }
 
@@ -1028,19 +1032,24 @@ impl<'a> BatchBuilder<'a> {
         let vertices_rect = Rect::new(*v0, Size2D::new(v1.x - v0.x, v1.y - v0.y));
         let color_uv = RectUv::from_image_and_rotation_angle(color_image, rotation_angle, false);
 
-        clipper::clip_rect_to_combined_region(RectPosUv {
+        let colors = RectColors::new(&[*color0, *color0, *color1, *color1]);
+        clipper::clip_rect_to_combined_region(RectPolygon {
                                                 pos: vertices_rect,
-                                                uv: color_uv,
+                                                varyings: RectColorsUv {
+                                                    colors: colors,
+                                                    uv: color_uv,
+                                                },
                                               },
                                               &mut clip_buffers.sh_clip_buffers,
-                                              &mut clip_buffers.rect_pos_uv,
+                                              &mut clip_buffers.rect_pos_colors_uv,
                                               clip);
-        for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
+        for clip_region in clip_buffers.rect_pos_colors_uv
+                                       .clip_rect_to_region_result_output
+                                       .drain(..) {
             let mask = mask_for_clip_region(resource_cache,
                                             &clip_region,
                                             false);
-            let colors = [*color0, *color0, *color1, *color1];
-            let mut vertices = clip_region.make_packed_vertices_for_rect(&colors, mask);
+            let mut vertices = clip_region.make_packed_vertices_for_rect(mask);
 
             self.add_draw_item(matrix_index,
                                color_image.texture_id,
