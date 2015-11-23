@@ -1,6 +1,10 @@
 use device::{ProgramId, TextureId};
-use internal_types::{BlurDirection, PackedVertex};
-use internal_types::{PackedVertexForTextureCacheUpdate, Primitive};
+use fnv::FnvHasher;
+use internal_types::{AxisDirection, PackedVertex, PackedVertexForTextureCacheUpdate, Primitive};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::collections::hash_state::DefaultState;
+use std::u16;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 
@@ -207,7 +211,7 @@ impl<'a> BatchBuilder<'a> {
 /// A batch for raster jobs.
 pub struct RasterBatch {
     pub program_id: ProgramId,
-    pub blur_direction: Option<BlurDirection>,
+    pub blur_direction: Option<AxisDirection>,
     pub dest_texture_id: TextureId,
     pub color_texture_id: TextureId,
     pub vertices: Vec<PackedVertexForTextureCacheUpdate>,
@@ -216,7 +220,7 @@ pub struct RasterBatch {
 
 impl RasterBatch {
     pub fn new(program_id: ProgramId,
-               blur_direction: Option<BlurDirection>,
+               blur_direction: Option<AxisDirection>,
                dest_texture_id: TextureId,
                color_texture_id: TextureId)
                -> RasterBatch {
@@ -235,7 +239,7 @@ impl RasterBatch {
                             dest_texture_id: TextureId,
                             color_texture_id: TextureId,
                             program_id: ProgramId,
-                            blur_direction: Option<BlurDirection>)
+                            blur_direction: Option<AxisDirection>)
                             -> bool {
         let batch_ok = program_id == self.program_id &&
             blur_direction == self.blur_direction &&

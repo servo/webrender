@@ -7,7 +7,7 @@ use fnv::FnvHasher;
 use internal_types::{CombinedClipRegion, RectPosUv};
 use internal_types::{RectUv, Primitive, BorderRadiusRasterOp, RasterItem, ClipRectToRegionResult};
 use internal_types::{GlyphKey, PackedVertex, WorkVertex};
-use internal_types::{PolygonPosColorUv, BorderEdgeDirection};
+use internal_types::{PolygonPosColorUv, AxisDirection};
 use internal_types::{BasicRotationAngle, BoxShadowRasterOp};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
@@ -728,7 +728,7 @@ impl<'a> BatchBuilder<'a> {
                        matrix_index: MatrixIndex,
                        rect: &Rect<f32>,
                        clip: &CombinedClipRegion,
-                       direction: BorderEdgeDirection,
+                       direction: AxisDirection,
                        color: &ColorF,
                        border_style: BorderStyle,
                        resource_cache: &ResourceCache,
@@ -743,22 +743,22 @@ impl<'a> BatchBuilder<'a> {
         match border_style {
             BorderStyle::Dashed => {
                 let (extent, step) = match direction {
-                    BorderEdgeDirection::Horizontal => {
+                    AxisDirection::Horizontal => {
                         (rect.size.width, rect.size.height * BORDER_DASH_SIZE)
                     }
-                    BorderEdgeDirection::Vertical => {
+                    AxisDirection::Vertical => {
                         (rect.size.height, rect.size.width * BORDER_DASH_SIZE)
                     }
                 };
                 let mut origin = 0.0;
                 while origin < extent {
                     let dash_rect = match direction {
-                        BorderEdgeDirection::Horizontal => {
+                        AxisDirection::Horizontal => {
                             Rect::new(Point2D::new(rect.origin.x + origin, rect.origin.y),
                                       Size2D::new(f32::min(step, extent - origin),
                                                   rect.size.height))
                         }
-                        BorderEdgeDirection::Vertical => {
+                        AxisDirection::Vertical => {
                             Rect::new(Point2D::new(rect.origin.x, rect.origin.y + origin),
                                       Size2D::new(rect.size.width,
                                                   f32::min(step, extent - origin)))
@@ -777,19 +777,19 @@ impl<'a> BatchBuilder<'a> {
             }
             BorderStyle::Dotted => {
                 let (extent, step) = match direction {
-                    BorderEdgeDirection::Horizontal => (rect.size.width, rect.size.height),
-                    BorderEdgeDirection::Vertical => (rect.size.height, rect.size.width),
+                    AxisDirection::Horizontal => (rect.size.width, rect.size.height),
+                    AxisDirection::Vertical => (rect.size.height, rect.size.width),
                 };
                 let mut origin = 0.0;
                 while origin < extent {
                     let (dot_rect, mask_radius) = match direction {
-                        BorderEdgeDirection::Horizontal => {
+                        AxisDirection::Horizontal => {
                             (Rect::new(Point2D::new(rect.origin.x + origin, rect.origin.y),
                                        Size2D::new(f32::min(step, extent - origin),
                                                    rect.size.height)),
                              rect.size.height / 2.0)
                         }
-                        BorderEdgeDirection::Vertical => {
+                        AxisDirection::Vertical => {
                             (Rect::new(Point2D::new(rect.origin.x, rect.origin.y + origin),
                                        Size2D::new(rect.size.width,
                                                    f32::min(step, extent - origin))),
@@ -856,14 +856,14 @@ impl<'a> BatchBuilder<'a> {
             }
             BorderStyle::Double => {
                 let (outer_rect, inner_rect) = match direction {
-                    BorderEdgeDirection::Horizontal => {
+                    AxisDirection::Horizontal => {
                         (Rect::new(rect.origin,
                                    Size2D::new(rect.size.width, rect.size.height / 3.0)),
                          Rect::new(Point2D::new(rect.origin.x,
                                                 rect.origin.y + rect.size.height * 2.0 / 3.0),
                                    Size2D::new(rect.size.width, rect.size.height / 3.0)))
                     }
-                    BorderEdgeDirection::Vertical => {
+                    AxisDirection::Vertical => {
                         (Rect::new(rect.origin,
                                    Size2D::new(rect.size.width / 3.0, rect.size.height)),
                          Rect::new(Point2D::new(rect.origin.x + rect.size.width * 2.0 / 3.0,
@@ -1093,7 +1093,7 @@ impl<'a> BatchBuilder<'a> {
                              &Rect::new(Point2D::new(tl_outer.x, tl_inner.y),
                                         Size2D::new(left.width, bl_inner.y - tl_inner.y)),
                              clip,
-                             BorderEdgeDirection::Vertical,
+                             AxisDirection::Vertical,
                              &left_color,
                              info.left.style,
                              resource_cache,
@@ -1104,7 +1104,7 @@ impl<'a> BatchBuilder<'a> {
                                         Size2D::new(tr_inner.x - tl_inner.x,
                                                     tr_outer.y + top.width - tl_outer.y)),
                              clip,
-                             BorderEdgeDirection::Horizontal,
+                             AxisDirection::Horizontal,
                              &top_color,
                              info.top.style,
                              resource_cache,
@@ -1114,7 +1114,7 @@ impl<'a> BatchBuilder<'a> {
                              &Rect::new(Point2D::new(br_outer.x - right.width, tr_inner.y),
                                         Size2D::new(right.width, br_inner.y - tr_inner.y)),
                              clip,
-                             BorderEdgeDirection::Vertical,
+                             AxisDirection::Vertical,
                              &right_color,
                              info.right.style,
                              resource_cache,
@@ -1125,7 +1125,7 @@ impl<'a> BatchBuilder<'a> {
                                         Size2D::new(br_inner.x - bl_inner.x,
                                                     br_outer.y - bl_outer.y + bottom.width)),
                              clip,
-                             BorderEdgeDirection::Horizontal,
+                             AxisDirection::Horizontal,
                              &bottom_color,
                              info.bottom.style,
                              resource_cache,

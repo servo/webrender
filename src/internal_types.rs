@@ -474,8 +474,8 @@ impl ClipRectToRegionResult<RectPosUv> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum BorderEdgeDirection {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AxisDirection {
     Horizontal,
     Vertical,
 }
@@ -863,7 +863,7 @@ impl<'a> CombinedClipRegion<'a> {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LowLevelFilterOp {
-    Blur(Au, BlurDirection),
+    Blur(Au, AxisDirection),
     Brightness(Au),
     Contrast(Au),
     Grayscale(Au),
@@ -881,8 +881,3 @@ pub enum CompositionOp {
     Filter(LowLevelFilterOp),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum BlurDirection {
-    Horizontal,
-    Vertical,
-}

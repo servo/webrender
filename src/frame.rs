@@ -3,7 +3,7 @@ use batch::MAX_MATRICES_PER_BATCH;
 use device::{TextureId};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
 use fnv::FnvHasher;
-use internal_types::{BlurDirection, LowLevelFilterOp, CompositionOp, DrawListItemIndex};
+use internal_types::{AxisDirection, LowLevelFilterOp, CompositionOp, DrawListItemIndex};
 use internal_types::{BatchUpdateList, DrawListId};
 use internal_types::{RendererFrame, DrawListContext, BatchInfo, DrawCall};
 use internal_types::{BatchUpdate, BatchUpdateOp, DrawLayer};
@@ -420,10 +420,10 @@ impl Frame {
                     FilterOp::Blur(radius) => {
                         composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Blur(
                             radius,
-                            BlurDirection::Horizontal)));
+                            AxisDirection::Horizontal)));
                         composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Blur(
                             radius,
-                            BlurDirection::Vertical)));
+                            AxisDirection::Vertical)));
                     }
                     FilterOp::Brightness(amount) => {
                         composition_operations.push(CompositionOp::Filter(

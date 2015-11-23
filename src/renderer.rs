@@ -9,7 +9,7 @@ use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp, BatchUpdateOp, B
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, BoxShadowPart, BasicRotationAngle};
 use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp};
-use internal_types::{BlurDirection, LowLevelFilterOp, DrawCommand, ANGLE_FLOAT_TO_FIXED};
+use internal_types::{AxisDirection, LowLevelFilterOp, DrawCommand, ANGLE_FLOAT_TO_FIXED};
 use ipc_channel::ipc;
 use render_backend::RenderBackend;
 use std::collections::HashMap;
@@ -374,7 +374,7 @@ impl Renderer {
                                         horizontal_blur_texture_image.texture_id,
                                         unblurred_glyph_texture_image.texture_id,
                                         blur_program_id,
-                                        Some(BlurDirection::Horizontal));
+                                        Some(AxisDirection::Horizontal));
                                     batch.add_draw_item(horizontal_blur_texture_image.texture_id,
                                                         unblurred_glyph_texture_image.texture_id,
                                                         &vertices);
@@ -434,7 +434,7 @@ impl Renderer {
                                         update.id,
                                         horizontal_blur_texture_image.texture_id,
                                         blur_program_id,
-                                        Some(BlurDirection::Vertical));
+                                        Some(AxisDirection::Vertical));
                                     batch.add_draw_item(update.id,
                                                         horizontal_blur_texture_image.texture_id,
                                                         &vertices);
@@ -635,7 +635,7 @@ impl Renderer {
                                   dest_texture_id: TextureId,
                                   color_texture_id: TextureId,
                                   program_id: ProgramId,
-                                  blur_direction: Option<BlurDirection>)
+                                  blur_direction: Option<AxisDirection>)
                                   -> &mut RasterBatch {
         // FIXME(pcwalton): Use a hash table if this linear search shows up in the profile.
         let mut index = None;
@@ -669,7 +669,7 @@ impl Renderer {
         // All horizontal blurs must complete before anything else.
         let mut remaining_batches = vec![];
         for batch in batches.into_iter() {
-            if batch.blur_direction != Some(BlurDirection::Horizontal) {
+            if batch.blur_direction != Some(AxisDirection::Horizontal) {
                 remaining_batches.push(batch);
                 continue
             }
@@ -695,7 +695,7 @@ impl Renderer {
                                                 update_id: TextureId,
                                                 color_texture_id: TextureId,
                                                 program_id: ProgramId,
-                                                blur_direction: Option<BlurDirection>) {
+                                                blur_direction: Option<AxisDirection>) {
         gl::disable(gl::BLEND);
         gl::disable(gl::DEPTH_TEST);
 
@@ -717,10 +717,10 @@ impl Renderer {
         self.device.bind_mask_texture_for_noncomposite_operation(TextureId(0));
 
         match blur_direction {
-            Some(BlurDirection::Horizontal) => {
+            Some(AxisDirection::Horizontal) => {
                 self.device.set_uniform_2f(self.u_direction, 1.0, 0.0)
             }
-            Some(BlurDirection::Vertical) => {
+            Some(AxisDirection::Vertical) => {
                 self.device.set_uniform_2f(self.u_direction, 0.0, 1.0)
             }
             None => {}
@@ -921,14 +921,14 @@ impl Renderer {
 
                                         let (opcode, amount, param0, param1) = match filter_op {
                                             LowLevelFilterOp::Blur(radius,
-                                                                   BlurDirection::Horizontal) => {
+                                                                   AxisDirection::Horizontal) => {
                                                 (0.0,
                                                  radius.to_f32_px() * self.device_pixel_ratio,
                                                  1.0,
                                                  0.0)
                                             }
                                             LowLevelFilterOp::Blur(radius,
-                                                                   BlurDirection::Vertical) => {
+                                                                   AxisDirection::Vertical) => {
                                                 (0.0,
                                                  radius.to_f32_px() * self.device_pixel_ratio,
                                                  0.0,
