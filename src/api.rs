@@ -3,7 +3,6 @@ use euclid::Point2D;
 use ipc_channel::ipc::{self, IpcSender};
 use stacking_context::StackingContext;
 use std::cell::Cell;
-use std::sync::mpsc::{self, Sender};
 use types::{ColorF, DisplayListId, Epoch, FontKey, StackingContextId};
 use types::{ImageKey, ImageFormat, NativeFontHandle, PipelineId};
 
