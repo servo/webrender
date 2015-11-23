@@ -6,6 +6,9 @@ authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 [dependencies.freetype]
 git = "https://github.com/servo/rust-freetype"
 
+[dependencies.ipc-channel]
+git = "https://github.com/pcwalton/ipc-channel"
+
 [dependencies.webrender_traits]
 git = "https://github.com/glennw/webrender_traits"
 

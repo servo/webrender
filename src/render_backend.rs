@@ -1,6 +1,7 @@
 use euclid::{Rect, Size2D};
 use frame::Frame;
 use internal_types::{FontTemplate, ResultMsg, DrawLayer};
+use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use resource_cache::ResourceCache;
 use scene::Scene;
 use scoped_threadpool;
@@ -26,8 +27,8 @@ use webrender_traits::{ApiMsg, IdNamespace, ResourceId, RenderApi, RenderNotifie
  */
 
 pub struct RenderBackend {
-    api_rx: Receiver<ApiMsg>,
-    api_tx: Sender<ApiMsg>,
+    api_rx: IpcReceiver<ApiMsg>,
+    api_tx: IpcSender<ApiMsg>,
     result_tx: Sender<ResultMsg>,
 
     viewport: Rect<i32>,
@@ -42,8 +43,8 @@ pub struct RenderBackend {
 }
 
 impl RenderBackend {
-    pub fn new(api_rx: Receiver<ApiMsg>,
-               api_tx: Sender<ApiMsg>,
+    pub fn new(api_rx: IpcReceiver<ApiMsg>,
+               api_tx: IpcSender<ApiMsg>,
                result_tx: Sender<ResultMsg>,
                viewport: Rect<i32>,
                device_pixel_ratio: f32,
@@ -127,16 +128,12 @@ impl RenderBackend {
                                                             stacking_context);
                         }
                         ApiMsg::CloneApi(sender) => {
-                            let new_api = RenderApi {
-                                tx: self.api_tx.clone(),
-                                id_namespace: self.next_namespace_id,
-                                next_id: Cell::new(ResourceId(0)),
-                            };
+                            let result = self.next_namespace_id;
 
                             let IdNamespace(id_namespace) = self.next_namespace_id;
                             self.next_namespace_id = IdNamespace(id_namespace + 1);
 
-                            sender.send(new_api).unwrap();
+                            sender.send(result).unwrap();
                         }
                         ApiMsg::SetRootStackingContext(stacking_context_id,
                                                        background_color,
