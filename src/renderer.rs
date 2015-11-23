@@ -22,7 +22,7 @@ use std::thread;
 use tessellator::BorderCornerTessellation;
 use texture_cache::{BorderType, TextureCache, TextureInsertOp};
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
-use webrender_traits::{ImageFormat, MixBlendMode, RenderApi};
+use webrender_traits::{ImageFormat, MixBlendMode, RenderApiSender};
 //use util;
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
@@ -77,7 +77,7 @@ impl Renderer {
                height: u32,
                device_pixel_ratio: f32,
                resource_path: PathBuf,
-               enable_aa: bool) -> (Renderer, RenderApi) {
+               enable_aa: bool) -> (Renderer, RenderApiSender) {
         let (api_tx, api_rx) = ipc::channel().unwrap();
         let (result_tx, result_rx) = channel();
 
@@ -178,9 +178,9 @@ impl Renderer {
             u_tile_params: u_tile_params,
         };
 
-        let api = RenderApi::new(api_tx);
+        let sender = RenderApiSender::new(api_tx);
 
-        (renderer, api)
+        (renderer, sender)
     }
 
     pub fn current_epoch(&self, pipeline_id: PipelineId) -> Option<Epoch> {
