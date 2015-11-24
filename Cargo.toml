@@ -22,7 +22,8 @@ app_units = "0.1"
 lazy_static = "0.1"
 simd = { git = "https://github.com/huonw/simd" }
 
-[target.x86_64-apple-darwin.dependencies]
-core-graphics = "*"
-core-text = "*"
+[target.x86_64-apple-darwin.dependencies.core-text]
+git = "https://github.com/servo/core-text-rs"
 
+[target.x86_64-apple-darwin.dependencies]
+core-graphics = "0.1"
