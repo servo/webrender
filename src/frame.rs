@@ -300,9 +300,10 @@ impl Frame {
     }
 
     pub fn create(&mut self,
-              scene: &Scene,
-              viewport_size: Size2D<u32>,
-              resource_cache: &mut ResourceCache) {
+                  scene: &Scene,
+                  viewport_size: Size2D<u32>,
+                  resource_cache: &mut ResourceCache,
+                  pipeline_sizes: &mut HashMap<PipelineId, Size2D<f32>>) {
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
             if let Some(root_pipeline) = scene.pipeline_map.get(&root_pipeline_id) {
                 let mut old_layers = self.reset(resource_cache);
@@ -326,7 +327,8 @@ impl Frame {
                              &root_stacking_context.stacking_context.overflow,
                              scene,
                              &old_layers,
-                             &root_stacking_context.stacking_context.overflow);
+                             &root_stacking_context.stacking_context.overflow,
+                             pipeline_sizes);
                 self.pop_render_target();
                 debug_assert!(self.render_target_stack.len() == 0);
 
@@ -352,7 +354,8 @@ impl Frame {
                    clip_rect: &Rect<f32>,
                    scene: &Scene,
                    old_layers: &HashMap<ScrollLayerId, Layer, DefaultState<FnvHasher>>,
-                   scene_rect: &Rect<f32>) {
+                   scene_rect: &Rect<f32>,
+                   pipeline_sizes: &mut HashMap<PipelineId, Size2D<f32>>) {
         let _pf = util::ProfileScope::new("  flatten");
 
         let stacking_context = match item_kind {
@@ -537,11 +540,15 @@ impl Frame {
                                      &clip_rect,
                                      scene,
                                      old_layers,
-                                     scene_rect);
+                                     scene_rect,
+                                     pipeline_sizes);
                     }
                     SpecificSceneItem::Iframe(iframe_info) => {
                         let pipeline = scene.pipeline_map
                                             .get(&iframe_info.id);
+
+                        pipeline_sizes.insert(iframe_info.id,
+                                              iframe_info.clip.size);
 
                         if let Some(pipeline) = pipeline {
                             // TODO: Doesn't handle transforms on iframes yet!
@@ -565,7 +572,8 @@ impl Frame {
                                              &clip_rect,
                                              scene,
                                              old_layers,
-                                             scene_rect);
+                                             scene_rect,
+                                             pipeline_sizes);
                             }
                         }
                     }

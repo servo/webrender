@@ -5,7 +5,8 @@ use ipc_channel::ipc::IpcReceiver;
 use resource_cache::ResourceCache;
 use scene::Scene;
 use scoped_threadpool;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::{TextureCache, TextureCacheItemId};
 use util;
@@ -24,6 +25,8 @@ pub struct RenderBackend {
 
     scene: Scene,
     frame: Frame,
+
+    notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 }
 
 impl RenderBackend {
@@ -34,7 +37,8 @@ impl RenderBackend {
                white_image_id: TextureCacheItemId,
                dummy_mask_image_id: TextureCacheItemId,
                texture_cache: TextureCache,
-               enable_aa: bool) -> RenderBackend {
+               enable_aa: bool,
+               notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>) -> RenderBackend {
         let mut thread_pool = scoped_threadpool::Pool::new(8);
 
         let resource_cache = ResourceCache::new(&mut thread_pool,
@@ -54,14 +58,13 @@ impl RenderBackend {
             scene: Scene::new(),
             frame: Frame::new(),
             next_namespace_id: IdNamespace(1),
+            notifier: notifier,
         };
 
         backend
     }
 
-    pub fn run(&mut self, notifier: Box<RenderNotifier>) {
-        let mut notifier = notifier;
-
+    pub fn run(&mut self) {
         loop {
             let msg = self.api_rx.recv();
 
@@ -130,7 +133,7 @@ impl RenderBackend {
                                                                  &mut self.resource_cache);
 
                             self.build_scene();
-                            self.render(&mut *notifier);
+                            self.render();
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
                             let _pf = util::ProfileScope::new("SetRootPipeline");
@@ -138,7 +141,7 @@ impl RenderBackend {
                             self.scene.set_root_pipeline_id(pipeline_id);
 
                             self.build_scene();
-                            self.render(&mut *notifier);
+                            self.render();
                         }
                         ApiMsg::Scroll(delta) => {
                             let _pf = util::ProfileScope::new("Scroll");
@@ -146,7 +149,7 @@ impl RenderBackend {
                             let viewport_size = Size2D::new(self.viewport.size.width as f32,
                                                             self.viewport.size.height as f32);
                             self.frame.scroll(&delta, &viewport_size);
-                            self.render(&mut *notifier);
+                            self.render();
                         }
                         ApiMsg::TranslatePointToLayerSpace(point, tx) => {
                             // TODO(pcwalton): Select other layers for mouse events.
@@ -167,13 +170,61 @@ impl RenderBackend {
 
     fn build_scene(&mut self) {
         // Flatten the stacking context hierarchy
+        let mut new_pipeline_sizes = HashMap::new();
+
         self.frame.create(&self.scene,
                           Size2D::new(self.viewport.size.width as u32,
                                       self.viewport.size.height as u32),
-                          &mut self.resource_cache);
+                          &mut self.resource_cache,
+                          &mut new_pipeline_sizes);
+
+        let mut updated_pipeline_sizes = HashMap::new();
+
+        for (pipeline_id, old_size) in self.scene.pipeline_sizes.drain() {
+            let new_size = new_pipeline_sizes.remove(&pipeline_id);
+
+            match new_size {
+                Some(new_size) => {
+                    // Exists in both old and new -> check if size changed
+                    if new_size != old_size {
+                        let mut notifier = self.notifier.lock();
+                        notifier.as_mut()
+                                .unwrap()
+                                .as_mut()
+                                .unwrap()
+                                .pipeline_size_changed(pipeline_id, Some(new_size));
+                    }
+
+                    // Re-insert
+                    updated_pipeline_sizes.insert(pipeline_id, new_size);
+                }
+                None => {
+                    // Was existing, not in current frame anymore
+                        let mut notifier = self.notifier.lock();
+                        notifier.as_mut()
+                                .unwrap()
+                                .as_mut()
+                                .unwrap()
+                                .pipeline_size_changed(pipeline_id, None);
+                }
+            }
+        }
+
+        // Any remaining items are new pipelines
+        for (pipeline_id, new_size) in new_pipeline_sizes.drain() {
+            let mut notifier = self.notifier.lock();
+            notifier.as_mut()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .pipeline_size_changed(pipeline_id, Some(new_size));
+            updated_pipeline_sizes.insert(pipeline_id, new_size);
+        }
+
+        self.scene.pipeline_sizes = updated_pipeline_sizes;
     }
 
-    fn render(&mut self, notifier: &mut RenderNotifier) {
+    fn render(&mut self) {
         let mut frame = self.frame.build(&self.viewport,
                                          &mut self.resource_cache,
                                          &mut self.thread_pool,
@@ -203,7 +254,13 @@ impl RenderBackend {
         }
 
         self.result_tx.send(ResultMsg::NewFrame(frame)).unwrap();
-        notifier.new_frame_ready();
+
+        // TODO(gw): This is kindof bogus to have to lock the notifier
+        //           each time it's used. This is due to some nastiness
+        //           in initialization order for Servo. Perhaps find a
+        //           cleaner way to do this, or use the OnceMutex on crates.io?
+        let mut notifier = self.notifier.lock();
+        notifier.as_mut().unwrap().as_mut().unwrap().new_frame_ready();
     }
 }
 

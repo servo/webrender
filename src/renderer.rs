@@ -17,6 +17,7 @@ use std::collections::hash_state::DefaultState;
 use std::f32;
 use std::mem;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use tessellator::BorderCornerTessellation;
@@ -69,11 +70,12 @@ pub struct Renderer {
 
     blur_program_id: ProgramId,
     u_direction: UniformLocation,
+
+    notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 }
 
 impl Renderer {
-    pub fn new(notifier: Box<RenderNotifier>,
-               width: u32,
+    pub fn new(width: u32,
                height: u32,
                device_pixel_ratio: f32,
                resource_path: PathBuf,
@@ -142,6 +144,9 @@ impl Renderer {
 
         device.end_frame();
 
+        let notifier = Arc::new(Mutex::new(None));
+        let backend_notifier = notifier.clone();
+
         thread::spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  result_tx,
@@ -150,8 +155,9 @@ impl Renderer {
                                                  white_image_id,
                                                  dummy_mask_image_id,
                                                  texture_cache,
-                                                 enable_aa);
-            backend.run(notifier);
+                                                 enable_aa,
+                                                 backend_notifier);
+            backend.run();
         });
 
         let renderer = Renderer {
@@ -176,11 +182,17 @@ impl Renderer {
             u_quad_transform_array: u_quad_transform_array,
             u_atlas_params: u_atlas_params,
             u_tile_params: u_tile_params,
+            notifier: notifier,
         };
 
         let sender = RenderApiSender::new(api_tx);
 
         (renderer, sender)
+    }
+
+    pub fn set_render_notifier(&self, notifier: Box<RenderNotifier>) {
+        let mut notifier_arc = self.notifier.lock().unwrap();
+        *notifier_arc = Some(notifier);
     }
 
     pub fn current_epoch(&self, pipeline_id: PipelineId) -> Option<Epoch> {

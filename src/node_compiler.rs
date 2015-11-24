@@ -4,7 +4,7 @@ use clipper::{ClipBuffers};
 use frame::{FrameRenderItem, FrameRenderTarget};
 use internal_types::{DrawListItemIndex, CompiledNode, CombinedClipRegion, BatchList};
 use resource_cache::ResourceCache;
-use webrender_traits::{ColorF, SpecificDisplayItem};
+use webrender_traits::SpecificDisplayItem;
 
 pub trait NodeCompiler {
     fn compile(&mut self,

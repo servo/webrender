@@ -1,3 +1,4 @@
+use euclid::Size2D;
 use fnv::FnvHasher;
 use internal_types::DrawListId;
 use optimizer;
@@ -23,6 +24,7 @@ pub struct ScenePipeline {
 pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
     pub pipeline_map: HashMap<PipelineId, ScenePipeline, DefaultState<FnvHasher>>,
+    pub pipeline_sizes: HashMap<PipelineId, Size2D<f32>>,
     pub display_list_map: HashMap<DisplayListId, SceneDisplayList, DefaultState<FnvHasher>>,
     pub stacking_context_map: HashMap<StackingContextId, SceneStackingContext, DefaultState<FnvHasher>>,
 }
@@ -56,6 +58,7 @@ impl Scene {
     pub fn new() -> Scene {
         Scene {
             root_pipeline_id: None,
+            pipeline_sizes: HashMap::new(),
             pipeline_map: HashMap::with_hash_state(Default::default()),
             display_list_map: HashMap::with_hash_state(Default::default()),
             stacking_context_map: HashMap::with_hash_state(Default::default()),
@@ -123,11 +126,11 @@ impl Scene {
     }
 
     pub fn set_root_stacking_context(&mut self,
-                                 pipeline_id: PipelineId,
-                                 epoch: Epoch,
-                                 stacking_context_id: StackingContextId,
-                                 background_color: ColorF,
-                                 resource_cache: &mut ResourceCache) {
+                                     pipeline_id: PipelineId,
+                                     epoch: Epoch,
+                                     stacking_context_id: StackingContextId,
+                                     background_color: ColorF,
+                                     resource_cache: &mut ResourceCache) {
         let old_display_list_keys: Vec<_> = self.display_list_map.iter()
                                                 .filter(|&(_, ref v)| {
                                                     v.pipeline_id == pipeline_id &&

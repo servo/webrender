@@ -1,10 +1,5 @@
 use device::{ProgramId, TextureId};
-use fnv::FnvHasher;
 use internal_types::{AxisDirection, PackedVertex, PackedVertexForTextureCacheUpdate, Primitive};
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
-use std::collections::hash_state::DefaultState;
-use std::u16;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 
