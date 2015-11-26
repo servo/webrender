@@ -15,7 +15,7 @@ pub struct ResourceId(pub u32);
 #[derive(Serialize, Deserialize)]
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>),
-    AddNativeFont(FontKey, NativeFontHandle),
+    //AddNativeFont(FontKey, NativeFontHandle),
     AddImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
     UpdateImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
     AddDisplayList(DisplayListId, PipelineId, Epoch, DisplayListBuilder),
@@ -68,11 +68,13 @@ impl RenderApi {
     }
 
     pub fn add_native_font(&self, native_font_handle: NativeFontHandle) -> FontKey {
+        panic!("TODO: Get this working again with the e10s changes!");
+        /*
         let new_id = self.next_unique_id();
         let key = FontKey::new(new_id.0, new_id.1);
         let msg = ApiMsg::AddNativeFont(key, native_font_handle);
         self.tx.send(msg).unwrap();
-        key
+        key*/
     }
 
     pub fn alloc_image(&self) -> ImageKey {
