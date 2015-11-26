@@ -3,7 +3,13 @@ name = "webrender"
 version = "0.1.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 
-[target.x86_64-unknown-linux-gnueabihf.dependencies.freetype]
+[target.i686-unknown-linux-gnu.dependencies.freetype]
+git = "https://github.com/servo/rust-freetype"
+
+[target.x86_64-unknown-linux-gnu.dependencies.freetype]
+git = "https://github.com/servo/rust-freetype"
+
+[target.arm-unknown-linux-gnueabihf.dependencies.freetype]
 git = "https://github.com/servo/rust-freetype"
 
 [dependencies.ipc-channel]
