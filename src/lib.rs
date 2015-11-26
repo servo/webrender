@@ -48,11 +48,13 @@ extern crate core_graphics;
 #[cfg(target_os="macos")]
 extern crate core_text;
 
+#[cfg(not(target_os="macos"))]
+extern crate freetype;
+
 extern crate app_units;
 extern crate euclid;
 extern crate fnv;
 extern crate gleam;
-extern crate freetype;
 extern crate ipc_channel;
 extern crate scoped_threadpool;
 extern crate simd;
