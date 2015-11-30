@@ -22,6 +22,7 @@ pub trait FreeListItem {
 pub struct FreeList<T> {
     items: Vec<T>,
     first_free_index: Option<FreeListItemId>,
+    alloc_count: usize,
 }
 
 impl<T: FreeListItem> FreeList<T> {
@@ -29,10 +30,12 @@ impl<T: FreeListItem> FreeList<T> {
         FreeList {
             items: Vec::new(),
             first_free_index: None,
+            alloc_count: 0,
         }
     }
 
     pub fn insert(&mut self, item: T) -> FreeListItemId {
+        self.alloc_count += 1;
         match self.first_free_index {
             Some(free_index) => {
                 let FreeListItemId(index) = free_index;
@@ -59,9 +62,15 @@ impl<T: FreeListItem> FreeList<T> {
         &mut self.items[index as usize]
     }
 
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.alloc_count
+    }
+
     // TODO(gw): Actually free items from the texture cache!!
     #[allow(dead_code)]
     pub fn free(&mut self, id: FreeListItemId) {
+        self.alloc_count -= 1;
         let FreeListItemId(index) = id;
         let item = &mut self.items[index as usize];
         item.set_next_free_id(self.first_free_index);

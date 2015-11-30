@@ -1,6 +1,7 @@
 use app_units::Au;
 use batch::{RasterBatch, VertexBufferId};
-use device::{Device, ProgramId, TextureId, UniformLocation};
+use debug_render::DebugRenderer;
+use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat};
 use device::{TextureFilter, VAOId, VertexUsageHint};
 use euclid::{Rect, Matrix4, Point2D, Size2D};
 use fnv::FnvHasher;
@@ -11,6 +12,8 @@ use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, BoxShadowPart, BasicRota
 use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp};
 use internal_types::{AxisDirection, LowLevelFilterOp, DrawCommand, ANGLE_FLOAT_TO_FIXED};
 use ipc_channel::ipc;
+use profiler::{Profiler, BackendProfileCounters};
+use profiler::{RendererProfileTimers, RendererProfileCounters};
 use render_backend::RenderBackend;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
@@ -22,6 +25,7 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use tessellator::BorderCornerTessellation;
 use texture_cache::{BorderType, TextureCache, TextureInsertOp};
+use time::precise_time_ns;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
 use webrender_traits::{ImageFormat, MixBlendMode, RenderApiSender};
 //use util;
@@ -38,7 +42,6 @@ struct RenderContext {
     temporary_fb_texture: TextureId,
     projection: Matrix4,
     layer_size: Size2D<u32>,
-    draw_calls: usize,
 }
 
 pub struct Renderer {
@@ -72,6 +75,14 @@ pub struct Renderer {
     u_direction: UniformLocation,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
+    viewport_size: Size2D<u32>,
+
+    enable_profiler: bool,
+    debug: DebugRenderer,
+    backend_profile_counters: BackendProfileCounters,
+    profile_counters: RendererProfileCounters,
+    profiler: Profiler,
+    last_time: u64,
 }
 
 impl Renderer {
@@ -79,7 +90,8 @@ impl Renderer {
                height: u32,
                device_pixel_ratio: f32,
                resource_path: PathBuf,
-               enable_aa: bool) -> (Renderer, RenderApiSender) {
+               enable_aa: bool,
+               enable_profiler: bool) -> (Renderer, RenderApiSender) {
         let (api_tx, api_rx) = ipc::channel().unwrap();
         let (result_tx, result_rx) = channel();
 
@@ -142,6 +154,8 @@ impl Renderer {
                              TextureInsertOp::Blit(mask_pixels),
                              BorderType::SinglePixel);
 
+        let debug_renderer = DebugRenderer::new(&mut device);
+
         device.end_frame();
 
         let notifier = Arc::new(Mutex::new(None));
@@ -183,6 +197,13 @@ impl Renderer {
             u_atlas_params: u_atlas_params,
             u_tile_params: u_tile_params,
             notifier: notifier,
+            viewport_size: Size2D::new(width, height),
+            debug: debug_renderer,
+            backend_profile_counters: BackendProfileCounters::new(),
+            profile_counters: RendererProfileCounters::new(),
+            profiler: Profiler::new(),
+            enable_profiler: enable_profiler,
+            last_time: 0,
         };
 
         let sender = RenderApiSender::new(api_tx);
@@ -213,7 +234,8 @@ impl Renderer {
                         ResultMsg::UpdateBatches(update_list) => {
                             self.pending_batch_updates.push(update_list);
                         }
-                        ResultMsg::NewFrame(frame) => {
+                        ResultMsg::NewFrame(frame, profile_counters) => {
+                            self.backend_profile_counters = profile_counters;
                             self.current_frame = Some(frame);
                         }
                     }
@@ -224,12 +246,32 @@ impl Renderer {
     }
 
     pub fn render(&mut self) {
-        //let _pf = util::ProfileScope::new("render");
-        self.device.begin_frame();
-        self.update_texture_cache();
-        self.update_batches();
-        self.draw_frame();
+        let mut profile_timers = RendererProfileTimers::new();
+
+        profile_timers.total_time.profile(|| {
+            self.device.begin_frame();
+            self.update_texture_cache();
+            self.update_batches();
+            self.draw_frame();
+        });
+
+        let current_time = precise_time_ns();
+        let ns = current_time - self.last_time;
+        self.profile_counters.frame_time.set(ns);
+
+        if self.enable_profiler {
+            self.profiler.draw_profile(&self.backend_profile_counters,
+                                       &self.profile_counters,
+                                       &profile_timers,
+                                       &mut self.debug);
+        }
+
+        self.profile_counters.reset();
+        self.profile_counters.frame_counter.inc();
+
+        self.debug.render(&mut self.device, &self.viewport_size);
         self.device.end_frame();
+        self.last_time = current_time;
     }
 
     fn update_batches(&mut self) {
@@ -238,7 +280,7 @@ impl Renderer {
             for update in update_list.updates {
                 match update.op {
                     BatchUpdateOp::Create(vertices, indices) => {
-                        let vao_id = self.device.create_vao();
+                        let vao_id = self.device.create_vao(VertexFormat::Batch);
                         self.device.bind_vao(vao_id);
 
                         self.device.update_vao_indices(vao_id,
@@ -746,6 +788,9 @@ impl Renderer {
         self.device.update_vao_indices(vao_id, &batch.indices[..], VertexUsageHint::Dynamic);
         self.device.update_vao_vertices(vao_id, &batch.vertices[..], VertexUsageHint::Dynamic);
 
+        self.profile_counters.vertices.add(batch.indices.len());
+        self.profile_counters.draw_calls.inc();
+
         self.device.draw_triangles_u16(0, batch.indices.len() as gl::GLint);
         self.device.delete_vao(vao_id);
     }
@@ -764,7 +809,6 @@ impl Renderer {
                 temporary_fb_texture: self.device.create_texture_ids(1)[0],
                 projection: Matrix4::identity(),
                 layer_size: Size2D::zero(),
-                draw_calls: 0,
             };
 
             debug_assert!(frame.layers.len() > 0);
@@ -857,9 +901,11 @@ impl Renderer {
                                                            mask_size.0 as f32,
                                                            mask_size.1 as f32);
 
+                                self.profile_counters.vertices.add(draw_call.index_count as usize);
+                                self.profile_counters.draw_calls.inc();
+
                                 self.device.draw_triangles_u16(draw_call.first_vertex as i32,
                                                                draw_call.index_count as i32);
-                                render_context.draw_calls += 1;
                             }
                         }
                         &DrawCommand::Composite(ref info) => {
@@ -1055,22 +1101,22 @@ impl Renderer {
                             ];
                             // TODO: Don't re-create this VAO all the time.
                             // Create it once and set positions via uniforms.
-                            let vao_id = self.device.create_vao();
+                            let vao_id = self.device.create_vao(VertexFormat::Batch);
                             self.device.bind_color_texture(info.color_texture_id);
                             self.device.bind_vao(vao_id);
                             self.device.update_vao_indices(vao_id, &indices, VertexUsageHint::Dynamic);
                             self.device.update_vao_vertices(vao_id, &vertices, VertexUsageHint::Dynamic);
 
+                            self.profile_counters.vertices.add(indices.len());
+                            self.profile_counters.draw_calls.inc();
+
                             self.device.draw_triangles_u16(0, indices.len() as gl::GLint);
-                            render_context.draw_calls += 1;
 
                             self.device.delete_vao(vao_id);
                         }
                     }
                 }
             }
-
-            //println!("draw_calls {}", render_context.draw_calls);
         }
     }
 }

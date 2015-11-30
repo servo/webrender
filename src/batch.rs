@@ -178,7 +178,7 @@ impl<'a> BatchBuilder<'a> {
                 }
             }
             Primitive::TriangleFan => {
-                for i in (1..vertices.len() - 1) {
+                for i in 1..vertices.len() - 1 {
                     self.vertex_buffer.indices.push(index_offset as u16);        // center vertex
                     self.vertex_buffer.indices.push((index_offset + i + 0) as u16);
                     self.vertex_buffer.indices.push((index_offset + i + 1) as u16);

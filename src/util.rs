@@ -22,11 +22,12 @@ impl ProfileScope {
 
 impl Drop for ProfileScope {
     fn drop(&mut self) {
+        /*
         if self.name.chars().next() != Some(' ') {
             let t1 = precise_time_ns();
             let ms = (t1 - self.t0) as f64 / 1000000f64;
             println!("{} {}", self.name, ms);
-        }
+        }*/
     }
 }
 
