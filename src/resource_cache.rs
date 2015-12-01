@@ -16,6 +16,7 @@ use std::collections::hash_state::DefaultState;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 use std::sync::atomic::Ordering::SeqCst;
 use std::thread;
+use std::time::Duration;
 use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
 use texture_cache::{BorderType, TextureInsertOp};
 use webrender_traits::{Epoch, FontKey, ImageKey, ImageFormat, DisplayItem, ImageRendering};
@@ -76,7 +77,7 @@ impl ResourceCache {
                     FONT_CONTEXT.with(|_| {
                         FONT_CONTEXT_COUNT.fetch_add(1, SeqCst);
                         while FONT_CONTEXT_COUNT.load(SeqCst) != thread_count {
-                            thread::sleep_ms(1);
+                            thread::sleep(Duration::from_millis(1));
                         }
                     });
                 });
