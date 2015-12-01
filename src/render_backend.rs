@@ -78,10 +78,10 @@ impl RenderBackend {
                             self.resource_cache
                                 .add_font_template(id, FontTemplate::Raw(Arc::new(bytes)));
                         }
-                        //ApiMsg::AddNativeFont(id, native_font_handle) => {
-                        //    self.resource_cache
-                        //        .add_font_template(id, FontTemplate::Native(native_font_handle));
-                        //}
+                        ApiMsg::AddNativeFont(id, native_font_handle) => {
+                            self.resource_cache
+                                .add_font_template(id, FontTemplate::Native(native_font_handle));
+                        }
                         ApiMsg::AddImage(id, width, height, format, bytes) => {
                             profile_counters.image_templates.inc(bytes.len());
                             self.resource_cache.add_image_template(id,
