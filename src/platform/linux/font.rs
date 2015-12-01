@@ -107,8 +107,8 @@ impl FontContext {
                 assert!(!slot.is_null());
 
                 let bitmap = &(*slot).bitmap;
-                debug_assert!((enable_aa && bitmap.pixel_mode == FT_PIXEL_MODE_GRAY as i8) ||
-                              (!enable_aa && bitmap.pixel_mode == FT_PIXEL_MODE_MONO as i8));
+                debug_assert!((enable_aa && bitmap.pixel_mode as i8 == FT_PIXEL_MODE_GRAY as i8) ||
+                              (!enable_aa && bitmap.pixel_mode as i8 == FT_PIXEL_MODE_MONO as i8));
 
                 let mut final_buffer = Vec::with_capacity((bitmap.width * bitmap.rows) as usize * 4);
 
