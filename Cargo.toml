@@ -5,6 +5,7 @@ authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 
 [dependencies.offscreen_gl_context]
 git = "https://github.com/ecoal95/rust-offscreen-rendering-context"
+branch = "webrender"
 
 [dependencies.ipc-channel]
 git = "https://github.com/servo/ipc-channel"
