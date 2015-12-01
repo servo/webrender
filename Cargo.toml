@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 
 [dependencies.ipc-channel]
-git = "https://github.com/pcwalton/ipc-channel"
+git = "https://github.com/servo/ipc-channel"
 
 [dependencies]
 app_units = "0.1"
