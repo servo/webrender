@@ -1,5 +1,9 @@
 #version 110
 
+#define SERVO_ES2
+
+precision highp float;
+
 uniform sampler2D sDiffuse;
 uniform sampler2D sMask;
 uniform vec4 uBlendParams;

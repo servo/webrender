@@ -1,5 +1,7 @@
 #version 150
 
+#define SERVO_GL3
+
 uniform sampler2D sDiffuse;
 uniform sampler2D sMask;
 uniform vec4 uBlendParams;

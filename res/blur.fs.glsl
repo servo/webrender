@@ -5,6 +5,10 @@ float gauss(float x, float sigma) {
 }
 
 void main(void) {
+#ifdef SERVO_ES2
+    // TODO(gw): for loops have to be unrollable on es2.
+    SetFragColor(vec4(1.0, 0.0, 0.0, 1.0));
+#else
     vec2 sideOffsets = (vDestTextureSize - vSourceTextureSize) / 2.0;
     int range = int(vBlurRadius) * 3;
     float sigma = vBlurRadius / 2.0;
@@ -25,5 +29,6 @@ void main(void) {
         value += x * gauss(offsetF, sigma);
     }
     SetFragColor(vec4(value, value, value, 1.0));
+#endif
 }
 

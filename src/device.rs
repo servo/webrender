@@ -981,27 +981,16 @@ impl Device {
         debug_assert!(self.inside_frame);
 
         if self.bound_vao != vao_id {
-            let prev_vertex_format = self.vaos
-                                         .get(&self.bound_vao)
-                                         .map(|vao| vao.vertex_format);
+            if let Some(prev_vao) = self.vaos.get(&self.bound_vao) {
+                prev_vao.vertex_format.unbind();
+            }
 
             let vao = self.vaos.get(&vao_id).unwrap();
             self.bound_vao = vao_id;
 
-            match (prev_vertex_format, vao.vertex_format) {
-                (None, format) => {
-                    format.bind();
-                }
-                (Some(old_format), new_format) => {
-                    if old_format != new_format {
-                        old_format.unbind();
-                        new_format.bind();
-                    }
-                }
-            }
-
             vao.vbo_id.bind();
             vao.ibo_id.bind();
+            vao.vertex_format.bind();
         }
     }
 

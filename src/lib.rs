@@ -60,7 +60,6 @@ extern crate fnv;
 extern crate gleam;
 extern crate ipc_channel;
 extern crate scoped_threadpool;
-extern crate simd;
 extern crate time;
 extern crate webrender_traits;
 

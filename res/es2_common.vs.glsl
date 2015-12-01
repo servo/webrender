@@ -1,12 +1,14 @@
 #version 110
 
+#define SERVO_ES2
+
 uniform mat4 uTransform;
 uniform mat4 uMatrixPalette[32];
 uniform vec2 uDirection;
 uniform vec4 uBlendParams;
 uniform vec4 uFilterParams;
 uniform float uDevicePixelRatio;
-uniform vec4 uTileParams[256];
+uniform vec4 uTileParams[64];
 
 attribute vec3 aPosition;
 attribute vec4 aColor;

@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 
 pub const MAX_MATRICES_PER_BATCH: usize = 32;
-pub const MAX_TILE_PARAMS_PER_BATCH: usize = 256;       // TODO(gw): Constrain to max FS uniform vectors...
+pub const MAX_TILE_PARAMS_PER_BATCH: usize = 64;       // TODO(gw): Constrain to max FS uniform vectors...
 pub const INVALID_TILE_PARAM: u8 = 0;
 
 static ID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;

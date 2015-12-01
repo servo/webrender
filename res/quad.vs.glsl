@@ -23,7 +23,12 @@ void main(void)
 
     // Snap the vertex to pixel position to guarantee correct texture
     // sampling when using bilinear filtering.
+#ifdef SERVO_ES2
+    // TODO(gw): ES2 doesn't have round(). Do we ever get negative coords here?
+    pos.xy = floor(0.5 + pos.xy * uDevicePixelRatio) / uDevicePixelRatio;
+#else
     pos.xy = round(pos.xy * uDevicePixelRatio) / uDevicePixelRatio;
+#endif
 
     // Transform by the orthographic projection into clip space.
     gl_Position = uTransform * pos;

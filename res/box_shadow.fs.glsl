@@ -12,7 +12,7 @@ float erf(float x) {
 
 void main(void)
 {
-    float range = int(vBlurRadius) * 3.0;
+    float range = floor(vBlurRadius) * 3.0;
     float sigma = vBlurRadius / 2.0;
     float sigmaSqrt2 = sigma * 1.41421356237;
 

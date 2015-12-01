@@ -1,7 +1,7 @@
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::{ClipRectToRegionMaskResult, ClipRectToRegionResult, CombinedClipRegion};
 use internal_types::{PolygonPosColorUv, RectColorsUv, RectPolygon, RectUv, WorkVertex};
-use simd::f32x4;
+//use simd::f32x4;
 use std::fmt::Debug;
 use std::mem;
 use webrender_traits::{ColorF, ComplexClipRegion};
@@ -43,21 +43,24 @@ fn intersection(a: &Point2D<f32>, b: &Point2D<f32>, p: &WorkVertex, q: &WorkVert
     let ratio = d1 / d2;
 
     // de-simd'd code:
-    // let u = p.u + ratio * (q.u - p.u);
-    // let v = p.v + ratio * (q.v - p.v);
-    // let mu = p.mu + ratio * (q.mu - p.mu);
-    // let mv = p.mv + ratio * (q.mv - p.mv);
-    // let r = p.r + ratio * (q.r - p.r);
-    // let g = p.g + ratio * (q.g - p.g);
-    // let b = p.b + ratio * (q.b - p.b);
-    // let a = p.a + ratio * (q.a - p.a);
+    let u = p.u + ratio * (q.u - p.u);
+    let v = p.v + ratio * (q.v - p.v);
+    let r = p.r + ratio * (q.r - p.r);
+    let g = p.g + ratio * (q.g - p.g);
+    let b = p.b + ratio * (q.b - p.b);
+    let a = p.a + ratio * (q.a - p.a);
+
+    let color = ColorF::new(r, g, b, a);
+    WorkVertex::new(x, y, &color, u, v)
+
+    /*
     let mut p_uv = f32x4::new(p.u, p.v, 0.0, 0.0);
     let q_uv = f32x4::new(q.u, q.v, 0.0, 0.0);
     let simd_ratio = f32x4::new(ratio, ratio, ratio, ratio);
     let mut p_rgba = f32x4::new(p.r, p.g, p.b, p.a);
     let q_rgba = f32x4::new(q.r, q.g, q.b, q.a);
     p_uv = p_uv + simd_ratio * (q_uv - p_uv);
-    p_rgba = p_rgba + simd_ratio * (q_rgba - p_rgba);
+    p_rgba = p_rgba + simd_ratio * (q_rgba - p_rgba);*
 
     let color = ColorF::new(p_rgba.extract(0),
                             p_rgba.extract(1),
@@ -65,6 +68,7 @@ fn intersection(a: &Point2D<f32>, b: &Point2D<f32>, p: &WorkVertex, q: &WorkVert
                             p_rgba.extract(3));
 
     WorkVertex::new(x, y, &color, p_uv.extract(0), p_uv.extract(1))
+    */
 }
 
 // We reuse these buffers for clipping algorithms

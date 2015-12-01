@@ -12,7 +12,7 @@ vec3 rgbToHsv(vec3 c) {
         hue = (c.g - c.b) / chroma;
     else if (c.g == value)
         hue = 2.0 + (c.b - c.r) / chroma;
-    else if (c.b == value)
+    else // if (c.b == value)
         hue = 4.0 + (c.r - c.g) / chroma;
 
     hue *= 1.0/6.0;
@@ -49,6 +49,10 @@ float gauss(float x, float sigma) {
 }
 
 vec4 Blur(float radius, vec2 direction) {
+#ifdef SERVO_ES2
+    // TODO(gw): for loops have to be unrollable on es2.
+    return vec4(1.0, 0.0, 0.0, 1.0);
+#else
     int range = int(radius) * 3;
     float sigma = radius / 2.0;
     vec4 color = vec4(0.0);
@@ -66,6 +70,7 @@ vec4 Blur(float radius, vec2 direction) {
         color += x * gauss(offsetF, sigma);
     }
     return color;
+#endif
 }
 
 vec4 Contrast(vec4 Cs, float amount) {
