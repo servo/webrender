@@ -32,6 +32,20 @@ use webrender_traits::{ImageFormat, MixBlendMode, RenderApiSender};
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
 
+// TODO(gw): HACK! Need to support lighten/darken mix-blend-mode properly on android...
+
+#[cfg(not(any(target_os = "android", target_os = "gonk")))]
+const GL_BLEND_MIN: gl::GLuint = gl::MIN;
+
+#[cfg(any(target_os = "android", target_os = "gonk"))]
+const GL_BLEND_MIN: gl::GLuint = gl::FUNC_ADD;
+
+#[cfg(not(any(target_os = "android", target_os = "gonk")))]
+const GL_BLEND_MAX: gl::GLuint = gl::MAX;
+
+#[cfg(any(target_os = "android", target_os = "gonk"))]
+const GL_BLEND_MAX: gl::GLuint = gl::FUNC_ADD;
+
 struct VertexBuffer {
     vao_id: VAOId,
 }
@@ -767,8 +781,8 @@ impl Renderer {
 
         self.device.bind_program(program_id, &projection);
 
-        self.device.bind_color_texture_for_noncomposite_operation(color_texture_id);
-        self.device.bind_mask_texture_for_noncomposite_operation(TextureId(0));
+        self.device.bind_color_texture(color_texture_id);
+        self.device.bind_mask_texture(TextureId(0));
 
         match blur_direction {
             Some(AxisDirection::Horizontal) => {
@@ -782,8 +796,8 @@ impl Renderer {
     }
 
     fn perform_gl_texture_cache_update(&mut self, batch: RasterBatch) {
-        let vao_id = self.device.create_vao_for_texture_cache_update();
-        self.device.bind_vao_for_texture_cache_update(vao_id);
+        let vao_id = self.device.create_vao(VertexFormat::RasterOp);
+        self.device.bind_vao(vao_id);
 
         self.device.update_vao_indices(vao_id, &batch.indices[..], VertexUsageHint::Dynamic);
         self.device.update_vao_vertices(vao_id, &batch.vertices[..], VertexUsageHint::Dynamic);
@@ -885,8 +899,8 @@ impl Renderer {
                                                                        &floats);
                                 }
 
-                                self.device.bind_mask_texture_for_noncomposite_operation(draw_call.mask_texture_id);
-                                self.device.bind_color_texture_for_noncomposite_operation(draw_call.color_texture_id);
+                                self.device.bind_mask_texture(draw_call.mask_texture_id);
+                                self.device.bind_color_texture(draw_call.color_texture_id);
 
                                 // TODO(gw): Although a minor cost, this is an extra hashtable lookup for every
                                 //           draw call, when the batch textures are (almost) always the same.
@@ -1057,12 +1071,12 @@ impl Renderer {
                                     }
                                     CompositionOp::MixBlend(MixBlendMode::Darken) => {
                                         gl::blend_func(gl::ONE, gl::ONE);
-                                        gl::blend_equation(gl::MIN);
+                                        gl::blend_equation(GL_BLEND_MIN);
                                         alpha = 1.0;
                                     }
                                     CompositionOp::MixBlend(MixBlendMode::Lighten) => {
                                         gl::blend_func(gl::ONE, gl::ONE);
-                                        gl::blend_equation(gl::MAX);
+                                        gl::blend_equation(GL_BLEND_MAX);
                                         alpha = 1.0;
                                     }
                                     _ => unreachable!(),
