@@ -7,7 +7,7 @@ use std::mem;
 use types::{ClipRegion, ColorF, FontKey, ImageKey, PipelineId, StackingLevel};
 use types::{BorderRadius, BorderSide, BoxShadowClipMode, GlyphInstance};
 use types::{DisplayListMode, GradientStop, StackingContextId, ImageRendering};
-use types::{WebGLContextId};
+use webgl::{WebGLContextId};
 
 #[derive(Serialize, Deserialize)]
 pub struct DrawListInfo {

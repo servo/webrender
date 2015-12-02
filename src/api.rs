@@ -5,7 +5,7 @@ use stacking_context::StackingContext;
 use std::cell::Cell;
 use types::{ColorF, DisplayListId, Epoch, FontKey, StackingContextId};
 use types::{ImageKey, ImageFormat, NativeFontHandle, PipelineId};
-use types::{WebGLContextId, WebGLCommand};
+use webgl::{WebGLContextId, WebGLCommand};
 use offscreen_gl_context::GLContextAttributes;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]

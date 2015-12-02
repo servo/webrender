@@ -1,7 +1,7 @@
 use app_units::Au;
 use types::{ClipRegion, ColorF, GlyphInstance, FontKey, ImageKey, BorderSide};
 use types::{GradientStop, BorderRadius, BoxShadowClipMode, ImageRendering};
-use types::{WebGLContextId};
+use webgl::{WebGLContextId};
 use euclid::{Point2D, Rect, Size2D};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
