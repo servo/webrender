@@ -60,6 +60,14 @@ impl NodeCompiler for AABBTreeNode {
                                             &display_item.clip.complex[..]);
 
                                         match display_item.item {
+                                            SpecificDisplayItem::WebGL(ref info) => {
+                                                builder.add_webgl_rectangle(matrix_index,
+                                                                            &display_item.rect,
+                                                                            &clip,
+                                                                            resource_cache,
+                                                                            &mut clip_buffers,
+                                                                            &info.context_id);
+                                            }
                                             SpecificDisplayItem::Image(ref info) => {
                                                 builder.add_image(matrix_index,
                                                                   &display_item.rect,

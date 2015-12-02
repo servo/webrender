@@ -288,6 +288,7 @@ impl FBOId {
     fn bind(&self) {
         let FBOId(id) = *self;
         gl::bind_framebuffer(gl::FRAMEBUFFER, id);
+        gl::bind_framebuffer(gl::READ_FRAMEBUFFER, id);
     }
 }
 
@@ -403,6 +404,7 @@ pub struct Device {
     // resources
     resource_path: PathBuf,
     textures: HashMap<TextureId, Texture, DefaultState<FnvHasher>>,
+    raw_textures: HashMap<TextureId, (u32, u32, u32, u32), DefaultState<FnvHasher>>,
     programs: HashMap<ProgramId, Program, DefaultState<FnvHasher>>,
     vaos: HashMap<VAOId, VAO, DefaultState<FnvHasher>>,
 
@@ -442,6 +444,7 @@ impl Device {
             default_fbo: 0,
 
             textures: HashMap::with_hash_state(Default::default()),
+            raw_textures: HashMap::with_hash_state(Default::default()),
             programs: HashMap::with_hash_state(Default::default()),
             vaos: HashMap::with_hash_state(Default::default()),
 
@@ -586,8 +589,21 @@ impl Device {
     }
 
     pub fn get_texture_dimensions(&self, texture_id: TextureId) -> (u32, u32) {
-        let texture = self.textures.get(&texture_id).unwrap();
-        (texture.width, texture.height)
+        if let Some(texture) = self.textures.get(&texture_id) {
+            (texture.width, texture.height)
+        } else {
+            let dimensions = self.raw_textures.get(&texture_id).unwrap();
+            (dimensions.2, dimensions.3)
+        }
+    }
+
+    pub fn update_raw_texture(&mut self,
+                              texture_id: TextureId,
+                              x0: u32,
+                              y0: u32,
+                              width: u32,
+                              height: u32) {
+        self.raw_textures.insert(texture_id, (x0, y0, width, height));
     }
 
     fn set_texture_parameters(&mut self, filter: TextureFilter) {

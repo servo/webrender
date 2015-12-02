@@ -243,6 +243,7 @@ pub enum RenderTargetMode {
 
 #[derive(Debug)]
 pub enum TextureUpdateDetails {
+    Raw,
     Blit(Vec<u8>),
     Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage),
     /// All four corners, the tessellation index, and whether inverted, respectively.

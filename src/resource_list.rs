@@ -147,6 +147,7 @@ impl BuildRequiredResources for AABBTreeNode {
                             resource_list.add_glyph(info.font_key, glyph);
                         }
                     }
+                    SpecificDisplayItem::WebGL(..) => {}
                     SpecificDisplayItem::Rectangle(..) => {}
                     SpecificDisplayItem::Gradient(..) => {}
                     SpecificDisplayItem::BoxShadow(ref info) => {

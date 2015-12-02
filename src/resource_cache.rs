@@ -20,6 +20,7 @@ use std::time::Duration;
 use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
 use texture_cache::{BorderType, TextureInsertOp};
 use webrender_traits::{Epoch, FontKey, ImageKey, ImageFormat, DisplayItem, ImageRendering};
+use webrender_traits::{WebGLContextId};
 
 static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
 
@@ -47,6 +48,7 @@ pub struct ResourceCache {
     cached_glyphs: HashMap<GlyphKey, Option<TextureCacheItemId>, DefaultState<FnvHasher>>,
     cached_rasters: HashMap<RasterItem, TextureCacheItemId, DefaultState<FnvHasher>>,
     cached_images: HashMap<(ImageKey, ImageRendering), CachedImageInfo, DefaultState<FnvHasher>>,
+    webgl_textures: HashMap<WebGLContextId, TextureId, DefaultState<FnvHasher>>,
 
     draw_lists: FreeList<DrawList>,
     font_templates: HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>,
@@ -88,6 +90,7 @@ impl ResourceCache {
             cached_glyphs: HashMap::with_hash_state(Default::default()),
             cached_rasters: HashMap::with_hash_state(Default::default()),
             cached_images: HashMap::with_hash_state(Default::default()),
+            webgl_textures: HashMap::with_hash_state(Default::default()),
             draw_lists: FreeList::new(),
             font_templates: HashMap::with_hash_state(Default::default()),
             image_templates: HashMap::with_hash_state(Default::default()),
@@ -146,6 +149,11 @@ impl ResourceCache {
         };
 
         self.image_templates.insert(image_key, resource);
+    }
+
+    pub fn add_webgl_texture(&mut self, id: WebGLContextId, texture_id: TextureId, size: Size2D<i32>) {
+        self.webgl_textures.insert(id, texture_id);
+        self.texture_cache.add_raw_update(texture_id, size);
     }
 
     pub fn add_resource_list(&mut self, resource_list: &ResourceList) {
@@ -327,6 +335,12 @@ impl ResourceCache {
     pub fn get_raster(&self, raster_item: &RasterItem) -> &TextureCacheItem {
         let image_id = self.cached_rasters[raster_item];
         self.texture_cache.get(image_id)
+    }
+
+    #[inline]
+    pub fn get_webgl_texture(&self,
+                             context_id: &WebGLContextId) -> TextureId {
+        self.webgl_textures.get(context_id).unwrap().clone()
     }
 }
 
