@@ -272,12 +272,3 @@ pub enum StackingLevel {
     PositionedContent,
     Outlines,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct WebGLContextId(pub usize);
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum WebGLCommand {
-    Clear(u32),
-    ClearColor(f32, f32, f32, f32),
-}
