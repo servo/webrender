@@ -205,7 +205,7 @@ impl ImageKey {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum MixBlendMode {
     Normal,
     Multiply,
