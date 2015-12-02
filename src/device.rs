@@ -662,7 +662,13 @@ impl Device {
         let (internal_format, gl_format) = match format {
             ImageFormat::A8 => (GL_FORMAT_A, GL_FORMAT_A),
             ImageFormat::RGB8 => (gl::RGB, gl::RGB),
-            ImageFormat::RGBA8 => (gl::RGBA, GL_FORMAT_BGRA),
+            ImageFormat::RGBA8 => {
+                if cfg!(target_os="android") {
+                    (GL_FORMAT_BGRA, GL_FORMAT_BGRA)
+                } else {
+                    (gl::RGBA, GL_FORMAT_BGRA)
+                }
+            }
             ImageFormat::Invalid => unreachable!(),
         };
 
