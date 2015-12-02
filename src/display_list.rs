@@ -1,5 +1,5 @@
 use app_units::Au;
-use display_item::{DisplayItem, SpecificDisplayItem, ImageDisplayItem};
+use display_item::{DisplayItem, SpecificDisplayItem, ImageDisplayItem, WebGLDisplayItem};
 use display_item::{RectangleDisplayItem, TextDisplayItem, GradientDisplayItem};
 use display_item::{BorderDisplayItem, BoxShadowDisplayItem};
 use euclid::{Point2D, Rect, Size2D};
@@ -7,6 +7,7 @@ use std::mem;
 use types::{ClipRegion, ColorF, FontKey, ImageKey, PipelineId, StackingLevel};
 use types::{BorderRadius, BorderSide, BoxShadowClipMode, GlyphInstance};
 use types::{DisplayListMode, GradientStop, StackingContextId, ImageRendering};
+use types::{WebGLContextId};
 
 #[derive(Serialize, Deserialize)]
 pub struct DrawListInfo {
@@ -103,6 +104,24 @@ impl DisplayListBuilder {
 
         let display_item = DisplayItem {
             item: SpecificDisplayItem::Image(item),
+            rect: rect,
+            clip: clip,
+        };
+
+        self.push_item(level, display_item);
+    }
+
+    pub fn push_webgl_canvas(&mut self,
+                             level: StackingLevel,
+                             rect: Rect<f32>,
+                             clip: ClipRegion,
+                             context_id: WebGLContextId) {
+        let item = WebGLDisplayItem {
+            context_id: context_id,
+        };
+
+        let display_item = DisplayItem {
+            item: SpecificDisplayItem::WebGL(item),
             rect: rect,
             clip: clip,
         };

@@ -1,10 +1,12 @@
 use display_list::DisplayListBuilder;
-use euclid::Point2D;
+use euclid::{Point2D, Size2D};
 use ipc_channel::ipc::{self, IpcSender};
 use stacking_context::StackingContext;
 use std::cell::Cell;
 use types::{ColorF, DisplayListId, Epoch, FontKey, StackingContextId};
 use types::{ImageKey, ImageFormat, NativeFontHandle, PipelineId};
+use types::{WebGLContextId, WebGLCommand};
+use offscreen_gl_context::GLContextAttributes;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct IdNamespace(pub u32);
@@ -25,6 +27,8 @@ pub enum ApiMsg {
     SetRootPipeline(PipelineId),
     Scroll(Point2D<f32>),
     TranslatePointToLayerSpace(Point2D<f32>, IpcSender<Point2D<f32>>),
+    RequestWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<WebGLContextId, String>>),
+    WebGLCommand(WebGLContextId, WebGLCommand),
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -158,6 +162,18 @@ impl RenderApi {
         let msg = ApiMsg::TranslatePointToLayerSpace(*point, tx);
         self.tx.send(msg).unwrap();
         rx.recv().unwrap()
+    }
+
+    pub fn request_webgl_context(&self, size: &Size2D<i32>, attributes: GLContextAttributes) -> Result<WebGLContextId, String> {
+        let (tx, rx) = ipc::channel().unwrap();
+        let msg = ApiMsg::RequestWebGLContext(*size, attributes, tx);
+        self.tx.send(msg).unwrap();
+        rx.recv().unwrap()
+    }
+
+    pub fn send_webgl_command(&self, context_id: WebGLContextId, command: WebGLCommand) {
+        let msg = ApiMsg::WebGLCommand(context_id, command);
+        self.tx.send(msg).unwrap();
     }
 
     fn next_unique_id(&self) -> (u32, u32) {
