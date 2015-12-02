@@ -1,6 +1,6 @@
 use euclid::{Rect, Size2D};
 use frame::Frame;
-use internal_types::{FontTemplate, ResultMsg, DrawLayer, RendererFrame};
+use internal_types::{FontTemplate, FrameRenderTarget, ResultMsg, DrawLayer, RendererFrame};
 use ipc_channel::ipc::IpcReceiver;
 use profiler::BackendProfileCounters;
 use resource_cache::ResourceCache;
@@ -227,6 +227,7 @@ impl RenderBackend {
         self.frame.create(&self.scene,
                           Size2D::new(self.viewport.size.width as u32,
                                       self.viewport.size.height as u32),
+                          self.device_pixel_ratio,
                           &mut self.resource_cache,
                           &mut new_pipeline_sizes);
 
@@ -287,10 +288,12 @@ impl RenderBackend {
         // cleared to the default UA background color. Perhaps
         // there is a better way to handle this...
         if frame.layers.len() == 0 {
+            let size = Size2D::new(self.viewport.size.width as u32,
+                                   self.viewport.size.height as u32);
             frame.layers.push(DrawLayer {
+                render_targets: vec![FrameRenderTarget::new(size, None)],
                 texture_id: None,
-                size: Size2D::new(self.viewport.size.width as u32,
-                                   self.viewport.size.height as u32),
+                size: size,
                 commands: Vec::new(),
             });
         }

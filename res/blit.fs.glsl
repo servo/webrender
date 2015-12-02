@@ -1,5 +1,5 @@
 void main(void)
 {
-    vec4 diffuse = Texture(sDiffuse, vColorTexCoord.xy);
+    vec4 diffuse = Texture(sDiffuse, vColorTexCoord);
     SetFragColor(diffuse * vColor);
 }

@@ -1,7 +1,7 @@
 use aabbtree::AABBTreeNode;
 use batch::{BatchBuilder, MatrixIndex, VertexBuffer};
 use clipper::{ClipBuffers};
-use frame::{FrameRenderItem, FrameRenderTarget};
+use frame::{FrameRenderItem, FrameRenderTargetGroup};
 use internal_types::{DrawListItemIndex, CompiledNode, CombinedClipRegion, BatchList};
 use resource_cache::ResourceCache;
 use webrender_traits::SpecificDisplayItem;
@@ -9,25 +9,25 @@ use webrender_traits::SpecificDisplayItem;
 pub trait NodeCompiler {
     fn compile(&mut self,
                resource_cache: &ResourceCache,
-               render_targets: &Vec<FrameRenderTarget>,
+               render_target_groups: &Vec<FrameRenderTargetGroup>,
                device_pixel_ratio: f32);
 }
 
 impl NodeCompiler for AABBTreeNode {
     fn compile(&mut self,
                resource_cache: &ResourceCache,
-               render_targets: &Vec<FrameRenderTarget>,
+               render_target_groups: &Vec<FrameRenderTargetGroup>,
                device_pixel_ratio: f32) {
         let mut compiled_node = CompiledNode::new();
         let mut vertex_buffer = VertexBuffer::new();
 
         let mut clip_buffers = ClipBuffers::new();
 
-        for render_target in render_targets {
-            for item in &render_target.items {
+        for render_target_group in render_target_groups {
+            for item in &render_target_group.items {
                 match item {
                     &FrameRenderItem::Clear(..) |
-                    &FrameRenderItem::Composite(..) => {}
+                    &FrameRenderItem::CompositeBatch(..) => {}
                     &FrameRenderItem::DrawListBatch(ref batch_info) => {
                         // TODO: Move this to outer loop when combining with >1 draw list!
                         let mut builder = BatchBuilder::new(&mut vertex_buffer);

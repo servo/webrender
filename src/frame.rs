@@ -1,13 +1,14 @@
 use app_units::Au;
-use batch::MAX_MATRICES_PER_BATCH;
+use batch::{CompositeBatchBuilder, MAX_MATRICES_PER_BATCH};
 use device::{TextureId};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
 use fnv::FnvHasher;
 use internal_types::{AxisDirection, LowLevelFilterOp, CompositionOp, DrawListItemIndex};
-use internal_types::{BatchUpdateList, DrawListId};
+use internal_types::{BatchUpdateList, CompositeBatchInfo, DrawListId};
 use internal_types::{RendererFrame, DrawListContext, BatchInfo, DrawCall};
-use internal_types::{BatchUpdate, BatchUpdateOp, DrawLayer};
-use internal_types::{DrawCommand, ClearInfo, CompositeInfo, ANGLE_FLOAT_TO_FIXED};
+use internal_types::{ANGLE_FLOAT_TO_FIXED, BatchUpdate, BatchUpdateOp, DrawLayer};
+use internal_types::{DrawCommand, ClearInfo, CompositeInfo, FrameRenderTarget};
+use internal_types::{RenderTargetTexture};
 use layer::Layer;
 use node_compiler::NodeCompiler;
 use resource_cache::ResourceCache;
@@ -24,6 +25,9 @@ use webrender_traits::{PipelineId, Epoch, ScrollPolicy, ScrollLayerId, StackingC
 use webrender_traits::{FilterOp, ImageFormat, MixBlendMode, StackingLevel};
 
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq, Hash)]
+pub struct RenderTargetGroupIndex(pub u32);
+
+#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq, Hash)]
 pub struct RenderTargetIndex(pub u32);
 
 #[derive(Debug)]
@@ -35,27 +39,63 @@ pub struct DrawListBatchInfo {
 #[derive(Debug)]
 pub enum FrameRenderItem {
     Clear(ClearInfo),
-    Composite(CompositeInfo),
+    CompositeBatch(CompositeBatchInfo),
     DrawListBatch(DrawListBatchInfo),
 }
 
 #[derive(Debug)]
-pub struct FrameRenderTarget {
-    pub size: Size2D<u32>,
-    pub texture_id: Option<TextureId>,
+pub struct FrameRenderTargetGroup {
+    pub composite_batch_builder: CompositeBatchBuilder,
     pub items: Vec<FrameRenderItem>,
+    render_targets: Vec<FrameRenderTarget>,
+    render_target_stack: Vec<RenderTargetIndex>,
+    texture_id: Option<TextureId>,
     current_batch: Option<DrawListBatchInfo>,
 }
 
-impl FrameRenderTarget {
-    pub fn new(size: Size2D<u32>,
-           texture_id: Option<TextureId>) -> FrameRenderTarget {
-        FrameRenderTarget {
-            size: size,
-            items: Vec::new(),
-            texture_id: texture_id,
+impl FrameRenderTargetGroup {
+    pub fn new() -> FrameRenderTargetGroup {
+        FrameRenderTargetGroup {
+            render_targets: vec![],
+            render_target_stack: vec![],
+            composite_batch_builder: CompositeBatchBuilder::new(),
+            items: vec![],
+            texture_id: None,
             current_batch: None,
         }
+    }
+
+    fn can_add_render_target(&self, render_target: &FrameRenderTarget) -> bool {
+        if self.render_targets.is_empty() {
+            debug_assert!(self.texture_id.is_none());
+            return true
+        }
+
+        match (render_target.texture, self.texture_id) {
+            (None, None) => true,
+            (Some(ref new_texture), Some(this_texture_id)) => {
+                new_texture.texture_id == this_texture_id
+            }
+            (None, Some(_)) | (Some(_), None) => false,
+        }
+    }
+
+    fn push_render_target(&mut self, render_target: FrameRenderTarget) {
+        debug_assert!(self.can_add_render_target(&render_target));
+        self.texture_id = render_target.texture.map(|texture| texture.texture_id);
+        self.render_target_stack.push(RenderTargetIndex(self.render_targets.len() as u32));
+        self.render_targets.push(render_target);
+    }
+
+    /// Returns true if more render targets remain after popping the last one or false if this
+    /// render target group is now empty.
+    fn pop_render_target(&mut self) -> bool {
+        self.render_target_stack.pop();
+        !self.render_target_stack.is_empty()
+    }
+
+    fn current_render_target(&self) -> FrameRenderTarget {
+        self.render_targets[self.render_target_stack.last().unwrap().0 as usize].clone()
     }
 
     fn finalize(&mut self) {
@@ -66,6 +106,9 @@ impl FrameRenderTarget {
         if let Some(batch) = self.current_batch.take() {
             self.items.push(FrameRenderItem::DrawListBatch(batch));
         }
+        for batch in self.composite_batch_builder.batches() {
+            self.items.push(FrameRenderItem::CompositeBatch(batch));
+        }
     }
 
     fn push_clear(&mut self, clear_info: ClearInfo) {
@@ -73,14 +116,11 @@ impl FrameRenderTarget {
         self.items.push(FrameRenderItem::Clear(clear_info));
     }
 
-    fn push_composite(&mut self, composite_info: CompositeInfo) {
-        self.flush();
-        self.items.push(FrameRenderItem::Composite(composite_info));
+    fn push_composite(&mut self, operation: &CompositionOp, job: &CompositeInfo) {
+        self.composite_batch_builder.add(operation, job)
     }
 
-    fn push_draw_list(&mut self,
-                      draw_list_id: DrawListId,
-                      scroll_layer_id: ScrollLayerId) {
+    fn push_draw_list(&mut self, draw_list_id: DrawListId, scroll_layer_id: ScrollLayerId) {
         let need_new_batch = match self.current_batch {
             Some(ref batch) => {
                 batch.scroll_layer_id != scroll_layer_id ||
@@ -107,8 +147,9 @@ impl FrameRenderTarget {
 pub struct Frame {
     pub layers: HashMap<ScrollLayerId, Layer, DefaultState<FnvHasher>>,
     pub pipeline_epoch_map: HashMap<PipelineId, Epoch, DefaultState<FnvHasher>>,
-    pub render_targets: Vec<FrameRenderTarget>,
-    pub render_target_stack: Vec<RenderTargetIndex>,
+    pub render_target_groups: Vec<FrameRenderTargetGroup>,
+    pub render_target_group_stack: Vec<RenderTargetGroupIndex>,
+    pub last_render_target_group: Option<RenderTargetGroupIndex>,
     pub pending_updates: BatchUpdateList,
 }
 
@@ -255,21 +296,24 @@ impl Frame {
         Frame {
             layers: HashMap::with_hash_state(Default::default()),
             pipeline_epoch_map: HashMap::with_hash_state(Default::default()),
-            render_targets: Vec::new(),
-            render_target_stack: Vec::new(),
+            render_target_groups: Vec::new(),
+            render_target_group_stack: Vec::new(),
+            last_render_target_group: None,
             pending_updates: BatchUpdateList::new(),
         }
     }
 
-    pub fn reset(&mut self,
-             resource_cache: &mut ResourceCache) -> HashMap<ScrollLayerId, Layer, DefaultState<FnvHasher>> {
+    pub fn reset(&mut self, resource_cache: &mut ResourceCache)
+                 -> HashMap<ScrollLayerId, Layer, DefaultState<FnvHasher>> {
         self.pipeline_epoch_map.clear();
 
         // Free any render targets from last frame.
         // TODO: This should really re-use existing targets here...
-        for render_target in self.render_targets.drain(..) {
-            if let Some(texture_id) = render_target.texture_id {
-                resource_cache.free_render_target(texture_id);
+        for render_target_group in self.render_target_groups.drain(..) {
+            for render_target in render_target_group.render_targets.into_iter() {
+                if let Some(texture) = render_target.texture {
+                    resource_cache.free_render_target(texture);
+                }
             }
         }
 
@@ -302,6 +346,7 @@ impl Frame {
     pub fn create(&mut self,
                   scene: &Scene,
                   viewport_size: Size2D<u32>,
+                  device_pixel_ratio: f32,
                   resource_cache: &mut ResourceCache,
                   pipeline_sizes: &mut HashMap<PipelineId, Size2D<f32>>) {
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
@@ -316,7 +361,7 @@ impl Frame {
                                                                 .scroll_layer_id
                                                                 .expect("root layer must be a scroll layer!");
 
-                debug_assert!(self.render_target_stack.len() == 0);
+                debug_assert!(self.render_target_group_stack.len() == 0);
                 self.push_render_target(viewport_size, None);
                 self.flatten(SceneItemKind::Pipeline(root_pipeline),
                              &Point2D::zero(),
@@ -328,9 +373,12 @@ impl Frame {
                              scene,
                              &old_layers,
                              &root_stacking_context.stacking_context.overflow,
-                             pipeline_sizes);
+                             pipeline_sizes,
+                             device_pixel_ratio);
+
                 self.pop_render_target();
-                debug_assert!(self.render_target_stack.len() == 0);
+                self.finalize_last_render_target_group();
+                debug_assert!(self.render_target_group_stack.len() == 0);
 
                 // TODO(gw): This should be moved elsewhere!
                 if let Some(root_scroll_layer) = self.layers.get_mut(&root_scroll_layer_id) {
@@ -355,7 +403,8 @@ impl Frame {
                    scene: &Scene,
                    old_layers: &HashMap<ScrollLayerId, Layer, DefaultState<FnvHasher>>,
                    scene_rect: &Rect<f32>,
-                   pipeline_sizes: &mut HashMap<PipelineId, Size2D<f32>>) {
+                   pipeline_sizes: &mut HashMap<PipelineId, Size2D<f32>>,
+                   device_pixel_ratio: f32) {
         let _pf = util::ProfileScope::new("  flatten");
 
         let stacking_context = match item_kind {
@@ -464,23 +513,29 @@ impl Frame {
                 }
             }
 
+            let transform_in_scene_space = final_transform;
             for composition_operation in composition_operations.iter() {
-                let size = Size2D::new(stacking_context.overflow.size.width as u32,
-                                       stacking_context.overflow.size.height as u32);
+                let size = Size2D::new(stacking_context.overflow.size.width as i32,
+                                       stacking_context.overflow.size.height as i32);
                 // TODO(gw): Get composition ops working with transforms
-                let origin = Point2D::new(child_offset.x as u32, child_offset.y as u32);
+                let origin = Point2D::new(child_offset.x as i32, child_offset.y as i32);
 
-                let texture_id = resource_cache.allocate_render_target(size.width,
-                                                                       size.height,
-                                                                       ImageFormat::RGBA8);
+                let x = origin.x as f32;
+                let y = origin.y as f32;
+                let origin = Point2D::new(x as i32, y as i32);
 
-                self.push_composite(CompositeInfo {
-                    operation: *composition_operation,
-                    color_texture_id: texture_id,
+                let texture = resource_cache.allocate_render_target(
+                    (size.width as f32 * device_pixel_ratio) as u32,
+                    (size.height as f32 * device_pixel_ratio) as u32,
+                    ImageFormat::RGBA8);
+
+                self.push_composite(composition_operation, &CompositeInfo {
                     rect: Rect::new(origin, size),
+                    render_target_texture: texture,
                 });
 
-                self.push_render_target(size, Some(texture_id));
+                self.push_render_target(Size2D::new(size.width as u32, size.height as u32),
+                                        Some(texture));
                 final_transform = Matrix4::identity();
             }
 
@@ -491,6 +546,8 @@ impl Frame {
                     SpecificSceneItem::DrawList(draw_list_id) => {
                         self.push_draw_list(draw_list_id, this_scroll_layer);
 
+                        let current_render_target = self.current_render_target_group()
+                                                        .current_render_target();
                         let layer = match self.layers.entry(this_scroll_layer) {
                             Occupied(entry) => {
                                 entry.into_mut()
@@ -512,6 +569,7 @@ impl Frame {
                             origin: child_offset,
                             overflow: overflow,
                             final_transform: final_transform,
+                            render_target: current_render_target,
                         });
 
                         for (item_index, item) in draw_list.items.iter().enumerate() {
@@ -520,7 +578,7 @@ impl Frame {
                             // may already be set for draw lists from other iframe(s) that weren't updated
                             // as part of this new stacking context.
                             let item_index = DrawListItemIndex(item_index as u32);
-                            let rect = final_transform.transform_rect(&item.rect);
+                            let rect = transform_in_scene_space.transform_rect(&item.rect);
                             layer.insert(&rect, draw_list_id, item_index);
                         }
                     }
@@ -541,7 +599,8 @@ impl Frame {
                                      scene,
                                      old_layers,
                                      scene_rect,
-                                     pipeline_sizes);
+                                     pipeline_sizes,
+                                     device_pixel_ratio);
                     }
                     SpecificSceneItem::Iframe(iframe_info) => {
                         let pipeline = scene.pipeline_map
@@ -573,7 +632,8 @@ impl Frame {
                                              scene,
                                              old_layers,
                                              scene_rect,
-                                             pipeline_sizes);
+                                             pipeline_sizes,
+                                             device_pixel_ratio);
                             }
                         }
                     }
@@ -586,49 +646,74 @@ impl Frame {
         }
     }
 
-    pub fn push_render_target(&mut self,
-                          size: Size2D<u32>,
-                          texture_id: Option<TextureId>) {
-        let rt_index = RenderTargetIndex(self.render_targets.len() as u32);
-        self.render_target_stack.push(rt_index);
+    pub fn push_render_target(&mut self, size: Size2D<u32>, texture: Option<RenderTargetTexture>) {
+        let render_target = FrameRenderTarget::new(size, texture);
+        if let Some(last_render_target_group_index) = self.last_render_target_group {
+            if self.render_target_groups[last_render_target_group_index.0 as usize]
+                   .can_add_render_target(&render_target) {
+                self.render_target_group_stack.push(last_render_target_group_index);
+                self.last_render_target_group = None;
+                self.current_render_target_group().push_render_target(render_target);
+                return
+            }
 
-        let render_target = FrameRenderTarget::new(size, texture_id);
-        self.render_targets.push(render_target);
+            self.render_target_groups[last_render_target_group_index.0 as usize].finalize();
+            self.last_render_target_group = None;
+        }
+
+        let rt_index = RenderTargetGroupIndex(self.render_target_groups.len() as u32);
+        self.render_target_group_stack.push(rt_index);
+
+        let mut render_target_group = FrameRenderTargetGroup::new();
+        render_target_group.push_render_target(render_target);
+        self.render_target_groups.push(render_target_group);
     }
 
     #[inline]
     fn push_clear(&mut self, clear_info: ClearInfo) {
-        self.current_render_target().push_clear(clear_info);
+        self.current_render_target_group().push_clear(clear_info);
     }
 
     #[inline]
-    fn push_composite(&mut self, composite_info: CompositeInfo) {
-        self.current_render_target().push_composite(composite_info);
+    fn push_composite(&mut self, operation: &CompositionOp, job: &CompositeInfo) {
+        self.current_render_target_group().push_composite(operation, job)
     }
 
     #[inline]
     fn push_draw_list(&mut self,
                       draw_list_id: DrawListId,
                       scroll_layer_id: ScrollLayerId) {
-        self.current_render_target().push_draw_list(draw_list_id,
-                                                    scroll_layer_id);
+        self.current_render_target_group().push_draw_list(draw_list_id, scroll_layer_id);
     }
 
-    fn current_render_target(&mut self) -> &mut FrameRenderTarget {
-        let RenderTargetIndex(index) = *self.render_target_stack.last().unwrap();
-        &mut self.render_targets[index as usize]
+    fn current_render_target_group(&mut self) -> &mut FrameRenderTargetGroup {
+        let RenderTargetGroupIndex(index) = *self.render_target_group_stack.last().unwrap();
+        &mut self.render_target_groups[index as usize]
     }
 
     pub fn pop_render_target(&mut self) {
-        self.current_render_target().finalize();
-        self.render_target_stack.pop().unwrap();
+        if self.current_render_target_group().pop_render_target() {
+            return
+        }
+
+        self.finalize_last_render_target_group();
+        self.last_render_target_group = self.render_target_group_stack.pop();
+    }
+
+    pub fn finalize_last_render_target_group(&mut self) {
+        if let Some(last_render_target_group_index) = self.last_render_target_group {
+            self.render_target_groups[last_render_target_group_index.0 as usize]
+                .finalize();
+            self.last_render_target_group = None;
+        }
     }
 
     pub fn build(&mut self,
-             viewport: &Rect<i32>,
-             resource_cache: &mut ResourceCache,
-             thread_pool: &mut scoped_threadpool::Pool,
-             device_pixel_ratio: f32) -> RendererFrame {
+                 viewport: &Rect<i32>,
+                 resource_cache: &mut ResourceCache,
+                 thread_pool: &mut scoped_threadpool::Pool,
+                 device_pixel_ratio: f32)
+                 -> RendererFrame {
         let origin = Point2D::new(viewport.origin.x as f32, viewport.origin.y as f32);
         let size = Size2D::new(viewport.size.width as f32, viewport.size.height as f32);
         let viewport_rect = Rect::new(origin, size);
@@ -657,7 +742,7 @@ impl Frame {
         self.update_batch_cache();
 
         // Collect the visible batches into a frame
-        self.collect_and_sort_visible_batches(resource_cache)
+        self.collect_and_sort_visible_batches(resource_cache, device_pixel_ratio)
     }
 
     pub fn update_resource_lists(&mut self,
@@ -707,7 +792,7 @@ impl Frame {
         let _pf = util::ProfileScope::new("  compile_visible_nodes");
 
         let layers = &mut self.layers;
-        let render_targets = &self.render_targets;
+        let render_target_groups = &self.render_target_groups;
 
         thread_pool.scoped(|scope| {
             for (_, layer) in layers {
@@ -715,9 +800,7 @@ impl Frame {
                 for node in nodes {
                     if node.is_visible && node.compiled_node.is_none() {
                         scope.execute(move || {
-                            node.compile(resource_cache,
-                                         render_targets,
-                                         device_pixel_ratio);
+                            node.compile(resource_cache, render_target_groups, device_pixel_ratio);
                         });
                     }
                 }
@@ -748,35 +831,60 @@ impl Frame {
     }
 
     pub fn collect_and_sort_visible_batches(&mut self,
-                                            resource_cache: &ResourceCache) -> RendererFrame {
+                                            resource_cache: &ResourceCache,
+                                            device_pixel_ratio: f32)
+                                            -> RendererFrame {
         let mut frame = RendererFrame::new(self.pipeline_epoch_map.clone());
 
-        for render_target in &self.render_targets {
-            let mut commands = Vec::new();
+        for render_target_group in &self.render_target_groups {
+            let mut layer_rect = None;
+            for render_target in &render_target_group.render_targets {
+                let rect = match render_target.texture {
+                    Some(ref texture) => texture.uv_rect,
+                    None => Rect::new(Point2D::new(0, 0), render_target.size),
+                };
+                match layer_rect {
+                    None => layer_rect = Some(rect),
+                    Some(old_layer_rect) => layer_rect = Some(old_layer_rect.union(&rect)),
+                }
+            }
+            let layer_rect = layer_rect.unwrap();
 
-            for item in &render_target.items {
+            let mut commands = vec![];
+            for item in &render_target_group.items {
                 match item {
                     &FrameRenderItem::Clear(ref info) => {
                         commands.push(DrawCommand::Clear(info.clone()));
                     }
-                    &FrameRenderItem::Composite(ref info) => {
-                        commands.push(DrawCommand::Composite(info.clone()));
+                    &FrameRenderItem::CompositeBatch(ref info) => {
+                        commands.push(DrawCommand::CompositeBatch(info.clone()));
                     }
                     &FrameRenderItem::DrawListBatch(ref batch_info) => {
                         let layer = &self.layers[&batch_info.scroll_layer_id];
                         let first_draw_list_id = *batch_info.draw_lists.first().unwrap();
-                        debug_assert!(batch_info.draw_lists.len() < MAX_MATRICES_PER_BATCH);
-                        let mut matrix_palette = vec![Matrix4::identity(); batch_info.draw_lists.len()];
+                        debug_assert!(batch_info.draw_lists.len() <= MAX_MATRICES_PER_BATCH);
+                        let mut matrix_palette =
+                            vec![Matrix4::identity(); batch_info.draw_lists.len()];
 
                         // Update batch matrices
                         for (index, draw_list_id) in batch_info.draw_lists.iter().enumerate() {
                             let draw_list = resource_cache.get_draw_list(*draw_list_id);
 
-                            let transform = draw_list.context.as_ref().unwrap().final_transform;
-                            let transform = transform.translate(layer.scroll_offset.x,
-                                                                layer.scroll_offset.y,
-                                                                0.0);
-                            matrix_palette[index] = transform;
+                            let context = draw_list.context.as_ref().unwrap();
+                            let mut transform = context.final_transform;
+                            transform = transform.translate(layer.scroll_offset.x,
+                                                            layer.scroll_offset.y,
+                                                            0.0);
+                            if let Some(ref render_target_texture) = context.render_target
+                                                                            .texture {
+                                transform = transform.translate(
+                                    (render_target_texture.uv_rect.origin.x - layer_rect.origin.x)
+                                    as f32 / device_pixel_ratio,
+                                    (render_target_texture.uv_rect.origin.y - layer_rect.origin.y)
+                                    as f32 / device_pixel_ratio,
+                                    0.0);
+                            }
+                            matrix_palette[index] = transform
                         }
 
                         let mut batch_info = BatchInfo::new(matrix_palette);
@@ -814,9 +922,30 @@ impl Frame {
                 }
             }
 
-            let layer = DrawLayer::new(render_target.texture_id,
-                                       render_target.size,
-                                       commands);
+            let mut render_targets = vec![];
+            let mut bounding_rect = Rect::new(Point2D::new(0, 0), Size2D::new(0, 0));
+            let mut texture_id = None;
+            for render_target in &render_target_group.render_targets {
+                render_targets.push((*render_target).clone());
+
+                let origin;
+                match render_target.texture {
+                    Some(ref texture) => {
+                        debug_assert!(texture_id.is_none() ||
+                                      texture_id == Some(texture.texture_id));
+                        texture_id = Some(texture.texture_id);
+                        origin = texture.uv_rect.origin;
+                    }
+                    None => {
+                        debug_assert!(texture_id.is_none());
+                        origin = Point2D::new(0, 0);
+                    }
+                }
+
+                bounding_rect = bounding_rect.union(&Rect::new(origin, render_target.size));
+            }
+
+            let layer = DrawLayer::new(&bounding_rect.size, texture_id, render_targets, commands);
             frame.layers.push(layer);
         }
 

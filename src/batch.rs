@@ -1,5 +1,10 @@
 use device::{ProgramId, TextureId};
-use internal_types::{AxisDirection, PackedVertex, PackedVertexForTextureCacheUpdate, Primitive};
+use fnv::FnvHasher;
+use internal_types::{AxisDirection, CompositeBatchInfo, CompositeInfo, CompositionOp};
+use internal_types::{PackedVertex, PackedVertexForTextureCacheUpdate, Primitive};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::collections::hash_state::DefaultState;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 
@@ -133,6 +138,13 @@ impl<'a> BatchBuilder<'a> {
                          primitive: Primitive,
                          vertices: &mut [PackedVertex],
                          tile_params: Option<TileParams>) {
+        let index_count = match primitive {
+            Primitive::Rectangles | Primitive::Glyphs => {
+                (vertices.len() / 4 * 6) as u16
+            }
+            Primitive::Triangles => vertices.len() as u16,
+            Primitive::TriangleFan => ((vertices.len() - 2) * 3) as u16,
+        };
 
         let need_new_batch = match self.batches.last_mut() {
             Some(batch) => {
@@ -153,28 +165,26 @@ impl<'a> BatchBuilder<'a> {
                                          self.vertex_buffer.indices.len() as u16));
         }
 
-        let mut index_count = 0;
-
         match primitive {
             Primitive::Rectangles | Primitive::Glyphs => {
                 for i in (0..vertices.len()).step_by(4) {
                     let index_base = (index_offset + i) as u16;
+                    debug_assert!(index_base as usize == index_offset + i);
                     self.vertex_buffer.indices.push(index_base + 0);
                     self.vertex_buffer.indices.push(index_base + 1);
                     self.vertex_buffer.indices.push(index_base + 2);
                     self.vertex_buffer.indices.push(index_base + 2);
                     self.vertex_buffer.indices.push(index_base + 3);
                     self.vertex_buffer.indices.push(index_base + 1);
-                    index_count += 6;
                 }
             }
             Primitive::Triangles => {
                 for i in (0..vertices.len()).step_by(3) {
                     let index_base = (index_offset + i) as u16;
+                    debug_assert!(index_base as usize == index_offset + i);
                     self.vertex_buffer.indices.push(index_base + 0);
                     self.vertex_buffer.indices.push(index_base + 1);
                     self.vertex_buffer.indices.push(index_base + 2);
-                    index_count += 3;
                 }
             }
             Primitive::TriangleFan => {
@@ -182,7 +192,6 @@ impl<'a> BatchBuilder<'a> {
                     self.vertex_buffer.indices.push(index_offset as u16);        // center vertex
                     self.vertex_buffer.indices.push((index_offset + i + 0) as u16);
                     self.vertex_buffer.indices.push((index_offset + i + 1) as u16);
-                    index_count += 3;
                 }
             }
         }
@@ -271,3 +280,47 @@ impl RasterBatch {
         self.vertices.push_all(vertices);
     }
 }
+
+/// A batch builder for composition operations.
+#[derive(Debug)]
+pub struct CompositeBatchBuilder {
+    batches: HashMap<CompositeBatchKey, CompositeBatchInfo, DefaultState<FnvHasher>>,
+}
+
+impl CompositeBatchBuilder {
+    pub fn new() -> CompositeBatchBuilder {
+        CompositeBatchBuilder {
+            batches: HashMap::with_hash_state(Default::default()),
+        }
+    }
+
+    pub fn add(&mut self, operation: &CompositionOp, job: &CompositeInfo) {
+        let key = CompositeBatchKey {
+            operation: (*operation).clone(),
+            texture_id: job.render_target_texture.texture_id,
+        };
+        match self.batches.entry(key) {
+            Entry::Vacant(entry) => {
+                entry.insert(CompositeBatchInfo {
+                    operation: (*operation).clone(),
+                    texture_id: job.render_target_texture.texture_id,
+                    jobs: vec![(*job).clone()],
+                });
+            }
+            Entry::Occupied(entry) => entry.into_mut().jobs.push((*job).clone()),
+        }
+    }
+
+    /// FIXME(pcwalton): Very inefficient.
+    pub fn batches(&self) -> Vec<CompositeBatchInfo> {
+        self.batches.iter().map(|(_, batch)| (*batch).clone()).collect()
+    }
+}
+
+/// The key we use for sorting composition operations into batches.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CompositeBatchKey {
+    pub operation: CompositionOp,
+    pub texture_id: TextureId,
+}
+
