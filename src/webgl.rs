@@ -209,7 +209,6 @@ impl WebGLCommand {
                 sender.send(ctx.borrow_draw_buffer().unwrap().size().width).unwrap(),
             WebGLCommand::DrawingBufferHeight(sender) =>
                 sender.send(ctx.borrow_draw_buffer().unwrap().size().height).unwrap(),
-
         }
     }
 
@@ -286,7 +285,7 @@ impl WebGLCommand {
     }
 
     fn create_texture(chan: IpcSender<Option<NonZero<u32>>>) {
-        let texture = gl::gen_framebuffers(1)[0];
+        let texture = gl::gen_textures(1)[0];
         let texture = if texture == 0 {
             None
         } else {
