@@ -288,7 +288,6 @@ impl FBOId {
     fn bind(&self) {
         let FBOId(id) = *self;
         gl::bind_framebuffer(gl::FRAMEBUFFER, id);
-        gl::bind_framebuffer(gl::READ_FRAMEBUFFER, id);
     }
 }
 
