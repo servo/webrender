@@ -33,6 +33,7 @@ pub struct RenderBackend {
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
     webrender_context_handle: Option<NativeGLContextHandle>,
     webgl_contexts: HashMap<WebGLContextId, GLContext<NativeGLContext>>,
+    current_bound_webgl_context_id: Option<WebGLContextId>,
 }
 
 impl RenderBackend {
@@ -68,6 +69,7 @@ impl RenderBackend {
             notifier: notifier,
             webrender_context_handle: webrender_context_handle,
             webgl_contexts: HashMap::new(),
+            current_bound_webgl_context_id: None,
         };
 
         backend
@@ -210,6 +212,7 @@ impl RenderBackend {
                             let ctx = self.webgl_contexts.get(&context_id).unwrap();
                             ctx.make_current().unwrap();
                             command.apply(ctx);
+                            self.current_bound_webgl_context_id = Some(context_id);
                         }
                     }
                 }
@@ -223,6 +226,10 @@ impl RenderBackend {
     fn build_scene(&mut self) {
         // Flatten the stacking context hierarchy
         let mut new_pipeline_sizes = HashMap::new();
+
+        if let Some(id) = self.current_bound_webgl_context_id {
+            self.webgl_contexts.get(&id).unwrap().unbind().unwrap();
+        }
 
         self.frame.create(&self.scene,
                           Size2D::new(self.viewport.size.width as u32,
