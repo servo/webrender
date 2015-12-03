@@ -69,10 +69,10 @@ impl<'a> BatchBuilder<'a> {
         let texture_id = resource_cache.get_webgl_texture(webgl_context_id);
 
         let uv = RectUv {
-            top_left: Point2D::zero(),
-            top_right: Point2D::new(1.0, 0.0),
-            bottom_left: Point2D::new(0.0, 1.0),
-            bottom_right: Point2D::new(1.0, 1.0),
+            top_left: Point2D::new(0.0, 1.0),
+            top_right: Point2D::new(1.0, 1.0),
+            bottom_left: Point2D::zero(),
+            bottom_right: Point2D::new(1.0, 0.0),
         };
 
         clipper::clip_rect_to_combined_region(
