@@ -845,9 +845,8 @@ impl<'a> BatchBuilder<'a> {
                 });
             }
             BoxShadowClipMode::Outset => {
-                // TODO(pcwalton): Support border radii here too, once we have inverted rounded
-                // rect clip masks.
-                clip.clip_out(&ComplexClipRegion::from_rect(box_bounds));
+                clip.clip_out(&ComplexClipRegion::new(*box_bounds,
+                                                      BorderRadius::uniform(border_radius)));
             }
         }
         clip
