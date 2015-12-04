@@ -549,17 +549,22 @@ impl<'a> BatchBuilder<'a> {
             BoxShadowClipMode::Outset => {
                 // Fill the center area.
                 let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
-                let center_rect = Rect::new(metrics.tl_inner,
-                                            Size2D::new(metrics.br_inner.x - metrics.tl_inner.x,
-                                                        metrics.br_inner.y - metrics.tl_inner.y));
-                let mut clip = *clip;
-                clip.clip_out(&ComplexClipRegion::from_rect(&box_bounds));
-                self.add_color_rectangle(matrix_index,
-                                         &center_rect,
-                                         &clip,
-                                         resource_cache,
-                                         clip_buffers,
-                                         color);
+                if metrics.br_inner.x > metrics.tl_inner.x &&
+                        metrics.br_inner.y > metrics.tl_inner.y {
+                    let center_rect =
+                        Rect::new(metrics.tl_inner,
+                                  Size2D::new(metrics.br_inner.x - metrics.tl_inner.x,
+                                              metrics.br_inner.y - metrics.tl_inner.y));
+                    let mut clip = *clip;
+                    clip.clip_out(&ComplexClipRegion::new(*box_bounds,
+                                                          BorderRadius::uniform(border_radius)));
+                    self.add_color_rectangle(matrix_index,
+                                             &center_rect,
+                                             &clip,
+                                             resource_cache,
+                                             clip_buffers,
+                                             color);
+                }
             }
             BoxShadowClipMode::Inset => {
                 // Fill in the outsides.
