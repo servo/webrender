@@ -1372,6 +1372,10 @@ impl<'a> BatchBuilder<'a> {
                            resource_cache: &ResourceCache,
                            clip_buffers: &mut ClipBuffers,
                            rotation_angle: BasicRotationAngle) {
+        if top_left.x >= bottom_right.x || top_left.y >= bottom_right.y {
+            return
+        }
+
         let inverted = match clip_mode {
             BoxShadowClipMode::Outset | BoxShadowClipMode::None => false,
             BoxShadowClipMode::Inset => true,
