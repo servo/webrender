@@ -609,52 +609,65 @@ impl<'a> BatchBuilder<'a> {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
         let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
 
-        let clip = self.adjust_clip_for_box_shadow_clip_mode(clip,
-                                                             box_bounds,
-                                                             border_radius,
-                                                             clip_mode);
+        let mut clip = self.adjust_clip_for_box_shadow_clip_mode(clip,
+                                                                 box_bounds,
+                                                                 border_radius,
+                                                                 clip_mode);
+
+        // Prevent overlap of the box shadow corners when the size of the blur is larger than the
+        // size of the box.
+        let center = Point2D::new(box_bounds.origin.x + box_bounds.size.width / 2.0,
+                                  box_bounds.origin.y + box_bounds.size.height / 2.0);
 
         self.add_box_shadow_corner(matrix_index,
                                    &metrics.tl_outer,
                                    &metrics.tl_inner,
+                                   &metrics.tl_outer,
+                                   &center,
                                    &color,
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
-                                   &clip,
+                                   &mut clip,
                                    resource_cache,
                                    clip_buffers,
                                    BasicRotationAngle::Upright);
         self.add_box_shadow_corner(matrix_index,
                                    &Point2D::new(metrics.tr_inner.x, metrics.tr_outer.y),
                                    &Point2D::new(metrics.tr_outer.x, metrics.tr_inner.y),
+                                   &Point2D::new(center.x, metrics.tr_outer.y),
+                                   &Point2D::new(metrics.tr_outer.x, center.y),
                                    &color,
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
-                                   &clip,
+                                   &mut clip,
                                    resource_cache,
                                    clip_buffers,
                                    BasicRotationAngle::Clockwise90);
         self.add_box_shadow_corner(matrix_index,
                                    &metrics.br_inner,
                                    &metrics.br_outer,
+                                   &center,
+                                   &metrics.br_outer,
                                    &color,
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
-                                   &clip,
+                                   &mut clip,
                                    resource_cache,
                                    clip_buffers,
                                    BasicRotationAngle::Clockwise180);
         self.add_box_shadow_corner(matrix_index,
                                    &Point2D::new(metrics.bl_outer.x, metrics.bl_inner.y),
                                    &Point2D::new(metrics.bl_inner.x, metrics.bl_outer.y),
+                                   &Point2D::new(metrics.bl_outer.x, center.y),
+                                   &Point2D::new(center.x, metrics.bl_outer.y),
                                    &color,
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
-                                   &clip,
+                                   &mut clip,
                                    resource_cache,
                                    clip_buffers,
                                    BasicRotationAngle::Clockwise270);
@@ -1324,14 +1337,23 @@ impl<'a> BatchBuilder<'a> {
                              matrix_index: MatrixIndex,
                              top_left: &Point2D<f32>,
                              bottom_right: &Point2D<f32>,
+                             corner_area_top_left: &Point2D<f32>,
+                             corner_area_bottom_right: &Point2D<f32>,
                              color: &ColorF,
                              blur_radius: f32,
                              border_radius: f32,
                              clip_mode: BoxShadowClipMode,
-                             clip: &CombinedClipRegion,
+                             clip: &mut CombinedClipRegion,
                              resource_cache: &ResourceCache,
                              clip_buffers: &mut ClipBuffers,
                              rotation_angle: BasicRotationAngle) {
+        let corner_area_rect =
+            Rect::new(*corner_area_top_left,
+                      Size2D::new(corner_area_bottom_right.x - corner_area_top_left.x,
+                                  corner_area_bottom_right.y - corner_area_top_left.y));
+        let old_clip_in_rect = clip.clip_in_rect;
+        clip.clip_in_rect(&corner_area_rect);
+
         let inverted = match clip_mode {
             BoxShadowClipMode::Outset | BoxShadowClipMode::None => false,
             BoxShadowClipMode::Inset => true,
@@ -1356,7 +1378,9 @@ impl<'a> BatchBuilder<'a> {
                                        &color_image,
                                        resource_cache,
                                        clip_buffers,
-                                       rotation_angle)
+                                       rotation_angle);
+
+        clip.clip_in_rect = old_clip_in_rect
     }
 
     fn add_box_shadow_edge(&mut self,
