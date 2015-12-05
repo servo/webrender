@@ -7,6 +7,7 @@ use std::collections::hash_map::Entry;
 use std::collections::hash_state::DefaultState;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
+use std::u16;
 
 pub const MAX_MATRICES_PER_BATCH: usize = 32;
 pub const MAX_TILE_PARAMS_PER_BATCH: usize = 64;       // TODO(gw): Constrain to max FS uniform vectors...
@@ -59,15 +60,14 @@ impl VertexBuffer {
 pub struct Batch {
     pub color_texture_id: TextureId,
     pub mask_texture_id: TextureId,
-    pub first_vertex: u16,
+    pub first_vertex: u32,
     pub index_count: u16,
     pub tile_params: Vec<TileParams>,
 }
 
 impl Batch {
-    pub fn new(color_texture_id: TextureId,
-               mask_texture_id: TextureId,
-               first_vertex: u16) -> Batch {
+    pub fn new(color_texture_id: TextureId, mask_texture_id: TextureId, first_vertex: u32)
+               -> Batch {
         let default_tile_params = vec![
             TileParams {
                 u0: 0.0,
@@ -89,20 +89,19 @@ impl Batch {
     pub fn can_add_to_batch(&self,
                             color_texture_id: TextureId,
                             mask_texture_id: TextureId,
+                            index_count: u16,
                             needs_tile_params: bool) -> bool {
         let color_texture_ok = color_texture_id == self.color_texture_id;
         let mask_texture_ok = mask_texture_id == self.mask_texture_id;
+        let index_count_ok = (self.index_count as u32 + index_count as u32) < u16::MAX as u32;
         let tile_params_ok = !needs_tile_params ||
                              self.tile_params.len() < MAX_TILE_PARAMS_PER_BATCH;
 
-        color_texture_ok &&
-        mask_texture_ok &&
-        tile_params_ok
+        color_texture_ok && mask_texture_ok && index_count_ok && tile_params_ok
     }
 
-    pub fn add_draw_item(&mut self,
-                         index_count: u16,
-                         tile_params: Option<TileParams>) -> u8 {
+    pub fn add_draw_item(&mut self, index_count: u16, tile_params: Option<TileParams>) -> u8 {
+        //println!("index_count before={} after={}", index_count, self.index_count + index_count);
         self.index_count += index_count;
 
         tile_params.map_or(INVALID_TILE_PARAM, |tile_params| {
@@ -150,6 +149,7 @@ impl<'a> BatchBuilder<'a> {
             Some(batch) => {
                 !batch.can_add_to_batch(color_texture_id,
                                         mask_texture_id,
+                                        index_count,
                                         tile_params.is_some())
             }
             None => {
@@ -162,7 +162,7 @@ impl<'a> BatchBuilder<'a> {
         if need_new_batch {
             self.batches.push(Batch::new(color_texture_id,
                                          mask_texture_id,
-                                         self.vertex_buffer.indices.len() as u16));
+                                         self.vertex_buffer.indices.len() as u32));
         }
 
         match primitive {

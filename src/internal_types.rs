@@ -353,7 +353,7 @@ pub struct DrawCall {
     pub vertex_buffer_id: VertexBufferId,
     pub color_texture_id: TextureId,
     pub mask_texture_id: TextureId,
-    pub first_vertex: u16,
+    pub first_vertex: u32,
     pub index_count: u16,
 }
 
