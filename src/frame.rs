@@ -518,7 +518,11 @@ impl Frame {
                 let size = Size2D::new(stacking_context.overflow.size.width as i32,
                                        stacking_context.overflow.size.height as i32);
                 // TODO(gw): Get composition ops working with transforms
-                let origin = Point2D::new(child_offset.x as i32, child_offset.y as i32);
+                let origin = Point2D::new(
+                    child_offset.x as i32 +
+                        (stacking_context.overflow.origin.x as f32 / device_pixel_ratio) as i32,
+                    child_offset.y as i32 +
+                        (stacking_context.overflow.origin.y as f32 / device_pixel_ratio) as i32);
 
                 let x = origin.x as f32;
                 let y = origin.y as f32;
@@ -878,10 +882,12 @@ impl Frame {
                             if let Some(ref render_target_texture) = context.render_target
                                                                             .texture {
                                 transform = transform.translate(
-                                    (render_target_texture.uv_rect.origin.x - layer_rect.origin.x)
-                                    as f32 / device_pixel_ratio,
-                                    (render_target_texture.uv_rect.origin.y - layer_rect.origin.y)
-                                    as f32 / device_pixel_ratio,
+                                    ((render_target_texture.uv_rect.origin.x -
+                                      layer_rect.origin.x) as f32 - context.overflow.origin.x) /
+                                        device_pixel_ratio,
+                                    ((render_target_texture.uv_rect.origin.y -
+                                      layer_rect.origin.y) as f32 - context.overflow.origin.y) /
+                                        device_pixel_ratio,
                                     0.0);
                             }
                             matrix_palette[index] = transform
