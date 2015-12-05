@@ -23,16 +23,17 @@ void main(void)
         length = range;
         value = position.x;
     } else {
-        length = vBorderRadii.x;
+        length = range;
         vec2 center = vec2(max(position.x - range, length),
                            max(position.y - range, length));
-        value = distance(position - range, center);
+        vec2 referencePoint = position - range;
+        value = distance(referencePoint, center);
     }
 
     float minValue = min(value - range, length) - value;
     float maxValue = min(value + range, length) - value;
     if (minValue < maxValue) {
-        value = 1.0 - 0.5 * (erf(maxValue / sigmaSqrt2) - erf(minValue / sigmaSqrt2));
+        value = 1.0 - (erf(maxValue / sigmaSqrt2) - erf(minValue / sigmaSqrt2));
     } else {
         value = 1.0;
     }
