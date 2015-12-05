@@ -931,8 +931,14 @@ impl Renderer {
                             // TODO: probably worth sorting front to back to minimize overdraw (if profiling shows fragment / rop bound)
 
                             gl::enable(gl::BLEND);
-                            gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
-                                                    gl::ONE, gl::ONE);
+
+                            if layer.render_targets[0].texture.is_some() {
+                                gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
+                                                        gl::ONE, gl::ONE);
+                            } else {
+                                gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+                            }
+
                             gl::blend_equation(gl::FUNC_ADD);
 
                             self.device.bind_program(self.quad_program_id,
@@ -1236,11 +1242,20 @@ fn clear_framebuffer(device: &mut Device,
                      uv_rects: &[Rect<u32>],
                      program_id: ProgramId,
                      clear_to_transparent: bool) {
-    let clear_color = ColorF {
-        r: 1.0,
-        g: 1.0,
-        b: 1.0,
-        a: if clear_to_transparent { 0.0 } else { 1.0 },
+    let clear_color = if clear_to_transparent {
+        ColorF {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.0,
+        }
+    } else {
+        ColorF {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            a: 1.0,
+        }
     };
 
     // Fast path if we only have one rect: just use glClear().
