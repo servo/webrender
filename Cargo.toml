@@ -12,10 +12,10 @@ git = "https://github.com/servo/ipc-channel"
 
 [dependencies]
 app_units = "0.1"
-euclid = "0.3"
+euclid = {version = "0.4", features = ["plugins"]}
 gleam = "*"
 serde = "0.6"
-serde_macros = "0.5"
+serde_macros = "0.6"
 
 [target.x86_64-apple-darwin.dependencies]
 core-graphics = "*"
