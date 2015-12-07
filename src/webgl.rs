@@ -40,7 +40,8 @@ pub enum WebGLCommand {
     BlendFunc(u32, u32),
     BlendFuncSeparate(u32, u32, u32, u32),
     AttachShader(u32, u32),
-    BufferData(u32, Vec<f32>, u32),
+    BufferData(u32, Vec<u8>, u32),
+    BufferSubData(u32, isize, Vec<u8>),
     Clear(u32),
     ClearColor(f32, f32, f32, f32),
     ClearDepth(f64),
@@ -113,6 +114,8 @@ impl WebGLCommand {
                 gl::attach_shader(program_id, shader_id),
             WebGLCommand::BufferData(buffer_type, data, usage) =>
                 gl::buffer_data(buffer_type, &data, usage),
+            WebGLCommand::BufferSubData(buffer_type, offset, data) =>
+                gl::buffer_sub_data(buffer_type, offset, &data),
             WebGLCommand::Clear(mask) =>
                 gl::clear(mask),
             WebGLCommand::ClearColor(r, g, b, a) =>
@@ -210,6 +213,9 @@ impl WebGLCommand {
             WebGLCommand::DrawingBufferHeight(sender) =>
                 sender.send(ctx.borrow_draw_buffer().unwrap().size().height).unwrap(),
         }
+
+        // FIXME: Convert to `debug_assert!` once tests are run with debug assertions
+        assert!(gl::get_error() == gl::NO_ERROR);
     }
 
     fn attrib_location(program_id: u32,
