@@ -248,19 +248,8 @@ pub enum TextureUpdateDetails {
     Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage),
     /// All four corners, the tessellation index, and whether inverted, respectively.
     BorderRadius(Au, Au, Au, Au, u32, bool),
-    /// Blur radius, box shadow part, and whether inverted, respectively.
-    BoxShadow(Au, BoxShadowPart, bool),
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum BoxShadowPart {
-    /// The edge.
-    Edge,
-
-    /// A corner with a border radius.
-    ///
-    /// TODO(pcwalton): Elliptical radii.
-    Corner(Au),
+    /// Blur radius, border radius, box rect, raster origin, and whether inverted, respectively.
+    BoxShadow(Au, Au, Rect<f32>, Point2D<f32>, bool),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -854,24 +843,61 @@ impl BorderRadiusRasterOp {
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct BoxShadowRasterOp {
     pub blur_radius: Au,
+    pub border_radius: Au,
+    // This is a tuple to work around the lack of `Eq` on `Rect`.
+    pub box_rect_origin: (Au, Au),
+    pub box_rect_size: (Au, Au),
+    pub raster_origin: (Au, Au),
+    pub raster_size: (Au, Au),
     pub part: BoxShadowPart,
-    pub raster_size: Au,
     pub inverted: bool,
 }
 
 impl BoxShadowRasterOp {
-    pub fn raster_size(blur_radius: f32, border_radius: f32) -> f32 {
-        (3.0 * blur_radius).max(border_radius) + 3.0 * blur_radius
+    pub fn raster_rect(blur_radius: f32,
+                       border_radius: f32,
+                       part: BoxShadowPart,
+                       box_rect: &Rect<f32>)
+                       -> Rect<f32> {
+        let outer_extent = 3.0 * blur_radius;
+        let inner_extent = outer_extent.max(border_radius);
+        let extent = outer_extent + inner_extent;
+        match part {
+            BoxShadowPart::Corner => {
+                Rect::new(Point2D::new(box_rect.origin.x - outer_extent,
+                                       box_rect.origin.y - outer_extent),
+                          Size2D::new(extent, extent))
+            }
+            BoxShadowPart::Edge => {
+                Rect::new(Point2D::new(box_rect.origin.x - outer_extent,
+                                       box_rect.origin.y + box_rect.size.height / 2.0),
+                          Size2D::new(extent, 1.0))
+            }
+        }
     }
 
-    pub fn create_corner(blur_radius: f32, border_radius: f32, inverted: bool)
+    pub fn create_corner(blur_radius: f32,
+                         border_radius: f32,
+                         box_rect: &Rect<f32>,
+                         inverted: bool)
                          -> Option<BoxShadowRasterOp> {
         if blur_radius > 0.0 || border_radius > 0.0 {
+            let raster_rect = BoxShadowRasterOp::raster_rect(blur_radius,
+                                                             border_radius,
+                                                             BoxShadowPart::Corner,
+                                                             box_rect);
             Some(BoxShadowRasterOp {
                 blur_radius: Au::from_f32_px(blur_radius),
-                part: BoxShadowPart::Corner(Au::from_f32_px(border_radius)),
-                raster_size: Au::from_f32_px(BoxShadowRasterOp::raster_size(blur_radius,
-                                                                            border_radius)),
+                border_radius: Au::from_f32_px(border_radius),
+                box_rect_origin: (Au::from_f32_px(box_rect.origin.x),
+                                  Au::from_f32_px(box_rect.origin.y)),
+                box_rect_size: (Au::from_f32_px(box_rect.size.width),
+                                Au::from_f32_px(box_rect.size.height)),
+                raster_origin: (Au::from_f32_px(raster_rect.origin.x),
+                                Au::from_f32_px(raster_rect.origin.y)),
+                raster_size: (Au::from_f32_px(raster_rect.size.width),
+                              Au::from_f32_px(raster_rect.size.height)),
+                part: BoxShadowPart::Corner,
                 inverted: inverted,
             })
         } else {
@@ -879,20 +905,37 @@ impl BoxShadowRasterOp {
         }
     }
 
-    pub fn create_edge(blur_radius: f32, border_radius: f32, inverted: bool)
+    pub fn create_edge(blur_radius: f32, border_radius: f32, box_rect: &Rect<f32>, inverted: bool)
                        -> Option<BoxShadowRasterOp> {
+        let raster_rect = BoxShadowRasterOp::raster_rect(blur_radius,
+                                                         border_radius,
+                                                         BoxShadowPart::Edge,
+                                                         box_rect);
         if blur_radius > 0.0 {
             Some(BoxShadowRasterOp {
                 blur_radius: Au::from_f32_px(blur_radius),
+                border_radius: Au::from_f32_px(border_radius),
+                box_rect_origin: (Au::from_f32_px(box_rect.origin.x),
+                                  Au::from_f32_px(box_rect.origin.y)),
+                box_rect_size: (Au::from_f32_px(box_rect.size.width),
+                                Au::from_f32_px(box_rect.size.height)),
+                raster_origin: (Au::from_f32_px(raster_rect.origin.x),
+                                Au::from_f32_px(raster_rect.origin.y)),
+                raster_size: (Au::from_f32_px(raster_rect.size.width),
+                              Au::from_f32_px(raster_rect.size.height)),
                 part: BoxShadowPart::Edge,
-                raster_size: Au::from_f32_px(BoxShadowRasterOp::raster_size(blur_radius,
-                                                                            border_radius)),
                 inverted: inverted,
             })
         } else {
             None
         }
     }
+}
+
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub enum BoxShadowPart {
+    Corner,
+    Edge,
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]

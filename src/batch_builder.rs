@@ -621,9 +621,11 @@ impl<'a> BatchBuilder<'a> {
 
         self.add_box_shadow_corner(matrix_index,
                                    &metrics.tl_outer,
-                                   &metrics.tl_inner,
+                                   &Point2D::new(metrics.tl_outer.x + metrics.edge_size,
+                                                 metrics.tl_outer.y + metrics.edge_size),
                                    &metrics.tl_outer,
                                    &center,
+                                   &rect,
                                    &color,
                                    blur_radius,
                                    border_radius,
@@ -633,10 +635,13 @@ impl<'a> BatchBuilder<'a> {
                                    clip_buffers,
                                    BasicRotationAngle::Upright);
         self.add_box_shadow_corner(matrix_index,
-                                   &Point2D::new(metrics.tr_inner.x, metrics.tr_outer.y),
-                                   &Point2D::new(metrics.tr_outer.x, metrics.tr_inner.y),
+                                   &Point2D::new(metrics.tr_outer.x - metrics.edge_size,
+                                                 metrics.tr_outer.y),
+                                   &Point2D::new(metrics.tr_outer.x,
+                                                 metrics.tr_outer.y + metrics.edge_size),
                                    &Point2D::new(center.x, metrics.tr_outer.y),
                                    &Point2D::new(metrics.tr_outer.x, center.y),
+                                   &rect,
                                    &color,
                                    blur_radius,
                                    border_radius,
@@ -646,10 +651,12 @@ impl<'a> BatchBuilder<'a> {
                                    clip_buffers,
                                    BasicRotationAngle::Clockwise90);
         self.add_box_shadow_corner(matrix_index,
-                                   &metrics.br_inner,
-                                   &metrics.br_outer,
+                                   &Point2D::new(metrics.br_outer.x - metrics.edge_size,
+                                                 metrics.br_outer.y - metrics.edge_size),
+                                   &Point2D::new(metrics.br_outer.x, metrics.br_outer.y),
                                    &center,
                                    &metrics.br_outer,
+                                   &rect,
                                    &color,
                                    blur_radius,
                                    border_radius,
@@ -659,10 +666,13 @@ impl<'a> BatchBuilder<'a> {
                                    clip_buffers,
                                    BasicRotationAngle::Clockwise180);
         self.add_box_shadow_corner(matrix_index,
-                                   &Point2D::new(metrics.bl_outer.x, metrics.bl_inner.y),
-                                   &Point2D::new(metrics.bl_inner.x, metrics.bl_outer.y),
+                                   &Point2D::new(metrics.bl_outer.x,
+                                                 metrics.bl_outer.y - metrics.edge_size),
+                                   &Point2D::new(metrics.bl_outer.x + metrics.edge_size,
+                                                 metrics.bl_outer.y),
                                    &Point2D::new(metrics.bl_outer.x, center.y),
                                    &Point2D::new(center.x, metrics.bl_outer.y),
+                                   &rect,
                                    &color,
                                    blur_radius,
                                    border_radius,
@@ -723,28 +733,7 @@ impl<'a> BatchBuilder<'a> {
         self.add_box_shadow_edge(matrix_index,
                                  &top_rect.origin,
                                  &top_rect.bottom_right(),
-                                 color,
-                                 blur_radius,
-                                 border_radius,
-                                 clip_mode,
-                                 &clip,
-                                 resource_cache,
-                                 clip_buffers,
-                                 BasicRotationAngle::Clockwise270);
-        self.add_box_shadow_edge(matrix_index,
-                                 &right_rect.origin,
-                                 &right_rect.bottom_right(),
-                                 color,
-                                 blur_radius,
-                                 border_radius,
-                                 clip_mode,
-                                 &clip,
-                                 resource_cache,
-                                 clip_buffers,
-                                 BasicRotationAngle::Upright);
-        self.add_box_shadow_edge(matrix_index,
-                                 &bottom_rect.origin,
-                                 &bottom_rect.bottom_right(),
+                                 &rect,
                                  color,
                                  blur_radius,
                                  border_radius,
@@ -754,8 +743,9 @@ impl<'a> BatchBuilder<'a> {
                                  clip_buffers,
                                  BasicRotationAngle::Clockwise90);
         self.add_box_shadow_edge(matrix_index,
-                                 &left_rect.origin,
-                                 &left_rect.bottom_right(),
+                                 &right_rect.origin,
+                                 &right_rect.bottom_right(),
+                                 &rect,
                                  color,
                                  blur_radius,
                                  border_radius,
@@ -764,6 +754,30 @@ impl<'a> BatchBuilder<'a> {
                                  resource_cache,
                                  clip_buffers,
                                  BasicRotationAngle::Clockwise180);
+        self.add_box_shadow_edge(matrix_index,
+                                 &bottom_rect.origin,
+                                 &bottom_rect.bottom_right(),
+                                 &rect,
+                                 color,
+                                 blur_radius,
+                                 border_radius,
+                                 clip_mode,
+                                 &clip,
+                                 resource_cache,
+                                 clip_buffers,
+                                 BasicRotationAngle::Clockwise270);
+        self.add_box_shadow_edge(matrix_index,
+                                 &left_rect.origin,
+                                 &left_rect.bottom_right(),
+                                 &rect,
+                                 color,
+                                 blur_radius,
+                                 border_radius,
+                                 clip_mode,
+                                 &clip,
+                                 resource_cache,
+                                 clip_buffers,
+                                 BasicRotationAngle::Upright);
     }
 
     fn fill_outside_area_of_inset_box_shadow(&mut self,
@@ -1339,6 +1353,7 @@ impl<'a> BatchBuilder<'a> {
                              bottom_right: &Point2D<f32>,
                              corner_area_top_left: &Point2D<f32>,
                              corner_area_bottom_right: &Point2D<f32>,
+                             box_rect: &Rect<f32>,
                              color: &ColorF,
                              blur_radius: f32,
                              border_radius: f32,
@@ -1361,6 +1376,7 @@ impl<'a> BatchBuilder<'a> {
 
         let color_image = match BoxShadowRasterOp::create_corner(blur_radius,
                                                                  border_radius,
+                                                                 box_rect,
                                                                  inverted) {
             Some(raster_item) => {
                 let raster_item = RasterItem::BoxShadow(raster_item);
@@ -1387,6 +1403,7 @@ impl<'a> BatchBuilder<'a> {
                            matrix_index: MatrixIndex,
                            top_left: &Point2D<f32>,
                            bottom_right: &Point2D<f32>,
+                           box_rect: &Rect<f32>,
                            color: &ColorF,
                            blur_radius: f32,
                            border_radius: f32,
@@ -1406,6 +1423,7 @@ impl<'a> BatchBuilder<'a> {
 
         let color_image = match BoxShadowRasterOp::create_edge(blur_radius,
                                                                border_radius,
+                                                               box_rect,
                                                                inverted) {
             Some(raster_item) => {
                 let raster_item = RasterItem::BoxShadow(raster_item);
@@ -1533,10 +1551,10 @@ impl BoxShadowMetrics {
     }
 }
 
-fn compute_box_shadow_rect(box_bounds: &Rect<f32>,
-                           box_offset: &Point2D<f32>,
-                           spread_radius: f32)
-                           -> Rect<f32> {
+pub fn compute_box_shadow_rect(box_bounds: &Rect<f32>,
+                               box_offset: &Point2D<f32>,
+                               spread_radius: f32)
+                               -> Rect<f32> {
     let mut rect = (*box_bounds).clone();
     rect.origin.x += box_offset.x;
     rect.origin.y += box_offset.y;
