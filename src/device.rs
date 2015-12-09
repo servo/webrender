@@ -38,9 +38,7 @@ static VERTEX_SHADER_PREAMBLE: &'static str = "gl3_common.vs.glsl";
 
 lazy_static! {
     pub static ref MAX_TEXTURE_SIZE: gl::GLint = {
-        let mut value = 0;
-        gl::get_integer_v(gl::MAX_TEXTURE_SIZE, &mut value);
-        value
+        gl::get_integer_v(gl::MAX_TEXTURE_SIZE)
     };
 }
 
@@ -485,8 +483,7 @@ impl Device {
         self.inside_frame = true;
 
         // Retrive the currently set FBO.
-        let mut default_fbo = 0;
-        gl::get_integer_v(gl::FRAMEBUFFER_BINDING, &mut default_fbo);
+        let mut default_fbo = gl::get_integer_v(gl::FRAMEBUFFER_BINDING);
         self.default_fbo = default_fbo as gl::GLuint;
 
         // Texture state
