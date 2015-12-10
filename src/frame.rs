@@ -5,7 +5,7 @@ use euclid::{Rect, Point2D, Size2D, Matrix4};
 use fnv::FnvHasher;
 use internal_types::{AxisDirection, LowLevelFilterOp, CompositionOp, DrawListItemIndex};
 use internal_types::{BatchUpdateList, CompositeBatchInfo, DrawListId};
-use internal_types::{RendererFrame, DrawListContext, BatchInfo, DrawCall};
+use internal_types::{RendererFrame, StackingContextInfo, BatchInfo, DrawCall, StackingContextIndex};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, BatchUpdate, BatchUpdateOp, DrawLayer};
 use internal_types::{DrawCommand, ClearInfo, CompositeInfo, FrameRenderTarget};
 use internal_types::{RenderTargetTexture};
@@ -150,6 +150,7 @@ pub struct Frame {
     pub render_target_groups: Vec<FrameRenderTargetGroup>,
     pub render_target_group_stack: Vec<RenderTargetGroupIndex>,
     pub last_render_target_group: Option<RenderTargetGroupIndex>,
+    pub stacking_context_info: Vec<StackingContextInfo>,
     pub pending_updates: BatchUpdateList,
 }
 
@@ -299,6 +300,7 @@ impl Frame {
             render_target_groups: Vec::new(),
             render_target_group_stack: Vec::new(),
             last_render_target_group: None,
+            stacking_context_info: Vec::new(),
             pending_updates: BatchUpdateList::new(),
         }
     }
@@ -545,13 +547,24 @@ impl Frame {
 
             let scene_items = item_kind.collect_scene_items(scene);
 
+            let current_render_target = self.current_render_target_group()
+                                            .current_render_target();
+
+            let stacking_context_info = StackingContextInfo {
+                origin: child_offset,
+                overflow: overflow,
+                final_transform: final_transform,
+                render_target: current_render_target,
+            };
+
+            let stacking_context_index = StackingContextIndex(self.stacking_context_info.len());
+            self.stacking_context_info.push(stacking_context_info);
+
             for item in scene_items {
                 match item.specific {
                     SpecificSceneItem::DrawList(draw_list_id) => {
                         self.push_draw_list(draw_list_id, this_scroll_layer);
 
-                        let current_render_target = self.current_render_target_group()
-                                                        .current_render_target();
                         let layer = match self.layers.entry(this_scroll_layer) {
                             Occupied(entry) => {
                                 entry.into_mut()
@@ -569,12 +582,7 @@ impl Frame {
                         let draw_list = resource_cache.get_draw_list_mut(draw_list_id);
 
                         // Store draw context
-                        draw_list.context = Some(DrawListContext {
-                            origin: child_offset,
-                            overflow: overflow,
-                            final_transform: final_transform,
-                            render_target: current_render_target,
-                        });
+                        draw_list.stacking_context_index = Some(stacking_context_index);
 
                         for (item_index, item) in draw_list.items.iter().enumerate() {
                             // Node index may already be Some(..). This can occur when a page has iframes
@@ -797,6 +805,7 @@ impl Frame {
 
         let layers = &mut self.layers;
         let render_target_groups = &self.render_target_groups;
+        let stacking_context_info = &self.stacking_context_info;
 
         thread_pool.scoped(|scope| {
             for (_, layer) in layers {
@@ -804,7 +813,10 @@ impl Frame {
                 for node in nodes {
                     if node.is_visible && node.compiled_node.is_none() {
                         scope.execute(move || {
-                            node.compile(resource_cache, render_target_groups, device_pixel_ratio);
+                            node.compile(resource_cache,
+                                         render_target_groups,
+                                         device_pixel_ratio,
+                                         stacking_context_info);
                         });
                     }
                 }
@@ -874,7 +886,8 @@ impl Frame {
                         for (index, draw_list_id) in batch_info.draw_lists.iter().enumerate() {
                             let draw_list = resource_cache.get_draw_list(*draw_list_id);
 
-                            let context = draw_list.context.as_ref().unwrap();
+                            let StackingContextIndex(stacking_context_id) = draw_list.stacking_context_index.unwrap();
+                            let context = &self.stacking_context_info[stacking_context_id];
                             let mut transform = context.final_transform;
                             transform = transform.translate(layer.scroll_offset.x,
                                                             layer.scroll_offset.y,

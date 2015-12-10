@@ -524,8 +524,11 @@ pub enum AxisDirection {
     Vertical,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct StackingContextIndex(pub usize);
+
 #[derive(Debug)]
-pub struct DrawListContext {
+pub struct StackingContextInfo {
     pub origin: Point2D<f32>,
     pub overflow: Rect<f32>,
     pub final_transform: Matrix4,
@@ -550,9 +553,7 @@ impl FrameRenderTarget {
 #[derive(Debug)]
 pub struct DrawList {
     pub items: Vec<DisplayItem>,
-
-    pub context: Option<DrawListContext>,
-
+    pub stacking_context_index: Option<StackingContextIndex>,
     // TODO(gw): Structure squat to remove this field.
     next_free_id: Option<FreeListItemId>,
 }
@@ -561,7 +562,7 @@ impl DrawList {
     pub fn new(items: Vec<DisplayItem>) -> DrawList {
         DrawList {
             items: items,
-            context: None,
+            stacking_context_index: None,
             next_free_id: None,
         }
     }

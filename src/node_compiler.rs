@@ -2,7 +2,8 @@ use aabbtree::AABBTreeNode;
 use batch::{BatchBuilder, MatrixIndex, VertexBuffer};
 use clipper::{ClipBuffers};
 use frame::{FrameRenderItem, FrameRenderTargetGroup};
-use internal_types::{DrawListItemIndex, CompiledNode, CombinedClipRegion, BatchList};
+use internal_types::{DrawListItemIndex, CompiledNode, StackingContextInfo};
+use internal_types::{CombinedClipRegion, BatchList, StackingContextIndex};
 use resource_cache::ResourceCache;
 use webrender_traits::SpecificDisplayItem;
 
@@ -10,14 +11,16 @@ pub trait NodeCompiler {
     fn compile(&mut self,
                resource_cache: &ResourceCache,
                render_target_groups: &Vec<FrameRenderTargetGroup>,
-               device_pixel_ratio: f32);
+               device_pixel_ratio: f32,
+               stacking_context_info: &Vec<StackingContextInfo>);
 }
 
 impl NodeCompiler for AABBTreeNode {
     fn compile(&mut self,
                resource_cache: &ResourceCache,
                render_target_groups: &Vec<FrameRenderTargetGroup>,
-               device_pixel_ratio: f32) {
+               device_pixel_ratio: f32,
+               stacking_context_info: &Vec<StackingContextInfo>) {
         let mut compiled_node = CompiledNode::new();
         let mut vertex_buffer = VertexBuffer::new();
 
@@ -47,7 +50,8 @@ impl NodeCompiler for AABBTreeNode {
                                     let DrawListItemIndex(index) = *index;
                                     let display_item = &draw_list.items[index as usize];
 
-                                    let context = draw_list.context.as_ref().unwrap();
+                                    let StackingContextIndex(stacking_context_id) = draw_list.stacking_context_index.unwrap();
+                                    let context = &stacking_context_info[stacking_context_id];
                                     let clip_rect = display_item.clip.main.intersection(&context.overflow);
                                     let clip_rect = clip_rect.and_then(|clip_rect| {
                                         let split_rect_local_space = self.split_rect.translate(&-context.origin);
