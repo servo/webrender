@@ -13,7 +13,7 @@ git = "https://github.com/servo/ipc-channel"
 [dependencies]
 app_units = "0.1"
 euclid = {version = "0.4", features = ["plugins"]}
-gleam = "*"
+gleam = "0.2"
 serde = "0.6"
 serde_macros = "0.6"
 
