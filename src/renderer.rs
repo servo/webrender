@@ -8,7 +8,7 @@ use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, BoxShadowPart, BasicRotationAngle};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, BasicRotationAngle};
 use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp};
 use internal_types::{AxisDirection, LowLevelFilterOp, DrawCommand, ANGLE_FLOAT_TO_FIXED};
 use ipc_channel::ipc;
@@ -610,13 +610,27 @@ impl Renderer {
                                                                                 None);
                                 batch.add_draw_item(update.id, TextureId(0), &vertices);
                             }
-                            TextureUpdateDetails::BoxShadow(blur_radius, part, inverted) => {
+                            TextureUpdateDetails::BoxShadow(blur_radius,
+                                                            border_radius,
+                                                            box_rect,
+                                                            raster_origin,
+                                                            inverted) => {
+                                let texture_origin = Point2D::new(x as f32, y as f32);
+                                let device_pixel_ratio = self.device_pixel_ratio;
                                 self.update_texture_cache_for_box_shadow(
                                     update.id,
-                                    &Rect::new(Point2D::new(x as f32, y as f32),
+                                    &Rect::new(texture_origin,
                                                Size2D::new(width as f32, height as f32)),
-                                    blur_radius,
-                                    part,
+                                    &Rect::new(
+                                        texture_origin + Point2D::new(
+                                            (box_rect.origin.x - raster_origin.x) *
+                                                     device_pixel_ratio,
+                                            (box_rect.origin.y - raster_origin.y) *
+                                                     device_pixel_ratio),
+                                        Size2D::new(box_rect.size.width * device_pixel_ratio,
+                                                    box_rect.size.height * device_pixel_ratio)),
+                                    blur_radius.to_f32_px() * device_pixel_ratio,
+                                    border_radius.to_f32_px() * device_pixel_ratio,
                                     inverted)
                             }
                         }
@@ -630,13 +644,12 @@ impl Renderer {
 
     fn update_texture_cache_for_box_shadow(&mut self,
                                            update_id: TextureId,
-                                           rect: &Rect<f32>,
-                                           blur_radius: Au,
-                                           box_shadow_part: BoxShadowPart,
+                                           texture_rect: &Rect<f32>,
+                                           box_rect: &Rect<f32>,
+                                           blur_radius: f32,
+                                           border_radius: f32,
                                            inverted: bool) {
         let box_shadow_program_id = self.box_shadow_program_id;
-
-        let blur_radius = blur_radius.to_f32_px();
 
         let color = if inverted {
             ColorF::new(1.0, 1.0, 1.0, 0.0)
@@ -647,57 +660,51 @@ impl Renderer {
         let zero_point = Point2D::new(0.0, 0.0);
         let zero_size = Size2D::new(0.0, 0.0);
 
-        // `arc_radius_inner` here is just a flag to specify to the shader whether we're an edge
-        // (zero) or a corner (nonzero).
-        let (arc_radius_outer, arc_radius_inner) = match box_shadow_part {
-            BoxShadowPart::Edge => {
-                (Point2D::new(rect.size.width, 0.0), Point2D::new(0.0, 0.0))
-            }
-            BoxShadowPart::Corner(border_radius) => {
-                (Point2D::new(border_radius.to_f32_px(), border_radius.to_f32_px()),
-                 Point2D::new(1.0, 1.0))
-            }
-        };
+        let box_rect_top_left = Point2D::new(box_rect.origin.x, box_rect.origin.y);
+        let box_rect_bottom_right =
+            Point2D::new(box_rect_top_left.x + box_rect.size.width,
+                         box_rect_top_left.y + box_rect.size.height);
+        let border_radii = Point2D::new(border_radius, border_radius);
 
         let vertices: [PackedVertexForTextureCacheUpdate; 4] = [
-            PackedVertexForTextureCacheUpdate::new(&rect.origin,
+            PackedVertexForTextureCacheUpdate::new(&texture_rect.origin,
                                                    &color,
                                                    &zero_point,
-                                                   &arc_radius_outer,
-                                                   &arc_radius_inner,
+                                                   &border_radii,
                                                    &zero_point,
-                                                   &rect.origin,
-                                                   &rect.size,
+                                                   &box_rect.origin,
+                                                   &box_rect_bottom_right,
+                                                   &zero_size,
                                                    &zero_size,
                                                    blur_radius),
-            PackedVertexForTextureCacheUpdate::new(&rect.top_right(),
+            PackedVertexForTextureCacheUpdate::new(&texture_rect.top_right(),
                                                    &color,
                                                    &zero_point,
-                                                   &arc_radius_outer,
-                                                   &arc_radius_inner,
+                                                   &border_radii,
                                                    &zero_point,
-                                                   &rect.origin,
-                                                   &rect.size,
+                                                   &box_rect.origin,
+                                                   &box_rect_bottom_right,
+                                                   &zero_size,
                                                    &zero_size,
                                                    blur_radius),
-            PackedVertexForTextureCacheUpdate::new(&rect.bottom_left(),
+            PackedVertexForTextureCacheUpdate::new(&texture_rect.bottom_left(),
                                                    &color,
                                                    &zero_point,
-                                                   &arc_radius_outer,
-                                                   &arc_radius_inner,
+                                                   &border_radii,
                                                    &zero_point,
-                                                   &rect.origin,
-                                                   &rect.size,
+                                                   &box_rect.origin,
+                                                   &box_rect_bottom_right,
+                                                   &zero_size,
                                                    &zero_size,
                                                    blur_radius),
-            PackedVertexForTextureCacheUpdate::new(&rect.bottom_right(),
+            PackedVertexForTextureCacheUpdate::new(&texture_rect.bottom_right(),
                                                    &color,
                                                    &zero_point,
-                                                   &arc_radius_outer,
-                                                   &arc_radius_inner,
+                                                   &border_radii,
                                                    &zero_point,
-                                                   &rect.origin,
-                                                   &rect.size,
+                                                   &box_rect.origin,
+                                                   &box_rect_bottom_right,
+                                                   &zero_size,
                                                    &zero_size,
                                                    blur_radius),
         ];

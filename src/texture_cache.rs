@@ -740,7 +740,10 @@ impl TextureCache {
         }
     }
 
-    pub fn insert_raster_op(&mut self, image_id: TextureCacheItemId, item: &RasterItem) {
+    pub fn insert_raster_op(&mut self,
+                            image_id: TextureCacheItemId,
+                            item: &RasterItem,
+                            device_pixel_ratio: f32) {
         let update_op = match item {
             &RasterItem::BorderRadius(ref op) => {
                 let rect = Rect::new(Point2D::new(0.0, 0.0),
@@ -782,11 +785,16 @@ impl TextureCache {
                 }
             }
             &RasterItem::BoxShadow(ref op) => {
+                let device_raster_size =
+                    Size2D::new((op.raster_size.0.to_nearest_px() as f32 *
+                                 device_pixel_ratio) as u32,
+                                (op.raster_size.1.to_nearest_px() as f32 *
+                                 device_pixel_ratio) as u32);
                 let allocation = self.allocate(image_id,
                                                0,
                                                0,
-                                               op.raster_size.to_nearest_px() as u32,
-                                               op.raster_size.to_nearest_px() as u32,
+                                               device_raster_size.width,
+                                               device_raster_size.height,
                                                ImageFormat::RGBA8,
                                                TextureCacheItemKind::Standard,
                                                BorderType::NoBorder,
@@ -800,9 +808,18 @@ impl TextureCache {
                     op: TextureUpdateOp::Update(
                         allocation.item.requested_rect.origin.x,
                         allocation.item.requested_rect.origin.y,
-                        op.raster_size.to_nearest_px() as u32,
-                        op.raster_size.to_nearest_px() as u32,
-                        TextureUpdateDetails::BoxShadow(op.blur_radius, op.part, op.inverted)),
+                        device_raster_size.width,
+                        device_raster_size.height,
+                        TextureUpdateDetails::BoxShadow(
+                            op.blur_radius,
+                            op.border_radius,
+                            Rect::new(Point2D::new(op.box_rect_origin.0.to_f32_px(),
+                                                   op.box_rect_origin.1.to_f32_px()),
+                                      Size2D::new(op.box_rect_size.0.to_f32_px(),
+                                                  op.box_rect_size.1.to_f32_px())),
+                            Point2D::new(op.raster_origin.0.to_f32_px(),
+                                         op.raster_origin.1.to_f32_px()),
+                            op.inverted)),
                 }
             }
         };

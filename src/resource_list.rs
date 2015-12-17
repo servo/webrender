@@ -1,6 +1,7 @@
 use aabbtree::AABBTreeNode;
 use app_units::Au;
-use euclid::Size2D;
+use batch_builder;
+use euclid::{Rect, Size2D};
 use fnv::FnvHasher;
 use internal_types::{BorderRadiusRasterOp, BoxShadowRasterOp, DrawListItemIndex};
 use internal_types::{Glyph, GlyphKey, RasterItem};
@@ -73,17 +74,27 @@ impl ResourceList {
         self.add_radius_raster(&radii.bottom_right, &zero_size, false, 0, ImageFormat::A8);
     }
 
-    pub fn add_box_shadow_corner(&mut self, blur_radius: f32, border_radius: f32, inverted: bool) {
+    pub fn add_box_shadow_corner(&mut self,
+                                 blur_radius: f32,
+                                 border_radius: f32,
+                                 box_rect: &Rect<f32>,
+                                 inverted: bool) {
         if let Some(raster_item) = BoxShadowRasterOp::create_corner(blur_radius,
                                                                     border_radius,
+                                                                    box_rect,
                                                                     inverted) {
             self.required_rasters.insert(RasterItem::BoxShadow(raster_item));
         }
     }
 
-    pub fn add_box_shadow_edge(&mut self, blur_radius: f32, border_radius: f32, inverted: bool) {
+    pub fn add_box_shadow_edge(&mut self,
+                               blur_radius: f32,
+                               border_radius: f32,
+                               box_rect: &Rect<f32>,
+                               inverted: bool) {
         if let Some(raster_item) = BoxShadowRasterOp::create_edge(blur_radius,
                                                                   border_radius,
+                                                                  box_rect,
                                                                   inverted) {
             self.required_rasters.insert(RasterItem::BoxShadow(raster_item));
         }
@@ -153,16 +164,26 @@ impl BuildRequiredResources for AABBTreeNode {
                     SpecificDisplayItem::BoxShadow(ref info) => {
                         resource_list.add_radius_raster_for_border_radii(
                             &BorderRadius::uniform(info.border_radius));
+
+                        let box_rect = batch_builder::compute_box_shadow_rect(&info.box_bounds,
+                                                                              &info.offset,
+                                                                              info.spread_radius);
                         resource_list.add_box_shadow_corner(info.blur_radius,
                                                             info.border_radius,
+                                                            &box_rect,
                                                             false);
-                        resource_list.add_box_shadow_edge(info.blur_radius, info.border_radius, false);
+                        resource_list.add_box_shadow_edge(info.blur_radius,
+                                                          info.border_radius,
+                                                          &box_rect,
+                                                          false);
                         if info.clip_mode == BoxShadowClipMode::Inset {
                             resource_list.add_box_shadow_corner(info.blur_radius,
                                                                 info.border_radius,
+                                                                &box_rect,
                                                                 true);
                             resource_list.add_box_shadow_edge(info.blur_radius,
                                                               info.border_radius,
+                                                              &box_rect,
                                                               true);
                         }
                     }
