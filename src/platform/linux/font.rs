@@ -120,7 +120,7 @@ impl FontContext {
 
                     // Convert to RGBA.
                     for &byte in buffer.iter() {
-                        final_buffer.push_all(&[ 0xff, 0xff, 0xff, byte ]);
+                        final_buffer.extend_from_slice(&[ 0xff, 0xff, 0xff, byte ]);
                     }
                 } else {
                     // This is not exactly efficient... but it's only used by the
@@ -136,7 +136,7 @@ impl FontContext {
                             } else {
                                 0
                             };
-                            final_buffer.push_all(&[ 0xff, 0xff, 0xff, byte_value ]);
+                            final_buffer.extend_from_slice(&[ 0xff, 0xff, 0xff, byte_value ]);
                         }
                     }
                 }

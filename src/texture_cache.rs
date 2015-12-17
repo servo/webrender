@@ -3,7 +3,7 @@ use device::{MAX_TEXTURE_SIZE, TextureId, TextureFilter};
 use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
-use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails, RenderTargetTexture};
+use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
 use internal_types::{BasicRotationAngle, RectUv};
 use std::cmp::Ordering;
@@ -64,7 +64,7 @@ fn copy_pixels(src: &[u8],
 ///
 /// This approach was chosen because of its simplicity, good performance, and easy support for
 /// dynamic texture deallocation.
-struct TexturePage {
+pub struct TexturePage {
     texture_id: TextureId,
     texture_size: u32,
     free_list: FreeRectList,
@@ -73,7 +73,7 @@ struct TexturePage {
 }
 
 impl TexturePage {
-    fn new(texture_id: TextureId, texture_size: u32) -> TexturePage {
+    pub fn new(texture_id: TextureId, texture_size: u32) -> TexturePage {
         let mut page = TexturePage {
             texture_id: texture_id,
             texture_size: texture_size,
@@ -136,9 +136,9 @@ impl TexturePage {
         }
     }
 
-    fn allocate(&mut self,
-                requested_dimensions: &Size2D<u32>,
-                filter: TextureFilter) -> Option<Point2D<u32>> {
+    pub fn allocate(&mut self,
+                    requested_dimensions: &Size2D<u32>,
+                    filter: TextureFilter) -> Option<Point2D<u32>> {
         // TODO(gw): For now, anything that requests nearest filtering
         //           just fails to allocate in a texture page, and gets a standalone
         //           texture. This isn't ideal, as it causes lots of batch breaks,
@@ -297,6 +297,7 @@ impl TexturePage {
         self.dirty = false;
     }
 
+/*
     fn free(&mut self, rect: &Rect<u32>) {
         debug_assert!(self.allocations > 0);
         self.allocations -= 1;
@@ -307,7 +308,7 @@ impl TexturePage {
 
         self.free_list.push(rect);
         self.dirty = true
-    }
+    }*/
 }
 
 // TODO(gw): This is used to store data specific to glyphs.
@@ -487,7 +488,7 @@ struct TextureCacheArena {
     pages_rgba8: Vec<TexturePage>,
     alternate_pages_a8: Vec<TexturePage>,
     alternate_pages_rgba8: Vec<TexturePage>,
-    render_target_pages: Vec<TexturePage>,
+    //render_target_pages: Vec<TexturePage>,
 }
 
 impl TextureCacheArena {
@@ -498,7 +499,7 @@ impl TextureCacheArena {
             pages_rgba8: Vec::new(),
             alternate_pages_a8: Vec::new(),
             alternate_pages_rgba8: Vec::new(),
-            render_target_pages: Vec::new(),
+            //render_target_pages: Vec::new(),
         }
     }
 }
@@ -509,9 +510,9 @@ pub struct TextureCache {
     alternate_free_texture_levels: HashMap<ImageFormat,
                                            Vec<FreeTextureLevel>,
                                            DefaultState<FnvHasher>>,
-    render_target_free_texture_levels: HashMap<ImageFormat,
-                                               Vec<FreeTextureLevel>,
-                                               DefaultState<FnvHasher>>,
+    //render_target_free_texture_levels: HashMap<ImageFormat,
+    //                                           Vec<FreeTextureLevel>,
+    //                                           DefaultState<FnvHasher>>,
     items: FreeList<TextureCacheItem>,
     arena: TextureCacheArena,
     pending_updates: TextureUpdateList,
@@ -529,29 +530,13 @@ pub struct AllocationResult {
     item: TextureCacheItem,
 }
 
-impl AllocationResult {
-    pub fn to_render_target_texture(self) -> RenderTargetTexture {
-        let uv_rect = self.item.uv_rect.to_rect();
-        let texture_width = self.item.texture_size.width as f32;
-        let texture_height = self.item.texture_size.height as f32;
-        RenderTargetTexture {
-            texture_id: self.item.texture_id,
-            uv_rect: Rect::new(Point2D::new((uv_rect.origin.x * texture_width) as u32,
-                                            (uv_rect.origin.y * texture_height) as u32),
-                               Size2D::new((uv_rect.size.width * texture_width) as u32,
-                                           (uv_rect.size.height * texture_height) as u32)),
-            texture_size: self.item.texture_size,
-        }
-    }
-}
-
 impl TextureCache {
     pub fn new(free_texture_ids: Vec<TextureId>) -> TextureCache {
         TextureCache {
             free_texture_ids: free_texture_ids,
             free_texture_levels: HashMap::with_hash_state(Default::default()),
             alternate_free_texture_levels: HashMap::with_hash_state(Default::default()),
-            render_target_free_texture_levels: HashMap::with_hash_state(Default::default()),
+            //render_target_free_texture_levels: HashMap::with_hash_state(Default::default()),
             items: FreeList::new(),
             pending_updates: TextureUpdateList::new(),
             arena: TextureCacheArena::new(),
@@ -585,19 +570,46 @@ impl TextureCache {
         self.items.insert(new_item)
     }
 
-    pub fn free(&mut self, texture_id: TextureId, uv: &Rect<u32>, kind: TextureCacheItemKind) {
-        match kind {
-            TextureCacheItemKind::RenderTarget => {
-                for page in &mut self.arena.render_target_pages {
-                    if page.texture_id == texture_id {
-                        page.free(uv);
-                        return
-                    }
-                }
-                unreachable!("couldn't find texture ID in render target pages!")
-            }
-            _ => panic!("can't free non-render target texture items yet!"),
-        }
+    /*
+    pub fn free(&mut self,
+                _texture_id: TextureId,
+                _uv: &Rect<u32>,
+                _kind: TextureCacheItemKind) {
+        panic!("can't free texture items yet!");
+    }
+    */
+
+    pub fn allocate_render_target(&mut self,
+                              width: u32,
+                              height: u32,
+                              format: ImageFormat) -> TextureId {
+        let texture_id = self.free_texture_ids.pop().expect("TODO: Handle running out of texture IDs!");
+        let op = TextureUpdateOp::Create(width,
+                                         height,
+                                         format,
+                                         TextureFilter::Linear,
+                                         RenderTargetMode::RenderTarget,
+                                         None);
+        let update_op = TextureUpdate {
+            id: texture_id,
+            op: op,
+        };
+        self.pending_updates.push(update_op);
+        texture_id
+    }
+
+    pub fn free_render_target(&mut self, texture_id: TextureId) {
+        let op = TextureUpdateOp::Update(0,
+                                         0,
+                                         0,
+                                         0,
+                                         TextureUpdateDetails::Blit(Vec::new()));
+        let update_op = TextureUpdate {
+            id: texture_id,
+            op: op,
+        };
+        self.pending_updates.push(update_op);
+        self.free_texture_ids.push(texture_id);
     }
 
     pub fn allocate(&mut self,
@@ -624,15 +636,14 @@ impl TextureCache {
             (ImageFormat::RGBA8, TextureCacheItemKind::Alternate) => {
                 (&mut self.arena.alternate_pages_rgba8, RenderTargetMode::RenderTarget)
             }
-            (ImageFormat::RGBA8, TextureCacheItemKind::RenderTarget) => {
-                (&mut self.arena.render_target_pages, RenderTargetMode::RenderTarget)
-            }
+            //(ImageFormat::RGBA8, TextureCacheItemKind::RenderTarget) => {
+            //    (&mut self.arena.render_target_pages, RenderTargetMode::RenderTarget)
+            //}
             (ImageFormat::RGB8, TextureCacheItemKind::Standard) => {
                 (&mut self.arena.pages_rgb8, RenderTargetMode::None)
             }
             (ImageFormat::Invalid, TextureCacheItemKind::Standard) |
-            (_, TextureCacheItemKind::Alternate) |
-            (_, TextureCacheItemKind::RenderTarget) => unreachable!(),
+            (_, TextureCacheItemKind::Alternate) => unreachable!(),
         };
 
         let border_size = match border_type {
@@ -656,9 +667,9 @@ impl TextureCache {
                         TextureCacheItemKind::Alternate => {
                             self.alternate_free_texture_levels.entry(format)
                         }
-                        TextureCacheItemKind::RenderTarget => {
-                            self.render_target_free_texture_levels.entry(format)
-                        }
+                        //TextureCacheItemKind::RenderTarget => {
+                        //    self.render_target_free_texture_levels.entry(format)
+                        //}
                     };
                     let mut free_texture_levels = match free_texture_levels_entry {
                         Entry::Vacant(entry) => entry.insert(Vec::new()),
@@ -1085,6 +1096,6 @@ fn texture_size() -> u32 {
 pub enum TextureCacheItemKind {
     Standard,
     Alternate,
-    RenderTarget,
+    //RenderTarget,
 }
 

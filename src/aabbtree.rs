@@ -84,20 +84,18 @@ pub struct AABBTree {
 }
 
 impl AABBTree {
-    pub fn new(split_size: f32) -> AABBTree {
-        AABBTree {
+    pub fn new(split_size: f32, scene_rect: &Rect<f32>) -> AABBTree {
+        let mut tree = AABBTree {
             nodes: Vec::new(),
             split_size: split_size,
 
             work_node_indices: Vec::new(),
-        }
-    }
-
-    pub fn init(&mut self, scene_rect: &Rect<f32>) {
-        self.nodes.clear();
+        };
 
         let root_node = AABBTreeNode::new(scene_rect, NodeIndex(0));
-        self.nodes.push(root_node);
+        tree.nodes.push(root_node);
+
+        tree
     }
 
     #[allow(dead_code)]

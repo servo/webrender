@@ -1,10 +1,6 @@
 use device::{ProgramId, TextureId};
-use fnv::FnvHasher;
-use internal_types::{AxisDirection, CompositeBatchInfo, CompositeInfo, CompositionOp};
+use internal_types::{AxisDirection};
 use internal_types::{PackedVertex, PackedVertexForTextureCacheUpdate, Primitive};
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
-use std::collections::hash_state::DefaultState;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 use std::u16;
@@ -205,7 +201,7 @@ impl<'a> BatchBuilder<'a> {
             vertex.tile_params_index = tile_params_index;
         }
 
-        self.vertex_buffer.vertices.push_all(vertices);
+        self.vertex_buffer.vertices.extend_from_slice(vertices);
 
         // TODO(gw): Handle exceeding u16 index buffer!
         debug_assert!(self.vertex_buffer.vertices.len() < 65535);
@@ -249,6 +245,7 @@ impl RasterBatch {
             blur_direction == self.blur_direction &&
             dest_texture_id == self.dest_texture_id &&
             color_texture_id == self.color_texture_id;
+/*
         println!("batch ok? {:?} program_id={:?}/{:?} blur_direction={:?}/{:?} \
                   dest_texture_id {:?}/{:?} color_texture_id={:?}/{:?}",
                  batch_ok,
@@ -256,6 +253,7 @@ impl RasterBatch {
                  blur_direction, self.blur_direction,
                  dest_texture_id, self.dest_texture_id,
                  color_texture_id, self.color_texture_id);
+*/
         batch_ok
     }
 
@@ -277,50 +275,69 @@ impl RasterBatch {
             self.indices.push(index_base + 1);
         }
 
-        self.vertices.push_all(vertices);
+        self.vertices.extend_from_slice(vertices);
+    }
+}
+
+/*
+#[derive(Debug)]
+pub struct CompositeBatch {
+    op: CompositionOp,
+    // TODO(gw): Convert these to a vertex buffer in backend thread...
+    rects: Vec<Rect<i32>>,
+}
+
+impl CompositeBatch {
+    fn new(op: CompositionOp) -> CompositeBatch {
+        CompositeBatch {
+            op: op,
+            rects: Vec::new(),
+        }
+    }
+
+    fn can_add_to_batch(&self, op: CompositionOp) -> bool {
+        self.op == op
+    }
+
+    fn add_composite_item(&mut self, rect: Rect<i32>) {
+        self.rects.push(rect);
     }
 }
 
 /// A batch builder for composition operations.
 #[derive(Debug)]
 pub struct CompositeBatchBuilder {
-    batches: HashMap<CompositeBatchKey, CompositeBatchInfo, DefaultState<FnvHasher>>,
+    batches: Vec<CompositeBatch>,
 }
 
 impl CompositeBatchBuilder {
     pub fn new() -> CompositeBatchBuilder {
         CompositeBatchBuilder {
-            batches: HashMap::with_hash_state(Default::default()),
+            batches: Vec::new(),
         }
     }
 
-    pub fn add(&mut self, operation: &CompositionOp, job: &CompositeInfo) {
-        let key = CompositeBatchKey {
-            operation: (*operation).clone(),
-            texture_id: job.render_target_texture.texture_id,
-        };
-        match self.batches.entry(key) {
-            Entry::Vacant(entry) => {
-                entry.insert(CompositeBatchInfo {
-                    operation: (*operation).clone(),
-                    texture_id: job.render_target_texture.texture_id,
-                    jobs: vec![(*job).clone()],
-                });
+    pub fn finalize(self) -> Vec<CompositeBatch> {
+        self.batches
+    }
+
+    pub fn add_composite_item(&mut self,
+                              op: CompositionOp,
+                              rect: Rect<i32>) {
+        let need_new_batch = match self.batches.last_mut() {
+            Some(batch) => {
+                !batch.can_add_to_batch(op)
             }
-            Entry::Occupied(entry) => entry.into_mut().jobs.push((*job).clone()),
+            None => {
+                true
+            }
+        };
+
+        if need_new_batch {
+            self.batches.push(CompositeBatch::new(op));
         }
-    }
 
-    /// FIXME(pcwalton): Very inefficient.
-    pub fn batches(&self) -> Vec<CompositeBatchInfo> {
-        self.batches.iter().map(|(_, batch)| (*batch).clone()).collect()
+        self.batches.last_mut().unwrap().add_composite_item(rect);
     }
 }
-
-/// The key we use for sorting composition operations into batches.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CompositeBatchKey {
-    pub operation: CompositionOp,
-    pub texture_id: TextureId,
-}
-
+*/

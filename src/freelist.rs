@@ -52,12 +52,29 @@ impl<T: FreeListItem> FreeList<T> {
         }
     }
 
+    #[allow(dead_code)]
+    fn assert_not_in_free_list(&self, id: FreeListItemId) {
+        let FreeListItemId(id) = id;
+        let mut next_free_id = self.first_free_index;
+
+        while let Some(free_id) = next_free_id {
+            let FreeListItemId(index) = free_id;
+            assert!(index != id);
+            let free_item = &self.items[index as usize];
+            next_free_id = free_item.next_free_id();
+        }
+    }
+
     pub fn get(&self, id: FreeListItemId) -> &T {
+        //self.assert_not_in_free_list(id);
+
         let FreeListItemId(index) = id;
         &self.items[index as usize]
     }
 
     pub fn get_mut(&mut self, id: FreeListItemId) -> &mut T {
+        //self.assert_not_in_free_list(id);
+
         let FreeListItemId(index) = id;
         &mut self.items[index as usize]
     }

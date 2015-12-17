@@ -1,6 +1,6 @@
 use euclid::{Rect, Size2D};
 use frame::Frame;
-use internal_types::{FontTemplate, FrameRenderTarget, ResultMsg, DrawLayer, RendererFrame};
+use internal_types::{FontTemplate, ResultMsg, RendererFrame};
 use ipc_channel::ipc::IpcReceiver;
 use profiler::BackendProfileCounters;
 use resource_cache::ResourceCache;
@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::{TextureCache, TextureCacheItemId};
-use webrender_traits::{ApiMsg, IdNamespace, RenderNotifier, ScrollLayerId};
-use webrender_traits::WebGLContextId;
+use webrender_traits::{ApiMsg, IdNamespace, RenderNotifier};
+use webrender_traits::{WebGLContextId, ScrollLayerId};
 use batch::new_id;
 use device::TextureId;
 use offscreen_gl_context::{NativeGLContext, GLContext, ColorAttachmentType, NativeGLContextMethods, NativeGLContextHandle};
@@ -55,6 +55,8 @@ impl RenderBackend {
                                                 dummy_mask_image_id,
                                                 device_pixel_ratio,
                                                 enable_aa);
+        let viewport_size = Size2D::new(viewport.size.width as u32,
+                                        viewport.size.height as u32);
 
         let backend = RenderBackend {
             thread_pool: thread_pool,
@@ -64,7 +66,7 @@ impl RenderBackend {
             device_pixel_ratio: device_pixel_ratio,
             resource_cache: resource_cache,
             scene: Scene::new(),
-            frame: Frame::new(),
+            frame: Frame::new(viewport_size),
             next_namespace_id: IdNamespace(1),
             notifier: notifier,
             webrender_context_handle: webrender_context_handle,
@@ -175,7 +177,7 @@ impl RenderBackend {
                         ApiMsg::TranslatePointToLayerSpace(point, tx) => {
                             // TODO(pcwalton): Select other layers for mouse events.
                             let point = point / self.device_pixel_ratio;
-                            match self.frame.layers.get_mut(&ScrollLayerId(0)) {
+                            match self.frame.root.layers.get_mut(&ScrollLayerId(0)) {
                                 None => tx.send(point).unwrap(),
                                 Some(layer) => tx.send(point - layer.scroll_offset).unwrap(),
                             }
@@ -232,9 +234,9 @@ impl RenderBackend {
         }
 
         self.frame.create(&self.scene,
-                          Size2D::new(self.viewport.size.width as u32,
-                                      self.viewport.size.height as u32),
-                          self.device_pixel_ratio,
+                          //Size2D::new(self.viewport.size.width as u32,
+                          //            self.viewport.size.height as u32),
+                          //self.device_pixel_ratio,
                           &mut self.resource_cache,
                           &mut new_pipeline_sizes);
 
@@ -285,25 +287,10 @@ impl RenderBackend {
     }
 
     fn render(&mut self) -> RendererFrame {
-        let mut frame = self.frame.build(&self.viewport,
-                                         &mut self.resource_cache,
-                                         &mut self.thread_pool,
-                                         self.device_pixel_ratio);
-
-        // Bit of a hack - if there was nothing visible, at least
-        // add one layer to the frame so that the screen gets
-        // cleared to the default UA background color. Perhaps
-        // there is a better way to handle this...
-        if frame.layers.len() == 0 {
-            let size = Size2D::new(self.viewport.size.width as u32,
-                                   self.viewport.size.height as u32);
-            frame.layers.push(DrawLayer {
-                render_targets: vec![FrameRenderTarget::new(size, None)],
-                texture_id: None,
-                size: size,
-                commands: Vec::new(),
-            });
-        }
+        let frame = self.frame.build(&self.viewport,
+                                     &mut self.resource_cache,
+                                     &mut self.thread_pool,
+                                     self.device_pixel_ratio);
 
         let pending_update = self.resource_cache.pending_updates();
         if pending_update.updates.len() > 0 {

@@ -1,6 +1,4 @@
-#![feature(drain)]
 #![feature(hashmap_hasher)]
-#![feature(vec_push_all)]
 #![feature(step_by, convert, zero_one)]
 
 #[macro_use]
