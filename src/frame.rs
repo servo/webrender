@@ -733,27 +733,39 @@ impl<'a> SceneItemKind<'a> {
                                              info,
                                              context);
                 } else {
-                    let render_target_size = Size2D::new(overflow.size.width as u32,
-                                                         overflow.size.height as u32);
+                    let target_size = Size2D::new(overflow.size.width as i32,
+                                                  overflow.size.height as i32);
+                    let origin = stacking_context.bounds.origin;
+                    let target_origin =
+                        Point2D::new(parent.world_origin.x as i32 + origin.x as i32,
+                                     parent.world_origin.y as i32 + origin.y as i32);
+                    let unfiltered_target_rect = Rect::new(target_origin, target_size);
+                    let mut target_rect = unfiltered_target_rect;
+                    for composition_operation in &composition_operations {
+                        target_rect = composition_operation.target_rect(&target_rect);
+                    }
+
+                    let render_target_index = RenderTargetIndex(target.children.len() as u32);
+
+                    let render_target_size = Size2D::new(target_rect.size.width as u32,
+                                                         target_rect.size.height as u32);
                     let mut new_target = RenderTarget::new(render_target_size);
 
+                    let world_origin = Point2D::new(
+                            (unfiltered_target_rect.origin.x - target_rect.origin.x) as f32,
+                            (unfiltered_target_rect.origin.y - target_rect.origin.y) as f32);
+                    let world_transform = stacking_context.transform.translate(world_origin.x,
+                                                                               world_origin.y,
+                                                                               0.0);
                     let info = StackingContextInfo {
-                        world_origin: Point2D::zero(),
+                        world_origin: Point2D::new(0.0, 0.0),
                         scroll_layer: this_scroll_layer,
                         local_overflow: overflow,
-                        world_transform: stacking_context.transform,
+                        world_transform: world_transform,
                         world_perspective: stacking_context.perspective,
                     };
 
                     // TODO(gw): Handle transforms + composition ops...
-                    let origin = stacking_context.bounds.origin;
-                    let target_origin = Point2D::new(parent.world_origin.x as i32 + origin.x as i32,
-                                                     parent.world_origin.y as i32 + origin.y as i32);
-                    let target_size = Size2D::new(overflow.size.width as i32,
-                                                  overflow.size.height as i32);
-                    let target_rect = Rect::new(target_origin, target_size);
-                    let render_target_index = RenderTargetIndex(target.children.len() as u32);
-
                     for composition_operation in composition_operations {
                         target.push_composite(composition_operation,
                                               target_rect,
