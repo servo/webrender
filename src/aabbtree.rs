@@ -14,7 +14,6 @@ pub struct DrawListIndexBuffer {
 pub struct AABBTreeNode {
     pub split_rect: Rect<f32>,
     pub actual_rect: Rect<f32>,
-    pub node_index: NodeIndex,
 
     // TODO: Use Option + NonZero here
     pub children: Option<NodeIndex>,
@@ -28,11 +27,10 @@ pub struct AABBTreeNode {
 }
 
 impl AABBTreeNode {
-    fn new(split_rect: &Rect<f32>, node_index: NodeIndex) -> AABBTreeNode {
+    fn new(split_rect: &Rect<f32>) -> AABBTreeNode {
         AABBTreeNode {
             split_rect: split_rect.clone(),
             actual_rect: Rect::zero(),
-            node_index: node_index,
             children: None,
             is_visible: false,
             resource_list: None,
@@ -92,7 +90,7 @@ impl AABBTree {
             work_node_indices: Vec::new(),
         };
 
-        let root_node = AABBTreeNode::new(scene_rect, NodeIndex(0));
+        let root_node = AABBTreeNode::new(scene_rect);
         tree.nodes.push(root_node);
 
         tree
@@ -201,10 +199,10 @@ impl AABBTree {
             if let Some((left_rect, right_rect)) = child_rects {
                 let child_node_index = self.nodes.len() as u32;
 
-                let left_node = AABBTreeNode::new(&left_rect, NodeIndex(child_node_index+0));
+                let left_node = AABBTreeNode::new(&left_rect);
                 self.nodes.push(left_node);
 
-                let right_node = AABBTreeNode::new(&right_rect, NodeIndex(child_node_index+1));
+                let right_node = AABBTreeNode::new(&right_rect);
                 self.nodes.push(right_node);
 
                 self.node_mut(node_index).children = Some(NodeIndex(child_node_index));
