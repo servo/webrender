@@ -22,8 +22,7 @@ pub struct StackingContextInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IframeInfo {
     pub id: PipelineId,
-    pub offset: Point2D<f32>,
-    pub clip: Rect<f32>,
+    pub bounds: Rect<f32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -264,8 +263,7 @@ impl DisplayListBuilder {
         self.flush_list(level);
         let info = Box::new(IframeInfo {
             id: iframe,
-            offset: rect.origin,
-            clip: rect,
+            bounds: rect,
         });
         let item = DisplayListItem {
             stacking_level: level,
