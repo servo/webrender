@@ -12,8 +12,7 @@ pub struct Layer {
 
 impl Layer {
     pub fn new(scene_rect: &Rect<f32>, scroll_offset: &Point2D<f32>) -> Layer {
-        let mut aabb_tree = AABBTree::new(1024.0);
-        aabb_tree.init(scene_rect);
+        let aabb_tree = AABBTree::new(1024.0, scene_rect);
 
         Layer {
             aabb_tree: aabb_tree,

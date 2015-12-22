@@ -468,7 +468,7 @@ impl Device {
 
         let id = gl::create_shader(shader_type);
         let mut source = Vec::new();
-        source.push_all(s.as_bytes());
+        source.extend_from_slice(s.as_bytes());
         gl::shader_source(id, &[&source[..]]);
         gl::compile_shader(id);
         if gl::get_shader_iv(id, gl::COMPILE_STATUS) == (0 as gl::GLint) {
@@ -483,7 +483,7 @@ impl Device {
         self.inside_frame = true;
 
         // Retrive the currently set FBO.
-        let mut default_fbo = gl::get_integer_v(gl::FRAMEBUFFER_BINDING);
+        let default_fbo = gl::get_integer_v(gl::FRAMEBUFFER_BINDING);
         self.default_fbo = default_fbo as gl::GLuint;
 
         // Texture state
@@ -1136,6 +1136,8 @@ impl Device {
     }
 
     pub fn end_frame(&mut self) {
+        self.bind_render_target(None);
+
         debug_assert!(self.inside_frame);
         self.inside_frame = false;
 

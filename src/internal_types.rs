@@ -11,7 +11,7 @@ use std::sync::Arc;
 use texture_cache::TextureCacheItem;
 use util::{self, RectVaryings, VaryingElement};
 use webrender_traits::{FontKey, Epoch, ColorF, PipelineId};
-use webrender_traits::{ImageFormat};
+use webrender_traits::{ImageFormat, ScrollLayerId};
 use webrender_traits::{ComplexClipRegion, MixBlendMode, NativeFontHandle, DisplayItem};
 
 const UV_FLOAT_TO_FIXED: f32 = 65535.0;
@@ -324,19 +324,6 @@ pub struct ClearInfo {
 }
 
 #[derive(Clone, Debug)]
-pub struct CompositeBatchInfo {
-    pub operation: CompositionOp,
-    pub texture_id: TextureId,
-    pub jobs: Vec<CompositeInfo>,
-}
-
-#[derive(Clone, Debug)]
-pub struct CompositeInfo {
-    pub rect: Rect<i32>,
-    pub render_target_texture: RenderTargetTexture,
-}
-
-#[derive(Clone, Debug)]
 pub struct DrawCall {
     pub tile_params: Vec<TileParams>,
     pub vertex_buffer_id: VertexBufferId,
@@ -361,6 +348,18 @@ impl BatchInfo {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct CompositeBatchJob {
+    pub rect: Rect<i32>,
+    pub render_target_index: RenderTargetIndex,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompositeBatchInfo {
+    pub operation: CompositionOp,
+    pub jobs: Vec<CompositeBatchJob>,
+}
+
 #[derive(Clone, Debug)]
 pub enum DrawCommand {
     Batch(BatchInfo),
@@ -372,38 +371,50 @@ pub enum DrawCommand {
 pub struct RenderTargetIndex(pub u32);
 
 #[derive(Debug)]
-pub struct DrawLayer {
+pub struct DrawTargetInfo {
+    pub texture_id: TextureId,
     pub size: Size2D<u32>,
-    pub texture_id: Option<TextureId>,
-    pub render_targets: Vec<FrameRenderTarget>,
+}
+
+#[derive(Debug)]
+pub struct DrawLayer {
+    // This layer
     pub commands: Vec<DrawCommand>,
+    pub layer_origin: Point2D<u32>,
+    pub layer_size: Size2D<u32>,
+
+    // Children
+    pub child_target: Option<DrawTargetInfo>,
+    pub child_layers: Vec<DrawLayer>,
 }
 
 impl DrawLayer {
-    pub fn new(size: &Size2D<u32>,
-               texture_id: Option<TextureId>,
-               render_targets: Vec<FrameRenderTarget>,
-               commands: Vec<DrawCommand>)
+    pub fn new(child_target: Option<DrawTargetInfo>,
+               child_layers: Vec<DrawLayer>,
+               commands: Vec<DrawCommand>,
+               size: Size2D<u32>)
                -> DrawLayer {
         DrawLayer {
-            size: *size,
-            texture_id: texture_id,
-            render_targets: render_targets,
+            child_target: child_target,
             commands: commands,
+            child_layers: child_layers,
+            layer_origin: Point2D::zero(),
+            layer_size: size,
         }
     }
 }
 
 pub struct RendererFrame {
     pub pipeline_epoch_map: HashMap<PipelineId, Epoch, DefaultState<FnvHasher>>,
-    pub layers: Vec<DrawLayer>,
+    pub root_layer: DrawLayer,
 }
 
 impl RendererFrame {
-    pub fn new(pipeline_epoch_map: HashMap<PipelineId, Epoch, DefaultState<FnvHasher>>) -> RendererFrame {
+    pub fn new(pipeline_epoch_map: HashMap<PipelineId, Epoch, DefaultState<FnvHasher>>,
+               root_layer: DrawLayer) -> RendererFrame {
         RendererFrame {
             pipeline_epoch_map: pipeline_epoch_map,
-            layers: Vec::new(),
+            root_layer: root_layer,
         }
     }
 }
@@ -516,27 +527,16 @@ pub enum AxisDirection {
 #[derive(Debug, Clone, Copy)]
 pub struct StackingContextIndex(pub usize);
 
-#[derive(Debug)]
-pub struct StackingContextInfo {
-    pub origin: Point2D<f32>,
-    pub overflow: Rect<f32>,
-    pub final_transform: Matrix4,
-    pub render_target: FrameRenderTarget,
-}
-
 #[derive(Debug, Clone)]
-pub struct FrameRenderTarget {
-    pub size: Size2D<u32>,
-    pub texture: Option<RenderTargetTexture>,
-}
+pub struct StackingContextInfo {
+    pub world_origin: Point2D<f32>,
 
-impl FrameRenderTarget {
-    pub fn new(size: Size2D<u32>, texture: Option<RenderTargetTexture>) -> FrameRenderTarget {
-        FrameRenderTarget {
-            size: size,
-            texture: texture,
-        }
-    }
+    pub local_overflow: Rect<f32>,
+
+    pub world_transform: Matrix4,
+    pub world_perspective: Matrix4,
+
+    pub scroll_layer: ScrollLayerId,
 }
 
 #[derive(Debug)]
@@ -578,6 +578,7 @@ pub enum Primitive {
     Glyphs,         // font glyphs (some platforms may specialize shader)
 }
 
+#[derive(Debug)]
 pub struct BatchList {
     pub batches: Vec<Batch>,
     pub first_draw_list_id: DrawListId,
@@ -697,6 +698,7 @@ impl RectUv {
         }
     }
 
+/*
     pub fn to_rect(&self) -> Rect<f32> {
         fn min(x: f32, y: f32) -> f32 {
             if x < y { x } else { y }
@@ -714,7 +716,7 @@ impl RectUv {
         let max_y = max(max(max(self.top_left.y, self.top_right.y), self.bottom_right.y),
                         self.bottom_left.y);
         Rect::new(Point2D::new(min_x, min_y), Size2D::new(max_x - min_x, max_y - min_y))
-    }
+    }*/
 }
 
 #[derive(Clone, Debug)]
@@ -1028,17 +1030,3 @@ pub enum CompositionOp {
     MixBlend(MixBlendMode),
     Filter(LowLevelFilterOp),
 }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum BlurDirection {
-    Horizontal,
-    Vertical,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct RenderTargetTexture {
-    pub texture_id: TextureId,
-    pub uv_rect: Rect<u32>,
-    pub texture_size: Size2D<u32>,
-}
-

@@ -1,4 +1,3 @@
-use app_units::Au;
 use batch::{RasterBatch, VertexBufferId};
 use debug_render::DebugRenderer;
 use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat};
@@ -9,8 +8,8 @@ use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, BasicRotationAngle};
-use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp};
-use internal_types::{AxisDirection, LowLevelFilterOp, DrawCommand, ANGLE_FLOAT_TO_FIXED};
+use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp, RenderTargetIndex};
+use internal_types::{AxisDirection, LowLevelFilterOp, DrawCommand, DrawLayer, ANGLE_FLOAT_TO_FIXED};
 use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{RendererProfileTimers, RendererProfileCounters};
@@ -51,12 +50,49 @@ struct VertexBuffer {
     vao_id: VAOId,
 }
 
+pub trait CompositionOpHelpers {
+    fn needs_framebuffer(&self) -> bool;
+}
+
+impl CompositionOpHelpers for CompositionOp {
+    fn needs_framebuffer(&self) -> bool {
+        match *self {
+            CompositionOp::MixBlend(MixBlendMode::Normal) => unreachable!(),
+
+            CompositionOp::MixBlend(MixBlendMode::Screen) |
+            CompositionOp::MixBlend(MixBlendMode::Overlay) |
+            CompositionOp::MixBlend(MixBlendMode::ColorDodge) |
+            CompositionOp::MixBlend(MixBlendMode::ColorBurn) |
+            CompositionOp::MixBlend(MixBlendMode::HardLight) |
+            CompositionOp::MixBlend(MixBlendMode::SoftLight) |
+            CompositionOp::MixBlend(MixBlendMode::Difference) |
+            CompositionOp::MixBlend(MixBlendMode::Exclusion) |
+            CompositionOp::MixBlend(MixBlendMode::Hue) |
+            CompositionOp::MixBlend(MixBlendMode::Saturation) |
+            CompositionOp::MixBlend(MixBlendMode::Color) |
+            CompositionOp::MixBlend(MixBlendMode::Luminosity) |
+            CompositionOp::Filter(LowLevelFilterOp::Blur(..)) |
+            CompositionOp::Filter(LowLevelFilterOp::Contrast(_)) |
+            CompositionOp::Filter(LowLevelFilterOp::Grayscale(_)) |
+            CompositionOp::Filter(LowLevelFilterOp::HueRotate(_)) |
+            CompositionOp::Filter(LowLevelFilterOp::Invert(_)) |
+            CompositionOp::Filter(LowLevelFilterOp::Saturate(_)) |
+            CompositionOp::Filter(LowLevelFilterOp::Sepia(_)) => true,
+
+            CompositionOp::Filter(LowLevelFilterOp::Brightness(_)) |
+            CompositionOp::Filter(LowLevelFilterOp::Opacity(_)) |
+            CompositionOp::MixBlend(MixBlendMode::Multiply) |
+            CompositionOp::MixBlend(MixBlendMode::Darken) |
+            CompositionOp::MixBlend(MixBlendMode::Lighten) => false,
+        }
+    }
+}
+
 struct RenderContext {
     blend_program_id: ProgramId,
     filter_program_id: ProgramId,
     temporary_fb_texture: TextureId,
-    projection: Matrix4,
-    layer_size: Size2D<u32>,
+    device_pixel_ratio: f32,
 }
 
 pub struct Renderer {
@@ -89,11 +125,9 @@ pub struct Renderer {
     blur_program_id: ProgramId,
     u_direction: UniformLocation,
 
-    clear_program_id: ProgramId,
-
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
     viewport_size: Size2D<u32>,
-    framebuffer_size: Size2D<u32>,
+    //framebuffer_size: Size2D<u32>,
 
     enable_profiler: bool,
     debug: DebugRenderer,
@@ -106,7 +140,7 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(width: u32,
                height: u32,
-               framebuffer_size: &Size2D<u32>,
+               //framebuffer_size: &Size2D<u32>,
                device_pixel_ratio: f32,
                resource_path: PathBuf,
                enable_aa: bool,
@@ -127,7 +161,6 @@ impl Renderer {
         let box_shadow_program_id = device.create_program("box_shadow.vs.glsl",
                                                           "box_shadow.fs.glsl");
         let blur_program_id = device.create_program("blur.vs.glsl", "blur.fs.glsl");
-        let clear_program_id = device.create_program("clear.vs.glsl", "clear.fs.glsl");
 
         let u_quad_transform_array = device.get_uniform_location(quad_program_id, "uMatrixPalette");
         let u_tile_params = device.get_uniform_location(quad_program_id, "uTileParams");
@@ -139,7 +172,7 @@ impl Renderer {
 
         let u_direction = device.get_uniform_location(blur_program_id, "uDirection");
 
-        let texture_ids = device.create_texture_ids(1024);
+        let texture_ids = device.create_texture_ids(16);
         let mut texture_cache = TextureCache::new(texture_ids);
         let white_pixels: Vec<u8> = vec![
             0xff, 0xff, 0xff, 0xff,
@@ -215,7 +248,6 @@ impl Renderer {
             blit_program_id: blit_program_id,
             box_shadow_program_id: box_shadow_program_id,
             blur_program_id: blur_program_id,
-            clear_program_id: clear_program_id,
             u_blend_params: u_blend_params,
             u_filter_params: u_filter_params,
             u_direction: u_direction,
@@ -224,7 +256,7 @@ impl Renderer {
             u_tile_params: u_tile_params,
             notifier: notifier,
             viewport_size: Size2D::new(width, height),
-            framebuffer_size: *framebuffer_size,
+            //framebuffer_size: *framebuffer_size,
             debug: debug_renderer,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
@@ -827,499 +859,392 @@ impl Renderer {
         self.device.delete_vao(vao_id);
     }
 
+    fn draw_layer(&mut self,
+                  layer_target: Option<TextureId>,
+                  layer: &DrawLayer,
+                  render_context: &RenderContext) {
+        // Draw child layers first, to ensure that dependent render targets
+        // have been built before they are read as a texture.
+        for child in &layer.child_layers {
+            self.draw_layer(Some(layer.child_target.as_ref().unwrap().texture_id),
+                            child,
+                            render_context);
+        }
+
+        self.device.bind_render_target(layer_target);
+
+        // TODO(gw): This may not be needed in all cases...
+        gl::scissor(self.device_pixel_ratio as i32 * layer.layer_origin.x as gl::GLint,
+                    self.device_pixel_ratio as i32 * layer.layer_origin.y as gl::GLint,
+                    self.device_pixel_ratio as i32 * layer.layer_size.width as gl::GLint,
+                    self.device_pixel_ratio as i32 * layer.layer_size.height as gl::GLint);
+        gl::viewport(self.device_pixel_ratio as i32 * layer.layer_origin.x as gl::GLint,
+                     self.device_pixel_ratio as i32 * layer.layer_origin.y as gl::GLint,
+                     self.device_pixel_ratio as i32 * layer.layer_size.width as gl::GLint,
+                     self.device_pixel_ratio as i32 * layer.layer_size.height as gl::GLint);
+        let clear_color = if layer_target.is_some() {
+            ColorF::new(0.0, 0.0, 0.0, 0.0)
+        } else {
+            ColorF::new(1.0, 1.0, 1.0, 1.0)
+        };
+        gl::clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
+        gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
+
+        let projection = Matrix4::ortho(0.0,
+                                        layer.layer_size.width as f32,
+                                        layer.layer_size.height as f32,
+                                        0.0,
+                                        ORTHO_NEAR_PLANE,
+                                        ORTHO_FAR_PLANE);
+
+        for cmd in &layer.commands {
+            match cmd {
+                &DrawCommand::Clear(ref info) => {
+                    let mut clear_bits = 0;
+                    if info.clear_color {
+                        clear_bits |= gl::COLOR_BUFFER_BIT;
+                    }
+                    if info.clear_z {
+                        clear_bits |= gl::DEPTH_BUFFER_BIT;
+                    }
+                    if info.clear_stencil {
+                        clear_bits |= gl::STENCIL_BUFFER_BIT;
+                    }
+                    gl::clear(clear_bits);
+                }
+                &DrawCommand::Batch(ref info) => {
+                    // TODO: probably worth sorting front to back to minimize overdraw (if profiling shows fragment / rop bound)
+
+                    gl::enable(gl::BLEND);
+
+                    if layer_target.is_some() {
+                        gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
+                                                gl::ONE, gl::ONE);
+                    } else {
+                        gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+                    }
+
+                    gl::blend_equation(gl::FUNC_ADD);
+
+                    self.device.bind_program(self.quad_program_id,
+                                             &projection);
+
+                    self.device.set_uniform_mat4_array(self.u_quad_transform_array,
+                                                       &info.matrix_palette);
+
+                    for draw_call in &info.draw_calls {
+                        let vao_id = self.vertex_buffers[&draw_call.vertex_buffer_id].vao_id;
+                        self.device.bind_vao(vao_id);
+
+                        if draw_call.tile_params.len() > 0 {
+                            // TODO(gw): Avoid alloc here...
+                            let mut floats = Vec::new();
+                            for vec in &draw_call.tile_params {
+                                floats.push(vec.u0);
+                                floats.push(vec.v0);
+                                floats.push(vec.u_size);
+                                floats.push(vec.v_size);
+                            }
+
+                            self.device.set_uniform_vec4_array(self.u_tile_params,
+                                                               &floats);
+                        }
+
+                        self.device.bind_mask_texture(draw_call.mask_texture_id);
+                        self.device.bind_color_texture(draw_call.color_texture_id);
+
+                        // TODO(gw): Although a minor cost, this is an extra hashtable lookup for every
+                        //           draw call, when the batch textures are (almost) always the same.
+                        //           This could probably be cached or provided elsewhere.
+                        let color_size = self.device
+                                             .get_texture_dimensions(draw_call.color_texture_id);
+                        let mask_size = self.device
+                                            .get_texture_dimensions(draw_call.mask_texture_id);
+                        self.device.set_uniform_4f(self.u_atlas_params,
+                                                   color_size.0 as f32,
+                                                   color_size.1 as f32,
+                                                   mask_size.0 as f32,
+                                                   mask_size.1 as f32);
+
+                        let index_count = draw_call.index_count as i32;
+                        assert!(draw_call.first_vertex <= 65535);
+
+                        self.profile_counters.draw_calls.inc();
+
+                        self.device.draw_triangles_u16(draw_call.first_vertex as i32,
+                                                       index_count);
+                    }
+                }
+                &DrawCommand::CompositeBatch(ref info) => {
+                    let needs_fb = info.operation.needs_framebuffer();
+
+                    let alpha;
+                    if needs_fb {
+                        gl::disable(gl::BLEND);
+
+                        match info.operation {
+                            CompositionOp::MixBlend(blend_mode) => {
+                                self.device.bind_program(render_context.blend_program_id,
+                                                         &projection);
+                                self.device.set_uniform_4f(self.u_blend_params,
+                                                           blend_mode as i32 as f32,
+                                                           0.0,
+                                                           0.0,
+                                                           0.0);
+                            }
+                            CompositionOp::Filter(filter_op) => {
+                                self.device.bind_program(render_context.filter_program_id,
+                                                         &projection);
+
+                                let (opcode, amount, param0, param1) = match filter_op {
+                                    LowLevelFilterOp::Blur(radius,
+                                                           AxisDirection::Horizontal) => {
+                                        (0.0,
+                                         radius.to_f32_px() * self.device_pixel_ratio,
+                                         1.0,
+                                         0.0)
+                                    }
+                                    LowLevelFilterOp::Blur(radius,
+                                                           AxisDirection::Vertical) => {
+                                        (0.0,
+                                         radius.to_f32_px() * self.device_pixel_ratio,
+                                         0.0,
+                                         1.0)
+                                    }
+                                    LowLevelFilterOp::Contrast(amount) => {
+                                        (1.0, amount.to_f32_px(), 0.0, 0.0)
+                                    }
+                                    LowLevelFilterOp::Grayscale(amount) => {
+                                        (2.0, amount.to_f32_px(), 0.0, 0.0)
+                                    }
+                                    LowLevelFilterOp::HueRotate(angle) => {
+                                        (3.0,
+                                         (angle as f32) / ANGLE_FLOAT_TO_FIXED,
+                                         0.0,
+                                         0.0)
+                                    }
+                                    LowLevelFilterOp::Invert(amount) => {
+                                        (4.0, amount.to_f32_px(), 0.0, 0.0)
+                                    }
+                                    LowLevelFilterOp::Saturate(amount) => {
+                                        (5.0, amount.to_f32_px(), 0.0, 0.0)
+                                    }
+                                    LowLevelFilterOp::Sepia(amount) => {
+                                        (6.0, amount.to_f32_px(), 0.0, 0.0)
+                                    }
+                                    LowLevelFilterOp::Brightness(_) |
+                                    LowLevelFilterOp::Opacity(_) => {
+                                        // Expressible using GL blend modes, so not handled
+                                        // here.
+                                        unreachable!()
+                                    }
+                                };
+
+                                self.device.set_uniform_4f(self.u_filter_params,
+                                                           opcode,
+                                                           amount,
+                                                           param0,
+                                                           param1);
+                            }
+                        }
+                        self.device.bind_mask_texture(render_context.temporary_fb_texture);
+                        alpha = 1.0;
+                    } else {
+                        gl::enable(gl::BLEND);
+
+                        match info.operation {
+                            CompositionOp::Filter(LowLevelFilterOp::Brightness(
+                                    amount)) => {
+                                gl::blend_func(gl::CONSTANT_COLOR, gl::ZERO);
+                                gl::blend_equation(gl::FUNC_ADD);
+                                gl::blend_color(amount.to_f32_px(),
+                                                amount.to_f32_px(),
+                                                amount.to_f32_px(),
+                                                1.0);
+                                alpha = 1.0;
+                            }
+                            CompositionOp::Filter(LowLevelFilterOp::Opacity(amount)) => {
+                                gl::blend_func(gl::SRC_ALPHA,
+                                               gl::ONE_MINUS_SRC_ALPHA);
+                                gl::blend_equation(gl::FUNC_ADD);
+                                alpha = amount.to_f32_px();
+                            }
+                            CompositionOp::MixBlend(MixBlendMode::Multiply) => {
+                                gl::blend_func(gl::DST_COLOR, gl::ZERO);
+                                gl::blend_equation(gl::FUNC_ADD);
+                                alpha = 1.0;
+                            }
+                            CompositionOp::MixBlend(MixBlendMode::Darken) => {
+                                gl::blend_func(gl::ONE, gl::ONE);
+                                gl::blend_equation(GL_BLEND_MIN);
+                                alpha = 1.0;
+                            }
+                            CompositionOp::MixBlend(MixBlendMode::Lighten) => {
+                                gl::blend_func(gl::ONE, gl::ONE);
+                                gl::blend_equation(GL_BLEND_MAX);
+                                alpha = 1.0;
+                            }
+                            _ => unreachable!(),
+                        }
+
+                        self.device.bind_program(self.blit_program_id,
+                                                 &projection);
+                    }
+
+                    let (mut indices, mut vertices) = (vec![], vec![]);
+                    for job in &info.jobs {
+                        let x0 = job.rect.origin.x;
+                        let y0 = job.rect.origin.y;
+                        let x1 = job.rect.max_x();
+                        let y1 = job.rect.max_y();
+
+                        // TODO(glennw): No need to re-init this FB working copy texture
+                        // every time...
+                        if needs_fb {
+                            let fb_rect_size = Size2D::new(job.rect.size.width as f32 * render_context.device_pixel_ratio,
+                                                           job.rect.size.height as f32 * render_context.device_pixel_ratio);
+
+                            let inverted_y0 = layer.layer_size.height as i32 -
+                                              job.rect.size.height -
+                                              y0;
+                            let fb_rect_origin = Point2D::new(x0 as f32 * render_context.device_pixel_ratio,
+                                                              inverted_y0 as f32 * render_context.device_pixel_ratio);
+
+                            self.device.init_texture(render_context.temporary_fb_texture,
+                                                     fb_rect_size.width as u32,
+                                                     fb_rect_size.height as u32,
+                                                     ImageFormat::RGBA8,
+                                                     TextureFilter::Nearest,
+                                                     RenderTargetMode::None,
+                                                     None);
+                            self.device.read_framebuffer_rect(
+                                render_context.temporary_fb_texture,
+                                fb_rect_origin.x as i32,
+                                fb_rect_origin.y as i32,
+                                fb_rect_size.width as i32,
+                                fb_rect_size.height as i32);
+                        }
+
+                        let vertex_count = vertices.len() as u16;
+                        indices.push(vertex_count + 0);
+                        indices.push(vertex_count + 1);
+                        indices.push(vertex_count + 2);
+                        indices.push(vertex_count + 2);
+                        indices.push(vertex_count + 3);
+                        indices.push(vertex_count + 1);
+
+                        let color = ColorF::new(1.0, 1.0, 1.0, alpha);
+
+                        let RenderTargetIndex(render_target_index) = job.render_target_index;
+                        let src_target = &layer.child_layers[render_target_index as usize];
+
+                        let pixel_uv = Rect::new(
+                            Point2D::new(src_target.layer_origin.x as u32,
+                                         src_target.layer_origin.y as u32),
+                            Size2D::new(src_target.layer_size.width as u32,
+                                        src_target.layer_size.height as u32));
+                        let texture_width =
+                            layer.child_target.as_ref().unwrap().size.width as f32;
+                        let texture_height =
+                            layer.child_target.as_ref().unwrap().size.height as f32;
+                        let texture_uv = Rect::new(
+                            Point2D::new(
+                                pixel_uv.origin.x as f32 / texture_width,
+                                pixel_uv.origin.y as f32 / texture_height),
+                            Size2D::new(pixel_uv.size.width as f32 / texture_width,
+                                        pixel_uv.size.height as f32 / texture_height));
+
+
+                        if needs_fb {
+                            vertices.extend_from_slice(&[
+                                PackedVertex::from_components(
+                                    x0 as f32, y0 as f32,
+                                    &color,
+                                    texture_uv.origin.x, texture_uv.max_y(),
+                                    0.0, 1.0),
+                                PackedVertex::from_components(
+                                    x1 as f32, y0 as f32,
+                                    &color,
+                                    texture_uv.max_x(), texture_uv.max_y(),
+                                    1.0, 1.0),
+                                PackedVertex::from_components(
+                                    x0 as f32, y1 as f32,
+                                    &color,
+                                    texture_uv.origin.x, texture_uv.origin.y,
+                                    0.0, 0.0),
+                                PackedVertex::from_components(
+                                    x1 as f32, y1 as f32,
+                                    &color,
+                                    texture_uv.max_x(), texture_uv.origin.y,
+                                    1.0, 0.0),
+                            ]);
+                        } else {
+                            vertices.extend_from_slice(&[
+                                PackedVertex::from_components_unscaled_muv(
+                                    x0 as f32, y0 as f32,
+                                    &color,
+                                    texture_uv.origin.x, texture_uv.max_y(),
+                                    job.rect.size.width as u16, job.rect.size.height as u16),
+                                PackedVertex::from_components_unscaled_muv(
+                                    x1 as f32, y0 as f32,
+                                    &color,
+                                    texture_uv.max_x(), texture_uv.max_y(),
+                                    job.rect.size.width as u16, job.rect.size.height as u16),
+                                PackedVertex::from_components_unscaled_muv(
+                                    x0 as f32, y1 as f32,
+                                    &color,
+                                    texture_uv.origin.x, texture_uv.origin.y,
+                                    job.rect.size.width as u16, job.rect.size.height as u16),
+                                PackedVertex::from_components_unscaled_muv(
+                                    x1 as f32, y1 as f32,
+                                    &color,
+                                    texture_uv.max_x(), texture_uv.origin.y,
+                                    job.rect.size.width as u16, job.rect.size.height as u16),
+                            ]);
+                        }
+                    }
+
+                    draw_simple_triangles(&mut self.device,
+                                          &mut self.profile_counters,
+                                          &indices[..],
+                                          &vertices[..],
+                                          layer.child_target.as_ref().unwrap().texture_id);
+                }
+            }
+        }
+    }
+
     fn draw_frame(&mut self) {
-        if let Some(ref frame) = self.current_frame {
+        if let Some(frame) = self.current_frame.take() {
             // TODO: cache render targets!
 
             // Draw render targets in reverse order to ensure dependencies
             // of earlier render targets are already available.
             // TODO: Are there cases where this fails and needs something
             // like a topological sort with dependencies?
-            let mut render_context = RenderContext {
+            let render_context = RenderContext {
                 blend_program_id: self.blend_program_id,
                 filter_program_id: self.filter_program_id,
                 temporary_fb_texture: self.device.create_texture_ids(1)[0],
-                projection: Matrix4::identity(),
-                layer_size: Size2D::zero(),
+                device_pixel_ratio: self.device_pixel_ratio,
             };
 
-            debug_assert!(frame.layers.len() > 0);
-            let framebuffer_size = self.framebuffer_size;
+            gl::enable(gl::DEPTH_TEST);
+            gl::depth_func(gl::LEQUAL);
+            gl::enable(gl::SCISSOR_TEST);
 
-            for layer in frame.layers.iter().rev() {
-                render_context.layer_size = layer.size;
+            self.draw_layer(None,
+                            &frame.root_layer,
+                            &render_context);
 
-                let layer_texture_id = layer.render_targets[0].texture.map(|texture| {
-                    texture.texture_id
-                });
-                self.device.bind_render_target(layer_texture_id);
-
-                let mut uv;
-                let mut uv_rects = vec![];
-                let render_target_size;
-                let scale_factor;
-                let viewport_y;
-                match layer.render_targets[0].texture {
-                    None => {
-                        let v = layer.size.height as f32;
-                        uv = Rect::new(Point2D::new(0, v as u32), layer.size);
-                        uv_rects.push(uv);
-                        scale_factor = framebuffer_size.width as f32 / layer.size.width as f32;
-                        render_target_size = Size2D::new(
-                            (layer.size.width as f32 * scale_factor) as u32,
-                            (layer.size.height as f32 * scale_factor) as u32);
-                        viewport_y = render_target_size.height as f32 - uv.origin.y as f32 *
-                            scale_factor;
-                    }
-                    Some(ref texture) => {
-                        render_target_size = texture.texture_size;
-                        scale_factor = 1.0;
-                        uv = texture.uv_rect;
-                        uv_rects.push(uv);
-
-                        for render_target in &layer.render_targets[1..] {
-                            if let Some(ref texture) = render_target.texture {
-                                uv = uv.union(&texture.uv_rect);
-                                uv_rects.push(texture.uv_rect);
-                            }
-                        }
-
-                        viewport_y = render_target_size.height as f32 -
-                            uv.max_y() as f32 * scale_factor;
-                    }
-                };
-                let viewport = Rect::new(
-                    Point2D::new((uv.origin.x as f32 * scale_factor) as gl::GLint,
-                                 viewport_y as gl::GLint),
-                    Size2D::new((uv.size.width as f32 * scale_factor) as gl::GLint,
-                                (uv.size.height as f32 * scale_factor) as gl::GLint));
-                gl::viewport(viewport.origin.x,
-                             viewport.origin.y,
-                             viewport.size.width,
-                             viewport.size.height);
-
-                // Clear frame buffer
-                clear_framebuffer(&mut self.device,
-                                  &mut render_context,
-                                  &mut self.profile_counters,
-                                  &viewport,
-                                  &uv,
-                                  self.device_pixel_ratio,
-                                  &uv_rects[..],
-                                  self.clear_program_id,
-                                  layer.render_targets[0].texture.is_some());
-                gl::enable(gl::DEPTH_TEST);
-                gl::depth_func(gl::LEQUAL);
-
-                render_context.projection =
-                    Matrix4::ortho(0.0,
-                                   viewport.size.width as f32 / self.device_pixel_ratio,
-                                   viewport.size.height as f32 / self.device_pixel_ratio,
-                                   0.0,
-                                   ORTHO_NEAR_PLANE,
-                                   ORTHO_FAR_PLANE);
-
-                for cmd in &layer.commands {
-                    match cmd {
-                        &DrawCommand::Clear(ref info) => {
-                            let mut clear_bits = 0;
-                            if info.clear_color {
-                                clear_bits |= gl::COLOR_BUFFER_BIT;
-                            }
-                            if info.clear_z {
-                                clear_bits |= gl::DEPTH_BUFFER_BIT;
-                            }
-                            if info.clear_stencil {
-                                clear_bits |= gl::STENCIL_BUFFER_BIT;
-                            }
-                            gl::clear(clear_bits);
-                        }
-                        &DrawCommand::Batch(ref info) => {
-                            // TODO: probably worth sorting front to back to minimize overdraw (if profiling shows fragment / rop bound)
-
-                            gl::enable(gl::BLEND);
-
-                            if layer.render_targets[0].texture.is_some() {
-                                gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
-                                                        gl::ONE, gl::ONE);
-                            } else {
-                                gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-                            }
-
-                            gl::blend_equation(gl::FUNC_ADD);
-
-                            self.device.bind_program(self.quad_program_id,
-                                                     &render_context.projection);
-
-                            self.device.set_uniform_mat4_array(self.u_quad_transform_array,
-                                                               &info.matrix_palette);
-
-                            for draw_call in &info.draw_calls {
-                                let vao_id = self.vertex_buffers[&draw_call.vertex_buffer_id].vao_id;
-                                self.device.bind_vao(vao_id);
-
-                                if draw_call.tile_params.len() > 0 {
-                                    // TODO(gw): Avoid alloc here...
-                                    let mut floats = Vec::new();
-                                    for vec in &draw_call.tile_params {
-                                        floats.push(vec.u0);
-                                        floats.push(vec.v0);
-                                        floats.push(vec.u_size);
-                                        floats.push(vec.v_size);
-                                    }
-
-                                    self.device.set_uniform_vec4_array(self.u_tile_params,
-                                                                       &floats);
-                                }
-
-                                self.device.bind_mask_texture(draw_call.mask_texture_id);
-                                self.device.bind_color_texture(draw_call.color_texture_id);
-
-                                // TODO(gw): Although a minor cost, this is an extra hashtable lookup for every
-                                //           draw call, when the batch textures are (almost) always the same.
-                                //           This could probably be cached or provided elsewhere.
-                                let color_size = self.device
-                                                     .get_texture_dimensions(draw_call.color_texture_id);
-                                let mask_size = self.device
-                                                    .get_texture_dimensions(draw_call.mask_texture_id);
-                                self.device.set_uniform_4f(self.u_atlas_params,
-                                                           color_size.0 as f32,
-                                                           color_size.1 as f32,
-                                                           mask_size.0 as f32,
-                                                           mask_size.1 as f32);
-
-                                let index_count = draw_call.index_count as i32;
-                                assert!(draw_call.first_vertex <= 65535);
-
-                                self.profile_counters.draw_calls.inc();
-
-                                self.device.draw_triangles_u16(draw_call.first_vertex as i32,
-                                                               index_count);
-                            }
-                        }
-                        &DrawCommand::CompositeBatch(ref info) => {
-                            let needs_fb = match info.operation {
-                                CompositionOp::MixBlend(MixBlendMode::Normal) => unreachable!(),
-
-                                CompositionOp::MixBlend(MixBlendMode::Screen) |
-                                CompositionOp::MixBlend(MixBlendMode::Overlay) |
-                                CompositionOp::MixBlend(MixBlendMode::ColorDodge) |
-                                CompositionOp::MixBlend(MixBlendMode::ColorBurn) |
-                                CompositionOp::MixBlend(MixBlendMode::HardLight) |
-                                CompositionOp::MixBlend(MixBlendMode::SoftLight) |
-                                CompositionOp::MixBlend(MixBlendMode::Difference) |
-                                CompositionOp::MixBlend(MixBlendMode::Exclusion) |
-                                CompositionOp::MixBlend(MixBlendMode::Hue) |
-                                CompositionOp::MixBlend(MixBlendMode::Saturation) |
-                                CompositionOp::MixBlend(MixBlendMode::Color) |
-                                CompositionOp::MixBlend(MixBlendMode::Luminosity) |
-                                CompositionOp::Filter(LowLevelFilterOp::Blur(..)) |
-                                CompositionOp::Filter(LowLevelFilterOp::Contrast(_)) |
-                                CompositionOp::Filter(LowLevelFilterOp::Grayscale(_)) |
-                                CompositionOp::Filter(LowLevelFilterOp::HueRotate(_)) |
-                                CompositionOp::Filter(LowLevelFilterOp::Invert(_)) |
-                                CompositionOp::Filter(LowLevelFilterOp::Saturate(_)) |
-                                CompositionOp::Filter(LowLevelFilterOp::Sepia(_)) => true,
-
-                                CompositionOp::Filter(LowLevelFilterOp::Brightness(_)) |
-                                CompositionOp::Filter(LowLevelFilterOp::Opacity(_)) |
-                                CompositionOp::MixBlend(MixBlendMode::Multiply) |
-                                CompositionOp::MixBlend(MixBlendMode::Darken) |
-                                CompositionOp::MixBlend(MixBlendMode::Lighten) => false,
-                            };
-
-                            let alpha;
-                            if needs_fb {
-                                gl::disable(gl::BLEND);
-
-                                // TODO(glennw): No need to re-init this FB working copy texture
-                                // every time...
-                                for job in &info.jobs {
-                                    let x0 = job.rect.origin.x;
-                                    let y0 = job.rect.origin.y;
-
-                                    self.device.init_texture(render_context.temporary_fb_texture,
-                                                             job.rect.size.width as u32,
-                                                             job.rect.size.height as u32,
-                                                             ImageFormat::RGBA8,
-                                                             TextureFilter::Nearest,
-                                                             RenderTargetMode::None,
-                                                             None);
-                                    self.device.read_framebuffer_rect(
-                                        render_context.temporary_fb_texture,
-                                        x0,
-                                        render_context.layer_size.height as i32 -
-                                            job.rect.size.height -
-                                            y0,
-                                        job.rect.size.width,
-                                        job.rect.size.height);
-                                }
-
-                                match info.operation {
-                                    CompositionOp::MixBlend(blend_mode) => {
-                                        self.device.bind_program(render_context.blend_program_id,
-                                                                 &render_context.projection);
-                                        self.device.set_uniform_4f(self.u_blend_params,
-                                                                   blend_mode as i32 as f32,
-                                                                   0.0,
-                                                                   0.0,
-                                                                   0.0);
-                                    }
-                                    CompositionOp::Filter(filter_op) => {
-                                        self.device.bind_program(render_context.filter_program_id,
-                                                                 &render_context.projection);
-
-                                        let (opcode, amount, param0, param1) = match filter_op {
-                                            LowLevelFilterOp::Blur(radius,
-                                                                   AxisDirection::Horizontal) => {
-                                                (0.0,
-                                                 radius.to_f32_px() * self.device_pixel_ratio,
-                                                 1.0,
-                                                 0.0)
-                                            }
-                                            LowLevelFilterOp::Blur(radius,
-                                                                   AxisDirection::Vertical) => {
-                                                (0.0,
-                                                 radius.to_f32_px() * self.device_pixel_ratio,
-                                                 0.0,
-                                                 1.0)
-                                            }
-                                            LowLevelFilterOp::Contrast(amount) => {
-                                                (1.0, amount.to_f32_px(), 0.0, 0.0)
-                                            }
-                                            LowLevelFilterOp::Grayscale(amount) => {
-                                                (2.0, amount.to_f32_px(), 0.0, 0.0)
-                                            }
-                                            LowLevelFilterOp::HueRotate(angle) => {
-                                                (3.0,
-                                                 (angle as f32) / ANGLE_FLOAT_TO_FIXED,
-                                                 0.0,
-                                                 0.0)
-                                            }
-                                            LowLevelFilterOp::Invert(amount) => {
-                                                (4.0, amount.to_f32_px(), 0.0, 0.0)
-                                            }
-                                            LowLevelFilterOp::Saturate(amount) => {
-                                                (5.0, amount.to_f32_px(), 0.0, 0.0)
-                                            }
-                                            LowLevelFilterOp::Sepia(amount) => {
-                                                (6.0, amount.to_f32_px(), 0.0, 0.0)
-                                            }
-                                            LowLevelFilterOp::Brightness(_) |
-                                            LowLevelFilterOp::Opacity(_) => {
-                                                // Expressible using GL blend modes, so not handled
-                                                // here.
-                                                unreachable!()
-                                            }
-                                        };
-
-                                        self.device.set_uniform_4f(self.u_filter_params,
-                                                                   opcode,
-                                                                   amount,
-                                                                   param0,
-                                                                   param1);
-                                    }
-                                }
-                                self.device.bind_mask_texture(render_context.temporary_fb_texture);
-                                alpha = 1.0;
-                            } else {
-                                gl::enable(gl::BLEND);
-
-                                match info.operation {
-                                    CompositionOp::Filter(LowLevelFilterOp::Brightness(
-                                            amount)) => {
-                                        gl::blend_func(gl::CONSTANT_COLOR, gl::ZERO);
-                                        gl::blend_equation(gl::FUNC_ADD);
-                                        gl::blend_color(amount.to_f32_px(),
-                                                        amount.to_f32_px(),
-                                                        amount.to_f32_px(),
-                                                        1.0);
-                                        alpha = 1.0;
-                                    }
-                                    CompositionOp::Filter(LowLevelFilterOp::Opacity(amount)) => {
-                                        gl::blend_func(gl::SRC_ALPHA,
-                                                       gl::ONE_MINUS_SRC_ALPHA);
-                                        gl::blend_equation(gl::FUNC_ADD);
-                                        alpha = amount.to_f32_px();
-                                    }
-                                    CompositionOp::MixBlend(MixBlendMode::Multiply) => {
-                                        gl::blend_func(gl::DST_COLOR, gl::ZERO);
-                                        gl::blend_equation(gl::FUNC_ADD);
-                                        alpha = 1.0;
-                                    }
-                                    CompositionOp::MixBlend(MixBlendMode::Darken) => {
-                                        gl::blend_func(gl::ONE, gl::ONE);
-                                        gl::blend_equation(GL_BLEND_MIN);
-                                        alpha = 1.0;
-                                    }
-                                    CompositionOp::MixBlend(MixBlendMode::Lighten) => {
-                                        gl::blend_func(gl::ONE, gl::ONE);
-                                        gl::blend_equation(GL_BLEND_MAX);
-                                        alpha = 1.0;
-                                    }
-                                    _ => unreachable!(),
-                                }
-
-                                self.device.bind_program(self.blit_program_id,
-                                                         &render_context.projection);
-                            }
-
-                            let (mut indices, mut vertices) = (vec![], vec![]);
-                            for job in &info.jobs {
-                                let x0 = job.rect.origin.x;
-                                let y0 = job.rect.origin.y;
-                                let x1 = job.rect.max_x();
-                                let y1 = job.rect.max_y();
-
-                                let vertex_count = vertices.len() as u16;
-                                indices.push(vertex_count + 0);
-                                indices.push(vertex_count + 1);
-                                indices.push(vertex_count + 2);
-                                indices.push(vertex_count + 2);
-                                indices.push(vertex_count + 3);
-                                indices.push(vertex_count + 1);
-
-                                let color = ColorF::new(1.0, 1.0, 1.0, alpha);
-
-                                let pixel_uv = Rect::new(
-                                    Point2D::new(job.render_target_texture.uv_rect.origin.x,
-                                                 job.render_target_texture.uv_rect.origin.y),
-                                    Size2D::new(
-                                        (job.rect.size.width as f32 * self.device_pixel_ratio) as
-                                        u32,
-                                        (job.rect.size.height as f32 * self.device_pixel_ratio) as
-                                        u32));
-                                let texture_width =
-                                    job.render_target_texture.texture_size.width as f32;
-                                let texture_height =
-                                    job.render_target_texture.texture_size.height as f32;
-                                let texture_uv = Rect::new(
-                                    Point2D::new(
-                                        pixel_uv.origin.x as f32 / texture_width,
-                                        1.0 - (pixel_uv.origin.y + pixel_uv.size.height) as f32 /
-                                            texture_height),
-                                    Size2D::new(pixel_uv.size.width as f32 / texture_width,
-                                                pixel_uv.size.height as f32 / texture_height));
-
-                                vertices.push_all(&[
-                                    PackedVertex::from_components_unscaled_muv(
-                                        x0 as f32, y0 as f32,
-                                        &color,
-                                        texture_uv.origin.x, texture_uv.max_y(),
-                                        job.rect.size.width as u16, job.rect.size.height as u16),
-                                    PackedVertex::from_components_unscaled_muv(
-                                        x1 as f32, y0 as f32,
-                                        &color,
-                                        texture_uv.max_x(), texture_uv.max_y(),
-                                        job.rect.size.width as u16, job.rect.size.height as u16),
-                                    PackedVertex::from_components_unscaled_muv(
-                                        x0 as f32, y1 as f32,
-                                        &color,
-                                        texture_uv.origin.x, texture_uv.origin.y,
-                                        job.rect.size.width as u16, job.rect.size.height as u16),
-                                    PackedVertex::from_components_unscaled_muv(
-                                        x1 as f32, y1 as f32,
-                                        &color,
-                                        texture_uv.max_x(), texture_uv.origin.y,
-                                        job.rect.size.width as u16, job.rect.size.height as u16),
-                                ]);
-                            }
-
-                            draw_simple_triangles(&mut self.device,
-                                                  &mut render_context,
-                                                  &mut self.profile_counters,
-                                                  &indices[..],
-                                                  &vertices[..],
-                                                  info.texture_id);
-                        }
-                    }
-                }
-            }
+            // Restore frame - avoid borrow checker!
+            self.current_frame = Some(frame);
         }
     }
 
-}
-
-fn clear_framebuffer(device: &mut Device,
-                     render_context: &mut RenderContext,
-                     profile_counters: &mut RendererProfileCounters,
-                     viewport: &Rect<gl::GLint>,
-                     combined_uv: &Rect<u32>,
-                     device_pixel_ratio: f32,
-                     uv_rects: &[Rect<u32>],
-                     program_id: ProgramId,
-                     clear_to_transparent: bool) {
-    let clear_color = if clear_to_transparent {
-        ColorF {
-            r: 0.0,
-            g: 0.0,
-            b: 0.0,
-            a: 0.0,
-        }
-    } else {
-        ColorF {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-            a: 1.0,
-        }
-    };
-
-    // Fast path if we only have one rect: just use glClear().
-    //
-    // TODO(pcwalton): We could take this path too if the rects all union together precisely
-    // to the viewport. But I kinda doubt it's worth the trouble.
-    if uv_rects.len() < 2 {
-        gl::scissor(viewport.origin.x, viewport.origin.y,
-                    viewport.size.width, viewport.size.height);
-        gl::enable(gl::SCISSOR_TEST);
-        gl::clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
-        gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
-        gl::disable(gl::SCISSOR_TEST);
-        return;
-    }
-
-    // Slow path if we have multiple rects.
-    //
-    // We use [0,1) coordinates here because it's simpler to centralize the scaling to the viewport
-    // in one place.
-    let (mut indices, mut vertices) = (vec![], vec![]);
-    for rect in uv_rects {
-        let x0 = (rect.origin.x as f32 - combined_uv.origin.x as f32 * device_pixel_ratio) /
-            viewport.size.width as f32;
-        let y0 = (rect.origin.y as f32 - combined_uv.origin.y as f32 * device_pixel_ratio) /
-            viewport.size.height as f32;
-        let x1 = (rect.max_x() as f32 - combined_uv.origin.x as f32 * device_pixel_ratio) /
-            viewport.size.width as f32;
-        let y1 = (rect.max_y() as f32 - combined_uv.origin.y as f32 * device_pixel_ratio) /
-            viewport.size.height as f32;
-        indices.extend([0, 1, 2, 1, 3, 2].iter().map(|index| (index + vertices.len()) as u16));
-        vertices.push_all(&[
-            PackedVertex::from_components(x0, y0, &clear_color, 0.0, 0.0, 0.0, 0.0),
-            PackedVertex::from_components(x1, y0, &clear_color, 0.0, 0.0, 0.0, 0.0),
-            PackedVertex::from_components(x0, y1, &clear_color, 0.0, 0.0, 0.0, 0.0),
-            PackedVertex::from_components(x1, y1, &clear_color, 0.0, 0.0, 0.0, 0.0),
-        ]);
-    }
-
-    let projection = Matrix4::ortho(0.0, 1.0,
-                                    1.0, 0.0,
-                                    ORTHO_NEAR_PLANE,
-                                    ORTHO_FAR_PLANE);
-    device.bind_program(program_id, &projection);
-    gl::disable(gl::BLEND);
-    draw_simple_triangles(device,
-                          render_context,
-                          profile_counters,
-                          &indices[..],
-                          &vertices[..],
-                          TextureId(0));
-
-    gl::clear(gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
 }
 
 fn draw_simple_triangles(device: &mut Device,
-                         render_context: &mut RenderContext,
                          profile_counters: &mut RendererProfileCounters,
                          indices: &[u16],
                          vertices: &[PackedVertex],
