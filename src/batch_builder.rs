@@ -1,5 +1,5 @@
 use app_units::Au;
-use batch::{BatchBuilder, MatrixIndex, TileParams};
+use batch::{BatchBuilder, TileParams};
 use clipper::{self, ClipBuffers, Polygon};
 use device::TextureId;
 use euclid::{Rect, Point2D, Size2D};
@@ -27,15 +27,13 @@ const BORDER_DASH_SIZE: f32 = 3.0;
 impl<'a> BatchBuilder<'a> {
     #[inline]
     fn add_textured_rectangle(&mut self,
-                              matrix_index: MatrixIndex,
                               rect: &Rect<f32>,
                               clip: &CombinedClipRegion,
                               image_info: &TextureCacheItem,
                               resource_cache: &ResourceCache,
                               clip_buffers: &mut ClipBuffers,
                               color: &ColorF) {
-        self.add_axis_aligned_gradient_with_texture(matrix_index,
-                                                    rect,
+        self.add_axis_aligned_gradient_with_texture(rect,
                                                     clip,
                                                     image_info,
                                                     resource_cache,
@@ -45,14 +43,12 @@ impl<'a> BatchBuilder<'a> {
 
     #[inline]
     pub fn add_color_rectangle(&mut self,
-                               matrix_index: MatrixIndex,
                                rect: &Rect<f32>,
                                clip: &CombinedClipRegion,
                                resource_cache: &ResourceCache,
                                clip_buffers: &mut ClipBuffers,
                                color: &ColorF) {
-        self.add_axis_aligned_gradient(matrix_index,
-                                       rect,
+        self.add_axis_aligned_gradient(rect,
                                        clip,
                                        resource_cache,
                                        clip_buffers,
@@ -60,7 +56,6 @@ impl<'a> BatchBuilder<'a> {
     }
 
     pub fn add_webgl_rectangle(&mut self,
-                               matrix_index: MatrixIndex,
                                rect: &Rect<f32>,
                                clip: &CombinedClipRegion,
                                resource_cache: &ResourceCache,
@@ -95,8 +90,7 @@ impl<'a> BatchBuilder<'a> {
             let mask = mask_for_clip_region(resource_cache, &clip_region, false);
             let mut vertices = clip_region.make_packed_vertices_for_rect(mask);
 
-            self.add_draw_item(matrix_index,
-                               texture_id,
+            self.add_draw_item(texture_id,
                                mask.texture_id,
                                Primitive::Rectangles,
                                &mut vertices,
@@ -105,7 +99,6 @@ impl<'a> BatchBuilder<'a> {
     }
 
     pub fn add_image(&mut self,
-                     matrix_index: MatrixIndex,
                      rect: &Rect<f32>,
                      clip: &CombinedClipRegion,
                      stretch_size: &Size2D<f32>,
@@ -147,8 +140,7 @@ impl<'a> BatchBuilder<'a> {
             let mask = mask_for_clip_region(resource_cache, &clip_region, false);
             let mut vertices = clip_region.make_packed_vertices_for_rect(mask);
 
-            self.add_draw_item(matrix_index,
-                               image_info.texture_id,
+            self.add_draw_item(image_info.texture_id,
                                mask.texture_id,
                                Primitive::Rectangles,
                                &mut vertices,
@@ -157,7 +149,6 @@ impl<'a> BatchBuilder<'a> {
     }
 
     pub fn add_text(&mut self,
-                    matrix_index: MatrixIndex,
                     rect: &Rect<f32>,
                     clip: &CombinedClipRegion,
                     font_key: FontKey,
@@ -256,8 +247,7 @@ impl<'a> BatchBuilder<'a> {
                         dummy_mask_image.uv_rect.bottom_right.y));
             }
 
-            self.add_draw_item(matrix_index,
-                               texture_id,
+            self.add_draw_item(texture_id,
                                dummy_mask_image.texture_id,
                                Primitive::Glyphs,
                                &mut vertex_buffer,
@@ -268,15 +258,13 @@ impl<'a> BatchBuilder<'a> {
     // Colors are in the order: top left, top right, bottom right, bottom left.
     #[inline]
     fn add_axis_aligned_gradient(&mut self,
-                                 matrix_index: MatrixIndex,
                                  rect: &Rect<f32>,
                                  clip: &CombinedClipRegion,
                                  resource_cache: &ResourceCache,
                                  clip_buffers: &mut ClipBuffers,
                                  colors: &[ColorF; 4]) {
         let white_image = resource_cache.get_dummy_color_image();
-        self.add_axis_aligned_gradient_with_texture(matrix_index,
-                                                    rect,
+        self.add_axis_aligned_gradient_with_texture(rect,
                                                     clip,
                                                     white_image,
                                                     resource_cache,
@@ -286,7 +274,6 @@ impl<'a> BatchBuilder<'a> {
 
     // Colors are in the order: top left, top right, bottom right, bottom left.
     fn add_axis_aligned_gradient_with_texture(&mut self,
-                                              matrix_index: MatrixIndex,
                                               rect: &Rect<f32>,
                                               clip: &CombinedClipRegion,
                                               image_info: &TextureCacheItem,
@@ -313,8 +300,7 @@ impl<'a> BatchBuilder<'a> {
                                        .drain(..) {
             let mask = mask_for_clip_region(resource_cache, &clip_region, false);
             let mut vertices = clip_region.make_packed_vertices_for_rect(mask);
-            self.add_draw_item(matrix_index,
-                               image_info.texture_id,
+            self.add_draw_item(image_info.texture_id,
                                mask.texture_id,
                                Primitive::Rectangles,
                                &mut vertices,
@@ -323,7 +309,6 @@ impl<'a> BatchBuilder<'a> {
     }
 
     fn add_axis_aligned_gradient_with_stops(&mut self,
-                                            matrix_index: MatrixIndex,
                                             clip: &CombinedClipRegion,
                                             rect: &Rect<f32>,
                                             direction: AxisDirection,
@@ -360,8 +345,7 @@ impl<'a> BatchBuilder<'a> {
                     ];
                 }
             }
-            self.add_axis_aligned_gradient(matrix_index,
-                                           &piece_rect,
+            self.add_axis_aligned_gradient(&piece_rect,
                                            clip,
                                            resource_cache,
                                            clip_buffers,
@@ -370,7 +354,6 @@ impl<'a> BatchBuilder<'a> {
     }
 
     pub fn add_gradient(&mut self,
-                        matrix_index: MatrixIndex,
                         clip: &CombinedClipRegion,
                         start_point: &Point2D<f32>,
                         end_point: &Point2D<f32>,
@@ -383,8 +366,7 @@ impl<'a> BatchBuilder<'a> {
         if start_point.x == end_point.x {
             let rect = Rect::new(Point2D::new(-10000.0, start_point.y),
                                  Size2D::new(20000.0, end_point.y - start_point.y));
-            self.add_axis_aligned_gradient_with_stops(matrix_index,
-                                                      clip,
+            self.add_axis_aligned_gradient_with_stops(clip,
                                                       &rect,
                                                       AxisDirection::Vertical,
                                                       stops,
@@ -395,8 +377,7 @@ impl<'a> BatchBuilder<'a> {
         if start_point.y == end_point.y {
             let rect = Rect::new(Point2D::new(start_point.x, -10000.0),
                                  Size2D::new(end_point.x - start_point.x, 20000.0));
-            self.add_axis_aligned_gradient_with_stops(matrix_index,
-                                                      clip,
+            self.add_axis_aligned_gradient_with_stops(clip,
                                                       &rect,
                                                       AxisDirection::Horizontal,
                                                       stops,
@@ -478,8 +459,7 @@ impl<'a> BatchBuilder<'a> {
                     }
 
                     if packed_vertices.len() > 0 {
-                        self.add_draw_item(matrix_index,
-                                           white_image.texture_id,
+                        self.add_draw_item(white_image.texture_id,
                                            mask.texture_id,
                                            Primitive::TriangleFan,
                                            &mut packed_vertices,
@@ -491,7 +471,6 @@ impl<'a> BatchBuilder<'a> {
     }
 
     pub fn add_box_shadow(&mut self,
-                          matrix_index: MatrixIndex,
                           box_bounds: &Rect<f32>,
                           clip: &CombinedClipRegion,
                           box_offset: &Point2D<f32>,
@@ -506,13 +485,16 @@ impl<'a> BatchBuilder<'a> {
 
         // Fast path.
         if blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None {
-            self.add_color_rectangle(matrix_index, &rect, clip, resource_cache, clip_buffers, color);
+            self.add_color_rectangle(&rect,
+                                     clip,
+                                     resource_cache,
+                                     clip_buffers,
+                                     color);
             return;
         }
 
         // Draw the corners.
-        self.add_box_shadow_corners(matrix_index,
-                                    box_bounds,
+        self.add_box_shadow_corners(box_bounds,
                                     box_offset,
                                     color,
                                     blur_radius,
@@ -524,8 +506,7 @@ impl<'a> BatchBuilder<'a> {
                                     clip_buffers);
 
         // Draw the sides.
-        self.add_box_shadow_sides(matrix_index,
-                                  box_bounds,
+        self.add_box_shadow_sides(box_bounds,
                                   clip,
                                   box_offset,
                                   color,
@@ -539,8 +520,7 @@ impl<'a> BatchBuilder<'a> {
         match clip_mode {
             BoxShadowClipMode::None => {
                 // Fill the center area.
-                self.add_color_rectangle(matrix_index,
-                                         box_bounds,
+                self.add_color_rectangle(box_bounds,
                                          clip,
                                          resource_cache,
                                          clip_buffers,
@@ -558,8 +538,7 @@ impl<'a> BatchBuilder<'a> {
                     let mut clip = *clip;
                     clip.clip_out(&ComplexClipRegion::new(*box_bounds,
                                                           BorderRadius::uniform(border_radius)));
-                    self.add_color_rectangle(matrix_index,
-                                             &center_rect,
+                    self.add_color_rectangle(&center_rect,
                                              &clip,
                                              resource_cache,
                                              clip_buffers,
@@ -568,8 +547,7 @@ impl<'a> BatchBuilder<'a> {
             }
             BoxShadowClipMode::Inset => {
                 // Fill in the outsides.
-                self.fill_outside_area_of_inset_box_shadow(matrix_index,
-                                                           box_bounds,
+                self.fill_outside_area_of_inset_box_shadow(box_bounds,
                                                            clip,
                                                            box_offset,
                                                            color,
@@ -583,7 +561,6 @@ impl<'a> BatchBuilder<'a> {
     }
 
     fn add_box_shadow_corners(&mut self,
-                              matrix_index: MatrixIndex,
                               box_bounds: &Rect<f32>,
                               box_offset: &Point2D<f32>,
                               color: &ColorF,
@@ -619,8 +596,7 @@ impl<'a> BatchBuilder<'a> {
         let center = Point2D::new(box_bounds.origin.x + box_bounds.size.width / 2.0,
                                   box_bounds.origin.y + box_bounds.size.height / 2.0);
 
-        self.add_box_shadow_corner(matrix_index,
-                                   &metrics.tl_outer,
+        self.add_box_shadow_corner(&metrics.tl_outer,
                                    &Point2D::new(metrics.tl_outer.x + metrics.edge_size,
                                                  metrics.tl_outer.y + metrics.edge_size),
                                    &metrics.tl_outer,
@@ -634,8 +610,7 @@ impl<'a> BatchBuilder<'a> {
                                    resource_cache,
                                    clip_buffers,
                                    BasicRotationAngle::Upright);
-        self.add_box_shadow_corner(matrix_index,
-                                   &Point2D::new(metrics.tr_outer.x - metrics.edge_size,
+        self.add_box_shadow_corner(&Point2D::new(metrics.tr_outer.x - metrics.edge_size,
                                                  metrics.tr_outer.y),
                                    &Point2D::new(metrics.tr_outer.x,
                                                  metrics.tr_outer.y + metrics.edge_size),
@@ -650,8 +625,7 @@ impl<'a> BatchBuilder<'a> {
                                    resource_cache,
                                    clip_buffers,
                                    BasicRotationAngle::Clockwise90);
-        self.add_box_shadow_corner(matrix_index,
-                                   &Point2D::new(metrics.br_outer.x - metrics.edge_size,
+        self.add_box_shadow_corner(&Point2D::new(metrics.br_outer.x - metrics.edge_size,
                                                  metrics.br_outer.y - metrics.edge_size),
                                    &Point2D::new(metrics.br_outer.x, metrics.br_outer.y),
                                    &center,
@@ -665,8 +639,7 @@ impl<'a> BatchBuilder<'a> {
                                    resource_cache,
                                    clip_buffers,
                                    BasicRotationAngle::Clockwise180);
-        self.add_box_shadow_corner(matrix_index,
-                                   &Point2D::new(metrics.bl_outer.x,
+        self.add_box_shadow_corner(&Point2D::new(metrics.bl_outer.x,
                                                  metrics.bl_outer.y - metrics.edge_size),
                                    &Point2D::new(metrics.bl_outer.x + metrics.edge_size,
                                                  metrics.bl_outer.y),
@@ -684,7 +657,6 @@ impl<'a> BatchBuilder<'a> {
     }
 
     fn add_box_shadow_sides(&mut self,
-                            matrix_index: MatrixIndex,
                             box_bounds: &Rect<f32>,
                             clip: &CombinedClipRegion,
                             box_offset: &Point2D<f32>,
@@ -730,8 +702,7 @@ impl<'a> BatchBuilder<'a> {
         let left_rect = Rect::new(metrics.tl_outer + Point2D::new(0.0, metrics.edge_size),
                                   vertical_size);
 
-        self.add_box_shadow_edge(matrix_index,
-                                 &top_rect.origin,
+        self.add_box_shadow_edge(&top_rect.origin,
                                  &top_rect.bottom_right(),
                                  &rect,
                                  color,
@@ -742,8 +713,7 @@ impl<'a> BatchBuilder<'a> {
                                  resource_cache,
                                  clip_buffers,
                                  BasicRotationAngle::Clockwise90);
-        self.add_box_shadow_edge(matrix_index,
-                                 &right_rect.origin,
+        self.add_box_shadow_edge(&right_rect.origin,
                                  &right_rect.bottom_right(),
                                  &rect,
                                  color,
@@ -754,8 +724,7 @@ impl<'a> BatchBuilder<'a> {
                                  resource_cache,
                                  clip_buffers,
                                  BasicRotationAngle::Clockwise180);
-        self.add_box_shadow_edge(matrix_index,
-                                 &bottom_rect.origin,
+        self.add_box_shadow_edge(&bottom_rect.origin,
                                  &bottom_rect.bottom_right(),
                                  &rect,
                                  color,
@@ -766,8 +735,7 @@ impl<'a> BatchBuilder<'a> {
                                  resource_cache,
                                  clip_buffers,
                                  BasicRotationAngle::Clockwise270);
-        self.add_box_shadow_edge(matrix_index,
-                                 &left_rect.origin,
+        self.add_box_shadow_edge(&left_rect.origin,
                                  &left_rect.bottom_right(),
                                  &rect,
                                  color,
@@ -781,7 +749,6 @@ impl<'a> BatchBuilder<'a> {
     }
 
     fn fill_outside_area_of_inset_box_shadow(&mut self,
-                                             matrix_index: MatrixIndex,
                                              box_bounds: &Rect<f32>,
                                              clip: &CombinedClipRegion,
                                              box_offset: &Point2D<f32>,
@@ -816,8 +783,7 @@ impl<'a> BatchBuilder<'a> {
         //            +------------------------------+
 
         // A:
-        self.add_color_rectangle(matrix_index,
-                                 &Rect::new(box_bounds.origin,
+        self.add_color_rectangle(&Rect::new(box_bounds.origin,
                                             Size2D::new(box_bounds.size.width,
                                                         metrics.tl_outer.y - box_bounds.origin.y)),
                                  &clip,
@@ -826,8 +792,7 @@ impl<'a> BatchBuilder<'a> {
                                  color);
 
         // B:
-        self.add_color_rectangle(matrix_index,
-                                 &Rect::new(metrics.tr_outer,
+        self.add_color_rectangle(&Rect::new(metrics.tr_outer,
                                             Size2D::new(box_bounds.max_x() - metrics.tr_outer.x,
                                                         metrics.br_outer.y - metrics.tr_outer.y)),
                                  &clip,
@@ -836,8 +801,7 @@ impl<'a> BatchBuilder<'a> {
                                  color);
 
         // C:
-        self.add_color_rectangle(matrix_index,
-                                 &Rect::new(Point2D::new(box_bounds.origin.x, metrics.bl_outer.y),
+        self.add_color_rectangle(&Rect::new(Point2D::new(box_bounds.origin.x, metrics.bl_outer.y),
                                             Size2D::new(box_bounds.size.width,
                                                         box_bounds.max_y() - metrics.br_outer.y)),
                                  &clip,
@@ -846,8 +810,7 @@ impl<'a> BatchBuilder<'a> {
                                  color);
 
         // D:
-        self.add_color_rectangle(matrix_index,
-                                 &Rect::new(Point2D::new(box_bounds.origin.x, metrics.tl_outer.y),
+        self.add_color_rectangle(&Rect::new(Point2D::new(box_bounds.origin.x, metrics.tl_outer.y),
                                             Size2D::new(metrics.tl_outer.x - box_bounds.origin.x,
                                                         metrics.bl_outer.y - metrics.tl_outer.y)),
                                  &clip,
@@ -881,7 +844,6 @@ impl<'a> BatchBuilder<'a> {
 
     #[inline]
     fn add_border_edge(&mut self,
-                       matrix_index: MatrixIndex,
                        rect: &Rect<f32>,
                        clip: &CombinedClipRegion,
                        direction: AxisDirection,
@@ -921,8 +883,7 @@ impl<'a> BatchBuilder<'a> {
                         }
                     };
 
-                    self.add_color_rectangle(matrix_index,
-                                             &dash_rect,
+                    self.add_color_rectangle(&dash_rect,
                                              clip,
                                              resource_cache,
                                              clip_buffers,
@@ -964,8 +925,7 @@ impl<'a> BatchBuilder<'a> {
                     let color_image = resource_cache.get_raster(&raster_item);
 
                     // Top left:
-                    self.add_textured_rectangle(matrix_index,
-                                                &Rect::new(dot_rect.origin,
+                    self.add_textured_rectangle(&Rect::new(dot_rect.origin,
                                                            Size2D::new(dot_rect.size.width / 2.0,
                                                                        dot_rect.size.height / 2.0)),
                                                 clip,
@@ -975,8 +935,7 @@ impl<'a> BatchBuilder<'a> {
                                                 color);
 
                     // Top right:
-                    self.add_textured_rectangle(matrix_index,
-                                                &Rect::new(dot_rect.top_right(),
+                    self.add_textured_rectangle(&Rect::new(dot_rect.top_right(),
                                                            Size2D::new(-dot_rect.size.width / 2.0,
                                                                        dot_rect.size.height / 2.0)),
                                                 clip,
@@ -986,8 +945,7 @@ impl<'a> BatchBuilder<'a> {
                                                 color);
 
                     // Bottom right:
-                    self.add_textured_rectangle(matrix_index,
-                                                &Rect::new(dot_rect.bottom_right(),
+                    self.add_textured_rectangle(&Rect::new(dot_rect.bottom_right(),
                                                             Size2D::new(-dot_rect.size.width / 2.0,
                                                                         -dot_rect.size.height / 2.0)),
                                                 clip,
@@ -997,8 +955,7 @@ impl<'a> BatchBuilder<'a> {
                                                 color);
 
                     // Bottom left:
-                    self.add_textured_rectangle(matrix_index,
-                                                &Rect::new(dot_rect.bottom_left(),
+                    self.add_textured_rectangle(&Rect::new(dot_rect.bottom_left(),
                                                            Size2D::new(dot_rect.size.width / 2.0,
                                                                        -dot_rect.size.height / 2.0)),
                                                 clip,
@@ -1027,22 +984,19 @@ impl<'a> BatchBuilder<'a> {
                                    Size2D::new(rect.size.width / 3.0, rect.size.height)))
                     }
                 };
-                self.add_color_rectangle(matrix_index,
-                                         &outer_rect,
+                self.add_color_rectangle(&outer_rect,
                                          clip,
                                          resource_cache,
                                          clip_buffers,
                                          color);
-                self.add_color_rectangle(matrix_index,
-                                         &inner_rect,
+                self.add_color_rectangle(&inner_rect,
                                          clip,
                                          resource_cache,
                                          clip_buffers,
                                          color);
             }
             _ => {
-                self.add_color_rectangle(matrix_index,
-                                         rect,
+                self.add_color_rectangle(rect,
                                          clip,
                                          resource_cache,
                                          clip_buffers,
@@ -1053,7 +1007,6 @@ impl<'a> BatchBuilder<'a> {
 
     #[inline]
     fn add_border_corner(&mut self,
-                         matrix_index: MatrixIndex,
                          clip: &CombinedClipRegion,
                          vertices_rect: &Rect<f32>,
                          color0: &ColorF,
@@ -1156,8 +1109,7 @@ impl<'a> BatchBuilder<'a> {
                     PackedVertex::from_components(v1.x, v1.y, color1, 0.0, 0.0, muv2.x, muv2.y),
                 ];
 
-                self.add_draw_item(matrix_index,
-                                   white_image.texture_id,
+                self.add_draw_item(white_image.texture_id,
                                    mask_image.texture_id,
                                    Primitive::Triangles,
                                    &mut vertices,
@@ -1167,7 +1119,6 @@ impl<'a> BatchBuilder<'a> {
     }
 
     fn add_color_image_rectangle(&mut self,
-                                 matrix_index: MatrixIndex,
                                  v0: &Point2D<f32>,
                                  v1: &Point2D<f32>,
                                  clip: &CombinedClipRegion,
@@ -1203,8 +1154,7 @@ impl<'a> BatchBuilder<'a> {
                                             false);
             let mut vertices = clip_region.make_packed_vertices_for_rect(mask);
 
-            self.add_draw_item(matrix_index,
-                               color_image.texture_id,
+            self.add_draw_item(color_image.texture_id,
                                mask.texture_id,
                                Primitive::Rectangles,
                                &mut vertices,
@@ -1213,7 +1163,6 @@ impl<'a> BatchBuilder<'a> {
     }
 
     pub fn add_border(&mut self,
-                      matrix_index: MatrixIndex,
                       rect: &Rect<f32>,
                       clip: &CombinedClipRegion,
                       info: &BorderDisplayItem,
@@ -1250,8 +1199,7 @@ impl<'a> BatchBuilder<'a> {
         let bottom_color = bottom.border_color(2.0/3.0, 1.0, 0.7, 0.3);
 
         // Edges
-        self.add_border_edge(matrix_index,
-                             &Rect::new(Point2D::new(tl_outer.x, tl_inner.y),
+        self.add_border_edge(&Rect::new(Point2D::new(tl_outer.x, tl_inner.y),
                                         Size2D::new(left.width, bl_inner.y - tl_inner.y)),
                              clip,
                              AxisDirection::Vertical,
@@ -1260,8 +1208,7 @@ impl<'a> BatchBuilder<'a> {
                              resource_cache,
                              clip_buffers);
 
-        self.add_border_edge(matrix_index,
-                             &Rect::new(Point2D::new(tl_inner.x, tl_outer.y),
+        self.add_border_edge(&Rect::new(Point2D::new(tl_inner.x, tl_outer.y),
                                         Size2D::new(tr_inner.x - tl_inner.x,
                                                     tr_outer.y + top.width - tl_outer.y)),
                              clip,
@@ -1271,8 +1218,7 @@ impl<'a> BatchBuilder<'a> {
                              resource_cache,
                              clip_buffers);
 
-        self.add_border_edge(matrix_index,
-                             &Rect::new(Point2D::new(br_outer.x - right.width, tr_inner.y),
+        self.add_border_edge(&Rect::new(Point2D::new(br_outer.x - right.width, tr_inner.y),
                                         Size2D::new(right.width, br_inner.y - tr_inner.y)),
                              clip,
                              AxisDirection::Vertical,
@@ -1281,8 +1227,7 @@ impl<'a> BatchBuilder<'a> {
                              resource_cache,
                              clip_buffers);
 
-        self.add_border_edge(matrix_index,
-                             &Rect::new(Point2D::new(bl_inner.x, bl_outer.y - bottom.width),
+        self.add_border_edge(&Rect::new(Point2D::new(bl_inner.x, bl_outer.y - bottom.width),
                                         Size2D::new(br_inner.x - bl_inner.x,
                                                     br_outer.y - bl_outer.y + bottom.width)),
                              clip,
@@ -1293,8 +1238,7 @@ impl<'a> BatchBuilder<'a> {
                              clip_buffers);
 
         // Corners
-        self.add_border_corner(matrix_index,
-                               clip,
+        self.add_border_corner(clip,
                                &Rect::new(tl_outer,
                                           Size2D::new(tl_inner.x - tl_outer.x,
                                                       tl_inner.y - tl_outer.y)),
@@ -1306,8 +1250,7 @@ impl<'a> BatchBuilder<'a> {
                                clip_buffers,
                                BasicRotationAngle::Upright);
 
-        self.add_border_corner(matrix_index,
-                               clip,
+        self.add_border_corner(clip,
                                &Rect::new(Point2D::new(tr_inner.x, tr_outer.y),
                                           Size2D::new(tr_outer.x - tr_inner.x,
                                                       tr_inner.y - tr_outer.y)),
@@ -1319,8 +1262,7 @@ impl<'a> BatchBuilder<'a> {
                                clip_buffers,
                                BasicRotationAngle::Clockwise90);
 
-        self.add_border_corner(matrix_index,
-                               clip,
+        self.add_border_corner(clip,
                                &Rect::new(br_inner,
                                           Size2D::new(br_outer.x - br_inner.x,
                                                       br_outer.y - br_inner.y)),
@@ -1332,8 +1274,7 @@ impl<'a> BatchBuilder<'a> {
                                clip_buffers,
                                BasicRotationAngle::Clockwise180);
 
-        self.add_border_corner(matrix_index,
-                               clip,
+        self.add_border_corner(clip,
                                &Rect::new(Point2D::new(bl_outer.x, bl_inner.y),
                                           Size2D::new(bl_inner.x - bl_outer.x,
                                                       bl_outer.y - bl_inner.y)),
@@ -1348,7 +1289,6 @@ impl<'a> BatchBuilder<'a> {
 
     // FIXME(pcwalton): Assumes rectangles are well-formed with origin in TL
     fn add_box_shadow_corner(&mut self,
-                             matrix_index: MatrixIndex,
                              top_left: &Point2D<f32>,
                              bottom_right: &Point2D<f32>,
                              corner_area_top_left: &Point2D<f32>,
@@ -1385,8 +1325,7 @@ impl<'a> BatchBuilder<'a> {
             None => resource_cache.get_dummy_color_image(),
         };
 
-        self.add_color_image_rectangle(matrix_index,
-                                       top_left,
+        self.add_color_image_rectangle(top_left,
                                        bottom_right,
                                        clip,
                                        color,
@@ -1400,7 +1339,6 @@ impl<'a> BatchBuilder<'a> {
     }
 
     fn add_box_shadow_edge(&mut self,
-                           matrix_index: MatrixIndex,
                            top_left: &Point2D<f32>,
                            bottom_right: &Point2D<f32>,
                            box_rect: &Rect<f32>,
@@ -1432,8 +1370,7 @@ impl<'a> BatchBuilder<'a> {
             None => resource_cache.get_dummy_color_image(),
         };
 
-        self.add_color_image_rectangle(matrix_index,
-                                       top_left,
+        self.add_color_image_rectangle(top_left,
                                        bottom_right,
                                        clip,
                                        color,

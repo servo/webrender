@@ -1,5 +1,5 @@
 use euclid::{Point2D, Rect, Size2D};
-use internal_types::{CompiledNode, DrawListId, DrawListItemIndex};
+use internal_types::{CompiledNode, DrawListId, DrawListItemIndex, DrawListGroupId};
 use resource_list::ResourceList;
 use util;
 
@@ -11,6 +11,11 @@ pub struct DrawListIndexBuffer {
     pub indices: Vec<DrawListItemIndex>,
 }
 
+pub struct DrawListGroupSegment {
+    pub draw_list_group_id: DrawListGroupId,
+    pub index_buffers: Vec<DrawListIndexBuffer>,
+}
+
 pub struct AABBTreeNode {
     pub split_rect: Rect<f32>,
     pub actual_rect: Rect<f32>,
@@ -20,7 +25,7 @@ pub struct AABBTreeNode {
 
     pub is_visible: bool,
 
-    pub draw_lists: Vec<DrawListIndexBuffer>,
+    pub draw_list_group_segments: Vec<DrawListGroupSegment>,
 
     pub resource_list: Option<ResourceList>,
     pub compiled_node: Option<CompiledNode>,
@@ -34,19 +39,36 @@ impl AABBTreeNode {
             children: None,
             is_visible: false,
             resource_list: None,
-            draw_lists: Vec::new(),
+            draw_list_group_segments: Vec::new(),
             compiled_node: None,
         }
     }
 
     #[inline]
     fn append_item(&mut self,
+                   draw_list_group_id: DrawListGroupId,
                    draw_list_id: DrawListId,
                    item_index: DrawListItemIndex,
                    rect: &Rect<f32>) {
         self.actual_rect = self.actual_rect.union(rect);
 
-        let need_new_list = match self.draw_lists.last_mut() {
+        let need_new_group = match self.draw_list_group_segments.last() {
+            Some(group) => {
+                group.draw_list_group_id != draw_list_group_id
+            }
+            None => {
+                true
+            }
+        };
+
+        if need_new_group {
+            self.draw_list_group_segments.push(DrawListGroupSegment {
+                draw_list_group_id: draw_list_group_id,
+                index_buffers: Vec::new(),
+            })
+        }
+
+        let need_new_list = match self.draw_list_group_segments.last().unwrap().index_buffers.last() {
             Some(draw_list) => {
                 draw_list.draw_list_id != draw_list_id
             }
@@ -56,19 +78,28 @@ impl AABBTreeNode {
         };
 
         if need_new_list {
-            self.draw_lists.push(DrawListIndexBuffer {
+            self.draw_list_group_segments.last_mut().unwrap().index_buffers.push(DrawListIndexBuffer {
                 draw_list_id: draw_list_id,
                 indices: Vec::new(),
             });
         }
 
-        self.draw_lists.last_mut().unwrap().indices.push(item_index);
+        self.draw_list_group_segments
+            .last_mut()
+            .unwrap()
+            .index_buffers
+            .last_mut()
+            .unwrap()
+            .indices
+            .push(item_index);
     }
 
     fn item_count(&self) -> usize {
         let mut count = 0;
-        for list in &self.draw_lists {
-            count += list.indices.len();
+        for group in &self.draw_list_group_segments {
+            for list in &group.index_buffers {
+                count += list.indices.len();
+            }
         }
         count
     }
@@ -104,13 +135,13 @@ impl AABBTree {
         }
 
         let node = self.node(node_index);
-        println!("{}n={:?} sr={:?} ar={:?} c={:?} lists={} items={}",
+        println!("{}n={:?} sr={:?} ar={:?} c={:?} lists={} segments={}",
                  indent,
                  node_index,
                  node.split_rect,
                  node.actual_rect,
                  node.children,
-                 node.draw_lists.len(),
+                 node.draw_list_group_segments.len(),
                  node.item_count());
 
         if let Some(child_index) = node.children {
@@ -160,6 +191,7 @@ impl AABBTree {
     #[inline]
     pub fn insert(&mut self,
                   rect: &Rect<f32>,
+                  draw_list_group_id: DrawListGroupId,
                   draw_list_id: DrawListId,
                   item_index: DrawListItemIndex) {
         debug_assert!(self.work_node_indices.len() == 0);
@@ -167,7 +199,10 @@ impl AABBTree {
         for node_index in self.work_node_indices.drain(..) {
             let NodeIndex(node_index) = node_index;
             let node = &mut self.nodes[node_index as usize];
-            node.append_item(draw_list_id, item_index, rect);
+            node.append_item(draw_list_group_id,
+                             draw_list_id,
+                             item_index,
+                             rect);
         }
     }
 
@@ -216,7 +251,7 @@ impl AABBTree {
         let children = {
             let node = self.node_mut(node_index);
             if node.split_rect.intersects(rect) {
-                if node.draw_lists.len() > 0 &&
+                if node.draw_list_group_segments.len() > 0 &&
                    node.actual_rect.intersects(rect) {
                     debug_assert!(node.children.is_none());
                     node.is_visible = true;

@@ -527,6 +527,12 @@ pub enum AxisDirection {
 #[derive(Debug, Clone, Copy)]
 pub struct StackingContextIndex(pub usize);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DrawListGroupId(pub usize);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RenderTargetId(pub usize);
+
 #[derive(Debug, Clone)]
 pub struct StackingContextInfo {
     pub world_origin: Point2D<f32>,
@@ -536,7 +542,7 @@ pub struct StackingContextInfo {
     pub world_transform: Matrix4,
     pub world_perspective: Matrix4,
 
-    pub scroll_layer: ScrollLayerId,
+    pub scroll_layer_id: ScrollLayerId,
 }
 
 #[derive(Debug)]
@@ -581,7 +587,7 @@ pub enum Primitive {
 #[derive(Debug)]
 pub struct BatchList {
     pub batches: Vec<Batch>,
-    pub first_draw_list_id: DrawListId,
+    pub draw_list_group_id: DrawListGroupId,
 }
 
 pub struct CompiledNode {

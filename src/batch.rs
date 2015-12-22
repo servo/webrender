@@ -1,6 +1,5 @@
 use device::{ProgramId, TextureId};
-use internal_types::{AxisDirection};
-use internal_types::{PackedVertex, PackedVertexForTextureCacheUpdate, Primitive};
+use internal_types::{AxisDirection, PackedVertex, PackedVertexForTextureCacheUpdate, Primitive};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 use std::u16;
@@ -112,6 +111,7 @@ impl Batch {
 pub struct BatchBuilder<'a> {
     vertex_buffer: &'a mut VertexBuffer,
     batches: Vec<Batch>,
+    current_matrix_index: u8,
 }
 
 impl<'a> BatchBuilder<'a> {
@@ -119,6 +119,7 @@ impl<'a> BatchBuilder<'a> {
         BatchBuilder {
             vertex_buffer: vertex_buffer,
             batches: Vec::new(),
+            current_matrix_index: 0,
         }
     }
 
@@ -126,8 +127,12 @@ impl<'a> BatchBuilder<'a> {
         self.batches
     }
 
+    pub fn next_draw_list(&mut self) {
+        debug_assert!((self.current_matrix_index as usize) < MAX_MATRICES_PER_BATCH);
+        self.current_matrix_index += 1;
+    }
+
     pub fn add_draw_item(&mut self,
-                         matrix_index: MatrixIndex,
                          color_texture_id: TextureId,
                          mask_texture_id: TextureId,
                          primitive: Primitive,
@@ -195,9 +200,8 @@ impl<'a> BatchBuilder<'a> {
         let tile_params_index = self.batches.last_mut().unwrap().add_draw_item(index_count,
                                                                                tile_params);
 
-        let MatrixIndex(matrix_index) = matrix_index;
         for vertex in vertices.iter_mut() {
-            vertex.matrix_index = matrix_index;
+            vertex.matrix_index = self.current_matrix_index;
             vertex.tile_params_index = tile_params_index;
         }
 

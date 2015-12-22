@@ -55,8 +55,6 @@ impl RenderBackend {
                                                 dummy_mask_image_id,
                                                 device_pixel_ratio,
                                                 enable_aa);
-        let viewport_size = Size2D::new(viewport.size.width as u32,
-                                        viewport.size.height as u32);
 
         let backend = RenderBackend {
             thread_pool: thread_pool,
@@ -66,7 +64,7 @@ impl RenderBackend {
             device_pixel_ratio: device_pixel_ratio,
             resource_cache: resource_cache,
             scene: Scene::new(),
-            frame: Frame::new(viewport_size),
+            frame: Frame::new(),
             next_namespace_id: IdNamespace(1),
             notifier: notifier,
             webrender_context_handle: webrender_context_handle,
@@ -177,7 +175,7 @@ impl RenderBackend {
                         ApiMsg::TranslatePointToLayerSpace(point, tx) => {
                             // TODO(pcwalton): Select other layers for mouse events.
                             let point = point / self.device_pixel_ratio;
-                            match self.frame.root.layers.get_mut(&ScrollLayerId(0)) {
+                            match self.frame.layers.get_mut(&ScrollLayerId(0)) {
                                 None => tx.send(point).unwrap(),
                                 Some(layer) => tx.send(point - layer.scroll_offset).unwrap(),
                             }
@@ -233,12 +231,13 @@ impl RenderBackend {
             self.webgl_contexts.get(&id).unwrap().unbind().unwrap();
         }
 
+        let framebuffer_size = Size2D::new(self.viewport.size.width as u32,
+                                           self.viewport.size.height as u32);
+
         self.frame.create(&self.scene,
-                          //Size2D::new(self.viewport.size.width as u32,
-                          //            self.viewport.size.height as u32),
-                          //self.device_pixel_ratio,
                           &mut self.resource_cache,
-                          &mut new_pipeline_sizes);
+                          &mut new_pipeline_sizes,
+                          framebuffer_size);
 
         let mut updated_pipeline_sizes = HashMap::new();
 
