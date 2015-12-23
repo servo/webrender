@@ -45,6 +45,8 @@ vec3 hsvToRgb(vec3 c) {
 }
 
 float gauss(float x, float sigma) {
+    if (sigma == 0.0)
+        return 1.0;
     return (1.0 / sqrt(6.283185307179586 * sigma * sigma)) * exp(-(x * x) / (2.0 * sigma * sigma));
 }
 
