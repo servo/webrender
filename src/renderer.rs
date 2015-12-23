@@ -565,12 +565,16 @@ impl Renderer {
                                 let tessellated_rect =
                                     Rect::new(Point2D::new(0.0, 0.0),
                                               Size2D::new(outer_rx, outer_ry));
-                                let tessellated_rect =
-                                    tessellated_rect.tessellate_border_corner(
-                                        &Size2D::new(outer_rx, outer_ry),
-                                        &Size2D::new(inner_rx, inner_ry),
-                                        BasicRotationAngle::Upright,
-                                        index);
+                                let tessellated_rect = match index {
+                                    None => tessellated_rect,
+                                    Some(index) => {
+                                        tessellated_rect.tessellate_border_corner(
+                                            &Size2D::new(outer_rx, outer_ry),
+                                            &Size2D::new(inner_rx, inner_ry),
+                                            BasicRotationAngle::Upright,
+                                            index)
+                                    }
+                                };
                                 let border_position =
                                     Point2D::new(x - tessellated_rect.origin.x + outer_rx,
                                                  y - tessellated_rect.origin.y + outer_ry);

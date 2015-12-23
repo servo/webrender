@@ -55,7 +55,7 @@ impl ResourceList {
                              outer_radius: &Size2D<f32>,
                              inner_radius: &Size2D<f32>,
                              inverted: bool,
-                             index: u32,
+                             index: Option<u32>,
                              image_format: ImageFormat) {
         if let Some(raster_item) = BorderRadiusRasterOp::create(outer_radius,
                                                                 inner_radius,
@@ -66,12 +66,13 @@ impl ResourceList {
         }
     }
 
+    /// NB: Only adds non-tessellated border radii.
     pub fn add_radius_raster_for_border_radii(&mut self, radii: &BorderRadius) {
         let zero_size = Size2D::new(0.0, 0.0);
-        self.add_radius_raster(&radii.top_left, &zero_size, false, 0, ImageFormat::A8);
-        self.add_radius_raster(&radii.top_right, &zero_size, false, 0, ImageFormat::A8);
-        self.add_radius_raster(&radii.bottom_left, &zero_size, false, 0, ImageFormat::A8);
-        self.add_radius_raster(&radii.bottom_right, &zero_size, false, 0, ImageFormat::A8);
+        self.add_radius_raster(&radii.top_left, &zero_size, false, None, ImageFormat::A8);
+        self.add_radius_raster(&radii.top_right, &zero_size, false, None, ImageFormat::A8);
+        self.add_radius_raster(&radii.bottom_left, &zero_size, false, None, ImageFormat::A8);
+        self.add_radius_raster(&radii.bottom_right, &zero_size, false, None, ImageFormat::A8);
     }
 
     pub fn add_box_shadow_corner(&mut self,
@@ -194,7 +195,7 @@ impl BuildRequiredResources for AABBTreeNode {
                                 resource_list.add_radius_raster(&info.radius.top_left,
                                                                 &info.top_left_inner_radius(),
                                                                 false,
-                                                                rect_index,
+                                                                Some(rect_index),
                                                                 ImageFormat::A8);
                             }
                             for rect_index in 0..tessellator::quad_count_for_border_corner(
@@ -202,7 +203,7 @@ impl BuildRequiredResources for AABBTreeNode {
                                 resource_list.add_radius_raster(&info.radius.top_right,
                                                                 &info.top_right_inner_radius(),
                                                                 false,
-                                                                rect_index,
+                                                                Some(rect_index),
                                                                 ImageFormat::A8);
                             }
                             for rect_index in 0..tessellator::quad_count_for_border_corner(
@@ -210,7 +211,7 @@ impl BuildRequiredResources for AABBTreeNode {
                                 resource_list.add_radius_raster(&info.radius.bottom_left,
                                                                 &info.bottom_left_inner_radius(),
                                                                 false,
-                                                                rect_index,
+                                                                Some(rect_index),
                                                                 ImageFormat::A8);
                             }
                             for rect_index in 0..tessellator::quad_count_for_border_corner(
@@ -218,7 +219,7 @@ impl BuildRequiredResources for AABBTreeNode {
                                 resource_list.add_radius_raster(&info.radius.bottom_right,
                                                                 &info.bottom_right_inner_radius(),
                                                                 false,
-                                                                rect_index,
+                                                                Some(rect_index),
                                                                 ImageFormat::A8);
                             }
 
@@ -227,7 +228,7 @@ impl BuildRequiredResources for AABBTreeNode {
                                                                              info.top.width / 2.0),
                                                                 &Size2D::new(0.0, 0.0),
                                                                 false,
-                                                                0,
+                                                                None,
                                                                 ImageFormat::RGBA8);
                             }
                             if info.right.style == BorderStyle::Dotted {
@@ -235,7 +236,7 @@ impl BuildRequiredResources for AABBTreeNode {
                                                                              info.right.width / 2.0),
                                                                 &Size2D::new(0.0, 0.0),
                                                                 false,
-                                                                0,
+                                                                None,
                                                                 ImageFormat::RGBA8);
                             }
                             if info.bottom.style == BorderStyle::Dotted {
@@ -243,7 +244,7 @@ impl BuildRequiredResources for AABBTreeNode {
                                                                              info.bottom.width / 2.0),
                                                                 &Size2D::new(0.0, 0.0),
                                                                 false,
-                                                                0,
+                                                                None,
                                                                 ImageFormat::RGBA8);
                             }
                             if info.left.style == BorderStyle::Dotted {
@@ -251,7 +252,7 @@ impl BuildRequiredResources for AABBTreeNode {
                                                                              info.left.width / 2.0),
                                                                 &Size2D::new(0.0, 0.0),
                                                                 false,
-                                                                0,
+                                                                None,
                                                                 ImageFormat::RGBA8);
                             }
                         }

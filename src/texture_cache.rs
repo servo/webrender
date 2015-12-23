@@ -760,11 +760,18 @@ impl TextureCache {
                 let rect = Rect::new(Point2D::new(0.0, 0.0),
                                      Size2D::new(op.outer_radius_x.to_f32_px(),
                                                  op.outer_radius_y.to_f32_px()));
-                let tessellated_rect = rect.tessellate_border_corner(
-                    &Size2D::new(op.outer_radius_x.to_f32_px(), op.outer_radius_y.to_f32_px()),
-                    &Size2D::new(op.inner_radius_x.to_f32_px(), op.inner_radius_y.to_f32_px()),
-                    BasicRotationAngle::Upright,
-                    op.index);
+                let tessellated_rect = match op.index {
+                    Some(index) => {
+                        rect.tessellate_border_corner(
+                            &Size2D::new(op.outer_radius_x.to_f32_px(),
+                                         op.outer_radius_y.to_f32_px()),
+                            &Size2D::new(op.inner_radius_x.to_f32_px(),
+                                         op.inner_radius_y.to_f32_px()),
+                            BasicRotationAngle::Upright,
+                            index)
+                    }
+                    None => rect,
+                };
                 let width = tessellated_rect.size.width.round() as u32;
                 let height = tessellated_rect.size.height.round() as u32;
 
