@@ -163,7 +163,7 @@ impl Renderer {
 
         let u_direction = device.get_uniform_location(blur_program_id, "uDirection");
 
-        let texture_ids = device.create_texture_ids(16);
+        let texture_ids = device.create_texture_ids(1024);
         let mut texture_cache = TextureCache::new(texture_ids);
         let white_pixels: Vec<u8> = vec![
             0xff, 0xff, 0xff, 0xff,
@@ -958,7 +958,6 @@ impl Renderer {
                                                    mask_size.1 as f32);
 
                         let index_count = draw_call.index_count as i32;
-                        assert!(draw_call.first_vertex <= 65535);
 
                         self.profile_counters.draw_calls.inc();
 

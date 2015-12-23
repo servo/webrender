@@ -1,7 +1,7 @@
 use aabbtree::{AABBTree, NodeIndex};
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::{BatchUpdate, BatchUpdateList, BatchUpdateOp};
-use internal_types::{DrawListItemIndex, DrawListId};
+use internal_types::{DrawListItemIndex, DrawListId, DrawListGroupId};
 
 pub struct Layer {
     // TODO: Remove pub from here if possible in the future
@@ -36,9 +36,13 @@ impl Layer {
     #[inline]
     pub fn insert(&mut self,
                   rect: &Rect<f32>,
+                  draw_list_group_id: DrawListGroupId,
                   draw_list_id: DrawListId,
                   item_index: DrawListItemIndex) {
-        self.aabb_tree.insert(rect, draw_list_id, item_index);
+        self.aabb_tree.insert(rect,
+                              draw_list_group_id,
+                              draw_list_id,
+                              item_index);
     }
 
     pub fn cull(&mut self, viewport_rect: &Rect<f32>) {
