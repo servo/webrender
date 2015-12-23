@@ -26,8 +26,8 @@ use util::MatrixHelpers;
 use webrender_traits::{PipelineId, Epoch, ScrollPolicy, ScrollLayerId, StackingContext};
 use webrender_traits::{FilterOp, ImageFormat, MixBlendMode, StackingLevel};
 
-struct DrawListGroup {
-    id: DrawListGroupId,
+pub struct DrawListGroup {
+    pub id: DrawListGroupId,
 
     // Together, these define the granularity that batches
     // can be created at. When compiling nodes, if either
@@ -36,10 +36,10 @@ struct DrawListGroup {
     // This automatically handles the case of CompositeBatch, because
     // for a composite batch to be present, the next draw list must be
     // in a different render target!
-    scroll_layer_id: ScrollLayerId,
-    render_target_id: RenderTargetId,
+    pub scroll_layer_id: ScrollLayerId,
+    pub render_target_id: RenderTargetId,
 
-    draw_list_ids: Vec<DrawListId>,
+    pub draw_list_ids: Vec<DrawListId>,
 }
 
 impl DrawListGroup {
@@ -983,8 +983,8 @@ impl Frame {
         let _pf = util::ProfileScope::new("  compile_visible_nodes");
 
         let layers = &mut self.layers;
-        //let items = &self.items;
         let stacking_context_info = &self.stacking_context_info;
+        let draw_list_groups = &self.draw_list_groups;
 
         thread_pool.scoped(|scope| {
             for (_, layer) in layers {
@@ -993,9 +993,9 @@ impl Frame {
                     if node.is_visible && node.compiled_node.is_none() {
                         scope.execute(move || {
                             node.compile(resource_cache,
-                                         //items,
                                          device_pixel_ratio,
-                                         stacking_context_info);
+                                         stacking_context_info,
+                                         draw_list_groups);
                         });
                     }
                 }
