@@ -1030,3 +1030,18 @@ pub enum CompositionOp {
     MixBlend(MixBlendMode),
     Filter(LowLevelFilterOp),
 }
+
+impl CompositionOp {
+    pub fn target_rect(&self, unfiltered_target_rect: &Rect<i32>) -> Rect<i32> {
+        match *self {
+            CompositionOp::Filter(LowLevelFilterOp::Blur(amount, AxisDirection::Horizontal)) => {
+                unfiltered_target_rect.inflate(amount.to_f32_px() as i32, 0)
+            }
+            CompositionOp::Filter(LowLevelFilterOp::Blur(amount, AxisDirection::Vertical)) => {
+                unfiltered_target_rect.inflate(0, amount.to_f32_px() as i32)
+            }
+            _ => *unfiltered_target_rect,
+        }
+    }
+}
+
