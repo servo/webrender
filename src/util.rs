@@ -206,3 +206,10 @@ impl VaryingElement for (ColorF, Point2D<f32>) {
 pub fn rect_is_empty<N:PartialEq + Zero>(rect: &Rect<N>) -> bool {
     rect.size.width == Zero::zero() || rect.size.height == Zero::zero()
 }
+
+/// Returns true if the rectangle's width and height are both strictly positive and false
+/// otherwise.
+pub fn rect_is_well_formed_and_nonempty(rect: &Rect<f32>) -> bool {
+    rect.size.width > 0.0 && rect.size.height > 0.0
+}
+

@@ -918,7 +918,7 @@ impl<'a> BatchBuilder<'a> {
                         BorderRadiusRasterOp::create(&Size2D::new(mask_radius, mask_radius),
                                                      &Size2D::new(0.0, 0.0),
                                                      false,
-                                                     0,
+                                                     None,
                                                      ImageFormat::RGBA8).expect(
                         "Didn't find border radius mask for dashed border!");
                     let raster_item = RasterItem::BorderRadius(raster_op);
@@ -1005,10 +1005,38 @@ impl<'a> BatchBuilder<'a> {
         }
     }
 
-    #[inline]
+    /// Draws a border corner.
+    ///
+    /// The following diagram attempts to explain the parameters to this function. It's an enlarged
+    /// version of a border corner that looks like this:
+    ///
+    ///     ╭─
+    ///     │
+    ///
+    /// The parameters are as follows:
+    ///
+    ///     ⤹ corner_bounds.origin
+    ///     ∙┈┈┈┈┈┬┈┈┈┈┈┬┈┈┈┈┈
+    ///     ┊   ╱ ┊     ┊
+    ///     ┊  ╱  ┊     ┊
+    ///     ┊ ╱╲  ┊   ←─┼── color1
+    ///     ┊╱  ╲ ┊     ┊
+    ///     ┊    ╲┊     ┊
+    ///     ├┈┈┈┈┈∙←────┼── radius_extent
+    ///     ┊     ┊╲    ┊
+    ///     ┊     ┊ ╲   ┊
+    ///     ┊     ┊  ╲  ┊
+    ///     ┊  ↑  ┊   ╲ ┊
+    ///     ┊  │  ┊    ╲┊
+    ///     ├┈┈┼┈┈┴┈┈┈┈┈∙┈┈┈┈┈
+    ///     ┊  │        ┊↖︎
+    ///     ┊           ┊  corner_bounds.bottom_right()
+    ///     ┊color0     ┊
+    ///
     fn add_border_corner(&mut self,
                          clip: &CombinedClipRegion,
-                         vertices_rect: &Rect<f32>,
+                         corner_bounds: &Rect<f32>,
+                         radius_extent: &Point2D<f32>,
                          color0: &ColorF,
                          color1: &ColorF,
                          outer_radius: &Size2D<f32>,
@@ -1021,25 +1049,47 @@ impl<'a> BatchBuilder<'a> {
         }
 
         // TODO: Check for zero width/height borders!
-        let white_image = resource_cache.get_dummy_color_image();
 
+        let tl_rect = Rect::new(corner_bounds.origin,
+                                Size2D::new(radius_extent.x - corner_bounds.origin.x,
+                                            radius_extent.y - corner_bounds.origin.y));
+        let tr_rect = Rect::new(Point2D::new(radius_extent.x, corner_bounds.origin.y),
+                                Size2D::new(corner_bounds.max_x() - radius_extent.x,
+                                            radius_extent.y - corner_bounds.origin.y));
+        let bl_rect = Rect::new(Point2D::new(corner_bounds.origin.x, radius_extent.y),
+                                Size2D::new(radius_extent.x - corner_bounds.origin.x,
+                                            corner_bounds.max_y() - radius_extent.y));
+        let br_rect = Rect::new(*radius_extent,
+                                Size2D::new(corner_bounds.max_x() - radius_extent.x,
+                                            corner_bounds.max_y() - radius_extent.y));
+
+        // FIXME(pcwalton): It's kind of messy to be matching on the rotation angle here to pick
+        // the right rect to draw the rounded corner in. Is there a more elegant way to do this?
+        let (border_corner_rect, inner_rect, color0_rect, color1_rect) =
+            match rotation_angle {
+                BasicRotationAngle::Upright => (&tl_rect, &br_rect, &bl_rect, &tr_rect),
+                BasicRotationAngle::Clockwise90 => (&tr_rect, &bl_rect, &tl_rect, &br_rect),
+                BasicRotationAngle::Clockwise180 => (&br_rect, &tl_rect, &tr_rect, &bl_rect),
+                BasicRotationAngle::Clockwise270 => (&bl_rect, &tr_rect, &br_rect, &tl_rect),
+            };
+
+        let dummy_mask_image = resource_cache.get_dummy_mask_image();
+
+        // Draw the rounded part of the corner.
         for rect_index in 0..tessellator::quad_count_for_border_corner(outer_radius) {
-            let tessellated_rect = vertices_rect.tessellate_border_corner(outer_radius,
-                                                                          inner_radius,
-                                                                          rotation_angle,
-                                                                          rect_index);
+            let tessellated_rect = border_corner_rect.tessellate_border_corner(outer_radius,
+                                                                               inner_radius,
+                                                                               rotation_angle,
+                                                                               rect_index);
             let mask_image = match BorderRadiusRasterOp::create(outer_radius,
                                                                 inner_radius,
                                                                 false,
-                                                                rect_index,
+                                                                Some(rect_index),
                                                                 ImageFormat::A8) {
                 Some(raster_item) => {
-                    let raster_item = RasterItem::BorderRadius(raster_item);
-                    resource_cache.get_raster(&raster_item)
+                    resource_cache.get_raster(&RasterItem::BorderRadius(raster_item))
                 }
-                None => {
-                    resource_cache.get_dummy_mask_image()
-                }
+                None => dummy_mask_image,
             };
 
             // FIXME(pcwalton): Either use RGBA8 textures instead of alpha masks here, or implement
@@ -1050,71 +1100,118 @@ impl<'a> BatchBuilder<'a> {
                 varyings: mask_uv,
             };
 
-            clipper::clip_rect_to_combined_region(tessellated_rect,
-                                                  &mut clip_buffers.sh_clip_buffers,
-                                                  &mut clip_buffers.rect_pos_uv,
-                                                  clip);
+            self.add_border_corner_piece(tessellated_rect,
+                                         clip,
+                                         mask_image,
+                                         color0,
+                                         color1,
+                                         resource_cache,
+                                         clip_buffers,
+                                         rotation_angle);
+        }
 
-            for clip_region in clip_buffers.rect_pos_uv
-                                           .clip_rect_to_region_result_output
-                                           .drain(..) {
-                let rect_pos_uv = &clip_region.rect_result;
-                let v0;
-                let v1;
-                let muv0;
-                let muv1;
-                let muv2;
-                let muv3;
-                match rotation_angle {
-                    BasicRotationAngle::Upright => {
-                        v0 = rect_pos_uv.pos.origin;
-                        v1 = rect_pos_uv.pos.bottom_right();
-                        muv0 = rect_pos_uv.varyings.top_left;
-                        muv1 = rect_pos_uv.varyings.top_right;
-                        muv2 = rect_pos_uv.varyings.bottom_right;
-                        muv3 = rect_pos_uv.varyings.bottom_left;
-                    }
-                    BasicRotationAngle::Clockwise90 => {
-                        v0 = rect_pos_uv.pos.top_right();
-                        v1 = rect_pos_uv.pos.bottom_left();
-                        muv0 = rect_pos_uv.varyings.top_right;
-                        muv1 = rect_pos_uv.varyings.top_left;
-                        muv2 = rect_pos_uv.varyings.bottom_left;
-                        muv3 = rect_pos_uv.varyings.bottom_right;
-                    }
-                    BasicRotationAngle::Clockwise180 => {
-                        v0 = rect_pos_uv.pos.bottom_right();
-                        v1 = rect_pos_uv.pos.origin;
-                        muv0 = rect_pos_uv.varyings.bottom_right;
-                        muv1 = rect_pos_uv.varyings.bottom_left;
-                        muv2 = rect_pos_uv.varyings.top_left;
-                        muv3 = rect_pos_uv.varyings.top_right;
-                    }
-                    BasicRotationAngle::Clockwise270 => {
-                        v0 = rect_pos_uv.pos.bottom_left();
-                        v1 = rect_pos_uv.pos.top_right();
-                        muv0 = rect_pos_uv.varyings.bottom_left;
-                        muv1 = rect_pos_uv.varyings.bottom_right;
-                        muv2 = rect_pos_uv.varyings.top_right;
-                        muv3 = rect_pos_uv.varyings.top_left;
-                    }
+        // Draw the inner rect.
+        self.add_border_corner_piece(RectPolygon {
+                                        pos: *inner_rect,
+                                        varyings: RectUv::zero(),
+                                     },
+                                     clip,
+                                     dummy_mask_image,
+                                     color0,
+                                     color1,
+                                     resource_cache,
+                                     clip_buffers,
+                                     rotation_angle);
+
+        // Draw the two solid rects.
+        if util::rect_is_well_formed_and_nonempty(color0_rect) {
+            self.add_color_rectangle(color0_rect, clip, resource_cache, clip_buffers, color0)
+        }
+        if util::rect_is_well_formed_and_nonempty(color1_rect) {
+            self.add_color_rectangle(color1_rect, clip, resource_cache, clip_buffers, color1)
+        }
+    }
+
+    /// Draws one rectangle making up a border corner.
+    fn add_border_corner_piece(&mut self,
+                               tessellated_rect: RectPolygon<RectUv>,
+                               clip: &CombinedClipRegion,
+                               mask_image: &TextureCacheItem,
+                               color0: &ColorF,
+                               color1: &ColorF,
+                               resource_cache: &ResourceCache,
+                               clip_buffers: &mut clipper::ClipBuffers,
+                               rotation_angle: BasicRotationAngle) {
+        if !tessellated_rect.is_well_formed_and_nonempty() {
+            return
+        }
+
+        let white_image = resource_cache.get_dummy_color_image();
+
+        clipper::clip_rect_to_combined_region(tessellated_rect,
+                                              &mut clip_buffers.sh_clip_buffers,
+                                              &mut clip_buffers.rect_pos_uv,
+                                              clip);
+
+        for clip_region in clip_buffers.rect_pos_uv
+                                       .clip_rect_to_region_result_output
+                                       .drain(..) {
+            let rect_pos_uv = &clip_region.rect_result;
+            let v0;
+            let v1;
+            let muv0;
+            let muv1;
+            let muv2;
+            let muv3;
+            match rotation_angle {
+                BasicRotationAngle::Upright => {
+                    v0 = rect_pos_uv.pos.origin;
+                    v1 = rect_pos_uv.pos.bottom_right();
+                    muv0 = rect_pos_uv.varyings.top_left;
+                    muv1 = rect_pos_uv.varyings.top_right;
+                    muv2 = rect_pos_uv.varyings.bottom_right;
+                    muv3 = rect_pos_uv.varyings.bottom_left;
                 }
-
-                let mut vertices = [
-                    PackedVertex::from_components(v0.x, v0.y, color0, 0.0, 0.0, muv0.x, muv0.y),
-                    PackedVertex::from_components(v1.x, v1.y, color0, 0.0, 0.0, muv2.x, muv2.y),
-                    PackedVertex::from_components(v0.x, v1.y, color0, 0.0, 0.0, muv3.x, muv3.y),
-                    PackedVertex::from_components(v0.x, v0.y, color1, 0.0, 0.0, muv0.x, muv0.y),
-                    PackedVertex::from_components(v1.x, v0.y, color1, 0.0, 0.0, muv1.x, muv1.y),
-                    PackedVertex::from_components(v1.x, v1.y, color1, 0.0, 0.0, muv2.x, muv2.y),
-                ];
-
-                self.add_draw_item(white_image.texture_id,
-                                   mask_image.texture_id,
-                                   Primitive::Triangles,
-                                   &mut vertices,
-                                   None);
+                BasicRotationAngle::Clockwise90 => {
+                    v0 = rect_pos_uv.pos.top_right();
+                    v1 = rect_pos_uv.pos.bottom_left();
+                    muv0 = rect_pos_uv.varyings.top_right;
+                    muv1 = rect_pos_uv.varyings.top_left;
+                    muv2 = rect_pos_uv.varyings.bottom_left;
+                    muv3 = rect_pos_uv.varyings.bottom_right;
+                }
+                BasicRotationAngle::Clockwise180 => {
+                    v0 = rect_pos_uv.pos.bottom_right();
+                    v1 = rect_pos_uv.pos.origin;
+                    muv0 = rect_pos_uv.varyings.bottom_right;
+                    muv1 = rect_pos_uv.varyings.bottom_left;
+                    muv2 = rect_pos_uv.varyings.top_left;
+                    muv3 = rect_pos_uv.varyings.top_right;
+                }
+                BasicRotationAngle::Clockwise270 => {
+                    v0 = rect_pos_uv.pos.bottom_left();
+                    v1 = rect_pos_uv.pos.top_right();
+                    muv0 = rect_pos_uv.varyings.bottom_left;
+                    muv1 = rect_pos_uv.varyings.bottom_right;
+                    muv2 = rect_pos_uv.varyings.top_right;
+                    muv3 = rect_pos_uv.varyings.top_left;
+                }
             }
+
+            let mut vertices = [
+                PackedVertex::from_components(v0.x, v0.y, color0, 0.0, 0.0, muv0.x, muv0.y),
+                PackedVertex::from_components(v1.x, v1.y, color0, 0.0, 0.0, muv2.x, muv2.y),
+                PackedVertex::from_components(v0.x, v1.y, color0, 0.0, 0.0, muv3.x, muv3.y),
+                PackedVertex::from_components(v0.x, v0.y, color1, 0.0, 0.0, muv0.x, muv0.y),
+                PackedVertex::from_components(v1.x, v0.y, color1, 0.0, 0.0, muv1.x, muv1.y),
+                PackedVertex::from_components(v1.x, v1.y, color1, 0.0, 0.0, muv2.x, muv2.y),
+            ];
+
+            self.add_draw_item(white_image.texture_id,
+                               mask_image.texture_id,
+                               Primitive::Triangles,
+                               &mut vertices,
+                               None);
         }
     }
 
@@ -1242,6 +1339,8 @@ impl<'a> BatchBuilder<'a> {
                                &Rect::new(tl_outer,
                                           Size2D::new(tl_inner.x - tl_outer.x,
                                                       tl_inner.y - tl_outer.y)),
+                               &Point2D::new(tl_outer.x + radius.top_left.width,
+                                             tl_outer.y + radius.top_left.height),
                                &left_color,
                                &top_color,
                                &radius.top_left,
@@ -1254,6 +1353,8 @@ impl<'a> BatchBuilder<'a> {
                                &Rect::new(Point2D::new(tr_inner.x, tr_outer.y),
                                           Size2D::new(tr_outer.x - tr_inner.x,
                                                       tr_inner.y - tr_outer.y)),
+                               &Point2D::new(tr_outer.x - radius.top_right.width,
+                                             tl_outer.y + radius.top_right.height),
                                &right_color,
                                &top_color,
                                &radius.top_right,
@@ -1266,6 +1367,8 @@ impl<'a> BatchBuilder<'a> {
                                &Rect::new(br_inner,
                                           Size2D::new(br_outer.x - br_inner.x,
                                                       br_outer.y - br_inner.y)),
+                               &Point2D::new(br_outer.x - radius.bottom_right.width,
+                                             br_outer.y - radius.bottom_right.height),
                                &right_color,
                                &bottom_color,
                                &radius.bottom_right,
@@ -1278,6 +1381,8 @@ impl<'a> BatchBuilder<'a> {
                                &Rect::new(Point2D::new(bl_outer.x, bl_inner.y),
                                           Size2D::new(bl_inner.x - bl_outer.x,
                                                       bl_outer.y - bl_inner.y)),
+                               &Point2D::new(bl_outer.x + radius.bottom_left.width,
+                                             bl_outer.y - radius.bottom_left.height),
                                &left_color,
                                &bottom_color,
                                &radius.bottom_left,
@@ -1432,7 +1537,7 @@ fn mask_for_border_radius<'a>(resource_cache: &'a ResourceCache,
         inner_radius_x: Au(0),
         inner_radius_y: Au(0),
         inverted: inverted,
-        index: 0,
+        index: None,
         image_format: ImageFormat::A8,
     }))
 }

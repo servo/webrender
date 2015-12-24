@@ -247,7 +247,7 @@ pub enum TextureUpdateDetails {
     Blit(Vec<u8>),
     Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage),
     /// All four corners, the tessellation index, and whether inverted, respectively.
-    BorderRadius(Au, Au, Au, Au, u32, bool),
+    BorderRadius(Au, Au, Au, Au, Option<u32>, bool),
     /// Blur radius, border radius, box rect, raster origin, and whether inverted, respectively.
     BoxShadow(Au, Au, Rect<f32>, Point2D<f32>, bool),
 }
@@ -614,6 +614,12 @@ pub struct RectPolygon<Varyings> {
     pub varyings: Varyings,
 }
 
+impl<Varyings> RectPolygon<Varyings> {
+    pub fn is_well_formed_and_nonempty(&self) -> bool {
+        util::rect_is_well_formed_and_nonempty(&self.pos)
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct RectColorsUv {
     pub colors: RectColors,
@@ -648,6 +654,15 @@ pub struct RectUv {
 }
 
 impl RectUv {
+    pub fn zero() -> RectUv {
+        RectUv {
+            top_left: Point2D::new(0.0, 0.0),
+            top_right: Point2D::new(0.0, 0.0),
+            bottom_left: Point2D::new(0.0, 0.0),
+            bottom_right: Point2D::new(0.0, 0.0),
+        }
+    }
+
     pub fn from_image_and_rotation_angle(image: &TextureCacheItem,
                                          rotation_angle: BasicRotationAngle,
                                          flip_90_degree_rotations: bool)
@@ -820,7 +835,7 @@ pub struct BorderRadiusRasterOp {
     pub outer_radius_y: Au,
     pub inner_radius_x: Au,
     pub inner_radius_y: Au,
-    pub index: u32,
+    pub index: Option<u32>,
     pub image_format: ImageFormat,
     pub inverted: bool,
 }
@@ -829,7 +844,7 @@ impl BorderRadiusRasterOp {
     pub fn create(outer_radius: &Size2D<f32>,
                   inner_radius: &Size2D<f32>,
                   inverted: bool,
-                  index: u32,
+                  index: Option<u32>,
                   image_format: ImageFormat)
                   -> Option<BorderRadiusRasterOp> {
         if outer_radius.width > 0.0 || outer_radius.height > 0.0 {
