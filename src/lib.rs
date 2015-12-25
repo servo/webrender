@@ -1,5 +1,5 @@
 #![feature(hashmap_hasher)]
-#![feature(step_by, convert, zero_one)]
+#![feature(slice_patterns, step_by, convert, zero_one)]
 
 #[macro_use]
 extern crate lazy_static;
