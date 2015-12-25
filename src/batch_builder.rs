@@ -8,7 +8,7 @@ use internal_types::{CombinedClipRegion, RectColors, RectColorsUv, RectPolygon};
 use internal_types::{RectUv, Primitive, BorderRadiusRasterOp, RasterItem, ClipRectToRegionResult};
 use internal_types::{GlyphKey, PackedVertex, WorkVertex};
 use internal_types::{PolygonPosColorUv, AxisDirection};
-use internal_types::{BasicRotationAngle, BoxShadowRasterOp};
+use internal_types::{BasicRotationAngle, BoxShadowRasterOp, RectSide};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use std::collections::HashMap;
@@ -846,7 +846,7 @@ impl<'a> BatchBuilder<'a> {
     fn add_border_edge(&mut self,
                        rect: &Rect<f32>,
                        clip: &CombinedClipRegion,
-                       direction: AxisDirection,
+                       side: RectSide,
                        color: &ColorF,
                        border_style: BorderStyle,
                        resource_cache: &ResourceCache,
@@ -860,23 +860,23 @@ impl<'a> BatchBuilder<'a> {
 
         match border_style {
             BorderStyle::Dashed => {
-                let (extent, step) = match direction {
-                    AxisDirection::Horizontal => {
+                let (extent, step) = match side {
+                    RectSide::Top | RectSide::Bottom => {
                         (rect.size.width, rect.size.height * BORDER_DASH_SIZE)
                     }
-                    AxisDirection::Vertical => {
+                    RectSide::Left | RectSide::Right => {
                         (rect.size.height, rect.size.width * BORDER_DASH_SIZE)
                     }
                 };
                 let mut origin = 0.0;
                 while origin < extent {
-                    let dash_rect = match direction {
-                        AxisDirection::Horizontal => {
+                    let dash_rect = match side {
+                        RectSide::Top | RectSide::Bottom => {
                             Rect::new(Point2D::new(rect.origin.x + origin, rect.origin.y),
                                       Size2D::new(f32::min(step, extent - origin),
                                                   rect.size.height))
                         }
-                        AxisDirection::Vertical => {
+                        RectSide::Left | RectSide::Right => {
                             Rect::new(Point2D::new(rect.origin.x, rect.origin.y + origin),
                                       Size2D::new(rect.size.width,
                                                   f32::min(step, extent - origin)))
@@ -893,20 +893,20 @@ impl<'a> BatchBuilder<'a> {
                 }
             }
             BorderStyle::Dotted => {
-                let (extent, step) = match direction {
-                    AxisDirection::Horizontal => (rect.size.width, rect.size.height),
-                    AxisDirection::Vertical => (rect.size.height, rect.size.width),
+                let (extent, step) = match side {
+                    RectSide::Top | RectSide::Bottom => (rect.size.width, rect.size.height),
+                    RectSide::Left | RectSide::Right => (rect.size.height, rect.size.width),
                 };
                 let mut origin = 0.0;
                 while origin < extent {
-                    let (dot_rect, mask_radius) = match direction {
-                        AxisDirection::Horizontal => {
+                    let (dot_rect, mask_radius) = match side {
+                        RectSide::Top | RectSide::Bottom => {
                             (Rect::new(Point2D::new(rect.origin.x + origin, rect.origin.y),
                                        Size2D::new(f32::min(step, extent - origin),
                                                    rect.size.height)),
                              rect.size.height / 2.0)
                         }
-                        AxisDirection::Vertical => {
+                        RectSide::Left | RectSide::Right => {
                             (Rect::new(Point2D::new(rect.origin.x, rect.origin.y + origin),
                                        Size2D::new(rect.size.width,
                                                    f32::min(step, extent - origin))),
@@ -925,9 +925,10 @@ impl<'a> BatchBuilder<'a> {
                     let color_image = resource_cache.get_raster(&raster_item);
 
                     // Top left:
-                    self.add_textured_rectangle(&Rect::new(dot_rect.origin,
-                                                           Size2D::new(dot_rect.size.width / 2.0,
-                                                                       dot_rect.size.height / 2.0)),
+                    self.add_textured_rectangle(&Rect::new(
+                                                    dot_rect.origin,
+                                                    Size2D::new(dot_rect.size.width / 2.0,
+                                                                dot_rect.size.height / 2.0)),
                                                 clip,
                                                 color_image,
                                                 resource_cache,
@@ -935,9 +936,10 @@ impl<'a> BatchBuilder<'a> {
                                                 color);
 
                     // Top right:
-                    self.add_textured_rectangle(&Rect::new(dot_rect.top_right(),
-                                                           Size2D::new(-dot_rect.size.width / 2.0,
-                                                                       dot_rect.size.height / 2.0)),
+                    self.add_textured_rectangle(&Rect::new(
+                                                    dot_rect.top_right(),
+                                                    Size2D::new(-dot_rect.size.width / 2.0,
+                                                                dot_rect.size.height / 2.0)),
                                                 clip,
                                                 color_image,
                                                 resource_cache,
@@ -945,9 +947,10 @@ impl<'a> BatchBuilder<'a> {
                                                 color);
 
                     // Bottom right:
-                    self.add_textured_rectangle(&Rect::new(dot_rect.bottom_right(),
-                                                            Size2D::new(-dot_rect.size.width / 2.0,
-                                                                        -dot_rect.size.height / 2.0)),
+                    self.add_textured_rectangle(&Rect::new(
+                                                    dot_rect.bottom_right(),
+                                                    Size2D::new(-dot_rect.size.width / 2.0,
+                                                                -dot_rect.size.height / 2.0)),
                                                 clip,
                                                 color_image,
                                                 resource_cache,
@@ -955,9 +958,10 @@ impl<'a> BatchBuilder<'a> {
                                                 color);
 
                     // Bottom left:
-                    self.add_textured_rectangle(&Rect::new(dot_rect.bottom_left(),
-                                                           Size2D::new(dot_rect.size.width / 2.0,
-                                                                       -dot_rect.size.height / 2.0)),
+                    self.add_textured_rectangle(&Rect::new(
+                                                    dot_rect.bottom_left(),
+                                                    Size2D::new(dot_rect.size.width / 2.0,
+                                                                -dot_rect.size.height / 2.0)),
                                                 clip,
                                                 color_image,
                                                 resource_cache,
@@ -968,15 +972,15 @@ impl<'a> BatchBuilder<'a> {
                 }
             }
             BorderStyle::Double => {
-                let (outer_rect, inner_rect) = match direction {
-                    AxisDirection::Horizontal => {
+                let (outer_rect, inner_rect) = match side {
+                    RectSide::Top | RectSide::Bottom => {
                         (Rect::new(rect.origin,
                                    Size2D::new(rect.size.width, rect.size.height / 3.0)),
                          Rect::new(Point2D::new(rect.origin.x,
                                                 rect.origin.y + rect.size.height * 2.0 / 3.0),
                                    Size2D::new(rect.size.width, rect.size.height / 3.0)))
                     }
-                    AxisDirection::Vertical => {
+                    RectSide::Left | RectSide::Right => {
                         (Rect::new(rect.origin,
                                    Size2D::new(rect.size.width / 3.0, rect.size.height)),
                          Rect::new(Point2D::new(rect.origin.x + rect.size.width * 2.0 / 3.0,
@@ -994,6 +998,27 @@ impl<'a> BatchBuilder<'a> {
                                          resource_cache,
                                          clip_buffers,
                                          color);
+            }
+            BorderStyle::Groove | BorderStyle::Ridge => {
+                let (tl_rect, br_rect) = match side {
+                    RectSide::Top | RectSide::Bottom => {
+                        (Rect::new(rect.origin,
+                                   Size2D::new(rect.size.width, rect.size.height / 2.0)),
+                         Rect::new(Point2D::new(rect.origin.x,
+                                                rect.origin.y + rect.size.height / 2.0),
+                                   Size2D::new(rect.size.width, rect.size.height / 2.0)))
+                    }
+                    RectSide::Left | RectSide::Right => {
+                        (Rect::new(rect.origin,
+                                   Size2D::new(rect.size.width / 2.0, rect.size.height)),
+                         Rect::new(Point2D::new(rect.origin.x + rect.size.width / 2.0,
+                                                rect.origin.y),
+                                   Size2D::new(rect.size.width / 2.0, rect.size.height)))
+                    }
+                };
+                let (tl_color, br_color) = groove_ridge_border_colors(color, border_style);
+                self.add_color_rectangle(&tl_rect, clip, resource_cache, clip_buffers, &tl_color);
+                self.add_color_rectangle(&br_rect, clip, resource_cache, clip_buffers, &br_color);
             }
             _ => {
                 self.add_color_rectangle(rect,
@@ -1035,6 +1060,7 @@ impl<'a> BatchBuilder<'a> {
     ///
     fn add_border_corner(&mut self,
                          clip: &CombinedClipRegion,
+                         border_style: BorderStyle,
                          corner_bounds: &Rect<f32>,
                          radius_extent: &Point2D<f32>,
                          color0: &ColorF,
@@ -1048,36 +1074,104 @@ impl<'a> BatchBuilder<'a> {
             return
         }
 
+        match border_style {
+            BorderStyle::Ridge | BorderStyle::Groove => {
+                let corner_center = util::rect_center(corner_bounds);
+                let [outer_corner_rect, inner_corner_rect, color1_rect, color0_rect] =
+                    subdivide_border_corner(corner_bounds, &corner_center, rotation_angle);
+
+                let (tl_color, br_color) = groove_ridge_border_colors(color0, border_style);
+                let (color0_outer, color1_outer, color0_inner, color1_inner) =
+                    match rotation_angle {
+                        BasicRotationAngle::Upright => {
+                            (&tl_color, &tl_color, &br_color, &br_color)
+                        }
+                        BasicRotationAngle::Clockwise90 => {
+                            (&br_color, &tl_color, &tl_color, &br_color)
+                        }
+                        BasicRotationAngle::Clockwise180 => {
+                            (&br_color, &br_color, &tl_color, &tl_color)
+                        }
+                        BasicRotationAngle::Clockwise270 => {
+                            (&tl_color, &br_color, &br_color, &tl_color)
+                        }
+                    };
+
+                // Draw the corner parts:
+                self.add_solid_border_corner(clip,
+                                             &outer_corner_rect,
+                                             radius_extent,
+                                             &color0_outer,
+                                             &color1_outer,
+                                             outer_radius,
+                                             inner_radius,
+                                             resource_cache,
+                                             clip_buffers,
+                                             rotation_angle);
+                self.add_solid_border_corner(clip,
+                                             &inner_corner_rect,
+                                             radius_extent,
+                                             &color0_inner,
+                                             &color1_inner,
+                                             outer_radius,
+                                             inner_radius,
+                                             resource_cache,
+                                             clip_buffers,
+                                             rotation_angle);
+
+                // Draw the solid parts:
+                if util::rect_is_well_formed_and_nonempty(&color0_rect) {
+                    self.add_color_rectangle(&color0_rect,
+                                             clip,
+                                             resource_cache,
+                                             clip_buffers,
+                                             &color0_outer)
+                }
+                if util::rect_is_well_formed_and_nonempty(&color1_rect) {
+                    self.add_color_rectangle(&color1_rect,
+                                             clip,
+                                             resource_cache,
+                                             clip_buffers,
+                                             &color1_outer)
+                }
+            }
+            _ => {
+                self.add_solid_border_corner(clip,
+                                             corner_bounds,
+                                             radius_extent,
+                                             color0,
+                                             color1,
+                                             outer_radius,
+                                             inner_radius,
+                                             resource_cache,
+                                             clip_buffers,
+                                             rotation_angle)
+            }
+        }
+    }
+
+    fn add_solid_border_corner(&mut self,
+                               clip: &CombinedClipRegion,
+                               corner_bounds: &Rect<f32>,
+                               radius_extent: &Point2D<f32>,
+                               color0: &ColorF,
+                               color1: &ColorF,
+                               outer_radius: &Size2D<f32>,
+                               inner_radius: &Size2D<f32>,
+                               resource_cache: &ResourceCache,
+                               clip_buffers: &mut clipper::ClipBuffers,
+                               rotation_angle: BasicRotationAngle) {
         // TODO: Check for zero width/height borders!
-
-        let tl_rect = Rect::new(corner_bounds.origin,
-                                Size2D::new(radius_extent.x - corner_bounds.origin.x,
-                                            radius_extent.y - corner_bounds.origin.y));
-        let tr_rect = Rect::new(Point2D::new(radius_extent.x, corner_bounds.origin.y),
-                                Size2D::new(corner_bounds.max_x() - radius_extent.x,
-                                            radius_extent.y - corner_bounds.origin.y));
-        let bl_rect = Rect::new(Point2D::new(corner_bounds.origin.x, radius_extent.y),
-                                Size2D::new(radius_extent.x - corner_bounds.origin.x,
-                                            corner_bounds.max_y() - radius_extent.y));
-        let br_rect = Rect::new(*radius_extent,
-                                Size2D::new(corner_bounds.max_x() - radius_extent.x,
-                                            corner_bounds.max_y() - radius_extent.y));
-
         // FIXME(pcwalton): It's kind of messy to be matching on the rotation angle here to pick
         // the right rect to draw the rounded corner in. Is there a more elegant way to do this?
-        let (border_corner_rect, inner_rect, color0_rect, color1_rect) =
-            match rotation_angle {
-                BasicRotationAngle::Upright => (&tl_rect, &br_rect, &bl_rect, &tr_rect),
-                BasicRotationAngle::Clockwise90 => (&tr_rect, &bl_rect, &tl_rect, &br_rect),
-                BasicRotationAngle::Clockwise180 => (&br_rect, &tl_rect, &tr_rect, &bl_rect),
-                BasicRotationAngle::Clockwise270 => (&bl_rect, &tr_rect, &br_rect, &tl_rect),
-            };
+        let [outer_corner_rect, inner_corner_rect, color0_rect, color1_rect] =
+            subdivide_border_corner(corner_bounds, radius_extent, rotation_angle);
 
         let dummy_mask_image = resource_cache.get_dummy_mask_image();
 
         // Draw the rounded part of the corner.
         for rect_index in 0..tessellator::quad_count_for_border_corner(outer_radius) {
-            let tessellated_rect = border_corner_rect.tessellate_border_corner(outer_radius,
+            let tessellated_rect = outer_corner_rect.tessellate_border_corner(outer_radius,
                                                                                inner_radius,
                                                                                rotation_angle,
                                                                                rect_index);
@@ -1112,7 +1206,7 @@ impl<'a> BatchBuilder<'a> {
 
         // Draw the inner rect.
         self.add_border_corner_piece(RectPolygon {
-                                        pos: *inner_rect,
+                                        pos: inner_corner_rect,
                                         varyings: RectUv::zero(),
                                      },
                                      clip,
@@ -1124,11 +1218,11 @@ impl<'a> BatchBuilder<'a> {
                                      rotation_angle);
 
         // Draw the two solid rects.
-        if util::rect_is_well_formed_and_nonempty(color0_rect) {
-            self.add_color_rectangle(color0_rect, clip, resource_cache, clip_buffers, color0)
+        if util::rect_is_well_formed_and_nonempty(&color0_rect) {
+            self.add_color_rectangle(&color0_rect, clip, resource_cache, clip_buffers, color0)
         }
-        if util::rect_is_well_formed_and_nonempty(color1_rect) {
-            self.add_color_rectangle(color1_rect, clip, resource_cache, clip_buffers, color1)
+        if util::rect_is_well_formed_and_nonempty(&color1_rect) {
+            self.add_color_rectangle(&color1_rect, clip, resource_cache, clip_buffers, color1)
         }
     }
 
@@ -1299,7 +1393,7 @@ impl<'a> BatchBuilder<'a> {
         self.add_border_edge(&Rect::new(Point2D::new(tl_outer.x, tl_inner.y),
                                         Size2D::new(left.width, bl_inner.y - tl_inner.y)),
                              clip,
-                             AxisDirection::Vertical,
+                             RectSide::Left,
                              &left_color,
                              info.left.style,
                              resource_cache,
@@ -1309,7 +1403,7 @@ impl<'a> BatchBuilder<'a> {
                                         Size2D::new(tr_inner.x - tl_inner.x,
                                                     tr_outer.y + top.width - tl_outer.y)),
                              clip,
-                             AxisDirection::Horizontal,
+                             RectSide::Top,
                              &top_color,
                              info.top.style,
                              resource_cache,
@@ -1318,7 +1412,7 @@ impl<'a> BatchBuilder<'a> {
         self.add_border_edge(&Rect::new(Point2D::new(br_outer.x - right.width, tr_inner.y),
                                         Size2D::new(right.width, br_inner.y - tr_inner.y)),
                              clip,
-                             AxisDirection::Vertical,
+                             RectSide::Right,
                              &right_color,
                              info.right.style,
                              resource_cache,
@@ -1328,7 +1422,7 @@ impl<'a> BatchBuilder<'a> {
                                         Size2D::new(br_inner.x - bl_inner.x,
                                                     br_outer.y - bl_outer.y + bottom.width)),
                              clip,
-                             AxisDirection::Horizontal,
+                             RectSide::Bottom,
                              &bottom_color,
                              info.bottom.style,
                              resource_cache,
@@ -1336,6 +1430,7 @@ impl<'a> BatchBuilder<'a> {
 
         // Corners
         self.add_border_corner(clip,
+                               info.left.style,
                                &Rect::new(tl_outer,
                                           Size2D::new(tl_inner.x - tl_outer.x,
                                                       tl_inner.y - tl_outer.y)),
@@ -1350,6 +1445,7 @@ impl<'a> BatchBuilder<'a> {
                                BasicRotationAngle::Upright);
 
         self.add_border_corner(clip,
+                               info.top.style,
                                &Rect::new(Point2D::new(tr_inner.x, tr_outer.y),
                                           Size2D::new(tr_outer.x - tr_inner.x,
                                                       tr_inner.y - tr_outer.y)),
@@ -1364,6 +1460,7 @@ impl<'a> BatchBuilder<'a> {
                                BasicRotationAngle::Clockwise90);
 
         self.add_border_corner(clip,
+                               info.right.style,
                                &Rect::new(br_inner,
                                           Size2D::new(br_outer.x - br_inner.x,
                                                       br_outer.y - br_inner.y)),
@@ -1378,6 +1475,7 @@ impl<'a> BatchBuilder<'a> {
                                BasicRotationAngle::Clockwise180);
 
         self.add_border_corner(clip,
+                               info.bottom.style,
                                &Rect::new(Point2D::new(bl_outer.x, bl_inner.y),
                                           Size2D::new(bl_inner.x - bl_outer.x,
                                                       bl_outer.y - bl_inner.y)),
@@ -1602,3 +1700,46 @@ pub fn compute_box_shadow_rect(box_bounds: &Rect<f32>,
     rect.origin.y += box_offset.y;
     rect.inflate(spread_radius, spread_radius)
 }
+
+/// Returns the top/left and bottom/right colors respectively.
+fn groove_ridge_border_colors(color: &ColorF, border_style: BorderStyle) -> (ColorF, ColorF) {
+    match (color, border_style) {
+        (&ColorF {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: _
+        }, BorderStyle::Groove) => {
+            // Handle black specially (matching the new browser consensus here).
+            (ColorF::new(0.3, 0.3, 0.3, color.a), ColorF::new(0.7, 0.7, 0.7, color.a))
+        }
+        (&ColorF {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: _
+        }, BorderStyle::Ridge) => {
+            // As above.
+            (ColorF::new(0.7, 0.7, 0.7, color.a), ColorF::new(0.3, 0.3, 0.3, color.a))
+        }
+        (_, BorderStyle::Groove) => (util::scale_color(color, 1.0 / 3.0), *color),
+        (_, _) => (*color, util::scale_color(color, 2.0 / 3.0)),
+    }
+}
+
+/// Subdivides the border corner into four quadrants and returns them in the order of outer corner,
+/// inner corner, color 0 and color 1, respectively. See the diagram in the documentation for
+/// `add_border_corner` for more information on what these values represent.
+fn subdivide_border_corner(corner_bounds: &Rect<f32>,
+                           point: &Point2D<f32>,
+                           rotation_angle: BasicRotationAngle)
+                           -> [Rect<f32>; 4] {
+    let [tl, tr, br, bl] = util::subdivide_rect_into_quadrants(corner_bounds, point);
+    match rotation_angle {
+        BasicRotationAngle::Upright => [tl, br, bl, tr],
+        BasicRotationAngle::Clockwise90 => [tr, bl, tl, br],
+        BasicRotationAngle::Clockwise180 => [br, tl, tr, bl],
+        BasicRotationAngle::Clockwise270 => [bl, tr, br, tl],
+    }
+}
+

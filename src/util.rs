@@ -213,3 +213,44 @@ pub fn rect_is_well_formed_and_nonempty(rect: &Rect<f32>) -> bool {
     rect.size.width > 0.0 && rect.size.height > 0.0
 }
 
+/// Multiplies all non-alpha components of a color by the given value.
+pub fn scale_color(color: &ColorF, factor: f32) -> ColorF {
+    ColorF {
+        r: color.r * factor,
+        g: color.g * factor,
+        b: color.b * factor,
+        a: color.a,
+    }
+}
+
+/// Subdivides a rectangle into quadrants formed by a point. The quadrants are returned in the
+/// order of: top left, top right, bottom right, and bottom left.
+pub fn subdivide_rect_into_quadrants(rect: &Rect<f32>, point: &Point2D<f32>) -> [Rect<f32>; 4] {
+    let point = Point2D::new(clamp(point.x, rect.origin.x, rect.max_x()),
+                             clamp(point.y, rect.origin.y, rect.max_y()));
+    let tl_rect = Rect::new(rect.origin,
+                            Size2D::new(point.x - rect.origin.x, point.y - rect.origin.y));
+    let tr_rect = Rect::new(Point2D::new(point.x, rect.origin.y),
+                            Size2D::new(rect.max_x() - point.x, point.y - rect.origin.y));
+    let br_rect = Rect::new(point,
+                            Size2D::new(rect.max_x() - point.x, rect.max_y() - point.y));
+    let bl_rect = Rect::new(Point2D::new(rect.origin.x, point.y),
+                            Size2D::new(point.x - rect.origin.x, rect.max_y() - point.y));
+    return [tl_rect, tr_rect, br_rect, bl_rect];
+
+    fn clamp(x: f32, lo: f32, hi: f32) -> f32 {
+        if x < lo {
+            lo
+        } else if x > hi {
+            hi
+        } else {
+            x
+        }
+    }
+}
+
+/// Returns the center point of the given rect.
+pub fn rect_center(rect: &Rect<f32>) -> Point2D<f32> {
+    Point2D::new(rect.origin.x + rect.size.width / 2.0, rect.origin.y + rect.size.height / 2.0)
+}
+

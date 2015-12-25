@@ -1066,3 +1066,11 @@ impl CompositionOp {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RectSide {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
