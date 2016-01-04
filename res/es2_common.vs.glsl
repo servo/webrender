@@ -3,6 +3,7 @@
 #define SERVO_ES2
 
 uniform mat4 uTransform;
+uniform vec4 uOffsets[32];
 uniform mat4 uMatrixPalette[32];
 uniform vec2 uDirection;
 uniform vec4 uBlendParams;

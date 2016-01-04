@@ -1,3 +1,15 @@
+vec2 SnapToPixels(vec2 pos)
+{
+    // Snap the vertex to pixel position to guarantee correct texture
+    // sampling when using bilinear filtering.
+#ifdef SERVO_ES2
+    // TODO(gw): ES2 doesn't have round(). Do we ever get negative coords here?
+    return floor(0.5 + pos * uDevicePixelRatio) / uDevicePixelRatio;
+#else
+    return round(pos * uDevicePixelRatio) / uDevicePixelRatio;
+#endif
+}
+
 void main(void)
 {
     // Normalize the vertex color
@@ -18,19 +30,17 @@ void main(void)
 
     // Extract the complete (stacking context + css transform) transform
     // for this vertex. Transform the position by it.
+    vec4 offsetParams = uOffsets[int(aMisc.x)];
     mat4 matrix = uMatrixPalette[int(aMisc.x)];
-    vec4 pos = matrix * vec4(aPosition, 1.0);
 
-    // Snap the vertex to pixel position to guarantee correct texture
-    // sampling when using bilinear filtering.
-#ifdef SERVO_ES2
-    // TODO(gw): ES2 doesn't have round(). Do we ever get negative coords here?
-    pos.xy = floor(0.5 + pos.xy * uDevicePixelRatio) / uDevicePixelRatio;
-#else
-    pos.xy = round(pos.xy * uDevicePixelRatio) / uDevicePixelRatio;
-#endif
+    vec4 localPos = vec4(aPosition.xy, 0.0, 1.0);
+    localPos.xy += offsetParams.xy;
+    localPos.xy = SnapToPixels(localPos.xy);
+
+    vec4 worldPos = matrix * localPos;
+    worldPos.xy = SnapToPixels(worldPos.xy);
 
     // Transform by the orthographic projection into clip space.
-    gl_Position = uTransform * pos;
+    gl_Position = uTransform * worldPos;
 }
 

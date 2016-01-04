@@ -1,5 +1,5 @@
 use app_units::Au;
-use batch::{VertexBuffer, Batch, VertexBufferId, TileParams};
+use batch::{VertexBuffer, Batch, VertexBufferId, OffsetParams, TileParams};
 use device::{TextureId, TextureFilter};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
@@ -336,13 +336,16 @@ pub struct DrawCall {
 #[derive(Clone, Debug)]
 pub struct BatchInfo {
     pub matrix_palette: Vec<Matrix4>,
+    pub offset_palette: Vec<OffsetParams>,
     pub draw_calls: Vec<DrawCall>,
 }
 
 impl BatchInfo {
-    pub fn new(matrix_palette: Vec<Matrix4>) -> BatchInfo {
+    pub fn new(matrix_palette: Vec<Matrix4>,
+               offset_palette: Vec<OffsetParams>) -> BatchInfo {
         BatchInfo {
             matrix_palette: matrix_palette,
+            offset_palette: offset_palette,
             draw_calls: Vec::new(),
         }
     }

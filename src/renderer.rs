@@ -98,6 +98,7 @@ pub struct Renderer {
 
     quad_program_id: ProgramId,
     u_quad_transform_array: UniformLocation,
+    u_quad_offset_array: UniformLocation,
     u_tile_params: UniformLocation,
     u_atlas_params: UniformLocation,
 
@@ -154,6 +155,7 @@ impl Renderer {
         let blur_program_id = device.create_program("blur.vs.glsl", "blur.fs.glsl");
 
         let u_quad_transform_array = device.get_uniform_location(quad_program_id, "uMatrixPalette");
+        let u_quad_offset_array = device.get_uniform_location(quad_program_id, "uOffsets");
         let u_tile_params = device.get_uniform_location(quad_program_id, "uTileParams");
         let u_atlas_params = device.get_uniform_location(quad_program_id, "uAtlasParams");
 
@@ -242,6 +244,7 @@ impl Renderer {
             u_blend_params: u_blend_params,
             u_filter_params: u_filter_params,
             u_direction: u_direction,
+            u_quad_offset_array: u_quad_offset_array,
             u_quad_transform_array: u_quad_transform_array,
             u_atlas_params: u_atlas_params,
             u_tile_params: u_tile_params,
@@ -923,6 +926,20 @@ impl Renderer {
 
                     self.device.bind_program(self.quad_program_id,
                                              &projection);
+
+                    if info.offset_palette.len() > 0 {
+                        // TODO(gw): Avoid alloc here...
+                        let mut floats = Vec::new();
+                        for vec in &info.offset_palette {
+                            floats.push(vec.stacking_context_x0);
+                            floats.push(vec.stacking_context_y0);
+                            floats.push(vec.render_target_x0);
+                            floats.push(vec.render_target_y0);
+                        }
+
+                        self.device.set_uniform_vec4_array(self.u_quad_offset_array,
+                                                           &floats);
+                    }
 
                     self.device.set_uniform_mat4_array(self.u_quad_transform_array,
                                                        &info.matrix_palette);

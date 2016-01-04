@@ -1,5 +1,5 @@
 use app_units::Au;
-use batch::MAX_MATRICES_PER_BATCH;
+use batch::{MAX_MATRICES_PER_BATCH, OffsetParams};
 use device::{TextureId, TextureFilter};
 use euclid::{Rect, Point2D, Size2D, Matrix4};
 use fnv::FnvHasher;
@@ -130,6 +130,8 @@ impl RenderTarget {
                     let layer = &layers[&draw_list_group.scroll_layer_id];
                     let mut matrix_palette =
                         vec![Matrix4::identity(); draw_list_group.draw_list_ids.len()];
+                    let mut offset_palette =
+                        vec![OffsetParams::identity(); draw_list_group.draw_list_ids.len()];
 
                     // Update batch matrices
                     for (index, draw_list_id) in draw_list_group.draw_list_ids.iter().enumerate() {
@@ -141,10 +143,13 @@ impl RenderTarget {
                         transform = transform.translate(layer.scroll_offset.x,
                                                         layer.scroll_offset.y,
                                                         0.0);
-                        matrix_palette[index] = transform
+                        matrix_palette[index] = transform;
+
+                        offset_palette[index].stacking_context_x0 = context.world_origin.x;
+                        offset_palette[index].stacking_context_y0 = context.world_origin.y;
                     }
 
-                    let mut batch_info = BatchInfo::new(matrix_palette);
+                    let mut batch_info = BatchInfo::new(matrix_palette, offset_palette);
 
                     // Collect relevant draws from each node in the tree.
                     for node in &layer.aabb_tree.nodes {
@@ -732,9 +737,7 @@ impl Frame {
 
                         // TODO(gw): Doesn't handle transforms on iframes yet!
                         let world_origin = sc_info.world_origin + iframe_info.bounds.origin;
-                        let iframe_transform = Matrix4::identity().translate(world_origin.x,
-                                                                             world_origin.y,
-                                                                             0.0);
+                        let iframe_transform = Matrix4::identity();
 
                         let overflow = sc_info.local_overflow
                                               .translate(&-sc_info.local_overflow.origin)
@@ -820,8 +823,10 @@ impl Frame {
                 if composition_operations.is_empty() {
                     // Build world space transform
                     let origin = stacking_context.bounds.origin;
+
                     let local_transform = Matrix4::identity().translate(origin.x, origin.y, 0.0)
-                                                             .mul(&stacking_context.transform);
+                                                             .mul(&stacking_context.transform)
+                                                             .translate(-origin.x, -origin.y, 0.0);
 
                     let transform = parent.world_perspective.mul(&parent.world_transform)
                                                             .mul(&local_transform);

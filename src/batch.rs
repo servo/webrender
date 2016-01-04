@@ -22,6 +22,25 @@ pub struct VertexBufferId(pub usize);
 pub struct MatrixIndex(pub u8);
 
 #[derive(Clone, Debug)]
+pub struct OffsetParams {
+    pub stacking_context_x0: f32,
+    pub stacking_context_y0: f32,
+    pub render_target_x0: f32,
+    pub render_target_y0: f32,
+}
+
+impl OffsetParams {
+    pub fn identity() -> OffsetParams {
+        OffsetParams {
+            stacking_context_x0: 0.0,
+            stacking_context_y0: 0.0,
+            render_target_x0: 0.0,
+            render_target_y0: 0.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct TileParams {
     pub u0: f32,
     pub v0: f32,
