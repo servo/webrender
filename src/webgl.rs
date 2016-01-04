@@ -24,6 +24,15 @@ pub enum WebGLFramebufferBindingRequest {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
+pub enum WebGLParameter {
+    Int(i32),
+    Bool(bool),
+    String(String),
+    Float(f32),
+    Invalid,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
 pub enum WebGLShaderParameter {
     Int(i32),
     Bool(bool),
@@ -40,6 +49,7 @@ pub enum WebGLCommand {
     BlendFunc(u32, u32),
     BlendFuncSeparate(u32, u32, u32, u32),
     AttachShader(u32, u32),
+    BindAttribLocation(u32, u32, String),
     BufferData(u32, Vec<u8>, u32),
     BufferSubData(u32, isize, Vec<u8>),
     Clear(u32),
@@ -72,17 +82,23 @@ pub enum WebGLCommand {
     BindRenderbuffer(u32, u32),
     BindTexture(u32, u32),
     DrawArrays(u32, i32, i32),
+    DrawElements(u32, i32, u32, i64),
     EnableVertexAttribArray(u32),
-    GetShaderParameter(u32, u32, IpcSender<WebGLShaderParameter>),
+    GetBufferParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
+    GetParameter(u32, IpcSender<WebGLResult<WebGLParameter>>),
+    GetProgramParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
+    GetShaderParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
     GetAttribLocation(u32, String, IpcSender<Option<i32>>),
     GetUniformLocation(u32, String, IpcSender<Option<i32>>),
     PolygonOffset(f32, f32),
+    Scissor(i32, i32, i32, i32),
     Hint(u32, u32),
     LineWidth(f32),
     PixelStorei(u32, i32),
     LinkProgram(u32),
     Uniform4fv(i32, Vec<f32>),
     UseProgram(u32),
+    VertexAttrib(u32, f32, f32, f32, f32),
     VertexAttribPointer2f(u32, i32, bool, i32, u32),
     Viewport(i32, i32, i32, i32),
     TexImage2D(u32, i32, i32, i32, i32, u32, u32, Vec<u8>),
@@ -100,6 +116,10 @@ impl WebGLCommand {
                 sender.send(*ctx.borrow_attributes()).unwrap(),
             WebGLCommand::ActiveTexture(target) =>
                 gl::active_texture(target),
+            WebGLCommand::AttachShader(program_id, shader_id) =>
+                gl::attach_shader(program_id, shader_id),
+            WebGLCommand::BindAttribLocation(program_id, index, name) =>
+                gl::bind_attrib_location(program_id, index, &name),
             WebGLCommand::BlendColor(r, g, b, a) =>
                 gl::blend_color(r, g, b, a),
             WebGLCommand::BlendEquation(mode) =>
@@ -110,8 +130,6 @@ impl WebGLCommand {
                 gl::blend_func(src, dest),
             WebGLCommand::BlendFuncSeparate(src_rgb, dest_rgb, src_alpha, dest_alpha) =>
                 gl::blend_func_separate(src_rgb, dest_rgb, src_alpha, dest_alpha),
-            WebGLCommand::AttachShader(program_id, shader_id) =>
-                gl::attach_shader(program_id, shader_id),
             WebGLCommand::BufferData(buffer_type, data, usage) =>
                 gl::buffer_data(buffer_type, &data, usage),
             WebGLCommand::BufferSubData(buffer_type, offset, data) =>
@@ -142,6 +160,8 @@ impl WebGLCommand {
                 gl::front_face(mode),
             WebGLCommand::DrawArrays(mode, first, count) =>
                 gl::draw_arrays(mode, first, count),
+            WebGLCommand::DrawElements(mode, count, type_, offset) =>
+                gl::draw_elements(mode, count, type_, offset as u32),
             WebGLCommand::Hint(name, val) =>
                 gl::hint(name, val),
             WebGLCommand::LineWidth(width) =>
@@ -150,28 +170,36 @@ impl WebGLCommand {
                 gl::pixel_store_i(name, val),
             WebGLCommand::PolygonOffset(factor, units) =>
                 gl::polygon_offset(factor, units),
+            WebGLCommand::Scissor(x, y, width, height) =>
+                gl::scissor(x, y, width, height),
             WebGLCommand::EnableVertexAttribArray(attrib_id) =>
                 gl::enable_vertex_attrib_array(attrib_id),
             WebGLCommand::GetAttribLocation(program_id, name, chan) =>
-                WebGLCommand::attrib_location(program_id, name, chan),
+                Self::attrib_location(program_id, name, chan),
+            WebGLCommand::GetBufferParameter(target, param_id, chan) =>
+                Self::buffer_parameter(target, param_id, chan),
+            WebGLCommand::GetParameter(param_id, chan) =>
+                Self::parameter(param_id, chan),
+            WebGLCommand::GetProgramParameter(program_id, param_id, chan) =>
+                Self::program_parameter(program_id, param_id, chan),
             WebGLCommand::GetShaderParameter(shader_id, param_id, chan) =>
-                WebGLCommand::shader_parameter(shader_id, param_id, chan),
+                Self::shader_parameter(shader_id, param_id, chan),
             WebGLCommand::GetUniformLocation(program_id, name, chan) =>
-                WebGLCommand::uniform_location(program_id, name, chan),
+                Self::uniform_location(program_id, name, chan),
             WebGLCommand::CompileShader(shader_id, source) =>
-                WebGLCommand::compile_shader(shader_id, source),
+                Self::compile_shader(shader_id, source),
             WebGLCommand::CreateBuffer(chan) =>
-                WebGLCommand::create_buffer(chan),
+                Self::create_buffer(chan),
             WebGLCommand::CreateFramebuffer(chan) =>
-                WebGLCommand::create_framebuffer(chan),
+                Self::create_framebuffer(chan),
             WebGLCommand::CreateRenderbuffer(chan) =>
-                WebGLCommand::create_renderbuffer(chan),
+                Self::create_renderbuffer(chan),
             WebGLCommand::CreateTexture(chan) =>
-                WebGLCommand::create_texture(chan),
+                Self::create_texture(chan),
             WebGLCommand::CreateProgram(chan) =>
-                WebGLCommand::create_program(chan),
+                Self::create_program(chan),
             WebGLCommand::CreateShader(shader_type, chan) =>
-                WebGLCommand::create_shader(shader_type, chan),
+                Self::create_shader(shader_type, chan),
             WebGLCommand::DeleteBuffer(id) =>
                 gl::delete_buffers(&[id]),
             WebGLCommand::DeleteFramebuffer(id) =>
@@ -187,7 +215,7 @@ impl WebGLCommand {
             WebGLCommand::BindBuffer(target, id) =>
                 gl::bind_buffer(target, id),
             WebGLCommand::BindFramebuffer(target, request) =>
-                WebGLCommand::bind_framebuffer(target, request, ctx),
+                Self::bind_framebuffer(target, request, ctx),
             WebGLCommand::BindRenderbuffer(target, id) =>
                 gl::bind_renderbuffer(target, id),
             WebGLCommand::BindTexture(target, id) =>
@@ -198,6 +226,8 @@ impl WebGLCommand {
                 gl::uniform_4f(uniform_id, data[0], data[1], data[2], data[3]),
             WebGLCommand::UseProgram(program_id) =>
                 gl::use_program(program_id),
+            WebGLCommand::VertexAttrib(attrib_id, x, y, z, w) =>
+                gl::vertex_attrib_4f(attrib_id, x, y, z, w),
             WebGLCommand::VertexAttribPointer2f(attrib_id, size, normalized, stride, offset) =>
                 gl::vertex_attrib_pointer_f32(attrib_id, size, normalized, stride, offset as u32),
             WebGLCommand::Viewport(x, y, width, height) =>
@@ -232,15 +262,169 @@ impl WebGLCommand {
         chan.send(attrib_location).unwrap();
     }
 
+    fn parameter(param_id: u32,
+                 chan: IpcSender<WebGLResult<WebGLParameter>>) {
+        let result = match param_id {
+            gl::ACTIVE_TEXTURE |
+            gl::ALPHA_BITS |
+            gl::BLEND_DST_ALPHA |
+            gl::BLEND_DST_RGB |
+            gl::BLEND_EQUATION_ALPHA |
+            gl::BLEND_EQUATION_RGB |
+            gl::BLEND_SRC_ALPHA |
+            gl::BLEND_SRC_RGB |
+            gl::BLUE_BITS |
+            gl::CULL_FACE_MODE |
+            gl::DEPTH_BITS |
+            gl::DEPTH_FUNC |
+            gl::FRONT_FACE |
+            gl::GENERATE_MIPMAP_HINT |
+            gl::GREEN_BITS |
+            //gl::IMPLEMENTATION_COLOR_READ_FORMAT |
+            //gl::IMPLEMENTATION_COLOR_READ_TYPE |
+            gl::MAX_COMBINED_TEXTURE_IMAGE_UNITS |
+            gl::MAX_CUBE_MAP_TEXTURE_SIZE |
+            //gl::MAX_FRAGMENT_UNIFORM_VECTORS |
+            gl::MAX_RENDERBUFFER_SIZE |
+            gl::MAX_TEXTURE_IMAGE_UNITS |
+            gl::MAX_TEXTURE_SIZE |
+            //gl::MAX_VARYING_VECTORS |
+            gl::MAX_VERTEX_ATTRIBS |
+            gl::MAX_VERTEX_TEXTURE_IMAGE_UNITS |
+            //gl::MAX_VERTEX_UNIFORM_VECTORS |
+            gl::PACK_ALIGNMENT |
+            gl::RED_BITS |
+            gl::SAMPLE_BUFFERS |
+            gl::SAMPLES |
+            gl::STENCIL_BACK_FAIL |
+            gl::STENCIL_BACK_FUNC |
+            gl::STENCIL_BACK_PASS_DEPTH_FAIL |
+            gl::STENCIL_BACK_PASS_DEPTH_PASS |
+            gl::STENCIL_BACK_REF |
+            gl::STENCIL_BACK_VALUE_MASK |
+            gl::STENCIL_BACK_WRITEMASK |
+            gl::STENCIL_BITS |
+            gl::STENCIL_CLEAR_VALUE |
+            gl::STENCIL_FAIL |
+            gl::STENCIL_FUNC |
+            gl::STENCIL_PASS_DEPTH_FAIL |
+            gl::STENCIL_PASS_DEPTH_PASS |
+            gl::STENCIL_REF |
+            gl::STENCIL_VALUE_MASK |
+            gl::STENCIL_WRITEMASK |
+            gl::SUBPIXEL_BITS |
+            gl::UNPACK_ALIGNMENT =>
+            //gl::UNPACK_COLORSPACE_CONVERSION_WEBGL =>
+                Ok(WebGLParameter::Int(gl::get_integer_v(param_id))),
+
+            gl::BLEND |
+            gl::CULL_FACE |
+            gl::DEPTH_TEST |
+            gl::DEPTH_WRITEMASK |
+            gl::DITHER |
+            gl::POLYGON_OFFSET_FILL |
+            gl::SAMPLE_COVERAGE_INVERT |
+            gl::STENCIL_TEST =>
+            //gl::UNPACK_FLIP_Y_WEBGL |
+            //gl::UNPACK_PREMULTIPLY_ALPHA_WEBGL =>
+                Ok(WebGLParameter::Bool(gl::get_boolean_v(param_id) != 0)),
+
+            gl::DEPTH_CLEAR_VALUE |
+            gl::LINE_WIDTH |
+            gl::POLYGON_OFFSET_FACTOR |
+            gl::POLYGON_OFFSET_UNITS |
+            gl::SAMPLE_COVERAGE_VALUE =>
+                Ok(WebGLParameter::Float(gl::get_float_v(param_id))),
+
+            gl::VERSION => Ok(WebGLParameter::String("WebGL 1.0".to_owned())),
+            gl::RENDERER |
+            gl::VENDOR => Ok(WebGLParameter::String("Mozilla/Servo".to_owned())),
+            gl::SHADING_LANGUAGE_VERSION => Ok(WebGLParameter::String("WebGL GLSL ES 1.0".to_owned())),
+
+            // TODO(zbarsky, ecoal95): Implement support for the following valid parameters
+            // Float32Array
+            gl::ALIASED_LINE_WIDTH_RANGE |
+            gl::ALIASED_POINT_SIZE_RANGE |
+            //gl::BLEND_COLOR |
+            gl::COLOR_CLEAR_VALUE |
+            gl::DEPTH_RANGE |
+
+            // WebGLBuffer
+            gl::ARRAY_BUFFER_BINDING |
+            gl::ELEMENT_ARRAY_BUFFER_BINDING |
+
+            // WebGLFrameBuffer
+            gl::FRAMEBUFFER_BINDING |
+
+            // WebGLRenderBuffer
+            gl::RENDERBUFFER_BINDING |
+
+            // WebGLProgram
+            gl::CURRENT_PROGRAM |
+
+            // WebGLTexture
+            gl::TEXTURE_BINDING_2D |
+            gl::TEXTURE_BINDING_CUBE_MAP |
+
+            // sequence<GlBoolean>
+            gl::COLOR_WRITEMASK |
+
+            // Uint32Array
+            gl::COMPRESSED_TEXTURE_FORMATS |
+
+            // Int32Array
+            gl::MAX_VIEWPORT_DIMS |
+            gl::SCISSOR_BOX |
+            gl::VIEWPORT => Err(WebGLError::InvalidEnum),
+
+            // Invalid parameters
+            _ => Err(WebGLError::InvalidEnum)
+        };
+
+        chan.send(result).unwrap();
+    }
+
+    fn buffer_parameter(target: u32,
+                        param_id: u32,
+                        chan: IpcSender<WebGLResult<WebGLParameter>>) {
+        let result = match param_id {
+            gl::BUFFER_SIZE |
+            gl::BUFFER_USAGE =>
+                Ok(WebGLParameter::Int(gl::get_buffer_parameter_iv(target, param_id))),
+            _ => Err(WebGLError::InvalidEnum),
+        };
+
+        chan.send(result).unwrap();
+    }
+
+    fn program_parameter(program_id: u32,
+                         param_id: u32,
+                         chan: IpcSender<WebGLResult<WebGLParameter>>) {
+        let result = match param_id {
+            gl::DELETE_STATUS |
+            gl::LINK_STATUS |
+            gl::VALIDATE_STATUS =>
+                Ok(WebGLParameter::Bool(gl::get_program_iv(program_id, param_id) != 0)),
+            gl::ATTACHED_SHADERS |
+            gl::ACTIVE_ATTRIBUTES |
+            gl::ACTIVE_UNIFORMS =>
+                Ok(WebGLParameter::Int(gl::get_program_iv(program_id, param_id))),
+            _ => Err(WebGLError::InvalidEnum),
+        };
+
+        chan.send(result).unwrap();
+    }
+
     fn shader_parameter(shader_id: u32,
                         param_id: u32,
-                        chan: IpcSender<WebGLShaderParameter>) {
+                        chan: IpcSender<WebGLResult<WebGLParameter>>) {
         let result = match param_id {
             gl::SHADER_TYPE =>
-                WebGLShaderParameter::Int(gl::get_shader_iv(shader_id, param_id)),
-            gl::DELETE_STATUS | gl::COMPILE_STATUS =>
-                WebGLShaderParameter::Bool(gl::get_shader_iv(shader_id, param_id) != 0),
-            _ => panic!("Unexpected shader parameter type"),
+                Ok(WebGLParameter::Int(gl::get_shader_iv(shader_id, param_id))),
+            gl::DELETE_STATUS |
+            gl::COMPILE_STATUS =>
+                Ok(WebGLParameter::Bool(gl::get_shader_iv(shader_id, param_id) != 0)),
+            _ => Err(WebGLError::InvalidEnum),
         };
 
         chan.send(result).unwrap();
@@ -310,7 +494,6 @@ impl WebGLCommand {
         };
         chan.send(program).unwrap();
     }
-
 
     fn create_shader(shader_type: u32, chan: IpcSender<Option<NonZero<u32>>>) {
         let shader = gl::create_shader(shader_type);
