@@ -9,10 +9,10 @@ use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::sync::Arc;
 use texture_cache::TextureCacheItem;
-use util::{self, RectVaryings, VaryingElement};
+use util::{self, RectVaryings};
 use webrender_traits::{FontKey, Epoch, ColorF, PipelineId};
 use webrender_traits::{ImageFormat, ScrollLayerId};
-use webrender_traits::{ComplexClipRegion, MixBlendMode, NativeFontHandle, DisplayItem};
+use webrender_traits::{MixBlendMode, NativeFontHandle, DisplayItem};
 
 const UV_FLOAT_TO_FIXED: f32 = 65535.0;
 const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
@@ -21,14 +21,14 @@ pub const ANGLE_FLOAT_TO_FIXED: f32 = 65535.0;
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
 pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
 
-static ZERO_RECT_F32: Rect<f32> = Rect {
+pub static MAX_RECT: Rect<f32> = Rect {
     origin: Point2D {
-        x: 0.0,
-        y: 0.0,
+        x: -1000.0,
+        y: -1000.0,
     },
     size: Size2D {
-        width: 0.0,
-        height: 0.0,
+        width: 10000.0,
+        height: 10000.0,
     },
 };
 
@@ -137,8 +137,8 @@ pub struct PackedVertex {
     pub mu: u16,
     pub mv: u16,
     pub matrix_index: u8,
-    pub unused0: u8,
-    pub unused1: u8,
+    pub clip_in_rect_index: u8,
+    pub clip_out_rect_index: u8,
     pub tile_params_index: u8,
 }
 
@@ -160,8 +160,8 @@ impl PackedVertex {
             mu: (mu * UV_FLOAT_TO_FIXED) as u16,
             mv: (mv * UV_FLOAT_TO_FIXED) as u16,
             matrix_index: 0,
-            unused0: 0,
-            unused1: 0,
+            clip_in_rect_index: 0,
+            clip_out_rect_index: 0,
             tile_params_index: 0,
         }
     }
@@ -183,8 +183,8 @@ impl PackedVertex {
             mu: mu,
             mv: mv,
             matrix_index: 0,
-            unused0: 0,
-            unused1: 0,
+            clip_in_rect_index: 0,
+            clip_out_rect_index: 0,
             tile_params_index: 0,
         }
     }
@@ -326,6 +326,7 @@ pub struct ClearInfo {
 #[derive(Clone, Debug)]
 pub struct DrawCall {
     pub tile_params: Vec<TileParams>,
+    pub clip_rects: Vec<Rect<f32>>,
     pub vertex_buffer_id: VertexBufferId,
     pub color_texture_id: TextureId,
     pub mask_texture_id: TextureId,
@@ -428,99 +429,6 @@ pub enum ResultMsg {
     NewFrame(RendererFrame, BackendProfileCounters),
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ClipRectToRegionMaskResult {
-    /// The bounding box of the mask, in texture coordinates.
-    pub muv_rect: Rect<f32>,
-
-    /// The bounding rect onto which the mask will be applied, in framebuffer coordinates.
-    pub position_rect: Rect<f32>,
-
-    /// The border radius in question, for lookup in the texture cache.
-    pub border_radius: f32,
-}
-
-impl ClipRectToRegionMaskResult {
-    pub fn new(muv_rect: &Rect<f32>, position_rect: &Rect<f32>, border_radius: f32)
-               -> ClipRectToRegionMaskResult {
-        ClipRectToRegionMaskResult {
-            muv_rect: *muv_rect,
-            position_rect: *position_rect,
-            border_radius: border_radius,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct ClipRectToRegionResult<P> {
-    pub rect_result: P,
-    pub mask_result: Option<ClipRectToRegionMaskResult>,
-}
-
-impl<P> ClipRectToRegionResult<P> {
-    pub fn new(rect_result: P, mask_result: Option<ClipRectToRegionMaskResult>)
-               -> ClipRectToRegionResult<P> {
-        ClipRectToRegionResult {
-            rect_result: rect_result,
-            mask_result: mask_result,
-        }
-    }
-
-    pub fn muv_for_position(&self, position: &Point2D<f32>, mask: &TextureCacheItem)
-                            -> Point2D<f32> {
-        let mask_uv_size = Size2D::new(mask.uv_rect.bottom_right.x - mask.uv_rect.top_left.x,
-                                       mask.uv_rect.bottom_right.y - mask.uv_rect.top_left.y);
-        let mask_result = match self.mask_result {
-            None => return Point2D::new(0.0, 0.0),
-            Some(ref mask_result) => mask_result,
-        };
-
-        let muv_rect =
-            Rect::new(Point2D::new(
-                    mask.uv_rect.top_left.x + mask_result.muv_rect.origin.x * mask_uv_size.width,
-                    mask.uv_rect.top_left.y + mask_result.muv_rect.origin.y * mask_uv_size.height),
-                      Size2D::new(mask_result.muv_rect.size.width * mask_uv_size.width,
-                                  mask_result.muv_rect.size.height * mask_uv_size.height));
-        let position_rect = &mask_result.position_rect;
-
-        Point2D::new(util::lerp(muv_rect.origin.x,
-                                muv_rect.max_x(),
-                                (position.x - position_rect.origin.x) / position_rect.size.width),
-                     util::lerp(muv_rect.origin.y,
-                                muv_rect.max_y(),
-                                (position.y - position_rect.origin.y) / position_rect.size.height))
-    }
-
-    pub fn make_packed_vertex<VE>(&self,
-                                  position: &Point2D<f32>,
-                                  varying_element: &VE,
-                                  mask: &TextureCacheItem)
-                                  -> PackedVertex
-                                  where VE: VaryingElement {
-        varying_element.make_packed_vertex(position, &self.muv_for_position(position, mask))
-    }
-}
-
-impl<Varyings> ClipRectToRegionResult<RectPolygon<Varyings>>
-               where Varyings: RectVaryings, Varyings::Element: VaryingElement {
-    pub fn make_packed_vertices_for_rect(&self, mask: &TextureCacheItem) -> [PackedVertex; 4] {
-        [
-            self.make_packed_vertex(&self.rect_result.pos.origin,
-                                    &self.rect_result.varyings.top_left(),
-                                    mask),
-            self.make_packed_vertex(&self.rect_result.pos.top_right(),
-                                    &self.rect_result.varyings.top_right(),
-                                    mask),
-            self.make_packed_vertex(&self.rect_result.pos.bottom_left(),
-                                    &self.rect_result.varyings.bottom_left(),
-                                    mask),
-            self.make_packed_vertex(&self.rect_result.pos.bottom_right(),
-                                    &self.rect_result.varyings.bottom_right(),
-                                    mask),
-        ]
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AxisDirection {
     Horizontal,
@@ -583,8 +491,6 @@ pub struct DrawListItemIndex(pub u32);
 pub enum Primitive {
     Triangles,
     Rectangles,     // 4 vertices per rect
-    TriangleFan,    // simple triangle fan (typically from clipper)
-    Glyphs,         // font glyphs (some platforms may specialize shader)
 }
 
 #[derive(Debug)]
@@ -637,17 +543,6 @@ pub struct RectColors {
     pub bottom_left: ColorF,
 }
 
-impl RectColors {
-    pub fn new(colors: &[ColorF; 4]) -> RectColors {
-        RectColors {
-            top_left: colors[0],
-            top_right: colors[1],
-            bottom_right: colors[2],
-            bottom_left: colors[3],
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct RectUv {
     pub top_left: Point2D<f32>,
@@ -666,81 +561,69 @@ impl RectUv {
         }
     }
 
-    pub fn from_image_and_rotation_angle(image: &TextureCacheItem,
-                                         rotation_angle: BasicRotationAngle,
-                                         flip_90_degree_rotations: bool)
-                                         -> RectUv {
+    pub fn from_uv_rect_rotation_angle(uv_rect: &RectUv,
+                                       rotation_angle: BasicRotationAngle,
+                                       flip_90_degree_rotations: bool) -> RectUv {
         match (rotation_angle, flip_90_degree_rotations) {
             (BasicRotationAngle::Upright, _) => {
                 RectUv {
-                    top_left: image.uv_rect.top_left,
-                    top_right: image.uv_rect.top_right,
-                    bottom_right: image.uv_rect.bottom_right,
-                    bottom_left: image.uv_rect.bottom_left,
+                    top_left: uv_rect.top_left,
+                    top_right: uv_rect.top_right,
+                    bottom_right: uv_rect.bottom_right,
+                    bottom_left: uv_rect.bottom_left,
                 }
             }
             (BasicRotationAngle::Clockwise90, true) => {
                 RectUv {
-                    top_right: image.uv_rect.top_left,
-                    top_left: image.uv_rect.top_right,
-                    bottom_left: image.uv_rect.bottom_right,
-                    bottom_right: image.uv_rect.bottom_left,
+                    top_right: uv_rect.top_left,
+                    top_left: uv_rect.top_right,
+                    bottom_left: uv_rect.bottom_right,
+                    bottom_right: uv_rect.bottom_left,
                 }
             }
             (BasicRotationAngle::Clockwise90, false) => {
                 RectUv {
-                    top_right: image.uv_rect.top_left,
-                    bottom_right: image.uv_rect.top_right,
-                    bottom_left: image.uv_rect.bottom_right,
-                    top_left: image.uv_rect.bottom_left,
+                    top_right: uv_rect.top_left,
+                    bottom_right: uv_rect.top_right,
+                    bottom_left: uv_rect.bottom_right,
+                    top_left: uv_rect.bottom_left,
                 }
             }
             (BasicRotationAngle::Clockwise180, _) => {
                 RectUv {
-                    bottom_right: image.uv_rect.top_left,
-                    bottom_left: image.uv_rect.top_right,
-                    top_left: image.uv_rect.bottom_right,
-                    top_right: image.uv_rect.bottom_left,
+                    bottom_right: uv_rect.top_left,
+                    bottom_left: uv_rect.top_right,
+                    top_left: uv_rect.bottom_right,
+                    top_right: uv_rect.bottom_left,
                 }
             }
             (BasicRotationAngle::Clockwise270, true) => {
                 RectUv {
-                    bottom_left: image.uv_rect.top_left,
-                    bottom_right: image.uv_rect.top_right,
-                    top_right: image.uv_rect.bottom_right,
-                    top_left: image.uv_rect.bottom_left,
+                    bottom_left: uv_rect.top_left,
+                    bottom_right: uv_rect.top_right,
+                    top_right: uv_rect.bottom_right,
+                    top_left: uv_rect.bottom_left,
                 }
             }
             (BasicRotationAngle::Clockwise270, false) => {
                 RectUv {
-                    bottom_left: image.uv_rect.top_left,
-                    top_left: image.uv_rect.top_right,
-                    top_right: image.uv_rect.bottom_right,
-                    bottom_right: image.uv_rect.bottom_left,
+                    bottom_left: uv_rect.top_left,
+                    top_left: uv_rect.top_right,
+                    top_right: uv_rect.bottom_right,
+                    bottom_right: uv_rect.bottom_left,
                 }
             }
         }
     }
 
-/*
-    pub fn to_rect(&self) -> Rect<f32> {
-        fn min(x: f32, y: f32) -> f32 {
-            if x < y { x } else { y }
-        }
-        fn max(x: f32, y: f32) -> f32 {
-            if x > y { x } else { y }
-        }
-
-        let min_x = min(min(min(self.top_left.x, self.top_right.x), self.bottom_right.x),
-                        self.bottom_left.x);
-        let min_y = min(min(min(self.top_left.y, self.top_right.y), self.bottom_right.y),
-                        self.bottom_left.y);
-        let max_x = max(max(max(self.top_left.x, self.top_right.x), self.bottom_right.x),
-                        self.bottom_left.x);
-        let max_y = max(max(max(self.top_left.y, self.top_right.y), self.bottom_right.y),
-                        self.bottom_left.y);
-        Rect::new(Point2D::new(min_x, min_y), Size2D::new(max_x - min_x, max_y - min_y))
-    }*/
+    pub fn from_image_and_rotation_angle(image: &TextureCacheItem,
+                                         rotation_angle: BasicRotationAngle,
+                                         flip_90_degree_rotations: bool)
+                                         -> RectUv {
+        RectUv::from_uv_rect_rotation_angle(&image.uv_rect,
+                                            rotation_angle,
+                                            flip_90_degree_rotations)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -995,44 +878,6 @@ pub enum BasicRotationAngle {
     Clockwise90,
     Clockwise180,
     Clockwise270,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct CombinedClipRegion<'a> {
-    pub clip_in_rect: Rect<f32>,
-    pub clip_in_complex: Option<ComplexClipRegion>,
-    pub clip_in_complex_stack: &'a [ComplexClipRegion],
-    pub clip_out_complex: Option<ComplexClipRegion>,
-}
-
-impl<'a> CombinedClipRegion<'a> {
-    pub fn from_clip_in_rect_and_stack<'b>(clip_in_rect: &Rect<f32>,
-                                           clip_in_complex_stack: &'b [ComplexClipRegion])
-                                           -> CombinedClipRegion<'b> {
-        CombinedClipRegion {
-            clip_in_rect: *clip_in_rect,
-            clip_in_complex: None,
-            clip_in_complex_stack: clip_in_complex_stack,
-            clip_out_complex: None,
-        }
-    }
-
-    pub fn clip_in_rect(&mut self, rect: &Rect<f32>) -> &mut CombinedClipRegion<'a> {
-        self.clip_in_rect = self.clip_in_rect.intersection(rect).unwrap_or(ZERO_RECT_F32);
-        self
-    }
-
-    pub fn clip_in(&mut self, region: &ComplexClipRegion) -> &mut CombinedClipRegion<'a> {
-        debug_assert!(self.clip_in_complex.is_none());
-        self.clip_in_complex = Some(*region);
-        self
-    }
-
-    pub fn clip_out(&mut self, region: &ComplexClipRegion) -> &mut CombinedClipRegion<'a> {
-        debug_assert!(self.clip_out_complex.is_none());
-        self.clip_out_complex = Some(*region);
-        self
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

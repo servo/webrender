@@ -4,6 +4,7 @@
 
 uniform mat4 uTransform;
 uniform vec4 uOffsets[32];
+uniform vec4 uClipRects[64];
 uniform mat4 uMatrixPalette[32];
 uniform vec2 uDirection;
 uniform vec4 uBlendParams;
@@ -32,3 +33,5 @@ out vec2 vDestTextureSize;
 out vec2 vSourceTextureSize;
 out float vBlurRadius;
 out vec4 vTileParams;
+out vec4 vClipInRect;
+out vec4 vClipOutRect;

@@ -7,7 +7,6 @@ extern crate lazy_static;
 mod aabbtree;
 mod batch;
 mod batch_builder;
-mod clipper;
 mod debug_font_data;
 mod debug_render;
 mod device;
@@ -67,6 +66,5 @@ pub use renderer::Renderer;
 #[doc(hidden)]
 pub mod bench {
     // to make private modules available to the benchmarks
-    pub use clipper::{clip_polygon, ClipBuffers, Polygon};
     pub use internal_types::WorkVertex;
 }
