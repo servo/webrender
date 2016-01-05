@@ -12,7 +12,7 @@ void main(void) {
     vec2 sideOffsets = (vDestTextureSize - vSourceTextureSize) / 2.0;
     int range = int(vBlurRadius) * 3;
     float sigma = vBlurRadius / 2.0;
-    float value = 0.0;
+    vec4 value = vec4(0.0);
     vec2 sourceTextureUvOrigin = vBorderPosition.xy;
     vec2 sourceTextureUvSize = vBorderPosition.zw - sourceTextureUvOrigin;
     for (int offset = -range; offset <= range; offset++) {
@@ -20,15 +20,21 @@ void main(void) {
         vec2 lColorTexCoord = (vColorTexCoord.xy * vDestTextureSize - sideOffsets) /
             vSourceTextureSize;
         lColorTexCoord += vec2(offsetF) / vSourceTextureSize * uDirection;
-        float x = lColorTexCoord.x >= 0.0 &&
+        vec4 x = lColorTexCoord.x >= 0.0 &&
             lColorTexCoord.x <= 1.0 &&
             lColorTexCoord.y >= 0.0 &&
             lColorTexCoord.y <= 1.0 ?
-            Texture(sDiffuse, lColorTexCoord * sourceTextureUvSize + sourceTextureUvOrigin).r :
-            0.0;
-        value += x * gauss(offsetF, sigma);
+            Texture(sDiffuse, lColorTexCoord * sourceTextureUvSize + sourceTextureUvOrigin) :
+            vec4(0.0);
+
+        // Alpha must be premultiplied in order to properly blur the alpha channel.
+        value += vec4(x.rgb * x.a, x.a) * gauss(offsetF, sigma);
     }
-    SetFragColor(vec4(value, value, value, 1.0));
+
+    // Unpremultiply the alpha.
+    value = vec4(value.rgb / value.a, value.a);
+
+    SetFragColor(value);
 #endif
 }
 

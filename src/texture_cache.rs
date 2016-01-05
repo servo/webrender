@@ -993,14 +993,14 @@ impl TextureCache {
                 self.allocate(unblurred_glyph_image_id,
                               0, 0,
                               glyph_size.width, glyph_size.height,
-                              ImageFormat::A8,
+                              ImageFormat::RGBA8,
                               TextureCacheItemKind::Standard,
                               BorderType::NoBorder,
                               TextureFilter::Linear);
                 self.allocate(horizontal_blur_image_id,
                               0, 0,
                               width, height,
-                              ImageFormat::A8,
+                              ImageFormat::RGBA8,
                               TextureCacheItemKind::Alternate,
                               BorderType::NoBorder,
                               TextureFilter::Linear);
