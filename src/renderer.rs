@@ -827,11 +827,16 @@ impl Renderer {
                                                 color_texture_id: TextureId,
                                                 program_id: ProgramId,
                                                 blur_direction: Option<AxisDirection>) {
-        gl::disable(gl::BLEND);
         gl::disable(gl::DEPTH_TEST);
         gl::disable(gl::SCISSOR_TEST);
 
         let (texture_width, texture_height) = self.device.get_texture_dimensions(update_id);
+        if !self.device.texture_has_alpha(update_id) {
+            gl::enable(gl::BLEND);
+            gl::blend_func(gl::SRC_ALPHA, gl::ZERO);
+        } else {
+            gl::disable(gl::BLEND);
+        }
 
         let projection = Matrix4::ortho(0.0,
                                         texture_width as f32,

@@ -32,6 +32,6 @@ void main(void)
                             ceil(position.x), ceil(position.y));
     float value = (Value(pixelBounds.xy) + Value(pixelBounds.zy) +
                    Value(pixelBounds.xw) + Value(pixelBounds.zw)) / 4.0;
-    SetFragColor(mix(vec4(1.0) - vColor, vColor, value));
+    SetFragColor(vec4(vColor.rgb, mix(1.0 - vColor.a, vColor.a, value)));
 }
 
