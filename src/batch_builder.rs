@@ -1138,6 +1138,110 @@ impl<'a> BatchBuilder<'a> {
                                              &color1_outer)
                 }
             }
+            BorderStyle::Double => {
+                //      ∙┈┈┈┈┈∙┈┈┈┈┈∙┈┈┈┈┈┐
+                //      ┊0    ┊1    ┊2    ┊
+                //      ┊     ┊     ┊     ┊
+                //      ┊     ┊     ┊     ┊
+                //      ∙┈┈┈┈┈∙┈┈┈┈┈∙┈┈┈┈┈┤
+                //      ┊3    ┊4    ┊5    ┊
+                //      ┊     ┊     ┊     ┊
+                //      ┊     ┊     ┊     ┊
+                //      ∙┈┈┈┈┈∙┈┈┈┈┈∙┈┈┈┈┈┤
+                //      ┊6    ┊7    ┊8    ┊
+                //      ┊     ┊     ┊     ┊
+                //      ┊     ┊     ┊     ┊
+                //      └┈┈┈┈┈┴┈┈┈┈┈┴┈┈┈┈┈┘
+
+                let width_1_3 = corner_bounds.size.width / 3.0;
+                let height_1_3 = corner_bounds.size.height / 3.0;
+                let width_2_3 = width_1_3 * 2.0;
+                let height_2_3 = height_1_3 * 2.0;
+                let size_1_3 = Size2D::new(width_1_3, height_1_3);
+                let size_width_2_3_height_1_3 = Size2D::new(width_2_3, height_1_3);
+                let size_width_1_3_height_2_3 = Size2D::new(width_1_3, height_2_3);
+
+                let p0 = corner_bounds.origin;
+                let p1 = Point2D::new(corner_bounds.origin.x + width_1_3, corner_bounds.origin.y);
+                let p2 = Point2D::new(corner_bounds.origin.x + width_2_3, corner_bounds.origin.y);
+                let p3 = Point2D::new(corner_bounds.origin.x, corner_bounds.origin.y + height_1_3);
+                let p4 = Point2D::new(corner_bounds.origin.x + width_1_3,
+                                      corner_bounds.origin.y + height_1_3);
+                let p5 = Point2D::new(corner_bounds.origin.x + width_2_3,
+                                      corner_bounds.origin.y + height_1_3);
+                let p6 = Point2D::new(corner_bounds.origin.x, corner_bounds.origin.y + height_2_3);
+                let p7 = Point2D::new(corner_bounds.origin.x + width_1_3,
+                                      corner_bounds.origin.y + height_2_3);
+                let p8 = Point2D::new(corner_bounds.origin.x + width_2_3,
+                                      corner_bounds.origin.y + height_2_3);
+
+                let outer_corner_rect;
+                let inner_corner_rect;
+                let outer_side_rect_0;
+                let outer_side_rect_1;
+                match rotation_angle {
+                    BasicRotationAngle::Upright => {
+                        outer_corner_rect = Rect::new(p0, size_1_3);
+                        outer_side_rect_1 = Rect::new(p1, size_width_2_3_height_1_3);
+                        inner_corner_rect = Rect::new(p8, size_1_3);
+                        outer_side_rect_0 = Rect::new(p3, size_width_1_3_height_2_3)
+                    }
+                    BasicRotationAngle::Clockwise90 => {
+                        outer_corner_rect = Rect::new(p2, size_1_3);
+                        outer_side_rect_1 = Rect::new(p5, size_width_1_3_height_2_3);
+                        inner_corner_rect = Rect::new(p6, size_1_3);
+                        outer_side_rect_0 = Rect::new(p0, size_width_2_3_height_1_3)
+                    }
+                    BasicRotationAngle::Clockwise180 => {
+                        outer_corner_rect = Rect::new(p8, size_1_3);
+                        outer_side_rect_1 = Rect::new(p6, size_width_2_3_height_1_3);
+                        inner_corner_rect = Rect::new(p0, size_1_3);
+                        outer_side_rect_0 = Rect::new(p2, size_width_1_3_height_2_3)
+                    }
+                    BasicRotationAngle::Clockwise270 => {
+                        outer_corner_rect = Rect::new(p6, size_1_3);
+                        outer_side_rect_1 = Rect::new(p0, size_width_1_3_height_2_3);
+                        inner_corner_rect = Rect::new(p2, size_1_3);
+                        outer_side_rect_0 = Rect::new(p7, size_width_2_3_height_1_3)
+                    }
+                }
+
+                self.add_solid_border_corner(clip,
+                                             &outer_corner_rect,
+                                             radius_extent,
+                                             color0,
+                                             color1,
+                                             outer_radius,
+                                             &Size2D::new(0.0, 0.0),
+                                             resource_cache,
+                                             clip_buffers,
+                                             rotation_angle,
+                                             device_pixel_ratio);
+
+                self.add_color_rectangle(&outer_side_rect_1,
+                                         clip,
+                                         resource_cache,
+                                         clip_buffers,
+                                         &color0);
+
+                self.add_solid_border_corner(clip,
+                                             &inner_corner_rect,
+                                             radius_extent,
+                                             color0,
+                                             color1,
+                                             &Size2D::new(0.0, 0.0),
+                                             inner_radius,
+                                             resource_cache,
+                                             clip_buffers,
+                                             rotation_angle,
+                                             device_pixel_ratio);
+
+                self.add_color_rectangle(&outer_side_rect_0,
+                                         clip,
+                                         resource_cache,
+                                         clip_buffers,
+                                         &color1);
+            }
             _ => {
                 self.add_solid_border_corner(clip,
                                              corner_bounds,
