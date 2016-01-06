@@ -550,10 +550,39 @@ impl Renderer {
                                                                inverted) => {
                                 let x = x as f32;
                                 let y = y as f32;
+                                let device_pixel_ratio = self.device_pixel_ratio;
+
                                 let inner_rx = inner_rx.to_f32_px();
                                 let inner_ry = inner_ry.to_f32_px();
                                 let outer_rx = outer_rx.to_f32_px();
                                 let outer_ry = outer_ry.to_f32_px();
+                                let tessellated_rect =
+                                    Rect::new(Point2D::new(0.0, 0.0),
+                                              Size2D::new(outer_rx, outer_ry));
+                                let tessellated_rect = match index {
+                                    None => tessellated_rect,
+                                    Some(index) => {
+                                        tessellated_rect.tessellate_border_corner(
+                                            &Size2D::new(outer_rx, outer_ry),
+                                            &Size2D::new(inner_rx, inner_ry),
+                                            device_pixel_ratio,
+                                            BasicRotationAngle::Upright,
+                                            index)
+                                    }
+                                };
+
+                                // From here on out everything is in device coordinates.
+                                let tessellated_rect = Rect::new(
+                                    Point2D::new(tessellated_rect.origin.x * device_pixel_ratio,
+                                                 tessellated_rect.origin.y * device_pixel_ratio),
+                                    Size2D::new(
+                                        tessellated_rect.size.width * device_pixel_ratio,
+                                        tessellated_rect.size.height * device_pixel_ratio));
+
+                                let inner_rx = inner_rx * device_pixel_ratio;
+                                let inner_ry = inner_ry * device_pixel_ratio;
+                                let outer_rx = outer_rx * device_pixel_ratio;
+                                let outer_ry = outer_ry * device_pixel_ratio;
 
                                 let border_program_id = self.border_program_id;
                                 let color = if inverted {
@@ -565,19 +594,6 @@ impl Renderer {
                                 let border_radii_outer = Point2D::new(outer_rx, outer_ry);
                                 let border_radii_inner = Point2D::new(inner_rx, inner_ry);
 
-                                let tessellated_rect =
-                                    Rect::new(Point2D::new(0.0, 0.0),
-                                              Size2D::new(outer_rx, outer_ry));
-                                let tessellated_rect = match index {
-                                    None => tessellated_rect,
-                                    Some(index) => {
-                                        tessellated_rect.tessellate_border_corner(
-                                            &Size2D::new(outer_rx, outer_ry),
-                                            &Size2D::new(inner_rx, inner_ry),
-                                            BasicRotationAngle::Upright,
-                                            index)
-                                    }
-                                };
                                 let border_position =
                                     Point2D::new(x - tessellated_rect.origin.x + outer_rx,
                                                  y - tessellated_rect.origin.y + outer_ry);

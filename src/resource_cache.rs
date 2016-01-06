@@ -347,6 +347,10 @@ impl ResourceCache {
                              context_id: &WebGLContextId) -> TextureId {
         self.webgl_textures.get(context_id).unwrap().clone()
     }
+
+    pub fn device_pixel_ratio(&self) -> f32 {
+        self.device_pixel_ratio
+    }
 }
 
 fn run_raster_jobs(thread_pool: &mut scoped_threadpool::Pool,

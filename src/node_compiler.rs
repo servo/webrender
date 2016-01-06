@@ -125,7 +125,8 @@ impl NodeCompiler for AABBTreeNode {
                                                        &clip,
                                                        info,
                                                        resource_cache,
-                                                       &mut clip_buffers);
+                                                       &mut clip_buffers,
+                                                       device_pixel_ratio);
                                 }
                             }
                         }

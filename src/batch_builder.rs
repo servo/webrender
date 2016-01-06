@@ -1069,7 +1069,8 @@ impl<'a> BatchBuilder<'a> {
                          inner_radius: &Size2D<f32>,
                          resource_cache: &ResourceCache,
                          clip_buffers: &mut clipper::ClipBuffers,
-                         rotation_angle: BasicRotationAngle) {
+                         rotation_angle: BasicRotationAngle,
+                         device_pixel_ratio: f32) {
         if color0.a <= 0.0 && color1.a <= 0.0 {
             return
         }
@@ -1107,7 +1108,8 @@ impl<'a> BatchBuilder<'a> {
                                              inner_radius,
                                              resource_cache,
                                              clip_buffers,
-                                             rotation_angle);
+                                             rotation_angle,
+                                             device_pixel_ratio);
                 self.add_solid_border_corner(clip,
                                              &inner_corner_rect,
                                              radius_extent,
@@ -1117,7 +1119,8 @@ impl<'a> BatchBuilder<'a> {
                                              inner_radius,
                                              resource_cache,
                                              clip_buffers,
-                                             rotation_angle);
+                                             rotation_angle,
+                                             device_pixel_ratio);
 
                 // Draw the solid parts:
                 if util::rect_is_well_formed_and_nonempty(&color0_rect) {
@@ -1145,7 +1148,8 @@ impl<'a> BatchBuilder<'a> {
                                              inner_radius,
                                              resource_cache,
                                              clip_buffers,
-                                             rotation_angle)
+                                             rotation_angle,
+                                             device_pixel_ratio)
             }
         }
     }
@@ -1160,7 +1164,8 @@ impl<'a> BatchBuilder<'a> {
                                inner_radius: &Size2D<f32>,
                                resource_cache: &ResourceCache,
                                clip_buffers: &mut clipper::ClipBuffers,
-                               rotation_angle: BasicRotationAngle) {
+                               rotation_angle: BasicRotationAngle,
+                               device_pixel_ratio: f32) {
         // TODO: Check for zero width/height borders!
         // FIXME(pcwalton): It's kind of messy to be matching on the rotation angle here to pick
         // the right rect to draw the rounded corner in. Is there a more elegant way to do this?
@@ -1170,11 +1175,13 @@ impl<'a> BatchBuilder<'a> {
         let dummy_mask_image = resource_cache.get_dummy_mask_image();
 
         // Draw the rounded part of the corner.
-        for rect_index in 0..tessellator::quad_count_for_border_corner(outer_radius) {
+        for rect_index in 0..tessellator::quad_count_for_border_corner(outer_radius,
+                                                                       device_pixel_ratio) {
             let tessellated_rect = outer_corner_rect.tessellate_border_corner(outer_radius,
-                                                                               inner_radius,
-                                                                               rotation_angle,
-                                                                               rect_index);
+                                                                              inner_radius,
+                                                                              device_pixel_ratio,
+                                                                              rotation_angle,
+                                                                              rect_index);
             let mask_image = match BorderRadiusRasterOp::create(outer_radius,
                                                                 inner_radius,
                                                                 false,
@@ -1358,7 +1365,8 @@ impl<'a> BatchBuilder<'a> {
                       clip: &CombinedClipRegion,
                       info: &BorderDisplayItem,
                       resource_cache: &ResourceCache,
-                      clip_buffers: &mut ClipBuffers) {
+                      clip_buffers: &mut ClipBuffers,
+                      device_pixel_ratio: f32) {
         // TODO: If any border segment is alpha, place all in alpha pass.
         //       Is it ever worth batching at a per-segment level?
         let radius = &info.radius;
@@ -1442,7 +1450,8 @@ impl<'a> BatchBuilder<'a> {
                                &info.top_left_inner_radius(),
                                resource_cache,
                                clip_buffers,
-                               BasicRotationAngle::Upright);
+                               BasicRotationAngle::Upright,
+                               device_pixel_ratio);
 
         self.add_border_corner(clip,
                                info.top.style,
@@ -1457,7 +1466,8 @@ impl<'a> BatchBuilder<'a> {
                                &info.top_right_inner_radius(),
                                resource_cache,
                                clip_buffers,
-                               BasicRotationAngle::Clockwise90);
+                               BasicRotationAngle::Clockwise90,
+                               device_pixel_ratio);
 
         self.add_border_corner(clip,
                                info.right.style,
@@ -1472,7 +1482,8 @@ impl<'a> BatchBuilder<'a> {
                                &info.bottom_right_inner_radius(),
                                resource_cache,
                                clip_buffers,
-                               BasicRotationAngle::Clockwise180);
+                               BasicRotationAngle::Clockwise180,
+                               device_pixel_ratio);
 
         self.add_border_corner(clip,
                                info.bottom.style,
@@ -1487,7 +1498,8 @@ impl<'a> BatchBuilder<'a> {
                                &info.bottom_left_inner_radius(),
                                resource_cache,
                                clip_buffers,
-                               BasicRotationAngle::Clockwise270);
+                               BasicRotationAngle::Clockwise270,
+                               device_pixel_ratio);
     }
 
     // FIXME(pcwalton): Assumes rectangles are well-formed with origin in TL

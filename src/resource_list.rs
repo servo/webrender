@@ -191,7 +191,8 @@ impl BuildRequiredResources for AABBTreeNode {
                         }
                         SpecificDisplayItem::Border(ref info) => {
                             for rect_index in 0..tessellator::quad_count_for_border_corner(
-                                    &info.radius.top_left) {
+                                    &info.radius.top_left,
+                                    resource_cache.device_pixel_ratio()) {
                                 resource_list.add_radius_raster(&info.radius.top_left,
                                                                 &info.top_left_inner_radius(),
                                                                 false,
@@ -199,7 +200,8 @@ impl BuildRequiredResources for AABBTreeNode {
                                                                 ImageFormat::A8);
                             }
                             for rect_index in 0..tessellator::quad_count_for_border_corner(
-                                    &info.radius.top_right) {
+                                    &info.radius.top_right,
+                                    resource_cache.device_pixel_ratio()) {
                                 resource_list.add_radius_raster(&info.radius.top_right,
                                                                 &info.top_right_inner_radius(),
                                                                 false,
@@ -207,7 +209,8 @@ impl BuildRequiredResources for AABBTreeNode {
                                                                 ImageFormat::A8);
                             }
                             for rect_index in 0..tessellator::quad_count_for_border_corner(
-                                    &info.radius.bottom_left) {
+                                    &info.radius.bottom_left,
+                                    resource_cache.device_pixel_ratio()) {
                                 resource_list.add_radius_raster(&info.radius.bottom_left,
                                                                 &info.bottom_left_inner_radius(),
                                                                 false,
@@ -215,7 +218,8 @@ impl BuildRequiredResources for AABBTreeNode {
                                                                 ImageFormat::A8);
                             }
                             for rect_index in 0..tessellator::quad_count_for_border_corner(
-                                    &info.radius.bottom_right) {
+                                    &info.radius.bottom_right,
+                                    resource_cache.device_pixel_ratio()) {
                                 resource_list.add_radius_raster(&info.radius.bottom_right,
                                                                 &info.bottom_right_inner_radius(),
                                                                 false,
