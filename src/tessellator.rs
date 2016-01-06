@@ -3,8 +3,9 @@ use internal_types::BasicRotationAngle;
 
 const EPSILON: f32 = 0.01;
 
-pub fn quad_count_for_border_corner(outer_radius: &Size2D<f32>) -> u32 {
-    if outer_radius.width < 32.0 && outer_radius.height < 32.0 {
+pub fn quad_count_for_border_corner(outer_radius: &Size2D<f32>, device_pixel_ratio: f32) -> u32 {
+    let max = 32.0 / device_pixel_ratio;
+    if outer_radius.width < max && outer_radius.height < max {
         1
     } else {
         4
@@ -15,6 +16,7 @@ pub trait BorderCornerTessellation {
     fn tessellate_border_corner(&self,
                                 outer_radius: &Size2D<f32>,
                                 inner_radius: &Size2D<f32>,
+                                device_pixel_ratio: f32,
                                 rotation_angle: BasicRotationAngle,
                                 index: u32)
                                 -> Rect<f32>;
@@ -24,10 +26,11 @@ impl BorderCornerTessellation for Rect<f32> {
     fn tessellate_border_corner(&self,
                                 outer_radius: &Size2D<f32>,
                                 inner_radius: &Size2D<f32>,
+                                device_pixel_ratio: f32,
                                 rotation_angle: BasicRotationAngle,
                                 index: u32)
                                 -> Rect<f32> {
-        let quad_count = quad_count_for_border_corner(outer_radius);
+        let quad_count = quad_count_for_border_corner(outer_radius, device_pixel_ratio);
         if quad_count == 1 {
             return *self
         }
