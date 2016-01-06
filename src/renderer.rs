@@ -1031,6 +1031,7 @@ impl Renderer {
                         gl::enable(gl::BLEND);
 
                         let program;
+                        let mut filter_params = None;
                         match info.operation {
                             CompositionOp::Filter(LowLevelFilterOp::Brightness(
                                     amount)) => {
@@ -1106,11 +1107,7 @@ impl Renderer {
                                     }
                                 };
 
-                                self.device.set_uniform_4f(self.u_filter_params,
-                                                           opcode,
-                                                           amount,
-                                                           param0,
-                                                           param1);
+                                filter_params = Some((opcode, amount, param0, param1));
                             }
                             CompositionOp::MixBlend(MixBlendMode::Multiply) => {
                                 gl::blend_func(gl::DST_COLOR, gl::ZERO);
@@ -1134,6 +1131,14 @@ impl Renderer {
                         }
 
                         self.device.bind_program(program, &projection);
+
+                        if let Some(ref filter_params) = filter_params {
+                            self.device.set_uniform_4f(self.u_filter_params,
+                                                       filter_params.0,
+                                                       filter_params.1,
+                                                       filter_params.2,
+                                                       filter_params.3);
+                        }
                     }
 
                     let (mut indices, mut vertices) = (vec![], vec![]);
