@@ -593,6 +593,14 @@ impl Device {
         }
     }
 
+    pub fn texture_has_alpha(&self, texture_id: TextureId) -> bool {
+        if let Some(texture) = self.textures.get(&texture_id) {
+            texture.format == ImageFormat::RGBA8
+        } else {
+            true
+        }
+    }
+
     pub fn update_raw_texture(&mut self,
                               texture_id: TextureId,
                               x0: u32,
