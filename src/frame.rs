@@ -802,7 +802,6 @@ impl Frame {
 
         let overflow = parent.local_overflow
                              .translate(&-stacking_context.bounds.origin)
-                             .translate(&-stacking_context.overflow.origin)
                              .intersection(&stacking_context.overflow);
 
         if let Some(overflow) = overflow {

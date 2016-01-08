@@ -906,7 +906,7 @@ impl<'a> BatchBuilder<'a> {
 
     fn adjust_clip_for_box_shadow_clip_mode(&mut self,
                                             box_bounds: &Rect<f32>,
-                                            border_radius: f32,
+                                            _border_radius: f32,
                                             clip_mode: BoxShadowClipMode) -> ClipState {
         //debug_assert!(border_radius == 0.0);        // TODO(gw): !!!
 
