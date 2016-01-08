@@ -3,6 +3,7 @@ use euclid::{Point2D, Rect, Size2D};
 use internal_types::{MAX_RECT, AxisDirection, PackedVertex, PackedVertexForTextureCacheUpdate, Primitive};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
+use std::sync::Arc;
 use std::u16;
 use webrender_traits::{ComplexClipRegion};
 
@@ -236,8 +237,8 @@ impl<'a> BatchBuilder<'a> {
         }
     }
 
-    pub fn finalize(self) -> Vec<Batch> {
-        self.batches
+    pub fn finalize(self) -> Vec<Arc<Batch>> {
+        self.batches.into_iter().map(|batch| Arc::new(batch)).collect()
     }
 
     pub fn next_draw_list(&mut self) {

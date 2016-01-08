@@ -325,13 +325,8 @@ pub struct ClearInfo {
 
 #[derive(Clone, Debug)]
 pub struct DrawCall {
-    pub tile_params: Vec<TileParams>,
-    pub clip_rects: Vec<Rect<f32>>,
+    pub batch: Arc<Batch>,
     pub vertex_buffer_id: VertexBufferId,
-    pub color_texture_id: TextureId,
-    pub mask_texture_id: TextureId,
-    pub first_vertex: u32,
-    pub index_count: u16,
 }
 
 #[derive(Clone, Debug)]
@@ -495,7 +490,7 @@ pub enum Primitive {
 
 #[derive(Debug)]
 pub struct BatchList {
-    pub batches: Vec<Batch>,
+    pub batches: Vec<Arc<Batch>>,
     pub draw_list_group_id: DrawListGroupId,
 }
 
