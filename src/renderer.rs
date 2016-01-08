@@ -100,6 +100,7 @@ pub struct Renderer {
     u_quad_transform_array: UniformLocation,
     u_quad_offset_array: UniformLocation,
     u_tile_params: UniformLocation,
+    u_clip_rects: UniformLocation,
     u_atlas_params: UniformLocation,
 
     blit_program_id: ProgramId,
@@ -157,6 +158,7 @@ impl Renderer {
         let u_quad_transform_array = device.get_uniform_location(quad_program_id, "uMatrixPalette");
         let u_quad_offset_array = device.get_uniform_location(quad_program_id, "uOffsets");
         let u_tile_params = device.get_uniform_location(quad_program_id, "uTileParams");
+        let u_clip_rects = device.get_uniform_location(quad_program_id, "uClipRects");
         let u_atlas_params = device.get_uniform_location(quad_program_id, "uAtlasParams");
 
         let u_blend_params = device.get_uniform_location(blend_program_id, "uBlendParams");
@@ -248,9 +250,9 @@ impl Renderer {
             u_quad_transform_array: u_quad_transform_array,
             u_atlas_params: u_atlas_params,
             u_tile_params: u_tile_params,
+            u_clip_rects: u_clip_rects,
             notifier: notifier,
             viewport_size: Size2D::new(width, height),
-            //framebuffer_size: *framebuffer_size,
             debug: debug_renderer,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
@@ -980,6 +982,20 @@ impl Renderer {
                             }
 
                             self.device.set_uniform_vec4_array(self.u_tile_params,
+                                                               &floats);
+                        }
+
+                        if draw_call.clip_rects.len() > 0 {
+                            // TODO(gw): Avoid alloc here...
+                            let mut floats = Vec::new();
+                            for rect in &draw_call.clip_rects {
+                                floats.push(rect.origin.x);
+                                floats.push(rect.origin.y);
+                                floats.push(rect.origin.x + rect.size.width);
+                                floats.push(rect.origin.y + rect.size.height);
+                            }
+
+                            self.device.set_uniform_vec4_array(self.u_clip_rects,
                                                                &floats);
                         }
 

@@ -1,12 +1,16 @@
 use device::{ProgramId, TextureId};
-use internal_types::{AxisDirection, PackedVertex, PackedVertexForTextureCacheUpdate, Primitive};
+use euclid::{Point2D, Rect, Size2D};
+use internal_types::{MAX_RECT, AxisDirection, PackedVertex, PackedVertexForTextureCacheUpdate, Primitive};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 use std::u16;
+use webrender_traits::{ComplexClipRegion};
 
 pub const MAX_MATRICES_PER_BATCH: usize = 32;
+pub const MAX_CLIP_RECTS_PER_BATCH: usize = 64;
 pub const MAX_TILE_PARAMS_PER_BATCH: usize = 64;       // TODO(gw): Constrain to max FS uniform vectors...
 pub const INVALID_TILE_PARAM: u8 = 0;
+pub const INVALID_CLIP_RECT_PARAM: usize = 0;
 
 static ID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
@@ -77,6 +81,7 @@ pub struct Batch {
     pub first_vertex: u32,
     pub index_count: u16,
     pub tile_params: Vec<TileParams>,
+    pub clip_rects: Vec<Rect<f32>>,
 }
 
 impl Batch {
@@ -91,39 +96,116 @@ impl Batch {
             }
         ];
 
+        let default_clip_rects = vec![
+            Rect::new(Point2D::new(0.0, 0.0), Size2D::new(0.0, 0.0)),
+        ];
+
         Batch {
             color_texture_id: color_texture_id,
             mask_texture_id: mask_texture_id,
             first_vertex: first_vertex,
             index_count: 0,
             tile_params: default_tile_params,
+            clip_rects: default_clip_rects,
         }
+    }
+
+    // TODO: This is quite inefficient - perhaps have a hashmap in addition to the vec...
+    fn clip_rect_index(&self, clip_rect: &Rect<f32>) -> Option<usize> {
+        self.clip_rects.iter().rposition(|existing_rect| {
+            existing_rect.origin.x == clip_rect.origin.x &&
+            existing_rect.origin.y == clip_rect.origin.y &&
+            existing_rect.size.width == clip_rect.size.width &&
+            existing_rect.size.height == clip_rect.size.height
+        })
     }
 
     pub fn can_add_to_batch(&self,
                             color_texture_id: TextureId,
                             mask_texture_id: TextureId,
                             index_count: u16,
-                            needs_tile_params: bool) -> bool {
+                            needs_tile_params: bool,
+                            clip_in_rect: &Rect<f32>,
+                            clip_out_rect: &Option<Rect<f32>>) -> bool {
         let color_texture_ok = color_texture_id == self.color_texture_id;
         let mask_texture_ok = mask_texture_id == self.mask_texture_id;
         let index_count_ok = (self.index_count as u32 + index_count as u32) < u16::MAX as u32;
         let tile_params_ok = !needs_tile_params ||
                              self.tile_params.len() < MAX_TILE_PARAMS_PER_BATCH;
 
-        color_texture_ok && mask_texture_ok && index_count_ok && tile_params_ok
+        let used_clip_count = self.clip_rects.len();
+
+        let clip_rects_ok = if used_clip_count + 2 < MAX_CLIP_RECTS_PER_BATCH {
+            true
+        } else {
+            let mut new_clip_count = 0;
+
+            if self.clip_rect_index(clip_in_rect).is_none() {
+                new_clip_count += 1;
+            }
+
+            if let &Some(ref clip_out_rect) = clip_out_rect {
+                if self.clip_rect_index(clip_out_rect).is_none() {
+                    new_clip_count += 1;
+                }
+            }
+
+            used_clip_count + new_clip_count < MAX_CLIP_RECTS_PER_BATCH
+        };
+
+        color_texture_ok &&
+        mask_texture_ok &&
+        index_count_ok &&
+        tile_params_ok &&
+        clip_rects_ok
     }
 
-    pub fn add_draw_item(&mut self, index_count: u16, tile_params: Option<TileParams>) -> u8 {
-        //println!("index_count before={} after={}", index_count, self.index_count + index_count);
+    pub fn add_draw_item(&mut self,
+                         index_count: u16,
+                         tile_params: Option<TileParams>,
+                         clip_in_rect: &Rect<f32>,
+                         clip_out_rect: &Option<Rect<f32>>) -> (u8, u8, u8) {
         self.index_count += index_count;
 
-        tile_params.map_or(INVALID_TILE_PARAM, |tile_params| {
+        let tile_params_index = tile_params.map_or(INVALID_TILE_PARAM, |tile_params| {
             let index = self.tile_params.len();
             debug_assert!(index < MAX_TILE_PARAMS_PER_BATCH);
             self.tile_params.push(tile_params);
             index as u8
-        })
+        });
+
+        let clip_in_rect_index = match self.clip_rect_index(clip_in_rect) {
+            Some(clip_in_rect_index) => {
+                clip_in_rect_index
+            }
+            None => {
+                let new_index = self.clip_rects.len();
+                debug_assert!(new_index < MAX_CLIP_RECTS_PER_BATCH);
+                self.clip_rects.push(*clip_in_rect);
+                new_index
+            }
+        } as u8;
+
+        let clip_out_rect_index = match clip_out_rect {
+            &Some(ref clip_out_rect) => {
+                match self.clip_rect_index(clip_out_rect) {
+                    Some(clip_out_rect_index) => {
+                        clip_out_rect_index
+                    }
+                    None => {
+                        let new_index = self.clip_rects.len();
+                        debug_assert!(new_index < MAX_CLIP_RECTS_PER_BATCH);
+                        self.clip_rects.push(*clip_out_rect);
+                        new_index
+                    }
+                }
+            }
+            &None => {
+                INVALID_CLIP_RECT_PARAM
+            }
+        } as u8;
+
+        (tile_params_index, clip_in_rect_index, clip_out_rect_index)
     }
 }
 
@@ -131,6 +213,14 @@ pub struct BatchBuilder<'a> {
     vertex_buffer: &'a mut VertexBuffer,
     batches: Vec<Batch>,
     current_matrix_index: u8,
+
+    clip_in_rect_stack: Vec<Rect<f32>>,
+    cached_clip_in_rect: Option<Rect<f32>>,
+
+    clip_out_rect: Option<Rect<f32>>,
+
+    // TODO(gw): Support nested complex clip regions!
+    pub complex_clip: Option<ComplexClipRegion>,
 }
 
 impl<'a> BatchBuilder<'a> {
@@ -139,6 +229,10 @@ impl<'a> BatchBuilder<'a> {
             vertex_buffer: vertex_buffer,
             batches: Vec::new(),
             current_matrix_index: 0,
+            clip_in_rect_stack: Vec::new(),
+            cached_clip_in_rect: Some(MAX_RECT),
+            clip_out_rect: None,
+            complex_clip: None,
         }
     }
 
@@ -151,83 +245,127 @@ impl<'a> BatchBuilder<'a> {
         self.current_matrix_index += 1;
     }
 
+    // TODO(gw): This is really inefficient to call this every push/pop...
+    fn update_clip_in_rect(&mut self) {
+        self.cached_clip_in_rect = Some(MAX_RECT);
+
+        for rect in &self.clip_in_rect_stack {
+            self.cached_clip_in_rect = self.cached_clip_in_rect.unwrap().intersection(rect);
+            if self.cached_clip_in_rect.is_none() {
+                return;
+            }
+        }
+    }
+
+    pub fn push_clip_in_rect(&mut self, rect: &Rect<f32>) {
+        self.clip_in_rect_stack.push(*rect);
+        self.update_clip_in_rect();
+    }
+
+    pub fn pop_clip_in_rect(&mut self) {
+        self.clip_in_rect_stack.pop();
+        self.update_clip_in_rect();
+    }
+
+    pub fn set_clip_out_rect(&mut self, rect: Option<Rect<f32>>) -> Option<Rect<f32>> {
+        let old_rect = self.clip_out_rect.take();
+        self.clip_out_rect = rect;
+        old_rect
+    }
+
+    pub fn push_complex_clip(&mut self, clip: &Vec<ComplexClipRegion>) {
+        // TODO(gw): Handle nested complex clips!
+        debug_assert!(clip.len() == 0 || clip.len() == 1);
+        if clip.len() == 1 {
+            self.complex_clip = Some(clip[0]);
+        } else {
+            self.complex_clip = None;
+        }
+    }
+
+    pub fn pop_complex_clip(&mut self) {
+        self.complex_clip = None;
+    }
+
     pub fn add_draw_item(&mut self,
                          color_texture_id: TextureId,
                          mask_texture_id: TextureId,
                          primitive: Primitive,
                          vertices: &mut [PackedVertex],
-                         tile_params: Option<TileParams>) {
-        let index_count = match primitive {
-            Primitive::Rectangles | Primitive::Glyphs => {
-                (vertices.len() / 4 * 6) as u16
+                         tile_params: Option<TileParams>,) {
+        if let Some(ref clip_in_rect) = self.cached_clip_in_rect {
+            let index_count = match primitive {
+                Primitive::Rectangles => {
+                    (vertices.len() / 4 * 6) as u16
+                }
+                Primitive::Triangles => vertices.len() as u16,
+            };
+
+            let need_new_batch = match self.batches.last_mut() {
+                Some(batch) => {
+                    !batch.can_add_to_batch(color_texture_id,
+                                            mask_texture_id,
+                                            index_count,
+                                            tile_params.is_some(),
+                                            clip_in_rect,
+                                            &self.clip_out_rect)
+                }
+                None => {
+                    true
+                }
+            };
+
+            let index_offset = self.vertex_buffer.vertices.len();
+
+            if need_new_batch {
+                self.batches.push(Batch::new(color_texture_id,
+                                             mask_texture_id,
+                                             self.vertex_buffer.indices.len() as u32));
             }
-            Primitive::Triangles => vertices.len() as u16,
-            Primitive::TriangleFan => ((vertices.len() - 2) * 3) as u16,
-        };
 
-        let need_new_batch = match self.batches.last_mut() {
-            Some(batch) => {
-                !batch.can_add_to_batch(color_texture_id,
-                                        mask_texture_id,
-                                        index_count,
-                                        tile_params.is_some())
-            }
-            None => {
-                true
-            }
-        };
-
-        let index_offset = self.vertex_buffer.vertices.len();
-
-        if need_new_batch {
-            self.batches.push(Batch::new(color_texture_id,
-                                         mask_texture_id,
-                                         self.vertex_buffer.indices.len() as u32));
-        }
-
-        match primitive {
-            Primitive::Rectangles | Primitive::Glyphs => {
-                for i in (0..vertices.len()).step_by(4) {
-                    let index_base = (index_offset + i) as u16;
-                    debug_assert!(index_base as usize == index_offset + i);
-                    self.vertex_buffer.indices.push(index_base + 0);
-                    self.vertex_buffer.indices.push(index_base + 1);
-                    self.vertex_buffer.indices.push(index_base + 2);
-                    self.vertex_buffer.indices.push(index_base + 2);
-                    self.vertex_buffer.indices.push(index_base + 3);
-                    self.vertex_buffer.indices.push(index_base + 1);
+            match primitive {
+                Primitive::Rectangles => {
+                    for i in (0..vertices.len()).step_by(4) {
+                        let index_base = (index_offset + i) as u16;
+                        debug_assert!(index_base as usize == index_offset + i);
+                        self.vertex_buffer.indices.push(index_base + 0);
+                        self.vertex_buffer.indices.push(index_base + 1);
+                        self.vertex_buffer.indices.push(index_base + 2);
+                        self.vertex_buffer.indices.push(index_base + 2);
+                        self.vertex_buffer.indices.push(index_base + 3);
+                        self.vertex_buffer.indices.push(index_base + 1);
+                    }
+                }
+                Primitive::Triangles => {
+                    for i in (0..vertices.len()).step_by(3) {
+                        let index_base = (index_offset + i) as u16;
+                        debug_assert!(index_base as usize == index_offset + i);
+                        self.vertex_buffer.indices.push(index_base + 0);
+                        self.vertex_buffer.indices.push(index_base + 1);
+                        self.vertex_buffer.indices.push(index_base + 2);
+                    }
                 }
             }
-            Primitive::Triangles => {
-                for i in (0..vertices.len()).step_by(3) {
-                    let index_base = (index_offset + i) as u16;
-                    debug_assert!(index_base as usize == index_offset + i);
-                    self.vertex_buffer.indices.push(index_base + 0);
-                    self.vertex_buffer.indices.push(index_base + 1);
-                    self.vertex_buffer.indices.push(index_base + 2);
-                }
+
+            let (tile_params_index,
+                 clip_in_rect_index,
+                 clip_out_rect_index) = self.batches.last_mut().unwrap().add_draw_item(index_count,
+                                                                                       tile_params,
+                                                                                       clip_in_rect,
+                                                                                       &self.clip_out_rect);
+
+            for vertex in vertices.iter_mut() {
+                vertex.matrix_index = self.current_matrix_index;
+                vertex.tile_params_index = tile_params_index;
+                vertex.clip_in_rect_index = clip_in_rect_index;
+                vertex.clip_out_rect_index = clip_out_rect_index;
             }
-            Primitive::TriangleFan => {
-                for i in 1..vertices.len() - 1 {
-                    self.vertex_buffer.indices.push(index_offset as u16);        // center vertex
-                    self.vertex_buffer.indices.push((index_offset + i + 0) as u16);
-                    self.vertex_buffer.indices.push((index_offset + i + 1) as u16);
-                }
-            }
+
+            self.vertex_buffer.vertices.extend_from_slice(vertices);
+
+            // TODO(gw): Handle exceeding u16 index buffer!
+            debug_assert!(self.vertex_buffer.vertices.len() < 65535);
         }
-
-        let tile_params_index = self.batches.last_mut().unwrap().add_draw_item(index_count,
-                                                                               tile_params);
-
-        for vertex in vertices.iter_mut() {
-            vertex.matrix_index = self.current_matrix_index;
-            vertex.tile_params_index = tile_params_index;
-        }
-
-        self.vertex_buffer.vertices.extend_from_slice(vertices);
-
-        // TODO(gw): Handle exceeding u16 index buffer!
-        debug_assert!(self.vertex_buffer.vertices.len() < 65535);
     }
 }
 
@@ -301,66 +439,3 @@ impl RasterBatch {
         self.vertices.extend_from_slice(vertices);
     }
 }
-
-/*
-#[derive(Debug)]
-pub struct CompositeBatch {
-    op: CompositionOp,
-    // TODO(gw): Convert these to a vertex buffer in backend thread...
-    rects: Vec<Rect<i32>>,
-}
-
-impl CompositeBatch {
-    fn new(op: CompositionOp) -> CompositeBatch {
-        CompositeBatch {
-            op: op,
-            rects: Vec::new(),
-        }
-    }
-
-    fn can_add_to_batch(&self, op: CompositionOp) -> bool {
-        self.op == op
-    }
-
-    fn add_composite_item(&mut self, rect: Rect<i32>) {
-        self.rects.push(rect);
-    }
-}
-
-/// A batch builder for composition operations.
-#[derive(Debug)]
-pub struct CompositeBatchBuilder {
-    batches: Vec<CompositeBatch>,
-}
-
-impl CompositeBatchBuilder {
-    pub fn new() -> CompositeBatchBuilder {
-        CompositeBatchBuilder {
-            batches: Vec::new(),
-        }
-    }
-
-    pub fn finalize(self) -> Vec<CompositeBatch> {
-        self.batches
-    }
-
-    pub fn add_composite_item(&mut self,
-                              op: CompositionOp,
-                              rect: Rect<i32>) {
-        let need_new_batch = match self.batches.last_mut() {
-            Some(batch) => {
-                !batch.can_add_to_batch(op)
-            }
-            None => {
-                true
-            }
-        };
-
-        if need_new_batch {
-            self.batches.push(CompositeBatch::new(op));
-        }
-
-        self.batches.last_mut().unwrap().add_composite_item(rect);
-    }
-}
-*/

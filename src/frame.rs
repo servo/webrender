@@ -167,6 +167,7 @@ impl RenderTarget {
                                 for batch in &batch_list.batches {
                                     batch_info.draw_calls.push(DrawCall {
                                         tile_params: batch.tile_params.clone(),     // TODO(gw): Move this instead?
+                                        clip_rects: batch.clip_rects.clone(),       // Ditto
                                         vertex_buffer_id: vertex_buffer_id,
                                         color_texture_id: batch.color_texture_id,
                                         mask_texture_id: batch.mask_texture_id,
@@ -650,7 +651,8 @@ impl Frame {
                             // may already be set for draw lists from other iframe(s) that weren't updated
                             // as part of this new stacking context.
                             let item_index = DrawListItemIndex(item_index as u32);
-                            let rect = sc_info.world_transform.transform_rect(&item.rect);
+                            let world_space_rect = item.rect.translate(&sc_info.world_origin);
+                            let rect = sc_info.world_transform.transform_rect(&world_space_rect);
                             layer.insert(&rect,
                                          *draw_list_group_id,
                                          draw_list_id,

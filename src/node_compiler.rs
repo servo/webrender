@@ -1,10 +1,9 @@
 use aabbtree::AABBTreeNode;
 use batch::{BatchBuilder, VertexBuffer};
-use clipper::{ClipBuffers};
 use fnv::FnvHasher;
 use frame::DrawListGroup;
 use internal_types::{DrawListItemIndex, CompiledNode, StackingContextInfo};
-use internal_types::{CombinedClipRegion, BatchList, StackingContextIndex};
+use internal_types::{BatchList, StackingContextIndex};
 use internal_types::{DrawListGroupId};
 use resource_cache::ResourceCache;
 use std::collections::HashMap;
@@ -27,7 +26,6 @@ impl NodeCompiler for AABBTreeNode {
                draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, DefaultState<FnvHasher>>) {
         let mut compiled_node = CompiledNode::new();
         let mut vertex_buffer = VertexBuffer::new();
-        let mut clip_buffers = ClipBuffers::new();
 
         for draw_list_group_segment in &self.draw_list_group_segments {
             let mut builder = BatchBuilder::new(&mut vertex_buffer);
@@ -59,76 +57,63 @@ impl NodeCompiler for AABBTreeNode {
                         });
 
                         if let Some(ref clip_rect) = clip_rect {
-                            let mut clip = CombinedClipRegion::from_clip_in_rect_and_stack(
-                                clip_rect,
-                                &display_item.clip.complex[..]);
+                            builder.push_clip_in_rect(clip_rect);
+                            builder.push_complex_clip(&display_item.clip.complex);
 
                             match display_item.item {
                                 SpecificDisplayItem::WebGL(ref info) => {
                                     builder.add_webgl_rectangle(&display_item.rect,
-                                                                &clip,
                                                                 resource_cache,
-                                                                &mut clip_buffers,
                                                                 &info.context_id);
                                 }
                                 SpecificDisplayItem::Image(ref info) => {
                                     builder.add_image(&display_item.rect,
-                                                      &clip,
                                                       &info.stretch_size,
                                                       info.image_key,
                                                       info.image_rendering,
-                                                      resource_cache,
-                                                      &mut clip_buffers);
+                                                      resource_cache);
                                 }
                                 SpecificDisplayItem::Text(ref info) => {
                                     builder.add_text(&display_item.rect,
-                                                     &clip,
                                                      info.font_key,
                                                      info.size,
                                                      info.blur_radius,
                                                      &info.color,
                                                      &info.glyphs,
                                                      resource_cache,
-                                                     &mut clip_buffers,
                                                      device_pixel_ratio);
                                 }
                                 SpecificDisplayItem::Rectangle(ref info) => {
                                     builder.add_color_rectangle(&display_item.rect,
-                                                                &clip,
                                                                 resource_cache,
-                                                                &mut clip_buffers,
                                                                 &info.color);
                                 }
                                 SpecificDisplayItem::Gradient(ref info) => {
-                                    clip.clip_in_rect(&display_item.rect);
-                                    builder.add_gradient(&clip,
-                                                         &info.start_point,
+                                    builder.add_gradient(&info.start_point,
                                                          &info.end_point,
                                                          &info.stops,
-                                                         resource_cache,
-                                                         &mut clip_buffers);
+                                                         resource_cache);
                                 }
                                 SpecificDisplayItem::BoxShadow(ref info) => {
                                     builder.add_box_shadow(&info.box_bounds,
-                                                           &clip,
                                                            &info.offset,
                                                            &info.color,
                                                            info.blur_radius,
                                                            info.spread_radius,
                                                            info.border_radius,
                                                            info.clip_mode,
-                                                           resource_cache,
-                                                           &mut clip_buffers);
+                                                           resource_cache);
                                 }
                                 SpecificDisplayItem::Border(ref info) => {
                                     builder.add_border(&display_item.rect,
-                                                       &clip,
                                                        info,
                                                        resource_cache,
-                                                       &mut clip_buffers,
                                                        device_pixel_ratio);
                                 }
                             }
+
+                            builder.pop_complex_clip();
+                            builder.pop_clip_in_rect();
                         }
                     }
                 }

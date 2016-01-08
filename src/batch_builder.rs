@@ -1,67 +1,288 @@
 use app_units::Au;
 use batch::{BatchBuilder, TileParams};
-use clipper::{self, ClipBuffers, Polygon};
 use device::TextureId;
 use euclid::{Rect, Point2D, Size2D};
 use fnv::FnvHasher;
-use internal_types::{CombinedClipRegion, RectColors, RectColorsUv, RectPolygon};
-use internal_types::{RectUv, Primitive, BorderRadiusRasterOp, RasterItem, ClipRectToRegionResult};
-use internal_types::{GlyphKey, PackedVertex, WorkVertex};
-use internal_types::{PolygonPosColorUv, AxisDirection};
+use internal_types::{RectColors, RectPolygon};
+use internal_types::{RectUv, BorderRadiusRasterOp, RasterItem};
+use internal_types::{GlyphKey, PackedVertex};
+use internal_types::{AxisDirection, Primitive};
 use internal_types::{BasicRotationAngle, BoxShadowRasterOp, RectSide};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
+use std::f32;
 use tessellator::{self, BorderCornerTessellation};
 use texture_cache::{TextureCacheItem};
 use util;
+use util::RectVaryings;
 use webrender_traits::{ColorF, ImageFormat, BorderStyle, BoxShadowClipMode};
-use webrender_traits::{BorderRadius, BorderSide, FontKey, GlyphInstance, ImageKey};
-use webrender_traits::{BorderDisplayItem, GradientStop, ComplexClipRegion, ImageRendering};
+use webrender_traits::{BorderSide, FontKey, GlyphInstance, ImageKey};
+use webrender_traits::{BorderDisplayItem, GradientStop, ImageRendering};
 use webrender_traits::{WebGLContextId};
 
 const BORDER_DASH_SIZE: f32 = 3.0;
 
+enum ClipState {
+    None,
+    ClipIn,
+    ClipOut(Option<Rect<f32>>)
+}
+
 impl<'a> BatchBuilder<'a> {
-    #[inline]
-    fn add_textured_rectangle(&mut self,
-                              rect: &Rect<f32>,
-                              clip: &CombinedClipRegion,
-                              image_info: &TextureCacheItem,
-                              resource_cache: &ResourceCache,
-                              clip_buffers: &mut ClipBuffers,
-                              color: &ColorF) {
-        self.add_axis_aligned_gradient_with_texture(rect,
-                                                    clip,
-                                                    image_info,
-                                                    resource_cache,
-                                                    clip_buffers,
-                                                    &[*color, *color, *color, *color])
+
+    // Colors are in the order: top left, top right, bottom right, bottom left.
+    pub fn add_simple_rectangle(&mut self,
+                                color_texture_id: TextureId,
+                                pos_rect: &Rect<f32>,
+                                uv_rect: &RectUv,
+                                mask_texture_id: TextureId,
+                                muv_rect: &RectUv,
+                                colors: &[ColorF; 4],
+                                tile_params: Option<TileParams>) {
+        if pos_rect.size.width == 0.0 || pos_rect.size.height == 0.0 {
+            return
+        }
+
+        let mut vertices = [
+            PackedVertex::from_points(&pos_rect.origin,
+                                      &colors[0],
+                                      &uv_rect.top_left,
+                                      &muv_rect.top_left),
+
+            PackedVertex::from_points(&pos_rect.top_right(),
+                                      &colors[1],
+                                      &uv_rect.top_right,
+                                      &muv_rect.top_right),
+
+            PackedVertex::from_points(&pos_rect.bottom_left(),
+                                      &colors[3],
+                                      &uv_rect.bottom_left,
+                                      &muv_rect.bottom_left),
+
+            PackedVertex::from_points(&pos_rect.bottom_right(),
+                                      &colors[2],
+                                      &uv_rect.bottom_right,
+                                      &muv_rect.bottom_right),
+        ];
+
+        self.add_draw_item(color_texture_id,
+                           mask_texture_id,
+                           Primitive::Rectangles,
+                           &mut vertices,
+                           tile_params);
+    }
+
+    // Colors are in the order: top left, top right, bottom right, bottom left.
+    pub fn add_complex_clipped_rectangle(&mut self,
+                                         color_texture_id: TextureId,
+                                         pos_rect: &Rect<f32>,
+                                         uv_rect: &RectUv,
+                                         colors: &[ColorF; 4],
+                                         tile_params: Option<TileParams>,
+                                         resource_cache: &ResourceCache) {
+        if pos_rect.size.width == 0.0 || pos_rect.size.height == 0.0 {
+            return
+        }
+
+        match self.complex_clip {
+            Some(complex_clip) => {
+
+                let tl_x0 = complex_clip.rect.origin.x;
+                let tl_y0 = complex_clip.rect.origin.y;
+
+                let tr_x0 = complex_clip.rect.origin.x + complex_clip.rect.size.width - complex_clip.radii.top_right.width;
+                let tr_y0 = complex_clip.rect.origin.y;
+
+                let bl_x0 = complex_clip.rect.origin.x;
+                let bl_y0 = complex_clip.rect.origin.y + complex_clip.rect.size.height - complex_clip.radii.bottom_left.height;
+
+                let br_x0 = complex_clip.rect.origin.x + complex_clip.rect.size.width - complex_clip.radii.bottom_right.width;
+                let br_y0 = complex_clip.rect.origin.y + complex_clip.rect.size.height - complex_clip.radii.bottom_right.height;
+
+                let tl_clip = Rect::new(Point2D::new(tl_x0, tl_y0), complex_clip.radii.top_left);
+                let tr_clip = Rect::new(Point2D::new(tr_x0, tr_y0), complex_clip.radii.top_right);
+                let bl_clip = Rect::new(Point2D::new(bl_x0, bl_y0), complex_clip.radii.bottom_left);
+                let br_clip = Rect::new(Point2D::new(br_x0, br_y0), complex_clip.radii.bottom_right);
+
+                // gen all vertices for each line
+                let mut x_points = [
+                    0.0,
+                    complex_clip.radii.top_left.width,
+                    complex_clip.rect.size.width - complex_clip.radii.top_right.width,
+                    complex_clip.radii.bottom_left.width,
+                    complex_clip.rect.size.width - complex_clip.radii.bottom_right.width,
+                    complex_clip.rect.size.width,
+                ];
+
+                // gen all vertices for each line
+                let mut y_points = [
+                    0.0,
+                    complex_clip.radii.top_left.height,
+                    complex_clip.radii.top_right.height,
+                    complex_clip.rect.size.height - complex_clip.radii.bottom_left.height,
+                    complex_clip.rect.size.height - complex_clip.radii.bottom_right.height,
+                    complex_clip.rect.size.height,
+                ];
+
+                x_points.sort_by(|a, b| {
+                    a.partial_cmp(b).unwrap()
+                });
+                y_points.sort_by(|a, b| {
+                    a.partial_cmp(b).unwrap()
+                });
+
+                for xi in 0..x_points.len()-1 {
+                    for yi in 0..y_points.len()-1 {
+                        let x0 = complex_clip.rect.origin.x + x_points[xi+0];
+                        let y0 = complex_clip.rect.origin.y + y_points[yi+0];
+                        let x1 = complex_clip.rect.origin.x + x_points[xi+1];
+                        let y1 = complex_clip.rect.origin.y + y_points[yi+1];
+
+                        if x0 != x1 && y0 != y1 {
+
+                            let sub_clip_rect = Rect::new(Point2D::new(x0, y0),
+                                                          Size2D::new(x1-x0, y1-y0));
+
+                            if let Some(clipped_pos_rect) = sub_clip_rect.intersection(&pos_rect) {
+                                // TODO(gw): There must be a more efficient way to to
+                                //           this (classifying which clip mask we need).
+                                let (mask_info, angle) = if sub_clip_rect.intersects(&tl_clip) {
+                                    (Some(&tl_clip), BasicRotationAngle::Upright)
+                                } else if sub_clip_rect.intersects(&tr_clip) {
+                                    (Some(&tr_clip), BasicRotationAngle::Clockwise90)
+                                } else if sub_clip_rect.intersects(&bl_clip) {
+                                    (Some(&bl_clip), BasicRotationAngle::Clockwise270)
+                                } else if sub_clip_rect.intersects(&br_clip) {
+                                    (Some(&br_clip), BasicRotationAngle::Clockwise180)
+                                } else {
+                                    (None, BasicRotationAngle::Upright)
+                                };
+
+                                let (mask_texture_id, muv_rect) = match mask_info {
+                                    Some(clip_rect) => {
+                                        let mask_image = resource_cache.get_raster(&RasterItem::BorderRadius(BorderRadiusRasterOp {
+                                            outer_radius_x: Au::from_f32_px(clip_rect.size.width),
+                                            outer_radius_y: Au::from_f32_px(clip_rect.size.height),
+                                            inner_radius_x: Au(0),
+                                            inner_radius_y: Au(0),
+                                            inverted: false,
+                                            index: None,
+                                            image_format: ImageFormat::A8,
+                                        }));
+
+                                        let mut x0_f = (x0 - clip_rect.origin.x) / clip_rect.size.width;
+                                        let mut x1_f = (x1 - clip_rect.origin.x) / clip_rect.size.width;
+                                        let mut y0_f = (y0 - clip_rect.origin.y) / clip_rect.size.height;
+                                        let mut y1_f = (y1 - clip_rect.origin.y) / clip_rect.size.height;
+
+                                        match angle {
+                                            BasicRotationAngle::Upright => {}
+                                            BasicRotationAngle::Clockwise90 => {
+                                                x0_f = 1.0 - x0_f;
+                                                x1_f = 1.0 - x1_f;
+                                            }
+                                            BasicRotationAngle::Clockwise180 => {
+                                                x0_f = 1.0 - x0_f;
+                                                x1_f = 1.0 - x1_f;
+                                                y0_f = 1.0 - y0_f;
+                                                y1_f = 1.0 - y1_f;
+                                            }
+                                            BasicRotationAngle::Clockwise270 => {
+                                                y0_f = 1.0 - y0_f;
+                                                y1_f = 1.0 - y1_f;
+                                            }
+                                        }
+
+                                        let mu0 = mask_image.uv_rect.top_left.x;
+                                        let mu1 = mask_image.uv_rect.top_right.x;
+                                        let mv0 = mask_image.uv_rect.top_left.y;
+                                        let mv1 = mask_image.uv_rect.bottom_left.y;
+
+                                        let mu_size = mu1 - mu0;
+                                        let mv_size = mv1 - mv0;
+                                        let mu1 = mu0 + x1_f * mu_size;
+                                        let mu0 = mu0 + x0_f * mu_size;
+                                        let mv1 = mv0 + y1_f * mv_size;
+                                        let mv0 = mv0 + y0_f * mv_size;
+
+                                        let muv_rect = RectUv {
+                                            top_left: Point2D::new(mu0, mv0),
+                                            top_right: Point2D::new(mu1, mv0),
+                                            bottom_left: Point2D::new(mu0, mv1),
+                                            bottom_right: Point2D::new(mu1, mv1),
+                                        };
+
+                                        (mask_image.texture_id, muv_rect)
+                                    }
+                                    None => {
+                                        let mask_image = resource_cache.get_dummy_mask_image();
+                                        (mask_image.texture_id, mask_image.uv_rect)
+                                    }
+                                };
+
+                                // TODO(gw): Needless conversions here - just to make it
+                                // easier to operate with existing bilerp code - clean this up!
+                                let rect_colors = RectColors::from_elements(colors);
+                                let rect_colors = util::bilerp_rect(&clipped_pos_rect,
+                                                                    &pos_rect,
+                                                                    &rect_colors);
+
+                                // TODO(gw): Need to correctly interpolate the tile params
+                                //           if present too!
+
+                                self.add_simple_rectangle(color_texture_id,
+                                                          &clipped_pos_rect,
+                                                          uv_rect,
+                                                          mask_texture_id,
+                                                          &muv_rect,
+                                                          &[rect_colors.top_left,
+                                                            rect_colors.top_right,
+                                                            rect_colors.bottom_right,
+                                                            rect_colors.bottom_left,
+                                                           ],
+                                                          tile_params.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            None => {
+                let dummy_mask_image = resource_cache.get_dummy_mask_image();
+
+                self.add_simple_rectangle(color_texture_id,
+                                          pos_rect,
+                                          uv_rect,
+                                          dummy_mask_image.texture_id,
+                                          &dummy_mask_image.uv_rect,
+                                          colors,
+                                          tile_params);
+            }
+        }
     }
 
     #[inline]
     pub fn add_color_rectangle(&mut self,
                                rect: &Rect<f32>,
-                               clip: &CombinedClipRegion,
                                resource_cache: &ResourceCache,
-                               clip_buffers: &mut ClipBuffers,
                                color: &ColorF) {
-        self.add_axis_aligned_gradient(rect,
-                                       clip,
-                                       resource_cache,
-                                       clip_buffers,
-                                       &[*color, *color, *color, *color])
+        let white_image = resource_cache.get_dummy_color_image();
+        self.add_complex_clipped_rectangle(white_image.texture_id,
+                                           rect,
+                                           &white_image.uv_rect,
+                                           &[*color, *color, *color, *color],
+                                           None,
+                                           resource_cache);
     }
 
     pub fn add_webgl_rectangle(&mut self,
                                rect: &Rect<f32>,
-                               clip: &CombinedClipRegion,
                                resource_cache: &ResourceCache,
-                               clip_buffers: &mut ClipBuffers,
                                webgl_context_id: &WebGLContextId) {
         let texture_id = resource_cache.get_webgl_texture(webgl_context_id);
+        let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
 
         let uv = RectUv {
             top_left: Point2D::new(0.0, 1.0),
@@ -70,42 +291,20 @@ impl<'a> BatchBuilder<'a> {
             bottom_right: Point2D::new(1.0, 0.0),
         };
 
-        clipper::clip_rect_to_combined_region(
-            RectPolygon {
-                pos: *rect,
-                varyings: uv,
-            },
-            &mut clip_buffers.sh_clip_buffers,
-            &mut clip_buffers.rect_pos_uv,
-            clip);
-
-        let tile_params = TileParams {
-            u0: 0.0,
-            v0: 0.0,
-            u_size: 1.0,
-            v_size: 1.0,
-        };
-
-        for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
-            let mask = mask_for_clip_region(resource_cache, &clip_region, false);
-            let mut vertices = clip_region.make_packed_vertices_for_rect(mask);
-
-            self.add_draw_item(texture_id,
-                               mask.texture_id,
-                               Primitive::Rectangles,
-                               &mut vertices,
-                               Some(tile_params.clone()));
-        }
+        self.add_complex_clipped_rectangle(texture_id,
+                                           rect,
+                                           &uv,
+                                           &[color, color, color, color],
+                                           None,
+                                           resource_cache);
     }
 
     pub fn add_image(&mut self,
                      rect: &Rect<f32>,
-                     clip: &CombinedClipRegion,
                      stretch_size: &Size2D<f32>,
                      image_key: ImageKey,
                      image_rendering: ImageRendering,
-                     resource_cache: &ResourceCache,
-                     clip_buffers: &mut ClipBuffers) {
+                     resource_cache: &ResourceCache) {
         // Should be caught higher up
         debug_assert!(stretch_size.width > 0.0 && stretch_size.height > 0.0);
         let image_info = resource_cache.get_image(image_key, image_rendering);
@@ -129,43 +328,29 @@ impl<'a> BatchBuilder<'a> {
             v_size: uv_size.y,
         };
 
-        clipper::clip_rect_to_combined_region(RectPolygon {
-                                                pos: *rect,
-                                                varyings: uv,
-                                              },
-                                              &mut clip_buffers.sh_clip_buffers,
-                                              &mut clip_buffers.rect_pos_uv,
-                                              clip);
-        for clip_region in clip_buffers.rect_pos_uv.clip_rect_to_region_result_output.drain(..) {
-            let mask = mask_for_clip_region(resource_cache, &clip_region, false);
-            let mut vertices = clip_region.make_packed_vertices_for_rect(mask);
+        let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
 
-            self.add_draw_item(image_info.texture_id,
-                               mask.texture_id,
-                               Primitive::Rectangles,
-                               &mut vertices,
-                               Some(tile_params.clone()));
-        }
+        self.add_complex_clipped_rectangle(image_info.texture_id,
+                                           rect,
+                                           &uv,
+                                           &[color, color, color, color],
+                                           Some(tile_params),
+                                           resource_cache);
     }
 
     pub fn add_text(&mut self,
-                    rect: &Rect<f32>,
-                    clip: &CombinedClipRegion,
+                    _rect: &Rect<f32>,
                     font_key: FontKey,
                     size: Au,
                     blur_radius: Au,
                     color: &ColorF,
                     glyphs: &[GlyphInstance],
                     resource_cache: &ResourceCache,
-                    clip_buffers: &mut ClipBuffers,
                     device_pixel_ratio: f32) {
         let dummy_mask_image = resource_cache.get_dummy_mask_image();
 
         // Logic below to pick the primary render item depends on len > 0!
         assert!(glyphs.len() > 0);
-
-        let need_text_clip = !clip.clip_in_rect.contains(&rect.origin) ||
-                             !clip.clip_in_rect.contains(&rect.bottom_right());
 
         let mut glyph_key = GlyphKey::new(font_key, size, blur_radius, glyphs[0].index);
         let blur_offset = blur_radius.to_f32_px() * (BLUR_INFLATION_FACTOR as f32) / 2.0;
@@ -200,19 +385,7 @@ impl<'a> BatchBuilder<'a> {
         }
 
         let mut vertex_buffer = Vec::new();
-        for (texture_id, mut rect_buffer) in text_batches {
-            let rect_buffer = if need_text_clip {
-                let mut clipped_rects = Vec::new();
-                for rect in rect_buffer.drain(..) {
-                    rect.clip_to_rect(&mut clip_buffers.sh_clip_buffers,
-                                      &clip.clip_in_rect,
-                                      &mut clipped_rects);
-                }
-                clipped_rects
-            } else {
-                rect_buffer
-            };
-
+        for (texture_id, rect_buffer) in text_batches {
             vertex_buffer.clear();
 
             for rect in rect_buffer {
@@ -249,72 +422,19 @@ impl<'a> BatchBuilder<'a> {
 
             self.add_draw_item(texture_id,
                                dummy_mask_image.texture_id,
-                               Primitive::Glyphs,
+                               Primitive::Rectangles,
                                &mut vertex_buffer,
                                None);
         }
     }
 
-    // Colors are in the order: top left, top right, bottom right, bottom left.
-    #[inline]
-    fn add_axis_aligned_gradient(&mut self,
-                                 rect: &Rect<f32>,
-                                 clip: &CombinedClipRegion,
-                                 resource_cache: &ResourceCache,
-                                 clip_buffers: &mut ClipBuffers,
-                                 colors: &[ColorF; 4]) {
-        let white_image = resource_cache.get_dummy_color_image();
-        self.add_axis_aligned_gradient_with_texture(rect,
-                                                    clip,
-                                                    white_image,
-                                                    resource_cache,
-                                                    clip_buffers,
-                                                    colors);
-    }
-
-    // Colors are in the order: top left, top right, bottom right, bottom left.
-    fn add_axis_aligned_gradient_with_texture(&mut self,
-                                              rect: &Rect<f32>,
-                                              clip: &CombinedClipRegion,
-                                              image_info: &TextureCacheItem,
-                                              resource_cache: &ResourceCache,
-                                              clip_buffers: &mut ClipBuffers,
-                                              colors: &[ColorF; 4]) {
-        if rect.size.width == 0.0 || rect.size.height == 0.0 {
-            return
-        }
-
-        clipper::clip_rect_to_combined_region(
-            RectPolygon {
-                pos: *rect,
-                varyings: RectColorsUv {
-                    colors: RectColors::new(colors),
-                    uv: image_info.uv_rect,
-                },
-            },
-            &mut clip_buffers.sh_clip_buffers,
-            &mut clip_buffers.rect_pos_colors_uv,
-            clip);
-        for clip_region in clip_buffers.rect_pos_colors_uv
-                                       .clip_rect_to_region_result_output
-                                       .drain(..) {
-            let mask = mask_for_clip_region(resource_cache, &clip_region, false);
-            let mut vertices = clip_region.make_packed_vertices_for_rect(mask);
-            self.add_draw_item(image_info.texture_id,
-                               mask.texture_id,
-                               Primitive::Rectangles,
-                               &mut vertices,
-                               None);
-        }
-    }
-
     fn add_axis_aligned_gradient_with_stops(&mut self,
-                                            clip: &CombinedClipRegion,
                                             rect: &Rect<f32>,
                                             direction: AxisDirection,
                                             stops: &[GradientStop],
-                                            resource_cache: &ResourceCache,
-                                            clip_buffers: &mut ClipBuffers) {
+                                            resource_cache: &ResourceCache) {
+        let white_image = resource_cache.get_dummy_color_image();
+
         for i in 0..(stops.len() - 1) {
             let (prev_stop, next_stop) = (&stops[i], &stops[i + 1]);
             let piece_rect;
@@ -345,48 +465,45 @@ impl<'a> BatchBuilder<'a> {
                     ];
                 }
             }
-            self.add_axis_aligned_gradient(&piece_rect,
-                                           clip,
-                                           resource_cache,
-                                           clip_buffers,
-                                           &piece_colors)
+
+            self.add_complex_clipped_rectangle(white_image.texture_id,
+                                               &piece_rect,
+                                               &white_image.uv_rect,
+                                               &piece_colors,
+                                               None,
+                                               resource_cache);
         }
     }
 
     pub fn add_gradient(&mut self,
-                        clip: &CombinedClipRegion,
                         start_point: &Point2D<f32>,
                         end_point: &Point2D<f32>,
                         stops: &[GradientStop],
-                        resource_cache: &ResourceCache,
-                        clip_buffers: &mut ClipBuffers) {
+                        resource_cache: &ResourceCache) {
         // Fast paths for axis-aligned gradients:
         //
         // FIXME(pcwalton): Determine the start and end points properly!
         if start_point.x == end_point.x {
             let rect = Rect::new(Point2D::new(-10000.0, start_point.y),
                                  Size2D::new(20000.0, end_point.y - start_point.y));
-            self.add_axis_aligned_gradient_with_stops(clip,
-                                                      &rect,
+            self.add_axis_aligned_gradient_with_stops(&rect,
                                                       AxisDirection::Vertical,
                                                       stops,
-                                                      resource_cache,
-                                                      clip_buffers);
+                                                      resource_cache);
             return
         }
         if start_point.y == end_point.y {
             let rect = Rect::new(Point2D::new(start_point.x, -10000.0),
                                  Size2D::new(end_point.x - start_point.x, 20000.0));
-            self.add_axis_aligned_gradient_with_stops(clip,
-                                                      &rect,
+            self.add_axis_aligned_gradient_with_stops(&rect,
                                                       AxisDirection::Horizontal,
                                                       stops,
-                                                      resource_cache,
-                                                      clip_buffers);
+                                                      resource_cache);
             return
         }
 
         let white_image = resource_cache.get_dummy_color_image();
+        let dummy_mask_image = resource_cache.get_dummy_mask_image();
 
         debug_assert!(stops.len() >= 2);
 
@@ -429,66 +546,56 @@ impl<'a> BatchBuilder<'a> {
             let x3 = start_x + perp_xn * len_scale;
             let y3 = start_y + perp_yn * len_scale;
 
-            let gradient_polygon = PolygonPosColorUv {
-                vertices: vec![
-                    WorkVertex::new(x0, y0, color0, 0.0, 0.0),
-                    WorkVertex::new(x1, y1, color1, 0.0, 0.0),
-                    WorkVertex::new(x2, y2, color1, 0.0, 0.0),
-                    WorkVertex::new(x3, y3, color0, 0.0, 0.0),
-                ],
-            };
+            // TODO(gw): Non-axis-aligned gradients are still added via rotated rectangles.
+            //           This means they can't currently be clipped by complex clip regions.
+            //           To fix this, use a bit of trigonometry to supply the rectangles as
+            //           axis-aligned, and then the complex clipping will just work!
 
-            { // scope for buffers
-                clipper::clip_rect_to_combined_region(gradient_polygon,
-                                                      &mut clip_buffers.sh_clip_buffers,
-                                                      &mut clip_buffers.polygon_pos_color_uv,
-                                                      clip);
-                for clip_result in clip_buffers.polygon_pos_color_uv
-                                               .clip_rect_to_region_result_output
-                                               .drain(..) {
-                    let mask = mask_for_clip_region(resource_cache, &clip_result, false);
+            let mut vertices = [
+                PackedVertex::from_points(&Point2D::new(x0, y0),
+                                          &color0,
+                                          &white_image.uv_rect.top_left,
+                                          &dummy_mask_image.uv_rect.top_left),
 
-                    let mut packed_vertices = Vec::new();
-                    if clip_result.rect_result.vertices.len() >= 3 {
-                        for vert in clip_result.rect_result.vertices.iter() {
-                            packed_vertices.push(clip_result.make_packed_vertex(
-                                    &vert.position(),
-                                    &(vert.color(), vert.uv()),
-                                    &mask));
-                        }
-                    }
+                PackedVertex::from_points(&Point2D::new(x1, y1),
+                                          &color1,
+                                          &white_image.uv_rect.top_left,
+                                          &dummy_mask_image.uv_rect.top_left),
 
-                    if packed_vertices.len() > 0 {
-                        self.add_draw_item(white_image.texture_id,
-                                           mask.texture_id,
-                                           Primitive::TriangleFan,
-                                           &mut packed_vertices,
-                                           None);
-                    }
-                }
-            }
+                PackedVertex::from_points(&Point2D::new(x3, y3),
+                                          &color0,
+                                          &white_image.uv_rect.top_left,
+                                          &dummy_mask_image.uv_rect.top_left),
+
+                PackedVertex::from_points(&Point2D::new(x2, y2),
+                                          &color1,
+                                          &white_image.uv_rect.top_left,
+                                          &dummy_mask_image.uv_rect.top_left),
+            ];
+
+            self.add_draw_item(white_image.texture_id,
+                               dummy_mask_image.texture_id,
+                               Primitive::Rectangles,
+                               &mut vertices,
+                               None);
         }
     }
 
     pub fn add_box_shadow(&mut self,
                           box_bounds: &Rect<f32>,
-                          clip: &CombinedClipRegion,
                           box_offset: &Point2D<f32>,
                           color: &ColorF,
                           blur_radius: f32,
                           spread_radius: f32,
                           border_radius: f32,
                           clip_mode: BoxShadowClipMode,
-                          resource_cache: &ResourceCache,
-                          clip_buffers: &mut ClipBuffers) {
+                          resource_cache: &ResourceCache) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
 
         // Fast path.
         if blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None {
             self.add_color_rectangle(&rect,
-                                     clip,
                                      resource_cache,
-                                     clip_buffers,
                                      color);
             return;
         }
@@ -501,29 +608,23 @@ impl<'a> BatchBuilder<'a> {
                                     spread_radius,
                                     border_radius,
                                     clip_mode,
-                                    clip,
-                                    resource_cache,
-                                    clip_buffers);
+                                    resource_cache);
 
         // Draw the sides.
         self.add_box_shadow_sides(box_bounds,
-                                  clip,
                                   box_offset,
                                   color,
                                   blur_radius,
                                   spread_radius,
                                   border_radius,
                                   clip_mode,
-                                  resource_cache,
-                                  clip_buffers);
+                                  resource_cache);
 
         match clip_mode {
             BoxShadowClipMode::None => {
                 // Fill the center area.
                 self.add_color_rectangle(box_bounds,
-                                         clip,
                                          resource_cache,
-                                         clip_buffers,
                                          color);
             }
             BoxShadowClipMode::Outset => {
@@ -535,27 +636,26 @@ impl<'a> BatchBuilder<'a> {
                         Rect::new(metrics.tl_inner,
                                   Size2D::new(metrics.br_inner.x - metrics.tl_inner.x,
                                               metrics.br_inner.y - metrics.tl_inner.y));
-                    let mut clip = *clip;
-                    clip.clip_out(&ComplexClipRegion::new(*box_bounds,
-                                                          BorderRadius::uniform(border_radius)));
+
+                    debug_assert!(border_radius == 0.0);    // todo(gw): !!!
+                    let old_clip_out_rect = self.set_clip_out_rect(Some(*box_bounds));
+
                     self.add_color_rectangle(&center_rect,
-                                             &clip,
                                              resource_cache,
-                                             clip_buffers,
                                              color);
+
+                    self.set_clip_out_rect(old_clip_out_rect);
                 }
             }
             BoxShadowClipMode::Inset => {
                 // Fill in the outsides.
                 self.fill_outside_area_of_inset_box_shadow(box_bounds,
-                                                           clip,
                                                            box_offset,
                                                            color,
                                                            blur_radius,
                                                            spread_radius,
                                                            border_radius,
-                                                           resource_cache,
-                                                           clip_buffers);
+                                                           resource_cache);
             }
         }
     }
@@ -568,9 +668,7 @@ impl<'a> BatchBuilder<'a> {
                               spread_radius: f32,
                               border_radius: f32,
                               clip_mode: BoxShadowClipMode,
-                              clip: &CombinedClipRegion,
-                              resource_cache: &ResourceCache,
-                              clip_buffers: &mut ClipBuffers) {
+                              resource_cache: &ResourceCache) {
         // Draw the corners.
         //
         //      +--+------------------+--+
@@ -586,10 +684,9 @@ impl<'a> BatchBuilder<'a> {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
         let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
 
-        let mut clip = self.adjust_clip_for_box_shadow_clip_mode(clip,
-                                                                 box_bounds,
-                                                                 border_radius,
-                                                                 clip_mode);
+        let clip_state = self.adjust_clip_for_box_shadow_clip_mode(box_bounds,
+                                                                   border_radius,
+                                                                   clip_mode);
 
         // Prevent overlap of the box shadow corners when the size of the blur is larger than the
         // size of the box.
@@ -606,9 +703,7 @@ impl<'a> BatchBuilder<'a> {
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
-                                   &mut clip,
                                    resource_cache,
-                                   clip_buffers,
                                    BasicRotationAngle::Upright);
         self.add_box_shadow_corner(&Point2D::new(metrics.tr_outer.x - metrics.edge_size,
                                                  metrics.tr_outer.y),
@@ -621,9 +716,7 @@ impl<'a> BatchBuilder<'a> {
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
-                                   &mut clip,
                                    resource_cache,
-                                   clip_buffers,
                                    BasicRotationAngle::Clockwise90);
         self.add_box_shadow_corner(&Point2D::new(metrics.br_outer.x - metrics.edge_size,
                                                  metrics.br_outer.y - metrics.edge_size),
@@ -635,9 +728,7 @@ impl<'a> BatchBuilder<'a> {
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
-                                   &mut clip,
                                    resource_cache,
-                                   clip_buffers,
                                    BasicRotationAngle::Clockwise180);
         self.add_box_shadow_corner(&Point2D::new(metrics.bl_outer.x,
                                                  metrics.bl_outer.y - metrics.edge_size),
@@ -650,30 +741,27 @@ impl<'a> BatchBuilder<'a> {
                                    blur_radius,
                                    border_radius,
                                    clip_mode,
-                                   &mut clip,
                                    resource_cache,
-                                   clip_buffers,
                                    BasicRotationAngle::Clockwise270);
+
+        self.undo_clip_state(clip_state);
     }
 
     fn add_box_shadow_sides(&mut self,
                             box_bounds: &Rect<f32>,
-                            clip: &CombinedClipRegion,
                             box_offset: &Point2D<f32>,
                             color: &ColorF,
                             blur_radius: f32,
                             spread_radius: f32,
                             border_radius: f32,
                             clip_mode: BoxShadowClipMode,
-                            resource_cache: &ResourceCache,
-                            clip_buffers: &mut ClipBuffers) {
+                            resource_cache: &ResourceCache) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
         let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
 
-        let clip = self.adjust_clip_for_box_shadow_clip_mode(clip,
-                                                             box_bounds,
-                                                             border_radius,
-                                                             clip_mode);
+        let clip_state = self.adjust_clip_for_box_shadow_clip_mode(box_bounds,
+                                                                   border_radius,
+                                                                   clip_mode);
 
         // Draw the sides.
         //
@@ -709,9 +797,7 @@ impl<'a> BatchBuilder<'a> {
                                  blur_radius,
                                  border_radius,
                                  clip_mode,
-                                 &clip,
                                  resource_cache,
-                                 clip_buffers,
                                  BasicRotationAngle::Clockwise90);
         self.add_box_shadow_edge(&right_rect.origin,
                                  &right_rect.bottom_right(),
@@ -720,9 +806,7 @@ impl<'a> BatchBuilder<'a> {
                                  blur_radius,
                                  border_radius,
                                  clip_mode,
-                                 &clip,
                                  resource_cache,
-                                 clip_buffers,
                                  BasicRotationAngle::Clockwise180);
         self.add_box_shadow_edge(&bottom_rect.origin,
                                  &bottom_rect.bottom_right(),
@@ -731,9 +815,7 @@ impl<'a> BatchBuilder<'a> {
                                  blur_radius,
                                  border_radius,
                                  clip_mode,
-                                 &clip,
                                  resource_cache,
-                                 clip_buffers,
                                  BasicRotationAngle::Clockwise270);
         self.add_box_shadow_edge(&left_rect.origin,
                                  &left_rect.bottom_right(),
@@ -742,29 +824,26 @@ impl<'a> BatchBuilder<'a> {
                                  blur_radius,
                                  border_radius,
                                  clip_mode,
-                                 &clip,
                                  resource_cache,
-                                 clip_buffers,
                                  BasicRotationAngle::Upright);
+
+        self.undo_clip_state(clip_state);
     }
 
     fn fill_outside_area_of_inset_box_shadow(&mut self,
                                              box_bounds: &Rect<f32>,
-                                             clip: &CombinedClipRegion,
                                              box_offset: &Point2D<f32>,
                                              color: &ColorF,
                                              blur_radius: f32,
                                              spread_radius: f32,
                                              border_radius: f32,
-                                             resource_cache: &ResourceCache,
-                                             clip_buffers: &mut ClipBuffers) {
+                                             resource_cache: &ResourceCache) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
         let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
 
-        let clip = self.adjust_clip_for_box_shadow_clip_mode(clip,
-                                                             box_bounds,
-                                                             border_radius,
-                                                             BoxShadowClipMode::Inset);
+        let clip_state = self.adjust_clip_for_box_shadow_clip_mode(box_bounds,
+                                                                   border_radius,
+                                                                   BoxShadowClipMode::Inset);
 
         // Fill in the outside area of the box.
         //
@@ -786,77 +865,82 @@ impl<'a> BatchBuilder<'a> {
         self.add_color_rectangle(&Rect::new(box_bounds.origin,
                                             Size2D::new(box_bounds.size.width,
                                                         metrics.tl_outer.y - box_bounds.origin.y)),
-                                 &clip,
                                  resource_cache,
-                                 clip_buffers,
                                  color);
 
         // B:
         self.add_color_rectangle(&Rect::new(metrics.tr_outer,
                                             Size2D::new(box_bounds.max_x() - metrics.tr_outer.x,
                                                         metrics.br_outer.y - metrics.tr_outer.y)),
-                                 &clip,
                                  resource_cache,
-                                 clip_buffers,
                                  color);
 
         // C:
         self.add_color_rectangle(&Rect::new(Point2D::new(box_bounds.origin.x, metrics.bl_outer.y),
                                             Size2D::new(box_bounds.size.width,
                                                         box_bounds.max_y() - metrics.br_outer.y)),
-                                 &clip,
                                  resource_cache,
-                                 clip_buffers,
                                  color);
 
         // D:
         self.add_color_rectangle(&Rect::new(Point2D::new(box_bounds.origin.x, metrics.tl_outer.y),
                                             Size2D::new(metrics.tl_outer.x - box_bounds.origin.x,
                                                         metrics.bl_outer.y - metrics.tl_outer.y)),
-                                 &clip,
                                  resource_cache,
-                                 clip_buffers,
                                  color);
+
+        self.undo_clip_state(clip_state);
     }
 
-    fn adjust_clip_for_box_shadow_clip_mode<'b>(&mut self,
-                                                clip: &CombinedClipRegion<'b>,
-                                                box_bounds: &Rect<f32>,
-                                                border_radius: f32,
-                                                clip_mode: BoxShadowClipMode)
-                                                -> CombinedClipRegion<'b> {
-        let mut clip = *clip;
-        match clip_mode {
-            BoxShadowClipMode::None => {}
-            BoxShadowClipMode::Inset => {
-                clip.clip_in(&ComplexClipRegion {
-                    rect: *box_bounds,
-                    radii: BorderRadius::uniform(border_radius),
-                });
+    fn undo_clip_state(&mut self, clip_state: ClipState) {
+        match clip_state {
+            ClipState::None => {}
+            ClipState::ClipIn => {
+                self.pop_clip_in_rect();
             }
-            BoxShadowClipMode::Outset => {
-                clip.clip_out(&ComplexClipRegion::new(*box_bounds,
-                                                      BorderRadius::uniform(border_radius)));
+            ClipState::ClipOut(old_rect) => {
+                self.set_clip_out_rect(old_rect);
             }
         }
-        clip
+    }
+
+    fn adjust_clip_for_box_shadow_clip_mode(&mut self,
+                                            box_bounds: &Rect<f32>,
+                                            border_radius: f32,
+                                            clip_mode: BoxShadowClipMode) -> ClipState {
+        //debug_assert!(border_radius == 0.0);        // TODO(gw): !!!
+
+        match clip_mode {
+            BoxShadowClipMode::None => {
+                ClipState::None
+            }
+            BoxShadowClipMode::Inset => {
+                self.push_clip_in_rect(box_bounds);
+                ClipState::ClipIn
+            }
+            BoxShadowClipMode::Outset => {
+                let old_clip_out_rect = self.set_clip_out_rect(Some(*box_bounds));
+                ClipState::ClipOut(old_clip_out_rect)
+            }
+        }
     }
 
     #[inline]
     fn add_border_edge(&mut self,
                        rect: &Rect<f32>,
-                       clip: &CombinedClipRegion,
                        side: RectSide,
                        color: &ColorF,
                        border_style: BorderStyle,
-                       resource_cache: &ResourceCache,
-                       clip_buffers: &mut clipper::ClipBuffers) {
+                       resource_cache: &ResourceCache) {
         if color.a <= 0.0 {
             return
         }
         if rect.size.width <= 0.0 || rect.size.height <= 0.0 {
             return
         }
+
+        let dummy_mask_image = resource_cache.get_dummy_mask_image();
+        let colors = [*color, *color, *color, *color];
 
         match border_style {
             BorderStyle::Dashed => {
@@ -884,9 +968,7 @@ impl<'a> BatchBuilder<'a> {
                     };
 
                     self.add_color_rectangle(&dash_rect,
-                                             clip,
                                              resource_cache,
-                                             clip_buffers,
                                              color);
 
                     origin += step + step;
@@ -925,48 +1007,48 @@ impl<'a> BatchBuilder<'a> {
                     let color_image = resource_cache.get_raster(&raster_item);
 
                     // Top left:
-                    self.add_textured_rectangle(&Rect::new(
-                                                    dot_rect.origin,
-                                                    Size2D::new(dot_rect.size.width / 2.0,
-                                                                dot_rect.size.height / 2.0)),
-                                                clip,
-                                                color_image,
-                                                resource_cache,
-                                                clip_buffers,
-                                                color);
+                    self.add_simple_rectangle(color_image.texture_id,
+                                              &Rect::new(dot_rect.origin,
+                                                         Size2D::new(dot_rect.size.width / 2.0,
+                                                                     dot_rect.size.height / 2.0)),
+                                              &color_image.uv_rect,
+                                              dummy_mask_image.texture_id,
+                                              &dummy_mask_image.uv_rect,
+                                              &colors,
+                                              None);
 
                     // Top right:
-                    self.add_textured_rectangle(&Rect::new(
-                                                    dot_rect.top_right(),
-                                                    Size2D::new(-dot_rect.size.width / 2.0,
-                                                                dot_rect.size.height / 2.0)),
-                                                clip,
-                                                color_image,
-                                                resource_cache,
-                                                clip_buffers,
-                                                color);
+                    self.add_simple_rectangle(color_image.texture_id,
+                                              &Rect::new(dot_rect.top_right(),
+                                                         Size2D::new(-dot_rect.size.width / 2.0,
+                                                                     dot_rect.size.height / 2.0)),
+                                              &color_image.uv_rect,
+                                              dummy_mask_image.texture_id,
+                                              &dummy_mask_image.uv_rect,
+                                              &colors,
+                                              None);
 
                     // Bottom right:
-                    self.add_textured_rectangle(&Rect::new(
-                                                    dot_rect.bottom_right(),
-                                                    Size2D::new(-dot_rect.size.width / 2.0,
-                                                                -dot_rect.size.height / 2.0)),
-                                                clip,
-                                                color_image,
-                                                resource_cache,
-                                                clip_buffers,
-                                                color);
+                    self.add_simple_rectangle(color_image.texture_id,
+                                              &Rect::new(dot_rect.bottom_right(),
+                                                         Size2D::new(-dot_rect.size.width / 2.0,
+                                                                     -dot_rect.size.height / 2.0)),
+                                              &color_image.uv_rect,
+                                              dummy_mask_image.texture_id,
+                                              &dummy_mask_image.uv_rect,
+                                              &colors,
+                                              None);
 
                     // Bottom left:
-                    self.add_textured_rectangle(&Rect::new(
-                                                    dot_rect.bottom_left(),
-                                                    Size2D::new(dot_rect.size.width / 2.0,
-                                                                -dot_rect.size.height / 2.0)),
-                                                clip,
-                                                color_image,
-                                                resource_cache,
-                                                clip_buffers,
-                                                color);
+                    self.add_simple_rectangle(color_image.texture_id,
+                                              &Rect::new(dot_rect.bottom_left(),
+                                                         Size2D::new(dot_rect.size.width / 2.0,
+                                                                     -dot_rect.size.height / 2.0)),
+                                              &color_image.uv_rect,
+                                              dummy_mask_image.texture_id,
+                                              &dummy_mask_image.uv_rect,
+                                              &colors,
+                                              None);
 
                     origin += step + step;
                 }
@@ -989,14 +1071,10 @@ impl<'a> BatchBuilder<'a> {
                     }
                 };
                 self.add_color_rectangle(&outer_rect,
-                                         clip,
                                          resource_cache,
-                                         clip_buffers,
                                          color);
                 self.add_color_rectangle(&inner_rect,
-                                         clip,
                                          resource_cache,
-                                         clip_buffers,
                                          color);
             }
             BorderStyle::Groove | BorderStyle::Ridge => {
@@ -1017,14 +1095,16 @@ impl<'a> BatchBuilder<'a> {
                     }
                 };
                 let (tl_color, br_color) = groove_ridge_border_colors(color, border_style);
-                self.add_color_rectangle(&tl_rect, clip, resource_cache, clip_buffers, &tl_color);
-                self.add_color_rectangle(&br_rect, clip, resource_cache, clip_buffers, &br_color);
+                self.add_color_rectangle(&tl_rect,
+                                         resource_cache,
+                                         &tl_color);
+                self.add_color_rectangle(&br_rect,
+                                         resource_cache,
+                                         &br_color);
             }
             _ => {
                 self.add_color_rectangle(rect,
-                                         clip,
                                          resource_cache,
-                                         clip_buffers,
                                          color);
             }
         }
@@ -1059,7 +1139,6 @@ impl<'a> BatchBuilder<'a> {
     ///     ┊color0     ┊
     ///
     fn add_border_corner(&mut self,
-                         clip: &CombinedClipRegion,
                          border_style: BorderStyle,
                          corner_bounds: &Rect<f32>,
                          radius_extent: &Point2D<f32>,
@@ -1068,7 +1147,6 @@ impl<'a> BatchBuilder<'a> {
                          outer_radius: &Size2D<f32>,
                          inner_radius: &Size2D<f32>,
                          resource_cache: &ResourceCache,
-                         clip_buffers: &mut clipper::ClipBuffers,
                          rotation_angle: BasicRotationAngle,
                          device_pixel_ratio: f32) {
         if color0.a <= 0.0 && color1.a <= 0.0 {
@@ -1099,42 +1177,34 @@ impl<'a> BatchBuilder<'a> {
                     };
 
                 // Draw the corner parts:
-                self.add_solid_border_corner(clip,
-                                             &outer_corner_rect,
+                self.add_solid_border_corner(&outer_corner_rect,
                                              radius_extent,
                                              &color0_outer,
                                              &color1_outer,
                                              outer_radius,
                                              inner_radius,
                                              resource_cache,
-                                             clip_buffers,
                                              rotation_angle,
                                              device_pixel_ratio);
-                self.add_solid_border_corner(clip,
-                                             &inner_corner_rect,
+                self.add_solid_border_corner(&inner_corner_rect,
                                              radius_extent,
                                              &color0_inner,
                                              &color1_inner,
                                              outer_radius,
                                              inner_radius,
                                              resource_cache,
-                                             clip_buffers,
                                              rotation_angle,
                                              device_pixel_ratio);
 
                 // Draw the solid parts:
                 if util::rect_is_well_formed_and_nonempty(&color0_rect) {
                     self.add_color_rectangle(&color0_rect,
-                                             clip,
                                              resource_cache,
-                                             clip_buffers,
                                              &color0_outer)
                 }
                 if util::rect_is_well_formed_and_nonempty(&color1_rect) {
                     self.add_color_rectangle(&color1_rect,
-                                             clip,
                                              resource_cache,
-                                             clip_buffers,
                                              &color1_outer)
                 }
             }
@@ -1165,8 +1235,6 @@ impl<'a> BatchBuilder<'a> {
                 let p1 = Point2D::new(corner_bounds.origin.x + width_1_3, corner_bounds.origin.y);
                 let p2 = Point2D::new(corner_bounds.origin.x + width_2_3, corner_bounds.origin.y);
                 let p3 = Point2D::new(corner_bounds.origin.x, corner_bounds.origin.y + height_1_3);
-                let p4 = Point2D::new(corner_bounds.origin.x + width_1_3,
-                                      corner_bounds.origin.y + height_1_3);
                 let p5 = Point2D::new(corner_bounds.origin.x + width_2_3,
                                       corner_bounds.origin.y + height_1_3);
                 let p6 = Point2D::new(corner_bounds.origin.x, corner_bounds.origin.y + height_2_3);
@@ -1206,52 +1274,42 @@ impl<'a> BatchBuilder<'a> {
                     }
                 }
 
-                self.add_solid_border_corner(clip,
-                                             &outer_corner_rect,
+                self.add_solid_border_corner(&outer_corner_rect,
                                              radius_extent,
                                              color0,
                                              color1,
                                              outer_radius,
                                              &Size2D::new(0.0, 0.0),
                                              resource_cache,
-                                             clip_buffers,
                                              rotation_angle,
                                              device_pixel_ratio);
 
                 self.add_color_rectangle(&outer_side_rect_1,
-                                         clip,
                                          resource_cache,
-                                         clip_buffers,
                                          &color0);
 
-                self.add_solid_border_corner(clip,
-                                             &inner_corner_rect,
+                self.add_solid_border_corner(&inner_corner_rect,
                                              radius_extent,
                                              color0,
                                              color1,
                                              &Size2D::new(0.0, 0.0),
                                              inner_radius,
                                              resource_cache,
-                                             clip_buffers,
                                              rotation_angle,
                                              device_pixel_ratio);
 
                 self.add_color_rectangle(&outer_side_rect_0,
-                                         clip,
                                          resource_cache,
-                                         clip_buffers,
                                          &color1);
             }
             _ => {
-                self.add_solid_border_corner(clip,
-                                             corner_bounds,
+                self.add_solid_border_corner(corner_bounds,
                                              radius_extent,
                                              color0,
                                              color1,
                                              outer_radius,
                                              inner_radius,
                                              resource_cache,
-                                             clip_buffers,
                                              rotation_angle,
                                              device_pixel_ratio)
             }
@@ -1259,7 +1317,6 @@ impl<'a> BatchBuilder<'a> {
     }
 
     fn add_solid_border_corner(&mut self,
-                               clip: &CombinedClipRegion,
                                corner_bounds: &Rect<f32>,
                                radius_extent: &Point2D<f32>,
                                color0: &ColorF,
@@ -1267,7 +1324,6 @@ impl<'a> BatchBuilder<'a> {
                                outer_radius: &Size2D<f32>,
                                inner_radius: &Size2D<f32>,
                                resource_cache: &ResourceCache,
-                               clip_buffers: &mut clipper::ClipBuffers,
                                rotation_angle: BasicRotationAngle,
                                device_pixel_ratio: f32) {
         // TODO: Check for zero width/height borders!
@@ -1306,12 +1362,10 @@ impl<'a> BatchBuilder<'a> {
             };
 
             self.add_border_corner_piece(tessellated_rect,
-                                         clip,
                                          mask_image,
                                          color0,
                                          color1,
                                          resource_cache,
-                                         clip_buffers,
                                          rotation_angle);
         }
 
@@ -1320,115 +1374,103 @@ impl<'a> BatchBuilder<'a> {
                                         pos: inner_corner_rect,
                                         varyings: RectUv::zero(),
                                      },
-                                     clip,
                                      dummy_mask_image,
                                      color0,
                                      color1,
                                      resource_cache,
-                                     clip_buffers,
                                      rotation_angle);
 
         // Draw the two solid rects.
         if util::rect_is_well_formed_and_nonempty(&color0_rect) {
-            self.add_color_rectangle(&color0_rect, clip, resource_cache, clip_buffers, color0)
+            self.add_color_rectangle(&color0_rect,
+                                     resource_cache,
+                                     color0)
         }
         if util::rect_is_well_formed_and_nonempty(&color1_rect) {
-            self.add_color_rectangle(&color1_rect, clip, resource_cache, clip_buffers, color1)
+            self.add_color_rectangle(&color1_rect,
+                                     resource_cache,
+                                     color1)
         }
     }
 
     /// Draws one rectangle making up a border corner.
     fn add_border_corner_piece(&mut self,
-                               tessellated_rect: RectPolygon<RectUv>,
-                               clip: &CombinedClipRegion,
+                               rect_pos_uv: RectPolygon<RectUv>,
                                mask_image: &TextureCacheItem,
                                color0: &ColorF,
                                color1: &ColorF,
                                resource_cache: &ResourceCache,
-                               clip_buffers: &mut clipper::ClipBuffers,
                                rotation_angle: BasicRotationAngle) {
-        if !tessellated_rect.is_well_formed_and_nonempty() {
+        if !rect_pos_uv.is_well_formed_and_nonempty() {
             return
         }
 
         let white_image = resource_cache.get_dummy_color_image();
 
-        clipper::clip_rect_to_combined_region(tessellated_rect,
-                                              &mut clip_buffers.sh_clip_buffers,
-                                              &mut clip_buffers.rect_pos_uv,
-                                              clip);
-
-        for clip_region in clip_buffers.rect_pos_uv
-                                       .clip_rect_to_region_result_output
-                                       .drain(..) {
-            let rect_pos_uv = &clip_region.rect_result;
-            let v0;
-            let v1;
-            let muv0;
-            let muv1;
-            let muv2;
-            let muv3;
-            match rotation_angle {
-                BasicRotationAngle::Upright => {
-                    v0 = rect_pos_uv.pos.origin;
-                    v1 = rect_pos_uv.pos.bottom_right();
-                    muv0 = rect_pos_uv.varyings.top_left;
-                    muv1 = rect_pos_uv.varyings.top_right;
-                    muv2 = rect_pos_uv.varyings.bottom_right;
-                    muv3 = rect_pos_uv.varyings.bottom_left;
-                }
-                BasicRotationAngle::Clockwise90 => {
-                    v0 = rect_pos_uv.pos.top_right();
-                    v1 = rect_pos_uv.pos.bottom_left();
-                    muv0 = rect_pos_uv.varyings.top_right;
-                    muv1 = rect_pos_uv.varyings.top_left;
-                    muv2 = rect_pos_uv.varyings.bottom_left;
-                    muv3 = rect_pos_uv.varyings.bottom_right;
-                }
-                BasicRotationAngle::Clockwise180 => {
-                    v0 = rect_pos_uv.pos.bottom_right();
-                    v1 = rect_pos_uv.pos.origin;
-                    muv0 = rect_pos_uv.varyings.bottom_right;
-                    muv1 = rect_pos_uv.varyings.bottom_left;
-                    muv2 = rect_pos_uv.varyings.top_left;
-                    muv3 = rect_pos_uv.varyings.top_right;
-                }
-                BasicRotationAngle::Clockwise270 => {
-                    v0 = rect_pos_uv.pos.bottom_left();
-                    v1 = rect_pos_uv.pos.top_right();
-                    muv0 = rect_pos_uv.varyings.bottom_left;
-                    muv1 = rect_pos_uv.varyings.bottom_right;
-                    muv2 = rect_pos_uv.varyings.top_right;
-                    muv3 = rect_pos_uv.varyings.top_left;
-                }
+        let v0;
+        let v1;
+        let muv0;
+        let muv1;
+        let muv2;
+        let muv3;
+        match rotation_angle {
+            BasicRotationAngle::Upright => {
+                v0 = rect_pos_uv.pos.origin;
+                v1 = rect_pos_uv.pos.bottom_right();
+                muv0 = rect_pos_uv.varyings.top_left;
+                muv1 = rect_pos_uv.varyings.top_right;
+                muv2 = rect_pos_uv.varyings.bottom_right;
+                muv3 = rect_pos_uv.varyings.bottom_left;
             }
-
-            let mut vertices = [
-                PackedVertex::from_components(v0.x, v0.y, color0, 0.0, 0.0, muv0.x, muv0.y),
-                PackedVertex::from_components(v1.x, v1.y, color0, 0.0, 0.0, muv2.x, muv2.y),
-                PackedVertex::from_components(v0.x, v1.y, color0, 0.0, 0.0, muv3.x, muv3.y),
-                PackedVertex::from_components(v0.x, v0.y, color1, 0.0, 0.0, muv0.x, muv0.y),
-                PackedVertex::from_components(v1.x, v0.y, color1, 0.0, 0.0, muv1.x, muv1.y),
-                PackedVertex::from_components(v1.x, v1.y, color1, 0.0, 0.0, muv2.x, muv2.y),
-            ];
-
-            self.add_draw_item(white_image.texture_id,
-                               mask_image.texture_id,
-                               Primitive::Triangles,
-                               &mut vertices,
-                               None);
+            BasicRotationAngle::Clockwise90 => {
+                v0 = rect_pos_uv.pos.top_right();
+                v1 = rect_pos_uv.pos.bottom_left();
+                muv0 = rect_pos_uv.varyings.top_right;
+                muv1 = rect_pos_uv.varyings.top_left;
+                muv2 = rect_pos_uv.varyings.bottom_left;
+                muv3 = rect_pos_uv.varyings.bottom_right;
+            }
+            BasicRotationAngle::Clockwise180 => {
+                v0 = rect_pos_uv.pos.bottom_right();
+                v1 = rect_pos_uv.pos.origin;
+                muv0 = rect_pos_uv.varyings.bottom_right;
+                muv1 = rect_pos_uv.varyings.bottom_left;
+                muv2 = rect_pos_uv.varyings.top_left;
+                muv3 = rect_pos_uv.varyings.top_right;
+            }
+            BasicRotationAngle::Clockwise270 => {
+                v0 = rect_pos_uv.pos.bottom_left();
+                v1 = rect_pos_uv.pos.top_right();
+                muv0 = rect_pos_uv.varyings.bottom_left;
+                muv1 = rect_pos_uv.varyings.bottom_right;
+                muv2 = rect_pos_uv.varyings.top_right;
+                muv3 = rect_pos_uv.varyings.top_left;
+            }
         }
+
+        let mut vertices = [
+            PackedVertex::from_components(v0.x, v0.y, color0, 0.0, 0.0, muv0.x, muv0.y),
+            PackedVertex::from_components(v1.x, v1.y, color0, 0.0, 0.0, muv2.x, muv2.y),
+            PackedVertex::from_components(v0.x, v1.y, color0, 0.0, 0.0, muv3.x, muv3.y),
+            PackedVertex::from_components(v0.x, v0.y, color1, 0.0, 0.0, muv0.x, muv0.y),
+            PackedVertex::from_components(v1.x, v0.y, color1, 0.0, 0.0, muv1.x, muv1.y),
+            PackedVertex::from_components(v1.x, v1.y, color1, 0.0, 0.0, muv2.x, muv2.y),
+        ];
+
+        self.add_draw_item(white_image.texture_id,
+                           mask_image.texture_id,
+                           Primitive::Triangles,
+                           &mut vertices,
+                           None);
     }
 
     fn add_color_image_rectangle(&mut self,
                                  v0: &Point2D<f32>,
                                  v1: &Point2D<f32>,
-                                 clip: &CombinedClipRegion,
                                  color0: &ColorF,
                                  color1: &ColorF,
                                  color_image: &TextureCacheItem,
                                  resource_cache: &ResourceCache,
-                                 clip_buffers: &mut ClipBuffers,
                                  rotation_angle: BasicRotationAngle) {
         if color0.a <= 0.0 || color1.a <= 0.0 {
             return
@@ -1437,39 +1479,21 @@ impl<'a> BatchBuilder<'a> {
         let vertices_rect = Rect::new(*v0, Size2D::new(v1.x - v0.x, v1.y - v0.y));
         let color_uv = RectUv::from_image_and_rotation_angle(color_image, rotation_angle, false);
 
-        let colors = RectColors::new(&[*color0, *color0, *color1, *color1]);
-        clipper::clip_rect_to_combined_region(RectPolygon {
-                                                pos: vertices_rect,
-                                                varyings: RectColorsUv {
-                                                    colors: colors,
-                                                    uv: color_uv,
-                                                },
-                                              },
-                                              &mut clip_buffers.sh_clip_buffers,
-                                              &mut clip_buffers.rect_pos_colors_uv,
-                                              clip);
-        for clip_region in clip_buffers.rect_pos_colors_uv
-                                       .clip_rect_to_region_result_output
-                                       .drain(..) {
-            let mask = mask_for_clip_region(resource_cache,
-                                            &clip_region,
-                                            false);
-            let mut vertices = clip_region.make_packed_vertices_for_rect(mask);
+        let dummy_mask_image = resource_cache.get_dummy_mask_image();
 
-            self.add_draw_item(color_image.texture_id,
-                               mask.texture_id,
-                               Primitive::Rectangles,
-                               &mut vertices,
-                               None);
-        }
+        self.add_simple_rectangle(color_image.texture_id,
+                                  &vertices_rect,
+                                  &color_uv,
+                                  dummy_mask_image.texture_id,
+                                  &dummy_mask_image.uv_rect,
+                                  &[*color0, *color0, *color1, *color1],
+                                  None);
     }
 
     pub fn add_border(&mut self,
                       rect: &Rect<f32>,
-                      clip: &CombinedClipRegion,
                       info: &BorderDisplayItem,
                       resource_cache: &ResourceCache,
-                      clip_buffers: &mut ClipBuffers,
                       device_pixel_ratio: f32) {
         // TODO: If any border segment is alpha, place all in alpha pass.
         //       Is it ever worth batching at a per-segment level?
@@ -1504,45 +1528,36 @@ impl<'a> BatchBuilder<'a> {
         // Edges
         self.add_border_edge(&Rect::new(Point2D::new(tl_outer.x, tl_inner.y),
                                         Size2D::new(left.width, bl_inner.y - tl_inner.y)),
-                             clip,
                              RectSide::Left,
                              &left_color,
                              info.left.style,
-                             resource_cache,
-                             clip_buffers);
+                             resource_cache);
 
         self.add_border_edge(&Rect::new(Point2D::new(tl_inner.x, tl_outer.y),
                                         Size2D::new(tr_inner.x - tl_inner.x,
                                                     tr_outer.y + top.width - tl_outer.y)),
-                             clip,
                              RectSide::Top,
                              &top_color,
                              info.top.style,
-                             resource_cache,
-                             clip_buffers);
+                             resource_cache);
 
         self.add_border_edge(&Rect::new(Point2D::new(br_outer.x - right.width, tr_inner.y),
                                         Size2D::new(right.width, br_inner.y - tr_inner.y)),
-                             clip,
                              RectSide::Right,
                              &right_color,
                              info.right.style,
-                             resource_cache,
-                             clip_buffers);
+                             resource_cache);
 
         self.add_border_edge(&Rect::new(Point2D::new(bl_inner.x, bl_outer.y - bottom.width),
                                         Size2D::new(br_inner.x - bl_inner.x,
                                                     br_outer.y - bl_outer.y + bottom.width)),
-                             clip,
                              RectSide::Bottom,
                              &bottom_color,
                              info.bottom.style,
-                             resource_cache,
-                             clip_buffers);
+                             resource_cache);
 
         // Corners
-        self.add_border_corner(clip,
-                               info.left.style,
+        self.add_border_corner(info.left.style,
                                &Rect::new(tl_outer,
                                           Size2D::new(tl_inner.x - tl_outer.x,
                                                       tl_inner.y - tl_outer.y)),
@@ -1553,12 +1568,10 @@ impl<'a> BatchBuilder<'a> {
                                &radius.top_left,
                                &info.top_left_inner_radius(),
                                resource_cache,
-                               clip_buffers,
                                BasicRotationAngle::Upright,
                                device_pixel_ratio);
 
-        self.add_border_corner(clip,
-                               info.top.style,
+        self.add_border_corner(info.top.style,
                                &Rect::new(Point2D::new(tr_inner.x, tr_outer.y),
                                           Size2D::new(tr_outer.x - tr_inner.x,
                                                       tr_inner.y - tr_outer.y)),
@@ -1569,12 +1582,10 @@ impl<'a> BatchBuilder<'a> {
                                &radius.top_right,
                                &info.top_right_inner_radius(),
                                resource_cache,
-                               clip_buffers,
                                BasicRotationAngle::Clockwise90,
                                device_pixel_ratio);
 
-        self.add_border_corner(clip,
-                               info.right.style,
+        self.add_border_corner(info.right.style,
                                &Rect::new(br_inner,
                                           Size2D::new(br_outer.x - br_inner.x,
                                                       br_outer.y - br_inner.y)),
@@ -1585,12 +1596,10 @@ impl<'a> BatchBuilder<'a> {
                                &radius.bottom_right,
                                &info.bottom_right_inner_radius(),
                                resource_cache,
-                               clip_buffers,
                                BasicRotationAngle::Clockwise180,
                                device_pixel_ratio);
 
-        self.add_border_corner(clip,
-                               info.bottom.style,
+        self.add_border_corner(info.bottom.style,
                                &Rect::new(Point2D::new(bl_outer.x, bl_inner.y),
                                           Size2D::new(bl_inner.x - bl_outer.x,
                                                       bl_outer.y - bl_inner.y)),
@@ -1601,7 +1610,6 @@ impl<'a> BatchBuilder<'a> {
                                &radius.bottom_left,
                                &info.bottom_left_inner_radius(),
                                resource_cache,
-                               clip_buffers,
                                BasicRotationAngle::Clockwise270,
                                device_pixel_ratio);
     }
@@ -1617,16 +1625,14 @@ impl<'a> BatchBuilder<'a> {
                              blur_radius: f32,
                              border_radius: f32,
                              clip_mode: BoxShadowClipMode,
-                             clip: &mut CombinedClipRegion,
                              resource_cache: &ResourceCache,
-                             clip_buffers: &mut ClipBuffers,
                              rotation_angle: BasicRotationAngle) {
         let corner_area_rect =
             Rect::new(*corner_area_top_left,
                       Size2D::new(corner_area_bottom_right.x - corner_area_top_left.x,
                                   corner_area_bottom_right.y - corner_area_top_left.y));
-        let old_clip_in_rect = clip.clip_in_rect;
-        clip.clip_in_rect(&corner_area_rect);
+
+        self.push_clip_in_rect(&corner_area_rect);
 
         let inverted = match clip_mode {
             BoxShadowClipMode::Outset | BoxShadowClipMode::None => false,
@@ -1646,15 +1652,13 @@ impl<'a> BatchBuilder<'a> {
 
         self.add_color_image_rectangle(top_left,
                                        bottom_right,
-                                       clip,
                                        color,
                                        color,
                                        &color_image,
                                        resource_cache,
-                                       clip_buffers,
                                        rotation_angle);
 
-        clip.clip_in_rect = old_clip_in_rect
+        self.pop_clip_in_rect();
     }
 
     fn add_box_shadow_edge(&mut self,
@@ -1665,9 +1669,7 @@ impl<'a> BatchBuilder<'a> {
                            blur_radius: f32,
                            border_radius: f32,
                            clip_mode: BoxShadowClipMode,
-                           clip: &CombinedClipRegion,
                            resource_cache: &ResourceCache,
-                           clip_buffers: &mut ClipBuffers,
                            rotation_angle: BasicRotationAngle) {
         if top_left.x >= bottom_right.x || top_left.y >= bottom_right.y {
             return
@@ -1691,12 +1693,10 @@ impl<'a> BatchBuilder<'a> {
 
         self.add_color_image_rectangle(top_left,
                                        bottom_right,
-                                       clip,
                                        color,
                                        color,
                                        &color_image,
                                        resource_cache,
-                                       clip_buffers,
                                        rotation_angle)
     }
 }
@@ -1731,43 +1731,6 @@ impl BorderSideHelpers for BorderSide {
                 }
             }
             _ => self.color,
-        }
-    }
-}
-
-/// NB: Only returns non-tessellated border radius images!
-fn mask_for_border_radius<'a>(resource_cache: &'a ResourceCache,
-                              border_radius: f32,
-                              inverted: bool)
-                              -> &'a TextureCacheItem {
-    if border_radius == 0.0 {
-        return resource_cache.get_dummy_mask_image()
-    }
-
-    let border_radius = Au::from_f32_px(border_radius);
-    resource_cache.get_raster(&RasterItem::BorderRadius(BorderRadiusRasterOp {
-        outer_radius_x: border_radius,
-        outer_radius_y: border_radius,
-        inner_radius_x: Au(0),
-        inner_radius_y: Au(0),
-        inverted: inverted,
-        index: None,
-        image_format: ImageFormat::A8,
-    }))
-}
-
-fn mask_for_clip_region<'a,P>(resource_cache: &'a ResourceCache,
-                              clip_region: &ClipRectToRegionResult<P>,
-                              inverted: bool)
-                              -> &'a TextureCacheItem {
-    match clip_region.mask_result {
-        None => {
-            resource_cache.get_dummy_mask_image()
-        }
-        Some(ref mask_result) => {
-            mask_for_border_radius(resource_cache,
-                                   mask_result.border_radius,
-                                   inverted)
         }
     }
 }

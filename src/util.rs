@@ -1,5 +1,5 @@
 use euclid::{Matrix4, Point2D, Rect, Size2D};
-use internal_types::{PackedVertex, RectColors, RectColorsUv, RectUv};
+use internal_types::{RectColors, RectColorsUv, RectUv};
 use std::num::Zero;
 use time::precise_time_ns;
 use webrender_traits::ColorF;
@@ -156,48 +156,24 @@ impl RectVaryings for RectColorsUv {
 pub trait VaryingElement : Sized {
     fn scale(&self, factor: f32) -> Self;
     fn accumulate(values: &[Self; 4]) -> Self;
-    fn make_packed_vertex(&self, position: &Point2D<f32>, muv: &Point2D<f32>) -> PackedVertex;
 }
 
-impl VaryingElement for Point2D<f32> {
-    fn scale(&self, factor: f32) -> Point2D<f32> {
-        *self * factor
+impl VaryingElement for ColorF {
+    fn scale(&self, factor: f32) -> ColorF {
+        ColorF {
+            r: self.r * factor,
+            g: self.g * factor,
+            b: self.b * factor,
+            a: self.a * factor,
+        }
     }
-    fn accumulate(values: &[Point2D<f32>; 4]) -> Point2D<f32> {
-        values[0] + values[1] + values[2] + values[3]
-    }
-    fn make_packed_vertex(&self, position: &Point2D<f32>, muv: &Point2D<f32>) -> PackedVertex {
-        static WHITE: ColorF = ColorF {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-            a: 1.0,
-        };
-        PackedVertex::from_points(position, &WHITE, self, muv)
-    }
-}
-
-impl VaryingElement for (ColorF, Point2D<f32>) {
-    fn scale(&self, factor: f32) -> (ColorF, Point2D<f32>) {
-        let color = ColorF {
-            r: self.0.r * factor,
-            g: self.0.g * factor,
-            b: self.0.b * factor,
-            a: self.0.a * factor,
-        };
-        (color, self.1 * factor)
-    }
-    fn accumulate(values: &[(ColorF, Point2D<f32>); 4]) -> (ColorF, Point2D<f32>) {
-        let color = ColorF {
-            r: values[0].0.r + values[1].0.r + values[2].0.r + values[3].0.r,
-            g: values[0].0.g + values[1].0.g + values[2].0.g + values[3].0.g,
-            b: values[0].0.b + values[1].0.b + values[2].0.b + values[3].0.b,
-            a: values[0].0.a + values[1].0.a + values[2].0.a + values[3].0.a,
-        };
-        (color, values[0].1 + values[1].1 + values[2].1 + values[3].1)
-    }
-    fn make_packed_vertex(&self, position: &Point2D<f32>, muv: &Point2D<f32>) -> PackedVertex {
-        PackedVertex::from_points(position, &self.0, &self.1, muv)
+    fn accumulate(values: &[ColorF; 4]) -> ColorF {
+        ColorF {
+            r: values[0].r + values[1].r + values[2].r + values[3].r,
+            g: values[0].g + values[1].g + values[2].g + values[3].g,
+            b: values[0].b + values[1].b + values[2].b + values[3].b,
+            a: values[0].a + values[1].a + values[2].a + values[3].a,
+        }
     }
 }
 
