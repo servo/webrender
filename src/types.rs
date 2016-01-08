@@ -4,9 +4,6 @@ use euclid::{Rect, Size2D};
 #[cfg(target_os="macos")]
 use core_graphics::font::CGFont;
 
-// TODO: This is bogus - work out a clean way to generate scroll layer IDs that integrates well with servo...
-const FIXED_SCROLL_LAYER_ID: usize = 0xffffffff;
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BorderRadius {
     pub top_left: Size2D<f32>,
@@ -91,13 +88,6 @@ impl ComplexClipRegion {
         ComplexClipRegion {
             rect: rect,
             radii: radii,
-        }
-    }
-
-    pub fn from_rect(rect: &Rect<f32>) -> ComplexClipRegion {
-        ComplexClipRegion {
-            rect: *rect,
-            radii: BorderRadius::zero(),
         }
     }
 }
@@ -244,16 +234,18 @@ pub trait RenderNotifier : Send {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ScrollLayerId(pub usize);
+pub enum ScrollLayerId {
+    Fixed,
+    Normal(PipelineId, usize)
+}
 
 impl ScrollLayerId {
-    pub fn new(value: usize) -> ScrollLayerId {
-        debug_assert!(value != FIXED_SCROLL_LAYER_ID);
-        ScrollLayerId(value)
+    pub fn new(pipeline_id: PipelineId, index: usize) -> ScrollLayerId {
+        ScrollLayerId::Normal(pipeline_id, index)
     }
 
     pub fn fixed_layer() -> ScrollLayerId {
-        ScrollLayerId(FIXED_SCROLL_LAYER_ID)
+        ScrollLayerId::Fixed
     }
 }
 
