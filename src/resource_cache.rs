@@ -358,6 +358,10 @@ fn run_raster_jobs(thread_pool: &mut scoped_threadpool::Pool,
                    font_templates: &HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>,
                    device_pixel_ratio: f32,
                    enable_aa: bool) {
+    if pending_raster_jobs.is_empty() {
+        return
+    }
+
     // Run raster jobs in parallel
     thread_pool.scoped(|scope| {
         for job in pending_raster_jobs {
