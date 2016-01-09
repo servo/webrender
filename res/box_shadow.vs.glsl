@@ -1,7 +1,7 @@
 void main(void)
 {
 	vPosition = aPosition.xy;
-	vColor = aColor;
+	vColor = aColorRectTL;
     vBorderPosition = aBorderPosition;
     vBorderRadii = aBorderRadii;
     vBlurRadius = aBlurRadius;

@@ -1,7 +1,7 @@
 void main(void)
 {
-	vColorTexCoord = aColorTexCoord;
-	vMaskTexCoord = aMaskTexCoord;
+	vColorTexCoord = aColorTexCoordRectTop.xy;
+	vMaskTexCoord = aMaskTexCoordRectTop.xy;
     gl_Position = uTransform * vec4(aPosition, 1.0);
 }
 

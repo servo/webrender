@@ -1,10 +1,12 @@
 use device::{ProgramId, TextureId};
 use euclid::{Point2D, Rect, Size2D};
-use internal_types::{MAX_RECT, AxisDirection, PackedVertex, PackedVertexForTextureCacheUpdate, Primitive};
+use internal_types::{MAX_RECT, AxisDirection, PackedVertexColorMode, PackedVertexForQuad};
+use internal_types::{PackedVertexForTextureCacheUpdate, RectUv};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
+use std::sync::Arc;
 use std::u16;
-use webrender_traits::{ComplexClipRegion};
+use webrender_traits::{ColorF, ComplexClipRegion};
 
 pub const MAX_MATRICES_PER_BATCH: usize = 32;
 pub const MAX_CLIP_RECTS_PER_BATCH: usize = 64;
@@ -60,16 +62,16 @@ impl VertexBufferId {
 
 pub struct VertexBuffer {
     pub id: VertexBufferId,
-    pub vertices: Vec<PackedVertex>,
-    pub indices: Vec<u16>,
+    pub instance_count: u32,
+    pub vertices: Vec<PackedVertexForQuad>,
 }
 
 impl VertexBuffer {
     pub fn new() -> VertexBuffer {
         VertexBuffer {
             id: VertexBufferId::new(),
-            vertices: Vec::new(),
-            indices: Vec::new(),
+            instance_count: 0,
+            vertices: vec![],
         }
     }
 }
@@ -78,14 +80,14 @@ impl VertexBuffer {
 pub struct Batch {
     pub color_texture_id: TextureId,
     pub mask_texture_id: TextureId,
-    pub first_vertex: u32,
-    pub index_count: u16,
+    pub first_instance: u32,
+    pub instance_count: u32,
     pub tile_params: Vec<TileParams>,
     pub clip_rects: Vec<Rect<f32>>,
 }
 
 impl Batch {
-    pub fn new(color_texture_id: TextureId, mask_texture_id: TextureId, first_vertex: u32)
+    pub fn new(color_texture_id: TextureId, mask_texture_id: TextureId, first_instance: u32)
                -> Batch {
         let default_tile_params = vec![
             TileParams {
@@ -103,8 +105,8 @@ impl Batch {
         Batch {
             color_texture_id: color_texture_id,
             mask_texture_id: mask_texture_id,
-            first_vertex: first_vertex,
-            index_count: 0,
+            first_instance: first_instance,
+            instance_count: 0,
             tile_params: default_tile_params,
             clip_rects: default_clip_rects,
         }
@@ -123,13 +125,11 @@ impl Batch {
     pub fn can_add_to_batch(&self,
                             color_texture_id: TextureId,
                             mask_texture_id: TextureId,
-                            index_count: u16,
                             needs_tile_params: bool,
                             clip_in_rect: &Rect<f32>,
                             clip_out_rect: &Option<Rect<f32>>) -> bool {
         let color_texture_ok = color_texture_id == self.color_texture_id;
         let mask_texture_ok = mask_texture_id == self.mask_texture_id;
-        let index_count_ok = (self.index_count as u32 + index_count as u32) < u16::MAX as u32;
         let tile_params_ok = !needs_tile_params ||
                              self.tile_params.len() < MAX_TILE_PARAMS_PER_BATCH;
 
@@ -155,17 +155,15 @@ impl Batch {
 
         color_texture_ok &&
         mask_texture_ok &&
-        index_count_ok &&
         tile_params_ok &&
         clip_rects_ok
     }
 
     pub fn add_draw_item(&mut self,
-                         index_count: u16,
                          tile_params: Option<TileParams>,
                          clip_in_rect: &Rect<f32>,
                          clip_out_rect: &Option<Rect<f32>>) -> (u8, u8, u8) {
-        self.index_count += index_count;
+        self.instance_count += 1;
 
         let tile_params_index = tile_params.map_or(INVALID_TILE_PARAM, |tile_params| {
             let index = self.tile_params.len();
@@ -298,85 +296,67 @@ impl<'a> BatchBuilder<'a> {
         self.complex_clip = None;
     }
 
-    pub fn add_draw_item(&mut self,
+    // Colors are in the order: top left, top right, bottom right, bottom left.
+    pub fn add_rectangle(&mut self,
                          color_texture_id: TextureId,
                          mask_texture_id: TextureId,
-                         primitive: Primitive,
-                         vertices: &mut [PackedVertex],
-                         tile_params: Option<TileParams>,) {
-        if let Some(ref clip_in_rect) = self.cached_clip_in_rect {
-            let index_count = match primitive {
-                Primitive::Rectangles => {
-                    (vertices.len() / 4 * 6) as u16
-                }
-                Primitive::Triangles => vertices.len() as u16,
-            };
-
-            let need_new_batch = match self.batches.last_mut() {
-                Some(batch) => {
-                    !batch.can_add_to_batch(color_texture_id,
-                                            mask_texture_id,
-                                            index_count,
-                                            tile_params.is_some(),
-                                            clip_in_rect,
-                                            &self.clip_out_rect)
-                }
-                None => {
-                    true
-                }
-            };
-
-            let index_offset = self.vertex_buffer.vertices.len();
-
-            if need_new_batch {
-                self.batches.push(Batch::new(color_texture_id,
-                                             mask_texture_id,
-                                             self.vertex_buffer.indices.len() as u32));
-            }
-
-            match primitive {
-                Primitive::Rectangles => {
-                    for i in (0..vertices.len()).step_by(4) {
-                        let index_base = (index_offset + i) as u16;
-                        debug_assert!(index_base as usize == index_offset + i);
-                        self.vertex_buffer.indices.push(index_base + 0);
-                        self.vertex_buffer.indices.push(index_base + 1);
-                        self.vertex_buffer.indices.push(index_base + 2);
-                        self.vertex_buffer.indices.push(index_base + 2);
-                        self.vertex_buffer.indices.push(index_base + 3);
-                        self.vertex_buffer.indices.push(index_base + 1);
+                         pos_rect: &Rect<f32>,
+                         uv_rect: &RectUv,
+                         muv_rect: &RectUv,
+                         colors: &[ColorF; 4],
+                         color_mode: PackedVertexColorMode,
+                         tile_params: Option<TileParams>) {
+        let (tile_params_index,
+             clip_in_rect_index,
+             clip_out_rect_index) = match self.cached_clip_in_rect {
+            None => return,
+            Some(ref clip_in_rect) => {
+                let need_new_batch = match self.batches.last_mut() {
+                    Some(batch) => {
+                        !batch.can_add_to_batch(color_texture_id,
+                                                mask_texture_id,
+                                                tile_params.is_some(),
+                                                clip_in_rect,
+                                                &self.clip_out_rect)
                     }
-                }
-                Primitive::Triangles => {
-                    for i in (0..vertices.len()).step_by(3) {
-                        let index_base = (index_offset + i) as u16;
-                        debug_assert!(index_base as usize == index_offset + i);
-                        self.vertex_buffer.indices.push(index_base + 0);
-                        self.vertex_buffer.indices.push(index_base + 1);
-                        self.vertex_buffer.indices.push(index_base + 2);
+                    None => {
+                        true
                     }
+                };
+
+                if need_new_batch {
+                    self.batches.push(Batch::new(color_texture_id,
+                                                 mask_texture_id,
+                                                 self.vertex_buffer.instance_count));
                 }
+
+                self.batches.last_mut().unwrap().add_draw_item(tile_params,
+                                                               clip_in_rect,
+                                                               &self.clip_out_rect)
             }
+        };
 
-            let (tile_params_index,
-                 clip_in_rect_index,
-                 clip_out_rect_index) = self.batches.last_mut().unwrap().add_draw_item(index_count,
-                                                                                       tile_params,
-                                                                                       clip_in_rect,
-                                                                                       &self.clip_out_rect);
+        let mut vertex = PackedVertexForQuad::new(pos_rect, colors, uv_rect, muv_rect, color_mode);
+        vertex.matrix_index = self.current_matrix_index;
+        vertex.tile_params_index = vertex.tile_params_index | tile_params_index;
+        vertex.clip_in_rect_index = clip_in_rect_index;
+        vertex.clip_out_rect_index = clip_out_rect_index;
 
-            for vertex in vertices.iter_mut() {
-                vertex.matrix_index = self.current_matrix_index;
-                vertex.tile_params_index = tile_params_index;
-                vertex.clip_in_rect_index = clip_in_rect_index;
-                vertex.clip_out_rect_index = clip_out_rect_index;
-            }
+        self.push_vertex_for_rectangle(vertex);
 
-            self.vertex_buffer.vertices.extend_from_slice(vertices);
+        self.vertex_buffer.instance_count += 1
+    }
 
-            // TODO(gw): Handle exceeding u16 index buffer!
-            debug_assert!(self.vertex_buffer.vertices.len() < 65535);
+    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    fn push_vertex_for_rectangle(&mut self, vertex: PackedVertexForQuad) {
+        for _ in 0..6 {
+            self.vertex_buffer.vertices.push(vertex);
         }
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
+    fn push_vertex_for_rectangle(&mut self, vertex: PackedVertexForQuad) {
+        self.vertex_buffer.vertices.push(vertex);
     }
 }
 

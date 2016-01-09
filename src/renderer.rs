@@ -1,7 +1,7 @@
 use batch::{RasterBatch, VertexBufferId};
 use debug_render::DebugRenderer;
 use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat};
-use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler};
+use device::{TextureFilter, VAOId, VBOId, VertexUsageHint, FileWatcherHandler};
 use euclid::{Rect, Matrix4, Point2D, Size2D};
 use fnv::FnvHasher;
 use gleam::gl;
@@ -46,6 +46,7 @@ const GL_BLEND_MAX: gl::GLuint = gl::MAX;
 #[cfg(any(target_os = "android", target_os = "gonk"))]
 const GL_BLEND_MAX: gl::GLuint = gl::FUNC_ADD;
 
+#[derive(Clone, Copy)]
 struct VertexBuffer {
     vao_id: VAOId,
 }
@@ -107,8 +108,9 @@ pub struct Renderer {
     pending_shader_updates: Vec<PathBuf>,
     current_frame: Option<RendererFrame>,
     device_pixel_ratio: f32,
-    vertex_buffers: HashMap<VertexBufferId, VertexBuffer, DefaultState<FnvHasher>>,
+    vertex_buffers: HashMap<VertexBufferId, Vec<VertexBufferAndOffset>, DefaultState<FnvHasher>>,
     raster_batches: Vec<RasterBatch>,
+    quad_vertex_buffer: Option<VBOId>,
 
     quad_program_id: ProgramId,
     u_quad_transform_array: UniformLocation,
@@ -239,6 +241,7 @@ impl Renderer {
             current_frame: None,
             vertex_buffers: HashMap::with_hash_state(Default::default()),
             raster_batches: Vec::new(),
+            quad_vertex_buffer: None,
             pending_texture_updates: Vec::new(),
             pending_batch_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
@@ -353,24 +356,34 @@ impl Renderer {
         for update_list in pending_batch_updates.drain(..) {
             for update in update_list.updates {
                 match update.op {
-                    BatchUpdateOp::Create(vertices, indices) => {
-                        let vao_id = self.device.create_vao(VertexFormat::Batch);
+                    BatchUpdateOp::Create(vertices) => {
+                        if self.quad_vertex_buffer.is_none() {
+                            self.quad_vertex_buffer = Some(self.device.create_quad_vertex_buffer())
+                        }
+
+                        let vao_id = self.device.create_vao(VertexFormat::Rectangles,
+                                                            self.quad_vertex_buffer);
                         self.device.bind_vao(vao_id);
 
-                        self.device.update_vao_indices(vao_id,
-                                                       &indices,
-                                                       VertexUsageHint::Static);
-                        self.device.update_vao_vertices(vao_id,
-                                                        &vertices,
-                                                        VertexUsageHint::Static);
+                        self.device.update_vao_aux_vertices(vao_id,
+                                                            &vertices,
+                                                            VertexUsageHint::Static);
 
-                        self.vertex_buffers.insert(update.id, VertexBuffer {
-                            vao_id: vao_id,
-                        });
+                        self.vertex_buffers.insert(update.id, vec![
+                            VertexBufferAndOffset {
+                                buffer: VertexBuffer {
+                                    vao_id: vao_id,
+                                },
+                                offset: 0,
+                            }
+                        ]);
                     }
                     BatchUpdateOp::Destroy => {
-                        let vertex_buffer = self.vertex_buffers.remove(&update.id).unwrap();
-                        self.device.delete_vao(vertex_buffer.vao_id);
+                        let vertex_buffers_and_offsets =
+                            self.vertex_buffers.remove(&update.id).unwrap();
+                        for vertex_buffer_and_offset in vertex_buffers_and_offsets.into_iter() {
+                            self.device.delete_vao(vertex_buffer_and_offset.buffer.vao_id);
+                        }
                     }
                 }
             }
@@ -903,15 +916,18 @@ impl Renderer {
     }
 
     fn perform_gl_texture_cache_update(&mut self, batch: RasterBatch) {
-        let vao_id = self.device.create_vao(VertexFormat::RasterOp);
+        let vao_id = self.device.create_vao(VertexFormat::RasterOp, None);
         self.device.bind_vao(vao_id);
 
         self.device.update_vao_indices(vao_id, &batch.indices[..], VertexUsageHint::Dynamic);
-        self.device.update_vao_vertices(vao_id, &batch.vertices[..], VertexUsageHint::Dynamic);
+        self.device.update_vao_main_vertices(vao_id,
+                                             &batch.vertices[..],
+                                             VertexUsageHint::Dynamic);
 
         self.profile_counters.vertices.add(batch.indices.len());
         self.profile_counters.draw_calls.inc();
 
+        println!("drawing triangles due to GL texture cache update");
         self.device.draw_triangles_u16(0, batch.indices.len() as gl::GLint);
         self.device.delete_vao(vao_id);
     }
@@ -1004,7 +1020,10 @@ impl Renderer {
                                                        &info.matrix_palette);
 
                     for draw_call in &info.draw_calls {
-                        let vao_id = self.vertex_buffers[&draw_call.vertex_buffer_id].vao_id;
+                        let vao_id = self.get_or_create_similar_vao_with_offset(
+                            draw_call.vertex_buffer_id,
+                            VertexFormat::Rectangles,
+                            draw_call.first_instance);
                         self.device.bind_vao(vao_id);
 
                         if draw_call.tile_params.len() > 0 {
@@ -1051,12 +1070,10 @@ impl Renderer {
                                                    mask_size.0 as f32,
                                                    mask_size.1 as f32);
 
-                        let index_count = draw_call.index_count as i32;
-
                         self.profile_counters.draw_calls.inc();
 
-                        self.device.draw_triangles_u16(draw_call.first_vertex as i32,
-                                                       index_count);
+                        self.device
+                            .draw_triangles_instanced_u16(0, 6, draw_call.instance_count as i32);
                     }
                 }
                 &DrawCommand::CompositeBatch(ref info) => {
@@ -1346,6 +1363,34 @@ impl Renderer {
         }
     }
 
+    fn get_or_create_similar_vao_with_offset(&mut self,
+                                             source_vertex_buffer_id: VertexBufferId,
+                                             format: VertexFormat,
+                                             offset: u32)
+                                             -> VAOId {
+        let source_vertex_buffers_and_offsets =
+            self.vertex_buffers.get_mut(&source_vertex_buffer_id)
+                               .expect("Didn't find source vertex buffer ID in \
+                                        `get_or_create_similar_vao_with_offset()`!");
+        if let Some(vertex_buffer_and_offset) =
+                source_vertex_buffers_and_offsets.iter().find(|vertex_buffer| {
+                    vertex_buffer.offset == offset
+                }) {
+            return vertex_buffer_and_offset.buffer.vao_id
+        }
+
+        let vao =
+            self.device.create_similar_vao(format,
+                                           source_vertex_buffers_and_offsets[0].buffer.vao_id,
+                                           offset);
+        source_vertex_buffers_and_offsets.push(VertexBufferAndOffset {
+            buffer: VertexBuffer {
+                vao_id: vao,
+            },
+            offset: offset,
+        });
+        vao
+    }
 }
 
 fn draw_simple_triangles(device: &mut Device,
@@ -1355,16 +1400,21 @@ fn draw_simple_triangles(device: &mut Device,
                          texture: TextureId) {
     // TODO(glennw): Don't re-create this VAO all the time. Create it once and set positions
     // via uniforms.
-    let vao_id = device.create_vao(VertexFormat::Batch);
+    let vao_id = device.create_vao(VertexFormat::Triangles, None);
     device.bind_color_texture(texture);
     device.bind_vao(vao_id);
     device.update_vao_indices(vao_id, &indices[..], VertexUsageHint::Dynamic);
-    device.update_vao_vertices(vao_id, &vertices[..], VertexUsageHint::Dynamic);
+    device.update_vao_main_vertices(vao_id, &vertices[..], VertexUsageHint::Dynamic);
 
     profile_counters.vertices.add(indices.len());
     profile_counters.draw_calls.inc();
 
     device.draw_triangles_u16(0, indices.len() as gl::GLint);
     device.delete_vao(vao_id);
+}
+
+struct VertexBufferAndOffset {
+    buffer: VertexBuffer,
+    offset: u32,
 }
 

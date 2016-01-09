@@ -13,15 +13,26 @@ uniform float uDevicePixelRatio;
 uniform vec4 uTileParams[64];
 
 attribute vec3 aPosition;
-attribute vec4 aColor;
-attribute vec2 aColorTexCoord;
-attribute vec2 aMaskTexCoord;
+attribute vec4 aPositionRect;  // Width can be negative to flip horizontally (for border corners).
+attribute vec4 aColorRectTL;
+attribute vec4 aColorRectTR;
+attribute vec4 aColorRectBR;
+attribute vec4 aColorRectBL;
+attribute vec4 aColorTexCoordRectTop;
+attribute vec4 aColorTexCoordRectBottom;
+attribute vec4 aMaskTexCoordRectTop;
+attribute vec4 aMaskTexCoordRectBottom;
 attribute vec4 aBorderPosition;
 attribute vec4 aBorderRadii;
 attribute vec2 aSourceTextureSize;
 attribute vec2 aDestTextureSize;
 attribute float aBlurRadius;
-attribute vec4 aMisc;   // x = matrix index; w = tile params index
+// x = matrix index; y = clip-in rect; z = clip-out rect; w = tile params index.
+//
+// A negative w value activates border corner mode. In this mode, the TR and BL colors are ignored,
+// the color of the top left corner applies to all vertices of the top left triangle, and the color
+// of the bottom right corner applies to all vertices of the bottom right triangle.
+attribute vec4 aMisc;
 
 varying vec2 vPosition;
 varying vec4 vColor;
@@ -35,3 +46,13 @@ varying float vBlurRadius;
 varying vec4 vTileParams;
 varying vec4 vClipInRect;
 varying vec4 vClipOutRect;
+
+int Bottom7Bits(int value) {
+    return value % 0x80;
+}
+
+bool IsBottomTriangle() {
+    // FIXME(pcwalton): No gl_VertexID in OpenGL ES 2. We'll need some extra data.
+    return false;
+}
+

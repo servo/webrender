@@ -194,8 +194,8 @@ impl RenderTarget {
                                         vertex_buffer_id: vertex_buffer_id,
                                         color_texture_id: batch.color_texture_id,
                                         mask_texture_id: batch.mask_texture_id,
-                                        first_vertex: batch.first_vertex,
-                                        index_count: batch.index_count,
+                                        first_instance: batch.first_instance,
+                                        instance_count: batch.instance_count,
                                     });
                                 }
                             }
@@ -1123,8 +1123,7 @@ impl Frame {
 
                         self.pending_updates.push(BatchUpdate {
                             id: vertex_buffer.id,
-                            op: BatchUpdateOp::Create(vertex_buffer.vertices,
-                                                      vertex_buffer.indices),
+                            op: BatchUpdateOp::Create(vertex_buffer.vertices),
                         });
 
                         compiled_node.vertex_buffer_id = Some(vertex_buffer.id);

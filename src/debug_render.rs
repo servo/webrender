@@ -28,9 +28,9 @@ impl DebugRenderer {
         let font_program_id = device.create_program("debug_font");
         let color_program_id = device.create_program("debug_color");
 
-        let font_vao = device.create_vao(VertexFormat::DebugFont);
-        let line_vao = device.create_vao(VertexFormat::DebugColor);
-        let tri_vao = device.create_vao(VertexFormat::DebugColor);
+        let font_vao = device.create_vao(VertexFormat::DebugFont, None);
+        let line_vao = device.create_vao(VertexFormat::DebugColor, None);
+        let tri_vao = device.create_vao(VertexFormat::DebugColor, None);
 
         let font_texture_id = device.create_texture_ids(1)[0];
         device.init_texture(font_texture_id,
@@ -179,16 +179,16 @@ impl DebugRenderer {
             device.update_vao_indices(self.tri_vao,
                                       &self.tri_indices,
                                       VertexUsageHint::Dynamic);
-            device.update_vao_vertices(self.tri_vao,
-                                       &self.tri_vertices,
-                                       VertexUsageHint::Dynamic);
+            device.update_vao_main_vertices(self.tri_vao,
+                                            &self.tri_vertices,
+                                            VertexUsageHint::Dynamic);
             device.draw_triangles_u32(0, self.tri_indices.len() as gl::GLint);
 
             // Lines
             device.bind_vao(self.line_vao);
-            device.update_vao_vertices(self.line_vao,
-                                       &self.line_vertices,
-                                       VertexUsageHint::Dynamic);
+            device.update_vao_main_vertices(self.line_vao,
+                                            &self.line_vertices,
+                                            VertexUsageHint::Dynamic);
             device.draw_nonindexed_lines(0, self.line_vertices.len() as gl::GLint);
 
             // Glyphs
@@ -198,9 +198,9 @@ impl DebugRenderer {
             device.update_vao_indices(self.font_vao,
                                       &self.font_indices,
                                       VertexUsageHint::Dynamic);
-            device.update_vao_vertices(self.font_vao,
-                                       &self.font_vertices,
-                                       VertexUsageHint::Dynamic);
+            device.update_vao_main_vertices(self.font_vao,
+                                            &self.font_vertices,
+                                            VertexUsageHint::Dynamic);
             device.draw_triangles_u32(0, self.font_indices.len() as gl::GLint);
         }
 
