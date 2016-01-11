@@ -1,5 +1,5 @@
 use app_units::Au;
-use batch::{VertexBuffer, Batch, VertexBufferId, OffsetParams, TileParams};
+use batch::{VertexBuffer, Batch, VertexBufferId, OffsetParams};
 use device::{TextureId, TextureFilter};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
