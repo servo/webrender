@@ -1,6 +1,6 @@
 #![feature(plugin)]
 #![feature(custom_derive)]
-#![feature(core, nonzero)]
+#![feature(nonzero)]
 #![plugin(serde_macros)]
 
 extern crate app_units;

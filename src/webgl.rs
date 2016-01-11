@@ -6,7 +6,7 @@ use offscreen_gl_context::{GLContext, GLContextAttributes, NativeGLContextMethod
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct WebGLContextId(pub usize);
 
-#[derive(Clone, Copy, PartialEq, Deserialize, Serialize, HeapSizeOf)]
+#[derive(Clone, Copy, PartialEq, Deserialize, Serialize)]
 pub enum WebGLError {
     InvalidEnum,
     InvalidOperation,
