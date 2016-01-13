@@ -967,6 +967,22 @@ impl Renderer {
                     self.device.set_uniform_mat4_array(self.u_quad_transform_array,
                                                        &info.matrix_palette);
 
+                    if let Some(clip_rect) = info.clip_rect {
+                        debug_assert!(clip_rect.origin.y + clip_rect.size.height <= layer.layer_size.height);
+
+                        let clip_x0 = clip_rect.origin.x as gl::GLint;
+                        let clip_y0 = (layer.layer_size.height -
+                                      clip_rect.size.height -
+                                      clip_rect.origin.y) as gl::GLint;
+                        let clip_width = clip_rect.size.width as gl::GLint;
+                        let clip_height = clip_rect.size.height as gl::GLint;
+
+                        gl::scissor(self.device_pixel_ratio as gl::GLint * clip_x0,
+                                    self.device_pixel_ratio as gl::GLint * clip_y0,
+                                    self.device_pixel_ratio as gl::GLint * clip_width,
+                                    self.device_pixel_ratio as gl::GLint * clip_height);
+                    }
+
                     for draw_call in &info.draw_calls {
                         let vao_id = self.vertex_buffers[&draw_call.vertex_buffer_id].vao_id;
                         self.device.bind_vao(vao_id);

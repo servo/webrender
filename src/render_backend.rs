@@ -164,9 +164,7 @@ impl RenderBackend {
                         }
                         ApiMsg::Scroll(delta) => {
                             let frame = profile_counters.total_time.profile(|| {
-                                let viewport_size = Size2D::new(self.viewport.size.width as f32,
-                                                                self.viewport.size.height as f32);
-                                self.frame.scroll(&delta, &viewport_size);
+                                self.frame.scroll(&delta);
                                 self.render()
                             });
 
@@ -175,9 +173,16 @@ impl RenderBackend {
                         ApiMsg::TranslatePointToLayerSpace(point, tx) => {
                             // TODO(pcwalton): Select other layers for mouse events.
                             let point = point / self.device_pixel_ratio;
-                            match self.frame.layers.get_mut(&ScrollLayerId(0)) {
-                                None => tx.send(point).unwrap(),
-                                Some(layer) => tx.send(point - layer.scroll_offset).unwrap(),
+                            match self.scene.root_pipeline_id {
+                                Some(root_pipeline_id) => {
+                                    match self.frame.layers.get_mut(&ScrollLayerId::new(root_pipeline_id, 0)) {
+                                        None => tx.send(point).unwrap(),
+                                        Some(layer) => tx.send(point - layer.scroll_offset).unwrap(),
+                                    }
+                                }
+                                None => {
+                                    tx.send(point).unwrap()
+                                }
                             }
                         }
                         ApiMsg::RequestWebGLContext(size, attributes, tx) => {
@@ -286,8 +291,7 @@ impl RenderBackend {
     }
 
     fn render(&mut self) -> RendererFrame {
-        let frame = self.frame.build(&self.viewport,
-                                     &mut self.resource_cache,
+        let frame = self.frame.build(&mut self.resource_cache,
                                      &mut self.thread_pool,
                                      self.device_pixel_ratio);
 

@@ -39,10 +39,9 @@ void main(void)
     vClipOutRect = uClipRects[int(aMisc.z)];
     vPosition = localPos.xy;
 
-    localPos.xy += offsetParams.xy;
-    localPos.xy = SnapToPixels(localPos.xy);
-
     vec4 worldPos = matrix * localPos;
+    worldPos.xy += offsetParams.xy;
+    worldPos.xy += offsetParams.zw;
     worldPos.xy = SnapToPixels(worldPos.xy);
 
     // Transform by the orthographic projection into clip space.
