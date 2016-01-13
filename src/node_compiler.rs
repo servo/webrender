@@ -50,9 +50,10 @@ impl NodeCompiler for AABBTreeNode {
                         let DrawListItemIndex(index) = *index;
                         let display_item = &draw_list.items[index as usize];
 
-                        let clip_rect = display_item.clip.main.intersection(&context.local_overflow);
+                        let clip_rect = display_item.clip.main.intersection(&context.local_clip_rect);
                         let clip_rect = clip_rect.and_then(|clip_rect| {
-                            let split_rect_local_space = self.split_rect.translate(&-context.world_origin);
+                            let split_rect_local_space = self.split_rect
+                                                             .translate(&-context.offset_from_layer);
                             clip_rect.intersection(&split_rect_local_space)
                         });
 

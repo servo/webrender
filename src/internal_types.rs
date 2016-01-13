@@ -11,8 +11,7 @@ use std::sync::Arc;
 use texture_cache::TextureCacheItem;
 use util::{self, RectVaryings};
 use webrender_traits::{FontKey, Epoch, ColorF, PipelineId};
-use webrender_traits::{ImageFormat, ScrollLayerId};
-use webrender_traits::{MixBlendMode, NativeFontHandle, DisplayItem};
+use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem};
 
 const UV_FLOAT_TO_FIXED: f32 = 65535.0;
 const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
@@ -333,15 +332,18 @@ pub struct DrawCall {
 pub struct BatchInfo {
     pub matrix_palette: Vec<Matrix4>,
     pub offset_palette: Vec<OffsetParams>,
+    pub clip_rect: Option<Rect<u32>>,
     pub draw_calls: Vec<DrawCall>,
 }
 
 impl BatchInfo {
     pub fn new(matrix_palette: Vec<Matrix4>,
-               offset_palette: Vec<OffsetParams>) -> BatchInfo {
+               offset_palette: Vec<OffsetParams>,
+               clip_rect: Option<Rect<u32>>) -> BatchInfo {
         BatchInfo {
             matrix_palette: matrix_palette,
             offset_palette: offset_palette,
+            clip_rect: clip_rect,
             draw_calls: Vec::new(),
         }
     }
@@ -441,14 +443,10 @@ pub struct RenderTargetId(pub usize);
 
 #[derive(Debug, Clone)]
 pub struct StackingContextInfo {
-    pub world_origin: Point2D<f32>,
-
-    pub local_overflow: Rect<f32>,
-
-    pub world_transform: Matrix4,
-    pub world_perspective: Matrix4,
-
-    pub scroll_layer_id: ScrollLayerId,
+    pub offset_from_layer: Point2D<f32>,
+    pub local_clip_rect: Rect<f32>,
+    pub transform: Matrix4,
+    pub perspective: Matrix4,
 }
 
 #[derive(Debug)]

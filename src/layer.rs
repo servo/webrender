@@ -7,17 +7,20 @@ pub struct Layer {
     // TODO: Remove pub from here if possible in the future
     pub aabb_tree: AABBTree,
     pub scroll_offset: Point2D<f32>,
-    pub scroll_boundaries: Size2D<f32>,
+    pub world_origin: Point2D<f32>,
+    pub viewport_size: Size2D<f32>,
 }
 
 impl Layer {
-    pub fn new(scene_rect: &Rect<f32>, scroll_offset: &Point2D<f32>) -> Layer {
-        let aabb_tree = AABBTree::new(1024.0, scene_rect);
+    pub fn new(world_origin: Point2D<f32>,
+               viewport_size: Size2D<f32>) -> Layer {
+        let aabb_tree = AABBTree::new(1024.0);
 
         Layer {
             aabb_tree: aabb_tree,
-            scroll_offset: *scroll_offset,
-            scroll_boundaries: Size2D::zero(),
+            world_origin: world_origin,
+            scroll_offset: Point2D::zero(),
+            viewport_size: viewport_size,
         }
     }
 
@@ -35,7 +38,7 @@ impl Layer {
 
     #[inline]
     pub fn insert(&mut self,
-                  rect: &Rect<f32>,
+                  rect: Rect<f32>,
                   draw_list_group_id: DrawListGroupId,
                   draw_list_id: DrawListId,
                   item_index: DrawListItemIndex) {
@@ -45,7 +48,19 @@ impl Layer {
                               item_index);
     }
 
-    pub fn cull(&mut self, viewport_rect: &Rect<f32>) {
+    pub fn size(&self) -> Size2D<f32> {
+        self.aabb_tree.local_bounds.size
+    }
+
+    pub fn finalize(&mut self,
+                    initial_scroll_offset: Point2D<f32>) {
+        self.scroll_offset = initial_scroll_offset;
+        self.aabb_tree.finalize();
+    }
+
+    pub fn cull(&mut self) {
+        // TODO(gw): Take viewport_size into account here!!!
+        let viewport_rect = Rect::new(Point2D::zero(), self.viewport_size);
         let adjusted_viewport = viewport_rect.translate(&-self.scroll_offset);
         self.aabb_tree.cull(&adjusted_viewport);
     }
