@@ -1,7 +1,8 @@
 use aabbtree::{AABBTree, NodeIndex};
-use euclid::{Point2D, Rect, Size2D};
+use euclid::{Point2D, Rect, Size2D, Matrix4};
 use internal_types::{BatchUpdate, BatchUpdateList, BatchUpdateOp};
 use internal_types::{DrawListItemIndex, DrawListId, DrawListGroupId};
+use webrender_traits::ScrollLayerId;
 
 pub struct Layer {
     // TODO: Remove pub from here if possible in the future
@@ -10,12 +11,16 @@ pub struct Layer {
     pub viewport_size: Size2D<f32>,
     pub layer_size: Size2D<f32>,
     pub world_origin: Point2D<f32>,
+    pub local_transform: Matrix4,
+    pub world_transform: Matrix4,
+    pub children: Vec<ScrollLayerId>,
 }
 
 impl Layer {
     pub fn new(world_origin: Point2D<f32>,
                layer_size: Size2D<f32>,
-               viewport_size: Size2D<f32>) -> Layer {
+               viewport_size: Size2D<f32>,
+               transform: Matrix4) -> Layer {
         let rect = Rect::new(Point2D::zero(), layer_size);
         let aabb_tree = AABBTree::new(1024.0, &rect);
 
@@ -25,7 +30,14 @@ impl Layer {
             viewport_size: viewport_size,
             world_origin: world_origin,
             layer_size: layer_size,
+            local_transform: transform,
+            world_transform: transform,
+            children: Vec::new(),
         }
+    }
+
+    pub fn add_child(&mut self, child: ScrollLayerId) {
+        self.children.push(child);
     }
 
     pub fn reset(&mut self, pending_updates: &mut BatchUpdateList) {
