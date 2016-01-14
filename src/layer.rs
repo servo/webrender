@@ -7,20 +7,24 @@ pub struct Layer {
     // TODO: Remove pub from here if possible in the future
     pub aabb_tree: AABBTree,
     pub scroll_offset: Point2D<f32>,
-    pub world_origin: Point2D<f32>,
     pub viewport_size: Size2D<f32>,
+    pub layer_size: Size2D<f32>,
+    pub world_origin: Point2D<f32>,
 }
 
 impl Layer {
     pub fn new(world_origin: Point2D<f32>,
+               layer_size: Size2D<f32>,
                viewport_size: Size2D<f32>) -> Layer {
-        let aabb_tree = AABBTree::new(1024.0);
+        let rect = Rect::new(Point2D::zero(), layer_size);
+        let aabb_tree = AABBTree::new(1024.0, &rect);
 
         Layer {
             aabb_tree: aabb_tree,
-            world_origin: world_origin,
             scroll_offset: Point2D::zero(),
             viewport_size: viewport_size,
+            world_origin: world_origin,
+            layer_size: layer_size,
         }
     }
 
@@ -46,10 +50,6 @@ impl Layer {
                               draw_list_group_id,
                               draw_list_id,
                               item_index);
-    }
-
-    pub fn size(&self) -> Size2D<f32> {
-        self.aabb_tree.local_bounds.size
     }
 
     pub fn finalize(&mut self,
