@@ -983,7 +983,6 @@ impl Renderer {
 
                         // TODO(gw): Can this unwrap ever fail!?
                         let scissor_rect = layer_rect.intersection(&clip_rect).unwrap();
-
                         gl::scissor(self.device_pixel_ratio as gl::GLint * scissor_rect.origin.x as gl::GLint,
                                     self.device_pixel_ratio as gl::GLint * scissor_rect.origin.y as gl::GLint,
                                     self.device_pixel_ratio as gl::GLint * scissor_rect.size.width as gl::GLint,
@@ -1318,7 +1317,9 @@ impl Renderer {
                 device_pixel_ratio: self.device_pixel_ratio,
             };
 
-            gl::enable(gl::DEPTH_TEST);
+            // TODO(gw): Doesn't work well with transforms.
+            //           Look into this...
+            gl::disable(gl::DEPTH_TEST);
             gl::depth_func(gl::LEQUAL);
             gl::enable(gl::SCISSOR_TEST);
 

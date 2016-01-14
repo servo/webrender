@@ -154,14 +154,11 @@ impl RenderTarget {
                         let StackingContextIndex(stacking_context_id) = draw_list.stacking_context_index.unwrap();
                         let context = &stacking_context_info[stacking_context_id];
 
-                        matrix_palette[index] = context.transform;
+                        let transform = layer.world_transform.mul(&context.transform);
+                        matrix_palette[index] = transform;
 
-                        offset_palette[index].stacking_context_x0 = context.offset_from_layer.x +
-                                                                    layer.world_origin.x +
-                                                                    layer.scroll_offset.x;
-                        offset_palette[index].stacking_context_y0 = context.offset_from_layer.y +
-                                                                    layer.world_origin.y +
-                                                                    layer.scroll_offset.y;
+                        offset_palette[index].stacking_context_x0 = context.offset_from_layer.x;
+                        offset_palette[index].stacking_context_y0 = context.offset_from_layer.y;
                     }
 
                     let mut clip_rect = None;
@@ -326,6 +323,7 @@ pub struct Frame {
     next_render_target_id: RenderTargetId,
     next_draw_list_group_id: DrawListGroupId,
     draw_list_groups: HashMap<DrawListGroupId, DrawListGroup, DefaultState<FnvHasher>>,
+    root_scroll_layer_id: Option<ScrollLayerId>,
 }
 
 enum SceneItemKind<'a> {
@@ -532,6 +530,7 @@ impl Frame {
             next_render_target_id: RenderTargetId(0),
             next_draw_list_group_id: DrawListGroupId(0),
             draw_list_groups: HashMap::with_hash_state(Default::default()),
+            root_scroll_layer_id: None,
         }
     }
 
@@ -607,6 +606,7 @@ impl Frame {
                 let root_scroll_layer_id = root_stacking_context.stacking_context
                                                                 .scroll_layer_id
                                                                 .expect("root layer must be a scroll layer!");
+                self.root_scroll_layer_id = Some(root_scroll_layer_id);
 
                 let root_target_id = self.next_render_target_id();
 
@@ -620,7 +620,8 @@ impl Frame {
                                    Layer::new(root_stacking_context.stacking_context.overflow.origin,
                                               root_stacking_context.stacking_context.overflow.size,
                                               Size2D::new(viewport_size.width as f32,
-                                                          viewport_size.height as f32)));
+                                                          viewport_size.height as f32),
+                                              Matrix4::identity()));
 
                 // Work around borrow check on resource cache
                 {
@@ -804,41 +805,12 @@ impl Frame {
                                          .translate(&-stacking_context.bounds.origin)
                                          .intersection(&stacking_context.overflow);
 
-/*
-        let mut indent = String::new();
-        for _ in 0..level {
-            indent.push_str("  ");
-        }
-*/
-
         if let Some(local_clip_rect) = local_clip_rect {
             let scene_items = scene_item.collect_scene_items(&context.scene);
             if !scene_items.is_empty() {
 
-                let (this_scroll_layer, default_scroll_layer, offset_from_layer) = match stacking_context.scroll_policy {
-                    ScrollPolicy::Scrollable => {
-                        match stacking_context.scroll_layer_id {
-                            Some(scroll_layer_id) => {
-                                debug_assert!(!self.layers.contains_key(&scroll_layer_id));
-                                let layer = Layer::new(parent_info.offset_from_origin,
-                                                       stacking_context.overflow.size,
-                                                       parent_info.viewport_size);
-                                self.layers.insert(scroll_layer_id, layer);
-                                (scroll_layer_id, scroll_layer_id, Point2D::zero())
-                            }
-                            None => {
-                                (parent_info.default_scroll_layer_id, parent_info.default_scroll_layer_id, parent_info.offset_from_current_layer)
-                            }
-                        }
-                    }
-                    ScrollPolicy::Fixed => {
-                        debug_assert!(stacking_context.scroll_layer_id.is_none());
-                        (ScrollLayerId::fixed_layer(), parent_info.default_scroll_layer_id, parent_info.offset_from_origin)
-                    }
-                };
-
                 // Build world space transform
-                let origin = Point2D::zero();
+                let origin = parent_info.offset_from_current_layer + stacking_context.bounds.origin;
                 let local_transform = Matrix4::identity().translate(origin.x, origin.y, 0.0)
                                                          .mul(&stacking_context.transform)
                                                          .translate(-origin.x, -origin.y, 0.0);
@@ -851,16 +823,42 @@ impl Frame {
                                                      .mul(&stacking_context.perspective)
                                                      .translate(-origin.x, -origin.y, 0.0);
 
-                let info = FlattenInfo {
+                let mut info = FlattenInfo {
                     viewport_size: parent_info.viewport_size,
                     offset_from_origin: parent_info.offset_from_origin + stacking_context.bounds.origin,
-                    offset_from_current_layer: offset_from_layer + stacking_context.bounds.origin,
-                    default_scroll_layer_id: default_scroll_layer,
-                    actual_scroll_layer_id: this_scroll_layer,
+                    offset_from_current_layer: parent_info.offset_from_current_layer + stacking_context.bounds.origin,
+                    default_scroll_layer_id: parent_info.default_scroll_layer_id,
+                    actual_scroll_layer_id: parent_info.default_scroll_layer_id,
                     current_clip_rect: local_clip_rect,
                     transform: transform,
                     perspective: perspective,
                 };
+
+                match (stacking_context.scroll_policy, stacking_context.scroll_layer_id) {
+                    (ScrollPolicy::Fixed, _scroll_layer_id) => {
+                        debug_assert!(_scroll_layer_id.is_none());
+                        info.actual_scroll_layer_id = ScrollLayerId::fixed_layer();
+                    }
+                    (ScrollPolicy::Scrollable, Some(scroll_layer_id)) => {
+                        debug_assert!(!self.layers.contains_key(&scroll_layer_id));
+                        let layer = Layer::new(parent_info.offset_from_origin,
+                                               stacking_context.overflow.size,
+                                               parent_info.viewport_size,
+                                               transform);
+                        if parent_info.actual_scroll_layer_id != scroll_layer_id {
+                            self.layers.get_mut(&parent_info.actual_scroll_layer_id).unwrap().add_child(scroll_layer_id);
+                        }
+                        self.layers.insert(scroll_layer_id, layer);
+                        info.default_scroll_layer_id = scroll_layer_id;
+                        info.actual_scroll_layer_id = scroll_layer_id;
+                        info.offset_from_current_layer = Point2D::zero();
+                        info.transform = Matrix4::identity();
+                        info.perspective = Matrix4::identity();
+                    }
+                    (ScrollPolicy::Scrollable, None) => {
+                        // Nothing to do - use defaults as set above.
+                    }
+                }
 
                 // When establishing a new 3D context, clear Z. This is only needed if there
                 // are child stacking contexts, otherwise it is a redundant clear.
@@ -908,16 +906,7 @@ impl Frame {
                                               render_target_index);
                     }
 
-                    let info = FlattenInfo {
-                        viewport_size: parent_info.viewport_size,
-                        offset_from_origin: Point2D::zero(),
-                        offset_from_current_layer: Point2D::zero(),
-                        default_scroll_layer_id: default_scroll_layer,
-                        actual_scroll_layer_id: this_scroll_layer,
-                        current_clip_rect: local_clip_rect,
-                        transform: transform,
-                        perspective: perspective,
-                    };
+                    info.offset_from_current_layer = Point2D::zero();
 
                     self.add_items_to_target(&scene_items,
                                              &info,
@@ -959,10 +948,43 @@ impl Frame {
         // Update the batch cache from newly compiled nodes
         self.update_batch_cache();
 
+        // Update the layer transform matrices
+        self.update_layer_transforms();
+
         // Collect the visible batches into a frame
         let frame = self.collect_and_sort_visible_batches(resource_cache, device_pixel_ratio);
 
         frame
+    }
+
+    fn update_layer_transform(&mut self,
+                              layer_id: ScrollLayerId,
+                              parent_transform: &Matrix4) {
+        // TODO(gw): This is an ugly borrow check workaround to clone these.
+        //           Restructure this to avoid the clones!
+        let (layer_transform, layer_children) = {
+            match self.layers.get_mut(&layer_id) {
+                Some(layer) => {
+                    layer.world_transform = parent_transform.mul(&layer.local_transform)
+                                                            .translate(layer.world_origin.x, layer.world_origin.y, 0.0)
+                                                            .translate(layer.scroll_offset.x, layer.scroll_offset.y, 0.0);
+                    (layer.world_transform, layer.children.clone())
+                }
+                None => {
+                    return;
+                }
+            }
+        };
+
+        for child_layer_id in layer_children {
+            self.update_layer_transform(child_layer_id, &layer_transform);
+        }
+    }
+
+    fn update_layer_transforms(&mut self) {
+        if let Some(root_scroll_layer_id) = self.root_scroll_layer_id {
+            self.update_layer_transform(root_scroll_layer_id, &Matrix4::identity());
+        }
     }
 
     pub fn update_resource_lists(&mut self,
