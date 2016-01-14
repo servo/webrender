@@ -575,7 +575,7 @@ impl Frame {
     pub fn scroll(&mut self, delta: &Point2D<f32>) {
         // TODO: Select correct layer for scrolling!
         for (_, layer) in &mut self.layers {
-            let layer_size = layer.size();
+            let layer_size = layer.layer_size;
 
             if layer_size.width > layer.viewport_size.width {
                 layer.scroll_offset.x = layer.scroll_offset.x + delta.x;
@@ -617,7 +617,10 @@ impl Frame {
                 // Insert global position: fixed elements layer
                 debug_assert!(self.layers.is_empty());
                 self.layers.insert(ScrollLayerId::fixed_layer(),
-                                   Layer::new(Point2D::zero(), root_stacking_context.stacking_context.bounds.size));
+                                   Layer::new(root_stacking_context.stacking_context.overflow.origin,
+                                              root_stacking_context.stacking_context.overflow.size,
+                                              Size2D::new(viewport_size.width as f32,
+                                                          viewport_size.height as f32)));
 
                 // Work around borrow check on resource cache
                 {
@@ -780,7 +783,7 @@ impl Frame {
                    parent_info: &FlattenInfo,
                    context: &mut FlattenContext,
                    target: &mut RenderTarget,
-                   _level: i32) {
+                   level: i32) {
         let _pf = util::ProfileScope::new("  flatten");
 
         let stacking_context = match scene_item {
@@ -797,16 +800,16 @@ impl Frame {
             }
         };
 
+        let local_clip_rect = parent_info.current_clip_rect
+                                         .translate(&-stacking_context.bounds.origin)
+                                         .intersection(&stacking_context.overflow);
+
 /*
         let mut indent = String::new();
         for _ in 0..level {
             indent.push_str("  ");
         }
 */
-
-        let local_clip_rect = parent_info.current_clip_rect
-                                         .translate(&-stacking_context.bounds.origin)
-                                         .intersection(&stacking_context.overflow);
 
         if let Some(local_clip_rect) = local_clip_rect {
             let scene_items = scene_item.collect_scene_items(&context.scene);
@@ -818,6 +821,7 @@ impl Frame {
                             Some(scroll_layer_id) => {
                                 debug_assert!(!self.layers.contains_key(&scroll_layer_id));
                                 let layer = Layer::new(parent_info.offset_from_origin,
+                                                       stacking_context.overflow.size,
                                                        parent_info.viewport_size);
                                 self.layers.insert(scroll_layer_id, layer);
                                 (scroll_layer_id, scroll_layer_id, Point2D::zero())
@@ -876,7 +880,7 @@ impl Frame {
                                              &info,
                                              target,
                                              context,
-                                             _level);
+                                             level);
                 } else {
                     let target_size = Size2D::new(local_clip_rect.size.width as i32,
                                                   local_clip_rect.size.height as i32);
@@ -919,7 +923,7 @@ impl Frame {
                                              &info,
                                              &mut new_target,
                                              context,
-                                             _level);
+                                             level);
 
                     target.children.push(new_target);
                 }
