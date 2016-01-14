@@ -968,19 +968,26 @@ impl Renderer {
                                                        &info.matrix_palette);
 
                     if let Some(clip_rect) = info.clip_rect {
-                        debug_assert!(clip_rect.origin.y + clip_rect.size.height <= layer.layer_size.height);
+                        let layer_rect = Rect::new(Point2D::zero(),
+                                                   Size2D::new(layer.layer_size.width as i32,
+                                                               layer.layer_size.height as i32));
 
-                        let clip_x0 = clip_rect.origin.x as gl::GLint;
-                        let clip_y0 = (layer.layer_size.height -
-                                      clip_rect.size.height -
-                                      clip_rect.origin.y) as gl::GLint;
-                        let clip_width = clip_rect.size.width as gl::GLint;
-                        let clip_height = clip_rect.size.height as gl::GLint;
+                        let clip_y0 = layer.layer_size.height as i32 -
+                                      clip_rect.size.height as i32 -
+                                      clip_rect.origin.y as i32;
 
-                        gl::scissor(self.device_pixel_ratio as gl::GLint * clip_x0,
-                                    self.device_pixel_ratio as gl::GLint * clip_y0,
-                                    self.device_pixel_ratio as gl::GLint * clip_width,
-                                    self.device_pixel_ratio as gl::GLint * clip_height);
+                        let clip_rect = Rect::new(Point2D::new(clip_rect.origin.x as i32,
+                                                               clip_y0),
+                                                  Size2D::new(clip_rect.size.width as i32,
+                                                              clip_rect.size.height as i32));
+
+                        // TODO(gw): Can this unwrap ever fail!?
+                        let scissor_rect = layer_rect.intersection(&clip_rect).unwrap();
+
+                        gl::scissor(self.device_pixel_ratio as gl::GLint * scissor_rect.origin.x as gl::GLint,
+                                    self.device_pixel_ratio as gl::GLint * scissor_rect.origin.y as gl::GLint,
+                                    self.device_pixel_ratio as gl::GLint * scissor_rect.size.width as gl::GLint,
+                                    self.device_pixel_ratio as gl::GLint * scissor_rect.size.height as gl::GLint);
                     }
 
                     for draw_call in &info.draw_calls {
