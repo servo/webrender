@@ -104,21 +104,17 @@ pub struct RenderTarget {
     child_texture_id: Option<TextureId>,
 
     size: Size2D<u32>,
-
-    apply_mask: bool,
 }
 
 impl RenderTarget {
     fn new(id: RenderTargetId,
-           size: Size2D<u32>,
-           apply_mask: bool) -> RenderTarget {
+           size: Size2D<u32>) -> RenderTarget {
         RenderTarget {
             id: id,
             children: Vec::new(),
             items: Vec::new(),
             child_texture_id: None,
             size: size,
-            apply_mask: apply_mask,
         }
     }
 
@@ -161,18 +157,7 @@ impl RenderTarget {
                         offset_palette[index].stacking_context_y0 = context.offset_from_layer.y;
                     }
 
-                    let mut clip_rect = None;
-
-                    if self.apply_mask {
-                        clip_rect = Some(Rect::new(Point2D::new(layer.world_origin.x as u32,
-                                                                layer.world_origin.y as u32),
-                                                   Size2D::new(layer.viewport_size.width as u32,
-                                                               layer.viewport_size.height as u32)));
-                    }
-
-                    let mut batch_info = BatchInfo::new(matrix_palette,
-                                                        offset_palette,
-                                                        clip_rect);
+                    let mut batch_info = BatchInfo::new(matrix_palette, offset_palette);
 
                     // Collect relevant draws from each node in the tree.
                     for node in &layer.aabb_tree.nodes {
@@ -187,10 +172,29 @@ impl RenderTarget {
                             if let Some(batch_list) = batch_list {
                                 let vertex_buffer_id = compiled_node.vertex_buffer_id.unwrap();
 
+                                let scroll_clip_rect = Rect::new(-layer.scroll_offset,
+                                                                 layer.viewport_size);
+
                                 for batch in &batch_list.batches {
+                                    let mut clip_rects = batch.clip_rects.clone();
+
+                                    // Intersect all local clips for this layer with the viewport
+                                    // size. This clips out content outside iframes, scroll layers etc.
+                                    for clip_rect in &mut clip_rects {
+                                        *clip_rect = match clip_rect.intersection(&scroll_clip_rect) {
+                                            Some(clip_rect) => clip_rect,
+                                            None => Rect::new(Point2D::zero(), Size2D::zero()),
+                                        };
+                                    }
+
                                     batch_info.draw_calls.push(DrawCall {
-                                        batch: (*batch).clone(),
+                                        tile_params: batch.tile_params.clone(),     // TODO(gw): Move this instead?
+                                        clip_rects: clip_rects,
                                         vertex_buffer_id: vertex_buffer_id,
+                                        color_texture_id: batch.color_texture_id,
+                                        mask_texture_id: batch.mask_texture_id,
+                                        first_vertex: batch.first_vertex,
+                                        index_count: batch.index_count,
                                     });
                                 }
                             }
@@ -611,8 +615,7 @@ impl Frame {
                 let root_target_id = self.next_render_target_id();
 
                 let mut root_target = RenderTarget::new(root_target_id,
-                                                        viewport_size,
-                                                        true);
+                                                        viewport_size);
 
                 // Insert global position: fixed elements layer
                 debug_assert!(self.layers.is_empty());
@@ -896,8 +899,7 @@ impl Frame {
                                                          target_rect.size.height as u32);
                     let render_target_id = self.next_render_target_id();
                     let mut new_target = RenderTarget::new(render_target_id,
-                                                           render_target_size,
-                                                           false);
+                                                           render_target_size);
 
                     // TODO(gw): Handle transforms + composition ops...
                     for composition_operation in composition_operations {
