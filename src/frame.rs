@@ -577,19 +577,26 @@ impl Frame {
 
     pub fn scroll(&mut self, delta: &Point2D<f32>) {
         // TODO: Select correct layer for scrolling!
-        for (_, layer) in &mut self.layers {
+        for (layer_id, layer) in &mut self.layers {
             let layer_size = layer.layer_size;
 
-            if layer_size.width > layer.viewport_size.width {
-                layer.scroll_offset.x = layer.scroll_offset.x + delta.x;
-                layer.scroll_offset.x = layer.scroll_offset.x.min(0.0);
-                layer.scroll_offset.x = layer.scroll_offset.x.max(-layer_size.width + layer.viewport_size.width);
-            }
+            match layer_id {
+                &ScrollLayerId::Fixed => {
+                    // Can't scroll a fixed layer!
+                }
+                &ScrollLayerId::Normal(..) => {
+                    if layer_size.width > layer.viewport_size.width {
+                        layer.scroll_offset.x = layer.scroll_offset.x + delta.x;
+                        layer.scroll_offset.x = layer.scroll_offset.x.min(0.0);
+                        layer.scroll_offset.x = layer.scroll_offset.x.max(-layer_size.width + layer.viewport_size.width);
+                    }
 
-            if layer_size.height > layer.viewport_size.height {
-                layer.scroll_offset.y = layer.scroll_offset.y + delta.y;
-                layer.scroll_offset.y = layer.scroll_offset.y.min(0.0);
-                layer.scroll_offset.y = layer.scroll_offset.y.max(-layer_size.height + layer.viewport_size.height);
+                    if layer_size.height > layer.viewport_size.height {
+                        layer.scroll_offset.y = layer.scroll_offset.y + delta.y;
+                        layer.scroll_offset.y = layer.scroll_offset.y.min(0.0);
+                        layer.scroll_offset.y = layer.scroll_offset.y.max(-layer_size.height + layer.viewport_size.height);
+                    }
+                }
             }
         }
     }
