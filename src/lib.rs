@@ -12,6 +12,7 @@ mod debug_render;
 mod device;
 mod frame;
 mod freelist;
+mod geometry;
 mod internal_types;
 mod layer;
 mod node_compiler;
