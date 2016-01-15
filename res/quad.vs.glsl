@@ -34,12 +34,11 @@ void main(void)
     mat4 matrix = uMatrixPalette[int(aMisc.x)];
 
     vec4 localPos = vec4(aPosition.xy, 0.0, 1.0);
+    localPos.xy += offsetParams.xy;
 
     vClipInRect = uClipRects[int(aMisc.y)];
     vClipOutRect = uClipRects[int(aMisc.z)];
     vPosition = localPos.xy;
-
-    localPos.xy += offsetParams.xy;
 
     vec4 worldPos = matrix * localPos;
     worldPos.xy = SnapToPixels(worldPos.xy);

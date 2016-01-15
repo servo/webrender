@@ -214,6 +214,8 @@ pub struct BatchBuilder<'a> {
     batches: Vec<Batch>,
     current_matrix_index: u8,
 
+    clip_offset: Point2D<f32>,
+
     clip_in_rect_stack: Vec<Rect<f32>>,
     cached_clip_in_rect: Option<Rect<f32>>,
 
@@ -233,11 +235,16 @@ impl<'a> BatchBuilder<'a> {
             cached_clip_in_rect: Some(MAX_RECT),
             clip_out_rect: None,
             complex_clip: None,
+            clip_offset: Point2D::zero(),
         }
     }
 
     pub fn finalize(self) -> Vec<Batch> {
         self.batches
+    }
+
+    pub fn set_current_clip_rect_offset(&mut self, offset: Point2D<f32>) {
+        self.clip_offset = offset;
     }
 
     pub fn next_draw_list(&mut self) {
@@ -258,7 +265,8 @@ impl<'a> BatchBuilder<'a> {
     }
 
     pub fn push_clip_in_rect(&mut self, rect: &Rect<f32>) {
-        self.clip_in_rect_stack.push(*rect);
+        let rect = rect.translate(&self.clip_offset);
+        self.clip_in_rect_stack.push(rect);
         self.update_clip_in_rect();
     }
 
@@ -268,6 +276,9 @@ impl<'a> BatchBuilder<'a> {
     }
 
     pub fn set_clip_out_rect(&mut self, rect: Option<Rect<f32>>) -> Option<Rect<f32>> {
+        let rect = rect.map(|rect| {
+            rect.translate(&self.clip_offset)
+        });
         let old_rect = self.clip_out_rect.take();
         self.clip_out_rect = rect;
         old_rect

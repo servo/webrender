@@ -46,6 +46,8 @@ impl NodeCompiler for AABBTreeNode {
                     let StackingContextIndex(stacking_context_id) = draw_list.stacking_context_index.unwrap();
                     let context = &stacking_context_info[stacking_context_id];
 
+                    builder.set_current_clip_rect_offset(context.offset_from_layer);
+
                     for index in &draw_list_index_buffer.indices {
                         let DrawListItemIndex(index) = *index;
                         let display_item = &draw_list.items[index as usize];
