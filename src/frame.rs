@@ -1,8 +1,9 @@
 use app_units::Au;
 use batch::{MAX_MATRICES_PER_BATCH, OffsetParams};
 use device::{TextureId, TextureFilter};
-use euclid::{Rect, Point2D, Size2D, Matrix4};
+use euclid::{Rect, Point2D, Point3D, Point4D, Size2D, Matrix4};
 use fnv::FnvHasher;
+use geometry::ray_intersects_rect;
 use internal_types::{AxisDirection, LowLevelFilterOp, CompositionOp, DrawListItemIndex};
 use internal_types::{BatchUpdateList, RenderTargetIndex, DrawListId};
 use internal_types::{CompositeBatchInfo, CompositeBatchJob};
@@ -575,27 +576,72 @@ impl Frame {
         mem::replace(&mut self.pending_updates, BatchUpdateList::new())
     }
 
-    pub fn scroll(&mut self, delta: &Point2D<f32>) {
-        // TODO: Select correct layer for scrolling!
-        for (layer_id, layer) in &mut self.layers {
-            let layer_size = layer.layer_size;
+    pub fn get_scroll_layer(&self,
+                            cursor: &Point2D<f32>,
+                            scroll_layer_id: ScrollLayerId,
+                            parent_transform: &Matrix4) -> Option<ScrollLayerId> {
+        self.layers.get(&scroll_layer_id).and_then(|layer| {
+            let transform = parent_transform.mul(&layer.local_transform);
 
-            match layer_id {
-                &ScrollLayerId::Fixed => {
-                    // Can't scroll a fixed layer!
+            for child_layer_id in &layer.children {
+                if let Some(layer_id) = self.get_scroll_layer(cursor,
+                                                              *child_layer_id,
+                                                              &transform) {
+                    return Some(layer_id);
                 }
-                &ScrollLayerId::Normal(..) => {
-                    if layer_size.width > layer.viewport_size.width {
-                        layer.scroll_offset.x = layer.scroll_offset.x + delta.x;
-                        layer.scroll_offset.x = layer.scroll_offset.x.min(0.0);
-                        layer.scroll_offset.x = layer.scroll_offset.x.max(-layer_size.width + layer.viewport_size.width);
-                    }
+            }
 
-                    if layer_size.height > layer.viewport_size.height {
-                        layer.scroll_offset.y = layer.scroll_offset.y + delta.y;
-                        layer.scroll_offset.y = layer.scroll_offset.y.min(0.0);
-                        layer.scroll_offset.y = layer.scroll_offset.y.max(-layer_size.height + layer.viewport_size.height);
+            match scroll_layer_id {
+                ScrollLayerId::Fixed => {
+                    None
+                }
+                ScrollLayerId::Normal(..) => {
+                    let inv = transform.invert();
+                    let z0 = -10000.0;
+                    let z1 =  10000.0;
+
+                    let p0 = inv.transform_point4d(&Point4D::new(cursor.x, cursor.y, z0, 1.0));
+                    let p0 = Point3D::new(p0.x / p0.w,
+                                          p0.y / p0.w,
+                                          p0.z / p0.w);
+                    let p1 = inv.transform_point4d(&Point4D::new(cursor.x, cursor.y, z1, 1.0));
+                    let p1 = Point3D::new(p1.x / p1.w,
+                                          p1.y / p1.w,
+                                          p1.z / p1.w);
+
+                    let layer_rect = Rect::new(layer.world_origin, layer.viewport_size);
+
+                    if ray_intersects_rect(p0, p1, layer_rect) {
+                        Some(scroll_layer_id)
+                    } else {
+                        None
                     }
+                }
+            }
+        })
+    }
+
+    pub fn scroll(&mut self,
+                  delta: Point2D<f32>,
+                  cursor: Point2D<f32>) {
+        if let Some(root_scroll_layer_id) = self.root_scroll_layer_id {
+            let scroll_layer_id = self.get_scroll_layer(&cursor,
+                                                        root_scroll_layer_id,
+                                                        &Matrix4::identity());
+
+            if let Some(scroll_layer_id) = scroll_layer_id {
+                let layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+
+                if layer.layer_size.width > layer.viewport_size.width {
+                    layer.scroll_offset.x = layer.scroll_offset.x + delta.x;
+                    layer.scroll_offset.x = layer.scroll_offset.x.min(0.0);
+                    layer.scroll_offset.x = layer.scroll_offset.x.max(-layer.layer_size.width + layer.viewport_size.width);
+                }
+
+                if layer.layer_size.height > layer.viewport_size.height {
+                    layer.scroll_offset.y = layer.scroll_offset.y + delta.y;
+                    layer.scroll_offset.y = layer.scroll_offset.y.min(0.0);
+                    layer.scroll_offset.y = layer.scroll_offset.y.max(-layer.layer_size.height + layer.viewport_size.height);
                 }
             }
         }

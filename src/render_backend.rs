@@ -162,9 +162,9 @@ impl RenderBackend {
 
                             self.publish_frame(frame, &mut profile_counters);
                         }
-                        ApiMsg::Scroll(delta) => {
+                        ApiMsg::Scroll(delta, cursor) => {
                             let frame = profile_counters.total_time.profile(|| {
-                                self.frame.scroll(&delta);
+                                self.frame.scroll(delta, cursor);
                                 self.render()
                             });
 
