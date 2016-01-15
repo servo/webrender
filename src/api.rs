@@ -25,7 +25,7 @@ pub enum ApiMsg {
     CloneApi(IpcSender<IdNamespace>),
     SetRootStackingContext(StackingContextId, ColorF, Epoch, PipelineId),
     SetRootPipeline(PipelineId),
-    Scroll(Point2D<f32>),
+    Scroll(Point2D<f32>, Point2D<f32>),
     TranslatePointToLayerSpace(Point2D<f32>, IpcSender<Point2D<f32>>),
     RequestWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<WebGLContextId, String>>),
     WebGLCommand(WebGLContextId, WebGLCommand),
@@ -152,8 +152,8 @@ impl RenderApi {
         self.tx.send(msg).unwrap();
     }
 
-    pub fn scroll(&self, delta: Point2D<f32>) {
-        let msg = ApiMsg::Scroll(delta);
+    pub fn scroll(&self, delta: Point2D<f32>, cursor: Point2D<f32>) {
+        let msg = ApiMsg::Scroll(delta, cursor);
         self.tx.send(msg).unwrap();
     }
 
