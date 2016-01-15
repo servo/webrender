@@ -967,36 +967,14 @@ impl Renderer {
                     self.device.set_uniform_mat4_array(self.u_quad_transform_array,
                                                        &info.matrix_palette);
 
-                    if let Some(clip_rect) = info.clip_rect {
-                        let layer_rect = Rect::new(Point2D::zero(),
-                                                   Size2D::new(layer.layer_size.width as i32,
-                                                               layer.layer_size.height as i32));
-
-                        let clip_y0 = layer.layer_size.height as i32 -
-                                      clip_rect.size.height as i32 -
-                                      clip_rect.origin.y as i32;
-
-                        let clip_rect = Rect::new(Point2D::new(clip_rect.origin.x as i32,
-                                                               clip_y0),
-                                                  Size2D::new(clip_rect.size.width as i32,
-                                                              clip_rect.size.height as i32));
-
-                        // TODO(gw): Can this unwrap ever fail!?
-                        let scissor_rect = layer_rect.intersection(&clip_rect).unwrap();
-                        gl::scissor(self.device_pixel_ratio as gl::GLint * scissor_rect.origin.x as gl::GLint,
-                                    self.device_pixel_ratio as gl::GLint * scissor_rect.origin.y as gl::GLint,
-                                    self.device_pixel_ratio as gl::GLint * scissor_rect.size.width as gl::GLint,
-                                    self.device_pixel_ratio as gl::GLint * scissor_rect.size.height as gl::GLint);
-                    }
-
                     for draw_call in &info.draw_calls {
                         let vao_id = self.vertex_buffers[&draw_call.vertex_buffer_id].vao_id;
                         self.device.bind_vao(vao_id);
 
-                        if draw_call.batch.tile_params.len() > 0 {
+                        if draw_call.tile_params.len() > 0 {
                             // TODO(gw): Avoid alloc here...
                             let mut floats = Vec::new();
-                            for vec in &draw_call.batch.tile_params {
+                            for vec in &draw_call.tile_params {
                                 floats.push(vec.u0);
                                 floats.push(vec.v0);
                                 floats.push(vec.u_size);
@@ -1007,10 +985,10 @@ impl Renderer {
                                                                &floats);
                         }
 
-                        if draw_call.batch.clip_rects.len() > 0 {
+                        if draw_call.clip_rects.len() > 0 {
                             // TODO(gw): Avoid alloc here...
                             let mut floats = Vec::new();
-                            for rect in &draw_call.batch.clip_rects {
+                            for rect in &draw_call.clip_rects {
                                 floats.push(rect.origin.x);
                                 floats.push(rect.origin.y);
                                 floats.push(rect.origin.x + rect.size.width);
@@ -1021,27 +999,27 @@ impl Renderer {
                                                                &floats);
                         }
 
-                        self.device.bind_mask_texture(draw_call.batch.mask_texture_id);
-                        self.device.bind_color_texture(draw_call.batch.color_texture_id);
+                        self.device.bind_mask_texture(draw_call.mask_texture_id);
+                        self.device.bind_color_texture(draw_call.color_texture_id);
 
                         // TODO(gw): Although a minor cost, this is an extra hashtable lookup for every
                         //           draw call, when the batch textures are (almost) always the same.
                         //           This could probably be cached or provided elsewhere.
-                        let color_size =
-                            self.device.get_texture_dimensions(draw_call.batch.color_texture_id);
-                        let mask_size =
-                            self.device.get_texture_dimensions(draw_call.batch.mask_texture_id);
+                        let color_size = self.device
+                                             .get_texture_dimensions(draw_call.color_texture_id);
+                        let mask_size = self.device
+                                            .get_texture_dimensions(draw_call.mask_texture_id);
                         self.device.set_uniform_4f(self.u_atlas_params,
                                                    color_size.0 as f32,
                                                    color_size.1 as f32,
                                                    mask_size.0 as f32,
                                                    mask_size.1 as f32);
 
-                        let index_count = draw_call.batch.index_count as i32;
+                        let index_count = draw_call.index_count as i32;
 
                         self.profile_counters.draw_calls.inc();
 
-                        self.device.draw_triangles_u16(draw_call.batch.first_vertex as i32,
+                        self.device.draw_triangles_u16(draw_call.first_vertex as i32,
                                                        index_count);
                     }
                 }

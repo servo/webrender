@@ -1,5 +1,5 @@
 use app_units::Au;
-use batch::{VertexBuffer, Batch, VertexBufferId, OffsetParams};
+use batch::{VertexBuffer, Batch, VertexBufferId, OffsetParams, TileParams};
 use device::{TextureId, TextureFilter};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
@@ -324,26 +324,28 @@ pub struct ClearInfo {
 
 #[derive(Clone, Debug)]
 pub struct DrawCall {
-    pub batch: Arc<Batch>,
+    pub tile_params: Vec<TileParams>,
+    pub clip_rects: Vec<Rect<f32>>,
     pub vertex_buffer_id: VertexBufferId,
+    pub color_texture_id: TextureId,
+    pub mask_texture_id: TextureId,
+    pub first_vertex: u32,
+    pub index_count: u16,
 }
 
 #[derive(Clone, Debug)]
 pub struct BatchInfo {
     pub matrix_palette: Vec<Matrix4>,
     pub offset_palette: Vec<OffsetParams>,
-    pub clip_rect: Option<Rect<u32>>,
     pub draw_calls: Vec<DrawCall>,
 }
 
 impl BatchInfo {
     pub fn new(matrix_palette: Vec<Matrix4>,
-               offset_palette: Vec<OffsetParams>,
-               clip_rect: Option<Rect<u32>>) -> BatchInfo {
+               offset_palette: Vec<OffsetParams>) -> BatchInfo {
         BatchInfo {
             matrix_palette: matrix_palette,
             offset_palette: offset_palette,
-            clip_rect: clip_rect,
             draw_calls: Vec::new(),
         }
     }
@@ -488,7 +490,7 @@ pub enum Primitive {
 
 #[derive(Debug)]
 pub struct BatchList {
-    pub batches: Vec<Arc<Batch>>,
+    pub batches: Vec<Batch>,
     pub draw_list_group_id: DrawListGroupId,
 }
 
