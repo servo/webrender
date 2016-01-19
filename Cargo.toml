@@ -28,6 +28,10 @@ git = "https://github.com/glennw/webrender_traits"
 git = "https://github.com/ecoal95/rust-offscreen-rendering-context"
 branch = "webrender"
 
+[dependencies.notify]
+git = "https://github.com/glennw/rsnotify.git"
+branch = "inotify-modify"
+
 [dependencies]
 gleam = "0.2"
 euclid = {version = "0.4", features = ["plugins"]}

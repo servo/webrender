@@ -1,7 +1,7 @@
 use batch::{RasterBatch, VertexBufferId};
 use debug_render::DebugRenderer;
 use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat};
-use device::{TextureFilter, VAOId, VertexUsageHint};
+use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler};
 use euclid::{Rect, Matrix4, Point2D, Size2D};
 use fnv::FnvHasher;
 use gleam::gl;
@@ -20,7 +20,7 @@ use std::f32;
 use std::mem;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use tessellator::BorderCornerTessellation;
 use texture_cache::{BorderType, TextureCache, TextureInsertOp};
@@ -86,11 +86,25 @@ struct RenderContext {
     device_pixel_ratio: f32,
 }
 
+struct FileWatcher {
+    notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
+    result_tx: Sender<ResultMsg>,
+}
+
+impl FileWatcherHandler for FileWatcher {
+    fn file_changed(&self, path: PathBuf) {
+        self.result_tx.send(ResultMsg::RefreshShader(path)).ok();
+        let mut notifier = self.notifier.lock();
+        notifier.as_mut().unwrap().as_mut().unwrap().new_frame_ready();
+    }
+}
+
 pub struct Renderer {
     result_rx: Receiver<ResultMsg>,
     device: Device,
     pending_texture_updates: Vec<TextureUpdateList>,
     pending_batch_updates: Vec<BatchUpdateList>,
+    pending_shader_updates: Vec<PathBuf>,
     current_frame: Option<RendererFrame>,
     device_pixel_ratio: f32,
     vertex_buffers: HashMap<VertexBufferId, VertexBuffer, DefaultState<FnvHasher>>,
@@ -120,7 +134,6 @@ pub struct Renderer {
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
     viewport_size: Size2D<u32>,
-    //framebuffer_size: Size2D<u32>,
 
     enable_profiler: bool,
     debug: DebugRenderer,
@@ -133,7 +146,6 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(width: u32,
                height: u32,
-               //framebuffer_size: &Size2D<u32>,
                device_pixel_ratio: f32,
                resource_path: PathBuf,
                enable_aa: bool,
@@ -142,30 +154,25 @@ impl Renderer {
         let (result_tx, result_rx) = channel();
 
         let initial_viewport = Rect::new(Point2D::zero(), Size2D::new(width as i32, height as i32));
+        let notifier = Arc::new(Mutex::new(None));
 
-        let mut device = Device::new(resource_path, device_pixel_ratio);
+        let file_watch_handler = FileWatcher {
+            result_tx: result_tx.clone(),
+            notifier: notifier.clone(),
+        };
+
+        let mut device = Device::new(resource_path,
+                                     device_pixel_ratio,
+                                     Box::new(file_watch_handler));
         device.begin_frame();
 
-        let quad_program_id = device.create_program("quad.vs.glsl", "quad.fs.glsl");
-        let blit_program_id = device.create_program("blit.vs.glsl", "blit.fs.glsl");
-        let border_program_id = device.create_program("border.vs.glsl", "border.fs.glsl");
-        let blend_program_id = device.create_program("blend.vs.glsl", "blend.fs.glsl");
-        let filter_program_id = device.create_program("filter.vs.glsl", "filter.fs.glsl");
-        let box_shadow_program_id = device.create_program("box_shadow.vs.glsl",
-                                                          "box_shadow.fs.glsl");
-        let blur_program_id = device.create_program("blur.vs.glsl", "blur.fs.glsl");
-
-        let u_quad_transform_array = device.get_uniform_location(quad_program_id, "uMatrixPalette");
-        let u_quad_offset_array = device.get_uniform_location(quad_program_id, "uOffsets");
-        let u_tile_params = device.get_uniform_location(quad_program_id, "uTileParams");
-        let u_clip_rects = device.get_uniform_location(quad_program_id, "uClipRects");
-        let u_atlas_params = device.get_uniform_location(quad_program_id, "uAtlasParams");
-
-        let u_blend_params = device.get_uniform_location(blend_program_id, "uBlendParams");
-
-        let u_filter_params = device.get_uniform_location(filter_program_id, "uFilterParams");
-
-        let u_direction = device.get_uniform_location(blur_program_id, "uDirection");
+        let quad_program_id = device.create_program("quad");
+        let blit_program_id = device.create_program("blit");
+        let border_program_id = device.create_program("border");
+        let blend_program_id = device.create_program("blend");
+        let filter_program_id = device.create_program("filter");
+        let box_shadow_program_id = device.create_program("box_shadow");
+        let blur_program_id = device.create_program("blur");
 
         let texture_ids = device.create_texture_ids(1024);
         let mut texture_cache = TextureCache::new(texture_ids);
@@ -206,7 +213,6 @@ impl Renderer {
 
         device.end_frame();
 
-        let notifier = Arc::new(Mutex::new(None));
         let backend_notifier = notifier.clone();
 
         // We need a reference to the webrender context from the render backend in order to share
@@ -227,7 +233,7 @@ impl Renderer {
             backend.run();
         });
 
-        let renderer = Renderer {
+        let mut renderer = Renderer {
             result_rx: result_rx,
             device: device,
             current_frame: None,
@@ -235,6 +241,7 @@ impl Renderer {
             raster_batches: Vec::new(),
             pending_texture_updates: Vec::new(),
             pending_batch_updates: Vec::new(),
+            pending_shader_updates: Vec::new(),
             border_program_id: border_program_id,
             device_pixel_ratio: device_pixel_ratio,
             blend_program_id: blend_program_id,
@@ -243,14 +250,14 @@ impl Renderer {
             blit_program_id: blit_program_id,
             box_shadow_program_id: box_shadow_program_id,
             blur_program_id: blur_program_id,
-            u_blend_params: u_blend_params,
-            u_filter_params: u_filter_params,
-            u_direction: u_direction,
-            u_quad_offset_array: u_quad_offset_array,
-            u_quad_transform_array: u_quad_transform_array,
-            u_atlas_params: u_atlas_params,
-            u_tile_params: u_tile_params,
-            u_clip_rects: u_clip_rects,
+            u_blend_params: UniformLocation::invalid(),
+            u_filter_params: UniformLocation::invalid(),
+            u_direction: UniformLocation::invalid(),
+            u_quad_offset_array: UniformLocation::invalid(),
+            u_quad_transform_array: UniformLocation::invalid(),
+            u_atlas_params: UniformLocation::invalid(),
+            u_tile_params: UniformLocation::invalid(),
+            u_clip_rects: UniformLocation::invalid(),
             notifier: notifier,
             viewport_size: Size2D::new(width, height),
             debug: debug_renderer,
@@ -261,9 +268,22 @@ impl Renderer {
             last_time: 0,
         };
 
+        renderer.update_uniform_locations();
+
         let sender = RenderApiSender::new(api_tx);
 
         (renderer, sender)
+    }
+
+    fn update_uniform_locations(&mut self) {
+        self.u_quad_transform_array = self.device.get_uniform_location(self.quad_program_id, "uMatrixPalette");
+        self.u_quad_offset_array = self.device.get_uniform_location(self.quad_program_id, "uOffsets");
+        self.u_tile_params = self.device.get_uniform_location(self.quad_program_id, "uTileParams");
+        self.u_clip_rects = self.device.get_uniform_location(self.quad_program_id, "uClipRects");
+        self.u_atlas_params = self.device.get_uniform_location(self.quad_program_id, "uAtlasParams");
+        self.u_blend_params = self.device.get_uniform_location(self.blend_program_id, "uBlendParams");
+        self.u_filter_params = self.device.get_uniform_location(self.filter_program_id, "uFilterParams");
+        self.u_direction = self.device.get_uniform_location(self.blur_program_id, "uDirection");
     }
 
     pub fn set_render_notifier(&self, notifier: Box<RenderNotifier>) {
@@ -291,6 +311,9 @@ impl Renderer {
                     self.backend_profile_counters = profile_counters;
                     self.current_frame = Some(frame);
                 }
+                ResultMsg::RefreshShader(path) => {
+                    self.pending_shader_updates.push(path);
+                }
             }
         }
     }
@@ -300,6 +323,7 @@ impl Renderer {
 
         profile_timers.total_time.profile(|| {
             self.device.begin_frame();
+            self.update_shaders();
             self.update_texture_cache();
             self.update_batches();
             self.draw_frame();
@@ -350,6 +374,18 @@ impl Renderer {
                     }
                 }
             }
+        }
+    }
+
+    fn update_shaders(&mut self) {
+        let update_uniforms = !self.pending_shader_updates.is_empty();
+
+        for path in self.pending_shader_updates.drain(..) {
+            self.device.refresh_shader(path);
+        }
+
+        if update_uniforms {
+            self.update_uniform_locations();
         }
     }
 

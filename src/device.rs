@@ -4,12 +4,15 @@ use gleam::gl;
 use internal_types::{PackedVertex, PackedVertexForTextureCacheUpdate, RenderTargetMode};
 use internal_types::{TextureSampler, VertexAttribute};
 use internal_types::{DebugFontVertex, DebugColorVertex};
+use notify::{self, Watcher};
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
 use std::fs::File;
+use std::io::Read;
 use std::path::PathBuf;
 use std::mem;
-use std::io::Read;
+use std::sync::mpsc::{channel, Sender};
+use std::thread;
 use webrender_traits::ImageFormat;
 
 #[cfg(not(any(target_os = "android", target_os = "gonk")))]
@@ -54,6 +57,10 @@ pub enum VertexFormat {
     DebugFont,
     DebugColor,
     RasterOp,
+}
+
+pub trait FileWatcherHandler : Send {
+    fn file_changed(&self, path: PathBuf);
 }
 
 impl VertexFormat {
@@ -310,6 +317,54 @@ impl Drop for Texture {
 struct Program {
     id: gl::GLuint,
     u_transform: gl::GLint,
+    vs_path: PathBuf,
+    fs_path: PathBuf,
+    vs_id: Option<gl::GLuint>,
+    fs_id: Option<gl::GLuint>,
+}
+
+impl Program {
+    fn attach_and_bind_shaders(&mut self,
+                               vs_id: gl::GLuint,
+                               fs_id: gl::GLuint,
+                               panic_on_fail: bool) -> bool {
+        gl::attach_shader(self.id, vs_id);
+        gl::attach_shader(self.id, fs_id);
+
+        gl::bind_attrib_location(self.id, VertexAttribute::Position as gl::GLuint, "aPosition");
+        gl::bind_attrib_location(self.id, VertexAttribute::Color as gl::GLuint, "aColor");
+        gl::bind_attrib_location(self.id,
+                                 VertexAttribute::ColorTexCoord as gl::GLuint,
+                                 "aColorTexCoord");
+        gl::bind_attrib_location(self.id,
+                                 VertexAttribute::MaskTexCoord as gl::GLuint,
+                                 "aMaskTexCoord");
+        gl::bind_attrib_location(self.id, VertexAttribute::BorderRadii as gl::GLuint, "aBorderRadii");
+        gl::bind_attrib_location(self.id,
+                                 VertexAttribute::BorderPosition as gl::GLuint,
+                                 "aBorderPosition");
+        gl::bind_attrib_location(self.id, VertexAttribute::BlurRadius as gl::GLuint, "aBlurRadius");
+        gl::bind_attrib_location(self.id,
+                                 VertexAttribute::DestTextureSize as gl::GLuint,
+                                 "aDestTextureSize");
+        gl::bind_attrib_location(self.id,
+                                 VertexAttribute::SourceTextureSize as gl::GLuint,
+                                 "aSourceTextureSize");
+        gl::bind_attrib_location(self.id, VertexAttribute::Misc as gl::GLuint, "aMisc");
+
+        gl::link_program(self.id);
+        if gl::get_program_iv(self.id, gl::LINK_STATUS) == (0 as gl::GLint) {
+            println!("Failed to link shader program: {}", gl::get_program_info_log(self.id));
+            gl::detach_shader(self.id, vs_id);
+            gl::detach_shader(self.id, fs_id);
+            if panic_on_fail {
+                panic!("-- Program link failed - exiting --");
+            }
+            false
+        } else {
+            true
+        }
+    }
 }
 
 impl Drop for Program {
@@ -385,6 +440,78 @@ impl VertexUsageHint {
 #[derive(Copy, Clone, Debug)]
 pub struct UniformLocation(gl::GLint);
 
+impl UniformLocation {
+    pub fn invalid() -> UniformLocation {
+        UniformLocation(-1)
+    }
+}
+
+enum FileWatcherCmd {
+    AddWatch(PathBuf),
+    Exit,
+}
+
+struct FileWatcherThread {
+    api_tx: Sender<FileWatcherCmd>,
+}
+
+impl FileWatcherThread {
+    fn new(handler: Box<FileWatcherHandler>) -> FileWatcherThread {
+        let (api_tx, api_rx) = channel();
+
+        thread::spawn(move || {
+
+            let (watch_tx, watch_rx) = channel();
+
+            enum Request {
+                Watcher(notify::Event),
+                Command(FileWatcherCmd),
+            }
+
+            let mut file_watcher: notify::RecommendedWatcher = notify::Watcher::new(watch_tx).unwrap();
+
+            loop {
+                let request = {
+                    let receiver_from_api = &api_rx;
+                    let receiver_from_watcher = &watch_rx;
+                    select! {
+                        msg = receiver_from_api.recv() => Request::Command(msg.unwrap()),
+                        msg = receiver_from_watcher.recv() => Request::Watcher(msg.unwrap())
+                    }
+                };
+
+                match request {
+                    Request::Watcher(event) => {
+                        handler.file_changed(event.path.unwrap());
+                    }
+                    Request::Command(cmd) => {
+                        match cmd {
+                            FileWatcherCmd::AddWatch(path) => {
+                                file_watcher.watch(path).ok();
+                            }
+                            FileWatcherCmd::Exit => {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        FileWatcherThread {
+            api_tx: api_tx,
+        }
+    }
+
+    fn exit(&self) {
+        self.api_tx.send(FileWatcherCmd::Exit).ok();
+    }
+
+    fn add_watch(&self, path: PathBuf) {
+        self.api_tx.send(FileWatcherCmd::AddWatch(path)).ok();
+    }
+}
+
 pub struct Device {
     // device state
     bound_color_texture: TextureId,
@@ -408,6 +535,7 @@ pub struct Device {
     // misc.
     vertex_shader_preamble: String,
     fragment_shader_preamble: String,
+    file_watcher: FileWatcherThread,
 
     // Used on android only
     #[allow(dead_code)]
@@ -415,18 +543,24 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn new(resource_path: PathBuf, device_pixel_ratio: f32) -> Device {
+    pub fn new(resource_path: PathBuf,
+               device_pixel_ratio: f32,
+               file_changed_handler: Box<FileWatcherHandler>) -> Device {
+        let file_watcher = FileWatcherThread::new(file_changed_handler);
+
         let mut path = resource_path.clone();
         path.push(VERTEX_SHADER_PREAMBLE);
         let mut f = File::open(&path).unwrap();
         let mut vertex_shader_preamble = String::new();
         f.read_to_string(&mut vertex_shader_preamble).unwrap();
+        file_watcher.add_watch(path);
 
         let mut path = resource_path.clone();
         path.push(FRAGMENT_SHADER_PREAMBLE);
         let mut f = File::open(&path).unwrap();
         let mut fragment_shader_preamble = String::new();
         f.read_to_string(&mut fragment_shader_preamble).unwrap();
+        file_watcher.add_watch(path);
 
         Device {
             resource_path: resource_path,
@@ -449,17 +583,15 @@ impl Device {
             fragment_shader_preamble: fragment_shader_preamble,
 
             next_vao_id: 1,
+            file_watcher: file_watcher,
         }
     }
 
-    pub fn compile_shader(filename: &str,
+    pub fn compile_shader(path: &PathBuf,
                           shader_type: gl::GLenum,
-                          resource_path: &PathBuf,
-                          shader_preamble: &str)
-                          -> gl::GLuint {
-        let mut path = resource_path.clone();
-        path.push(filename);
-
+                          shader_preamble: &str,
+                          panic_on_fail: bool)
+                          -> Option<gl::GLuint> {
         println!("compile {:?}", path);
 
         let mut f = File::open(&path).unwrap();
@@ -472,10 +604,15 @@ impl Device {
         gl::shader_source(id, &[&source[..]]);
         gl::compile_shader(id);
         if gl::get_shader_iv(id, gl::COMPILE_STATUS) == (0 as gl::GLint) {
-            panic!("Failed to compile shader: {}", gl::get_shader_info_log(id));
-        }
+            println!("Failed to compile shader: {}", gl::get_shader_info_log(id));
+            if panic_on_fail {
+                panic!("-- Shader compile failed - exiting --");
+            }
 
-        id
+            None
+        } else {
+            Some(id)
+        }
     }
 
     pub fn begin_frame(&mut self) {
@@ -746,91 +883,157 @@ impl Device {
         texture.fbo_ids.clear();
     }
 
-    pub fn create_program(&mut self,
-                          vs_filename: &str,
-                          fs_filename: &str) -> ProgramId {
+    pub fn create_program(&mut self, base_filename: &str) -> ProgramId {
         debug_assert!(self.inside_frame);
 
         let pid = gl::create_program();
 
-        // todo(gw): store shader ids so they can be freed!
-        let vs_id = Device::compile_shader(vs_filename,
-                                           gl::VERTEX_SHADER,
-                                           &self.resource_path,
-                                           &*self.vertex_shader_preamble);
-        let fs_id = Device::compile_shader(fs_filename,
-                                           gl::FRAGMENT_SHADER,
-                                           &self.resource_path,
-                                           &*self.fragment_shader_preamble);
+        let mut vs_path = self.resource_path.clone();
+        vs_path.push(&format!("{}.vs.glsl", base_filename));
+        self.file_watcher.add_watch(vs_path.clone());
 
-        gl::attach_shader(pid, vs_id);
-        gl::attach_shader(pid, fs_id);
-
-        gl::bind_attrib_location(pid, VertexAttribute::Position as gl::GLuint, "aPosition");
-        gl::bind_attrib_location(pid, VertexAttribute::Color as gl::GLuint, "aColor");
-        gl::bind_attrib_location(pid,
-                                 VertexAttribute::ColorTexCoord as gl::GLuint,
-                                 "aColorTexCoord");
-        gl::bind_attrib_location(pid,
-                                 VertexAttribute::MaskTexCoord as gl::GLuint,
-                                 "aMaskTexCoord");
-        gl::bind_attrib_location(pid, VertexAttribute::BorderRadii as gl::GLuint, "aBorderRadii");
-        gl::bind_attrib_location(pid,
-                                 VertexAttribute::BorderPosition as gl::GLuint,
-                                 "aBorderPosition");
-        gl::bind_attrib_location(pid, VertexAttribute::BlurRadius as gl::GLuint, "aBlurRadius");
-        gl::bind_attrib_location(pid,
-                                 VertexAttribute::DestTextureSize as gl::GLuint,
-                                 "aDestTextureSize");
-        gl::bind_attrib_location(pid,
-                                 VertexAttribute::SourceTextureSize as gl::GLuint,
-                                 "aSourceTextureSize");
-        gl::bind_attrib_location(pid, VertexAttribute::Misc as gl::GLuint, "aMisc");
-
-        gl::link_program(pid);
-        if gl::get_program_iv(pid, gl::LINK_STATUS) == (0 as gl::GLint) {
-            panic!("Failed to compile shader program: {}", gl::get_program_info_log(pid));
-        }
-
-        let u_transform = gl::get_uniform_location(pid, "uTransform");
-
-        let program_id = ProgramId(pid);
+        let mut fs_path = self.resource_path.clone();
+        fs_path.push(&format!("{}.fs.glsl", base_filename));
+        self.file_watcher.add_watch(fs_path.clone());
 
         let program = Program {
             id: pid,
-            u_transform: u_transform,
+            u_transform: -1,
+            vs_path: vs_path,
+            fs_path: fs_path,
+            vs_id: None,
+            fs_id: None,
         };
+
+        let program_id = ProgramId(pid);
 
         debug_assert!(self.programs.contains_key(&program_id) == false);
         self.programs.insert(program_id, program);
 
-        program_id.bind();
-        let u_diffuse = gl::get_uniform_location(pid, "sDiffuse");
-        if u_diffuse != -1 {
-            gl::uniform_1i(u_diffuse, TextureSampler::Color as i32);
-        }
-        let u_mask = gl::get_uniform_location(pid, "sMask");
-        if u_mask != -1 {
-            gl::uniform_1i(u_mask, TextureSampler::Mask as i32);
-        }
-        let u_diffuse2d = gl::get_uniform_location(pid, "sDiffuse2D");
-        if u_diffuse2d != -1 {
-            gl::uniform_1i(u_diffuse2d, TextureSampler::Color as i32);
-        }
-        let u_mask2d = gl::get_uniform_location(pid, "sMask2D");
-        if u_mask2d != -1 {
-            gl::uniform_1i(u_mask2d, TextureSampler::Mask as i32);
-        }
-        let u_device_pixel_ratio = gl::get_uniform_location(pid, "uDevicePixelRatio");
-        if u_device_pixel_ratio != -1 {
-            gl::uniform_1f(u_device_pixel_ratio, self.device_pixel_ratio);
-        }
+        self.load_program(program_id, true);
 
         program_id
     }
 
-    pub fn get_uniform_location(&self, program_id: ProgramId, name: &str) -> UniformLocation {
+    fn load_program(&mut self,
+                    program_id: ProgramId,
+                    panic_on_fail: bool) {
         debug_assert!(self.inside_frame);
+
+        let program = self.programs.get_mut(&program_id).unwrap();
+
+        // todo(gw): store shader ids so they can be freed!
+        let vs_id = Device::compile_shader(&program.vs_path,
+                                           gl::VERTEX_SHADER,
+                                           &*self.vertex_shader_preamble,
+                                           panic_on_fail);
+        let fs_id = Device::compile_shader(&program.fs_path,
+                                           gl::FRAGMENT_SHADER,
+                                           &*self.fragment_shader_preamble,
+                                           panic_on_fail);
+
+        match (vs_id, fs_id) {
+            (Some(vs_id), None) => {
+                println!("FAILED to load fs - falling back to previous!");
+                gl::delete_shader(vs_id);
+            }
+            (None, Some(fs_id)) => {
+                println!("FAILED to load vs - falling back to previous!");
+                gl::delete_shader(fs_id);
+            }
+            (None, None) => {
+                println!("FAILED to load vs/fs - falling back to previous!");
+            }
+            (Some(vs_id), Some(fs_id)) => {
+                if let Some(vs_id) = program.vs_id {
+                    gl::detach_shader(program.id, vs_id);
+                }
+
+                if let Some(fs_id) = program.fs_id {
+                    gl::detach_shader(program.id, fs_id);
+                }
+
+                if program.attach_and_bind_shaders(vs_id, fs_id, panic_on_fail) {
+                    if let Some(vs_id) = program.vs_id {
+                        gl::delete_shader(vs_id);
+                    }
+
+                    if let Some(fs_id) = program.fs_id {
+                        gl::delete_shader(fs_id);
+                    }
+
+                    program.vs_id = Some(vs_id);
+                    program.fs_id = Some(fs_id);
+                } else {
+                    let vs_id = program.vs_id.unwrap();
+                    let fs_id = program.fs_id.unwrap();
+                    program.attach_and_bind_shaders(vs_id, fs_id, true);
+                }
+
+                program.u_transform = gl::get_uniform_location(program.id, "uTransform");
+
+                program_id.bind();
+                let u_diffuse = gl::get_uniform_location(program.id, "sDiffuse");
+                if u_diffuse != -1 {
+                    gl::uniform_1i(u_diffuse, TextureSampler::Color as i32);
+                }
+                let u_mask = gl::get_uniform_location(program.id, "sMask");
+                if u_mask != -1 {
+                    gl::uniform_1i(u_mask, TextureSampler::Mask as i32);
+                }
+                let u_diffuse2d = gl::get_uniform_location(program.id, "sDiffuse2D");
+                if u_diffuse2d != -1 {
+                    gl::uniform_1i(u_diffuse2d, TextureSampler::Color as i32);
+                }
+                let u_mask2d = gl::get_uniform_location(program.id, "sMask2D");
+                if u_mask2d != -1 {
+                    gl::uniform_1i(u_mask2d, TextureSampler::Mask as i32);
+                }
+                let u_device_pixel_ratio = gl::get_uniform_location(program.id, "uDevicePixelRatio");
+                if u_device_pixel_ratio != -1 {
+                    gl::uniform_1f(u_device_pixel_ratio, self.device_pixel_ratio);
+                }
+            }
+        }
+    }
+
+    pub fn refresh_shader(&mut self, path: PathBuf) {
+        let mut vs_preamble_path = self.resource_path.clone();
+        vs_preamble_path.push(VERTEX_SHADER_PREAMBLE);
+
+        let mut fs_preamble_path = self.resource_path.clone();
+        fs_preamble_path.push(FRAGMENT_SHADER_PREAMBLE);
+
+        let mut refresh_all = false;
+
+        if path == vs_preamble_path {
+            let mut f = File::open(&vs_preamble_path).unwrap();
+            self.vertex_shader_preamble = String::new();
+            f.read_to_string(&mut self.vertex_shader_preamble).unwrap();
+            refresh_all = true;
+        }
+
+        if path == fs_preamble_path {
+            let mut f = File::open(&fs_preamble_path).unwrap();
+            self.fragment_shader_preamble = String::new();
+            f.read_to_string(&mut self.fragment_shader_preamble).unwrap();
+            refresh_all = true;
+        }
+
+        let mut programs_to_update = Vec::new();
+
+        for (program_id, program) in &mut self.programs {
+            if refresh_all || program.vs_path == path || program.fs_path == path {
+                programs_to_update.push(*program_id)
+            }
+        }
+
+        for program_id in programs_to_update {
+            self.load_program(program_id, false);
+        }
+    }
+
+    pub fn get_uniform_location(&self, program_id: ProgramId, name: &str) -> UniformLocation {
         let ProgramId(program_id) = program_id;
         UniformLocation(gl::get_uniform_location(program_id, name))
     }
@@ -890,7 +1093,7 @@ impl Device {
         gl::uniform_matrix_4fv(location, false, &floats);
     }
 
-    pub fn set_uniforms(&self, program: &Program, transform: &Matrix4) {
+    fn set_uniforms(&self, program: &Program, transform: &Matrix4) {
         debug_assert!(self.inside_frame);
         gl::uniform_matrix_4fv(program.u_transform, false, &transform.to_array());
     }
@@ -1151,5 +1354,11 @@ impl Device {
 
         gl::bind_texture(gl::TEXTURE_2D, 0);
         gl::use_program(0);
+    }
+}
+
+impl Drop for Device {
+    fn drop(&mut self) {
+        self.file_watcher.exit();
     }
 }
