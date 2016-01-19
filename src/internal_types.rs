@@ -7,6 +7,7 @@ use freelist::{FreeListItem, FreeListItemId};
 use profiler::BackendProfileCounters;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
+use std::path::PathBuf;
 use std::sync::Arc;
 use texture_cache::TextureCacheItem;
 use util::{self, RectVaryings};
@@ -425,6 +426,7 @@ impl RendererFrame {
 pub enum ResultMsg {
     UpdateTextureCache(TextureUpdateList),
     UpdateBatches(BatchUpdateList),
+    RefreshShader(PathBuf),
     NewFrame(RendererFrame, BackendProfileCounters),
 }
 

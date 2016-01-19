@@ -835,12 +835,12 @@ impl Frame {
         }
     }
 
-    pub fn flatten(&mut self,
-                   scene_item: SceneItemKind,
-                   parent_info: &FlattenInfo,
-                   context: &mut FlattenContext,
-                   target: &mut RenderTarget,
-                   level: i32) {
+    fn flatten(&mut self,
+               scene_item: SceneItemKind,
+               parent_info: &FlattenInfo,
+               context: &mut FlattenContext,
+               target: &mut RenderTarget,
+               level: i32) {
         let _pf = util::ProfileScope::new("  flatten");
 
         let stacking_context = match scene_item {
