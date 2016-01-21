@@ -44,7 +44,6 @@ out vec2 vDestTextureSize;
 out vec2 vSourceTextureSize;
 out float vBlurRadius;
 out vec4 vTileParams;
-out vec4 vClipInRect;
 out vec4 vClipOutRect;
 
 int Bottom7Bits(int value) {

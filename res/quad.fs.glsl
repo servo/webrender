@@ -8,11 +8,6 @@ bool PointInRect(vec2 p, vec2 p0, vec2 p1)
 
 void main(void)
 {
-    // Clip in rect
-    if (!PointInRect(vPosition, vClipInRect.xy, vClipInRect.zw)) {
-        discard;
-    }
-
     // Clip out rect
     if (PointInRect(vPosition, vClipOutRect.xy, vClipOutRect.zw)) {
         discard;
