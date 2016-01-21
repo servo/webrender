@@ -637,7 +637,8 @@ impl<'a> BatchBuilder<'a> {
                                   Size2D::new(metrics.br_inner.x - metrics.tl_inner.x,
                                               metrics.br_inner.y - metrics.tl_inner.y));
 
-                    debug_assert!(border_radius == 0.0);    // todo(gw): !!!
+                    // FIXME(pcwalton): This assumes the border radius is zero. That is not always
+                    // the case!
                     let old_clip_out_rect = self.set_clip_out_rect(Some(*box_bounds));
 
                     self.add_color_rectangle(&center_rect,
