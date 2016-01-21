@@ -47,9 +47,15 @@ pub enum TextureSampler {
 
 pub enum VertexAttribute {
     Position,
-    Color,
-    ColorTexCoord,
-    MaskTexCoord,
+    PositionRect,
+    ColorRectTL,
+    ColorRectTR,
+    ColorRectBR,
+    ColorRectBL,
+    ColorTexCoordRectTop,
+    MaskTexCoordRectTop,
+    ColorTexCoordRectBottom,
+    MaskTexCoordRectBottom,
     BorderRadii,
     BorderPosition,
     BlurRadius,
@@ -126,6 +132,92 @@ impl WorkVertex {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PackedVertexColorMode {
+    Gradient,
+    BorderCorner,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct PackedVertexForQuad {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub color_tl: PackedColor,
+    pub color_tr: PackedColor,
+    pub color_br: PackedColor,
+    pub color_bl: PackedColor,
+    pub u_tl: f32,
+    pub v_tl: f32,
+    pub u_tr: f32,
+    pub v_tr: f32,
+    pub u_br: f32,
+    pub v_br: f32,
+    pub u_bl: f32,
+    pub v_bl: f32,
+    pub mu_tl: u16,
+    pub mv_tl: u16,
+    pub mu_tr: u16,
+    pub mv_tr: u16,
+    pub mu_br: u16,
+    pub mv_br: u16,
+    pub mu_bl: u16,
+    pub mv_bl: u16,
+    pub matrix_index: u8,
+    pub clip_in_rect_index: u8,
+    pub clip_out_rect_index: u8,
+    pub tile_params_index: u8,
+}
+
+impl PackedVertexForQuad {
+    pub fn new(position: &Rect<f32>,
+               colors: &[ColorF; 4],
+               uv: &RectUv,
+               muv: &RectUv,
+               color_mode: PackedVertexColorMode)
+               -> PackedVertexForQuad {
+        return PackedVertexForQuad {
+            x: position.origin.x,
+            y: position.origin.y,
+            width: position.size.width,
+            height: position.size.height,
+            color_tl: PackedColor::from_color(&colors[0]),
+            color_tr: PackedColor::from_color(&colors[1]),
+            color_br: PackedColor::from_color(&colors[2]),
+            color_bl: PackedColor::from_color(&colors[3]),
+            u_tl: uv.top_left.x,
+            v_tl: uv.top_left.y,
+            u_tr: uv.top_right.x,
+            v_tr: uv.top_right.y,
+            u_bl: uv.bottom_left.x,
+            v_bl: uv.bottom_left.y,
+            u_br: uv.bottom_right.x,
+            v_br: uv.bottom_right.y,
+            mu_tl: scale_muv_value(muv.top_left.x),
+            mv_tl: scale_muv_value(muv.top_left.y),
+            mu_tr: scale_muv_value(muv.top_right.x),
+            mv_tr: scale_muv_value(muv.top_right.y),
+            mu_bl: scale_muv_value(muv.bottom_left.x),
+            mv_bl: scale_muv_value(muv.bottom_left.y),
+            mu_br: scale_muv_value(muv.bottom_right.x),
+            mv_br: scale_muv_value(muv.bottom_right.y),
+            matrix_index: 0,
+            clip_in_rect_index: 0,
+            clip_out_rect_index: 0,
+            tile_params_index: match color_mode {
+                PackedVertexColorMode::Gradient => 0x00,
+                PackedVertexColorMode::BorderCorner => 0x80,
+            },
+        };
+
+        fn scale_muv_value(value: f32) -> u16 {
+            (value * UV_FLOAT_TO_FIXED) as u16
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct PackedVertex {
@@ -187,14 +279,6 @@ impl PackedVertex {
             clip_out_rect_index: 0,
             tile_params_index: 0,
         }
-    }
-
-    pub fn from_points(position: &Point2D<f32>,
-                       color: &ColorF,
-                       uv: &Point2D<f32>,
-                       muv: &Point2D<f32>)
-                       -> PackedVertex {
-        PackedVertex::from_components(position.x, position.y, color, uv.x, uv.y, muv.x, muv.y)
     }
 }
 
@@ -287,7 +371,7 @@ impl TextureUpdateList {
 }
 
 pub enum BatchUpdateOp {
-    Create(Vec<PackedVertex>, Vec<u16>),
+    Create(Vec<PackedVertexForQuad>),
     Destroy,
 }
 
@@ -330,8 +414,8 @@ pub struct DrawCall {
     pub vertex_buffer_id: VertexBufferId,
     pub color_texture_id: TextureId,
     pub mask_texture_id: TextureId,
-    pub first_vertex: u32,
-    pub index_count: u16,
+    pub first_instance: u32,
+    pub instance_count: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -483,12 +567,6 @@ impl FreeListItem for DrawList {
 
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq)]
 pub struct DrawListItemIndex(pub u32);
-
-#[derive(Debug, Copy, Clone)]
-pub enum Primitive {
-    Triangles,
-    Rectangles,     // 4 vertices per rect
-}
 
 #[derive(Debug)]
 pub struct BatchList {

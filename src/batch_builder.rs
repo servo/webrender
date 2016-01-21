@@ -3,11 +3,9 @@ use batch::{BatchBuilder, TileParams};
 use device::TextureId;
 use euclid::{Rect, Point2D, Size2D};
 use fnv::FnvHasher;
-use internal_types::{RectColors, RectPolygon};
-use internal_types::{RectUv, BorderRadiusRasterOp, RasterItem};
-use internal_types::{GlyphKey, PackedVertex};
-use internal_types::{AxisDirection, Primitive};
-use internal_types::{BasicRotationAngle, BoxShadowRasterOp, RectSide};
+use internal_types::{AxisDirection, BasicRotationAngle, BorderRadiusRasterOp, BoxShadowRasterOp};
+use internal_types::{GlyphKey, PackedVertexColorMode, RasterItem, RectColors, RectPolygon};
+use internal_types::{RectSide, RectUv};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use std::collections::HashMap;
@@ -46,32 +44,13 @@ impl<'a> BatchBuilder<'a> {
             return
         }
 
-        let mut vertices = [
-            PackedVertex::from_points(&pos_rect.origin,
-                                      &colors[0],
-                                      &uv_rect.top_left,
-                                      &muv_rect.top_left),
-
-            PackedVertex::from_points(&pos_rect.top_right(),
-                                      &colors[1],
-                                      &uv_rect.top_right,
-                                      &muv_rect.top_right),
-
-            PackedVertex::from_points(&pos_rect.bottom_left(),
-                                      &colors[3],
-                                      &uv_rect.bottom_left,
-                                      &muv_rect.bottom_left),
-
-            PackedVertex::from_points(&pos_rect.bottom_right(),
-                                      &colors[2],
-                                      &uv_rect.bottom_right,
-                                      &muv_rect.bottom_right),
-        ];
-
-        self.add_draw_item(color_texture_id,
+        self.add_rectangle(color_texture_id,
                            mask_texture_id,
-                           Primitive::Rectangles,
-                           &mut vertices,
+                           pos_rect,
+                           uv_rect,
+                           muv_rect,
+                           colors,
+                           PackedVertexColorMode::Gradient,
                            tile_params);
     }
 
@@ -384,47 +363,18 @@ impl<'a> BatchBuilder<'a> {
             }
         }
 
-        let mut vertex_buffer = Vec::new();
         for (texture_id, rect_buffer) in text_batches {
-            vertex_buffer.clear();
-
             for rect in rect_buffer {
-                let x0 = rect.pos.origin.x;
-                let y0 = rect.pos.origin.y;
-                let x1 = x0 + rect.pos.size.width;
-                let y1 = y0 + rect.pos.size.height;
-
-                vertex_buffer.push(PackedVertex::from_components(
-                        x0, y0,
-                        color,
-                        rect.varyings.top_left.x, rect.varyings.top_left.y,
-                        dummy_mask_image.uv_rect.top_left.x,
-                        dummy_mask_image.uv_rect.top_left.y));
-                vertex_buffer.push(PackedVertex::from_components(
-                        x1, y0,
-                        color,
-                        rect.varyings.top_right.x, rect.varyings.top_right.y,
-                        dummy_mask_image.uv_rect.top_right.x,
-                        dummy_mask_image.uv_rect.top_right.y));
-                vertex_buffer.push(PackedVertex::from_components(
-                        x0, y1,
-                        color,
-                        rect.varyings.bottom_left.x, rect.varyings.bottom_left.y,
-                        dummy_mask_image.uv_rect.bottom_left.x,
-                        dummy_mask_image.uv_rect.bottom_left.y));
-                vertex_buffer.push(PackedVertex::from_components(
-                        x1, y1,
-                        color,
-                        rect.varyings.bottom_right.x, rect.varyings.bottom_right.y,
-                        dummy_mask_image.uv_rect.bottom_right.x,
-                        dummy_mask_image.uv_rect.bottom_right.y));
+                self.add_rectangle(texture_id,
+                                   dummy_mask_image.texture_id,
+                                   &rect.pos,
+                                   &rect.varyings,
+                                   &dummy_mask_image.uv_rect,
+                                   &[*color, *color, *color, *color],
+                                   PackedVertexColorMode::Gradient,
+                                   None);
             }
 
-            self.add_draw_item(texture_id,
-                               dummy_mask_image.texture_id,
-                               Primitive::Rectangles,
-                               &mut vertex_buffer,
-                               None);
         }
     }
 
@@ -551,32 +501,14 @@ impl<'a> BatchBuilder<'a> {
             //           To fix this, use a bit of trigonometry to supply the rectangles as
             //           axis-aligned, and then the complex clipping will just work!
 
-            let mut vertices = [
-                PackedVertex::from_points(&Point2D::new(x0, y0),
-                                          &color0,
-                                          &white_image.uv_rect.top_left,
-                                          &dummy_mask_image.uv_rect.top_left),
-
-                PackedVertex::from_points(&Point2D::new(x1, y1),
-                                          &color1,
-                                          &white_image.uv_rect.top_left,
-                                          &dummy_mask_image.uv_rect.top_left),
-
-                PackedVertex::from_points(&Point2D::new(x3, y3),
-                                          &color0,
-                                          &white_image.uv_rect.top_left,
-                                          &dummy_mask_image.uv_rect.top_left),
-
-                PackedVertex::from_points(&Point2D::new(x2, y2),
-                                          &color1,
-                                          &white_image.uv_rect.top_left,
-                                          &dummy_mask_image.uv_rect.top_left),
-            ];
-
-            self.add_draw_item(white_image.texture_id,
+            let rect = Rect::new(Point2D::new(x0, y0), Size2D::new(x3 - x0, y3 - y0));
+            self.add_rectangle(white_image.texture_id,
                                dummy_mask_image.texture_id,
-                               Primitive::Rectangles,
-                               &mut vertices,
+                               &rect,
+                               &white_image.uv_rect,
+                               &dummy_mask_image.uv_rect,
+                               &[*color0, *color1, *color0, *color1],
+                               PackedVertexColorMode::Gradient,
                                None);
         }
     }
@@ -1410,59 +1342,58 @@ impl<'a> BatchBuilder<'a> {
 
         let v0;
         let v1;
-        let muv0;
-        let muv1;
-        let muv2;
-        let muv3;
+        let muv;
         match rotation_angle {
             BasicRotationAngle::Upright => {
                 v0 = rect_pos_uv.pos.origin;
                 v1 = rect_pos_uv.pos.bottom_right();
-                muv0 = rect_pos_uv.varyings.top_left;
-                muv1 = rect_pos_uv.varyings.top_right;
-                muv2 = rect_pos_uv.varyings.bottom_right;
-                muv3 = rect_pos_uv.varyings.bottom_left;
+                muv = RectUv {
+                    top_left: rect_pos_uv.varyings.top_left,
+                    top_right: rect_pos_uv.varyings.top_right,
+                    bottom_right: rect_pos_uv.varyings.bottom_right,
+                    bottom_left: rect_pos_uv.varyings.bottom_left,
+                }
             }
             BasicRotationAngle::Clockwise90 => {
                 v0 = rect_pos_uv.pos.top_right();
                 v1 = rect_pos_uv.pos.bottom_left();
-                muv0 = rect_pos_uv.varyings.top_right;
-                muv1 = rect_pos_uv.varyings.top_left;
-                muv2 = rect_pos_uv.varyings.bottom_left;
-                muv3 = rect_pos_uv.varyings.bottom_right;
+                muv = RectUv {
+                    top_left: rect_pos_uv.varyings.top_right,
+                    top_right: rect_pos_uv.varyings.top_left,
+                    bottom_right: rect_pos_uv.varyings.bottom_left,
+                    bottom_left: rect_pos_uv.varyings.bottom_right,
+                }
             }
             BasicRotationAngle::Clockwise180 => {
                 v0 = rect_pos_uv.pos.bottom_right();
                 v1 = rect_pos_uv.pos.origin;
-                muv0 = rect_pos_uv.varyings.bottom_right;
-                muv1 = rect_pos_uv.varyings.bottom_left;
-                muv2 = rect_pos_uv.varyings.top_left;
-                muv3 = rect_pos_uv.varyings.top_right;
+                muv = RectUv {
+                    top_left: rect_pos_uv.varyings.bottom_right,
+                    top_right: rect_pos_uv.varyings.bottom_left,
+                    bottom_right: rect_pos_uv.varyings.top_left,
+                    bottom_left: rect_pos_uv.varyings.top_right,
+                }
             }
             BasicRotationAngle::Clockwise270 => {
                 v0 = rect_pos_uv.pos.bottom_left();
                 v1 = rect_pos_uv.pos.top_right();
-                muv0 = rect_pos_uv.varyings.bottom_left;
-                muv1 = rect_pos_uv.varyings.bottom_right;
-                muv2 = rect_pos_uv.varyings.top_right;
-                muv3 = rect_pos_uv.varyings.top_left;
+                muv = RectUv {
+                    top_left: rect_pos_uv.varyings.bottom_left,
+                    top_right: rect_pos_uv.varyings.bottom_right,
+                    bottom_right: rect_pos_uv.varyings.top_right,
+                    bottom_left: rect_pos_uv.varyings.top_left,
+                }
             }
         }
 
-        let mut vertices = [
-            PackedVertex::from_components(v0.x, v0.y, color0, 0.0, 0.0, muv0.x, muv0.y),
-            PackedVertex::from_components(v1.x, v1.y, color0, 0.0, 0.0, muv2.x, muv2.y),
-            PackedVertex::from_components(v0.x, v1.y, color0, 0.0, 0.0, muv3.x, muv3.y),
-            PackedVertex::from_components(v0.x, v0.y, color1, 0.0, 0.0, muv0.x, muv0.y),
-            PackedVertex::from_components(v1.x, v0.y, color1, 0.0, 0.0, muv1.x, muv1.y),
-            PackedVertex::from_components(v1.x, v1.y, color1, 0.0, 0.0, muv2.x, muv2.y),
-        ];
-
-        self.add_draw_item(white_image.texture_id,
+        self.add_rectangle(white_image.texture_id,
                            mask_image.texture_id,
-                           Primitive::Triangles,
-                           &mut vertices,
-                           None);
+                           &Rect::new(v0, Size2D::new(v1.x - v0.x, v1.y - v0.y)),
+                           &RectUv::zero(),
+                           &muv,
+                           &[*color1, *color1, *color0, *color0],
+                           PackedVertexColorMode::BorderCorner,
+                           None)
     }
 
     fn add_color_image_rectangle(&mut self,

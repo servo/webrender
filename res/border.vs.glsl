@@ -1,6 +1,6 @@
 void main(void)
 {
-	vColor = aColor;
+	vColor = aColorRectTL;
 	vPosition = aPosition.xy;
     vBorderPosition = aBorderPosition;
     vBorderRadii = aBorderRadii;
