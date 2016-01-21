@@ -10,12 +10,24 @@ vec2 SnapToPixels(vec2 pos)
 #endif
 }
 
+vec2 Bilerp2(vec2 tl, vec2 tr, vec2 br, vec2 bl, vec2 st) {
+    return mix(mix(tl, bl, st.y), mix(tr, br, st.y), st.x);
+}
+
+vec4 Bilerp4(vec4 tl, vec4 tr, vec4 br, vec4 bl, vec2 st) {
+    return mix(mix(tl, bl, st.y), mix(tr, br, st.y), st.x);
+}
+
 void main(void)
 {
     // Extract the image tiling parameters.
     // These are passed to the fragment shader, since
     // the uv interpolation must be done per-fragment.
     vTileParams = uTileParams[Bottom7Bits(int(aMisc.w))];
+
+    // Determine clip rects.
+    vClipOutRect = uClipRects[int(aMisc.z)];
+    vec4 clipInRect = uClipRects[int(aMisc.y)];
 
     // Determine the position, color, and mask texture coordinates of this vertex.
     vec4 localPos = vec4(0.0, 0.0, 0.0, 1.0);
@@ -25,41 +37,29 @@ void main(void)
         localPos.y = aPositionRect.y;
         if (aPosition.x == 0.0) {
             localPos.x = aPositionRect.x;
-            vColorTexCoord = aColorTexCoordRectTop.xy;
-            vMaskTexCoord = aMaskTexCoordRectTop.xy;
-            if (!isBorderCorner) {
-                vColor = aColorRectTL;
-            } else {
+            if (isBorderCorner) {
                 vColor = !isBottomTriangle ? aColorRectTR : aColorRectBL;
             }
         } else {
             localPos.x = aPositionRect.x + aPositionRect.z;
-            vColorTexCoord = aColorTexCoordRectTop.zw;
-            vMaskTexCoord = aMaskTexCoordRectTop.zw;
-            vColor = aColorRectTR;
+            if (isBorderCorner) {
+                vColor = aColorRectTR;
+            }
         }
     } else {
         localPos.y = aPositionRect.y + aPositionRect.w;
         if (aPosition.x == 0.0) {
             localPos.x = aPositionRect.x;
-            vColorTexCoord = aColorTexCoordRectBottom.zw;
-            vMaskTexCoord = aMaskTexCoordRectBottom.zw;
-            vColor = aColorRectBL;
+            if (isBorderCorner) {
+                vColor = aColorRectBL;
+            }
         } else {
             localPos.x = aPositionRect.x + aPositionRect.z;
-            vColorTexCoord = aColorTexCoordRectBottom.xy;
-            vMaskTexCoord = aMaskTexCoordRectBottom.xy;
-            if (!isBorderCorner) {
-                vColor = aColorRectBR;
-            } else {
+            if (isBorderCorner) {
                 vColor = !isBottomTriangle ? aColorRectTR : aColorRectBL;
             }
         }
     }
-
-    // Normalize the vertex color and mask texture coordinates.
-    vColor /= 255.0;
-    vMaskTexCoord /= 65535.0;
 
     // Extract the complete (stacking context + css transform) transform
     // for this vertex. Transform the position by it.
@@ -68,8 +68,23 @@ void main(void)
 
     localPos.xy += offsetParams.xy;
 
-    vClipInRect = uClipRects[int(aMisc.y)];
-    vClipOutRect = uClipRects[int(aMisc.z)];
+    // Clip and compute varyings.
+    localPos.xy = clamp(localPos.xy, clipInRect.xy, clipInRect.zw);
+    vec2 localST = (localPos.xy - (aPositionRect.xy + offsetParams.xy)) / aPositionRect.zw;
+    vColorTexCoord = Bilerp2(aColorTexCoordRectTop.xy, aColorTexCoordRectTop.zw,
+                             aColorTexCoordRectBottom.xy, aColorTexCoordRectBottom.zw,
+                             localST);
+    vMaskTexCoord = Bilerp2(aMaskTexCoordRectTop.xy, aMaskTexCoordRectTop.zw,
+                            aMaskTexCoordRectBottom.xy, aMaskTexCoordRectBottom.zw,
+                            localST);
+    if (!isBorderCorner) {
+        vColor = Bilerp4(aColorRectTL, aColorRectTR, aColorRectBR, aColorRectBL, localST);
+    }
+
+    // Normalize the vertex color and mask texture coordinates.
+    vColor /= 255.0;
+    vMaskTexCoord /= 65535.0;
+
     vPosition = localPos.xy;
 
     vec4 worldPos = matrix * localPos;
