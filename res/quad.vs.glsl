@@ -83,12 +83,11 @@ void main(void)
 
     // Normalize the vertex color and mask texture coordinates.
     vColor /= 255.0;
-    vMaskTexCoord /= 65535.0;
+    vMaskTexCoord /= uAtlasParams.zw;
 
     vPosition = localPos.xy;
 
     vec4 worldPos = matrix * localPos;
-    worldPos.xy = SnapToPixels(worldPos.xy);
 
     // Transform by the orthographic projection into clip space.
     gl_Position = uTransform * worldPos;

@@ -11,6 +11,7 @@ uniform vec4 uBlendParams;
 uniform vec4 uFilterParams;
 uniform float uDevicePixelRatio;
 uniform vec4 uTileParams[64];
+uniform vec4 uAtlasParams;
 
 in vec3 aPosition;
 in vec4 aPositionRect;  // Width can be negative to flip horizontally (for border corners).
