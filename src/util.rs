@@ -1,5 +1,5 @@
 use euclid::{Matrix4, Point2D, Rect, Size2D};
-use internal_types::{RectColors, RectColorsUv, RectUv};
+use internal_types::{RectColors};
 use std::num::Zero;
 use time::precise_time_ns;
 use webrender_traits::ColorF;
@@ -97,22 +97,6 @@ pub trait RectVaryings {
     fn from_elements(elements: &[Self::Element; 4]) -> Self;
 }
 
-impl RectVaryings for RectUv {
-    type Element = Point2D<f32>;
-    fn top_left(&self) -> Point2D<f32> { self.top_left }
-    fn top_right(&self) -> Point2D<f32> { self.top_right }
-    fn bottom_right(&self) -> Point2D<f32> { self.bottom_right }
-    fn bottom_left(&self) -> Point2D<f32> { self.bottom_left }
-    fn from_elements(elements: &[Point2D<f32>; 4]) -> RectUv {
-        RectUv {
-            top_left: elements[0],
-            top_right: elements[1],
-            bottom_right: elements[2],
-            bottom_left: elements[3],
-        }
-    }
-}
-
 impl RectVaryings for RectColors {
     type Element = ColorF;
     fn top_left(&self) -> ColorF { self.top_left }
@@ -125,30 +109,6 @@ impl RectVaryings for RectColors {
             top_right: elements[1],
             bottom_right: elements[2],
             bottom_left: elements[3],
-        }
-    }
-}
-
-impl RectVaryings for RectColorsUv {
-    type Element = (ColorF, Point2D<f32>);
-    fn top_left(&self) -> (ColorF, Point2D<f32>) {
-        (self.colors.top_left, self.uv.top_left)
-    }
-    fn top_right(&self) -> (ColorF, Point2D<f32>) {
-        (self.colors.top_right, self.uv.top_right)
-    }
-    fn bottom_left(&self) -> (ColorF, Point2D<f32>) {
-        (self.colors.bottom_left, self.uv.bottom_left)
-    }
-    fn bottom_right(&self) -> (ColorF, Point2D<f32>) {
-        (self.colors.bottom_right, self.uv.bottom_right)
-    }
-    fn from_elements(elements: &[(ColorF, Point2D<f32>); 4]) -> RectColorsUv {
-        let colors = [elements[0].0, elements[1].0, elements[2].0, elements[3].0];
-        let uv = [elements[0].1, elements[1].1, elements[2].1, elements[3].1];
-        RectColorsUv {
-            colors: RectColors::from_elements(&colors),
-            uv: RectUv::from_elements(&uv),
         }
     }
 }

@@ -5,14 +5,15 @@ use euclid::{Rect, Point2D, Size2D};
 use fnv::FnvHasher;
 use internal_types::{AxisDirection, BasicRotationAngle, BorderRadiusRasterOp, BoxShadowRasterOp};
 use internal_types::{GlyphKey, PackedVertexColorMode, RasterItem, RectColors, RectPolygon};
-use internal_types::{RectSide, RectUv};
+use internal_types::{RectSide, RectUv, DevicePixel};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
 use std::f32;
-use tessellator::{self, BorderCornerTessellation};
+use std::num::Zero;
+//use tessellator::{self, BorderCornerTessellation};
 use texture_cache::{TextureCacheItem};
 use util;
 use util::RectVaryings;
@@ -35,9 +36,9 @@ impl<'a> BatchBuilder<'a> {
     pub fn add_simple_rectangle(&mut self,
                                 color_texture_id: TextureId,
                                 pos_rect: &Rect<f32>,
-                                uv_rect: &RectUv,
+                                uv_rect: &RectUv<f32>,
                                 mask_texture_id: TextureId,
-                                muv_rect: &RectUv,
+                                muv_rect: &RectUv<DevicePixel>,
                                 colors: &[ColorF; 4],
                                 tile_params: Option<TileParams>) {
         if pos_rect.size.width == 0.0 || pos_rect.size.height == 0.0 {
@@ -54,11 +55,31 @@ impl<'a> BatchBuilder<'a> {
                            tile_params);
     }
 
+    #[inline]
+    fn snap_value_to_device_pixel(&self, value: &mut f32) {
+        *value = (*value * self.device_pixel_ratio).round() / self.device_pixel_ratio;
+    }
+
+    #[inline]
+    fn snap_rect_to_device_pixel(&self,
+                                 rect: &mut Rect<f32>) {
+        let mut x1 = rect.origin.x + rect.size.width;
+        let mut y1 = rect.origin.y + rect.size.height;
+        self.snap_value_to_device_pixel(&mut x1);
+        self.snap_value_to_device_pixel(&mut y1);
+
+        self.snap_value_to_device_pixel(&mut rect.origin.x);
+        self.snap_value_to_device_pixel(&mut rect.origin.y);
+
+        rect.size.width = x1 - rect.origin.x;
+        rect.size.height = y1 - rect.origin.y;
+    }
+
     // Colors are in the order: top left, top right, bottom right, bottom left.
     pub fn add_complex_clipped_rectangle(&mut self,
                                          color_texture_id: TextureId,
                                          pos_rect: &Rect<f32>,
-                                         uv_rect: &RectUv,
+                                         uv_rect: &RectUv<f32>,
                                          colors: &[ColorF; 4],
                                          tile_params: Option<TileParams>,
                                          resource_cache: &ResourceCache) {
@@ -68,7 +89,6 @@ impl<'a> BatchBuilder<'a> {
 
         match self.complex_clip {
             Some(complex_clip) => {
-
                 let tl_x0 = complex_clip.rect.origin.x;
                 let tl_y0 = complex_clip.rect.origin.y;
 
@@ -81,10 +101,15 @@ impl<'a> BatchBuilder<'a> {
                 let br_x0 = complex_clip.rect.origin.x + complex_clip.rect.size.width - complex_clip.radii.bottom_right.width;
                 let br_y0 = complex_clip.rect.origin.y + complex_clip.rect.size.height - complex_clip.radii.bottom_right.height;
 
-                let tl_clip = Rect::new(Point2D::new(tl_x0, tl_y0), complex_clip.radii.top_left);
-                let tr_clip = Rect::new(Point2D::new(tr_x0, tr_y0), complex_clip.radii.top_right);
-                let bl_clip = Rect::new(Point2D::new(bl_x0, bl_y0), complex_clip.radii.bottom_left);
-                let br_clip = Rect::new(Point2D::new(br_x0, br_y0), complex_clip.radii.bottom_right);
+                let mut tl_clip = Rect::new(Point2D::new(tl_x0, tl_y0), complex_clip.radii.top_left);
+                let mut tr_clip = Rect::new(Point2D::new(tr_x0, tr_y0), complex_clip.radii.top_right);
+                let mut bl_clip = Rect::new(Point2D::new(bl_x0, bl_y0), complex_clip.radii.bottom_left);
+                let mut br_clip = Rect::new(Point2D::new(br_x0, br_y0), complex_clip.radii.bottom_right);
+
+                self.snap_rect_to_device_pixel(&mut tl_clip);
+                self.snap_rect_to_device_pixel(&mut tr_clip);
+                self.snap_rect_to_device_pixel(&mut bl_clip);
+                self.snap_rect_to_device_pixel(&mut br_clip);
 
                 // gen all vertices for each line
                 let mut x_points = [
@@ -115,17 +140,24 @@ impl<'a> BatchBuilder<'a> {
 
                 for xi in 0..x_points.len()-1 {
                     for yi in 0..y_points.len()-1 {
-                        let x0 = complex_clip.rect.origin.x + x_points[xi+0];
-                        let y0 = complex_clip.rect.origin.y + y_points[yi+0];
-                        let x1 = complex_clip.rect.origin.x + x_points[xi+1];
-                        let y1 = complex_clip.rect.origin.y + y_points[yi+1];
+                        let mut x0 = complex_clip.rect.origin.x + x_points[xi+0];
+                        let mut y0 = complex_clip.rect.origin.y + y_points[yi+0];
+                        let mut x1 = complex_clip.rect.origin.x + x_points[xi+1];
+                        let mut y1 = complex_clip.rect.origin.y + y_points[yi+1];
+
+                        self.snap_value_to_device_pixel(&mut x0);
+                        self.snap_value_to_device_pixel(&mut y0);
+                        self.snap_value_to_device_pixel(&mut x1);
+                        self.snap_value_to_device_pixel(&mut y1);
 
                         if x0 != x1 && y0 != y1 {
 
                             let sub_clip_rect = Rect::new(Point2D::new(x0, y0),
                                                           Size2D::new(x1-x0, y1-y0));
 
-                            if let Some(clipped_pos_rect) = sub_clip_rect.intersection(&pos_rect) {
+                            if let Some(mut clipped_pos_rect) = sub_clip_rect.intersection(&pos_rect) {
+                                self.snap_rect_to_device_pixel(&mut clipped_pos_rect);
+
                                 // TODO(gw): There must be a more efficient way to to
                                 //           this (classifying which clip mask we need).
                                 let (mask_info, angle) = if sub_clip_rect.intersects(&tl_clip) {
@@ -143,10 +175,10 @@ impl<'a> BatchBuilder<'a> {
                                 let (mask_texture_id, muv_rect) = match mask_info {
                                     Some(clip_rect) => {
                                         let mask_image = resource_cache.get_raster(&RasterItem::BorderRadius(BorderRadiusRasterOp {
-                                            outer_radius_x: Au::from_f32_px(clip_rect.size.width),
-                                            outer_radius_y: Au::from_f32_px(clip_rect.size.height),
-                                            inner_radius_x: Au(0),
-                                            inner_radius_y: Au(0),
+                                            outer_radius_x: DevicePixel::new(clip_rect.size.width, self.device_pixel_ratio),
+                                            outer_radius_y: DevicePixel::new(clip_rect.size.height, self.device_pixel_ratio),
+                                            inner_radius_x: DevicePixel::zero(),
+                                            inner_radius_y: DevicePixel::zero(),
                                             inverted: false,
                                             index: None,
                                             image_format: ImageFormat::A8,
@@ -175,10 +207,10 @@ impl<'a> BatchBuilder<'a> {
                                             }
                                         }
 
-                                        let mu0 = mask_image.uv_rect.top_left.x;
-                                        let mu1 = mask_image.uv_rect.top_right.x;
-                                        let mv0 = mask_image.uv_rect.top_left.y;
-                                        let mv1 = mask_image.uv_rect.bottom_left.y;
+                                        let mu0 = mask_image.pixel_rect.top_left.x.as_f32();
+                                        let mu1 = mask_image.pixel_rect.top_right.x.as_f32();
+                                        let mv0 = mask_image.pixel_rect.top_left.y.as_f32();
+                                        let mv1 = mask_image.pixel_rect.bottom_left.y.as_f32();
 
                                         let mu_size = mu1 - mu0;
                                         let mv_size = mv1 - mv0;
@@ -186,6 +218,11 @@ impl<'a> BatchBuilder<'a> {
                                         let mu0 = mu0 + x0_f * mu_size;
                                         let mv1 = mv0 + y1_f * mv_size;
                                         let mv0 = mv0 + y0_f * mv_size;
+
+                                        let mu0 = DevicePixel::from_f32(mu0);
+                                        let mv0 = DevicePixel::from_f32(mv0);
+                                        let mu1 = DevicePixel::from_f32(mu1);
+                                        let mv1 = DevicePixel::from_f32(mv1);
 
                                         let muv_rect = RectUv {
                                             top_left: Point2D::new(mu0, mv0),
@@ -198,7 +235,7 @@ impl<'a> BatchBuilder<'a> {
                                     }
                                     None => {
                                         let mask_image = resource_cache.get_dummy_mask_image();
-                                        (mask_image.texture_id, mask_image.uv_rect)
+                                        (mask_image.texture_id, mask_image.pixel_rect)
                                     }
                                 };
 
@@ -235,7 +272,7 @@ impl<'a> BatchBuilder<'a> {
                                           pos_rect,
                                           uv_rect,
                                           dummy_mask_image.texture_id,
-                                          &dummy_mask_image.uv_rect,
+                                          &dummy_mask_image.pixel_rect,
                                           colors,
                                           tile_params);
             }
@@ -335,7 +372,7 @@ impl<'a> BatchBuilder<'a> {
         let blur_offset = blur_radius.to_f32_px() * (BLUR_INFLATION_FACTOR as f32) / 2.0;
 
         let mut text_batches: HashMap<TextureId,
-                                      Vec<RectPolygon<RectUv>>,
+                                      Vec<RectPolygon<RectUv<f32>>>,
                                       DefaultState<FnvHasher>> =
             HashMap::with_hash_state(Default::default());
 
@@ -343,8 +380,12 @@ impl<'a> BatchBuilder<'a> {
             glyph_key.index = glyph.index;
             let image_info = resource_cache.get_glyph(&glyph_key);
             if let Some(image_info) = image_info {
-                let x = glyph.x + image_info.user_data.x0 as f32 / device_pixel_ratio - blur_offset;
-                let y = glyph.y - image_info.user_data.y0 as f32 / device_pixel_ratio - blur_offset;
+                let mut x = (glyph.x * device_pixel_ratio + image_info.user_data.x0 as f32).round() / device_pixel_ratio;
+                let mut y = (glyph.y * device_pixel_ratio - image_info.user_data.y0 as f32).round() / device_pixel_ratio;
+
+                x -= blur_offset;
+                y -= blur_offset;
+
                 let width = image_info.requested_rect.size.width as f32 / device_pixel_ratio;
                 let height = image_info.requested_rect.size.height as f32 / device_pixel_ratio;
 
@@ -369,7 +410,7 @@ impl<'a> BatchBuilder<'a> {
                                    dummy_mask_image.texture_id,
                                    &rect.pos,
                                    &rect.varyings,
-                                   &dummy_mask_image.uv_rect,
+                                   &dummy_mask_image.pixel_rect,
                                    &[*color, *color, *color, *color],
                                    PackedVertexColorMode::Gradient,
                                    None);
@@ -479,19 +520,19 @@ impl<'a> BatchBuilder<'a> {
             let start_x = start_point.x + stop0.offset * (end_point.x - start_point.x);
             let start_y = start_point.y + stop0.offset * (end_point.y - start_point.y);
 
-            let end_x = start_point.x + stop1.offset * (end_point.x - start_point.x);
-            let end_y = start_point.y + stop1.offset * (end_point.y - start_point.y);
+            //let end_x = start_point.x + stop1.offset * (end_point.x - start_point.x);
+            //let end_y = start_point.y + stop1.offset * (end_point.y - start_point.y);
 
             let len_scale = 1000.0;     // todo: determine this properly!!
 
             let x0 = start_x - perp_xn * len_scale;
             let y0 = start_y - perp_yn * len_scale;
 
-            let x1 = end_x - perp_xn * len_scale;
-            let y1 = end_y - perp_yn * len_scale;
+            //let x1 = end_x - perp_xn * len_scale;
+            //let y1 = end_y - perp_yn * len_scale;
 
-            let x2 = end_x + perp_xn * len_scale;
-            let y2 = end_y + perp_yn * len_scale;
+            //let x2 = end_x + perp_xn * len_scale;
+            //let y2 = end_y + perp_yn * len_scale;
 
             let x3 = start_x + perp_xn * len_scale;
             let y3 = start_y + perp_yn * len_scale;
@@ -506,7 +547,7 @@ impl<'a> BatchBuilder<'a> {
                                dummy_mask_image.texture_id,
                                &rect,
                                &white_image.uv_rect,
-                               &dummy_mask_image.uv_rect,
+                               &dummy_mask_image.pixel_rect,
                                &[*color0, *color1, *color0, *color1],
                                PackedVertexColorMode::Gradient,
                                None);
@@ -929,9 +970,13 @@ impl<'a> BatchBuilder<'a> {
                         }
                     };
 
+                    let mask_radius = DevicePixel::new(mask_radius, self.device_pixel_ratio);
+
                     let raster_op =
-                        BorderRadiusRasterOp::create(&Size2D::new(mask_radius, mask_radius),
-                                                     &Size2D::new(0.0, 0.0),
+                        BorderRadiusRasterOp::create(mask_radius,
+                                                     mask_radius,
+                                                     DevicePixel::zero(),
+                                                     DevicePixel::zero(),
                                                      false,
                                                      None,
                                                      ImageFormat::RGBA8).expect(
@@ -946,7 +991,7 @@ impl<'a> BatchBuilder<'a> {
                                                                      dot_rect.size.height / 2.0)),
                                               &color_image.uv_rect,
                                               dummy_mask_image.texture_id,
-                                              &dummy_mask_image.uv_rect,
+                                              &dummy_mask_image.pixel_rect,
                                               &colors,
                                               None);
 
@@ -957,7 +1002,7 @@ impl<'a> BatchBuilder<'a> {
                                                                      dot_rect.size.height / 2.0)),
                                               &color_image.uv_rect,
                                               dummy_mask_image.texture_id,
-                                              &dummy_mask_image.uv_rect,
+                                              &dummy_mask_image.pixel_rect,
                                               &colors,
                                               None);
 
@@ -968,7 +1013,7 @@ impl<'a> BatchBuilder<'a> {
                                                                      -dot_rect.size.height / 2.0)),
                                               &color_image.uv_rect,
                                               dummy_mask_image.texture_id,
-                                              &dummy_mask_image.uv_rect,
+                                              &dummy_mask_image.pixel_rect,
                                               &colors,
                                               None);
 
@@ -979,7 +1024,7 @@ impl<'a> BatchBuilder<'a> {
                                                                      -dot_rect.size.height / 2.0)),
                                               &color_image.uv_rect,
                                               dummy_mask_image.texture_id,
-                                              &dummy_mask_image.uv_rect,
+                                              &dummy_mask_image.pixel_rect,
                                               &colors,
                                               None);
 
@@ -1258,7 +1303,7 @@ impl<'a> BatchBuilder<'a> {
                                inner_radius: &Size2D<f32>,
                                resource_cache: &ResourceCache,
                                rotation_angle: BasicRotationAngle,
-                               device_pixel_ratio: f32) {
+                               _device_pixel_ratio: f32) {
         // TODO: Check for zero width/height borders!
         // FIXME(pcwalton): It's kind of messy to be matching on the rotation angle here to pick
         // the right rect to draw the rounded corner in. Is there a more elegant way to do this?
@@ -1268,17 +1313,25 @@ impl<'a> BatchBuilder<'a> {
         let dummy_mask_image = resource_cache.get_dummy_mask_image();
 
         // Draw the rounded part of the corner.
-        for rect_index in 0..tessellator::quad_count_for_border_corner(outer_radius,
-                                                                       device_pixel_ratio) {
-            let tessellated_rect = outer_corner_rect.tessellate_border_corner(outer_radius,
-                                                                              inner_radius,
-                                                                              device_pixel_ratio,
-                                                                              rotation_angle,
-                                                                              rect_index);
-            let mask_image = match BorderRadiusRasterOp::create(outer_radius,
-                                                                inner_radius,
+        //for rect_index in 0..tessellator::quad_count_for_border_corner(outer_radius,
+        //                                                               device_pixel_ratio) {
+            let tessellated_rect = outer_corner_rect;//.tessellate_border_corner(outer_radius,
+                                                     //                         inner_radius,
+                                                     //                         device_pixel_ratio,
+                                                     //                         rotation_angle,
+                                                     //                         rect_index);
+
+            let outer_radius_x = DevicePixel::new(outer_radius.width, self.device_pixel_ratio);
+            let outer_radius_y = DevicePixel::new(outer_radius.height, self.device_pixel_ratio);
+            let inner_radius_x = DevicePixel::new(inner_radius.width, self.device_pixel_ratio);
+            let inner_radius_y = DevicePixel::new(inner_radius.height, self.device_pixel_ratio);
+
+            let mask_image = match BorderRadiusRasterOp::create(outer_radius_x,
+                                                                outer_radius_y,
+                                                                inner_radius_x,
+                                                                inner_radius_y,
                                                                 false,
-                                                                Some(rect_index),
+                                                                None,//Some(rect_index),
                                                                 ImageFormat::A8) {
                 Some(raster_item) => {
                     resource_cache.get_raster(&RasterItem::BorderRadius(raster_item))
@@ -1288,7 +1341,10 @@ impl<'a> BatchBuilder<'a> {
 
             // FIXME(pcwalton): Either use RGBA8 textures instead of alpha masks here, or implement
             // a mask combiner.
-            let mask_uv = RectUv::from_image_and_rotation_angle(mask_image, rotation_angle, true);
+            let mask_uv = RectUv::from_uv_rect_rotation_angle(&mask_image.pixel_rect,
+                                                              rotation_angle,
+                                                              true);
+
             let tessellated_rect = RectPolygon {
                 pos: tessellated_rect,
                 varyings: mask_uv,
@@ -1300,7 +1356,7 @@ impl<'a> BatchBuilder<'a> {
                                          color1,
                                          resource_cache,
                                          rotation_angle);
-        }
+        //}
 
         // Draw the inner rect.
         self.add_border_corner_piece(RectPolygon {
@@ -1328,7 +1384,7 @@ impl<'a> BatchBuilder<'a> {
 
     /// Draws one rectangle making up a border corner.
     fn add_border_corner_piece(&mut self,
-                               rect_pos_uv: RectPolygon<RectUv>,
+                               rect_pos_uv: RectPolygon<RectUv<DevicePixel>>,
                                mask_image: &TextureCacheItem,
                                color0: &ColorF,
                                color1: &ColorF,
@@ -1409,7 +1465,10 @@ impl<'a> BatchBuilder<'a> {
         }
 
         let vertices_rect = Rect::new(*v0, Size2D::new(v1.x - v0.x, v1.y - v0.y));
-        let color_uv = RectUv::from_image_and_rotation_angle(color_image, rotation_angle, false);
+
+        let color_uv = RectUv::from_uv_rect_rotation_angle(&color_image.uv_rect,
+                                                           rotation_angle,
+                                                           false);
 
         let dummy_mask_image = resource_cache.get_dummy_mask_image();
 
@@ -1417,7 +1476,7 @@ impl<'a> BatchBuilder<'a> {
                                   &vertices_rect,
                                   &color_uv,
                                   dummy_mask_image.texture_id,
-                                  &dummy_mask_image.uv_rect,
+                                  &dummy_mask_image.pixel_rect,
                                   &[*color0, *color0, *color1, *color1],
                                   None);
     }

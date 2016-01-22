@@ -1,11 +1,9 @@
 use device::{ProgramId, TextureId};
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::{MAX_RECT, AxisDirection, PackedVertexColorMode, PackedVertexForQuad};
-use internal_types::{PackedVertexForTextureCacheUpdate, RectUv};
+use internal_types::{PackedVertexForTextureCacheUpdate, RectUv, DevicePixel};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
-use std::sync::Arc;
-use std::u16;
 use webrender_traits::{ColorF, ComplexClipRegion};
 
 pub const MAX_MATRICES_PER_BATCH: usize = 32;
@@ -221,10 +219,13 @@ pub struct BatchBuilder<'a> {
 
     // TODO(gw): Support nested complex clip regions!
     pub complex_clip: Option<ComplexClipRegion>,
+
+    pub device_pixel_ratio: f32,
 }
 
 impl<'a> BatchBuilder<'a> {
-    pub fn new(vertex_buffer: &mut VertexBuffer) -> BatchBuilder {
+    pub fn new(vertex_buffer: &mut VertexBuffer,
+               device_pixel_ratio: f32) -> BatchBuilder {
         BatchBuilder {
             vertex_buffer: vertex_buffer,
             batches: Vec::new(),
@@ -234,6 +235,7 @@ impl<'a> BatchBuilder<'a> {
             clip_out_rect: None,
             complex_clip: None,
             clip_offset: Point2D::zero(),
+            device_pixel_ratio: device_pixel_ratio,
         }
     }
 
@@ -301,11 +303,22 @@ impl<'a> BatchBuilder<'a> {
                          color_texture_id: TextureId,
                          mask_texture_id: TextureId,
                          pos_rect: &Rect<f32>,
-                         uv_rect: &RectUv,
-                         muv_rect: &RectUv,
+                         uv_rect: &RectUv<f32>,
+                         muv_rect: &RectUv<DevicePixel>,
                          colors: &[ColorF; 4],
                          color_mode: PackedVertexColorMode,
                          tile_params: Option<TileParams>) {
+        // TODO(gw): Move this to the VS?
+        let snapped_origin = Point2D::new((pos_rect.origin.x * self.device_pixel_ratio).round() / self.device_pixel_ratio,
+                                          (pos_rect.origin.y * self.device_pixel_ratio).round() / self.device_pixel_ratio);
+
+        let pos_rect = &Rect::new(snapped_origin, pos_rect.size);
+
+        //debug_assert!((pos_rect.origin.x * self.device_pixel_ratio).fract() == 0.0);
+        //debug_assert!((pos_rect.origin.y * self.device_pixel_ratio).fract() == 0.0);
+        //debug_assert!((pos_rect.size.width * self.device_pixel_ratio).fract() == 0.0);
+        //debug_assert!((pos_rect.size.height * self.device_pixel_ratio).fract() == 0.0);
+
         let (tile_params_index,
              clip_in_rect_index,
              clip_out_rect_index) = match self.cached_clip_in_rect {

@@ -5,14 +5,14 @@ use fnv::FnvHasher;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
-use internal_types::{BasicRotationAngle, RectUv};
+use internal_types::{RectUv, DevicePixel};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::collections::hash_state::DefaultState;
 use std::mem;
 use std::slice::Iter;
-use tessellator::BorderCornerTessellation;
+//use tessellator::BorderCornerTessellation;
 use util;
 use webrender_traits::{ImageFormat};
 
@@ -407,7 +407,8 @@ pub struct TextureCacheItem {
     pub user_data: TextureCacheItemUserData,
 
     // The texture coordinates for this item
-    pub uv_rect: RectUv,
+    pub uv_rect: RectUv<f32>,
+    pub pixel_rect: RectUv<DevicePixel>,
 
     // The size of the entire texture (not just the allocated rectangle)
     pub texture_size: Size2D<u32>,
@@ -453,12 +454,22 @@ impl TextureCacheItem {
            allocated_rect: Rect<u32>,
            requested_rect: Rect<u32>,
            texture_size: &Size2D<u32>,
-           uv_rect: RectUv)
+           uv_rect: RectUv<f32>)
            -> TextureCacheItem {
         TextureCacheItem {
             texture_id: texture_id,
             texture_size: *texture_size,
             uv_rect: uv_rect,
+            pixel_rect: RectUv {
+                top_left: Point2D::new(DevicePixel::from_u32(requested_rect.origin.x),
+                                       DevicePixel::from_u32(requested_rect.origin.y)),
+                top_right: Point2D::new(DevicePixel::from_u32(requested_rect.origin.x + requested_rect.size.width),
+                                        DevicePixel::from_u32(requested_rect.origin.y)),
+                bottom_left: Point2D::new(DevicePixel::from_u32(requested_rect.origin.x),
+                                          DevicePixel::from_u32(requested_rect.origin.y + requested_rect.size.height)),
+                bottom_right: Point2D::new(DevicePixel::from_u32(requested_rect.origin.x + requested_rect.size.width),
+                                           DevicePixel::from_u32(requested_rect.origin.y + requested_rect.size.height))
+            },
             user_data: TextureCacheItemUserData {
                 x0: user_x0,
                 y0: user_y0,
@@ -561,6 +572,12 @@ impl TextureCache {
             user_data: TextureCacheItemUserData {
                 x0: 0,
                 y0: 0,
+            },
+            pixel_rect: RectUv {
+                top_left: Point2D::zero(),
+                top_right: Point2D::zero(),
+                bottom_left: Point2D::zero(),
+                bottom_right: Point2D::zero(),
             },
             allocated_rect: Rect::zero(),
             requested_rect: Rect::zero(),
@@ -758,11 +775,13 @@ impl TextureCache {
         let update_op = match item {
             &RasterItem::BorderRadius(ref op) => {
                 let rect =
-                    Rect::new(Point2D::new(0.0, 0.0),
-                              Size2D::new(op.outer_radius_x.to_f32_px(),
-                                          op.outer_radius_y.to_f32_px()));
+                    Rect::new(Point2D::zero(),
+                              Size2D::new(op.outer_radius_x,
+                                          op.outer_radius_y));
                 let tessellated_rect = match op.index {
-                    Some(index) => {
+                    Some(_index) => {
+                        panic!("todo - re-enable border tesselation");
+                        /*
                         rect.tessellate_border_corner(
                             &Size2D::new(op.outer_radius_x.to_f32_px(),
                                          op.outer_radius_y.to_f32_px()),
@@ -771,12 +790,13 @@ impl TextureCache {
                             device_pixel_ratio,
                             BasicRotationAngle::Upright,
                             index)
+                        */
                     }
                     None => rect,
                 };
 
-                let width = (tessellated_rect.size.width.round() * device_pixel_ratio) as u32;
-                let height = (tessellated_rect.size.height.round() * device_pixel_ratio) as u32;
+                let width = tessellated_rect.size.width.as_u32();//.round() * device_pixel_ratio) as u32;
+                let height = tessellated_rect.size.height.as_u32();//.round() * device_pixel_ratio) as u32;
 
                 let allocation = self.allocate(image_id,
                                                0,

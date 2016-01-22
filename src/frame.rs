@@ -643,6 +643,9 @@ impl Frame {
                     layer.scroll_offset.y = layer.scroll_offset.y.min(0.0);
                     layer.scroll_offset.y = layer.scroll_offset.y.max(-layer.layer_size.height + layer.viewport_size.height);
                 }
+
+                layer.scroll_offset.x = layer.scroll_offset.x.round();
+                layer.scroll_offset.y = layer.scroll_offset.y.round();
             }
         }
     }
