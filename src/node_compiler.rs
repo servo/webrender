@@ -28,7 +28,7 @@ impl NodeCompiler for AABBTreeNode {
         let mut vertex_buffer = VertexBuffer::new();
 
         for draw_list_group_segment in &self.draw_list_group_segments {
-            let mut builder = BatchBuilder::new(&mut vertex_buffer);
+            let mut builder = BatchBuilder::new(&mut vertex_buffer, device_pixel_ratio);
 
             // TODO(gw): This is a HACK to fix matrix palette index offsets - there needs to
             //           be no holes in this array to match the draw group matrix palette. It's

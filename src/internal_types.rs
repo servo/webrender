@@ -7,12 +7,64 @@ use freelist::{FreeListItem, FreeListItemId};
 use profiler::BackendProfileCounters;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
+use std::num::Zero;
+use std::ops::Add;
 use std::path::PathBuf;
 use std::sync::Arc;
-use texture_cache::TextureCacheItem;
 use util::{self, RectVaryings};
 use webrender_traits::{FontKey, Epoch, ColorF, PipelineId};
 use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem};
+
+#[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct DevicePixel(i32);
+
+impl DevicePixel {
+    pub fn from_u32(value: u32) -> DevicePixel {
+        DevicePixel(value as i32)
+    }
+
+    pub fn from_f32(value: f32) -> DevicePixel {
+        debug_assert!(value.fract() == 0.0);
+        DevicePixel(value as i32)
+    }
+
+    pub fn new(value: f32, device_pixel_ratio: f32) -> DevicePixel {
+        DevicePixel((value * device_pixel_ratio).round() as i32)
+    }
+
+    // TODO(gw): Remove eventually...
+    pub fn as_u16(&self) -> u16 {
+        let DevicePixel(value) = *self;
+        value as u16
+    }
+
+    // TODO(gw): Remove eventually...
+    pub fn as_u32(&self) -> u32 {
+        let DevicePixel(value) = *self;
+        value as u32
+    }
+
+    // TODO(gw): Remove eventually...
+    pub fn as_f32(&self) -> f32 {
+        let DevicePixel(value) = *self;
+        value as f32
+    }
+}
+
+impl Add for DevicePixel {
+    type Output = DevicePixel;
+
+    #[inline]
+    fn add(self, other: DevicePixel) -> DevicePixel {
+        DevicePixel(self.0 + other.0)
+    }
+}
+
+impl Zero for DevicePixel {
+    fn zero() -> DevicePixel {
+        DevicePixel(0)
+    }
+}
 
 const UV_FLOAT_TO_FIXED: f32 = 65535.0;
 const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
@@ -174,8 +226,8 @@ pub struct PackedVertexForQuad {
 impl PackedVertexForQuad {
     pub fn new(position: &Rect<f32>,
                colors: &[ColorF; 4],
-               uv: &RectUv,
-               muv: &RectUv,
+               uv: &RectUv<f32>,
+               muv: &RectUv<DevicePixel>,
                color_mode: PackedVertexColorMode)
                -> PackedVertexForQuad {
         return PackedVertexForQuad {
@@ -195,14 +247,14 @@ impl PackedVertexForQuad {
             v_bl: uv.bottom_left.y,
             u_br: uv.bottom_right.x,
             v_br: uv.bottom_right.y,
-            mu_tl: scale_muv_value(muv.top_left.x),
-            mv_tl: scale_muv_value(muv.top_left.y),
-            mu_tr: scale_muv_value(muv.top_right.x),
-            mv_tr: scale_muv_value(muv.top_right.y),
-            mu_bl: scale_muv_value(muv.bottom_left.x),
-            mv_bl: scale_muv_value(muv.bottom_left.y),
-            mu_br: scale_muv_value(muv.bottom_right.x),
-            mv_br: scale_muv_value(muv.bottom_right.y),
+            mu_tl: muv.top_left.x.as_u16(),
+            mv_tl: muv.top_left.y.as_u16(),
+            mu_tr: muv.top_right.x.as_u16(),
+            mv_tr: muv.top_right.y.as_u16(),
+            mu_bl: muv.bottom_left.x.as_u16(),
+            mv_bl: muv.bottom_left.y.as_u16(),
+            mu_br: muv.bottom_right.x.as_u16(),
+            mv_br: muv.bottom_right.y.as_u16(),
             matrix_index: 0,
             clip_in_rect_index: 0,
             clip_out_rect_index: 0,
@@ -211,10 +263,6 @@ impl PackedVertexForQuad {
                 PackedVertexColorMode::BorderCorner => 0x80,
             },
         };
-
-        fn scale_muv_value(value: f32) -> u16 {
-            (value * UV_FLOAT_TO_FIXED) as u16
-        }
     }
 }
 
@@ -331,7 +379,7 @@ pub enum TextureUpdateDetails {
     Blit(Vec<u8>),
     Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage),
     /// All four corners, the tessellation index, and whether inverted, respectively.
-    BorderRadius(Au, Au, Au, Au, Option<u32>, bool),
+    BorderRadius(DevicePixel, DevicePixel, DevicePixel, DevicePixel, Option<u32>, bool),
     /// Blur radius, border radius, box rect, raster origin, and whether inverted, respectively.
     BoxShadow(Au, Au, Rect<f32>, Point2D<f32>, bool),
 }
@@ -605,12 +653,6 @@ impl<Varyings> RectPolygon<Varyings> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct RectColorsUv {
-    pub colors: RectColors,
-    pub uv: RectUv,
-}
-
-#[derive(Clone, Copy, Debug)]
 pub struct RectColors {
     pub top_left: ColorF,
     pub top_right: ColorF,
@@ -619,26 +661,26 @@ pub struct RectColors {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct RectUv {
-    pub top_left: Point2D<f32>,
-    pub top_right: Point2D<f32>,
-    pub bottom_left: Point2D<f32>,
-    pub bottom_right: Point2D<f32>,
+pub struct RectUv<T> {
+    pub top_left: Point2D<T>,
+    pub top_right: Point2D<T>,
+    pub bottom_left: Point2D<T>,
+    pub bottom_right: Point2D<T>,
 }
 
-impl RectUv {
-    pub fn zero() -> RectUv {
+impl<T: Zero + Copy> RectUv<T> {
+    pub fn zero() -> RectUv<T> {
         RectUv {
-            top_left: Point2D::new(0.0, 0.0),
-            top_right: Point2D::new(0.0, 0.0),
-            bottom_left: Point2D::new(0.0, 0.0),
-            bottom_right: Point2D::new(0.0, 0.0),
+            top_left: Point2D::zero(),
+            top_right: Point2D::zero(),
+            bottom_left: Point2D::zero(),
+            bottom_right: Point2D::zero(),
         }
     }
 
-    pub fn from_uv_rect_rotation_angle(uv_rect: &RectUv,
+    pub fn from_uv_rect_rotation_angle(uv_rect: &RectUv<T>,
                                        rotation_angle: BasicRotationAngle,
-                                       flip_90_degree_rotations: bool) -> RectUv {
+                                       flip_90_degree_rotations: bool) -> RectUv<T> {
         match (rotation_angle, flip_90_degree_rotations) {
             (BasicRotationAngle::Upright, _) => {
                 RectUv {
@@ -689,15 +731,6 @@ impl RectUv {
                 }
             }
         }
-    }
-
-    pub fn from_image_and_rotation_angle(image: &TextureCacheItem,
-                                         rotation_angle: BasicRotationAngle,
-                                         flip_90_degree_rotations: bool)
-                                         -> RectUv {
-        RectUv::from_uv_rect_rotation_angle(&image.uv_rect,
-                                            rotation_angle,
-                                            flip_90_degree_rotations)
     }
 }
 
@@ -792,28 +825,30 @@ impl PackedVertexForTextureCacheUpdate {
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct BorderRadiusRasterOp {
-    pub outer_radius_x: Au,
-    pub outer_radius_y: Au,
-    pub inner_radius_x: Au,
-    pub inner_radius_y: Au,
+    pub outer_radius_x: DevicePixel,
+    pub outer_radius_y: DevicePixel,
+    pub inner_radius_x: DevicePixel,
+    pub inner_radius_y: DevicePixel,
     pub index: Option<u32>,
     pub image_format: ImageFormat,
     pub inverted: bool,
 }
 
 impl BorderRadiusRasterOp {
-    pub fn create(outer_radius: &Size2D<f32>,
-                  inner_radius: &Size2D<f32>,
+    pub fn create(outer_radius_x: DevicePixel,
+                  outer_radius_y: DevicePixel,
+                  inner_radius_x: DevicePixel,
+                  inner_radius_y: DevicePixel,
                   inverted: bool,
                   index: Option<u32>,
                   image_format: ImageFormat)
                   -> Option<BorderRadiusRasterOp> {
-        if outer_radius.width > 0.0 || outer_radius.height > 0.0 {
+        if outer_radius_x > DevicePixel::zero() || outer_radius_y > DevicePixel::zero() {
             Some(BorderRadiusRasterOp {
-                outer_radius_x: Au::from_f32_px(outer_radius.width),
-                outer_radius_y: Au::from_f32_px(outer_radius.height),
-                inner_radius_x: Au::from_f32_px(inner_radius.width),
-                inner_radius_y: Au::from_f32_px(inner_radius.height),
+                outer_radius_x: outer_radius_x,
+                outer_radius_y: outer_radius_y,
+                inner_radius_x: inner_radius_x,
+                inner_radius_y: inner_radius_y,
                 index: index,
                 inverted: inverted,
                 image_format: image_format,

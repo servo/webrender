@@ -7,7 +7,7 @@ use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, BasicRotationAngle};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE};
 use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp, RenderTargetIndex};
 use internal_types::{AxisDirection, LowLevelFilterOp, DrawCommand, DrawLayer, ANGLE_FLOAT_TO_FIXED};
 use ipc_channel::ipc;
@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
-use tessellator::BorderCornerTessellation;
+//use tessellator::BorderCornerTessellation;
 use texture_cache::{BorderType, TextureCache, TextureInsertOp};
 use time::precise_time_ns;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
@@ -601,28 +601,32 @@ impl Renderer {
                                                                inverted) => {
                                 let x = x as f32;
                                 let y = y as f32;
-                                let device_pixel_ratio = self.device_pixel_ratio;
+                                //let device_pixel_ratio = self.device_pixel_ratio;
 
-                                let inner_rx = inner_rx.to_f32_px();
-                                let inner_ry = inner_ry.to_f32_px();
-                                let outer_rx = outer_rx.to_f32_px();
-                                let outer_ry = outer_ry.to_f32_px();
+                                //let inner_rx = inner_rx.to_f32_px();
+                                //let inner_ry = inner_ry.to_f32_px();
+                                //let outer_rx = outer_rx.to_f32_px();
+                                //let outer_ry = outer_ry.to_f32_px();
                                 let tessellated_rect =
-                                    Rect::new(Point2D::new(0.0, 0.0),
+                                    Rect::new(Point2D::zero(),
                                               Size2D::new(outer_rx, outer_ry));
                                 let tessellated_rect = match index {
                                     None => tessellated_rect,
-                                    Some(index) => {
+                                    Some(_index) => {
+                                        panic!("todo - re-enable border tesselation");
+                                        /*
                                         tessellated_rect.tessellate_border_corner(
                                             &Size2D::new(outer_rx, outer_ry),
                                             &Size2D::new(inner_rx, inner_ry),
                                             device_pixel_ratio,
                                             BasicRotationAngle::Upright,
                                             index)
+                                        */
                                     }
                                 };
 
                                 // From here on out everything is in device coordinates.
+                                /*
                                 let tessellated_rect = Rect::new(
                                     Point2D::new(tessellated_rect.origin.x * device_pixel_ratio,
                                                  tessellated_rect.origin.y * device_pixel_ratio),
@@ -635,6 +639,8 @@ impl Renderer {
                                 let outer_rx = outer_rx * device_pixel_ratio;
                                 let outer_ry = outer_ry * device_pixel_ratio;
 
+*/
+
                                 let border_program_id = self.border_program_id;
                                 let color = if inverted {
                                     ColorF::new(0.0, 0.0, 0.0, 1.0)
@@ -642,12 +648,12 @@ impl Renderer {
                                     ColorF::new(1.0, 1.0, 1.0, 1.0)
                                 };
 
-                                let border_radii_outer = Point2D::new(outer_rx, outer_ry);
-                                let border_radii_inner = Point2D::new(inner_rx, inner_ry);
+                                let border_radii_outer = Point2D::new(outer_rx.as_f32(), outer_ry.as_f32());
+                                let border_radii_inner = Point2D::new(inner_rx.as_f32(), inner_ry.as_f32());
 
                                 let border_position =
-                                    Point2D::new(x - tessellated_rect.origin.x + outer_rx,
-                                                 y - tessellated_rect.origin.y + outer_ry);
+                                    Point2D::new(x - tessellated_rect.origin.x.as_f32() + outer_rx.as_f32(),
+                                                 y - tessellated_rect.origin.y.as_f32() + outer_ry.as_f32());
                                 let zero_point = Point2D::new(0.0, 0.0);
                                 let zero_size = Size2D::new(0.0, 0.0);
 

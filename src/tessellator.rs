@@ -1,3 +1,8 @@
+// TODO(gw): This code seems broken - e.g. the border_radius_shorthand reftest
+//           is drawn incorrectly if border tesselation is enabled.
+// TODO(gw): Revisit this border tesselation code and make it work again.
+
+/*
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::BasicRotationAngle;
 
@@ -104,3 +109,4 @@ fn ellipse_y_coordinate(x: f32, radius: &Size2D<f32>) -> f32 {
     }
 }
 
+*/

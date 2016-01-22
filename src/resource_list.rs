@@ -4,12 +4,12 @@ use batch_builder;
 use euclid::{Rect, Size2D};
 use fnv::FnvHasher;
 use internal_types::{BorderRadiusRasterOp, BoxShadowRasterOp, DrawListItemIndex};
-use internal_types::{Glyph, GlyphKey, RasterItem};
+use internal_types::{Glyph, GlyphKey, RasterItem, DevicePixel};
 use resource_cache::ResourceCache;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
-use tessellator;
+//use tessellator;
 use webrender_traits::{BorderRadius, BorderStyle, BoxShadowClipMode, ImageRendering};
 use webrender_traits::{FontKey, ImageFormat, ImageKey, SpecificDisplayItem};
 
@@ -21,14 +21,16 @@ pub struct ResourceList {
     required_images: RequiredImageSet,
     required_glyphs: RequiredGlyphMap,
     required_rasters: RequiredRasterSet,
+    device_pixel_ratio: f32,
 }
 
 impl ResourceList {
-    pub fn new() -> ResourceList {
+    pub fn new(device_pixel_ratio: f32) -> ResourceList {
         ResourceList {
             required_glyphs: HashMap::with_hash_state(Default::default()),
             required_images: HashSet::with_hash_state(Default::default()),
             required_rasters: HashSet::with_hash_state(Default::default()),
+            device_pixel_ratio: device_pixel_ratio,
         }
     }
 
@@ -57,8 +59,14 @@ impl ResourceList {
                              inverted: bool,
                              index: Option<u32>,
                              image_format: ImageFormat) {
-        if let Some(raster_item) = BorderRadiusRasterOp::create(outer_radius,
-                                                                inner_radius,
+        let outer_radius_x = DevicePixel::new(outer_radius.width, self.device_pixel_ratio);
+        let outer_radius_y = DevicePixel::new(outer_radius.height, self.device_pixel_ratio);
+        let inner_radius_x = DevicePixel::new(inner_radius.width, self.device_pixel_ratio);
+        let inner_radius_y = DevicePixel::new(inner_radius.height, self.device_pixel_ratio);
+        if let Some(raster_item) = BorderRadiusRasterOp::create(outer_radius_x,
+                                                                outer_radius_y,
+                                                                inner_radius_x,
+                                                                inner_radius_y,
                                                                 inverted,
                                                                 index,
                                                                 image_format) {
@@ -135,7 +143,7 @@ pub trait BuildRequiredResources {
 impl BuildRequiredResources for AABBTreeNode {
     fn build_resource_list(&mut self, resource_cache: &ResourceCache) {
         //let _pf = util::ProfileScope::new("  build_resource_list");
-        let mut resource_list = ResourceList::new();
+        let mut resource_list = ResourceList::new(resource_cache.device_pixel_ratio());
 
         for group in &self.draw_list_group_segments {
             for draw_list_index_buffer in &group.index_buffers {
@@ -190,42 +198,42 @@ impl BuildRequiredResources for AABBTreeNode {
                             }
                         }
                         SpecificDisplayItem::Border(ref info) => {
-                            for rect_index in 0..tessellator::quad_count_for_border_corner(
-                                    &info.radius.top_left,
-                                    resource_cache.device_pixel_ratio()) {
+                            //for rect_index in 0..tessellator::quad_count_for_border_corner(
+                            //        &info.radius.top_left,
+                            //        resource_cache.device_pixel_ratio()) {
                                 resource_list.add_radius_raster(&info.radius.top_left,
                                                                 &info.top_left_inner_radius(),
                                                                 false,
-                                                                Some(rect_index),
+                                                                None,//Some(rect_index),
                                                                 ImageFormat::A8);
-                            }
-                            for rect_index in 0..tessellator::quad_count_for_border_corner(
-                                    &info.radius.top_right,
-                                    resource_cache.device_pixel_ratio()) {
+                            //}
+                            //for rect_index in 0..tessellator::quad_count_for_border_corner(
+                            //        &info.radius.top_right,
+                            //        resource_cache.device_pixel_ratio()) {
                                 resource_list.add_radius_raster(&info.radius.top_right,
                                                                 &info.top_right_inner_radius(),
                                                                 false,
-                                                                Some(rect_index),
+                                                                None,//Some(rect_index),
                                                                 ImageFormat::A8);
-                            }
-                            for rect_index in 0..tessellator::quad_count_for_border_corner(
-                                    &info.radius.bottom_left,
-                                    resource_cache.device_pixel_ratio()) {
+                            //}
+                            //for rect_index in 0..tessellator::quad_count_for_border_corner(
+                            //        &info.radius.bottom_left,
+                            //        resource_cache.device_pixel_ratio()) {
                                 resource_list.add_radius_raster(&info.radius.bottom_left,
                                                                 &info.bottom_left_inner_radius(),
                                                                 false,
-                                                                Some(rect_index),
+                                                                None,//Some(rect_index),
                                                                 ImageFormat::A8);
-                            }
-                            for rect_index in 0..tessellator::quad_count_for_border_corner(
-                                    &info.radius.bottom_right,
-                                    resource_cache.device_pixel_ratio()) {
+                            //}
+                            //for rect_index in 0..tessellator::quad_count_for_border_corner(
+                            //        &info.radius.bottom_right,
+                            //        resource_cache.device_pixel_ratio()) {
                                 resource_list.add_radius_raster(&info.radius.bottom_right,
                                                                 &info.bottom_right_inner_radius(),
                                                                 false,
-                                                                Some(rect_index),
+                                                                None,//Some(rect_index),
                                                                 ImageFormat::A8);
-                            }
+                            //}
 
                             if info.top.style == BorderStyle::Dotted {
                                 resource_list.add_radius_raster(&Size2D::new(info.top.width / 2.0,
