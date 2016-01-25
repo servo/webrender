@@ -297,7 +297,6 @@ impl TexturePage {
         self.dirty = false;
     }
 
-/*
     fn free(&mut self, rect: &Rect<u32>) {
         debug_assert!(self.allocations > 0);
         self.allocations -= 1;
@@ -308,7 +307,7 @@ impl TexturePage {
 
         self.free_list.push(rect);
         self.dirty = true
-    }*/
+    }
 }
 
 // TODO(gw): This is used to store data specific to glyphs.
@@ -512,6 +511,18 @@ impl TextureCacheArena {
             alternate_pages_rgba8: Vec::new(),
             //render_target_pages: Vec::new(),
         }
+    }
+
+    fn texture_page_for_id(&mut self, id: TextureId) -> &mut TexturePage {
+        for page in self.pages_a8.iter_mut().chain(self.pages_rgb8.iter_mut())
+                                            .chain(self.pages_rgba8.iter_mut())
+                                            .chain(self.alternate_pages_a8.iter_mut())
+                                            .chain(self.alternate_pages_rgba8.iter_mut()) {
+            if page.texture_id == id {
+                return page
+            }
+        }
+        panic!("No texture page for ID {:?}", id)
     }
 }
 
@@ -1066,6 +1077,13 @@ impl TextureCache {
         self.items.get(id)
     }
 
+    pub fn free(&mut self, id: TextureCacheItemId) {
+        {
+            let item = self.items.get(id);
+            self.arena.texture_page_for_id(item.texture_id).free(&item.allocated_rect);
+        }
+        self.items.free(id)
+    }
 }
 
 fn texture_create_op(texture_size: u32, format: ImageFormat, mode: RenderTargetMode)
