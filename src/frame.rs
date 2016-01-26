@@ -278,6 +278,7 @@ impl RenderTarget {
     fn push_composite(&mut self,
                       op: CompositionOp,
                       target: Rect<i32>,
+                      transform: &Matrix4,
                       render_target_index: RenderTargetIndex) {
         // TODO(gw): Relax the restriction on batch breaks for FB reads
         //           once the proper render target allocation code is done!
@@ -304,6 +305,7 @@ impl RenderTarget {
             &mut FrameRenderItem::CompositeBatch(ref mut batch) => {
                 let job = CompositeBatchJob {
                     rect: target,
+                    transform: *transform,
                     render_target_index: render_target_index
                 };
                 batch.jobs.push(job);
@@ -867,12 +869,17 @@ impl Frame {
         if let Some(local_clip_rect) = local_clip_rect {
             let scene_items = scene_item.collect_scene_items(&context.scene);
             if !scene_items.is_empty() {
+                let composition_operations = stacking_context.composition_operations();
 
                 // Build world space transform
                 let origin = parent_info.offset_from_current_layer + stacking_context.bounds.origin;
-                let local_transform = Matrix4::identity().translate(origin.x, origin.y, 0.0)
-                                                         .mul(&stacking_context.transform)
-                                                         .translate(-origin.x, -origin.y, 0.0);
+                let local_transform = if composition_operations.is_empty() {
+                    Matrix4::identity().translate(origin.x, origin.y, 0.0)
+                                       .mul(&stacking_context.transform)
+                                       .translate(-origin.x, -origin.y, 0.0)
+                } else {
+                    Matrix4::identity()
+                };
 
                 let transform = parent_info.perspective.mul(&parent_info.transform)
                                                        .mul(&local_transform);
@@ -931,7 +938,6 @@ impl Frame {
                 }
 
                 // TODO: Account for scroll offset with transforms!
-                let composition_operations = stacking_context.composition_operations();
                 if composition_operations.is_empty() {
                     self.add_items_to_target(&scene_items,
                                              &info,
@@ -957,10 +963,14 @@ impl Frame {
                     let mut new_target = RenderTarget::new(render_target_id,
                                                            render_target_size);
 
-                    // TODO(gw): Handle transforms + composition ops...
+                    let local_transform =
+                        Matrix4::identity().translate(origin.x, origin.y, 0.0)
+                                           .mul(&stacking_context.transform)
+                                           .translate(-origin.x, -origin.y, 0.0);
                     for composition_operation in composition_operations {
                         target.push_composite(composition_operation,
                                               target_rect,
+                                              &local_transform,
                                               render_target_index);
                     }
 
