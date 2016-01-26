@@ -1218,10 +1218,8 @@ impl Renderer {
 
                     let (mut indices, mut vertices) = (vec![], vec![]);
                     for job in &info.jobs {
-                        let x0 = job.rect.origin.x;
-                        let y0 = job.rect.origin.y;
-                        let x1 = job.rect.max_x();
-                        let y1 = job.rect.max_y();
+                        let p0 = Point2D::new(job.rect.origin.x as f32, job.rect.origin.y as f32);
+                        let p1 = Point2D::new(job.rect.max_x() as f32, job.rect.max_y() as f32);
 
                         // TODO(glennw): No need to re-init this FB working copy texture
                         // every time...
@@ -1229,11 +1227,12 @@ impl Renderer {
                             let fb_rect_size = Size2D::new(job.rect.size.width as f32 * render_context.device_pixel_ratio,
                                                            job.rect.size.height as f32 * render_context.device_pixel_ratio);
 
-                            let inverted_y0 = layer.layer_size.height as i32 -
-                                              job.rect.size.height -
-                                              y0;
-                            let fb_rect_origin = Point2D::new(x0 as f32 * render_context.device_pixel_ratio,
-                                                              inverted_y0 as f32 * render_context.device_pixel_ratio);
+                            let inverted_y0 = layer.layer_size.height as f32 -
+                                              job.rect.size.height as f32 -
+                                              p0.y;
+                            let fb_rect_origin = Point2D::new(
+                                p0.x * render_context.device_pixel_ratio,
+                                inverted_y0 * render_context.device_pixel_ratio);
 
                             self.device.init_texture(render_context.temporary_fb_texture,
                                                      fb_rect_size.width as u32,
@@ -1279,26 +1278,30 @@ impl Renderer {
                             Size2D::new(pixel_uv.size.width as f32 / texture_width,
                                         pixel_uv.size.height as f32 / texture_height));
 
+                        let tl = job.transform.transform_point(&p0);
+                        let tr = job.transform.transform_point(&Point2D::new(p1.x, p0.y));
+                        let br = job.transform.transform_point(&p1);
+                        let bl = job.transform.transform_point(&Point2D::new(p0.x, p1.y));
 
                         if needs_fb {
                             vertices.extend_from_slice(&[
                                 PackedVertex::from_components(
-                                    x0 as f32, y0 as f32,
+                                    tl.x, tl.y,
                                     &color,
                                     texture_uv.origin.x, texture_uv.max_y(),
                                     0.0, 1.0),
                                 PackedVertex::from_components(
-                                    x1 as f32, y0 as f32,
+                                    tr.x, tr.y,
                                     &color,
                                     texture_uv.max_x(), texture_uv.max_y(),
                                     1.0, 1.0),
                                 PackedVertex::from_components(
-                                    x0 as f32, y1 as f32,
+                                    bl.x, bl.y,
                                     &color,
                                     texture_uv.origin.x, texture_uv.origin.y,
                                     0.0, 0.0),
                                 PackedVertex::from_components(
-                                    x1 as f32, y1 as f32,
+                                    br.x, br.y,
                                     &color,
                                     texture_uv.max_x(), texture_uv.origin.y,
                                     1.0, 0.0),
@@ -1306,22 +1309,22 @@ impl Renderer {
                         } else {
                             vertices.extend_from_slice(&[
                                 PackedVertex::from_components_unscaled_muv(
-                                    x0 as f32, y0 as f32,
+                                    tl.x, tl.y,
                                     &color,
                                     texture_uv.origin.x, texture_uv.max_y(),
                                     texture_width as u16, texture_height as u16),
                                 PackedVertex::from_components_unscaled_muv(
-                                    x1 as f32, y0 as f32,
+                                    tr.x, tr.y,
                                     &color,
                                     texture_uv.max_x(), texture_uv.max_y(),
                                     texture_width as u16, texture_height as u16),
                                 PackedVertex::from_components_unscaled_muv(
-                                    x0 as f32, y1 as f32,
+                                    bl.x, bl.y,
                                     &color,
                                     texture_uv.origin.x, texture_uv.origin.y,
                                     texture_width as u16, texture_height as u16),
                                 PackedVertex::from_components_unscaled_muv(
-                                    x1 as f32, y1 as f32,
+                                    br.x, br.y,
                                     &color,
                                     texture_uv.max_x(), texture_uv.origin.y,
                                     texture_width as u16, texture_height as u16),

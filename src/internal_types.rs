@@ -487,6 +487,7 @@ impl BatchInfo {
 #[derive(Debug, Clone)]
 pub struct CompositeBatchJob {
     pub rect: Rect<i32>,
+    pub transform: Matrix4,
     pub render_target_index: RenderTargetIndex,
 }
 
