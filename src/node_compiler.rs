@@ -1,7 +1,7 @@
 use aabbtree::AABBTreeNode;
 use batch::{BatchBuilder, VertexBuffer};
 use fnv::FnvHasher;
-use frame::DrawListGroup;
+use frame::{DrawListGroup, FrameId};
 use internal_types::{DrawListItemIndex, CompiledNode, StackingContextInfo};
 use internal_types::{BatchList, StackingContextIndex};
 use internal_types::{DrawListGroupId};
@@ -13,6 +13,7 @@ use webrender_traits::SpecificDisplayItem;
 pub trait NodeCompiler {
     fn compile(&mut self,
                resource_cache: &ResourceCache,
+               frame_id: FrameId,
                device_pixel_ratio: f32,
                stacking_context_info: &Vec<StackingContextInfo>,
                draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, DefaultState<FnvHasher>>);
@@ -21,6 +22,7 @@ pub trait NodeCompiler {
 impl NodeCompiler for AABBTreeNode {
     fn compile(&mut self,
                resource_cache: &ResourceCache,
+               frame_id: FrameId,
                device_pixel_ratio: f32,
                stacking_context_info: &Vec<StackingContextInfo>,
                draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, DefaultState<FnvHasher>>) {
@@ -67,14 +69,16 @@ impl NodeCompiler for AABBTreeNode {
                                 SpecificDisplayItem::WebGL(ref info) => {
                                     builder.add_webgl_rectangle(&display_item.rect,
                                                                 resource_cache,
-                                                                &info.context_id);
+                                                                &info.context_id,
+                                                                frame_id);
                                 }
                                 SpecificDisplayItem::Image(ref info) => {
                                     builder.add_image(&display_item.rect,
                                                       &info.stretch_size,
                                                       info.image_key,
                                                       info.image_rendering,
-                                                      resource_cache);
+                                                      resource_cache,
+                                                      frame_id);
                                 }
                                 SpecificDisplayItem::Text(ref info) => {
                                     builder.add_text(&display_item.rect,
@@ -84,18 +88,21 @@ impl NodeCompiler for AABBTreeNode {
                                                      &info.color,
                                                      &info.glyphs,
                                                      resource_cache,
+                                                     frame_id,
                                                      device_pixel_ratio);
                                 }
                                 SpecificDisplayItem::Rectangle(ref info) => {
                                     builder.add_color_rectangle(&display_item.rect,
+                                                                &info.color,
                                                                 resource_cache,
-                                                                &info.color);
+                                                                frame_id);
                                 }
                                 SpecificDisplayItem::Gradient(ref info) => {
                                     builder.add_gradient(&info.start_point,
                                                          &info.end_point,
                                                          &info.stops,
-                                                         resource_cache);
+                                                         resource_cache,
+                                                         frame_id);
                                 }
                                 SpecificDisplayItem::BoxShadow(ref info) => {
                                     builder.add_box_shadow(&info.box_bounds,
@@ -105,12 +112,14 @@ impl NodeCompiler for AABBTreeNode {
                                                            info.spread_radius,
                                                            info.border_radius,
                                                            info.clip_mode,
-                                                           resource_cache);
+                                                           resource_cache,
+                                                           frame_id);
                                 }
                                 SpecificDisplayItem::Border(ref info) => {
                                     builder.add_border(&display_item.rect,
                                                        info,
                                                        resource_cache,
+                                                       frame_id,
                                                        device_pixel_ratio);
                                 }
                             }

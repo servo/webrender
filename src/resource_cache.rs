@@ -2,6 +2,7 @@ use app_units::Au;
 use device::{TextureFilter, TextureId};
 use euclid::Size2D;
 use fnv::FnvHasher;
+use frame::FrameId;
 use freelist::FreeList;
 use internal_types::{FontTemplate, GlyphKey, RasterItem};
 use internal_types::{TextureUpdateList, DrawListId, DrawList};
@@ -11,8 +12,10 @@ use resource_list::ResourceList;
 use scoped_threadpool;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::collections::hash_map::Entry::{Occupied, Vacant};
+use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::collections::hash_state::DefaultState;
+use std::fmt::Debug;
+use std::hash::Hash;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 use std::sync::atomic::Ordering::SeqCst;
 use std::thread;
@@ -44,10 +47,73 @@ struct CachedImageInfo {
     epoch: Epoch,
 }
 
+pub struct ResourceClassCache<K,V> {
+    resources: HashMap<K, V, DefaultState<FnvHasher>>,
+    last_access_times: HashMap<K, FrameId, DefaultState<FnvHasher>>,
+}
+
+impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resource {
+    fn new() -> ResourceClassCache<K,V> {
+        ResourceClassCache {
+            resources: HashMap::with_hash_state(Default::default()),
+            last_access_times: HashMap::with_hash_state(Default::default()),
+        }
+    }
+
+    fn contains_key(&self, key: &K) -> bool {
+        self.resources.contains_key(key)
+    }
+
+    fn get(&self, key: &K, frame: FrameId) -> &V {
+        // This assert catches cases in which we accidentally request a resource that we forgot to
+        // mark as needed this frame.
+        debug_assert!(frame == *self.last_access_times
+                                    .get(key)
+                                    .expect("Didn't find the access time for a cached resource \
+                                             with that ID!"));
+        self.resources.get(key).expect("Didn't find a cached resource with that ID!")
+    }
+
+    fn insert(&mut self, key: K, value: V, frame: FrameId) {
+        self.last_access_times.insert(key.clone(), frame);
+        self.resources.insert(key, value);
+    }
+
+    fn entry(&mut self, key: K, frame: FrameId) -> Entry<K,V> {
+        self.last_access_times.insert(key.clone(), frame);
+        self.resources.entry(key)
+    }
+
+    fn mark_as_needed(&mut self, key: &K, frame: FrameId) {
+        self.last_access_times.insert((*key).clone(), frame);
+    }
+
+    fn expire_old_resources(&mut self, texture_cache: &mut TextureCache, frame_id: FrameId) {
+        let mut resources_to_destroy = vec![];
+        for (key, this_frame_id) in self.last_access_times.iter() {
+            if *this_frame_id < frame_id {
+                resources_to_destroy.push((*key).clone())
+            }
+        }
+        for key in resources_to_destroy {
+            let resource =
+                self.resources
+                    .remove(&key)
+                    .expect("Resource was in `last_access_times` but not in `resources`!");
+            self.last_access_times.remove(&key);
+            if let Some(texture_cache_item_id) = resource.texture_cache_item_id() {
+                texture_cache.free(texture_cache_item_id)
+            }
+        }
+    }
+}
+
 pub struct ResourceCache {
-    cached_glyphs: HashMap<GlyphKey, Option<TextureCacheItemId>, DefaultState<FnvHasher>>,
-    cached_rasters: HashMap<RasterItem, TextureCacheItemId, DefaultState<FnvHasher>>,
-    cached_images: HashMap<(ImageKey, ImageRendering), CachedImageInfo, DefaultState<FnvHasher>>,
+    cached_glyphs: ResourceClassCache<GlyphKey, Option<TextureCacheItemId>>,
+    cached_rasters: ResourceClassCache<RasterItem, TextureCacheItemId>,
+    cached_images: ResourceClassCache<(ImageKey, ImageRendering), CachedImageInfo>,
+
+    // TODO(pcwalton): Figure out the lifecycle of these.
     webgl_textures: HashMap<WebGLContextId, TextureId, DefaultState<FnvHasher>>,
 
     draw_lists: FreeList<DrawList>,
@@ -87,9 +153,9 @@ impl ResourceCache {
         });
 
         ResourceCache {
-            cached_glyphs: HashMap::with_hash_state(Default::default()),
-            cached_rasters: HashMap::with_hash_state(Default::default()),
-            cached_images: HashMap::with_hash_state(Default::default()),
+            cached_glyphs: ResourceClassCache::new(),
+            cached_rasters: ResourceClassCache::new(),
+            cached_images: ResourceClassCache::new(),
             webgl_textures: HashMap::with_hash_state(Default::default()),
             draw_lists: FreeList::new(),
             font_templates: HashMap::with_hash_state(Default::default()),
@@ -156,7 +222,7 @@ impl ResourceCache {
         self.texture_cache.add_raw_update(texture_id, size);
     }
 
-    pub fn add_resource_list(&mut self, resource_list: &ResourceList) {
+    pub fn add_resource_list(&mut self, resource_list: &ResourceList, frame_id: FrameId) {
         // Update texture cache with any GPU generated procedural items.
         resource_list.for_each_raster(|raster_item| {
             if !self.cached_rasters.contains_key(raster_item) {
@@ -164,8 +230,9 @@ impl ResourceCache {
                 self.texture_cache.insert_raster_op(image_id,
                                                     raster_item,
                                                     self.device_pixel_ratio);
-                self.cached_rasters.insert(raster_item.clone(), image_id);
+                self.cached_rasters.insert(raster_item.clone(), image_id, frame_id);
             }
+            self.cached_rasters.mark_as_needed(raster_item, frame_id);
         });
 
         // Update texture cache with any images that aren't yet uploaded to GPU.
@@ -173,7 +240,7 @@ impl ResourceCache {
             let cached_images = &mut self.cached_images;
             let image_template = &self.image_templates[&image_key];
 
-            match cached_images.entry((image_key, image_rendering)) {
+            match cached_images.entry((image_key, image_rendering), frame_id) {
                 Occupied(entry) => {
                     if entry.get().epoch != image_template.epoch {
                         let image_id = entry.get().texture_cache_id;
@@ -227,11 +294,13 @@ impl ResourceCache {
                     result: None,
                 });
             }
+            self.cached_glyphs.mark_as_needed(glyph_key, frame_id);
         });
     }
 
     pub fn raster_pending_glyphs(&mut self,
-                                 thread_pool: &mut scoped_threadpool::Pool) {
+                                 thread_pool: &mut scoped_threadpool::Pool,
+                                 frame_id: FrameId) {
         // Run raster jobs in parallel
         run_raster_jobs(thread_pool,
                         &mut self.pending_raster_jobs,
@@ -276,7 +345,7 @@ impl ResourceCache {
             } else {
                 None
             };
-            self.cached_glyphs.insert(job.glyph_key, image_id);
+            self.cached_glyphs.insert(job.glyph_key, image_id, frame_id);
         }
     }
 
@@ -323,33 +392,40 @@ impl ResourceCache {
     }
 
     #[inline]
-    pub fn get_glyph(&self, glyph_key: &GlyphKey) -> Option<&TextureCacheItem> {
-        let image_id = self.cached_glyphs[glyph_key];
+    pub fn get_glyph(&self, glyph_key: &GlyphKey, frame_id: FrameId) -> Option<&TextureCacheItem> {
+        let image_id = self.cached_glyphs.get(glyph_key, frame_id);
         image_id.map(|image_id| self.texture_cache.get(image_id))
     }
 
     #[inline]
     pub fn get_image(&self,
                      image_key: ImageKey,
-                     image_rendering: ImageRendering) -> &TextureCacheItem {
-        let image_info = &self.cached_images[&(image_key, image_rendering)];
+                     image_rendering: ImageRendering,
+                     frame_id: FrameId)
+                     -> &TextureCacheItem {
+        let image_info = &self.cached_images.get(&(image_key, image_rendering), frame_id);
         self.texture_cache.get(image_info.texture_cache_id)
     }
 
     #[inline]
-    pub fn get_raster(&self, raster_item: &RasterItem) -> &TextureCacheItem {
-        let image_id = self.cached_rasters[raster_item];
-        self.texture_cache.get(image_id)
+    pub fn get_raster(&self, raster_item: &RasterItem, frame_id: FrameId) -> &TextureCacheItem {
+        let image_id = self.cached_rasters.get(raster_item, frame_id);
+        self.texture_cache.get(*image_id)
     }
 
     #[inline]
-    pub fn get_webgl_texture(&self,
-                             context_id: &WebGLContextId) -> TextureId {
+    pub fn get_webgl_texture(&self, context_id: &WebGLContextId) -> TextureId {
         self.webgl_textures.get(context_id).unwrap().clone()
     }
 
     pub fn device_pixel_ratio(&self) -> f32 {
         self.device_pixel_ratio
+    }
+
+    pub fn expire_old_resources(&mut self, frame_id: FrameId) {
+        self.cached_glyphs.expire_old_resources(&mut self.texture_cache, frame_id);
+        self.cached_rasters.expire_old_resources(&mut self.texture_cache, frame_id);
+        self.cached_images.expire_old_resources(&mut self.texture_cache, frame_id);
     }
 }
 
@@ -388,3 +464,26 @@ fn run_raster_jobs(thread_pool: &mut scoped_threadpool::Pool,
         }
     });
 }
+
+pub trait Resource {
+    fn texture_cache_item_id(&self) -> Option<TextureCacheItemId>;
+}
+
+impl Resource for TextureCacheItemId {
+    fn texture_cache_item_id(&self) -> Option<TextureCacheItemId> {
+        Some(*self)
+    }
+}
+
+impl Resource for Option<TextureCacheItemId> {
+    fn texture_cache_item_id(&self) -> Option<TextureCacheItemId> {
+        *self
+    }
+}
+
+impl Resource for CachedImageInfo {
+    fn texture_cache_item_id(&self) -> Option<TextureCacheItemId> {
+        Some(self.texture_cache_id)
+    }
+}
+

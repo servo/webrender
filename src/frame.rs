@@ -25,6 +25,9 @@ use util;
 use webrender_traits::{PipelineId, Epoch, ScrollPolicy, ScrollLayerId, StackingContext};
 use webrender_traits::{FilterOp, ImageFormat, MixBlendMode, StackingLevel};
 
+#[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
+pub struct FrameId(pub u32);
+
 pub struct DrawListGroup {
     pub id: DrawListGroupId,
 
@@ -331,6 +334,7 @@ pub struct Frame {
     next_draw_list_group_id: DrawListGroupId,
     draw_list_groups: HashMap<DrawListGroupId, DrawListGroup, DefaultState<FnvHasher>>,
     root_scroll_layer_id: Option<ScrollLayerId>,
+    id: FrameId,
 }
 
 enum SceneItemKind<'a> {
@@ -538,6 +542,7 @@ impl Frame {
             next_draw_list_group_id: DrawListGroupId(0),
             draw_list_groups: HashMap::with_hash_state(Default::default()),
             root_scroll_layer_id: None,
+            id: FrameId(0),
         }
     }
 
@@ -558,6 +563,9 @@ impl Frame {
             old_layer.reset(&mut self.pending_updates);
             old_layer_offsets.insert(layer_id, old_layer.scroll_offset);
         }
+
+        // Advance to the next frame.
+        self.id.0 += 1;
 
         old_layer_offsets
     }
@@ -1005,13 +1013,10 @@ impl Frame {
         self.update_texture_cache_and_build_raster_jobs(resource_cache);
 
         // Rasterize needed glyphs on worker threads
-        self.raster_glyphs(thread_pool,
-                           resource_cache);
+        self.raster_glyphs(thread_pool, resource_cache);
 
         // Compile nodes that have become visible
-        self.compile_visible_nodes(thread_pool,
-                                   resource_cache,
-                                   device_pixel_ratio);
+        self.compile_visible_nodes(thread_pool, resource_cache, device_pixel_ratio);
 
         // Update the batch cache from newly compiled nodes
         self.update_batch_cache();
@@ -1021,6 +1026,8 @@ impl Frame {
 
         // Collect the visible batches into a frame
         let frame = self.collect_and_sort_visible_batches(resource_cache, device_pixel_ratio);
+
+        resource_cache.expire_old_resources(self.id);
 
         frame
     }
@@ -1079,21 +1086,22 @@ impl Frame {
                                                       resource_cache: &mut ResourceCache) {
         let _pf = util::ProfileScope::new("  update_texture_cache_and_build_raster_jobs");
 
+        let frame_id = self.id;
         for (_, layer) in &self.layers {
             for node in &layer.aabb_tree.nodes {
                 if node.is_visible {
                     let resource_list = node.resource_list.as_ref().unwrap();
-                    resource_cache.add_resource_list(resource_list);
+                    resource_cache.add_resource_list(resource_list, frame_id);
                 }
             }
         }
     }
 
     pub fn raster_glyphs(&mut self,
-                     thread_pool: &mut scoped_threadpool::Pool,
-                     resource_cache: &mut ResourceCache) {
+                         thread_pool: &mut scoped_threadpool::Pool,
+                         resource_cache: &mut ResourceCache) {
         let _pf = util::ProfileScope::new("  raster_glyphs");
-        resource_cache.raster_pending_glyphs(thread_pool);
+        resource_cache.raster_pending_glyphs(thread_pool, self.id);
     }
 
     pub fn compile_visible_nodes(&mut self,
@@ -1105,6 +1113,7 @@ impl Frame {
         let layers = &mut self.layers;
         let stacking_context_info = &self.stacking_context_info;
         let draw_list_groups = &self.draw_list_groups;
+        let frame_id = self.id;
 
         thread_pool.scoped(|scope| {
             for (_, layer) in layers {
@@ -1113,6 +1122,7 @@ impl Frame {
                     if node.is_visible && node.compiled_node.is_none() {
                         scope.execute(move || {
                             node.compile(resource_cache,
+                                         frame_id,
                                          device_pixel_ratio,
                                          stacking_context_info,
                                          draw_list_groups);

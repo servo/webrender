@@ -3,6 +3,7 @@ use batch::{BatchBuilder, TileParams};
 use device::TextureId;
 use euclid::{Rect, Point2D, Size2D};
 use fnv::FnvHasher;
+use frame::FrameId;
 use internal_types::{AxisDirection, BasicRotationAngle, BorderRadiusRasterOp, BoxShadowRasterOp};
 use internal_types::{GlyphKey, PackedVertexColorMode, RasterItem, RectColors, RectPolygon};
 use internal_types::{RectSide, RectUv, DevicePixel};
@@ -82,7 +83,8 @@ impl<'a> BatchBuilder<'a> {
                                          uv_rect: &RectUv<f32>,
                                          colors: &[ColorF; 4],
                                          tile_params: Option<TileParams>,
-                                         resource_cache: &ResourceCache) {
+                                         resource_cache: &ResourceCache,
+                                         frame_id: FrameId) {
         if pos_rect.size.width == 0.0 || pos_rect.size.height == 0.0 {
             return
         }
@@ -174,15 +176,21 @@ impl<'a> BatchBuilder<'a> {
 
                                 let (mask_texture_id, muv_rect) = match mask_info {
                                     Some(clip_rect) => {
-                                        let mask_image = resource_cache.get_raster(&RasterItem::BorderRadius(BorderRadiusRasterOp {
-                                            outer_radius_x: DevicePixel::new(clip_rect.size.width, self.device_pixel_ratio),
-                                            outer_radius_y: DevicePixel::new(clip_rect.size.height, self.device_pixel_ratio),
-                                            inner_radius_x: DevicePixel::zero(),
-                                            inner_radius_y: DevicePixel::zero(),
-                                            inverted: false,
-                                            index: None,
-                                            image_format: ImageFormat::A8,
-                                        }));
+                                        let mask_image = resource_cache.get_raster(
+                                            &RasterItem::BorderRadius(BorderRadiusRasterOp {
+                                                outer_radius_x:
+                                                    DevicePixel::new(clip_rect.size.width,
+                                                                     self.device_pixel_ratio),
+                                                outer_radius_y:
+                                                    DevicePixel::new(clip_rect.size.height,
+                                                                     self.device_pixel_ratio),
+                                                inner_radius_x: DevicePixel::zero(),
+                                                inner_radius_y: DevicePixel::zero(),
+                                                inverted: false,
+                                                index: None,
+                                                image_format: ImageFormat::A8,
+                                            }),
+                                            frame_id);
 
                                         let mut x0_f = (x0 - clip_rect.origin.x) / clip_rect.size.width;
                                         let mut x1_f = (x1 - clip_rect.origin.x) / clip_rect.size.width;
@@ -282,21 +290,24 @@ impl<'a> BatchBuilder<'a> {
     #[inline]
     pub fn add_color_rectangle(&mut self,
                                rect: &Rect<f32>,
+                               color: &ColorF,
                                resource_cache: &ResourceCache,
-                               color: &ColorF) {
+                               frame_id: FrameId) {
         let white_image = resource_cache.get_dummy_color_image();
         self.add_complex_clipped_rectangle(white_image.texture_id,
                                            rect,
                                            &white_image.uv_rect,
                                            &[*color, *color, *color, *color],
                                            None,
-                                           resource_cache);
+                                           resource_cache,
+                                           frame_id);
     }
 
     pub fn add_webgl_rectangle(&mut self,
                                rect: &Rect<f32>,
                                resource_cache: &ResourceCache,
-                               webgl_context_id: &WebGLContextId) {
+                               webgl_context_id: &WebGLContextId,
+                               frame_id: FrameId) {
         let texture_id = resource_cache.get_webgl_texture(webgl_context_id);
         let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
 
@@ -312,7 +323,8 @@ impl<'a> BatchBuilder<'a> {
                                            &uv,
                                            &[color, color, color, color],
                                            None,
-                                           resource_cache);
+                                           resource_cache,
+                                           frame_id);
     }
 
     pub fn add_image(&mut self,
@@ -320,10 +332,11 @@ impl<'a> BatchBuilder<'a> {
                      stretch_size: &Size2D<f32>,
                      image_key: ImageKey,
                      image_rendering: ImageRendering,
-                     resource_cache: &ResourceCache) {
+                     resource_cache: &ResourceCache,
+                     frame_id: FrameId) {
         // Should be caught higher up
         debug_assert!(stretch_size.width > 0.0 && stretch_size.height > 0.0);
-        let image_info = resource_cache.get_image(image_key, image_rendering);
+        let image_info = resource_cache.get_image(image_key, image_rendering, frame_id);
 
         let u1 = rect.size.width / stretch_size.width;
         let v1 = rect.size.height / stretch_size.height;
@@ -351,7 +364,8 @@ impl<'a> BatchBuilder<'a> {
                                            &uv,
                                            &[color, color, color, color],
                                            Some(tile_params),
-                                           resource_cache);
+                                           resource_cache,
+                                           frame_id);
     }
 
     pub fn add_text(&mut self,
@@ -362,6 +376,7 @@ impl<'a> BatchBuilder<'a> {
                     color: &ColorF,
                     glyphs: &[GlyphInstance],
                     resource_cache: &ResourceCache,
+                    frame_id: FrameId,
                     device_pixel_ratio: f32) {
         let dummy_mask_image = resource_cache.get_dummy_mask_image();
 
@@ -378,7 +393,7 @@ impl<'a> BatchBuilder<'a> {
 
         for glyph in glyphs {
             glyph_key.index = glyph.index;
-            let image_info = resource_cache.get_glyph(&glyph_key);
+            let image_info = resource_cache.get_glyph(&glyph_key, frame_id);
             if let Some(image_info) = image_info {
                 let mut x = (glyph.x * device_pixel_ratio + image_info.user_data.x0 as f32).round() / device_pixel_ratio;
                 let mut y = (glyph.y * device_pixel_ratio - image_info.user_data.y0 as f32).round() / device_pixel_ratio;
@@ -423,7 +438,8 @@ impl<'a> BatchBuilder<'a> {
                                             rect: &Rect<f32>,
                                             direction: AxisDirection,
                                             stops: &[GradientStop],
-                                            resource_cache: &ResourceCache) {
+                                            resource_cache: &ResourceCache,
+                                            frame_id: FrameId) {
         let white_image = resource_cache.get_dummy_color_image();
 
         for i in 0..(stops.len() - 1) {
@@ -462,7 +478,8 @@ impl<'a> BatchBuilder<'a> {
                                                &white_image.uv_rect,
                                                &piece_colors,
                                                None,
-                                               resource_cache);
+                                               resource_cache,
+                                               frame_id);
         }
     }
 
@@ -470,7 +487,8 @@ impl<'a> BatchBuilder<'a> {
                         start_point: &Point2D<f32>,
                         end_point: &Point2D<f32>,
                         stops: &[GradientStop],
-                        resource_cache: &ResourceCache) {
+                        resource_cache: &ResourceCache,
+                        frame_id: FrameId) {
         // Fast paths for axis-aligned gradients:
         //
         // FIXME(pcwalton): Determine the start and end points properly!
@@ -480,7 +498,8 @@ impl<'a> BatchBuilder<'a> {
             self.add_axis_aligned_gradient_with_stops(&rect,
                                                       AxisDirection::Vertical,
                                                       stops,
-                                                      resource_cache);
+                                                      resource_cache,
+                                                      frame_id);
             return
         }
         if start_point.y == end_point.y {
@@ -489,7 +508,8 @@ impl<'a> BatchBuilder<'a> {
             self.add_axis_aligned_gradient_with_stops(&rect,
                                                       AxisDirection::Horizontal,
                                                       stops,
-                                                      resource_cache);
+                                                      resource_cache,
+                                                      frame_id);
             return
         }
 
@@ -562,14 +582,13 @@ impl<'a> BatchBuilder<'a> {
                           spread_radius: f32,
                           border_radius: f32,
                           clip_mode: BoxShadowClipMode,
-                          resource_cache: &ResourceCache) {
+                          resource_cache: &ResourceCache,
+                          frame_id: FrameId) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
 
         // Fast path.
         if blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None {
-            self.add_color_rectangle(&rect,
-                                     resource_cache,
-                                     color);
+            self.add_color_rectangle(&rect, color, resource_cache, frame_id);
             return;
         }
 
@@ -581,7 +600,8 @@ impl<'a> BatchBuilder<'a> {
                                     spread_radius,
                                     border_radius,
                                     clip_mode,
-                                    resource_cache);
+                                    resource_cache,
+                                    frame_id);
 
         // Draw the sides.
         self.add_box_shadow_sides(box_bounds,
@@ -591,14 +611,13 @@ impl<'a> BatchBuilder<'a> {
                                   spread_radius,
                                   border_radius,
                                   clip_mode,
-                                  resource_cache);
+                                  resource_cache,
+                                  frame_id);
 
         match clip_mode {
             BoxShadowClipMode::None => {
                 // Fill the center area.
-                self.add_color_rectangle(box_bounds,
-                                         resource_cache,
-                                         color);
+                self.add_color_rectangle(box_bounds, color, resource_cache, frame_id);
             }
             BoxShadowClipMode::Outset => {
                 // Fill the center area.
@@ -614,9 +633,7 @@ impl<'a> BatchBuilder<'a> {
                     // the case!
                     let old_clip_out_rect = self.set_clip_out_rect(Some(*box_bounds));
 
-                    self.add_color_rectangle(&center_rect,
-                                             resource_cache,
-                                             color);
+                    self.add_color_rectangle(&center_rect, color, resource_cache, frame_id);
 
                     self.set_clip_out_rect(old_clip_out_rect);
                 }
@@ -629,7 +646,8 @@ impl<'a> BatchBuilder<'a> {
                                                            blur_radius,
                                                            spread_radius,
                                                            border_radius,
-                                                           resource_cache);
+                                                           resource_cache,
+                                                           frame_id);
             }
         }
     }
@@ -642,7 +660,8 @@ impl<'a> BatchBuilder<'a> {
                               spread_radius: f32,
                               border_radius: f32,
                               clip_mode: BoxShadowClipMode,
-                              resource_cache: &ResourceCache) {
+                              resource_cache: &ResourceCache,
+                              frame_id: FrameId) {
         // Draw the corners.
         //
         //      +--+------------------+--+
@@ -678,6 +697,7 @@ impl<'a> BatchBuilder<'a> {
                                    border_radius,
                                    clip_mode,
                                    resource_cache,
+                                   frame_id,
                                    BasicRotationAngle::Upright);
         self.add_box_shadow_corner(&Point2D::new(metrics.tr_outer.x - metrics.edge_size,
                                                  metrics.tr_outer.y),
@@ -691,6 +711,7 @@ impl<'a> BatchBuilder<'a> {
                                    border_radius,
                                    clip_mode,
                                    resource_cache,
+                                   frame_id,
                                    BasicRotationAngle::Clockwise90);
         self.add_box_shadow_corner(&Point2D::new(metrics.br_outer.x - metrics.edge_size,
                                                  metrics.br_outer.y - metrics.edge_size),
@@ -703,6 +724,7 @@ impl<'a> BatchBuilder<'a> {
                                    border_radius,
                                    clip_mode,
                                    resource_cache,
+                                   frame_id,
                                    BasicRotationAngle::Clockwise180);
         self.add_box_shadow_corner(&Point2D::new(metrics.bl_outer.x,
                                                  metrics.bl_outer.y - metrics.edge_size),
@@ -716,6 +738,7 @@ impl<'a> BatchBuilder<'a> {
                                    border_radius,
                                    clip_mode,
                                    resource_cache,
+                                   frame_id,
                                    BasicRotationAngle::Clockwise270);
 
         self.undo_clip_state(clip_state);
@@ -729,7 +752,8 @@ impl<'a> BatchBuilder<'a> {
                             spread_radius: f32,
                             border_radius: f32,
                             clip_mode: BoxShadowClipMode,
-                            resource_cache: &ResourceCache) {
+                            resource_cache: &ResourceCache,
+                            frame_id: FrameId) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
         let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
 
@@ -772,6 +796,7 @@ impl<'a> BatchBuilder<'a> {
                                  border_radius,
                                  clip_mode,
                                  resource_cache,
+                                 frame_id,
                                  BasicRotationAngle::Clockwise90);
         self.add_box_shadow_edge(&right_rect.origin,
                                  &right_rect.bottom_right(),
@@ -781,6 +806,7 @@ impl<'a> BatchBuilder<'a> {
                                  border_radius,
                                  clip_mode,
                                  resource_cache,
+                                 frame_id,
                                  BasicRotationAngle::Clockwise180);
         self.add_box_shadow_edge(&bottom_rect.origin,
                                  &bottom_rect.bottom_right(),
@@ -790,6 +816,7 @@ impl<'a> BatchBuilder<'a> {
                                  border_radius,
                                  clip_mode,
                                  resource_cache,
+                                 frame_id,
                                  BasicRotationAngle::Clockwise270);
         self.add_box_shadow_edge(&left_rect.origin,
                                  &left_rect.bottom_right(),
@@ -799,6 +826,7 @@ impl<'a> BatchBuilder<'a> {
                                  border_radius,
                                  clip_mode,
                                  resource_cache,
+                                 frame_id,
                                  BasicRotationAngle::Upright);
 
         self.undo_clip_state(clip_state);
@@ -811,7 +839,8 @@ impl<'a> BatchBuilder<'a> {
                                              blur_radius: f32,
                                              spread_radius: f32,
                                              border_radius: f32,
-                                             resource_cache: &ResourceCache) {
+                                             resource_cache: &ResourceCache,
+                                             frame_id: FrameId) {
         let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
         let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
 
@@ -839,29 +868,33 @@ impl<'a> BatchBuilder<'a> {
         self.add_color_rectangle(&Rect::new(box_bounds.origin,
                                             Size2D::new(box_bounds.size.width,
                                                         metrics.tl_outer.y - box_bounds.origin.y)),
+                                 color,
                                  resource_cache,
-                                 color);
+                                 frame_id);
 
         // B:
         self.add_color_rectangle(&Rect::new(metrics.tr_outer,
                                             Size2D::new(box_bounds.max_x() - metrics.tr_outer.x,
                                                         metrics.br_outer.y - metrics.tr_outer.y)),
+                                 color,
                                  resource_cache,
-                                 color);
+                                 frame_id);
 
         // C:
         self.add_color_rectangle(&Rect::new(Point2D::new(box_bounds.origin.x, metrics.bl_outer.y),
                                             Size2D::new(box_bounds.size.width,
                                                         box_bounds.max_y() - metrics.br_outer.y)),
+                                 color,
                                  resource_cache,
-                                 color);
+                                 frame_id);
 
         // D:
         self.add_color_rectangle(&Rect::new(Point2D::new(box_bounds.origin.x, metrics.tl_outer.y),
                                             Size2D::new(metrics.tl_outer.x - box_bounds.origin.x,
                                                         metrics.bl_outer.y - metrics.tl_outer.y)),
+                                 color,
                                  resource_cache,
-                                 color);
+                                 frame_id);
 
         self.undo_clip_state(clip_state);
     }
@@ -905,7 +938,8 @@ impl<'a> BatchBuilder<'a> {
                        side: RectSide,
                        color: &ColorF,
                        border_style: BorderStyle,
-                       resource_cache: &ResourceCache) {
+                       resource_cache: &ResourceCache,
+                       frame_id: FrameId) {
         if color.a <= 0.0 {
             return
         }
@@ -941,9 +975,7 @@ impl<'a> BatchBuilder<'a> {
                         }
                     };
 
-                    self.add_color_rectangle(&dash_rect,
-                                             resource_cache,
-                                             color);
+                    self.add_color_rectangle(&dash_rect, color, resource_cache, frame_id);
 
                     origin += step + step;
                 }
@@ -982,7 +1014,7 @@ impl<'a> BatchBuilder<'a> {
                                                      ImageFormat::RGBA8).expect(
                         "Didn't find border radius mask for dashed border!");
                     let raster_item = RasterItem::BorderRadius(raster_op);
-                    let color_image = resource_cache.get_raster(&raster_item);
+                    let color_image = resource_cache.get_raster(&raster_item, frame_id);
 
                     // Top left:
                     self.add_simple_rectangle(color_image.texture_id,
@@ -1048,12 +1080,8 @@ impl<'a> BatchBuilder<'a> {
                                    Size2D::new(rect.size.width / 3.0, rect.size.height)))
                     }
                 };
-                self.add_color_rectangle(&outer_rect,
-                                         resource_cache,
-                                         color);
-                self.add_color_rectangle(&inner_rect,
-                                         resource_cache,
-                                         color);
+                self.add_color_rectangle(&outer_rect, color, resource_cache, frame_id);
+                self.add_color_rectangle(&inner_rect, color, resource_cache, frame_id);
             }
             BorderStyle::Groove | BorderStyle::Ridge => {
                 let (tl_rect, br_rect) = match side {
@@ -1073,17 +1101,11 @@ impl<'a> BatchBuilder<'a> {
                     }
                 };
                 let (tl_color, br_color) = groove_ridge_border_colors(color, border_style);
-                self.add_color_rectangle(&tl_rect,
-                                         resource_cache,
-                                         &tl_color);
-                self.add_color_rectangle(&br_rect,
-                                         resource_cache,
-                                         &br_color);
+                self.add_color_rectangle(&tl_rect, &tl_color, resource_cache, frame_id);
+                self.add_color_rectangle(&br_rect, &br_color, resource_cache, frame_id);
             }
             _ => {
-                self.add_color_rectangle(rect,
-                                         resource_cache,
-                                         color);
+                self.add_color_rectangle(rect, color, resource_cache, frame_id);
             }
         }
     }
@@ -1125,6 +1147,7 @@ impl<'a> BatchBuilder<'a> {
                          outer_radius: &Size2D<f32>,
                          inner_radius: &Size2D<f32>,
                          resource_cache: &ResourceCache,
+                         frame_id: FrameId,
                          rotation_angle: BasicRotationAngle,
                          device_pixel_ratio: f32) {
         if color0.a <= 0.0 && color1.a <= 0.0 {
@@ -1162,6 +1185,7 @@ impl<'a> BatchBuilder<'a> {
                                              outer_radius,
                                              inner_radius,
                                              resource_cache,
+                                             frame_id,
                                              rotation_angle,
                                              device_pixel_ratio);
                 self.add_solid_border_corner(&inner_corner_rect,
@@ -1171,19 +1195,16 @@ impl<'a> BatchBuilder<'a> {
                                              outer_radius,
                                              inner_radius,
                                              resource_cache,
+                                             frame_id,
                                              rotation_angle,
                                              device_pixel_ratio);
 
                 // Draw the solid parts:
                 if util::rect_is_well_formed_and_nonempty(&color0_rect) {
-                    self.add_color_rectangle(&color0_rect,
-                                             resource_cache,
-                                             &color0_outer)
+                    self.add_color_rectangle(&color0_rect, &color0_outer, resource_cache, frame_id)
                 }
                 if util::rect_is_well_formed_and_nonempty(&color1_rect) {
-                    self.add_color_rectangle(&color1_rect,
-                                             resource_cache,
-                                             &color1_outer)
+                    self.add_color_rectangle(&color1_rect, &color1_outer, resource_cache, frame_id)
                 }
             }
             BorderStyle::Double => {
@@ -1259,12 +1280,11 @@ impl<'a> BatchBuilder<'a> {
                                              outer_radius,
                                              &Size2D::new(0.0, 0.0),
                                              resource_cache,
+                                             frame_id,
                                              rotation_angle,
                                              device_pixel_ratio);
 
-                self.add_color_rectangle(&outer_side_rect_1,
-                                         resource_cache,
-                                         &color0);
+                self.add_color_rectangle(&outer_side_rect_1, &color0, resource_cache, frame_id);
 
                 self.add_solid_border_corner(&inner_corner_rect,
                                              radius_extent,
@@ -1273,12 +1293,11 @@ impl<'a> BatchBuilder<'a> {
                                              &Size2D::new(0.0, 0.0),
                                              inner_radius,
                                              resource_cache,
+                                             frame_id,
                                              rotation_angle,
                                              device_pixel_ratio);
 
-                self.add_color_rectangle(&outer_side_rect_0,
-                                         resource_cache,
-                                         &color1);
+                self.add_color_rectangle(&outer_side_rect_0, &color1, resource_cache, frame_id);
             }
             _ => {
                 self.add_solid_border_corner(corner_bounds,
@@ -1288,6 +1307,7 @@ impl<'a> BatchBuilder<'a> {
                                              outer_radius,
                                              inner_radius,
                                              resource_cache,
+                                             frame_id,
                                              rotation_angle,
                                              device_pixel_ratio)
             }
@@ -1302,6 +1322,7 @@ impl<'a> BatchBuilder<'a> {
                                outer_radius: &Size2D<f32>,
                                inner_radius: &Size2D<f32>,
                                resource_cache: &ResourceCache,
+                               frame_id: FrameId,
                                rotation_angle: BasicRotationAngle,
                                _device_pixel_ratio: f32) {
         // TODO: Check for zero width/height borders!
@@ -1334,7 +1355,7 @@ impl<'a> BatchBuilder<'a> {
                                                                 None,//Some(rect_index),
                                                                 ImageFormat::A8) {
                 Some(raster_item) => {
-                    resource_cache.get_raster(&RasterItem::BorderRadius(raster_item))
+                    resource_cache.get_raster(&RasterItem::BorderRadius(raster_item), frame_id)
                 }
                 None => dummy_mask_image,
             };
@@ -1371,14 +1392,10 @@ impl<'a> BatchBuilder<'a> {
 
         // Draw the two solid rects.
         if util::rect_is_well_formed_and_nonempty(&color0_rect) {
-            self.add_color_rectangle(&color0_rect,
-                                     resource_cache,
-                                     color0)
+            self.add_color_rectangle(&color0_rect, color0, resource_cache, frame_id)
         }
         if util::rect_is_well_formed_and_nonempty(&color1_rect) {
-            self.add_color_rectangle(&color1_rect,
-                                     resource_cache,
-                                     color1)
+            self.add_color_rectangle(&color1_rect, color1, resource_cache, frame_id)
         }
     }
 
@@ -1485,6 +1502,7 @@ impl<'a> BatchBuilder<'a> {
                       rect: &Rect<f32>,
                       info: &BorderDisplayItem,
                       resource_cache: &ResourceCache,
+                      frame_id: FrameId,
                       device_pixel_ratio: f32) {
         // TODO: If any border segment is alpha, place all in alpha pass.
         //       Is it ever worth batching at a per-segment level?
@@ -1522,7 +1540,8 @@ impl<'a> BatchBuilder<'a> {
                              RectSide::Left,
                              &left_color,
                              info.left.style,
-                             resource_cache);
+                             resource_cache,
+                             frame_id);
 
         self.add_border_edge(&Rect::new(Point2D::new(tl_inner.x, tl_outer.y),
                                         Size2D::new(tr_inner.x - tl_inner.x,
@@ -1530,14 +1549,16 @@ impl<'a> BatchBuilder<'a> {
                              RectSide::Top,
                              &top_color,
                              info.top.style,
-                             resource_cache);
+                             resource_cache,
+                             frame_id);
 
         self.add_border_edge(&Rect::new(Point2D::new(br_outer.x - right.width, tr_inner.y),
                                         Size2D::new(right.width, br_inner.y - tr_inner.y)),
                              RectSide::Right,
                              &right_color,
                              info.right.style,
-                             resource_cache);
+                             resource_cache,
+                             frame_id);
 
         self.add_border_edge(&Rect::new(Point2D::new(bl_inner.x, bl_outer.y - bottom.width),
                                         Size2D::new(br_inner.x - bl_inner.x,
@@ -1545,7 +1566,8 @@ impl<'a> BatchBuilder<'a> {
                              RectSide::Bottom,
                              &bottom_color,
                              info.bottom.style,
-                             resource_cache);
+                             resource_cache,
+                             frame_id);
 
         // Corners
         self.add_border_corner(info.left.style,
@@ -1559,6 +1581,7 @@ impl<'a> BatchBuilder<'a> {
                                &radius.top_left,
                                &info.top_left_inner_radius(),
                                resource_cache,
+                               frame_id,
                                BasicRotationAngle::Upright,
                                device_pixel_ratio);
 
@@ -1573,6 +1596,7 @@ impl<'a> BatchBuilder<'a> {
                                &radius.top_right,
                                &info.top_right_inner_radius(),
                                resource_cache,
+                               frame_id,
                                BasicRotationAngle::Clockwise90,
                                device_pixel_ratio);
 
@@ -1587,6 +1611,7 @@ impl<'a> BatchBuilder<'a> {
                                &radius.bottom_right,
                                &info.bottom_right_inner_radius(),
                                resource_cache,
+                               frame_id,
                                BasicRotationAngle::Clockwise180,
                                device_pixel_ratio);
 
@@ -1601,6 +1626,7 @@ impl<'a> BatchBuilder<'a> {
                                &radius.bottom_left,
                                &info.bottom_left_inner_radius(),
                                resource_cache,
+                               frame_id,
                                BasicRotationAngle::Clockwise270,
                                device_pixel_ratio);
     }
@@ -1617,6 +1643,7 @@ impl<'a> BatchBuilder<'a> {
                              border_radius: f32,
                              clip_mode: BoxShadowClipMode,
                              resource_cache: &ResourceCache,
+                             frame_id: FrameId,
                              rotation_angle: BasicRotationAngle) {
         let corner_area_rect =
             Rect::new(*corner_area_top_left,
@@ -1636,7 +1663,7 @@ impl<'a> BatchBuilder<'a> {
                                                                  inverted) {
             Some(raster_item) => {
                 let raster_item = RasterItem::BoxShadow(raster_item);
-                resource_cache.get_raster(&raster_item)
+                resource_cache.get_raster(&raster_item, frame_id)
             }
             None => resource_cache.get_dummy_color_image(),
         };
@@ -1661,6 +1688,7 @@ impl<'a> BatchBuilder<'a> {
                            border_radius: f32,
                            clip_mode: BoxShadowClipMode,
                            resource_cache: &ResourceCache,
+                           frame_id: FrameId,
                            rotation_angle: BasicRotationAngle) {
         if top_left.x >= bottom_right.x || top_left.y >= bottom_right.y {
             return
@@ -1677,7 +1705,7 @@ impl<'a> BatchBuilder<'a> {
                                                                inverted) {
             Some(raster_item) => {
                 let raster_item = RasterItem::BoxShadow(raster_item);
-                resource_cache.get_raster(&raster_item)
+                resource_cache.get_raster(&raster_item, frame_id)
             }
             None => resource_cache.get_dummy_color_image(),
         };
