@@ -26,7 +26,6 @@ git = "https://github.com/glennw/webrender_traits"
 
 [dependencies.offscreen_gl_context]
 git = "https://github.com/ecoal95/rust-offscreen-rendering-context"
-branch = "webrender"
 
 [dependencies.notify]
 git = "https://github.com/glennw/rsnotify.git"
