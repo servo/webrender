@@ -806,8 +806,8 @@ impl TextureCache {
                     None => rect,
                 };
 
-                let width = tessellated_rect.size.width.as_u32();//.round() * device_pixel_ratio) as u32;
-                let height = tessellated_rect.size.height.as_u32();//.round() * device_pixel_ratio) as u32;
+                let width = tessellated_rect.size.width.as_u32();
+                let height = tessellated_rect.size.height.as_u32();
 
                 let allocation = self.allocate(image_id,
                                                0,

@@ -61,21 +61,6 @@ impl<'a> BatchBuilder<'a> {
         *value = (*value * self.device_pixel_ratio).round() / self.device_pixel_ratio;
     }
 
-    #[inline]
-    fn snap_rect_to_device_pixel(&self,
-                                 rect: &mut Rect<f32>) {
-        let mut x1 = rect.origin.x + rect.size.width;
-        let mut y1 = rect.origin.y + rect.size.height;
-        self.snap_value_to_device_pixel(&mut x1);
-        self.snap_value_to_device_pixel(&mut y1);
-
-        self.snap_value_to_device_pixel(&mut rect.origin.x);
-        self.snap_value_to_device_pixel(&mut rect.origin.y);
-
-        rect.size.width = x1 - rect.origin.x;
-        rect.size.height = y1 - rect.origin.y;
-    }
-
     // Colors are in the order: top left, top right, bottom right, bottom left.
     pub fn add_complex_clipped_rectangle(&mut self,
                                          color_texture_id: TextureId,
@@ -91,47 +76,54 @@ impl<'a> BatchBuilder<'a> {
 
         match self.complex_clip {
             Some(complex_clip) => {
-                let tl_x0 = complex_clip.rect.origin.x;
-                let tl_y0 = complex_clip.rect.origin.y;
+                // Get clip rect in local space of the display rect
+                let complex_clip_origin = complex_clip.rect.origin - pos_rect.origin;
+                let mut local_pos_rect = Rect::new(Point2D::zero(), pos_rect.size);
 
-                let tr_x0 = complex_clip.rect.origin.x + complex_clip.rect.size.width - complex_clip.radii.top_right.width;
-                let tr_y0 = complex_clip.rect.origin.y;
+                // TODO(gw): Perhaps this should be caught higher up, or perhaps we
+                //           can even remove this requirement.
+                self.snap_value_to_device_pixel(&mut local_pos_rect.size.width);
+                self.snap_value_to_device_pixel(&mut local_pos_rect.size.height);
 
-                let bl_x0 = complex_clip.rect.origin.x;
-                let bl_y0 = complex_clip.rect.origin.y + complex_clip.rect.size.height - complex_clip.radii.bottom_left.height;
-
-                let br_x0 = complex_clip.rect.origin.x + complex_clip.rect.size.width - complex_clip.radii.bottom_right.width;
-                let br_y0 = complex_clip.rect.origin.y + complex_clip.rect.size.height - complex_clip.radii.bottom_right.height;
-
-                let mut tl_clip = Rect::new(Point2D::new(tl_x0, tl_y0), complex_clip.radii.top_left);
-                let mut tr_clip = Rect::new(Point2D::new(tr_x0, tr_y0), complex_clip.radii.top_right);
-                let mut bl_clip = Rect::new(Point2D::new(bl_x0, bl_y0), complex_clip.radii.bottom_left);
-                let mut br_clip = Rect::new(Point2D::new(br_x0, br_y0), complex_clip.radii.bottom_right);
-
-                self.snap_rect_to_device_pixel(&mut tl_clip);
-                self.snap_rect_to_device_pixel(&mut tr_clip);
-                self.snap_rect_to_device_pixel(&mut bl_clip);
-                self.snap_rect_to_device_pixel(&mut br_clip);
-
-                // gen all vertices for each line
+                // Generate all vertices for each line
                 let mut x_points = [
-                    0.0,
-                    complex_clip.radii.top_left.width,
-                    complex_clip.rect.size.width - complex_clip.radii.top_right.width,
-                    complex_clip.radii.bottom_left.width,
-                    complex_clip.rect.size.width - complex_clip.radii.bottom_right.width,
-                    complex_clip.rect.size.width,
+                    complex_clip_origin.x + 0.0,
+                    complex_clip_origin.x + complex_clip.radii.top_left.width,
+                    complex_clip_origin.x + complex_clip.rect.size.width - complex_clip.radii.top_right.width,
+                    complex_clip_origin.x + complex_clip.radii.bottom_left.width,
+                    complex_clip_origin.x + complex_clip.rect.size.width - complex_clip.radii.bottom_right.width,
+                    complex_clip_origin.x + complex_clip.rect.size.width,
                 ];
 
-                // gen all vertices for each line
+                // Generate all vertices for each line
                 let mut y_points = [
-                    0.0,
-                    complex_clip.radii.top_left.height,
-                    complex_clip.radii.top_right.height,
-                    complex_clip.rect.size.height - complex_clip.radii.bottom_left.height,
-                    complex_clip.rect.size.height - complex_clip.radii.bottom_right.height,
-                    complex_clip.rect.size.height,
+                    complex_clip_origin.y + 0.0,
+                    complex_clip_origin.y + complex_clip.radii.top_left.height,
+                    complex_clip_origin.y + complex_clip.radii.top_right.height,
+                    complex_clip_origin.y + complex_clip.rect.size.height - complex_clip.radii.bottom_left.height,
+                    complex_clip_origin.y + complex_clip.rect.size.height - complex_clip.radii.bottom_right.height,
+                    complex_clip_origin.y + complex_clip.rect.size.height,
                 ];
+
+                for x_point in &mut x_points {
+                    self.snap_value_to_device_pixel(x_point);
+                }
+
+                for y_point in &mut y_points {
+                    self.snap_value_to_device_pixel(y_point);
+                }
+
+                let tl_clip = Rect::new(Point2D::new(x_points[0], y_points[0]),
+                                        Size2D::new(x_points[1] - x_points[0], y_points[1] - y_points[0]));
+
+                let tr_clip = Rect::new(Point2D::new(x_points[2], y_points[0]),
+                                        Size2D::new(x_points[5] - x_points[2], y_points[2] - y_points[0]));
+
+                let bl_clip = Rect::new(Point2D::new(x_points[0], y_points[3]),
+                                        Size2D::new(x_points[3] - x_points[0], y_points[5] - y_points[3]));
+
+                let br_clip = Rect::new(Point2D::new(x_points[4], y_points[4]),
+                                        Size2D::new(x_points[5] - x_points[4], y_points[5] - y_points[4]));
 
                 x_points.sort_by(|a, b| {
                     a.partial_cmp(b).unwrap()
@@ -142,23 +134,20 @@ impl<'a> BatchBuilder<'a> {
 
                 for xi in 0..x_points.len()-1 {
                     for yi in 0..y_points.len()-1 {
-                        let mut x0 = complex_clip.rect.origin.x + x_points[xi+0];
-                        let mut y0 = complex_clip.rect.origin.y + y_points[yi+0];
-                        let mut x1 = complex_clip.rect.origin.x + x_points[xi+1];
-                        let mut y1 = complex_clip.rect.origin.y + y_points[yi+1];
-
-                        self.snap_value_to_device_pixel(&mut x0);
-                        self.snap_value_to_device_pixel(&mut y0);
-                        self.snap_value_to_device_pixel(&mut x1);
-                        self.snap_value_to_device_pixel(&mut y1);
+                        let x0 = x_points[xi+0];
+                        let y0 = y_points[yi+0];
+                        let x1 = x_points[xi+1];
+                        let y1 = y_points[yi+1];
 
                         if x0 != x1 && y0 != y1 {
-
                             let sub_clip_rect = Rect::new(Point2D::new(x0, y0),
                                                           Size2D::new(x1-x0, y1-y0));
 
-                            if let Some(mut clipped_pos_rect) = sub_clip_rect.intersection(&pos_rect) {
-                                self.snap_rect_to_device_pixel(&mut clipped_pos_rect);
+                            if let Some(clipped_pos_rect) = sub_clip_rect.intersection(&local_pos_rect) {
+                                assert!(clipped_pos_rect.origin.x.fract() == 0.0);
+                                assert!(clipped_pos_rect.origin.y.fract() == 0.0);
+                                assert!(clipped_pos_rect.size.width.fract() == 0.0);
+                                assert!(clipped_pos_rect.size.height.fract() == 0.0);
 
                                 // TODO(gw): There must be a more efficient way to to
                                 //           this (classifying which clip mask we need).
@@ -176,21 +165,21 @@ impl<'a> BatchBuilder<'a> {
 
                                 let (mask_texture_id, muv_rect) = match mask_info {
                                     Some(clip_rect) => {
-                                        let mask_image = resource_cache.get_raster(
-                                            &RasterItem::BorderRadius(BorderRadiusRasterOp {
-                                                outer_radius_x:
-                                                    DevicePixel::new(clip_rect.size.width,
-                                                                     self.device_pixel_ratio),
-                                                outer_radius_y:
-                                                    DevicePixel::new(clip_rect.size.height,
-                                                                     self.device_pixel_ratio),
-                                                inner_radius_x: DevicePixel::zero(),
-                                                inner_radius_y: DevicePixel::zero(),
-                                                inverted: false,
-                                                index: None,
-                                                image_format: ImageFormat::A8,
-                                            }),
-                                            frame_id);
+                                        let op = RasterItem::BorderRadius(BorderRadiusRasterOp {
+                                            outer_radius_x:
+                                                DevicePixel::new(clip_rect.size.width,
+                                                                 self.device_pixel_ratio),
+                                            outer_radius_y:
+                                                DevicePixel::new(clip_rect.size.height,
+                                                                 self.device_pixel_ratio),
+                                            inner_radius_x: DevicePixel::zero(),
+                                            inner_radius_y: DevicePixel::zero(),
+                                            inverted: false,
+                                            index: None,
+                                            image_format: ImageFormat::A8,
+                                        });
+
+                                        let mask_image = resource_cache.get_raster(&op, frame_id);
 
                                         let mut x0_f = (x0 - clip_rect.origin.x) / clip_rect.size.width;
                                         let mut x1_f = (x1 - clip_rect.origin.x) / clip_rect.size.width;
@@ -258,7 +247,7 @@ impl<'a> BatchBuilder<'a> {
                                 //           if present too!
 
                                 self.add_simple_rectangle(color_texture_id,
-                                                          &clipped_pos_rect,
+                                                          &clipped_pos_rect.translate(&pos_rect.origin),
                                                           uv_rect,
                                                           mask_texture_id,
                                                           &muv_rect,
@@ -395,11 +384,8 @@ impl<'a> BatchBuilder<'a> {
             glyph_key.index = glyph.index;
             let image_info = resource_cache.get_glyph(&glyph_key, frame_id);
             if let Some(image_info) = image_info {
-                let mut x = (glyph.x * device_pixel_ratio + image_info.user_data.x0 as f32).round() / device_pixel_ratio;
-                let mut y = (glyph.y * device_pixel_ratio - image_info.user_data.y0 as f32).round() / device_pixel_ratio;
-
-                x -= blur_offset;
-                y -= blur_offset;
+                let x = glyph.x + image_info.user_data.x0 as f32 / device_pixel_ratio - blur_offset;
+                let y = glyph.y - image_info.user_data.y0 as f32 / device_pixel_ratio - blur_offset;
 
                 let width = image_info.requested_rect.size.width as f32 / device_pixel_ratio;
                 let height = image_info.requested_rect.size.height as f32 / device_pixel_ratio;

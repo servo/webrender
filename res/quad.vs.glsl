@@ -29,48 +29,50 @@ void main(void)
     vClipOutRect = uClipRects[int(aMisc.z)];
     vec4 clipInRect = uClipRects[int(aMisc.y)];
 
+    // Extract the complete (stacking context + css transform) transform
+    // for this vertex. Transform the position by it.
+    vec2 offsetParams = uOffsets[Bottom7Bits(int(aMisc.x))].xy;
+    mat4 matrix = uMatrixPalette[Bottom7Bits(int(aMisc.x))];
+
+    // Extract the rectangle and snap it to device pixels
+    vec2 rect_origin = SnapToPixels(aPositionRect.xy + offsetParams);
+    vec2 rect_size = aPositionRect.zw;
+
     // Determine the position, color, and mask texture coordinates of this vertex.
     vec4 localPos = vec4(0.0, 0.0, 0.0, 1.0);
     bool isBorderCorner = int(aMisc.w) >= 0x80;
     bool isBottomTriangle = IsBottomTriangle();
     if (aPosition.y == 0.0) {
-        localPos.y = aPositionRect.y;
+        localPos.y = rect_origin.y;
         if (aPosition.x == 0.0) {
-            localPos.x = aPositionRect.x;
+            localPos.x = rect_origin.x;
             if (isBorderCorner) {
                 vColor = !isBottomTriangle ? aColorRectTR : aColorRectBL;
             }
         } else {
-            localPos.x = aPositionRect.x + aPositionRect.z;
+            localPos.x = rect_origin.x + rect_size.x;
             if (isBorderCorner) {
                 vColor = aColorRectTR;
             }
         }
     } else {
-        localPos.y = aPositionRect.y + aPositionRect.w;
+        localPos.y = rect_origin.y + rect_size.y;
         if (aPosition.x == 0.0) {
-            localPos.x = aPositionRect.x;
+            localPos.x = rect_origin.x;
             if (isBorderCorner) {
                 vColor = aColorRectBL;
             }
         } else {
-            localPos.x = aPositionRect.x + aPositionRect.z;
+            localPos.x = rect_origin.x + rect_size.x;
             if (isBorderCorner) {
                 vColor = !isBottomTriangle ? aColorRectTR : aColorRectBL;
             }
         }
     }
 
-    // Extract the complete (stacking context + css transform) transform
-    // for this vertex. Transform the position by it.
-    vec4 offsetParams = uOffsets[Bottom7Bits(int(aMisc.x))];
-    mat4 matrix = uMatrixPalette[Bottom7Bits(int(aMisc.x))];
-
-    localPos.xy += offsetParams.xy;
-
     // Clip and compute varyings.
     localPos.xy = clamp(localPos.xy, clipInRect.xy, clipInRect.zw);
-    vec2 localST = (localPos.xy - (aPositionRect.xy + offsetParams.xy)) / aPositionRect.zw;
+    vec2 localST = (localPos.xy - rect_origin) / rect_size;
     vColorTexCoord = Bilerp2(aColorTexCoordRectTop.xy, aColorTexCoordRectTop.zw,
                              aColorTexCoordRectBottom.xy, aColorTexCoordRectBottom.zw,
                              localST);
