@@ -308,17 +308,6 @@ impl<'a> BatchBuilder<'a> {
                          colors: &[ColorF; 4],
                          color_mode: PackedVertexColorMode,
                          tile_params: Option<TileParams>) {
-        // TODO(gw): Move this to the VS?
-        let snapped_origin = Point2D::new((pos_rect.origin.x * self.device_pixel_ratio).round() / self.device_pixel_ratio,
-                                          (pos_rect.origin.y * self.device_pixel_ratio).round() / self.device_pixel_ratio);
-
-        let pos_rect = &Rect::new(snapped_origin, pos_rect.size);
-
-        //debug_assert!((pos_rect.origin.x * self.device_pixel_ratio).fract() == 0.0);
-        //debug_assert!((pos_rect.origin.y * self.device_pixel_ratio).fract() == 0.0);
-        //debug_assert!((pos_rect.size.width * self.device_pixel_ratio).fract() == 0.0);
-        //debug_assert!((pos_rect.size.height * self.device_pixel_ratio).fract() == 0.0);
-
         let (tile_params_index,
              clip_in_rect_index,
              clip_out_rect_index) = match self.cached_clip_in_rect {
