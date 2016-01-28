@@ -2,6 +2,7 @@ use core::nonzero::NonZero;
 use ipc_channel::ipc::IpcSender;
 use gleam::gl;
 use offscreen_gl_context::{GLContext, GLContextAttributes, NativeGLContextMethods};
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct WebGLContextId(pub usize);
@@ -96,7 +97,8 @@ pub enum WebGLCommand {
     LineWidth(f32),
     PixelStorei(u32, i32),
     LinkProgram(u32),
-    Uniform4fv(i32, Vec<f32>),
+    Uniform1f(i32, f32),
+    Uniform4f(i32, f32, f32, f32, f32),
     UseProgram(u32),
     VertexAttrib(u32, f32, f32, f32, f32),
     VertexAttribPointer2f(u32, i32, bool, i32, u32),
@@ -106,6 +108,82 @@ pub enum WebGLCommand {
     TexParameterf(u32, u32, f32),
     DrawingBufferWidth(IpcSender<i32>),
     DrawingBufferHeight(IpcSender<i32>),
+}
+
+impl fmt::Debug for WebGLCommand {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use WebGLCommand::*;
+        let name = match *self {
+            GetContextAttributes(..) => "GetContextAttributes",
+            ActiveTexture(..) => "ActiveTexture",
+            BlendColor(..) => "BlendColor",
+            BlendEquation(..) => "BlendEquation",
+            BlendEquationSeparate(..) => "BlendEquationSeparate",
+            BlendFunc(..) => "BlendFunc",
+            BlendFuncSeparate(..) => "BlendFuncSeparate",
+            AttachShader(..) => "AttachShader",
+            BindAttribLocation(..) => "BindAttribLocation",
+            BufferData(..) => "BufferData",
+            BufferSubData(..) => "BufferSubData",
+            Clear(..) => "Clear",
+            ClearColor(..) => "ClearColor",
+            ClearDepth(..) => "ClearDepth",
+            ClearStencil(..) => "ClearStencil",
+            ColorMask(..) => "ColorMask",
+            CullFace(..) => "CullFace",
+            FrontFace(..) => "FrontFace",
+            DepthFunc(..) => "DepthFunc",
+            DepthMask(..) => "DepthMask",
+            DepthRange(..) => "DepthRange",
+            Enable(..) => "Enable",
+            Disable(..) => "Disable",
+            CompileShader(..) => "CompileShader",
+            CreateBuffer(..) => "CreateBuffer",
+            CreateFramebuffer(..) => "CreateFramebuffer",
+            CreateRenderbuffer(..) => "CreateRenderbuffer",
+            CreateTexture(..) => "CreateTexture",
+            CreateProgram(..) => "CreateProgram",
+            CreateShader(..) => "CreateShader",
+            DeleteBuffer(..) => "DeleteBuffer",
+            DeleteFramebuffer(..) => "DeleteFramebuffer",
+            DeleteRenderbuffer(..) => "DeleteRenderBuffer",
+            DeleteTexture(..) => "DeleteTexture",
+            DeleteProgram(..) => "DeleteProgram",
+            DeleteShader(..) => "DeleteShader",
+            BindBuffer(..) => "BindBuffer",
+            BindFramebuffer(..) => "BindFramebuffer",
+            BindRenderbuffer(..) => "BindRenderbuffer",
+            BindTexture(..) => "BindTexture",
+            DrawArrays(..) => "DrawArrays",
+            DrawElements(..) => "DrawElements",
+            EnableVertexAttribArray(..) => "EnableVertexAttribArray",
+            GetBufferParameter(..) => "GetBufferParameter",
+            GetParameter(..) => "GetParameter",
+            GetProgramParameter(..) => "GetProgramParameter",
+            GetShaderParameter(..) => "GetShaderParameter",
+            GetAttribLocation(..) => "GetAttribLocation",
+            GetUniformLocation(..) => "GetUniformLocation",
+            PolygonOffset(..) => "PolygonOffset",
+            Scissor(..) => "Scissor",
+            Hint(..) => "Hint",
+            LineWidth(..) => "LineWidth",
+            PixelStorei(..) => "PixelStorei",
+            LinkProgram(..) => "LinkProgram",
+            Uniform4f(..) => "Uniform4f",
+            Uniform1f(..) => "Uniform1f",
+            UseProgram(..) => "UseProgram",
+            VertexAttrib(..) => "VertexAttrib",
+            VertexAttribPointer2f(..) => "VertexAttribPointer2f",
+            Viewport(..) => "Viewport",
+            TexImage2D(..) => "TexImage2D",
+            TexParameteri(..) => "TexParameteri",
+            TexParameterf(..) => "TexParameterf",
+            DrawingBufferWidth(..) => "DrawingBufferWidth",
+            DrawingBufferHeight(..) => "DrawingBufferHeight",
+        };
+
+        write!(f, "CanvasWebGLMsg::{}(..)", name)
+    }
 }
 
 impl WebGLCommand {
@@ -222,8 +300,10 @@ impl WebGLCommand {
                 gl::bind_texture(target, id),
             WebGLCommand::LinkProgram(program_id) =>
                 gl::link_program(program_id),
-            WebGLCommand::Uniform4fv(uniform_id, data) =>
-                gl::uniform_4f(uniform_id, data[0], data[1], data[2], data[3]),
+            WebGLCommand::Uniform1f(uniform_id, v) =>
+                gl::uniform_1f(uniform_id, v),
+            WebGLCommand::Uniform4f(uniform_id, x, y, z, w) =>
+                gl::uniform_4f(uniform_id, x, y, z, w),
             WebGLCommand::UseProgram(program_id) =>
                 gl::use_program(program_id),
             WebGLCommand::VertexAttrib(attrib_id, x, y, z, w) =>
@@ -244,8 +324,9 @@ impl WebGLCommand {
                 sender.send(ctx.borrow_draw_buffer().unwrap().size().height).unwrap(),
         }
 
-        // FIXME: Convert to `debug_assert!` once tests are run with debug assertions
-        assert!(gl::get_error() == gl::NO_ERROR);
+        // FIXME: Use debug_assertions once tests are run with them
+        let error = gl::get_error();
+        assert!(error == gl::NO_ERROR, "Unexpected WebGL error: 0x{:x} ({})", error, error);
     }
 
     fn attrib_location(program_id: u32,
