@@ -144,10 +144,10 @@ impl<'a> BatchBuilder<'a> {
                                                           Size2D::new(x1-x0, y1-y0));
 
                             if let Some(clipped_pos_rect) = sub_clip_rect.intersection(&local_pos_rect) {
-                                assert!(clipped_pos_rect.origin.x.fract() == 0.0);
-                                assert!(clipped_pos_rect.origin.y.fract() == 0.0);
-                                assert!(clipped_pos_rect.size.width.fract() == 0.0);
-                                assert!(clipped_pos_rect.size.height.fract() == 0.0);
+                                //assert!(clipped_pos_rect.origin.x.fract() == 0.0);
+                                //assert!(clipped_pos_rect.origin.y.fract() == 0.0);
+                                //assert!(clipped_pos_rect.size.width.fract() == 0.0);
+                                //assert!(clipped_pos_rect.size.height.fract() == 0.0);
 
                                 // TODO(gw): There must be a more efficient way to to
                                 //           this (classifying which clip mask we need).
