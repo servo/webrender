@@ -1,4 +1,3 @@
-use euclid::{Rect, Size2D};
 use frame::Frame;
 use internal_types::{FontTemplate, ResultMsg, RendererFrame};
 use ipc_channel::ipc::IpcReceiver;
@@ -20,7 +19,6 @@ pub struct RenderBackend {
     api_rx: IpcReceiver<ApiMsg>,
     result_tx: Sender<ResultMsg>,
 
-    viewport: Rect<i32>,
     device_pixel_ratio: f32,
     next_namespace_id: IdNamespace,
 
@@ -39,7 +37,6 @@ pub struct RenderBackend {
 impl RenderBackend {
     pub fn new(api_rx: IpcReceiver<ApiMsg>,
                result_tx: Sender<ResultMsg>,
-               viewport: Rect<i32>,
                device_pixel_ratio: f32,
                white_image_id: TextureCacheItemId,
                dummy_mask_image_id: TextureCacheItemId,
@@ -60,7 +57,6 @@ impl RenderBackend {
             thread_pool: thread_pool,
             api_rx: api_rx,
             result_tx: result_tx,
-            viewport: viewport,
             device_pixel_ratio: device_pixel_ratio,
             resource_cache: resource_cache,
             scene: Scene::new(),
@@ -138,12 +134,14 @@ impl RenderBackend {
                         ApiMsg::SetRootStackingContext(stacking_context_id,
                                                        background_color,
                                                        epoch,
-                                                       pipeline_id) => {
+                                                       pipeline_id,
+                                                       viewport_size) => {
                             let frame = profile_counters.total_time.profile(|| {
                                 self.scene.set_root_stacking_context(pipeline_id,
                                                                      epoch,
                                                                      stacking_context_id,
                                                                      background_color,
+                                                                     viewport_size,
                                                                      &mut self.resource_cache);
 
                                 self.build_scene();
@@ -236,13 +234,9 @@ impl RenderBackend {
             self.webgl_contexts.get(&id).unwrap().unbind().unwrap();
         }
 
-        let framebuffer_size = Size2D::new(self.viewport.size.width as u32,
-                                           self.viewport.size.height as u32);
-
         self.frame.create(&self.scene,
                           &mut self.resource_cache,
-                          &mut new_pipeline_sizes,
-                          framebuffer_size);
+                          &mut new_pipeline_sizes);
 
         let mut updated_pipeline_sizes = HashMap::new();
 

@@ -85,6 +85,7 @@ struct RenderContext {
     filter_program_id: ProgramId,
     temporary_fb_texture: TextureId,
     device_pixel_ratio: f32,
+    framebuffer_size: Size2D<u32>,
 }
 
 struct FileWatcher {
@@ -135,7 +136,6 @@ pub struct Renderer {
     u_direction: UniformLocation,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
-    viewport_size: Size2D<u32>,
 
     enable_profiler: bool,
     debug: DebugRenderer,
@@ -146,16 +146,13 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(width: u32,
-               height: u32,
-               device_pixel_ratio: f32,
+    pub fn new(device_pixel_ratio: f32,
                resource_path: PathBuf,
                enable_aa: bool,
                enable_profiler: bool) -> (Renderer, RenderApiSender) {
         let (api_tx, api_rx) = ipc::channel().unwrap();
         let (result_tx, result_rx) = channel();
 
-        let initial_viewport = Rect::new(Point2D::zero(), Size2D::new(width as i32, height as i32));
         let notifier = Arc::new(Mutex::new(None));
 
         let file_watch_handler = FileWatcher {
@@ -224,7 +221,6 @@ impl Renderer {
         thread::spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  result_tx,
-                                                 initial_viewport,
                                                  device_pixel_ratio,
                                                  white_image_id,
                                                  dummy_mask_image_id,
@@ -262,7 +258,6 @@ impl Renderer {
             u_tile_params: UniformLocation::invalid(),
             u_clip_rects: UniformLocation::invalid(),
             notifier: notifier,
-            viewport_size: Size2D::new(width, height),
             debug: debug_renderer,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
@@ -321,7 +316,8 @@ impl Renderer {
         }
     }
 
-    pub fn render(&mut self) {
+    pub fn render(&mut self,
+                  framebuffer_size: Size2D<u32>) {
         let mut profile_timers = RendererProfileTimers::new();
 
         profile_timers.total_time.profile(|| {
@@ -329,7 +325,7 @@ impl Renderer {
             self.update_shaders();
             self.update_texture_cache();
             self.update_batches();
-            self.draw_frame();
+            self.draw_frame(framebuffer_size);
         });
 
         let current_time = precise_time_ns();
@@ -346,7 +342,9 @@ impl Renderer {
         self.profile_counters.reset();
         self.profile_counters.frame_counter.inc();
 
-        self.debug.render(&mut self.device, &self.viewport_size);
+        let debug_size = Size2D::new((framebuffer_size.width as f32 / self.device_pixel_ratio) as u32,
+                                     (framebuffer_size.height as f32 / self.device_pixel_ratio) as u32);
+        self.debug.render(&mut self.device, &debug_size);
         self.device.end_frame();
         self.last_time = current_time;
     }
@@ -953,14 +951,28 @@ impl Renderer {
         self.device.bind_render_target(layer_target);
 
         // TODO(gw): This may not be needed in all cases...
-        gl::scissor(self.device_pixel_ratio as i32 * layer.layer_origin.x as gl::GLint,
-                    self.device_pixel_ratio as i32 * layer.layer_origin.y as gl::GLint,
-                    self.device_pixel_ratio as i32 * layer.layer_size.width as gl::GLint,
-                    self.device_pixel_ratio as i32 * layer.layer_size.height as gl::GLint);
-        gl::viewport(self.device_pixel_ratio as i32 * layer.layer_origin.x as gl::GLint,
-                     self.device_pixel_ratio as i32 * layer.layer_origin.y as gl::GLint,
-                     self.device_pixel_ratio as i32 * layer.layer_size.width as gl::GLint,
-                     self.device_pixel_ratio as i32 * layer.layer_size.height as gl::GLint);
+        let layer_origin = Point2D::new((layer.layer_origin.x * self.device_pixel_ratio).round() as u32,
+                                        (layer.layer_origin.y * self.device_pixel_ratio).round() as u32);
+        let layer_size = Size2D::new((layer.layer_size.width * self.device_pixel_ratio).round() as u32,
+                                     (layer.layer_size.height * self.device_pixel_ratio).round() as u32);
+
+        let (origin, size) = match layer_target {
+            Some(..) => {
+                (layer_origin, layer_size)
+            }
+            None => {
+                (Point2D::zero(), render_context.framebuffer_size)
+            }
+        };
+
+        gl::scissor(origin.x as gl::GLint,
+                    origin.y as gl::GLint,
+                    size.width as gl::GLint,
+                    size.height as gl::GLint);
+        gl::viewport(layer_origin.x as gl::GLint,
+                     layer_origin.y as gl::GLint,
+                     layer_size.width as gl::GLint,
+                     layer_size.height as gl::GLint);
         let clear_color = if layer_target.is_some() {
             ColorF::new(0.0, 0.0, 0.0, 0.0)
         } else {
@@ -970,8 +982,8 @@ impl Renderer {
         gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
 
         let projection = Matrix4::ortho(0.0,
-                                        layer.layer_size.width as f32,
-                                        layer.layer_size.height as f32,
+                                        layer.layer_size.width,
+                                        layer.layer_size.height,
                                         0.0,
                                         ORTHO_NEAR_PLANE,
                                         ORTHO_FAR_PLANE);
@@ -1227,7 +1239,7 @@ impl Renderer {
                             let fb_rect_size = Size2D::new(job.rect.size.width as f32 * render_context.device_pixel_ratio,
                                                            job.rect.size.height as f32 * render_context.device_pixel_ratio);
 
-                            let inverted_y0 = layer.layer_size.height as f32 -
+                            let inverted_y0 = layer.layer_size.height -
                                               job.rect.size.height as f32 -
                                               p0.y;
                             let fb_rect_origin = Point2D::new(
@@ -1342,7 +1354,7 @@ impl Renderer {
         }
     }
 
-    fn draw_frame(&mut self) {
+    fn draw_frame(&mut self, framebuffer_size: Size2D<u32>) {
         if let Some(frame) = self.current_frame.take() {
             // TODO: cache render targets!
 
@@ -1355,6 +1367,7 @@ impl Renderer {
                 filter_program_id: self.filter_program_id,
                 temporary_fb_texture: self.device.create_texture_ids(1)[0],
                 device_pixel_ratio: self.device_pixel_ratio,
+                framebuffer_size: framebuffer_size,
             };
 
             // TODO(gw): Doesn't work well with transforms.

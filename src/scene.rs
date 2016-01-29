@@ -19,6 +19,7 @@ pub struct ScenePipeline {
     pub epoch: Epoch,
     pub background_draw_list: Option<DrawListId>,
     pub root_stacking_context_id: StackingContextId,
+    pub viewport_size: Size2D<f32>,
 }
 
 pub struct Scene {
@@ -130,6 +131,7 @@ impl Scene {
                                      epoch: Epoch,
                                      stacking_context_id: StackingContextId,
                                      background_color: ColorF,
+                                     viewport_size: Size2D<f32>,
                                      resource_cache: &mut ResourceCache) {
         let old_display_list_keys: Vec<_> = self.display_list_map.iter()
                                                 .filter(|&(_, ref v)| {
@@ -196,6 +198,7 @@ impl Scene {
             epoch: epoch,
             background_draw_list: background_draw_list,
             root_stacking_context_id: stacking_context_id,
+            viewport_size: viewport_size,
         };
 
         if let Some(old_pipeline) = self.pipeline_map.insert(pipeline_id, new_pipeline) {

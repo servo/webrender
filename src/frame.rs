@@ -107,12 +107,12 @@ pub struct RenderTarget {
     // Texture id for any child render targets to use
     child_texture_id: Option<TextureId>,
 
-    size: Size2D<u32>,
+    size: Size2D<f32>,
 }
 
 impl RenderTarget {
     fn new(id: RenderTargetId,
-           size: Size2D<u32>) -> RenderTarget {
+           size: Size2D<f32>) -> RenderTarget {
         RenderTarget {
             id: id,
             children: Vec::new(),
@@ -242,8 +242,14 @@ impl RenderTarget {
                                                                              stacking_context_info,
                                                                              device_pixel_ratio);
 
-                child_layer.layer_origin = page.allocate(&child_layer.layer_size,
-                                                         TextureFilter::Linear).unwrap();
+                // TODO(gw): This has accuracy issues if the size of a rendertarget is
+                //           not scene pixel aligned!
+                let layer_size = Size2D::new(child_layer.layer_size.width as u32,
+                                             child_layer.layer_size.height as u32);
+                let allocated_origin = page.allocate(&layer_size, TextureFilter::Linear).unwrap();
+                child_layer.layer_origin = Point2D::new(allocated_origin.x as f32,
+                                                        allocated_origin.y as f32);
+
                 child_layers.push(child_layer);
             }
 
@@ -663,8 +669,7 @@ impl Frame {
     pub fn create(&mut self,
                   scene: &Scene,
                   resource_cache: &mut ResourceCache,
-                  pipeline_sizes: &mut HashMap<PipelineId, Size2D<f32>>,
-                  viewport_size: Size2D<u32>) {
+                  pipeline_sizes: &mut HashMap<PipelineId, Size2D<f32>>) {
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
             if let Some(root_pipeline) = scene.pipeline_map.get(&root_pipeline_id) {
                 let old_layer_offsets = self.reset(resource_cache);
@@ -681,15 +686,14 @@ impl Frame {
                 let root_target_id = self.next_render_target_id();
 
                 let mut root_target = RenderTarget::new(root_target_id,
-                                                        viewport_size);
+                                                        root_pipeline.viewport_size);
 
                 // Insert global position: fixed elements layer
                 debug_assert!(self.layers.is_empty());
                 self.layers.insert(ScrollLayerId::fixed_layer(),
                                    Layer::new(root_stacking_context.stacking_context.overflow.origin,
                                               root_stacking_context.stacking_context.overflow.size,
-                                              Size2D::new(viewport_size.width as f32,
-                                                          viewport_size.height as f32),
+                                              root_pipeline.viewport_size,
                                               Matrix4::identity()));
 
                 // Work around borrow check on resource cache
@@ -702,7 +706,7 @@ impl Frame {
                     };
 
                     let parent_info = FlattenInfo {
-                        viewport_size: Size2D::new(viewport_size.width as f32, viewport_size.height as f32),
+                        viewport_size: root_pipeline.viewport_size,
                         offset_from_origin: Point2D::zero(),
                         offset_from_current_layer: Point2D::zero(),
                         default_scroll_layer_id: root_scroll_layer_id,
@@ -965,8 +969,8 @@ impl Frame {
 
                     let render_target_index = RenderTargetIndex(target.children.len() as u32);
 
-                    let render_target_size = Size2D::new(target_rect.size.width as u32,
-                                                         target_rect.size.height as u32);
+                    let render_target_size = Size2D::new(target_rect.size.width as f32,
+                                                         target_rect.size.height as f32);
                     let render_target_id = self.next_render_target_id();
                     let mut new_target = RenderTarget::new(render_target_id,
                                                            render_target_size);

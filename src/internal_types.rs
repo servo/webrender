@@ -517,8 +517,8 @@ pub struct DrawTargetInfo {
 pub struct DrawLayer {
     // This layer
     pub commands: Vec<DrawCommand>,
-    pub layer_origin: Point2D<u32>,
-    pub layer_size: Size2D<u32>,
+    pub layer_origin: Point2D<f32>,
+    pub layer_size: Size2D<f32>,
 
     // Children
     pub child_target: Option<DrawTargetInfo>,
@@ -529,7 +529,7 @@ impl DrawLayer {
     pub fn new(child_target: Option<DrawTargetInfo>,
                child_layers: Vec<DrawLayer>,
                commands: Vec<DrawCommand>,
-               size: Size2D<u32>)
+               size: Size2D<f32>)
                -> DrawLayer {
         DrawLayer {
             child_target: child_target,
