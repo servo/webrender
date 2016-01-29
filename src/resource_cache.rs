@@ -340,7 +340,7 @@ impl ResourceCache {
                                           ImageFormat::RGBA8,
                                           TextureFilter::Linear,
                                           insert_op,
-                                          BorderType::NoBorder);
+                                          BorderType::SinglePixel);
                 Some(image_id)
             } else {
                 None
