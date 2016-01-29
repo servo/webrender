@@ -23,7 +23,7 @@ pub enum ApiMsg {
     AddDisplayList(DisplayListId, PipelineId, Epoch, DisplayListBuilder),
     AddStackingContext(StackingContextId, PipelineId, Epoch, StackingContext),
     CloneApi(IpcSender<IdNamespace>),
-    SetRootStackingContext(StackingContextId, ColorF, Epoch, PipelineId),
+    SetRootStackingContext(StackingContextId, ColorF, Epoch, PipelineId, Size2D<f32>),
     SetRootPipeline(PipelineId),
     Scroll(Point2D<f32>, Point2D<f32>),
     TranslatePointToLayerSpace(Point2D<f32>, IpcSender<Point2D<f32>>),
@@ -144,11 +144,13 @@ impl RenderApi {
                                      stacking_context_id: StackingContextId,
                                      background_color: ColorF,
                                      epoch: Epoch,
-                                     pipeline_id: PipelineId) {
+                                     pipeline_id: PipelineId,
+                                     viewport_size: Size2D<f32>) {
         let msg = ApiMsg::SetRootStackingContext(stacking_context_id,
                                                  background_color,
                                                  epoch,
-                                                 pipeline_id);
+                                                 pipeline_id,
+                                                 viewport_size);
         self.tx.send(msg).unwrap();
     }
 
