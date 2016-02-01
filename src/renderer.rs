@@ -322,6 +322,11 @@ impl Renderer {
 
         profile_timers.total_time.profile(|| {
             self.device.begin_frame();
+
+            gl::disable(gl::SCISSOR_TEST);
+            gl::clear_color(1.0, 1.0, 1.0, 1.0);
+            gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
+
             self.update_shaders();
             self.update_texture_cache();
             self.update_batches();
@@ -1388,11 +1393,6 @@ impl Renderer {
             //           Look into this...
             gl::disable(gl::DEPTH_TEST);
             gl::depth_func(gl::LEQUAL);
-
-            gl::disable(gl::SCISSOR_TEST);
-            gl::clear_color(1.0, 1.0, 1.0, 1.0);
-            gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
-
             gl::enable(gl::SCISSOR_TEST);
 
             self.draw_layer(None,
