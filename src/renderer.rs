@@ -138,6 +138,7 @@ pub struct Renderer {
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
     enable_profiler: bool,
+    enable_msaa: bool,
     debug: DebugRenderer,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
@@ -146,10 +147,7 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(device_pixel_ratio: f32,
-               resource_path: PathBuf,
-               enable_aa: bool,
-               enable_profiler: bool) -> (Renderer, RenderApiSender) {
+    pub fn new(options: RendererOptions) -> (Renderer, RenderApiSender) {
         let (api_tx, api_rx) = ipc::channel().unwrap();
         let (result_tx, result_rx) = channel();
 
@@ -160,8 +158,8 @@ impl Renderer {
             notifier: notifier.clone(),
         };
 
-        let mut device = Device::new(resource_path,
-                                     device_pixel_ratio,
+        let mut device = Device::new(options.resource_path.clone(),
+                                     options.device_pixel_ratio,
                                      Box::new(file_watch_handler));
         device.begin_frame();
 
@@ -218,6 +216,7 @@ impl Renderer {
         // texture ids
         let context_handle = NativeGLContext::current_handle();
 
+        let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
         thread::spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  result_tx,
@@ -242,7 +241,7 @@ impl Renderer {
             pending_batch_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
             border_program_id: border_program_id,
-            device_pixel_ratio: device_pixel_ratio,
+            device_pixel_ratio: options.device_pixel_ratio,
             blend_program_id: blend_program_id,
             filter_program_id: filter_program_id,
             quad_program_id: quad_program_id,
@@ -262,7 +261,8 @@ impl Renderer {
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
             profiler: Profiler::new(),
-            enable_profiler: enable_profiler,
+            enable_profiler: options.enable_profiler,
+            enable_msaa: options.enable_msaa,
             last_time: 0,
         };
 
@@ -893,6 +893,10 @@ impl Renderer {
             gl::disable(gl::BLEND);
         }
 
+        if self.enable_msaa {
+            gl::disable(gl::MULTISAMPLE);
+        }
+
         let projection = Matrix4::ortho(0.0,
                                         texture_width as f32,
                                         0.0,
@@ -1013,6 +1017,10 @@ impl Renderer {
                     // TODO: probably worth sorting front to back to minimize overdraw (if profiling shows fragment / rop bound)
 
                     gl::enable(gl::BLEND);
+
+                    if self.enable_msaa {
+                        gl::enable(gl::MULTISAMPLE);
+                    }
 
                     if layer_target.is_some() {
                         gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
@@ -1424,6 +1432,15 @@ impl Renderer {
         });
         vao
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct RendererOptions {
+    pub device_pixel_ratio: f32,
+    pub resource_path: PathBuf,
+    pub enable_aa: bool,
+    pub enable_msaa: bool,
+    pub enable_profiler: bool,
 }
 
 fn draw_simple_triangles(device: &mut Device,
