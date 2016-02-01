@@ -64,7 +64,7 @@ extern crate time;
 extern crate webrender_traits;
 extern crate offscreen_gl_context;
 
-pub use renderer::Renderer;
+pub use renderer::{Renderer, RendererOptions};
 
 #[doc(hidden)]
 pub mod bench {
