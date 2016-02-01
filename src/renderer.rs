@@ -953,22 +953,28 @@ impl Renderer {
         // TODO(gw): This may not be needed in all cases...
         let layer_origin = Point2D::new((layer.layer_origin.x * self.device_pixel_ratio).round() as u32,
                                         (layer.layer_origin.y * self.device_pixel_ratio).round() as u32);
+
         let layer_size = Size2D::new((layer.layer_size.width * self.device_pixel_ratio).round() as u32,
                                      (layer.layer_size.height * self.device_pixel_ratio).round() as u32);
 
-        let (origin, size) = match layer_target {
+        let layer_origin = match layer_target {
             Some(..) => {
-                (layer_origin, layer_size)
+                layer_origin
             }
             None => {
-                (Point2D::zero(), render_context.framebuffer_size)
+                let inverted_y0 = render_context.framebuffer_size.height -
+                                  layer_size.height -
+                                  layer_origin.y;
+
+                Point2D::new(layer_origin.x, inverted_y0)
             }
         };
 
-        gl::scissor(origin.x as gl::GLint,
-                    origin.y as gl::GLint,
-                    size.width as gl::GLint,
-                    size.height as gl::GLint);
+        gl::scissor(layer_origin.x as gl::GLint,
+                    layer_origin.y as gl::GLint,
+                    layer_size.width as gl::GLint,
+                    layer_size.height as gl::GLint);
+
         gl::viewport(layer_origin.x as gl::GLint,
                      layer_origin.y as gl::GLint,
                      layer_size.width as gl::GLint,
@@ -1374,6 +1380,11 @@ impl Renderer {
             //           Look into this...
             gl::disable(gl::DEPTH_TEST);
             gl::depth_func(gl::LEQUAL);
+
+            gl::disable(gl::SCISSOR_TEST);
+            gl::clear_color(1.0, 1.0, 1.0, 1.0);
+            gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
+
             gl::enable(gl::SCISSOR_TEST);
 
             self.draw_layer(None,
