@@ -65,6 +65,8 @@ impl NodeCompiler for AABBTreeNode {
                             builder.push_clip_in_rect(clip_rect);
                             builder.push_complex_clip(&display_item.clip.complex);
 
+                            println!("clip rect={:?}", clip_rect);
+
                             match display_item.item {
                                 SpecificDisplayItem::WebGL(ref info) => {
                                     builder.add_webgl_rectangle(&display_item.rect,

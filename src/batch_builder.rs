@@ -515,11 +515,10 @@ impl<'a> BatchBuilder<'a> {
                         resource_cache: &ResourceCache,
                         frame_id: FrameId) {
         // Fast paths for axis-aligned gradients:
-        //
-        // FIXME(pcwalton): Determine the start and end points properly!
+        let clip_rect = self.clip_in_rect();
         if start_point.x == end_point.x {
-            let rect = Rect::new(Point2D::new(-10000.0, start_point.y),
-                                 Size2D::new(20000.0, end_point.y - start_point.y));
+            let rect = Rect::new(Point2D::new(clip_rect.origin.x, start_point.y),
+                                 Size2D::new(clip_rect.size.width, end_point.y - start_point.y));
             self.add_axis_aligned_gradient_with_stops(&rect,
                                                       AxisDirection::Vertical,
                                                       stops,
@@ -528,8 +527,8 @@ impl<'a> BatchBuilder<'a> {
             return
         }
         if start_point.y == end_point.y {
-            let rect = Rect::new(Point2D::new(start_point.x, -10000.0),
-                                 Size2D::new(end_point.x - start_point.x, 20000.0));
+            let rect = Rect::new(Point2D::new(start_point.x, clip_rect.origin.y),
+                                 Size2D::new(end_point.x - start_point.x, clip_rect.size.height));
             self.add_axis_aligned_gradient_with_stops(&rect,
                                                       AxisDirection::Horizontal,
                                                       stops,
@@ -542,60 +541,55 @@ impl<'a> BatchBuilder<'a> {
         let dummy_mask_image = resource_cache.get_dummy_mask_image();
 
         debug_assert!(stops.len() >= 2);
+        let distance = util::distance(start_point, end_point);
 
-        let dir_x = end_point.x - start_point.x;
-        let dir_y = end_point.y - start_point.y;
-        let dir_len = (dir_x * dir_x + dir_y * dir_y).sqrt();
-        let dir_xn = dir_x / dir_len;
-        let dir_yn = dir_y / dir_len;
-        let perp_xn = -dir_yn;
-        let perp_yn = dir_xn;
+        let mut angle = ((end_point.y - start_point.y) / (end_point.x - start_point.x)).atan() +
+            f32::consts::FRAC_PI_2;
+        if angle < 0.0 {
+            angle += 2.0 * f32::consts::PI
+        }
 
-        for i in 0..stops.len()-1 {
-            let stop0 = &stops[i];
-            let stop1 = &stops[i+1];
+        // A simple way to estimate the length of each strip we'll need. Providing a good estimate
+        // saves fragment shader invocations.
+        let length_0 = clip_rect.size.width * angle.sin() + clip_rect.size.height * angle.cos();
+        let length_1 = clip_rect.size.width * angle.cos() + clip_rect.size.height * angle.sin();
+        let length = if length_0 > length_1 {
+            length_0
+        } else {
+            length_1
+        };
 
-            if stop0.offset == stop1.offset {
-                continue;
-            }
+        let mut prev = &stops[0];
+        for next in &stops[1..] {
+            let prev_point = util::lerp_points(start_point, end_point, prev.offset);
+            let next_point = util::lerp_points(start_point, end_point, next.offset);
+            let midpoint = util::lerp_points(&prev_point, &next_point, 0.5);
 
-            let color0 = &stop0.color;
-            let color1 = &stop1.color;
-
-            let start_x = start_point.x + stop0.offset * (end_point.x - start_point.x);
-            let start_y = start_point.y + stop0.offset * (end_point.y - start_point.y);
-
-            //let end_x = start_point.x + stop1.offset * (end_point.x - start_point.x);
-            //let end_y = start_point.y + stop1.offset * (end_point.y - start_point.y);
-
-            let len_scale = 1000.0;     // todo: determine this properly!!
-
-            let x0 = start_x - perp_xn * len_scale;
-            let y0 = start_y - perp_yn * len_scale;
-
-            //let x1 = end_x - perp_xn * len_scale;
-            //let y1 = end_y - perp_yn * len_scale;
-
-            //let x2 = end_x + perp_xn * len_scale;
-            //let y2 = end_y + perp_yn * len_scale;
-
-            let x3 = start_x + perp_xn * len_scale;
-            let y3 = start_y + perp_yn * len_scale;
-
-            // TODO(gw): Non-axis-aligned gradients are still added via rotated rectangles.
-            //           This means they can't currently be clipped by complex clip regions.
-            //           To fix this, use a bit of trigonometry to supply the rectangles as
-            //           axis-aligned, and then the complex clipping will just work!
-
-            let rect = Rect::new(Point2D::new(x0, y0), Size2D::new(x3 - x0, y3 - y0));
+            let height = util::distance(&prev_point, &next_point);
+            let rect =
+                Rect::new(Point2D::new(-length / 2.0 + midpoint.x, midpoint.y - height / 2.0),
+                          Size2D::new(length, height));
+            let mut rect_uv = white_image.uv_rect;
+            println!("start point={:?} end point={:?} prev point={:?} next point={:?} height={:?} \
+                      angle={:?} rect={:?}",
+                     start_point,
+                     end_point,
+                     prev_point,
+                     next_point,
+                     height,
+                     angle,
+                     rect);
+            rect_uv.bottom_left.x = -angle;
             self.add_rectangle(white_image.texture_id,
                                dummy_mask_image.texture_id,
                                &rect,
-                               &white_image.uv_rect,
+                               &rect_uv,
                                &dummy_mask_image.pixel_rect,
-                               &[*color0, *color1, *color0, *color1],
+                               &[next.color, next.color, prev.color, prev.color],
                                PackedVertexColorMode::Gradient,
                                None);
+
+            prev = next
         }
     }
 
