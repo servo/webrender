@@ -252,6 +252,10 @@ impl<'a> BatchBuilder<'a> {
         self.current_matrix_index += 1;
     }
 
+    pub fn clip_in_rect(&self) -> Rect<f32> {
+        self.cached_clip_in_rect.unwrap_or(MAX_RECT)
+    }
+
     // TODO(gw): This is really inefficient to call this every push/pop...
     fn update_clip_in_rect(&mut self) {
         self.cached_clip_in_rect = Some(MAX_RECT);
