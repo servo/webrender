@@ -190,3 +190,12 @@ pub fn rect_center(rect: &Rect<f32>) -> Point2D<f32> {
     Point2D::new(rect.origin.x + rect.size.width / 2.0, rect.origin.y + rect.size.height / 2.0)
 }
 
+pub fn distance(a: &Point2D<f32>, b: &Point2D<f32>) -> f32 {
+    let (x, y) = (b.x - a.x, b.y - a.y);
+    (x * x + y * y).sqrt()
+}
+
+pub fn lerp_points(a: &Point2D<f32>, b: &Point2D<f32>, t: f32) -> Point2D<f32> {
+    Point2D::new(lerp(a.x, b.x, t), lerp(a.y, b.y, t))
+}
+

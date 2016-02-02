@@ -70,11 +70,31 @@ void main(void)
         }
     }
 
-    // Clip and compute varyings.
-    localPos.xy = clamp(localPos.xy, clipInRect.xy, clipInRect.zw);
     vec2 localST = (localPos.xy - rect_origin) / rect_size;
+
+    // Rotate or clip as necessary. If there is no rotation, we can clip here in the vertex shader
+    // and save a whole bunch of fragment shader invocations. If there is a rotation, we fall back
+    // to FS clipping.
+    //
+    // The rotation angle is encoded as a negative bottom left u coordinate. (uv coordinates should
+    // always be nonnegative normally, and gradients don't use color textures, so this is fine.)
+    vec4 colorTexCoordRectBottom = aColorTexCoordRectBottom;
+    if (colorTexCoordRectBottom.z < 0.0) {
+        float angle = -colorTexCoordRectBottom.z;
+        vec2 center = rect_origin + rect_size / 2.0;
+        vec2 translatedPos = localPos.xy - center;
+        localPos.xy = vec2(translatedPos.x * cos(angle) - translatedPos.y * sin(angle),
+                           translatedPos.x * sin(angle) + translatedPos.y * cos(angle)) + center;
+        colorTexCoordRectBottom.z = aColorTexCoordRectTop.x;
+        vClipInRect = clipInRect;
+    } else {
+        localPos.x = clamp(localPos.x, clipInRect.x, clipInRect.z);
+        localPos.y = clamp(localPos.y, clipInRect.y, clipInRect.w);
+        vClipInRect = vec4(-1e-37, -1e-37, 1e38, 1e38);
+    }
+
     vColorTexCoord = Bilerp2(aColorTexCoordRectTop.xy, aColorTexCoordRectTop.zw,
-                             aColorTexCoordRectBottom.xy, aColorTexCoordRectBottom.zw,
+                             colorTexCoordRectBottom.xy, colorTexCoordRectBottom.zw,
                              localST);
     vMaskTexCoord = Bilerp2(aMaskTexCoordRectTop.xy, aMaskTexCoordRectTop.zw,
                             aMaskTexCoordRectBottom.xy, aMaskTexCoordRectBottom.zw,
