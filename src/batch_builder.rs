@@ -85,6 +85,25 @@ impl<'a> BatchBuilder<'a> {
                 self.snap_value_to_device_pixel(&mut local_pos_rect.size.width);
                 self.snap_value_to_device_pixel(&mut local_pos_rect.size.height);
 
+                let mut tl_xr = complex_clip.radii.top_left.width;
+                let mut tl_yr = complex_clip.radii.top_left.height;
+                let mut tr_xr = complex_clip.radii.top_right.width;
+                let mut tr_yr = complex_clip.radii.top_right.height;
+
+                let mut bl_xr = complex_clip.radii.bottom_left.width;
+                let mut bl_yr = complex_clip.radii.bottom_left.height;
+                let mut br_xr = complex_clip.radii.bottom_right.width;
+                let mut br_yr = complex_clip.radii.bottom_right.height;
+
+                self.snap_value_to_device_pixel(&mut tl_xr);
+                self.snap_value_to_device_pixel(&mut tl_yr);
+                self.snap_value_to_device_pixel(&mut tr_xr);
+                self.snap_value_to_device_pixel(&mut tr_yr);
+                self.snap_value_to_device_pixel(&mut bl_xr);
+                self.snap_value_to_device_pixel(&mut bl_yr);
+                self.snap_value_to_device_pixel(&mut br_xr);
+                self.snap_value_to_device_pixel(&mut br_yr);
+
                 // Generate all vertices for each line
                 let mut x_points = [
                     complex_clip_origin.x + 0.0,
@@ -114,16 +133,16 @@ impl<'a> BatchBuilder<'a> {
                 }
 
                 let tl_clip = Rect::new(Point2D::new(x_points[0], y_points[0]),
-                                        Size2D::new(x_points[1] - x_points[0], y_points[1] - y_points[0]));
+                                        Size2D::new(tl_xr, tl_yr));
 
                 let tr_clip = Rect::new(Point2D::new(x_points[2], y_points[0]),
-                                        Size2D::new(x_points[5] - x_points[2], y_points[2] - y_points[0]));
+                                        Size2D::new(tr_xr, tr_yr));
 
                 let bl_clip = Rect::new(Point2D::new(x_points[0], y_points[3]),
-                                        Size2D::new(x_points[3] - x_points[0], y_points[5] - y_points[3]));
+                                        Size2D::new(bl_xr, bl_yr));
 
                 let br_clip = Rect::new(Point2D::new(x_points[4], y_points[4]),
-                                        Size2D::new(x_points[5] - x_points[4], y_points[5] - y_points[4]));
+                                        Size2D::new(br_xr, br_yr));
 
                 x_points.sort_by(|a, b| {
                     a.partial_cmp(b).unwrap()
