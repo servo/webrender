@@ -168,6 +168,26 @@ impl<'a> BatchBuilder<'a> {
                                 debug_assert!((clipped_pos_rect.size.width * self.device_pixel_ratio).fract() == 0.0);
                                 debug_assert!((clipped_pos_rect.size.height * self.device_pixel_ratio).fract() == 0.0);
 
+                                let u0_f = clipped_pos_rect.origin.x  / local_pos_rect.size.width;
+                                let v0_f = clipped_pos_rect.origin.y  / local_pos_rect.size.height;
+                                let u1_f = (clipped_pos_rect.origin.x + clipped_pos_rect.size.width) / local_pos_rect.size.width;
+                                let v1_f = (clipped_pos_rect.origin.y + clipped_pos_rect.size.height) / local_pos_rect.size.height;
+
+                                let u_size = uv_rect.top_right.x - uv_rect.top_left.x;
+                                let v_size = uv_rect.bottom_right.y - uv_rect.top_left.y;
+
+                                let u0 = uv_rect.top_left.x + u0_f * u_size;
+                                let v0 = uv_rect.top_left.y + v0_f * v_size;
+                                let u1 = uv_rect.top_left.x + u1_f * u_size;
+                                let v1 = uv_rect.top_left.y + v1_f * v_size;
+
+                                let uv_rect = RectUv {
+                                    top_left: Point2D::new(u0, v0),
+                                    top_right: Point2D::new(u1, v0),
+                                    bottom_left: Point2D::new(u0, v1),
+                                    bottom_right: Point2D::new(u1, v1),
+                                };
+
                                 // TODO(gw): There must be a more efficient way to to
                                 //           this (classifying which clip mask we need).
                                 let (mask_info, angle) = if sub_clip_rect.intersects(&tl_clip) {
@@ -267,7 +287,7 @@ impl<'a> BatchBuilder<'a> {
 
                                 self.add_simple_rectangle(color_texture_id,
                                                           &clipped_pos_rect.translate(&pos_rect.origin),
-                                                          uv_rect,
+                                                          &uv_rect,
                                                           mask_texture_id,
                                                           &muv_rect,
                                                           &[rect_colors.top_left,
