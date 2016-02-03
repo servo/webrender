@@ -558,9 +558,8 @@ impl RendererFrame {
 
 pub enum ResultMsg {
     UpdateTextureCache(TextureUpdateList),
-    UpdateBatches(BatchUpdateList),
     RefreshShader(PathBuf),
-    NewFrame(RendererFrame, BackendProfileCounters),
+    NewFrame(RendererFrame, BatchUpdateList, BackendProfileCounters),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
