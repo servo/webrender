@@ -294,18 +294,14 @@ impl RenderBackend {
             self.result_tx.send(ResultMsg::UpdateTextureCache(pending_update)).unwrap();
         }
 
-        let pending_update = self.frame.pending_updates();
-        if pending_update.updates.len() > 0 {
-            self.result_tx.send(ResultMsg::UpdateBatches(pending_update)).unwrap();
-        }
-
         frame
     }
 
     fn publish_frame(&mut self,
                      frame: RendererFrame,
                      profile_counters: &mut BackendProfileCounters) {
-        let msg = ResultMsg::NewFrame(frame, profile_counters.clone());
+        let pending_updates = self.frame.pending_updates();
+        let msg = ResultMsg::NewFrame(frame, pending_updates, profile_counters.clone());
         self.result_tx.send(msg).unwrap();
         profile_counters.reset();
 

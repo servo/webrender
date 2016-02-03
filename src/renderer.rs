@@ -302,11 +302,9 @@ impl Renderer {
                 ResultMsg::UpdateTextureCache(update_list) => {
                     self.pending_texture_updates.push(update_list);
                 }
-                ResultMsg::UpdateBatches(update_list) => {
-                    self.pending_batch_updates.push(update_list);
-                }
-                ResultMsg::NewFrame(frame, profile_counters) => {
+                ResultMsg::NewFrame(frame, update_list, profile_counters) => {
                     self.backend_profile_counters = profile_counters;
+                    self.pending_batch_updates.push(update_list);
                     self.current_frame = Some(frame);
                 }
                 ResultMsg::RefreshShader(path) => {
