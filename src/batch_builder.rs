@@ -277,16 +277,15 @@ impl<'a> BatchBuilder<'a> {
 
                                 // TODO(gw): Needless conversions here - just to make it
                                 // easier to operate with existing bilerp code - clean this up!
+                                let world_clipped_pos_rect = clipped_pos_rect.translate(&pos_rect.origin);
+
                                 let rect_colors = RectColors::from_elements(colors);
-                                let rect_colors = util::bilerp_rect(&clipped_pos_rect,
+                                let rect_colors = util::bilerp_rect(&world_clipped_pos_rect,
                                                                     &pos_rect,
                                                                     &rect_colors);
 
-                                // TODO(gw): Need to correctly interpolate the tile params
-                                //           if present too!
-
                                 self.add_simple_rectangle(color_texture_id,
-                                                          &clipped_pos_rect.translate(&pos_rect.origin),
+                                                          &world_clipped_pos_rect,
                                                           &uv_rect,
                                                           mask_texture_id,
                                                           &muv_rect,
