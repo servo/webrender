@@ -236,7 +236,8 @@ impl RenderBackend {
 
         self.frame.create(&self.scene,
                           &mut self.resource_cache,
-                          &mut new_pipeline_sizes);
+                          &mut new_pipeline_sizes,
+                          self.device_pixel_ratio);
 
         let mut updated_pipeline_sizes = HashMap::new();
 

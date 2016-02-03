@@ -5,11 +5,11 @@ use euclid::{Rect, Point2D, Point3D, Point4D, Size2D, Matrix4};
 use fnv::FnvHasher;
 use geometry::ray_intersects_rect;
 use internal_types::{AxisDirection, LowLevelFilterOp, CompositionOp, DrawListItemIndex};
-use internal_types::{BatchUpdateList, RenderTargetIndex, DrawListId};
+use internal_types::{BatchUpdateList, ChildLayerIndex, DrawListId};
 use internal_types::{CompositeBatchInfo, CompositeBatchJob};
 use internal_types::{RendererFrame, StackingContextInfo, BatchInfo, DrawCall, StackingContextIndex};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, MAX_RECT, BatchUpdate, BatchUpdateOp, DrawLayer};
-use internal_types::{DrawCommand, ClearInfo, DrawTargetInfo, RenderTargetId, DrawListGroupId};
+use internal_types::{DrawCommand, ClearInfo, RenderTargetId, DrawListGroupId};
 use layer::Layer;
 use node_compiler::NodeCompiler;
 use renderer::CompositionOpHelpers;
@@ -75,6 +75,7 @@ struct FlattenContext<'a> {
     scene: &'a Scene,
     pipeline_sizes: &'a mut HashMap<PipelineId, Size2D<f32>>,
     current_draw_list_group: Option<DrawListGroup>,
+    device_pixel_ratio: f32,
 }
 
 struct FlattenInfo {
@@ -97,29 +98,79 @@ pub enum FrameRenderItem {
 
 pub struct RenderTarget {
     id: RenderTargetId,
-
-    // Child render targets
+    size: Size2D<f32>,
+    origin: Point2D<f32>,
+    items: Vec<FrameRenderItem>,
+    texture_id: Option<TextureId>,
     children: Vec<RenderTarget>,
 
-    // Outputs
-    items: Vec<FrameRenderItem>,
-
-    // Texture id for any child render targets to use
-    child_texture_id: Option<TextureId>,
-
-    size: Size2D<f32>,
+    page_allocator: Option<TexturePage>,
+    texture_id_list: Vec<TextureId>,
 }
 
 impl RenderTarget {
     fn new(id: RenderTargetId,
-           size: Size2D<f32>) -> RenderTarget {
+           origin: Point2D<f32>,
+           size: Size2D<f32>,
+           texture_id: Option<TextureId>) -> RenderTarget {
         RenderTarget {
             id: id,
-            children: Vec::new(),
-            items: Vec::new(),
-            child_texture_id: None,
             size: size,
+            origin: origin,
+            items: Vec::new(),
+            texture_id: texture_id,
+            children: Vec::new(),
+            texture_id_list: Vec::new(),
+            page_allocator: None,
         }
+    }
+
+    fn allocate_target_rect(&mut self,
+                            width: f32,
+                            height: f32,
+                            device_pixel_ratio: f32,
+                            resource_cache: &mut ResourceCache) -> (Point2D<f32>, TextureId) {
+        // If the target is more than 512x512 (an arbitrary choice), assign it
+        // to an exact sized render target - assuming that there probably aren't
+        // many of them. This minimises GPU memory wastage if there are just a small
+        // number of large targets. Otherwise, attempt to allocate inside a shared render
+        // target texture - this allows composite batching to take place when
+        // there are a lot of small targets (which is more efficient).
+        if width < 512.0 && height < 512.0 {
+            if self.page_allocator.is_none() {
+                let texture_size = 2048;
+                let device_pixel_size = texture_size * device_pixel_ratio as u32;
+
+                let texture_id = resource_cache.allocate_render_target(device_pixel_size,
+                                                                       device_pixel_size,
+                                                                       ImageFormat::RGBA8);
+                self.texture_id_list.push(texture_id);
+                self.page_allocator = Some(TexturePage::new(texture_id, texture_size));
+            }
+
+            // TODO(gw): This has accuracy issues if the size of a rendertarget is
+            //           not scene pixel aligned!
+            let size = Size2D::new(width as u32, height as u32);
+            let allocated_origin = self.page_allocator
+                                       .as_mut()
+                                       .unwrap()
+                                       .allocate(&size, TextureFilter::Linear);
+            if let Some(allocated_origin) = allocated_origin {
+                let origin = Point2D::new(allocated_origin.x as f32,
+                                          allocated_origin.y as f32);
+                return (origin, self.page_allocator.as_ref().unwrap().texture_id())
+            }
+        }
+
+        let device_pixel_width = width as u32 * device_pixel_ratio as u32;
+        let device_pixel_height = height as u32 * device_pixel_ratio as u32;
+
+        let texture_id = resource_cache.allocate_render_target(device_pixel_width,
+                                                               device_pixel_height,
+                                                               ImageFormat::RGBA8);
+        self.texture_id_list.push(texture_id);
+
+        (Point2D::zero(), texture_id)
     }
 
     fn collect_and_sort_visible_batches(&mut self,
@@ -213,63 +264,28 @@ impl RenderTarget {
 
         let mut child_layers = Vec::new();
 
-        let draw_target_info = if self.children.is_empty() {
-            None
-        } else {
-            let texture_size = 2048;
-            let device_pixel_size = texture_size * device_pixel_ratio as u32;
+        for child in &mut self.children {
+            let child_layer = child.collect_and_sort_visible_batches(resource_cache,
+                                                                     draw_list_groups,
+                                                                     layers,
+                                                                     stacking_context_info,
+                                                                     device_pixel_ratio);
 
-            // TODO(gw): This doesn't handle not having enough space to store
-            //           draw all child render targets. However, this will soon
-            //           be changing to do the RT allocation in a smarter way
-            //           that greatly reduces the # of active RT allocations.
-            //           When that happens, ensure it handles this case!
-            if let Some(child_texture_id) = self.child_texture_id.take() {
-                resource_cache.free_render_target(child_texture_id);
-            }
+            child_layers.push(child_layer);
+        }
 
-            self.child_texture_id = Some(resource_cache.allocate_render_target(device_pixel_size,
-                                                                               device_pixel_size,
-                                                                               ImageFormat::RGBA8));
-
-            // TODO(gw): Move this texture page allocator based on the suggested changes above.
-            let mut page = TexturePage::new(self.child_texture_id.unwrap(), texture_size);
-
-            for child in &mut self.children {
-                let mut child_layer = child.collect_and_sort_visible_batches(resource_cache,
-                                                                             draw_list_groups,
-                                                                             layers,
-                                                                             stacking_context_info,
-                                                                             device_pixel_ratio);
-
-                // TODO(gw): This has accuracy issues if the size of a rendertarget is
-                //           not scene pixel aligned!
-                let layer_size = Size2D::new(child_layer.layer_size.width as u32,
-                                             child_layer.layer_size.height as u32);
-                let allocated_origin = page.allocate(&layer_size, TextureFilter::Linear).unwrap();
-                child_layer.layer_origin = Point2D::new(allocated_origin.x as f32,
-                                                        allocated_origin.y as f32);
-
-                child_layers.push(child_layer);
-            }
-
-            Some(DrawTargetInfo {
-                size: Size2D::new(texture_size, texture_size),
-                texture_id: self.child_texture_id.unwrap(),
-            })
-        };
-
-        DrawLayer::new(draw_target_info,
-                       child_layers,
+        DrawLayer::new(self.origin,
+                       self.size,
+                       self.texture_id,
                        commands,
-                       self.size)
+                       child_layers)
     }
 
     fn reset(&mut self,
              pending_updates: &mut BatchUpdateList,
              resource_cache: &mut ResourceCache) {
-        if let Some(child_texture_id) = self.child_texture_id.take() {
-            resource_cache.free_render_target(child_texture_id);
+        for texture_id in self.texture_id_list.drain(..) {
+            resource_cache.free_render_target(texture_id);
         }
 
         for mut child in &mut self.children.drain(..) {
@@ -286,14 +302,15 @@ impl RenderTarget {
 
     fn push_composite(&mut self,
                       op: CompositionOp,
+                      texture_id: TextureId,
                       target: Rect<i32>,
                       transform: &Matrix4,
-                      render_target_index: RenderTargetIndex) {
+                      child_layer_index: ChildLayerIndex) {
         // TODO(gw): Relax the restriction on batch breaks for FB reads
         //           once the proper render target allocation code is done!
         let need_new_batch = op.needs_framebuffer() || match self.items.last() {
             Some(&FrameRenderItem::CompositeBatch(ref info)) => {
-                info.operation != op
+                info.operation != op || info.texture_id != texture_id
             }
             Some(&FrameRenderItem::Clear(..)) |
             Some(&FrameRenderItem::DrawListBatch(..)) |
@@ -305,6 +322,7 @@ impl RenderTarget {
         if need_new_batch {
             self.items.push(FrameRenderItem::CompositeBatch(CompositeBatchInfo {
                 operation: op,
+                texture_id: texture_id,
                 jobs: Vec::new(),
             }));
         }
@@ -315,7 +333,7 @@ impl RenderTarget {
                 let job = CompositeBatchJob {
                     rect: target,
                     transform: *transform,
-                    render_target_index: render_target_index
+                    child_layer_index: child_layer_index,
                 };
                 batch.jobs.push(job);
             }
@@ -669,7 +687,8 @@ impl Frame {
     pub fn create(&mut self,
                   scene: &Scene,
                   resource_cache: &mut ResourceCache,
-                  pipeline_sizes: &mut HashMap<PipelineId, Size2D<f32>>) {
+                  pipeline_sizes: &mut HashMap<PipelineId, Size2D<f32>>,
+                  device_pixel_ratio: f32) {
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
             if let Some(root_pipeline) = scene.pipeline_map.get(&root_pipeline_id) {
                 let old_layer_offsets = self.reset(resource_cache);
@@ -686,7 +705,9 @@ impl Frame {
                 let root_target_id = self.next_render_target_id();
 
                 let mut root_target = RenderTarget::new(root_target_id,
-                                                        root_pipeline.viewport_size);
+                                                        Point2D::zero(),
+                                                        root_pipeline.viewport_size,
+                                                        None);
 
                 // Insert global position: fixed elements layer
                 debug_assert!(self.layers.is_empty());
@@ -703,6 +724,7 @@ impl Frame {
                         scene: scene,
                         pipeline_sizes: pipeline_sizes,
                         current_draw_list_group: None,
+                        device_pixel_ratio: device_pixel_ratio,
                     };
 
                     let parent_info = FlattenInfo {
@@ -967,13 +989,21 @@ impl Frame {
                         target_rect = composition_operation.target_rect(&target_rect);
                     }
 
-                    let render_target_index = RenderTargetIndex(target.children.len() as u32);
+                    let child_layer_index = ChildLayerIndex(target.children.len() as u32);
 
                     let render_target_size = Size2D::new(target_rect.size.width as f32,
                                                          target_rect.size.height as f32);
                     let render_target_id = self.next_render_target_id();
+
+                    let (origin, texture_id) = target.allocate_target_rect(render_target_size.width,
+                                                                           render_target_size.height,
+                                                                           context.device_pixel_ratio,
+                                                                           context.resource_cache);
+
                     let mut new_target = RenderTarget::new(render_target_id,
-                                                           render_target_size);
+                                                           origin,
+                                                           render_target_size,
+                                                           Some(texture_id));
 
                     let local_transform =
                         Matrix4::identity().translate(origin.x, origin.y, 0.0)
@@ -981,9 +1011,10 @@ impl Frame {
                                            .translate(-origin.x, -origin.y, 0.0);
                     for composition_operation in composition_operations {
                         target.push_composite(composition_operation,
+                                              texture_id,
                                               target_rect,
                                               &local_transform,
-                                              render_target_index);
+                                              child_layer_index);
                     }
 
                     info.offset_from_current_layer = Point2D::zero();
@@ -1173,10 +1204,11 @@ impl Frame {
                                                        device_pixel_ratio)
             }
             None => {
-                DrawLayer::new(None,
+                DrawLayer::new(Point2D::zero(),
+                               Size2D::zero(),
+                               None,
                                Vec::new(),
-                               Vec::new(),
-                               Size2D::zero())
+                               Vec::new())
             }
         };
 
