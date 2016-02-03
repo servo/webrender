@@ -85,6 +85,10 @@ impl TexturePage {
         page
     }
 
+    pub fn texture_id(&self) -> TextureId {
+        self.texture_id
+    }
+
     fn find_index_of_best_rect_in_bin(&self, bin: FreeListBin, requested_dimensions: &Size2D<u32>)
                                       -> Option<FreeListIndex> {
         let mut smallest_index_and_area = None;

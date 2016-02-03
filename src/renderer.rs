@@ -8,7 +8,7 @@ use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE};
-use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp, RenderTargetIndex};
+use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp, ChildLayerIndex};
 use internal_types::{AxisDirection, LowLevelFilterOp, DrawCommand, DrawLayer, ANGLE_FLOAT_TO_FIXED};
 use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
@@ -946,27 +946,25 @@ impl Renderer {
     }
 
     fn draw_layer(&mut self,
-                  layer_target: Option<TextureId>,
                   layer: &DrawLayer,
                   render_context: &RenderContext) {
         // Draw child layers first, to ensure that dependent render targets
         // have been built before they are read as a texture.
         for child in &layer.child_layers {
-            self.draw_layer(Some(layer.child_target.as_ref().unwrap().texture_id),
-                            child,
+            self.draw_layer(child,
                             render_context);
         }
 
-        self.device.bind_render_target(layer_target);
+        self.device.bind_render_target(layer.texture_id);
 
         // TODO(gw): This may not be needed in all cases...
-        let layer_origin = Point2D::new((layer.layer_origin.x * self.device_pixel_ratio).round() as u32,
-                                        (layer.layer_origin.y * self.device_pixel_ratio).round() as u32);
+        let layer_origin = Point2D::new((layer.origin.x * self.device_pixel_ratio).round() as u32,
+                                        (layer.origin.y * self.device_pixel_ratio).round() as u32);
 
-        let layer_size = Size2D::new((layer.layer_size.width * self.device_pixel_ratio).round() as u32,
-                                     (layer.layer_size.height * self.device_pixel_ratio).round() as u32);
+        let layer_size = Size2D::new((layer.size.width * self.device_pixel_ratio).round() as u32,
+                                     (layer.size.height * self.device_pixel_ratio).round() as u32);
 
-        let layer_origin = match layer_target {
+        let layer_origin = match layer.texture_id {
             Some(..) => {
                 layer_origin
             }
@@ -988,7 +986,7 @@ impl Renderer {
                      layer_origin.y as gl::GLint,
                      layer_size.width as gl::GLint,
                      layer_size.height as gl::GLint);
-        let clear_color = if layer_target.is_some() {
+        let clear_color = if layer.texture_id.is_some() {
             ColorF::new(0.0, 0.0, 0.0, 0.0)
         } else {
             ColorF::new(1.0, 1.0, 1.0, 1.0)
@@ -997,8 +995,8 @@ impl Renderer {
         gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
 
         let projection = Matrix4::ortho(0.0,
-                                        layer.layer_size.width,
-                                        layer.layer_size.height,
+                                        layer.size.width,
+                                        layer.size.height,
                                         0.0,
                                         ORTHO_NEAR_PLANE,
                                         ORTHO_FAR_PLANE);
@@ -1027,7 +1025,7 @@ impl Renderer {
                         gl::enable(gl::MULTISAMPLE);
                     }
 
-                    if layer_target.is_some() {
+                    if layer.texture_id.is_some() {
                         gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
                                                 gl::ONE, gl::ONE);
                     } else {
@@ -1258,7 +1256,7 @@ impl Renderer {
                             let fb_rect_size = Size2D::new(job.rect.size.width as f32 * render_context.device_pixel_ratio,
                                                            job.rect.size.height as f32 * render_context.device_pixel_ratio);
 
-                            let inverted_y0 = layer.layer_size.height -
+                            let inverted_y0 = layer.size.height -
                                               job.rect.size.height as f32 -
                                               p0.y;
                             let fb_rect_origin = Point2D::new(
@@ -1290,18 +1288,19 @@ impl Renderer {
 
                         let color = ColorF::new(1.0, 1.0, 1.0, alpha);
 
-                        let RenderTargetIndex(render_target_index) = job.render_target_index;
-                        let src_target = &layer.child_layers[render_target_index as usize];
+                        let ChildLayerIndex(child_layer_index) = job.child_layer_index;
+                        let src_target = &layer.child_layers[child_layer_index as usize];
+                        debug_assert!(src_target.texture_id.unwrap() == info.texture_id);
 
                         let pixel_uv = Rect::new(
-                            Point2D::new(src_target.layer_origin.x as u32,
-                                         src_target.layer_origin.y as u32),
-                            Size2D::new(src_target.layer_size.width as u32,
-                                        src_target.layer_size.height as u32));
-                        let texture_width =
-                            layer.child_target.as_ref().unwrap().size.width as f32;
-                        let texture_height =
-                            layer.child_target.as_ref().unwrap().size.height as f32;
+                            Point2D::new(src_target.origin.x as u32,
+                                         src_target.origin.y as u32),
+                            Size2D::new(src_target.size.width as u32,
+                                        src_target.size.height as u32));
+
+                        let (texture_width, texture_height) = self.device.get_texture_dimensions(info.texture_id);
+                        let texture_width = texture_width as f32;
+                        let texture_height = texture_height as f32;
                         let texture_uv = Rect::new(
                             Point2D::new(
                                 pixel_uv.origin.x as f32 / texture_width,
@@ -1367,7 +1366,7 @@ impl Renderer {
                                           &mut self.profile_counters,
                                           &indices[..],
                                           &vertices[..],
-                                          layer.child_target.as_ref().unwrap().texture_id);
+                                          info.texture_id);
                 }
             }
         }
@@ -1395,8 +1394,7 @@ impl Renderer {
             gl::depth_func(gl::LEQUAL);
             gl::enable(gl::SCISSOR_TEST);
 
-            self.draw_layer(None,
-                            &frame.root_layer,
+            self.draw_layer(&frame.root_layer,
                             &render_context);
 
             // Restore frame - avoid borrow checker!
