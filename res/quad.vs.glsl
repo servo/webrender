@@ -70,8 +70,6 @@ void main(void)
         }
     }
 
-    vec2 localST = (localPos.xy - rect_origin) / rect_size;
-
     // Rotate or clip as necessary. If there is no rotation, we can clip here in the vertex shader
     // and save a whole bunch of fragment shader invocations. If there is a rotation, we fall back
     // to FS clipping.
@@ -79,10 +77,12 @@ void main(void)
     // The rotation angle is encoded as a negative bottom left u coordinate. (uv coordinates should
     // always be nonnegative normally, and gradients don't use color textures, so this is fine.)
     vec4 colorTexCoordRectBottom = aColorTexCoordRectBottom;
+    vec2 localST;
     if (colorTexCoordRectBottom.z < 0.0) {
         float angle = -colorTexCoordRectBottom.z;
         vec2 center = rect_origin + rect_size / 2.0;
         vec2 translatedPos = localPos.xy - center;
+        localST = (localPos.xy - rect_origin) / rect_size;
         localPos.xy = vec2(translatedPos.x * cos(angle) - translatedPos.y * sin(angle),
                            translatedPos.x * sin(angle) + translatedPos.y * cos(angle)) + center;
         colorTexCoordRectBottom.z = aColorTexCoordRectTop.x;
@@ -90,6 +90,7 @@ void main(void)
     } else {
         localPos.x = clamp(localPos.x, clipInRect.x, clipInRect.z);
         localPos.y = clamp(localPos.y, clipInRect.y, clipInRect.w);
+        localST = (localPos.xy - rect_origin) / rect_size;
         vClipInRect = vec4(-1e-37, -1e-37, 1e38, 1e38);
     }
 
