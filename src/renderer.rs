@@ -1102,20 +1102,17 @@ impl Renderer {
                 &DrawCommand::Batch(ref info) => {
                     // TODO: probably worth sorting front to back to minimize overdraw (if profiling shows fragment / rop bound)
 
-                    gl::enable(gl::BLEND);
-
                     if self.enable_msaa {
                         gl::enable(gl::MULTISAMPLE);
                     }
 
                     if layer.texture_id.is_some() {
-                        gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
-                                                gl::ONE, gl::ONE);
+                        gl::disable(gl::BLEND);
                     } else {
+                        gl::enable(gl::BLEND);
                         gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+                        gl::blend_equation(gl::FUNC_ADD);
                     }
-
-                    gl::blend_equation(gl::FUNC_ADD);
 
                     self.device.bind_program(self.quad_program_id,
                                              &projection);
