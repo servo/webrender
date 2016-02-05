@@ -33,7 +33,7 @@ branch = "inotify-modify"
 
 [dependencies]
 gleam = "0.2"
-euclid = {version = "0.4", features = ["plugins"]}
+euclid = {version = "0.6.1", features = ["plugins"]}
 time = "*"
 fnv="*"
 scoped_threadpool = "0.1.6"
