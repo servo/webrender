@@ -11,6 +11,7 @@ use std::num::Zero;
 use std::ops::Add;
 use std::path::PathBuf;
 use std::sync::Arc;
+use texture_cache::BorderType;
 use util::{self, RectVaryings};
 use webrender_traits::{FontKey, Epoch, ColorF, PipelineId};
 use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem};
@@ -377,11 +378,11 @@ pub enum RenderTargetMode {
 pub enum TextureUpdateDetails {
     Raw,
     Blit(Vec<u8>),
-    Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage),
+    Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage, BorderType),
     /// All four corners, the tessellation index, and whether inverted, respectively.
-    BorderRadius(DevicePixel, DevicePixel, DevicePixel, DevicePixel, Option<u32>, bool),
+    BorderRadius(DevicePixel, DevicePixel, DevicePixel, DevicePixel, Option<u32>, bool, BorderType),
     /// Blur radius, border radius, box rect, raster origin, and whether inverted, respectively.
-    BoxShadow(Au, Au, Rect<f32>, Point2D<f32>, bool),
+    BoxShadow(Au, Au, Rect<f32>, Point2D<f32>, bool, BorderType),
 }
 
 #[derive(Clone, Copy, Debug)]

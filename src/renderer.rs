@@ -31,6 +31,7 @@ use offscreen_gl_context::{NativeGLContext, NativeGLContextMethods};
 //use util;
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
+pub const MAX_RASTER_OP_SIZE: u32 = 2048;
 
 // TODO(gw): HACK! Need to support lighten/darken mix-blend-mode properly on android...
 
@@ -83,7 +84,6 @@ impl CompositionOpHelpers for CompositionOp {
 struct RenderContext {
     blend_program_id: ProgramId,
     filter_program_id: ProgramId,
-    temporary_fb_texture: TextureId,
     device_pixel_ratio: f32,
     framebuffer_size: Size2D<u32>,
 }
@@ -144,6 +144,11 @@ pub struct Renderer {
     profile_counters: RendererProfileCounters,
     profiler: Profiler,
     last_time: u64,
+
+    max_raster_op_size: u32,
+    raster_op_target_a8: TextureId,
+    raster_op_target_rgba8: TextureId,
+    temporary_fb_texture: TextureId,
 }
 
 impl Renderer {
@@ -170,6 +175,7 @@ impl Renderer {
         let filter_program_id = device.create_program("filter");
         let box_shadow_program_id = device.create_program("box_shadow");
         let blur_program_id = device.create_program("blur");
+        let max_raster_op_size = MAX_RASTER_OP_SIZE * options.device_pixel_ratio as u32;
 
         let texture_ids = device.create_texture_ids(1024);
         let mut texture_cache = TextureCache::new(texture_ids);
@@ -207,6 +213,26 @@ impl Renderer {
                              BorderType::SinglePixel);
 
         let debug_renderer = DebugRenderer::new(&mut device);
+
+        let raster_op_target_a8 = device.create_texture_ids(1)[0];
+        device.init_texture(raster_op_target_a8,
+                            max_raster_op_size,
+                            max_raster_op_size,
+                            ImageFormat::A8,
+                            TextureFilter::Nearest,
+                            RenderTargetMode::RenderTarget,
+                            None);
+
+        let raster_op_target_rgba8 = device.create_texture_ids(1)[0];
+        device.init_texture(raster_op_target_rgba8,
+                            max_raster_op_size,
+                            max_raster_op_size,
+                            ImageFormat::RGBA8,
+                            TextureFilter::Nearest,
+                            RenderTargetMode::RenderTarget,
+                            None);
+
+        let temporary_fb_texture = device.create_texture_ids(1)[0];
 
         device.end_frame();
 
@@ -264,6 +290,10 @@ impl Renderer {
             enable_profiler: options.enable_profiler,
             enable_msaa: options.enable_msaa,
             last_time: 0,
+            raster_op_target_a8: raster_op_target_a8,
+            raster_op_target_rgba8: raster_op_target_rgba8,
+            temporary_fb_texture: temporary_fb_texture,
+            max_raster_op_size: max_raster_op_size,
         };
 
         renderer.update_uniform_locations();
@@ -437,7 +467,7 @@ impl Renderer {
                                 self.device.update_raw_texture(update.id, x, y, width, height);
                             }
                             TextureUpdateDetails::Blit(bytes) => {
-                                self.device.update_texture_for_noncomposite_operation(
+                                self.device.update_texture(
                                     update.id,
                                     x,
                                     y,
@@ -448,10 +478,11 @@ impl Renderer {
                                                        glyph_size,
                                                        radius,
                                                        unblurred_glyph_texture_image,
-                                                       horizontal_blur_texture_image) => {
+                                                       horizontal_blur_texture_image,
+                                                       border_type) => {
                                 let radius =
                                     f32::ceil(radius.to_f32_px() * self.device_pixel_ratio) as u32;
-                                self.device.update_texture_for_noncomposite_operation(
+                                self.device.update_texture(
                                     unblurred_glyph_texture_image.texture_id,
                                     unblurred_glyph_texture_image.pixel_uv.x,
                                     unblurred_glyph_texture_image.pixel_uv.y,
@@ -465,183 +496,133 @@ impl Renderer {
                                 let (width, height) = (width as f32, height as f32);
 
                                 let zero_point = Point2D::new(0.0, 0.0);
-                                let dest_texture_origin =
-                                    Point2D::new(horizontal_blur_texture_image.pixel_uv.x as f32,
-                                                 horizontal_blur_texture_image.pixel_uv.y as f32);
                                 let dest_texture_size = Size2D::new(width as f32, height as f32);
                                 let source_texture_size = Size2D::new(glyph_size.width as f32,
                                                                       glyph_size.height as f32);
                                 let blur_radius = radius as f32;
 
-                                let vertices = [
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &dest_texture_origin,
-                                        &white,
-                                        &Point2D::new(0.0, 0.0),
-                                        &zero_point,
-                                        &zero_point,
-                                        &unblurred_glyph_texture_image.texel_uv.origin,
-                                        &unblurred_glyph_texture_image.texel_uv.bottom_right(),
-                                        &dest_texture_size,
-                                        &source_texture_size,
-                                        blur_radius),
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(dest_texture_origin.x + width,
-                                                      dest_texture_origin.y),
-                                        &white,
-                                        &Point2D::new(1.0, 0.0),
-                                        &zero_point,
-                                        &zero_point,
-                                        &unblurred_glyph_texture_image.texel_uv.origin,
-                                        &unblurred_glyph_texture_image.texel_uv.bottom_right(),
-                                        &dest_texture_size,
-                                        &source_texture_size,
-                                        blur_radius),
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(dest_texture_origin.x,
-                                                      dest_texture_origin.y + height),
-                                        &white,
-                                        &Point2D::new(0.0, 1.0),
-                                        &zero_point,
-                                        &zero_point,
-                                        &unblurred_glyph_texture_image.texel_uv.origin,
-                                        &unblurred_glyph_texture_image.texel_uv.bottom_right(),
-                                        &dest_texture_size,
-                                        &source_texture_size,
-                                        blur_radius),
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(dest_texture_origin.x + width,
-                                                      dest_texture_origin.y + height),
-                                        &white,
-                                        &Point2D::new(1.0, 1.0),
-                                        &zero_point,
-                                        &zero_point,
-                                        &unblurred_glyph_texture_image.texel_uv.origin,
-                                        &unblurred_glyph_texture_image.texel_uv.bottom_right(),
-                                        &dest_texture_size,
-                                        &source_texture_size,
-                                        blur_radius),
-                                ];
+                                self.add_rect_to_raster_batch(horizontal_blur_texture_image.texture_id,
+                                                              unblurred_glyph_texture_image.texture_id,
+                                                              blur_program_id,
+                                                              Some(AxisDirection::Horizontal),
+                                                              &Rect::new(horizontal_blur_texture_image.pixel_uv,
+                                                                         Size2D::new(width as u32, height as u32)),
+                                                              border_type,
+                                                              |texture_rect| {
+                                    [
+                                        PackedVertexForTextureCacheUpdate::new(
+                                            &texture_rect.origin,
+                                            &white,
+                                            &Point2D::new(0.0, 0.0),
+                                            &zero_point,
+                                            &zero_point,
+                                            &unblurred_glyph_texture_image.texel_uv.origin,
+                                            &unblurred_glyph_texture_image.texel_uv.bottom_right(),
+                                            &dest_texture_size,
+                                            &source_texture_size,
+                                            blur_radius),
+                                        PackedVertexForTextureCacheUpdate::new(
+                                            &texture_rect.top_right(),
+                                            &white,
+                                            &Point2D::new(1.0, 0.0),
+                                            &zero_point,
+                                            &zero_point,
+                                            &unblurred_glyph_texture_image.texel_uv.origin,
+                                            &unblurred_glyph_texture_image.texel_uv.bottom_right(),
+                                            &dest_texture_size,
+                                            &source_texture_size,
+                                            blur_radius),
+                                        PackedVertexForTextureCacheUpdate::new(
+                                            &texture_rect.bottom_left(),
+                                            &white,
+                                            &Point2D::new(0.0, 1.0),
+                                            &zero_point,
+                                            &zero_point,
+                                            &unblurred_glyph_texture_image.texel_uv.origin,
+                                            &unblurred_glyph_texture_image.texel_uv.bottom_right(),
+                                            &dest_texture_size,
+                                            &source_texture_size,
+                                            blur_radius),
+                                        PackedVertexForTextureCacheUpdate::new(
+                                            &texture_rect.bottom_right(),
+                                            &white,
+                                            &Point2D::new(1.0, 1.0),
+                                            &zero_point,
+                                            &zero_point,
+                                            &unblurred_glyph_texture_image.texel_uv.origin,
+                                            &unblurred_glyph_texture_image.texel_uv.bottom_right(),
+                                            &dest_texture_size,
+                                            &source_texture_size,
+                                            blur_radius),
+                                    ]
+                                });
 
-                                {
-                                    let mut batch = self.get_or_create_raster_batch(
-                                        horizontal_blur_texture_image.texture_id,
-                                        unblurred_glyph_texture_image.texture_id,
-                                        blur_program_id,
-                                        Some(AxisDirection::Horizontal));
-                                    batch.add_draw_item(horizontal_blur_texture_image.texture_id,
-                                                        unblurred_glyph_texture_image.texture_id,
-                                                        &vertices);
-                                }
-
-                                let (x, y) = (x as f32, y as f32);
                                 let source_texture_size = Size2D::new(width as f32, height as f32);
-                                let vertices = [
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(x, y),
-                                        &white,
-                                        &Point2D::new(0.0, 0.0),
-                                        &zero_point,
-                                        &zero_point,
-                                        &horizontal_blur_texture_image.texel_uv.origin,
-                                        &horizontal_blur_texture_image.texel_uv.bottom_right(),
-                                        &dest_texture_size,
-                                        &source_texture_size,
-                                        blur_radius),
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(x + width, y),
-                                        &white,
-                                        &Point2D::new(1.0, 0.0),
-                                        &zero_point,
-                                        &zero_point,
-                                        &horizontal_blur_texture_image.texel_uv.origin,
-                                        &horizontal_blur_texture_image.texel_uv.bottom_right(),
-                                        &dest_texture_size,
-                                        &source_texture_size,
-                                        blur_radius),
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(x, y + height),
-                                        &white,
-                                        &Point2D::new(0.0, 1.0),
-                                        &zero_point,
-                                        &zero_point,
-                                        &horizontal_blur_texture_image.texel_uv.origin,
-                                        &horizontal_blur_texture_image.texel_uv.bottom_right(),
-                                        &dest_texture_size,
-                                        &source_texture_size,
-                                        blur_radius),
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(x + width, y + height),
-                                        &white,
-                                        &Point2D::new(1.0, 1.0),
-                                        &zero_point,
-                                        &zero_point,
-                                        &horizontal_blur_texture_image.texel_uv.origin,
-                                        &horizontal_blur_texture_image.texel_uv.bottom_right(),
-                                        &dest_texture_size,
-                                        &source_texture_size,
-                                        blur_radius),
-                                ];
 
-                                {
-                                    let mut batch = self.get_or_create_raster_batch(
-                                        update.id,
-                                        horizontal_blur_texture_image.texture_id,
-                                        blur_program_id,
-                                        Some(AxisDirection::Vertical));
-                                    batch.add_draw_item(update.id,
-                                                        horizontal_blur_texture_image.texture_id,
-                                                        &vertices);
-                                }
+                                self.add_rect_to_raster_batch(update.id,
+                                                              horizontal_blur_texture_image.texture_id,
+                                                              blur_program_id,
+                                                              Some(AxisDirection::Vertical),
+                                                              &Rect::new(Point2D::new(x as u32, y as u32),
+                                                                         Size2D::new(width as u32, height as u32)),
+                                                              border_type,
+                                                              |texture_rect| {
+                                    [
+                                        PackedVertexForTextureCacheUpdate::new(
+                                            &texture_rect.origin,
+                                            &white,
+                                            &Point2D::new(0.0, 0.0),
+                                            &zero_point,
+                                            &zero_point,
+                                            &horizontal_blur_texture_image.texel_uv.origin,
+                                            &horizontal_blur_texture_image.texel_uv.bottom_right(),
+                                            &dest_texture_size,
+                                            &source_texture_size,
+                                            blur_radius),
+                                        PackedVertexForTextureCacheUpdate::new(
+                                            &texture_rect.top_right(),
+                                            &white,
+                                            &Point2D::new(1.0, 0.0),
+                                            &zero_point,
+                                            &zero_point,
+                                            &horizontal_blur_texture_image.texel_uv.origin,
+                                            &horizontal_blur_texture_image.texel_uv.bottom_right(),
+                                            &dest_texture_size,
+                                            &source_texture_size,
+                                            blur_radius),
+                                        PackedVertexForTextureCacheUpdate::new(
+                                            &texture_rect.bottom_left(),
+                                            &white,
+                                            &Point2D::new(0.0, 1.0),
+                                            &zero_point,
+                                            &zero_point,
+                                            &horizontal_blur_texture_image.texel_uv.origin,
+                                            &horizontal_blur_texture_image.texel_uv.bottom_right(),
+                                            &dest_texture_size,
+                                            &source_texture_size,
+                                            blur_radius),
+                                        PackedVertexForTextureCacheUpdate::new(
+                                            &texture_rect.bottom_right(),
+                                            &white,
+                                            &Point2D::new(1.0, 1.0),
+                                            &zero_point,
+                                            &zero_point,
+                                            &horizontal_blur_texture_image.texel_uv.origin,
+                                            &horizontal_blur_texture_image.texel_uv.bottom_right(),
+                                            &dest_texture_size,
+                                            &source_texture_size,
+                                            blur_radius),
+                                    ]
+                                });
                             }
                             TextureUpdateDetails::BorderRadius(outer_rx,
                                                                outer_ry,
                                                                inner_rx,
                                                                inner_ry,
-                                                               index,
-                                                               inverted) => {
-                                let x = x as f32;
-                                let y = y as f32;
-                                //let device_pixel_ratio = self.device_pixel_ratio;
-
-                                //let inner_rx = inner_rx.to_f32_px();
-                                //let inner_ry = inner_ry.to_f32_px();
-                                //let outer_rx = outer_rx.to_f32_px();
-                                //let outer_ry = outer_ry.to_f32_px();
-                                let tessellated_rect =
-                                    Rect::new(Point2D::zero(),
-                                              Size2D::new(outer_rx, outer_ry));
-                                let tessellated_rect = match index {
-                                    None => tessellated_rect,
-                                    Some(_index) => {
-                                        panic!("todo - re-enable border tesselation");
-                                        /*
-                                        tessellated_rect.tessellate_border_corner(
-                                            &Size2D::new(outer_rx, outer_ry),
-                                            &Size2D::new(inner_rx, inner_ry),
-                                            device_pixel_ratio,
-                                            BasicRotationAngle::Upright,
-                                            index)
-                                        */
-                                    }
-                                };
-
+                                                               _index,
+                                                               inverted,
+                                                               border_type) => {
                                 // From here on out everything is in device coordinates.
-                                /*
-                                let tessellated_rect = Rect::new(
-                                    Point2D::new(tessellated_rect.origin.x * device_pixel_ratio,
-                                                 tessellated_rect.origin.y * device_pixel_ratio),
-                                    Size2D::new(
-                                        tessellated_rect.size.width * device_pixel_ratio,
-                                        tessellated_rect.size.height * device_pixel_ratio));
-
-                                let inner_rx = inner_rx * device_pixel_ratio;
-                                let inner_ry = inner_ry * device_pixel_ratio;
-                                let outer_rx = outer_rx * device_pixel_ratio;
-                                let outer_ry = outer_ry * device_pixel_ratio;
-
-*/
-
                                 let border_program_id = self.border_program_id;
                                 let color = if inverted {
                                     ColorF::new(0.0, 0.0, 0.0, 1.0)
@@ -652,90 +633,88 @@ impl Renderer {
                                 let border_radii_outer = Point2D::new(outer_rx.as_f32(), outer_ry.as_f32());
                                 let border_radii_inner = Point2D::new(inner_rx.as_f32(), inner_ry.as_f32());
 
-                                let border_position =
-                                    Point2D::new(x - tessellated_rect.origin.x.as_f32() + outer_rx.as_f32(),
-                                                 y - tessellated_rect.origin.y.as_f32() + outer_ry.as_f32());
                                 let zero_point = Point2D::new(0.0, 0.0);
                                 let zero_size = Size2D::new(0.0, 0.0);
 
-                                let (x, y) = (x as f32, y as f32);
-                                let (width, height) = (width as f32, height as f32);
+                                self.add_rect_to_raster_batch(update.id,
+                                                              TextureId(0),
+                                                              border_program_id,
+                                                              None,
+                                                              &Rect::new(Point2D::new(x as u32, y as u32),
+                                                                         Size2D::new(width as u32, height as u32)),
+                                                              border_type,
+                                                              |texture_rect| {
+                                    let border_position = Point2D::new(texture_rect.origin.x + outer_rx.as_f32(),
+                                                                       texture_rect.origin.y + outer_ry.as_f32());
 
-                                let vertices: [PackedVertexForTextureCacheUpdate; 4] = [
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(x, y),
-                                        &color,
-                                        &zero_point,
-                                        &border_radii_outer,
-                                        &border_radii_inner,
-                                        &border_position,
-                                        &zero_point,
-                                        &zero_size,
-                                        &zero_size,
-                                        0.0),
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(x + width, y),
-                                        &color,
-                                        &zero_point,
-                                        &border_radii_outer,
-                                        &border_radii_inner,
-                                        &border_position,
-                                        &zero_point,
-                                        &zero_size,
-                                        &zero_size,
-                                        0.0),
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(x, y + height),
-                                        &color,
-                                        &zero_point,
-                                        &border_radii_outer,
-                                        &border_radii_inner,
-                                        &border_position,
-                                        &zero_point,
-                                        &zero_size,
-                                        &zero_size,
-                                        0.0),
-                                    PackedVertexForTextureCacheUpdate::new(
-                                        &Point2D::new(x + width, y + height),
-                                        &color,
-                                        &zero_point,
-                                        &border_radii_outer,
-                                        &border_radii_inner,
-                                        &border_position,
-                                        &zero_point,
-                                        &zero_size,
-                                        &zero_size,
-                                        0.0),
-                                ];
-
-                                let mut batch = self.get_or_create_raster_batch(update.id,
-                                                                                TextureId(0),
-                                                                                border_program_id,
-                                                                                None);
-                                batch.add_draw_item(update.id, TextureId(0), &vertices);
+                                    [
+                                        PackedVertexForTextureCacheUpdate::new(
+                                            &texture_rect.origin,
+                                            &color,
+                                            &zero_point,
+                                            &border_radii_outer,
+                                            &border_radii_inner,
+                                            &border_position,
+                                            &zero_point,
+                                            &zero_size,
+                                            &zero_size,
+                                            0.0),
+                                        PackedVertexForTextureCacheUpdate::new(
+                                            &texture_rect.top_right(),
+                                            &color,
+                                            &zero_point,
+                                            &border_radii_outer,
+                                            &border_radii_inner,
+                                            &border_position,
+                                            &zero_point,
+                                            &zero_size,
+                                            &zero_size,
+                                            0.0),
+                                        PackedVertexForTextureCacheUpdate::new(
+                                            &texture_rect.bottom_left(),
+                                            &color,
+                                            &zero_point,
+                                            &border_radii_outer,
+                                            &border_radii_inner,
+                                            &border_position,
+                                            &zero_point,
+                                            &zero_size,
+                                            &zero_size,
+                                            0.0),
+                                        PackedVertexForTextureCacheUpdate::new(
+                                            &texture_rect.bottom_right(),
+                                            &color,
+                                            &zero_point,
+                                            &border_radii_outer,
+                                            &border_radii_inner,
+                                            &border_position,
+                                            &zero_point,
+                                            &zero_size,
+                                            &zero_size,
+                                            0.0),
+                                    ]
+                                });
                             }
                             TextureUpdateDetails::BoxShadow(blur_radius,
                                                             border_radius,
                                                             box_rect,
                                                             raster_origin,
-                                                            inverted) => {
-                                let texture_origin = Point2D::new(x as f32, y as f32);
+                                                            inverted,
+                                                            border_type) => {
                                 let device_pixel_ratio = self.device_pixel_ratio;
                                 self.update_texture_cache_for_box_shadow(
                                     update.id,
-                                    &Rect::new(texture_origin,
-                                               Size2D::new(width as f32, height as f32)),
+                                    &Rect::new(Point2D::new(x, y),
+                                               Size2D::new(width, height)),
                                     &Rect::new(
-                                        texture_origin + Point2D::new(
-                                            (box_rect.origin.x - raster_origin.x) *
-                                                     device_pixel_ratio,
-                                            (box_rect.origin.y - raster_origin.y) *
-                                                     device_pixel_ratio),
+                                        Point2D::new((box_rect.origin.x - raster_origin.x) * device_pixel_ratio,
+                                                     (box_rect.origin.y - raster_origin.y) * device_pixel_ratio),
                                         Size2D::new(box_rect.size.width * device_pixel_ratio,
                                                     box_rect.size.height * device_pixel_ratio)),
                                     blur_radius.to_f32_px() * device_pixel_ratio,
                                     border_radius.to_f32_px() * device_pixel_ratio,
-                                    inverted)
+                                    inverted,
+                                    border_type)
                             }
                         }
                     }
@@ -748,11 +727,13 @@ impl Renderer {
 
     fn update_texture_cache_for_box_shadow(&mut self,
                                            update_id: TextureId,
-                                           texture_rect: &Rect<f32>,
+                                           texture_rect: &Rect<u32>,
                                            box_rect: &Rect<f32>,
                                            blur_radius: f32,
                                            border_radius: f32,
-                                           inverted: bool) {
+                                           inverted: bool,
+                                           border_type: BorderType) {
+        debug_assert!(border_type == BorderType::SinglePixel);
         let box_shadow_program_id = self.box_shadow_program_id;
 
         let color = if inverted {
@@ -764,151 +745,172 @@ impl Renderer {
         let zero_point = Point2D::new(0.0, 0.0);
         let zero_size = Size2D::new(0.0, 0.0);
 
-        let box_rect_top_left = Point2D::new(box_rect.origin.x, box_rect.origin.y);
-        let box_rect_bottom_right =
-            Point2D::new(box_rect_top_left.x + box_rect.size.width,
-                         box_rect_top_left.y + box_rect.size.height);
-        let border_radii = Point2D::new(border_radius, border_radius);
+        self.add_rect_to_raster_batch(update_id,
+                                      TextureId(0),
+                                      box_shadow_program_id,
+                                      None,
+                                      &texture_rect,
+                                      border_type,
+                                      |texture_rect| {
+            let box_rect_top_left = Point2D::new(box_rect.origin.x + texture_rect.origin.x,
+                                                 box_rect.origin.y + texture_rect.origin.y);
+            let box_rect_bottom_right = Point2D::new(box_rect_top_left.x + box_rect.size.width,
+                                                     box_rect_top_left.y + box_rect.size.height);
+            let border_radii = Point2D::new(border_radius, border_radius);
 
-        let vertices: [PackedVertexForTextureCacheUpdate; 4] = [
-            PackedVertexForTextureCacheUpdate::new(&texture_rect.origin,
-                                                   &color,
-                                                   &zero_point,
-                                                   &border_radii,
-                                                   &zero_point,
-                                                   &box_rect.origin,
-                                                   &box_rect_bottom_right,
-                                                   &zero_size,
-                                                   &zero_size,
-                                                   blur_radius),
-            PackedVertexForTextureCacheUpdate::new(&texture_rect.top_right(),
-                                                   &color,
-                                                   &zero_point,
-                                                   &border_radii,
-                                                   &zero_point,
-                                                   &box_rect.origin,
-                                                   &box_rect_bottom_right,
-                                                   &zero_size,
-                                                   &zero_size,
-                                                   blur_radius),
-            PackedVertexForTextureCacheUpdate::new(&texture_rect.bottom_left(),
-                                                   &color,
-                                                   &zero_point,
-                                                   &border_radii,
-                                                   &zero_point,
-                                                   &box_rect.origin,
-                                                   &box_rect_bottom_right,
-                                                   &zero_size,
-                                                   &zero_size,
-                                                   blur_radius),
-            PackedVertexForTextureCacheUpdate::new(&texture_rect.bottom_right(),
-                                                   &color,
-                                                   &zero_point,
-                                                   &border_radii,
-                                                   &zero_point,
-                                                   &box_rect.origin,
-                                                   &box_rect_bottom_right,
-                                                   &zero_size,
-                                                   &zero_size,
-                                                   blur_radius),
-        ];
-
-        let mut batch = self.get_or_create_raster_batch(update_id,
-                                                        TextureId(0),
-                                                        box_shadow_program_id,
-                                                        None);
-        batch.add_draw_item(update_id, TextureId(0), &vertices);
+            [
+                PackedVertexForTextureCacheUpdate::new(&texture_rect.origin,
+                                                       &color,
+                                                       &zero_point,
+                                                       &border_radii,
+                                                       &zero_point,
+                                                       &box_rect_top_left,
+                                                       &box_rect_bottom_right,
+                                                       &zero_size,
+                                                       &zero_size,
+                                                       blur_radius),
+                PackedVertexForTextureCacheUpdate::new(&texture_rect.top_right(),
+                                                       &color,
+                                                       &zero_point,
+                                                       &border_radii,
+                                                       &zero_point,
+                                                       &box_rect_top_left,
+                                                       &box_rect_bottom_right,
+                                                       &zero_size,
+                                                       &zero_size,
+                                                       blur_radius),
+                PackedVertexForTextureCacheUpdate::new(&texture_rect.bottom_left(),
+                                                       &color,
+                                                       &zero_point,
+                                                       &border_radii,
+                                                       &zero_point,
+                                                       &box_rect_top_left,
+                                                       &box_rect_bottom_right,
+                                                       &zero_size,
+                                                       &zero_size,
+                                                       blur_radius),
+                PackedVertexForTextureCacheUpdate::new(&texture_rect.bottom_right(),
+                                                       &color,
+                                                       &zero_point,
+                                                       &border_radii,
+                                                       &zero_point,
+                                                       &box_rect_top_left,
+                                                       &box_rect_bottom_right,
+                                                       &zero_size,
+                                                       &zero_size,
+                                                       blur_radius),
+            ]
+        });
     }
 
-    fn get_or_create_raster_batch(&mut self,
-                                  dest_texture_id: TextureId,
-                                  color_texture_id: TextureId,
-                                  program_id: ProgramId,
-                                  blur_direction: Option<AxisDirection>)
-                                  -> &mut RasterBatch {
+    fn add_rect_to_raster_batch<F>(&mut self,
+                                   dest_texture_id: TextureId,
+                                   color_texture_id: TextureId,
+                                   program_id: ProgramId,
+                                   blur_direction: Option<AxisDirection>,
+                                   dest_rect: &Rect<u32>,
+                                   border_type: BorderType,
+                                   f: F)
+                                   where F: Fn(&Rect<f32>) -> [PackedVertexForTextureCacheUpdate; 4] {
         // FIXME(pcwalton): Use a hash table if this linear search shows up in the profile.
-        let mut index = None;
-        for (i, batch) in self.raster_batches.iter_mut().enumerate() {
-            if batch.can_add_to_batch(dest_texture_id,
-                                      color_texture_id,
-                                      program_id,
-                                      blur_direction) {
-                index = Some(i);
-                break;
+        for batch in self.raster_batches.iter_mut() {
+            if batch.add_rect_if_possible(dest_texture_id,
+                                          color_texture_id,
+                                          program_id,
+                                          blur_direction,
+                                          dest_rect,
+                                          border_type,
+                                          &f) {
+                return;
             }
         }
 
-        if index.is_none() {
-            index = Some(self.raster_batches.len());
-            self.raster_batches.push(RasterBatch::new(program_id,
-                                                      blur_direction,
-                                                      dest_texture_id,
-                                                      color_texture_id));
-        }
+        let raster_op_target = if self.device.texture_has_alpha(dest_texture_id) {
+            self.raster_op_target_rgba8
+        } else {
+            self.raster_op_target_a8
+        };
 
-        &mut self.raster_batches[index.unwrap()]
+        let mut raster_batch = RasterBatch::new(raster_op_target,
+                                                self.max_raster_op_size,
+                                                program_id,
+                                                blur_direction,
+                                                color_texture_id,
+                                                dest_texture_id);
+
+        let added = raster_batch.add_rect_if_possible(dest_texture_id,
+                                                      color_texture_id,
+                                                      program_id,
+                                                      blur_direction,
+                                                      dest_rect,
+                                                      border_type,
+                                                      &f);
+        debug_assert!(added);
+        self.raster_batches.push(raster_batch);
     }
 
     fn flush_raster_batches(&mut self) {
         let batches = mem::replace(&mut self.raster_batches, vec![]);
         if batches.len() > 0 {
             println!("flushing {:?} raster batches", batches.len());
-        }
 
-        // All horizontal blurs must complete before anything else.
-        let mut remaining_batches = vec![];
-        for batch in batches.into_iter() {
-            if batch.blur_direction != Some(AxisDirection::Horizontal) {
-                remaining_batches.push(batch);
-                continue
+            gl::disable(gl::DEPTH_TEST);
+            gl::disable(gl::SCISSOR_TEST);
+
+            if self.enable_msaa {
+                gl::disable(gl::MULTISAMPLE);
             }
 
-            self.set_up_gl_state_for_texture_cache_update(batch.dest_texture_id,
-                                                          batch.color_texture_id,
-                                                          batch.program_id,
-                                                          batch.blur_direction);
-            self.perform_gl_texture_cache_update(batch);
-        }
+            let projection = Matrix4::ortho(0.0,
+                                            self.max_raster_op_size as f32,
+                                            0.0,
+                                            self.max_raster_op_size as f32,
+                                            ORTHO_NEAR_PLANE,
+                                            ORTHO_FAR_PLANE);
 
-        // Flush the remaining batches.
-        for batch in remaining_batches.into_iter() {
-            self.set_up_gl_state_for_texture_cache_update(batch.dest_texture_id,
-                                                          batch.color_texture_id,
-                                                          batch.program_id,
-                                                          batch.blur_direction);
-            self.perform_gl_texture_cache_update(batch);
+            // All horizontal blurs must complete before anything else.
+            let mut remaining_batches = vec![];
+            for batch in batches.into_iter() {
+                if batch.blur_direction != Some(AxisDirection::Horizontal) {
+                    remaining_batches.push(batch);
+                    continue
+                }
+
+                self.set_up_gl_state_for_texture_cache_update(batch.page_allocator.texture_id(),
+                                                              batch.color_texture_id,
+                                                              batch.program_id,
+                                                              batch.blur_direction,
+                                                              &projection);
+                self.perform_gl_texture_cache_update(batch);
+            }
+
+            // Flush the remaining batches.
+            for batch in remaining_batches.into_iter() {
+                self.set_up_gl_state_for_texture_cache_update(batch.page_allocator.texture_id(),
+                                                              batch.color_texture_id,
+                                                              batch.program_id,
+                                                              batch.blur_direction,
+                                                              &projection);
+                self.perform_gl_texture_cache_update(batch);
+            }
         }
     }
 
     fn set_up_gl_state_for_texture_cache_update(&mut self,
-                                                update_id: TextureId,
+                                                target_texture_id: TextureId,
                                                 color_texture_id: TextureId,
                                                 program_id: ProgramId,
-                                                blur_direction: Option<AxisDirection>) {
-        gl::disable(gl::DEPTH_TEST);
-        gl::disable(gl::SCISSOR_TEST);
-
-        let (texture_width, texture_height) = self.device.get_texture_dimensions(update_id);
-        if !self.device.texture_has_alpha(update_id) {
+                                                blur_direction: Option<AxisDirection>,
+                                                projection: &Matrix4) {
+        if !self.device.texture_has_alpha(target_texture_id) {
             gl::enable(gl::BLEND);
             gl::blend_func(gl::SRC_ALPHA, gl::ZERO);
         } else {
             gl::disable(gl::BLEND);
         }
 
-        if self.enable_msaa {
-            gl::disable(gl::MULTISAMPLE);
-        }
-
-        let projection = Matrix4::ortho(0.0,
-                                        texture_width as f32,
-                                        0.0,
-                                        texture_height as f32,
-                                        ORTHO_NEAR_PLANE,
-                                        ORTHO_FAR_PLANE);
-
-        self.device.bind_render_target(Some(update_id));
-        gl::viewport(0, 0, texture_width as gl::GLint, texture_height as gl::GLint);
+        self.device.bind_render_target(Some(target_texture_id));
+        gl::viewport(0, 0, self.max_raster_op_size as gl::GLint, self.max_raster_op_size as gl::GLint);
 
         self.device.bind_program(program_id, &projection);
 
@@ -941,6 +943,89 @@ impl Renderer {
         println!("drawing triangles due to GL texture cache update");
         self.device.draw_triangles_u16(0, batch.indices.len() as gl::GLint);
         self.device.delete_vao(vao_id);
+
+        for blit_job in batch.blit_jobs {
+            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                              blit_job.dest_origin.x as i32,
+                                              blit_job.dest_origin.y as i32,
+                                              blit_job.src_origin.x as i32,
+                                              blit_job.src_origin.y as i32,
+                                              blit_job.size.width as i32,
+                                              blit_job.size.height as i32);
+
+            match blit_job.border_type {
+                BorderType::SinglePixel => {
+                    // Single pixel corners
+                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                                      blit_job.dest_origin.x as i32 - 1,
+                                                      blit_job.dest_origin.y as i32 - 1,
+                                                      blit_job.src_origin.x as i32,
+                                                      blit_job.src_origin.y as i32,
+                                                      1,
+                                                      1);
+
+                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                                      (blit_job.dest_origin.x + blit_job.size.width) as i32,
+                                                      blit_job.dest_origin.y as i32 - 1,
+                                                      (blit_job.src_origin.x + blit_job.size.width) as i32 - 1,
+                                                      blit_job.src_origin.y as i32,
+                                                      1,
+                                                      1);
+
+                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                                      blit_job.dest_origin.x as i32 - 1,
+                                                      (blit_job.dest_origin.y + blit_job.size.height) as i32,
+                                                      blit_job.src_origin.x as i32,
+                                                      (blit_job.src_origin.y + blit_job.size.height) as i32 - 1,
+                                                      1,
+                                                      1);
+
+                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                                      (blit_job.dest_origin.x + blit_job.size.width) as i32,
+                                                      (blit_job.dest_origin.y + blit_job.size.height) as i32,
+                                                      (blit_job.src_origin.x + blit_job.size.width) as i32 - 1,
+                                                      (blit_job.src_origin.y + blit_job.size.height) as i32 - 1,
+                                                      1,
+                                                      1);
+
+                    // Horizontal edges
+                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                                      blit_job.dest_origin.x as i32,
+                                                      blit_job.dest_origin.y as i32 - 1,
+                                                      blit_job.src_origin.x as i32,
+                                                      blit_job.src_origin.y as i32,
+                                                      blit_job.size.width as i32,
+                                                      1);
+
+                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                                      blit_job.dest_origin.x as i32,
+                                                      (blit_job.dest_origin.y + blit_job.size.height) as i32,
+                                                      blit_job.src_origin.x as i32,
+                                                      (blit_job.src_origin.y + blit_job.size.height) as i32 - 1,
+                                                      blit_job.size.width as i32,
+                                                      1);
+
+                    // Vertical edges
+                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                                      blit_job.dest_origin.x as i32 - 1,
+                                                      blit_job.dest_origin.y as i32,
+                                                      blit_job.src_origin.x as i32,
+                                                      blit_job.src_origin.y as i32,
+                                                      1,
+                                                      blit_job.size.height as i32);
+
+                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                                      (blit_job.dest_origin.x + blit_job.size.width) as i32,
+                                                      blit_job.dest_origin.y as i32,
+                                                      (blit_job.src_origin.x + blit_job.size.width) as i32 - 1,
+                                                      blit_job.src_origin.y as i32,
+                                                      1,
+                                                      blit_job.size.height as i32);
+
+                }
+                BorderType::NoBorder => {}
+            }
+        }
     }
 
     fn draw_layer(&mut self,
@@ -1127,7 +1212,7 @@ impl Renderer {
                             }
                             _ => unreachable!(),
                         }
-                        self.device.bind_mask_texture(render_context.temporary_fb_texture);
+                        self.device.bind_mask_texture(self.temporary_fb_texture);
                         alpha = 1.0;
                     } else {
                         gl::enable(gl::BLEND);
@@ -1261,7 +1346,7 @@ impl Renderer {
                                 p0.x * render_context.device_pixel_ratio,
                                 inverted_y0 * render_context.device_pixel_ratio);
 
-                            self.device.init_texture(render_context.temporary_fb_texture,
+                            self.device.init_texture(self.temporary_fb_texture,
                                                      fb_rect_size.width as u32,
                                                      fb_rect_size.height as u32,
                                                      ImageFormat::RGBA8,
@@ -1269,7 +1354,9 @@ impl Renderer {
                                                      RenderTargetMode::None,
                                                      None);
                             self.device.read_framebuffer_rect(
-                                render_context.temporary_fb_texture,
+                                self.temporary_fb_texture,
+                                0,
+                                0,
                                 fb_rect_origin.x as i32,
                                 fb_rect_origin.y as i32,
                                 fb_rect_size.width as i32,
@@ -1374,14 +1461,9 @@ impl Renderer {
         if let Some(frame) = self.current_frame.take() {
             // TODO: cache render targets!
 
-            // Draw render targets in reverse order to ensure dependencies
-            // of earlier render targets are already available.
-            // TODO: Are there cases where this fails and needs something
-            // like a topological sort with dependencies?
             let render_context = RenderContext {
                 blend_program_id: self.blend_program_id,
                 filter_program_id: self.filter_program_id,
-                temporary_fb_texture: self.device.create_texture_ids(1)[0],
                 device_pixel_ratio: self.device_pixel_ratio,
                 framebuffer_size: framebuffer_size,
             };
