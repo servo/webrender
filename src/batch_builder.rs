@@ -548,17 +548,20 @@ impl<'a> BatchBuilder<'a> {
 
         // A simple way to estimate the length of each strip we'll need. Providing a good estimate
         // saves fragment shader invocations.
-        let length_0 = clip_rect.size.width * angle.sin() + clip_rect.size.height * angle.cos();
-        let length_1 = clip_rect.size.width * angle.cos() + clip_rect.size.height * angle.sin();
+        let length_0 = (clip_rect.size.width * angle.sin()).abs() +
+            (clip_rect.size.height * angle.cos()).abs();
+        let length_1 = (clip_rect.size.width * angle.cos()).abs() +
+            (clip_rect.size.height * angle.sin()).abs();
         let length = if length_0 > length_1 {
             length_0
         } else {
             length_1
         };
 
-        let mut prev = &stops[0];
-        for next in &stops[1..] {
-            let prev_point = util::lerp_points(start_point, end_point, prev.offset);
+        let mut prev_color = stops[0].color;
+        let mut prev_offset = 0.0;
+        for next in &stops[..] {
+            let prev_point = util::lerp_points(start_point, end_point, prev_offset);
             let next_point = util::lerp_points(start_point, end_point, next.offset);
             let midpoint = util::lerp_points(&prev_point, &next_point, 0.5);
 
@@ -573,11 +576,12 @@ impl<'a> BatchBuilder<'a> {
                                &rect,
                                &rect_uv,
                                &dummy_mask_image.pixel_rect,
-                               &[next.color, next.color, prev.color, prev.color],
+                               &[next.color, next.color, prev_color, prev_color],
                                PackedVertexColorMode::Gradient,
                                None);
 
-            prev = next
+            prev_color = next.color;
+            prev_offset = next.offset
         }
     }
 
