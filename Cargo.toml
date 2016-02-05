@@ -37,7 +37,7 @@ euclid = {version = "0.4", features = ["plugins"]}
 time = "*"
 fnv="*"
 scoped_threadpool = "0.1.6"
-app_units = "0.1"
+app_units = {version = "0.2", features = ["plugins"]}
 lazy_static = "0.1"
 
 [target.x86_64-apple-darwin.dependencies]
