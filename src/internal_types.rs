@@ -4,10 +4,10 @@ use device::{TextureId, TextureFilter};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeListItem, FreeListItemId};
+use num::Zero;
 use profiler::BackendProfileCounters;
 use std::collections::HashMap;
 use std::collections::hash_state::DefaultState;
-use std::num::Zero;
 use std::ops::Add;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -64,6 +64,11 @@ impl Add for DevicePixel {
 impl Zero for DevicePixel {
     fn zero() -> DevicePixel {
         DevicePixel(0)
+    }
+
+    fn is_zero(&self) -> bool {
+        let DevicePixel(value) = *self;
+        value == 0
     }
 }
 

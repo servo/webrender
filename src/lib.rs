@@ -58,6 +58,7 @@ extern crate euclid;
 extern crate fnv;
 extern crate gleam;
 extern crate ipc_channel;
+extern crate num;
 extern crate notify;
 extern crate scoped_threadpool;
 extern crate time;
