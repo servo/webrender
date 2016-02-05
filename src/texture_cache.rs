@@ -36,7 +36,7 @@ const MINIMUM_LARGE_RECT_SIZE: u32 = 32;
 
 pub type TextureCacheItemId = FreeListItemId;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BorderType {
     NoBorder,
     SinglePixel,
@@ -631,10 +631,7 @@ impl TextureCache {
     }
 
     pub fn free_render_target(&mut self, texture_id: TextureId) {
-        let op = TextureUpdateOp::Update(0,
-                                         0,
-                                         0,
-                                         0,
+        let op = TextureUpdateOp::Update(0, 0, 0, 0,
                                          TextureUpdateDetails::Blit(Vec::new()));
         let update_op = TextureUpdate {
             id: texture_id,
@@ -820,7 +817,7 @@ impl TextureCache {
                                                height,
                                                op.image_format,
                                                TextureCacheItemKind::Standard,
-                                               BorderType::NoBorder,
+                                               BorderType::SinglePixel,
                                                TextureFilter::Linear);
 
                 assert!(allocation.kind == AllocationKind::TexturePage);        // TODO: Handle large border radii not fitting in texture cache page
@@ -837,7 +834,8 @@ impl TextureCache {
                                                     op.inner_radius_x,
                                                     op.inner_radius_y,
                                                     op.index,
-                                                    op.inverted)),
+                                                    op.inverted,
+                                                    BorderType::SinglePixel)),
                 }
             }
             &RasterItem::BoxShadow(ref op) => {
@@ -853,7 +851,7 @@ impl TextureCache {
                                                device_raster_size.height,
                                                ImageFormat::RGBA8,
                                                TextureCacheItemKind::Standard,
-                                               BorderType::NoBorder,
+                                               BorderType::SinglePixel,
                                                TextureFilter::Linear);
 
                 // TODO(pcwalton): Handle large box shadows not fitting in texture cache page.
@@ -875,7 +873,8 @@ impl TextureCache {
                                                   op.box_rect_size.1.to_f32_px())),
                             Point2D::new(op.raster_origin.0.to_f32_px(),
                                          op.raster_origin.1.to_f32_px()),
-                            op.inverted)),
+                            op.inverted,
+                            BorderType::SinglePixel)),
                 }
             }
         };
@@ -1033,14 +1032,14 @@ impl TextureCache {
                               glyph_size.width, glyph_size.height,
                               ImageFormat::RGBA8,
                               TextureCacheItemKind::Standard,
-                              BorderType::NoBorder,
+                              BorderType::SinglePixel,
                               TextureFilter::Linear);
                 self.allocate(horizontal_blur_image_id,
                               0, 0,
                               width, height,
                               ImageFormat::RGBA8,
                               TextureCacheItemKind::Alternate,
-                              BorderType::NoBorder,
+                              BorderType::SinglePixel,
                               TextureFilter::Linear);
                 let unblurred_glyph_item = self.get(unblurred_glyph_image_id);
                 let horizontal_blur_item = self.get(horizontal_blur_image_id);
@@ -1053,7 +1052,8 @@ impl TextureCache {
                                                glyph_size,
                                                blur_radius,
                                                unblurred_glyph_item.to_image(),
-                                               horizontal_blur_item.to_image()))
+                                               horizontal_blur_item.to_image(),
+                                               BorderType::SinglePixel))
             }
             (AllocationKind::Standalone, TextureInsertOp::Blit(bytes)) => {
                 TextureUpdateOp::Create(width,

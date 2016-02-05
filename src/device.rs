@@ -1379,13 +1379,13 @@ impl Device {
                              data);
     }
 
-    fn update_texture(&mut self,
-                      texture_id: TextureId,
-                      x0: u32,
-                      y0: u32,
-                      width: u32,
-                      height: u32,
-                      data: &[u8]) {
+    pub fn update_texture(&mut self,
+                          texture_id: TextureId,
+                          x0: u32,
+                          y0: u32,
+                          width: u32,
+                          height: u32,
+                          data: &[u8]) {
         debug_assert!(self.inside_frame);
 
         let (gl_format, bpp) = match self.textures.get(&texture_id).unwrap().format {
@@ -1406,36 +1406,23 @@ impl Device {
                                          data);
     }
 
-    pub fn update_texture_for_noncomposite_operation(&mut self,
-                                                     texture_id: TextureId,
-                                                     x0: u32,
-                                                     y0: u32,
-                                                     width: u32,
-                                                     height: u32,
-                                                     data: &[u8]) {
-        self.update_texture(texture_id, x0, y0, width, height, data)
-    }
-
-    fn read_framebuffer_rect_for_2d_texture(&mut self,
-                                            texture_id: TextureId,
-                                            x: i32, y: i32,
-                                            width: i32, height: i32) {
+    pub fn read_framebuffer_rect(&mut self,
+                                 texture_id: TextureId,
+                                 dest_x: i32,
+                                 dest_y: i32,
+                                 src_x: i32,
+                                 src_y: i32,
+                                 width: i32,
+                                 height: i32) {
         self.bind_color_texture(texture_id);
         gl::copy_tex_sub_image_2d(gl::TEXTURE_2D,
                                   0,
-                                  0,
-                                  0,
-                                  x as gl::GLint, y as gl::GLint,
-                                  width as gl::GLint, height as gl::GLint);
-    }
-
-    pub fn read_framebuffer_rect(&mut self,
-                                 texture_id: TextureId,
-                                 x: i32,
-                                 y: i32,
-                                 width: i32,
-                                 height: i32) {
-        self.read_framebuffer_rect_for_2d_texture(texture_id, x, y, width, height)
+                                  dest_x,
+                                  dest_y,
+                                  src_x as gl::GLint,
+                                  src_y as gl::GLint,
+                                  width as gl::GLint,
+                                  height as gl::GLint);
     }
 
     #[cfg(not(any(target_os = "android", target_os = "gonk")))]

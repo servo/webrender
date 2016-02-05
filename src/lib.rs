@@ -1,5 +1,5 @@
 #![feature(hashmap_hasher)]
-#![feature(slice_patterns, step_by, convert, zero_one)]
+#![feature(slice_patterns, step_by, zero_one)]
 #![feature(mpsc_select)]
 
 #[macro_use]
