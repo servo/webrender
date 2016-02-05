@@ -5,9 +5,9 @@ use frame::{DrawListGroup, FrameId};
 use internal_types::{DrawListItemIndex, CompiledNode, StackingContextInfo};
 use internal_types::{BatchList, StackingContextIndex};
 use internal_types::{DrawListGroupId};
+use std::hash::BuildHasherDefault;
 use resource_cache::ResourceCache;
 use std::collections::HashMap;
-use std::collections::hash_state::DefaultState;
 use webrender_traits::SpecificDisplayItem;
 
 pub trait NodeCompiler {
@@ -16,7 +16,7 @@ pub trait NodeCompiler {
                frame_id: FrameId,
                device_pixel_ratio: f32,
                stacking_context_info: &Vec<StackingContextInfo>,
-               draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, DefaultState<FnvHasher>>);
+               draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, BuildHasherDefault<FnvHasher>>);
 }
 
 impl NodeCompiler for AABBTreeNode {
@@ -25,7 +25,7 @@ impl NodeCompiler for AABBTreeNode {
                frame_id: FrameId,
                device_pixel_ratio: f32,
                stacking_context_info: &Vec<StackingContextInfo>,
-               draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, DefaultState<FnvHasher>>) {
+               draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, BuildHasherDefault<FnvHasher>>) {
         let mut compiled_node = CompiledNode::new();
         let mut vertex_buffer = VertexBuffer::new();
 

@@ -4,7 +4,7 @@ use internal_types::DrawListId;
 use optimizer;
 use resource_cache::ResourceCache;
 use std::collections::HashMap;
-use std::collections::hash_state::DefaultState;
+use std::hash::BuildHasherDefault;
 use webrender_traits::{PipelineId, Epoch};
 use webrender_traits::{DisplayListBuilder};
 use webrender_traits::{ColorF, DisplayListId, StackingContext, StackingContextId};
@@ -24,10 +24,10 @@ pub struct ScenePipeline {
 
 pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
-    pub pipeline_map: HashMap<PipelineId, ScenePipeline, DefaultState<FnvHasher>>,
+    pub pipeline_map: HashMap<PipelineId, ScenePipeline, BuildHasherDefault<FnvHasher>>,
     pub pipeline_sizes: HashMap<PipelineId, Size2D<f32>>,
-    pub display_list_map: HashMap<DisplayListId, SceneDisplayList, DefaultState<FnvHasher>>,
-    pub stacking_context_map: HashMap<StackingContextId, SceneStackingContext, DefaultState<FnvHasher>>,
+    pub display_list_map: HashMap<DisplayListId, SceneDisplayList, BuildHasherDefault<FnvHasher>>,
+    pub stacking_context_map: HashMap<StackingContextId, SceneStackingContext, BuildHasherDefault<FnvHasher>>,
 }
 
 #[derive(Clone, Debug)]
@@ -60,9 +60,9 @@ impl Scene {
         Scene {
             root_pipeline_id: None,
             pipeline_sizes: HashMap::new(),
-            pipeline_map: HashMap::with_hash_state(Default::default()),
-            display_list_map: HashMap::with_hash_state(Default::default()),
-            stacking_context_map: HashMap::with_hash_state(Default::default()),
+            pipeline_map: HashMap::with_hasher(Default::default()),
+            display_list_map: HashMap::with_hasher(Default::default()),
+            stacking_context_map: HashMap::with_hasher(Default::default()),
         }
     }
 

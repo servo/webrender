@@ -15,8 +15,8 @@ use profiler::{Profiler, BackendProfileCounters};
 use profiler::{RendererProfileTimers, RendererProfileCounters};
 use render_backend::RenderBackend;
 use std::collections::HashMap;
-use std::collections::hash_state::DefaultState;
 use std::f32;
+use std::hash::BuildHasherDefault;
 use std::mem;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -109,7 +109,7 @@ pub struct Renderer {
     pending_shader_updates: Vec<PathBuf>,
     current_frame: Option<RendererFrame>,
     device_pixel_ratio: f32,
-    vertex_buffers: HashMap<VertexBufferId, Vec<VertexBufferAndOffset>, DefaultState<FnvHasher>>,
+    vertex_buffers: HashMap<VertexBufferId, Vec<VertexBufferAndOffset>, BuildHasherDefault<FnvHasher>>,
     raster_batches: Vec<RasterBatch>,
     quad_vertex_buffer: Option<VBOId>,
 
@@ -260,7 +260,7 @@ impl Renderer {
             result_rx: result_rx,
             device: device,
             current_frame: None,
-            vertex_buffers: HashMap::with_hash_state(Default::default()),
+            vertex_buffers: HashMap::with_hasher(Default::default()),
             raster_batches: Vec::new(),
             quad_vertex_buffer: None,
             pending_texture_updates: Vec::new(),
@@ -1023,7 +1023,7 @@ impl Renderer {
                                                       blit_job.size.height as i32);
 
                 }
-                BorderType::NoBorder => {}
+                BorderType::_NoBorder => {}
             }
         }
     }

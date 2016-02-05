@@ -8,14 +8,13 @@ use internal_types::{Glyph, GlyphKey, RasterItem, DevicePixel};
 use resource_cache::ResourceCache;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
-use std::collections::hash_state::DefaultState;
-//use tessellator;
+use std::hash::BuildHasherDefault;
 use webrender_traits::{BorderRadius, BorderStyle, BoxShadowClipMode, ImageRendering};
 use webrender_traits::{FontKey, ImageFormat, ImageKey, SpecificDisplayItem};
 
-type RequiredImageSet = HashSet<(ImageKey, ImageRendering), DefaultState<FnvHasher>>;
-type RequiredGlyphMap = HashMap<FontKey, HashSet<Glyph>, DefaultState<FnvHasher>>;
-type RequiredRasterSet = HashSet<RasterItem, DefaultState<FnvHasher>>;
+type RequiredImageSet = HashSet<(ImageKey, ImageRendering), BuildHasherDefault<FnvHasher>>;
+type RequiredGlyphMap = HashMap<FontKey, HashSet<Glyph>, BuildHasherDefault<FnvHasher>>;
+type RequiredRasterSet = HashSet<RasterItem, BuildHasherDefault<FnvHasher>>;
 
 pub struct ResourceList {
     required_images: RequiredImageSet,
@@ -27,9 +26,9 @@ pub struct ResourceList {
 impl ResourceList {
     pub fn new(device_pixel_ratio: f32) -> ResourceList {
         ResourceList {
-            required_glyphs: HashMap::with_hash_state(Default::default()),
-            required_images: HashSet::with_hash_state(Default::default()),
-            required_rasters: HashSet::with_hash_state(Default::default()),
+            required_glyphs: HashMap::with_hasher(Default::default()),
+            required_images: HashSet::with_hasher(Default::default()),
+            required_rasters: HashSet::with_hasher(Default::default()),
             device_pixel_ratio: device_pixel_ratio,
         }
     }

@@ -18,7 +18,7 @@ use resource_list::BuildRequiredResources;
 use scene::{SceneStackingContext, ScenePipeline, Scene, SceneItem, SpecificSceneItem};
 use scoped_threadpool;
 use std::collections::HashMap;
-use std::collections::hash_state::DefaultState;
+use std::hash::BuildHasherDefault;
 use std::mem;
 use texture_cache::TexturePage;
 use util;
@@ -175,8 +175,8 @@ impl RenderTarget {
 
     fn collect_and_sort_visible_batches(&mut self,
                                         resource_cache: &mut ResourceCache,
-                                        draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, DefaultState<FnvHasher>>,
-                                        layers: &HashMap<ScrollLayerId, Layer, DefaultState<FnvHasher>>,
+                                        draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, BuildHasherDefault<FnvHasher>>,
+                                        layers: &HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>,
                                         stacking_context_info: &Vec<StackingContextInfo>,
                                         device_pixel_ratio: f32) -> DrawLayer {
         let mut commands = vec![];
@@ -349,14 +349,14 @@ impl RenderTarget {
 }
 
 pub struct Frame {
-    pub layers: HashMap<ScrollLayerId, Layer, DefaultState<FnvHasher>>,
-    pub pipeline_epoch_map: HashMap<PipelineId, Epoch, DefaultState<FnvHasher>>,
+    pub layers: HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>,
+    pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
     pub pending_updates: BatchUpdateList,
     pub root: Option<RenderTarget>,
     pub stacking_context_info: Vec<StackingContextInfo>,
     next_render_target_id: RenderTargetId,
     next_draw_list_group_id: DrawListGroupId,
-    draw_list_groups: HashMap<DrawListGroupId, DrawListGroup, DefaultState<FnvHasher>>,
+    draw_list_groups: HashMap<DrawListGroupId, DrawListGroup, BuildHasherDefault<FnvHasher>>,
     root_scroll_layer_id: Option<ScrollLayerId>,
     id: FrameId,
 }
@@ -557,21 +557,21 @@ impl StackingContextHelpers for StackingContext {
 impl Frame {
     pub fn new() -> Frame {
         Frame {
-            pipeline_epoch_map: HashMap::with_hash_state(Default::default()),
+            pipeline_epoch_map: HashMap::with_hasher(Default::default()),
             pending_updates: BatchUpdateList::new(),
             root: None,
-            layers: HashMap::with_hash_state(Default::default()),
+            layers: HashMap::with_hasher(Default::default()),
             stacking_context_info: Vec::new(),
             next_render_target_id: RenderTargetId(0),
             next_draw_list_group_id: DrawListGroupId(0),
-            draw_list_groups: HashMap::with_hash_state(Default::default()),
+            draw_list_groups: HashMap::with_hasher(Default::default()),
             root_scroll_layer_id: None,
             id: FrameId(0),
         }
     }
 
     pub fn reset(&mut self, resource_cache: &mut ResourceCache)
-                 -> HashMap<ScrollLayerId, Point2D<f32>, DefaultState<FnvHasher>> {
+                 -> HashMap<ScrollLayerId, Point2D<f32>, BuildHasherDefault<FnvHasher>> {
         self.draw_list_groups.clear();
         self.pipeline_epoch_map.clear();
         self.stacking_context_info.clear();
@@ -582,7 +582,7 @@ impl Frame {
 
         // Free any render targets from last frame.
         // TODO: This should really re-use existing targets here...
-        let mut old_layer_offsets = HashMap::with_hash_state(Default::default());
+        let mut old_layer_offsets = HashMap::with_hasher(Default::default());
         for (layer_id, mut old_layer) in &mut self.layers.drain() {
             old_layer.reset(&mut self.pending_updates);
             old_layer_offsets.insert(layer_id, old_layer.scroll_offset);

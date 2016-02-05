@@ -7,7 +7,7 @@ use freelist::{FreeListItem, FreeListItemId};
 use num::Zero;
 use profiler::BackendProfileCounters;
 use std::collections::HashMap;
-use std::collections::hash_state::DefaultState;
+use std::hash::BuildHasherDefault;
 use std::ops::Add;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -544,12 +544,12 @@ impl DrawLayer {
 }
 
 pub struct RendererFrame {
-    pub pipeline_epoch_map: HashMap<PipelineId, Epoch, DefaultState<FnvHasher>>,
+    pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
     pub root_layer: DrawLayer,
 }
 
 impl RendererFrame {
-    pub fn new(pipeline_epoch_map: HashMap<PipelineId, Epoch, DefaultState<FnvHasher>>,
+    pub fn new(pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
                root_layer: DrawLayer) -> RendererFrame {
         RendererFrame {
             pipeline_epoch_map: pipeline_epoch_map,

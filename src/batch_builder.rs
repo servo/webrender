@@ -12,9 +12,8 @@ use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
-use std::collections::hash_state::DefaultState;
 use std::f32;
-//use tessellator::{self, BorderCornerTessellation};
+use std::hash::BuildHasherDefault;
 use texture_cache::{TextureCacheItem};
 use util;
 use util::RectVaryings;
@@ -415,8 +414,8 @@ impl<'a> BatchBuilder<'a> {
 
         let mut text_batches: HashMap<TextureId,
                                       Vec<RectPolygon<RectUv<f32>>>,
-                                      DefaultState<FnvHasher>> =
-            HashMap::with_hash_state(Default::default());
+                                      BuildHasherDefault<FnvHasher>> =
+            HashMap::with_hasher(Default::default());
 
         for glyph in glyphs {
             glyph_key.index = glyph.index;
@@ -540,7 +539,6 @@ impl<'a> BatchBuilder<'a> {
         let dummy_mask_image = resource_cache.get_dummy_mask_image();
 
         debug_assert!(stops.len() >= 2);
-        let distance = util::distance(start_point, end_point);
 
         let mut angle = ((end_point.y - start_point.y) / (end_point.x - start_point.x)).atan() +
             f32::consts::FRAC_PI_2;

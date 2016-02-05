@@ -13,8 +13,8 @@ use scoped_threadpool;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
-use std::collections::hash_state::DefaultState;
 use std::fmt::Debug;
+use std::hash::BuildHasherDefault;
 use std::hash::Hash;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
 use std::sync::atomic::Ordering::SeqCst;
@@ -48,15 +48,15 @@ struct CachedImageInfo {
 }
 
 pub struct ResourceClassCache<K,V> {
-    resources: HashMap<K, V, DefaultState<FnvHasher>>,
-    last_access_times: HashMap<K, FrameId, DefaultState<FnvHasher>>,
+    resources: HashMap<K, V, BuildHasherDefault<FnvHasher>>,
+    last_access_times: HashMap<K, FrameId, BuildHasherDefault<FnvHasher>>,
 }
 
 impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resource {
     fn new() -> ResourceClassCache<K,V> {
         ResourceClassCache {
-            resources: HashMap::with_hash_state(Default::default()),
-            last_access_times: HashMap::with_hash_state(Default::default()),
+            resources: HashMap::with_hasher(Default::default()),
+            last_access_times: HashMap::with_hasher(Default::default()),
         }
     }
 
@@ -114,11 +114,11 @@ pub struct ResourceCache {
     cached_images: ResourceClassCache<(ImageKey, ImageRendering), CachedImageInfo>,
 
     // TODO(pcwalton): Figure out the lifecycle of these.
-    webgl_textures: HashMap<WebGLContextId, TextureId, DefaultState<FnvHasher>>,
+    webgl_textures: HashMap<WebGLContextId, TextureId, BuildHasherDefault<FnvHasher>>,
 
     draw_lists: FreeList<DrawList>,
-    font_templates: HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>,
-    image_templates: HashMap<ImageKey, ImageResource, DefaultState<FnvHasher>>,
+    font_templates: HashMap<FontKey, FontTemplate, BuildHasherDefault<FnvHasher>>,
+    image_templates: HashMap<ImageKey, ImageResource, BuildHasherDefault<FnvHasher>>,
     device_pixel_ratio: f32,
     enable_aa: bool,
 
@@ -156,10 +156,10 @@ impl ResourceCache {
             cached_glyphs: ResourceClassCache::new(),
             cached_rasters: ResourceClassCache::new(),
             cached_images: ResourceClassCache::new(),
-            webgl_textures: HashMap::with_hash_state(Default::default()),
+            webgl_textures: HashMap::with_hasher(Default::default()),
             draw_lists: FreeList::new(),
-            font_templates: HashMap::with_hash_state(Default::default()),
-            image_templates: HashMap::with_hash_state(Default::default()),
+            font_templates: HashMap::with_hasher(Default::default()),
+            image_templates: HashMap::with_hasher(Default::default()),
             texture_cache: texture_cache,
             pending_raster_jobs: Vec::new(),
             device_pixel_ratio: device_pixel_ratio,
@@ -431,7 +431,7 @@ impl ResourceCache {
 
 fn run_raster_jobs(thread_pool: &mut scoped_threadpool::Pool,
                    pending_raster_jobs: &mut Vec<GlyphRasterJob>,
-                   font_templates: &HashMap<FontKey, FontTemplate, DefaultState<FnvHasher>>,
+                   font_templates: &HashMap<FontKey, FontTemplate, BuildHasherDefault<FnvHasher>>,
                    device_pixel_ratio: f32,
                    enable_aa: bool) {
     if pending_raster_jobs.is_empty() {

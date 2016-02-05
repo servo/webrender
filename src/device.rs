@@ -6,8 +6,8 @@ use internal_types::{PackedVertexForTextureCacheUpdate, RenderTargetMode, Textur
 use internal_types::{VertexAttribute, DebugFontVertex, DebugColorVertex};
 use notify::{self, Watcher};
 use std::collections::HashMap;
-use std::collections::hash_state::DefaultState;
 use std::fs::File;
+use std::hash::BuildHasherDefault;
 use std::io::Read;
 use std::path::PathBuf;
 use std::mem;
@@ -792,10 +792,10 @@ pub struct Device {
 
     // resources
     resource_path: PathBuf,
-    textures: HashMap<TextureId, Texture, DefaultState<FnvHasher>>,
-    raw_textures: HashMap<TextureId, (u32, u32, u32, u32), DefaultState<FnvHasher>>,
-    programs: HashMap<ProgramId, Program, DefaultState<FnvHasher>>,
-    vaos: HashMap<VAOId, VAO, DefaultState<FnvHasher>>,
+    textures: HashMap<TextureId, Texture, BuildHasherDefault<FnvHasher>>,
+    raw_textures: HashMap<TextureId, (u32, u32, u32, u32), BuildHasherDefault<FnvHasher>>,
+    programs: HashMap<ProgramId, Program, BuildHasherDefault<FnvHasher>>,
+    vaos: HashMap<VAOId, VAO, BuildHasherDefault<FnvHasher>>,
 
     // misc.
     vertex_shader_preamble: String,
@@ -839,10 +839,10 @@ impl Device {
             bound_fbo: FBOId(0),
             default_fbo: 0,
 
-            textures: HashMap::with_hash_state(Default::default()),
-            raw_textures: HashMap::with_hash_state(Default::default()),
-            programs: HashMap::with_hash_state(Default::default()),
-            vaos: HashMap::with_hash_state(Default::default()),
+            textures: HashMap::with_hasher(Default::default()),
+            raw_textures: HashMap::with_hasher(Default::default()),
+            programs: HashMap::with_hasher(Default::default()),
+            vaos: HashMap::with_hasher(Default::default()),
 
             vertex_shader_preamble: vertex_shader_preamble,
             fragment_shader_preamble: fragment_shader_preamble,

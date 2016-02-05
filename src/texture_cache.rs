@@ -9,10 +9,9 @@ use internal_types::{RectUv, DevicePixel};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::collections::hash_state::DefaultState;
+use std::hash::BuildHasherDefault;
 use std::mem;
 use std::slice::Iter;
-//use tessellator::BorderCornerTessellation;
 use util;
 use webrender_traits::{ImageFormat};
 
@@ -38,7 +37,7 @@ pub type TextureCacheItemId = FreeListItemId;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BorderType {
-    NoBorder,
+    _NoBorder,
     SinglePixel,
 }
 
@@ -532,13 +531,13 @@ impl TextureCacheArena {
 
 pub struct TextureCache {
     free_texture_ids: Vec<TextureId>,
-    free_texture_levels: HashMap<ImageFormat, Vec<FreeTextureLevel>, DefaultState<FnvHasher>>,
+    free_texture_levels: HashMap<ImageFormat, Vec<FreeTextureLevel>, BuildHasherDefault<FnvHasher>>,
     alternate_free_texture_levels: HashMap<ImageFormat,
                                            Vec<FreeTextureLevel>,
-                                           DefaultState<FnvHasher>>,
+                                           BuildHasherDefault<FnvHasher>>,
     //render_target_free_texture_levels: HashMap<ImageFormat,
     //                                           Vec<FreeTextureLevel>,
-    //                                           DefaultState<FnvHasher>>,
+    //                                           BuildHasherDefault<FnvHasher>>,
     items: FreeList<TextureCacheItem>,
     arena: TextureCacheArena,
     pending_updates: TextureUpdateList,
@@ -560,9 +559,9 @@ impl TextureCache {
     pub fn new(free_texture_ids: Vec<TextureId>) -> TextureCache {
         TextureCache {
             free_texture_ids: free_texture_ids,
-            free_texture_levels: HashMap::with_hash_state(Default::default()),
-            alternate_free_texture_levels: HashMap::with_hash_state(Default::default()),
-            //render_target_free_texture_levels: HashMap::with_hash_state(Default::default()),
+            free_texture_levels: HashMap::with_hasher(Default::default()),
+            alternate_free_texture_levels: HashMap::with_hasher(Default::default()),
+            //render_target_free_texture_levels: HashMap::with_hasher(Default::default()),
             items: FreeList::new(),
             pending_updates: TextureUpdateList::new(),
             arena: TextureCacheArena::new(),
@@ -676,7 +675,7 @@ impl TextureCache {
         };
 
         let border_size = match border_type {
-            BorderType::NoBorder => 0,
+            BorderType::_NoBorder => 0,
             BorderType::SinglePixel => 1,
         };
         let requested_size = Size2D::new(requested_width, requested_height);
@@ -943,7 +942,7 @@ impl TextureCache {
             (AllocationKind::TexturePage, TextureInsertOp::Blit(bytes)) => {
 
                 match border_type {
-                    BorderType::NoBorder => {}
+                    BorderType::_NoBorder => {}
                     BorderType::SinglePixel => {
                         let bpp = match format {
                             ImageFormat::A8 => 1,

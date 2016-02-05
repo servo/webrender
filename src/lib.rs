@@ -1,4 +1,3 @@
-#![feature(hashmap_hasher)]
 #![feature(slice_patterns, step_by, zero_one)]
 #![feature(mpsc_select)]
 
