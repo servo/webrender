@@ -852,7 +852,7 @@ impl Renderer {
     fn flush_raster_batches(&mut self) {
         let batches = mem::replace(&mut self.raster_batches, vec![]);
         if batches.len() > 0 {
-            println!("flushing {:?} raster batches", batches.len());
+            //println!("flushing {:?} raster batches", batches.len());
 
             gl::disable(gl::DEPTH_TEST);
             gl::disable(gl::SCISSOR_TEST);
@@ -940,7 +940,7 @@ impl Renderer {
         self.profile_counters.vertices.add(batch.indices.len());
         self.profile_counters.draw_calls.inc();
 
-        println!("drawing triangles due to GL texture cache update");
+        //println!("drawing triangles due to GL texture cache update");
         self.device.draw_triangles_u16(0, batch.indices.len() as gl::GLint);
         self.device.delete_vao(vao_id);
 
@@ -1381,8 +1381,8 @@ impl Renderer {
                                         src_target.size.height as u32));
 
                         let (texture_width, texture_height) = self.device.get_texture_dimensions(info.texture_id);
-                        let texture_width = texture_width as f32;
-                        let texture_height = texture_height as f32;
+                        let texture_width = texture_width as f32 / self.device_pixel_ratio;
+                        let texture_height = texture_height as f32 / self.device_pixel_ratio;
                         let texture_uv = Rect::new(
                             Point2D::new(
                                 pixel_uv.origin.x as f32 / texture_width,
