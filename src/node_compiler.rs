@@ -98,7 +98,8 @@ impl NodeCompiler for AABBTreeNode {
                                                                 frame_id);
                                 }
                                 SpecificDisplayItem::Gradient(ref info) => {
-                                    builder.add_gradient(&info.start_point,
+                                    builder.add_gradient(&display_item.rect,
+                                                         &info.start_point,
                                                          &info.end_point,
                                                          &info.stops,
                                                          resource_cache,

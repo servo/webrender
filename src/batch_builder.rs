@@ -507,16 +507,16 @@ impl<'a> BatchBuilder<'a> {
     }
 
     pub fn add_gradient(&mut self,
+                        rect: &Rect<f32>,
                         start_point: &Point2D<f32>,
                         end_point: &Point2D<f32>,
                         stops: &[GradientStop],
                         resource_cache: &ResourceCache,
                         frame_id: FrameId) {
         // Fast paths for axis-aligned gradients:
-        let clip_rect = self.clip_in_rect();
         if start_point.x == end_point.x {
-            let rect = Rect::new(Point2D::new(clip_rect.origin.x, start_point.y),
-                                 Size2D::new(clip_rect.size.width, end_point.y - start_point.y));
+            let rect = Rect::new(Point2D::new(rect.origin.x, start_point.y),
+                                 Size2D::new(rect.size.width, end_point.y - start_point.y));
             self.add_axis_aligned_gradient_with_stops(&rect,
                                                       AxisDirection::Vertical,
                                                       stops,
@@ -525,8 +525,8 @@ impl<'a> BatchBuilder<'a> {
             return
         }
         if start_point.y == end_point.y {
-            let rect = Rect::new(Point2D::new(start_point.x, clip_rect.origin.y),
-                                 Size2D::new(end_point.x - start_point.x, clip_rect.size.height));
+            let rect = Rect::new(Point2D::new(start_point.x, rect.origin.y),
+                                 Size2D::new(end_point.x - start_point.x, rect.size.height));
             self.add_axis_aligned_gradient_with_stops(&rect,
                                                       AxisDirection::Horizontal,
                                                       stops,
@@ -548,10 +548,10 @@ impl<'a> BatchBuilder<'a> {
 
         // A simple way to estimate the length of each strip we'll need. Providing a good estimate
         // saves fragment shader invocations.
-        let length_0 = (clip_rect.size.width * angle.sin()).abs() +
-            (clip_rect.size.height * angle.cos()).abs();
-        let length_1 = (clip_rect.size.width * angle.cos()).abs() +
-            (clip_rect.size.height * angle.sin()).abs();
+        let length_0 = (rect.size.width * angle.sin()).abs() +
+            (rect.size.height * angle.cos()).abs();
+        let length_1 = (rect.size.width * angle.cos()).abs() +
+            (rect.size.height * angle.sin()).abs();
         let length = if length_0 > length_1 {
             length_0
         } else {
