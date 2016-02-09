@@ -55,11 +55,6 @@ impl NodeCompiler for AABBTreeNode {
                         let display_item = &draw_list.items[index as usize];
 
                         let clip_rect = display_item.clip.main.intersection(&context.local_clip_rect);
-                        let clip_rect = clip_rect.and_then(|clip_rect| {
-                            let split_rect_local_space = self.split_rect
-                                                             .translate(&-context.offset_from_layer);
-                            clip_rect.intersection(&split_rect_local_space)
-                        });
 
                         if let Some(ref clip_rect) = clip_rect {
                             builder.push_clip_in_rect(clip_rect);
