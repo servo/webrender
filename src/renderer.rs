@@ -28,7 +28,7 @@ use time::precise_time_ns;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
 use webrender_traits::{ImageFormat, MixBlendMode, RenderApiSender};
 use offscreen_gl_context::{NativeGLContext, NativeGLContextMethods};
-//use util;
+use util::RectHelpers;
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
 pub const MAX_RASTER_OP_SIZE: u32 = 2048;
@@ -135,6 +135,8 @@ pub struct Renderer {
     blur_program_id: ProgramId,
     u_direction: UniformLocation,
 
+    mask_program_id: ProgramId,
+
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
     enable_profiler: bool,
@@ -175,6 +177,7 @@ impl Renderer {
         let filter_program_id = device.create_program("filter");
         let box_shadow_program_id = device.create_program("box_shadow");
         let blur_program_id = device.create_program("blur");
+        let mask_program_id = device.create_program("mask");
         let max_raster_op_size = MAX_RASTER_OP_SIZE * options.device_pixel_ratio as u32;
 
         let texture_ids = device.create_texture_ids(1024);
@@ -274,6 +277,7 @@ impl Renderer {
             blit_program_id: blit_program_id,
             box_shadow_program_id: box_shadow_program_id,
             blur_program_id: blur_program_id,
+            mask_program_id: mask_program_id,
             u_blend_params: UniformLocation::invalid(),
             u_filter_params: UniformLocation::invalid(),
             u_direction: UniformLocation::invalid(),
@@ -1134,61 +1138,154 @@ impl Renderer {
                     self.device.set_uniform_mat4_array(self.u_quad_transform_array,
                                                        &info.matrix_palette);
 
-                    for draw_call in &info.draw_calls {
-                        let vao_id = self.get_or_create_similar_vao_with_offset(
-                            draw_call.vertex_buffer_id,
-                            VertexFormat::Rectangles,
-                            draw_call.first_instance);
-                        self.device.bind_vao(vao_id);
+                    // Render any masks to the stencil buffer.
+                    for region in &info.regions {
+                        let layer_rect = Rect::new(layer.origin, layer.size);
+                        let mut valid_mask_count = 0;
+                        for mask in &region.masks {
 
-                        if draw_call.tile_params.len() > 0 {
-                            // TODO(gw): Avoid alloc here...
-                            let mut floats = Vec::new();
-                            for vec in &draw_call.tile_params {
-                                floats.push(vec.u0);
-                                floats.push(vec.v0);
-                                floats.push(vec.u_size);
-                                floats.push(vec.v_size);
+                            // If the mask is larger than the viewport / scissor rect
+                            // then there is no need to draw it.
+                            if mask.transform == Matrix4::identity() &&
+                               mask.rect.contains_rect(&layer_rect) {
+                                continue;
                             }
 
-                            self.device.set_uniform_vec4_array(self.u_tile_params,
-                                                               &floats);
-                        }
-
-                        if draw_call.clip_rects.len() > 0 {
-                            // TODO(gw): Avoid alloc here...
-                            let mut floats = Vec::new();
-                            for rect in &draw_call.clip_rects {
-                                floats.push(rect.origin.x);
-                                floats.push(rect.origin.y);
-                                floats.push(rect.origin.x + rect.size.width);
-                                floats.push(rect.origin.y + rect.size.height);
+                            // First time we find a valid mask, clear stencil and setup render states
+                            if valid_mask_count == 0 {
+                                gl::clear(gl::STENCIL_BUFFER_BIT);
+                                gl::enable(gl::STENCIL_TEST);
+                                gl::color_mask(false, false, false, false);
+                                gl::depth_mask(false);
+                                gl::stencil_mask(0xff);
+                                gl::stencil_func(gl::ALWAYS, 1, 0xff);
+                                gl::stencil_op(gl::KEEP, gl::INCR, gl::INCR)
                             }
 
-                            self.device.set_uniform_vec4_array(self.u_clip_rects,
-                                                               &floats);
+                            // TODO(gw): The below is a copy pasta and can be trivially optimized.
+                            let (mut indices, mut vertices) = (vec![], vec![]);
+                            indices.push(0);
+                            indices.push(1);
+                            indices.push(2);
+                            indices.push(2);
+                            indices.push(3);
+                            indices.push(1);
+
+                            let color = ColorF::new(0.0, 0.0, 0.0, 0.0);
+
+                            let x0 = mask.rect.origin.x;
+                            let y0 = mask.rect.origin.y;
+                            let x1 = x0 + mask.rect.size.width;
+                            let y1 = y0 + mask.rect.size.height;
+
+                            vertices.extend_from_slice(&[
+                                PackedVertex::from_components(
+                                    x0, y0,
+                                    &color,
+                                    0.0, 0.0,
+                                    0.0, 0.0),
+                                PackedVertex::from_components(
+                                    x1, y0,
+                                    &color,
+                                    1.0, 0.0,
+                                    1.0, 0.0),
+                                PackedVertex::from_components(
+                                    x0, y1,
+                                    &color,
+                                    0.0, 1.0,
+                                    0.0, 1.0),
+                                PackedVertex::from_components(
+                                    x1, y1,
+                                    &color,
+                                    1.0, 1.0,
+                                    1.0, 1.0),
+                            ]);
+
+                            let wvp = projection.mul(&mask.transform);
+                            self.device.bind_program(self.mask_program_id, &wvp);
+
+                            draw_simple_triangles(&mut self.device,
+                                                  &mut self.profile_counters,
+                                                  &indices[..],
+                                                  &vertices[..],
+                                                  TextureId(0));
+
+                            valid_mask_count += 1;
                         }
 
-                        self.device.bind_mask_texture(draw_call.mask_texture_id);
-                        self.device.bind_color_texture(draw_call.color_texture_id);
+                        // If any masks were found, enable stencil test rejection.
+                        // TODO(gw): This may be faster to switch the logic and
+                        //           rely on sfail!
+                        if valid_mask_count > 0 {
+                            gl::stencil_op(gl::KEEP, gl::KEEP, gl::KEEP);
+                            gl::stencil_func(gl::EQUAL, valid_mask_count, 0xff);
+                            gl::color_mask(true, true, true, true);
+                            gl::depth_mask(true);
+                            self.device.bind_program(self.quad_program_id,
+                                                     &projection);
+                        }
 
-                        // TODO(gw): Although a minor cost, this is an extra hashtable lookup for every
-                        //           draw call, when the batch textures are (almost) always the same.
-                        //           This could probably be cached or provided elsewhere.
-                        let color_size = self.device
-                                             .get_texture_dimensions(draw_call.color_texture_id);
-                        let mask_size = self.device
-                                            .get_texture_dimensions(draw_call.mask_texture_id);
-                        self.device.set_uniform_4f(self.u_atlas_params,
-                                                   color_size.0 as f32,
-                                                   color_size.1 as f32,
-                                                   mask_size.0 as f32,
-                                                   mask_size.1 as f32);
+                        for draw_call in &region.draw_calls {
+                            let vao_id = self.get_or_create_similar_vao_with_offset(
+                                draw_call.vertex_buffer_id,
+                                VertexFormat::Rectangles,
+                                draw_call.first_instance);
+                            self.device.bind_vao(vao_id);
 
-                        self.profile_counters.draw_calls.inc();
+                            if draw_call.tile_params.len() > 0 {
+                                // TODO(gw): Avoid alloc here...
+                                let mut floats = Vec::new();
+                                for vec in &draw_call.tile_params {
+                                    floats.push(vec.u0);
+                                    floats.push(vec.v0);
+                                    floats.push(vec.u_size);
+                                    floats.push(vec.v_size);
+                                }
 
-                        self.device
-                            .draw_triangles_instanced_u16(0, 6, draw_call.instance_count as i32);
+                                self.device.set_uniform_vec4_array(self.u_tile_params,
+                                                                   &floats);
+                            }
+
+                            if draw_call.clip_rects.len() > 0 {
+                                // TODO(gw): Avoid alloc here...
+                                let mut floats = Vec::new();
+                                for rect in &draw_call.clip_rects {
+                                    floats.push(rect.origin.x);
+                                    floats.push(rect.origin.y);
+                                    floats.push(rect.origin.x + rect.size.width);
+                                    floats.push(rect.origin.y + rect.size.height);
+                                }
+
+                                self.device.set_uniform_vec4_array(self.u_clip_rects,
+                                                                   &floats);
+                            }
+
+                            self.device.bind_mask_texture(draw_call.mask_texture_id);
+                            self.device.bind_color_texture(draw_call.color_texture_id);
+
+                            // TODO(gw): Although a minor cost, this is an extra hashtable lookup for every
+                            //           draw call, when the batch textures are (almost) always the same.
+                            //           This could probably be cached or provided elsewhere.
+                            let color_size = self.device
+                                                 .get_texture_dimensions(draw_call.color_texture_id);
+                            let mask_size = self.device
+                                                .get_texture_dimensions(draw_call.mask_texture_id);
+                            self.device.set_uniform_4f(self.u_atlas_params,
+                                                       color_size.0 as f32,
+                                                       color_size.1 as f32,
+                                                       mask_size.0 as f32,
+                                                       mask_size.1 as f32);
+
+                            self.profile_counters.draw_calls.inc();
+
+                            self.device
+                                .draw_triangles_instanced_u16(0, 6, draw_call.instance_count as i32);
+                        }
+
+                        // Disable stencil test if it was used
+                        if valid_mask_count > 0 {
+                            gl::disable(gl::STENCIL_TEST);
+                        }
                     }
                 }
                 &DrawCommand::CompositeBatch(ref info) => {

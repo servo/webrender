@@ -473,10 +473,47 @@ pub struct DrawCall {
 }
 
 #[derive(Clone, Debug)]
+pub struct OutputMask {
+    pub rect: Rect<f32>,
+    pub transform: Matrix4,
+}
+
+impl OutputMask {
+    pub fn new(rect: Rect<f32>,
+               transform: Matrix4) -> OutputMask {
+        OutputMask {
+            rect: rect,
+            transform: transform,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MaskRegion {
+    pub masks: Vec<OutputMask>,
+    pub draw_calls: Vec<DrawCall>,
+}
+
+impl MaskRegion {
+    pub fn new() -> MaskRegion {
+        MaskRegion {
+            masks: Vec::new(),
+            draw_calls: Vec::new(),
+        }
+    }
+
+    pub fn add_mask(&mut self,
+                    rect: Rect<f32>,
+                    transform: Matrix4) {
+        self.masks.push(OutputMask::new(rect, transform));
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct BatchInfo {
     pub matrix_palette: Vec<Matrix4>,
     pub offset_palette: Vec<OffsetParams>,
-    pub draw_calls: Vec<DrawCall>,
+    pub regions: Vec<MaskRegion>,
 }
 
 impl BatchInfo {
@@ -485,7 +522,7 @@ impl BatchInfo {
         BatchInfo {
             matrix_palette: matrix_palette,
             offset_palette: offset_palette,
-            draw_calls: Vec::new(),
+            regions: Vec::new(),
         }
     }
 }

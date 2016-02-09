@@ -6,7 +6,7 @@ use fnv::FnvHasher;
 use geometry::ray_intersects_rect;
 use internal_types::{AxisDirection, LowLevelFilterOp, CompositionOp, DrawListItemIndex};
 use internal_types::{BatchUpdateList, ChildLayerIndex, DrawListId};
-use internal_types::{CompositeBatchInfo, CompositeBatchJob};
+use internal_types::{CompositeBatchInfo, CompositeBatchJob, MaskRegion};
 use internal_types::{RendererFrame, StackingContextInfo, BatchInfo, DrawCall, StackingContextIndex};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, MAX_RECT, BatchUpdate, BatchUpdateOp, DrawLayer};
 use internal_types::{DrawCommand, ClearInfo, RenderTargetId, DrawListGroupId};
@@ -225,26 +225,25 @@ impl RenderTarget {
                             });
 
                             if let Some(batch_list) = batch_list {
+                                let mut region = MaskRegion::new();
+
                                 let vertex_buffer_id = compiled_node.vertex_buffer_id.unwrap();
 
-                                let scroll_clip_rect = Rect::new(-layer.scroll_offset,
-                                                                 layer.viewport_size);
+                                // Mask out anything outside this AABB tree node.
+                                // This is a requirement to ensure paint order is correctly
+                                // maintained since the batches are built in parallel.
+                                region.add_mask(node.split_rect, layer.world_transform);
+
+                                // Mask out anything outside this viewport. This is used
+                                // for things like clipping content that is outside a
+                                // transformed iframe.
+                                region.add_mask(Rect::new(layer.world_origin, layer.viewport_size),
+                                                layer.local_transform);
 
                                 for batch in &batch_list.batches {
-                                    let mut clip_rects = batch.clip_rects.clone();
-
-                                    // Intersect all local clips for this layer with the viewport
-                                    // size. This clips out content outside iframes, scroll layers etc.
-                                    for clip_rect in &mut clip_rects {
-                                        *clip_rect = match clip_rect.intersection(&scroll_clip_rect) {
-                                            Some(clip_rect) => clip_rect,
-                                            None => Rect::new(Point2D::zero(), Size2D::zero()),
-                                        };
-                                    }
-
-                                    batch_info.draw_calls.push(DrawCall {
+                                    region.draw_calls.push(DrawCall {
                                         tile_params: batch.tile_params.clone(),     // TODO(gw): Move this instead?
-                                        clip_rects: clip_rects,
+                                        clip_rects: batch.clip_rects.clone(),
                                         vertex_buffer_id: vertex_buffer_id,
                                         color_texture_id: batch.color_texture_id,
                                         mask_texture_id: batch.mask_texture_id,
@@ -252,6 +251,8 @@ impl RenderTarget {
                                         instance_count: batch.instance_count,
                                     });
                                 }
+
+                                batch_info.regions.push(region);
                             }
                         }
                     }

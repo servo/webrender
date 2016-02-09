@@ -64,6 +64,19 @@ impl MatrixHelpers for Matrix4 {
     }
 }
 
+pub trait RectHelpers {
+    fn contains_rect(&self, other: &Rect<f32>) -> bool;
+}
+
+impl RectHelpers for Rect<f32> {
+    fn contains_rect(&self, other: &Rect<f32>) -> bool {
+        self.origin.x <= other.origin.x &&
+        self.origin.y <= other.origin.y &&
+        self.max_x() >= other.max_x() &&
+        self.max_y() >= other.max_y()
+    }
+}
+
 pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
     (b - a) * t + a
 }
