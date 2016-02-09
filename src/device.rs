@@ -4,15 +4,15 @@ use gleam::gl;
 use internal_types::{PackedColor, PackedVertex, PackedVertexForQuad};
 use internal_types::{PackedVertexForTextureCacheUpdate, RenderTargetMode, TextureSampler};
 use internal_types::{VertexAttribute, DebugFontVertex, DebugColorVertex};
-use notify::{self, Watcher};
+//use notify::{self, Watcher};
 use std::collections::HashMap;
 use std::fs::File;
 use std::hash::BuildHasherDefault;
 use std::io::Read;
 use std::path::PathBuf;
 use std::mem;
-use std::sync::mpsc::{channel, Sender};
-use std::thread;
+//use std::sync::mpsc::{channel, Sender};
+//use std::thread;
 use webrender_traits::ImageFormat;
 
 #[cfg(not(any(target_os = "android", target_os = "gonk")))]
@@ -711,6 +711,8 @@ impl UniformLocation {
     }
 }
 
+// TODO(gw): Fix up notify cargo deps and re-enable this!
+/*
 enum FileWatcherCmd {
     AddWatch(PathBuf),
     Exit,
@@ -776,6 +778,7 @@ impl FileWatcherThread {
         self.api_tx.send(FileWatcherCmd::AddWatch(path)).ok();
     }
 }
+*/
 
 pub struct Device {
     // device state
@@ -800,7 +803,7 @@ pub struct Device {
     // misc.
     vertex_shader_preamble: String,
     fragment_shader_preamble: String,
-    file_watcher: FileWatcherThread,
+    //file_watcher: FileWatcherThread,
 
     // Used on android only
     #[allow(dead_code)]
@@ -810,22 +813,22 @@ pub struct Device {
 impl Device {
     pub fn new(resource_path: PathBuf,
                device_pixel_ratio: f32,
-               file_changed_handler: Box<FileWatcherHandler>) -> Device {
-        let file_watcher = FileWatcherThread::new(file_changed_handler);
+               _file_changed_handler: Box<FileWatcherHandler>) -> Device {
+        //let file_watcher = FileWatcherThread::new(file_changed_handler);
 
         let mut path = resource_path.clone();
         path.push(VERTEX_SHADER_PREAMBLE);
         let mut f = File::open(&path).unwrap();
         let mut vertex_shader_preamble = String::new();
         f.read_to_string(&mut vertex_shader_preamble).unwrap();
-        file_watcher.add_watch(path);
+        //file_watcher.add_watch(path);
 
         let mut path = resource_path.clone();
         path.push(FRAGMENT_SHADER_PREAMBLE);
         let mut f = File::open(&path).unwrap();
         let mut fragment_shader_preamble = String::new();
         f.read_to_string(&mut fragment_shader_preamble).unwrap();
-        file_watcher.add_watch(path);
+        //file_watcher.add_watch(path);
 
         Device {
             resource_path: resource_path,
@@ -848,7 +851,7 @@ impl Device {
             fragment_shader_preamble: fragment_shader_preamble,
 
             next_vao_id: 1,
-            file_watcher: file_watcher,
+            //file_watcher: file_watcher,
         }
     }
 
@@ -1155,11 +1158,11 @@ impl Device {
 
         let mut vs_path = self.resource_path.clone();
         vs_path.push(&format!("{}.vs.glsl", base_filename));
-        self.file_watcher.add_watch(vs_path.clone());
+        //self.file_watcher.add_watch(vs_path.clone());
 
         let mut fs_path = self.resource_path.clone();
         fs_path.push(&format!("{}.fs.glsl", base_filename));
-        self.file_watcher.add_watch(fs_path.clone());
+        //self.file_watcher.add_watch(fs_path.clone());
 
         let program = Program {
             id: pid,
@@ -1715,6 +1718,6 @@ impl Device {
 
 impl Drop for Device {
     fn drop(&mut self) {
-        self.file_watcher.exit();
+        //self.file_watcher.exit();
     }
 }

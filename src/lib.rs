@@ -1,5 +1,5 @@
 #![feature(slice_patterns, step_by, zero_one)]
-#![feature(mpsc_select)]
+//#![feature(mpsc_select)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -58,7 +58,7 @@ extern crate fnv;
 extern crate gleam;
 extern crate ipc_channel;
 extern crate num;
-extern crate notify;
+//extern crate notify;
 extern crate scoped_threadpool;
 extern crate time;
 extern crate webrender_traits;
