@@ -307,6 +307,21 @@ impl Renderer {
         (renderer, sender)
     }
 
+    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    fn enable_msaa(&self, _: bool) {
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
+    fn enable_msaa(&self, enable_msaa: bool) {
+        if self.enable_msaa {
+            if enable_msaa {
+                gl::enable(gl::MULTISAMPLE);
+            } else {
+                gl::disable(gl::MULTISAMPLE);
+            }
+        }
+    }
+
     fn update_uniform_locations(&mut self) {
         self.u_quad_transform_array = self.device.get_uniform_location(self.quad_program_id, "uMatrixPalette");
         self.u_quad_offset_array = self.device.get_uniform_location(self.quad_program_id, "uOffsets");
@@ -861,9 +876,8 @@ impl Renderer {
             gl::disable(gl::DEPTH_TEST);
             gl::disable(gl::SCISSOR_TEST);
 
-            if self.enable_msaa {
-                gl::disable(gl::MULTISAMPLE);
-            }
+            // Disable MSAA here for raster ops
+            self.enable_msaa(false);
 
             let projection = Matrix4::ortho(0.0,
                                             self.max_raster_op_size as f32,
@@ -1106,9 +1120,7 @@ impl Renderer {
                 &DrawCommand::Batch(ref info) => {
                     // TODO: probably worth sorting front to back to minimize overdraw (if profiling shows fragment / rop bound)
 
-                    if self.enable_msaa {
-                        gl::enable(gl::MULTISAMPLE);
-                    }
+                    self.enable_msaa(true);
 
                     if layer.texture_id.is_some() {
                         gl::disable(gl::BLEND);

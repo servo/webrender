@@ -330,7 +330,7 @@ impl VertexFormat {
                 gl::enable_vertex_attrib_array(VertexAttribute::SourceTextureSize as gl::GLuint);
                 gl::enable_vertex_attrib_array(VertexAttribute::Misc as gl::GLuint);
 
-                gl::vertex_attrib_divisor(VertexAttribute::Misc as gl::GLuint, 0);
+                self.set_divisors(0);
 
                 let vertex_stride = mem::size_of::<PackedVertexForTextureCacheUpdate>() as
                     gl::GLuint;
