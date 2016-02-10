@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 // GLSL point in rect test.
 // See: https://stackoverflow.com/questions/12751080/glsl-point-inside-box-test
 bool PointInRect(vec2 p, vec2 p0, vec2 p1)

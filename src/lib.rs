@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 #![feature(slice_patterns, step_by, zero_one)]
 //#![feature(mpsc_select)]
 
@@ -65,9 +69,3 @@ extern crate webrender_traits;
 extern crate offscreen_gl_context;
 
 pub use renderer::{Renderer, RendererOptions};
-
-#[doc(hidden)]
-pub mod bench {
-    // to make private modules available to the benchmarks
-    pub use internal_types::WorkVertex;
-}

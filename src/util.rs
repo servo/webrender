@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use internal_types::{RectColors};
 use std::num::Zero;

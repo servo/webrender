@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 use app_units::Au;
 use batch::{VertexBuffer, Batch, VertexBufferId, OffsetParams, TileParams};
 use device::{TextureId, TextureFilter};
@@ -152,42 +156,6 @@ pub struct WorkVertex {
     pub a: f32,
     pub u: f32,
     pub v: f32,
-}
-
-impl WorkVertex {
-    #[inline]
-    pub fn new(x: f32, y: f32, color: &ColorF, u: f32, v: f32) -> WorkVertex {
-        debug_assert!(u.is_finite());
-        debug_assert!(v.is_finite());
-
-        WorkVertex {
-            x: x,
-            y: y,
-            r: color.r,
-            g: color.g,
-            b: color.b,
-            a: color.a,
-            u: u,
-            v: v,
-        }
-    }
-
-    pub fn position(&self) -> Point2D<f32> {
-        Point2D::new(self.x, self.y)
-    }
-
-    pub fn uv(&self) -> Point2D<f32> {
-        Point2D::new(self.u, self.v)
-    }
-
-    pub fn color(&self) -> ColorF {
-        ColorF {
-            r: self.r,
-            g: self.g,
-            b: self.b,
-            a: self.a,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
