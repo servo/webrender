@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use std::mem;
 use texture_cache::TexturePage;
-use util;
+use util::{self, MatrixHelpers};
 use webrender_traits::{PipelineId, Epoch, ScrollPolicy, ScrollLayerId, StackingContext};
 use webrender_traits::{FilterOp, ImageFormat, MixBlendMode, StackingLevel};
 
@@ -901,9 +901,18 @@ impl Frame {
             }
         };
 
-        let local_clip_rect = parent_info.current_clip_rect
-                                         .translate(&-stacking_context.bounds.origin)
-                                         .intersection(&stacking_context.overflow);
+        // Transform the parent clip rect into the local space of this stacking context.
+        // This allows the clipping to work correctly with transforms.
+
+        // TODO(gw): This only works when the transform is 2d + axis aligned. We should
+        //           detect here those cases and set up a mask region as required.
+        let inv_origin = -stacking_context.bounds.origin;
+        let inverse_transform = stacking_context.transform
+                                                .invert()
+                                                .translate(inv_origin.x, inv_origin.y, 0.0);
+
+        let local_clip_rect = inverse_transform.transform_rect(&parent_info.current_clip_rect);
+        let local_clip_rect = local_clip_rect.intersection(&stacking_context.overflow);
 
         if let Some(local_clip_rect) = local_clip_rect {
             let scene_items = scene_item.collect_scene_items(&context.scene);
