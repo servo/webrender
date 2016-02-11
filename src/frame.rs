@@ -887,32 +887,27 @@ impl Frame {
                level: i32) {
         let _pf = util::ProfileScope::new("  flatten");
 
-        let stacking_context = match scene_item {
+        let (stacking_context, local_clip_rect) = match scene_item {
             SceneItemKind::StackingContext(stacking_context) => {
-                &stacking_context.stacking_context
+                let stacking_context = &stacking_context.stacking_context;
+
+                let local_clip_rect = parent_info.current_clip_rect
+                                                 .translate(&-stacking_context.bounds.origin)
+                                                 .intersection(&stacking_context.overflow);
+
+                (stacking_context, local_clip_rect)
             }
             SceneItemKind::Pipeline(pipeline) => {
                 self.pipeline_epoch_map.insert(pipeline.pipeline_id, pipeline.epoch);
 
-                &context.scene.stacking_context_map
-                        .get(&pipeline.root_stacking_context_id)
-                        .unwrap()
-                        .stacking_context
+                let stacking_context = &context.scene.stacking_context_map
+                                               .get(&pipeline.root_stacking_context_id)
+                                               .unwrap()
+                                               .stacking_context;
+
+                (stacking_context, Some(MAX_RECT))
             }
         };
-
-        // Transform the parent clip rect into the local space of this stacking context.
-        // This allows the clipping to work correctly with transforms.
-
-        // TODO(gw): This only works when the transform is 2d + axis aligned. We should
-        //           detect here those cases and set up a mask region as required.
-        let inv_origin = -stacking_context.bounds.origin;
-        let inverse_transform = stacking_context.transform
-                                                .invert()
-                                                .translate(inv_origin.x, inv_origin.y, 0.0);
-
-        let local_clip_rect = inverse_transform.transform_rect(&parent_info.current_clip_rect);
-        let local_clip_rect = local_clip_rect.intersection(&stacking_context.overflow);
 
         if let Some(local_clip_rect) = local_clip_rect {
             let scene_items = scene_item.collect_scene_items(&context.scene);
