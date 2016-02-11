@@ -308,7 +308,7 @@ impl RenderTarget {
     fn push_composite(&mut self,
                       op: CompositionOp,
                       texture_id: TextureId,
-                      target: Rect<i32>,
+                      target: Rect<f32>,
                       transform: &Matrix4,
                       child_layer_index: ChildLayerIndex) {
         // TODO(gw): Relax the restriction on batch breaks for FB reads
@@ -993,10 +993,10 @@ impl Frame {
                                              context,
                                              level);
                 } else {
-                    let target_size = Size2D::new(local_clip_rect.size.width as i32,
-                                                  local_clip_rect.size.height as i32);
-                    let target_origin = Point2D::new(info.offset_from_origin.x as i32,
-                                                     info.offset_from_origin.y as i32);
+                    let target_size = Size2D::new(local_clip_rect.size.width,
+                                                  local_clip_rect.size.height);
+                    let target_origin = Point2D::new(info.offset_from_origin.x,
+                                                     info.offset_from_origin.y);
                     let unfiltered_target_rect = Rect::new(target_origin, target_size);
                     let mut target_rect = unfiltered_target_rect;
                     for composition_operation in &composition_operations {
@@ -1005,12 +1005,12 @@ impl Frame {
 
                     let child_layer_index = ChildLayerIndex(target.children.len() as u32);
 
-                    let render_target_size = Size2D::new(target_rect.size.width as f32,
-                                                         target_rect.size.height as f32);
+                    let render_target_size = Size2D::new(target_rect.size.width,
+                                                         target_rect.size.height);
                     let render_target_id = self.next_render_target_id();
 
-                    let (origin, texture_id) = target.allocate_target_rect(render_target_size.width,
-                                                                           render_target_size.height,
+                    let (origin, texture_id) = target.allocate_target_rect(target_rect.size.width,
+                                                                           target_rect.size.height,
                                                                            context.device_pixel_ratio,
                                                                            context.resource_cache);
 

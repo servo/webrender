@@ -497,7 +497,7 @@ impl BatchInfo {
 
 #[derive(Debug, Clone)]
 pub struct CompositeBatchJob {
-    pub rect: Rect<i32>,
+    pub rect: Rect<f32>,
     pub transform: Matrix4,
     pub child_layer_index: ChildLayerIndex,
 }
@@ -1018,13 +1018,13 @@ pub enum CompositionOp {
 }
 
 impl CompositionOp {
-    pub fn target_rect(&self, unfiltered_target_rect: &Rect<i32>) -> Rect<i32> {
+    pub fn target_rect(&self, unfiltered_target_rect: &Rect<f32>) -> Rect<f32> {
         match *self {
             CompositionOp::Filter(LowLevelFilterOp::Blur(amount, AxisDirection::Horizontal)) => {
-                unfiltered_target_rect.inflate(amount.to_f32_px() as i32, 0)
+                unfiltered_target_rect.inflate(amount.to_f32_px(), 0.0)
             }
             CompositionOp::Filter(LowLevelFilterOp::Blur(amount, AxisDirection::Vertical)) => {
-                unfiltered_target_rect.inflate(0, amount.to_f32_px() as i32)
+                unfiltered_target_rect.inflate(0.0, amount.to_f32_px())
             }
             _ => *unfiltered_target_rect,
         }
