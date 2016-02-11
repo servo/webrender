@@ -270,6 +270,61 @@ impl BuildRequiredResources for AABBTreeNode {
                                                                 None,
                                                                 ImageFormat::RGBA8);
                             }
+
+                            if info.top.style == BorderStyle::Double {
+                                resource_list.add_radius_raster(&info.radius.top_left,
+                                                                &Size2D::zero(),
+                                                                false,
+                                                                None,
+                                                                ImageFormat::A8);
+
+                                resource_list.add_radius_raster(&Size2D::zero(),
+                                                                &info.top_left_inner_radius(),
+                                                                false,
+                                                                None,
+                                                                ImageFormat::A8);
+                            }
+                            if info.right.style == BorderStyle::Double {
+                                resource_list.add_radius_raster(&info.radius.top_right,
+                                                                &Size2D::zero(),
+                                                                false,
+                                                                None,
+                                                                ImageFormat::A8);
+
+                                resource_list.add_radius_raster(&Size2D::zero(),
+                                                                &info.top_right_inner_radius(),
+                                                                false,
+                                                                None,
+                                                                ImageFormat::A8);
+                            }
+                            if info.bottom.style == BorderStyle::Double {
+                                resource_list.add_radius_raster(&info.radius.bottom_left,
+                                                                &Size2D::zero(),
+                                                                false,
+                                                                None,
+                                                                ImageFormat::A8);
+
+                                resource_list.add_radius_raster(&Size2D::zero(),
+                                                                &info.bottom_left_inner_radius(),
+                                                                false,
+                                                                None,
+                                                                ImageFormat::A8);
+                            }
+                            if info.left.style == BorderStyle::Double {
+                                resource_list.add_radius_raster(&info.radius.bottom_right,
+                                                                &Size2D::zero(),
+                                                                false,
+                                                                None,
+                                                                ImageFormat::A8);
+
+                                resource_list.add_radius_raster(&Size2D::zero(),
+                                                                &info.bottom_right_inner_radius(),
+                                                                false,
+                                                                None,
+                                                                ImageFormat::A8);
+                            }
+
+
                         }
                     }
                 }

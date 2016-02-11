@@ -850,7 +850,8 @@ impl BorderRadiusRasterOp {
                   index: Option<u32>,
                   image_format: ImageFormat)
                   -> Option<BorderRadiusRasterOp> {
-        if outer_radius_x > DevicePixel::zero() || outer_radius_y > DevicePixel::zero() {
+        if outer_radius_x > DevicePixel::zero() || outer_radius_y > DevicePixel::zero() ||
+           inner_radius_x > DevicePixel::zero() || inner_radius_y > DevicePixel::zero() {
             Some(BorderRadiusRasterOp {
                 outer_radius_x: outer_radius_x,
                 outer_radius_y: outer_radius_y,
