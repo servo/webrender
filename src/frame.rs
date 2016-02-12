@@ -988,8 +988,17 @@ impl Frame {
                                              context,
                                              level);
                 } else {
-                    let target_size = Size2D::new(local_clip_rect.size.width,
-                                                  local_clip_rect.size.height);
+                    // TODO(gw): This makes the reftests work (mix_blend_mode) and
+                    //           inline_stacking_context, but it seems wrong.
+                    //           Need to investigate those and see what the root
+                    //           issue is...
+                    let empty_stacking_context = stacking_context.bounds.size.width == 0.0 ||
+                                                 stacking_context.bounds.size.height == 0.0;
+                    let target_size = if empty_stacking_context {
+                        stacking_context.overflow.size
+                    } else {
+                        stacking_context.bounds.size
+                    };
                     let target_origin = Point2D::new(info.offset_from_origin.x,
                                                      info.offset_from_origin.y);
                     let unfiltered_target_rect = Rect::new(target_origin, target_size);
