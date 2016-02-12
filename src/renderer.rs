@@ -37,6 +37,8 @@ use util::RectHelpers;
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
 pub const MAX_RASTER_OP_SIZE: u32 = 2048;
 
+const MAX_CACHED_QUAD_VAOS: usize = 8;
+
 // TODO(gw): HACK! Need to support lighten/darken mix-blend-mode properly on android...
 
 #[cfg(not(any(target_os = "android", target_os = "gonk")))]
@@ -116,6 +118,9 @@ pub struct Renderer {
     vertex_buffers: HashMap<VertexBufferId, Vec<VertexBufferAndOffset>, BuildHasherDefault<FnvHasher>>,
     raster_batches: Vec<RasterBatch>,
     quad_vertex_buffer: Option<VBOId>,
+    cached_quad_vaos: Vec<VAOId>,
+    simple_triangles_vao: Option<VAOId>,
+    raster_op_vao: Option<VAOId>,
 
     quad_program_id: ProgramId,
     u_quad_transform_array: UniformLocation,
@@ -270,6 +275,9 @@ impl Renderer {
             vertex_buffers: HashMap::with_hasher(Default::default()),
             raster_batches: Vec::new(),
             quad_vertex_buffer: None,
+            simple_triangles_vao: None,
+            raster_op_vao: None,
+            cached_quad_vaos: Vec::new(),
             pending_texture_updates: Vec::new(),
             pending_batch_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
@@ -415,8 +423,14 @@ impl Renderer {
                             self.quad_vertex_buffer = Some(self.device.create_quad_vertex_buffer())
                         }
 
-                        let vao_id = self.device.create_vao(VertexFormat::Rectangles,
-                                                            self.quad_vertex_buffer);
+                        let vao_id = match self.cached_quad_vaos.pop() {
+                            Some(quad_vao_id) => quad_vao_id,
+                            None => {
+                                self.device.create_vao(VertexFormat::Rectangles,
+                                                       Some(self.quad_vertex_buffer.unwrap()))
+                            }
+                        };
+
                         self.device.bind_vao(vao_id);
 
                         self.device.update_vao_aux_vertices(vao_id,
@@ -436,7 +450,12 @@ impl Renderer {
                         let vertex_buffers_and_offsets =
                             self.vertex_buffers.remove(&update.id).unwrap();
                         for vertex_buffer_and_offset in vertex_buffers_and_offsets.into_iter() {
-                            self.device.delete_vao(vertex_buffer_and_offset.buffer.vao_id);
+                            if self.cached_quad_vaos.len() < MAX_CACHED_QUAD_VAOS &&
+                                    vertex_buffer_and_offset.offset == 0 {
+                                self.cached_quad_vaos.push(vertex_buffer_and_offset.buffer.vao_id);
+                            } else {
+                                self.device.delete_vao(vertex_buffer_and_offset.buffer.vao_id);
+                            }
                         }
                     }
                 }
@@ -951,7 +970,14 @@ impl Renderer {
     }
 
     fn perform_gl_texture_cache_update(&mut self, batch: RasterBatch) {
-        let vao_id = self.device.create_vao(VertexFormat::RasterOp, None);
+        let vao_id = match self.raster_op_vao {
+            Some(ref mut vao_id) => *vao_id,
+            None => {
+                let vao_id = self.device.create_vao(VertexFormat::RasterOp, None);
+                self.raster_op_vao = Some(vao_id);
+                vao_id
+            }
+        };
         self.device.bind_vao(vao_id);
 
         self.device.update_vao_indices(vao_id, &batch.indices[..], VertexUsageHint::Dynamic);
@@ -964,7 +990,6 @@ impl Renderer {
 
         //println!("drawing triangles due to GL texture cache update");
         self.device.draw_triangles_u16(0, batch.indices.len() as gl::GLint);
-        self.device.delete_vao(vao_id);
 
         for blit_job in batch.blit_jobs {
             self.device.read_framebuffer_rect(blit_job.dest_texture_id,
@@ -1220,7 +1245,8 @@ impl Renderer {
                             let wvp = projection.mul(&mask.transform);
                             self.device.bind_program(self.mask_program_id, &wvp);
 
-                            draw_simple_triangles(&mut self.device,
+                            draw_simple_triangles(&mut self.simple_triangles_vao,
+                                                  &mut self.device,
                                                   &mut self.profile_counters,
                                                   &indices[..],
                                                   &vertices[..],
@@ -1556,7 +1582,8 @@ impl Renderer {
                         }
                     }
 
-                    draw_simple_triangles(&mut self.device,
+                    draw_simple_triangles(&mut self.simple_triangles_vao,
+                                          &mut self.device,
                                           &mut self.profile_counters,
                                           &indices[..],
                                           &vertices[..],
@@ -1630,14 +1657,20 @@ pub struct RendererOptions {
     pub enable_profiler: bool,
 }
 
-fn draw_simple_triangles(device: &mut Device,
+fn draw_simple_triangles(simple_triangles_vao: &mut Option<VAOId>,
+                         device: &mut Device,
                          profile_counters: &mut RendererProfileCounters,
                          indices: &[u16],
                          vertices: &[PackedVertex],
                          texture: TextureId) {
-    // TODO(glennw): Don't re-create this VAO all the time. Create it once and set positions
-    // via uniforms.
-    let vao_id = device.create_vao(VertexFormat::Triangles, None);
+    let vao_id = match *simple_triangles_vao {
+        Some(ref mut vao_id) => *vao_id,
+        None => {
+            let vao_id = device.create_vao(VertexFormat::Triangles, None);
+            *simple_triangles_vao = Some(vao_id);
+            vao_id
+        }
+    };
     device.bind_color_texture(texture);
     device.bind_vao(vao_id);
     device.update_vao_indices(vao_id, &indices[..], VertexUsageHint::Dynamic);
@@ -1647,7 +1680,6 @@ fn draw_simple_triangles(device: &mut Device,
     profile_counters.draw_calls.inc();
 
     device.draw_triangles_u16(0, indices.len() as gl::GLint);
-    device.delete_vao(vao_id);
 }
 
 struct VertexBufferAndOffset {
