@@ -25,6 +25,9 @@ const MAX_BYTES_PER_TEXTURE: u32 = 64 * 1024 * 1024;
 /// The number of RGBA pixels we're allowed to use for a texture.
 const MAX_RGBA_PIXELS_PER_TEXTURE: u32 = MAX_BYTES_PER_TEXTURE / 4;
 
+/// The total number of RGBA pixels we're allowed to use for our render targets.
+const MAX_RGBA_PIXELS_IN_CACHED_RENDER_TARGETS: u32 = 4096 * 4096 * 2;
+
 /// The square root of the number of RGBA pixels we're allowed to use for a texture, rounded down.
 /// to the next power of two.
 const SQRT_MAX_RGBA_PIXELS_PER_TEXTURE: u32 = 4096;
@@ -543,6 +546,8 @@ pub struct TextureCache {
     //                                           Vec<FreeTextureLevel>,
     //                                           BuildHasherDefault<FnvHasher>>,
     items: FreeList<TextureCacheItem>,
+    cached_render_targets: Vec<CachedRenderTarget>,
+    total_pixel_count_of_cached_render_targets: u32,
     arena: TextureCacheArena,
     pending_updates: TextureUpdateList,
 }
@@ -566,6 +571,8 @@ impl TextureCache {
             free_texture_levels: HashMap::with_hasher(Default::default()),
             alternate_free_texture_levels: HashMap::with_hasher(Default::default()),
             //render_target_free_texture_levels: HashMap::with_hasher(Default::default()),
+            cached_render_targets: vec![],
+            total_pixel_count_of_cached_render_targets: 0,
             items: FreeList::new(),
             pending_updates: TextureUpdateList::new(),
             arena: TextureCacheArena::new(),
@@ -615,10 +622,32 @@ impl TextureCache {
     */
 
     pub fn allocate_render_target(&mut self,
-                              width: u32,
-                              height: u32,
-                              format: ImageFormat) -> TextureId {
-        let texture_id = self.free_texture_ids.pop().expect("TODO: Handle running out of texture IDs!");
+                                  width: u32,
+                                  height: u32,
+                                  format: ImageFormat)
+                                  -> TextureId {
+        let mut cached_render_target_index = None;
+        for (i, cached_render_target) in self.cached_render_targets.iter().enumerate() {
+            if cached_render_target.width == width &&
+                    cached_render_target.height == height &&
+                    cached_render_target.format == format {
+                cached_render_target_index = Some(i);
+                break
+            }
+        }
+        if let Some(cached_render_target_index) = cached_render_target_index {
+            // Push to the end to mark as recently used.
+            let cached_render_target = self.cached_render_targets
+                                           .remove(cached_render_target_index);
+            self.cached_render_targets.push(cached_render_target);
+            return cached_render_target.texture_id
+        }
+
+        self.total_pixel_count_of_cached_render_targets += width * height;
+
+        let texture_id = self.free_texture_ids
+                             .pop()
+                             .expect("TODO: Handle running out of texture IDs!");
         let op = TextureUpdateOp::Create(width,
                                          height,
                                          format,
@@ -630,18 +659,48 @@ impl TextureCache {
             op: op,
         };
         self.pending_updates.push(update_op);
+
+        self.cached_render_targets.push(CachedRenderTarget {
+            texture_id: texture_id,
+            width: width,
+            height: height,
+            format: format,
+        });
+
         texture_id
     }
 
-    pub fn free_render_target(&mut self, texture_id: TextureId) {
-        let op = TextureUpdateOp::Update(0, 0, 0, 0,
-                                         TextureUpdateDetails::Blit(Vec::new()));
-        let update_op = TextureUpdate {
-            id: texture_id,
-            op: op,
-        };
-        self.pending_updates.push(update_op);
-        self.free_texture_ids.push(texture_id);
+    pub fn free_old_render_targets(&mut self) {
+        if self.total_pixel_count_of_cached_render_targets <=
+                MAX_RGBA_PIXELS_IN_CACHED_RENDER_TARGETS {
+            return
+        }
+
+        let mut cached_render_targets_to_destroy = 0;
+        for cached_render_target in &self.cached_render_targets {
+            let op = TextureUpdateOp::Update(0, 0, 0, 0,
+                                             TextureUpdateDetails::Blit(Vec::new()));
+            let update_op = TextureUpdate {
+                id: cached_render_target.texture_id,
+                op: op,
+            };
+            self.pending_updates.push(update_op);
+            self.free_texture_ids.push(cached_render_target.texture_id);
+
+            cached_render_targets_to_destroy += 1;
+
+            self.total_pixel_count_of_cached_render_targets -= cached_render_target.width *
+                cached_render_target.height;
+            if self.total_pixel_count_of_cached_render_targets <
+                    MAX_RGBA_PIXELS_IN_CACHED_RENDER_TARGETS {
+                break
+            }
+        }
+
+        self.cached_render_targets = self.cached_render_targets[cached_render_targets_to_destroy..]
+                                         .iter()
+                                         .cloned()
+                                         .collect()
     }
 
     pub fn allocate(&mut self,
@@ -1152,5 +1211,13 @@ pub enum TextureCacheItemKind {
     Standard,
     Alternate,
     //RenderTarget,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CachedRenderTarget {
+    texture_id: TextureId,
+    width: u32,
+    height: u32,
+    format: ImageFormat,
 }
 

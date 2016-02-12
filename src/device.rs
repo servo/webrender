@@ -112,7 +112,7 @@ lazy_static! {
     };
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum TextureFilter {
     Nearest,
     Linear,
@@ -533,6 +533,8 @@ struct Texture {
     format: ImageFormat,
     width: u32,
     height: u32,
+    filter: TextureFilter,
+    mode: RenderTargetMode,
     fbo_ids: Vec<FBOId>,
 }
 
@@ -635,6 +637,7 @@ struct VAO {
     main_vbo_id: VBOId,
     aux_vbo_id: Option<VBOId>,
     ibo_id: IBOId,
+    owns_vbos: bool,
 }
 
 #[cfg(any(target_os = "android", target_os = "gonk"))]
@@ -659,17 +662,20 @@ impl Drop for VAO {
     fn drop(&mut self) {
         gl::delete_vertex_arrays(&[self.id]);
 
-        // In the case of a rect batch, the main VBO is the shared quad VBO, so keep that around.
-        if self.vertex_format != VertexFormat::Rectangles {
-            gl::delete_buffers(&[self.main_vbo_id.0]);
-        }
-        if let Some(VBOId(aux_vbo_id)) = self.aux_vbo_id {
-            gl::delete_buffers(&[aux_vbo_id]);
-        }
+        if self.owns_vbos {
+            // In the case of a rect batch, the main VBO is the shared quad VBO, so keep that
+            // around.
+            if self.vertex_format != VertexFormat::Rectangles {
+                gl::delete_buffers(&[self.main_vbo_id.0]);
+            }
+            if let Some(VBOId(aux_vbo_id)) = self.aux_vbo_id {
+                gl::delete_buffers(&[aux_vbo_id]);
+            }
 
-        // todo(gw): maybe make these their own type with hashmap?
-        let IBOId(ibo_id) = self.ibo_id;
-        gl::delete_buffers(&[ibo_id]);
+            // todo(gw): maybe make these their own type with hashmap?
+            let IBOId(ibo_id) = self.ibo_id;
+            gl::delete_buffers(&[ibo_id]);
+        }
     }
 }
 
@@ -981,6 +987,8 @@ impl Device {
                 width: 0,
                 height: 0,
                 format: ImageFormat::Invalid,
+                filter: TextureFilter::Nearest,
+                mode: RenderTargetMode::None,
                 fbo_ids: vec![],
             };
 
@@ -1083,10 +1091,14 @@ impl Device {
                         pixels: Option<&[u8]>) {
         debug_assert!(self.inside_frame);
 
-        // TODO: ugh, messy!
-        self.textures.get_mut(&texture_id).unwrap().format = format;
-        self.textures.get_mut(&texture_id).unwrap().width = width;
-        self.textures.get_mut(&texture_id).unwrap().height = height;
+        {
+            let texture = self.textures.get_mut(&texture_id).expect("Didn't find texture!");
+            texture.format = format;
+            texture.width = width;
+            texture.height = height;
+            texture.filter = filter;
+            texture.mode = mode
+        }
 
         let (internal_format, gl_format) = match format {
             ImageFormat::A8 => (GL_FORMAT_A, GL_FORMAT_A),
@@ -1153,6 +1165,27 @@ impl Device {
         texture.width = 0;
         texture.height = 0;
         texture.fbo_ids.clear();
+    }
+
+    pub fn init_texture_if_necessary(&mut self,
+                                     texture_id: TextureId,
+                                     width: u32,
+                                     height: u32,
+                                     format: ImageFormat,
+                                     filter: TextureFilter,
+                                     mode: RenderTargetMode) {
+        debug_assert!(self.inside_frame);
+        {
+            let texture = self.textures.get_mut(&texture_id).expect("Didn't find texture!");
+            if texture.format == format &&
+                    texture.width == width &&
+                    texture.height == height &&
+                    texture.filter == filter &&
+                    texture.mode == mode {
+                return
+            }
+        }
+        self.init_texture(texture_id, width, height, format, filter, mode, None)
     }
 
     pub fn create_program(&mut self, base_filename: &str) -> ProgramId {
@@ -1493,7 +1526,8 @@ impl Device {
                             main_vbo_id: VBOId,
                             aux_vbo_id: Option<VBOId>,
                             ibo_id: IBOId,
-                            _: u32)
+                            _: u32,
+                            owns_vbos: bool)
                             -> VAOId {
         debug_assert!(self.inside_frame);
 
@@ -1508,6 +1542,7 @@ impl Device {
             main_vbo_id: main_vbo_id,
             aux_vbo_id: aux_vbo_id,
             ibo_id: ibo_id,
+            owns_vbos: owns_vbos,
         };
 
         let vao_id = VAOId(vao_id);
@@ -1542,7 +1577,8 @@ impl Device {
                             main_vbo_id: VBOId,
                             aux_vbo_id: Option<VBOId>,
                             ibo_id: IBOId,
-                            offset: gl::GLuint)
+                            offset: gl::GLuint,
+                            owns_vbos: bool)
                             -> VAOId {
         debug_assert!(self.inside_frame);
 
@@ -1559,6 +1595,7 @@ impl Device {
             main_vbo_id: main_vbo_id,
             aux_vbo_id: aux_vbo_id,
             ibo_id: ibo_id,
+            owns_vbos: owns_vbos,
         };
 
         gl::bind_vertex_array(0);
@@ -1586,7 +1623,7 @@ impl Device {
             (VBOId(buffer_ids[1]), None)
         };
 
-        self.create_vao_with_vbos(format, main_vbo_id, aux_vbo_id, ibo_id, 0)
+        self.create_vao_with_vbos(format, main_vbo_id, aux_vbo_id, ibo_id, 0, true)
     }
 
     #[inline(never)]
@@ -1601,7 +1638,7 @@ impl Device {
             ibo_id,
             ..
         } = self.vaos.get(&source_vao_id).expect("Bad VAO ID in `create_similar_vao()`!");
-        self.create_vao_with_vbos(format, main_vbo_id, aux_vbo_id, ibo_id, offset)
+        self.create_vao_with_vbos(format, main_vbo_id, aux_vbo_id, ibo_id, offset, false)
     }
 
     #[cfg(any(target_os = "android", target_os = "gonk"))]

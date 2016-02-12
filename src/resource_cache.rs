@@ -377,8 +377,8 @@ impl ResourceCache {
         self.texture_cache.allocate_render_target(width, height, format)
     }
 
-    pub fn free_render_target(&mut self, texture_id: TextureId) {
-        self.texture_cache.free_render_target(texture_id)
+    pub fn free_old_render_targets(&mut self) {
+        self.texture_cache.free_old_render_targets()
     }
 
     pub fn pending_updates(&mut self) -> TextureUpdateList {
