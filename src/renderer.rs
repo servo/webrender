@@ -1456,13 +1456,12 @@ impl Renderer {
                                 p0.x * render_context.device_pixel_ratio,
                                 inverted_y0 * render_context.device_pixel_ratio);
 
-                            self.device.init_texture(self.temporary_fb_texture,
-                                                     fb_rect_size.width as u32,
-                                                     fb_rect_size.height as u32,
-                                                     ImageFormat::RGBA8,
-                                                     TextureFilter::Nearest,
-                                                     RenderTargetMode::None,
-                                                     None);
+                            self.device.init_texture_if_necessary(self.temporary_fb_texture,
+                                                                  fb_rect_size.width as u32,
+                                                                  fb_rect_size.height as u32,
+                                                                  ImageFormat::RGBA8,
+                                                                  TextureFilter::Nearest,
+                                                                  RenderTargetMode::None);
                             self.device.read_framebuffer_rect(
                                 self.temporary_fb_texture,
                                 0,

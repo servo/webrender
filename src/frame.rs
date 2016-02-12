@@ -289,9 +289,8 @@ impl RenderTarget {
     fn reset(&mut self,
              pending_updates: &mut BatchUpdateList,
              resource_cache: &mut ResourceCache) {
-        for texture_id in self.texture_id_list.drain(..) {
-            resource_cache.free_render_target(texture_id);
-        }
+        self.texture_id_list.clear();
+        resource_cache.free_old_render_targets();
 
         for mut child in &mut self.children.drain(..) {
             child.reset(pending_updates,
@@ -1009,10 +1008,11 @@ impl Frame {
                                                          target_rect.size.height);
                     let render_target_id = self.next_render_target_id();
 
-                    let (origin, texture_id) = target.allocate_target_rect(target_rect.size.width,
-                                                                           target_rect.size.height,
-                                                                           context.device_pixel_ratio,
-                                                                           context.resource_cache);
+                    let (origin, texture_id) =
+                        target.allocate_target_rect(target_rect.size.width,
+                                                    target_rect.size.height,
+                                                    context.device_pixel_ratio,
+                                                    context.resource_cache);
 
                     let mut new_target = RenderTarget::new(render_target_id,
                                                            origin,

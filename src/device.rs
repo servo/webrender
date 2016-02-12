@@ -112,7 +112,7 @@ lazy_static! {
     };
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum TextureFilter {
     Nearest,
     Linear,
@@ -533,6 +533,8 @@ struct Texture {
     format: ImageFormat,
     width: u32,
     height: u32,
+    filter: TextureFilter,
+    mode: RenderTargetMode,
     fbo_ids: Vec<FBOId>,
 }
 
@@ -981,6 +983,8 @@ impl Device {
                 width: 0,
                 height: 0,
                 format: ImageFormat::Invalid,
+                filter: TextureFilter::Nearest,
+                mode: RenderTargetMode::None,
                 fbo_ids: vec![],
             };
 
@@ -1083,10 +1087,14 @@ impl Device {
                         pixels: Option<&[u8]>) {
         debug_assert!(self.inside_frame);
 
-        // TODO: ugh, messy!
-        self.textures.get_mut(&texture_id).unwrap().format = format;
-        self.textures.get_mut(&texture_id).unwrap().width = width;
-        self.textures.get_mut(&texture_id).unwrap().height = height;
+        {
+            let texture = self.textures.get_mut(&texture_id).expect("Didn't find texture!");
+            texture.format = format;
+            texture.width = width;
+            texture.height = height;
+            texture.filter = filter;
+            texture.mode = mode
+        }
 
         let (internal_format, gl_format) = match format {
             ImageFormat::A8 => (GL_FORMAT_A, GL_FORMAT_A),
@@ -1153,6 +1161,27 @@ impl Device {
         texture.width = 0;
         texture.height = 0;
         texture.fbo_ids.clear();
+    }
+
+    pub fn init_texture_if_necessary(&mut self,
+                                     texture_id: TextureId,
+                                     width: u32,
+                                     height: u32,
+                                     format: ImageFormat,
+                                     filter: TextureFilter,
+                                     mode: RenderTargetMode) {
+        debug_assert!(self.inside_frame);
+        {
+            let texture = self.textures.get_mut(&texture_id).expect("Didn't find texture!");
+            if texture.format == format &&
+                    texture.width == width &&
+                    texture.height == height &&
+                    texture.filter == filter &&
+                    texture.mode == mode {
+                return
+            }
+        }
+        self.init_texture(texture_id, width, height, format, filter, mode, None)
     }
 
     pub fn create_program(&mut self, base_filename: &str) -> ProgramId {

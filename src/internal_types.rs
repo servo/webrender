@@ -341,7 +341,7 @@ impl DebugColorVertex {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RenderTargetMode {
     None,
     RenderTarget,
