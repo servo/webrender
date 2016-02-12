@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use std::mem;
 use texture_cache::TexturePage;
-use util::{self, MatrixHelpers};
+use util;
 use webrender_traits::{PipelineId, Epoch, ScrollPolicy, ScrollLayerId, StackingContext};
 use webrender_traits::{FilterOp, ImageFormat, MixBlendMode, StackingLevel};
 
