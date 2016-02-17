@@ -10,8 +10,8 @@ git = "https://github.com/ecoal95/rust-offscreen-rendering-context"
 git = "https://github.com/servo/ipc-channel"
 
 [dependencies]
-app_units = {version = "0.2", features = ["plugins"]}
-euclid = {version = "0.6.1", features = ["plugins"]}
+app_units = {version = "0.2.1", features = ["plugins"]}
+euclid = {version = "0.6.2", features = ["plugins"]}
 gleam = "0.2"
 serde = "0.6"
 serde_macros = "0.6"
