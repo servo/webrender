@@ -14,6 +14,7 @@ use internal_types::{RectSide, RectUv, DevicePixel};
 use num::Zero;
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::f32;
@@ -32,6 +33,14 @@ enum ClipState {
     None,
     ClipIn,
     ClipOut(Option<Rect<f32>>)
+}
+
+#[derive(Debug)]
+struct GradientRect {
+    rect: Rect<f32>,
+    rect_uv: RectUv<f32>,
+    color0: ColorF,
+    color1: ColorF,
 }
 
 impl<'a> BatchBuilder<'a> {
@@ -562,6 +571,7 @@ impl<'a> BatchBuilder<'a> {
             length_1
         };
 
+        let mut rectangles = Vec::new();
         let mut prev_color = stops[0].color;
         let mut prev_offset = 0.0;
         for next in &stops[..] {
@@ -575,17 +585,45 @@ impl<'a> BatchBuilder<'a> {
                           Size2D::new(length, height));
             let mut rect_uv = white_image.uv_rect;
             rect_uv.bottom_left.x = -angle;
-            self.add_rectangle(white_image.texture_id,
-                               dummy_mask_image.texture_id,
-                               &rect,
-                               &rect_uv,
-                               &dummy_mask_image.pixel_rect,
-                               &[next.color, next.color, prev_color, prev_color],
-                               PackedVertexColorMode::Gradient,
-                               None);
+
+            rectangles.push(GradientRect {
+                rect: rect,
+                rect_uv: rect_uv,
+                color0: next.color,
+                color1: prev_color
+            });
 
             prev_color = next.color;
             prev_offset = next.offset
+        }
+
+        // This is a bit of a hack to pass reftests. In some cases of angled gradients,
+        // there is a one pixel overlap along the stop where two rectangles are drawn.
+        // To ensure that these are drawn the same in reftests, ensure the rectangles
+        // are always submitted in the same order no matter what angle they were
+        // generated from.
+        // TODO(gw): This probably deserves a bit more investigation to see if there
+        //           is a better solution!
+        rectangles.sort_by(|a, b| {
+            match a.rect.origin.x.partial_cmp(&b.rect.origin.x).unwrap() {
+                Ordering::Equal => a.rect.origin.y.partial_cmp(&b.rect.origin.y).unwrap(),
+                ordering => ordering,
+            }
+        });
+
+        for gradient_rect in rectangles {
+            self.add_rectangle(white_image.texture_id,
+                               dummy_mask_image.texture_id,
+                               &gradient_rect.rect,
+                               &gradient_rect.rect_uv,
+                               &dummy_mask_image.pixel_rect,
+                               &[gradient_rect.color0,
+                                 gradient_rect.color0,
+                                 gradient_rect.color1,
+                                 gradient_rect.color1
+                                ],
+                               PackedVertexColorMode::Gradient,
+                               None);
         }
     }
 
