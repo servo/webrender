@@ -33,12 +33,12 @@ git = "https://github.com/ecoal95/rust-offscreen-rendering-context"
 
 [dependencies]
 gleam = "0.2"
-euclid = {version = "0.6.1", features = ["plugins"]}
+euclid = {version = "0.6.2", features = ["plugins"]}
 num = {version = "0.1.24", default-features = false}
 time = "*"
 fnv="*"
 scoped_threadpool = "0.1.6"
-app_units = {version = "0.2", features = ["plugins"]}
+app_units = {version = "0.2.1", features = ["plugins"]}
 lazy_static = "0.1"
 
 [target.x86_64-apple-darwin.dependencies]
