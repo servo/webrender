@@ -1568,7 +1568,7 @@ impl Device {
             (VBOId(buffer_ids[1]), None)
         };
 
-        self.create_vao_with_vbos(format, main_vbo_id, aux_vbo_id, ibo_id, 0)
+        self.create_vao_with_vbos(format, main_vbo_id, aux_vbo_id, ibo_id, 0, true)
     }
 
     #[cfg(not(any(target_os = "android", target_os = "gonk")))]
