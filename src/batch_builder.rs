@@ -1713,7 +1713,8 @@ impl<'a> BatchBuilder<'a> {
         let color_image = match BoxShadowRasterOp::create_corner(blur_radius,
                                                                  border_radius,
                                                                  box_rect,
-                                                                 inverted) {
+                                                                 inverted,
+                                                                 self.device_pixel_ratio) {
             Some(raster_item) => {
                 let raster_item = RasterItem::BoxShadow(raster_item);
                 resource_cache.get_raster(&raster_item, frame_id)
@@ -1755,7 +1756,8 @@ impl<'a> BatchBuilder<'a> {
         let color_image = match BoxShadowRasterOp::create_edge(blur_radius,
                                                                border_radius,
                                                                box_rect,
-                                                               inverted) {
+                                                               inverted,
+                                                               self.device_pixel_ratio) {
             Some(raster_item) => {
                 let raster_item = RasterItem::BoxShadow(raster_item);
                 resource_cache.get_raster(&raster_item, frame_id)

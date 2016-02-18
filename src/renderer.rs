@@ -11,7 +11,7 @@ use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePixel};
 use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp, ChildLayerIndex};
 use internal_types::{AxisDirection, LowLevelFilterOp, DrawCommand, DrawLayer, ANGLE_FLOAT_TO_FIXED};
 use ipc_channel::ipc;
@@ -743,18 +743,15 @@ impl Renderer {
                                                             raster_origin,
                                                             inverted,
                                                             border_type) => {
-                                let device_pixel_ratio = self.device_pixel_ratio;
                                 self.update_texture_cache_for_box_shadow(
                                     update.id,
                                     &Rect::new(Point2D::new(x, y),
                                                Size2D::new(width, height)),
                                     &Rect::new(
-                                        Point2D::new(raster_origin.x * device_pixel_ratio,
-                                                     raster_origin.y * device_pixel_ratio),
-                                        Size2D::new(box_rect_size.width * device_pixel_ratio,
-                                                    box_rect_size.height * device_pixel_ratio)),
-                                    blur_radius.to_f32_px() * device_pixel_ratio,
-                                    border_radius.to_f32_px() * device_pixel_ratio,
+                                        Point2D::new(raster_origin.x, raster_origin.y),
+                                        Size2D::new(box_rect_size.width, box_rect_size.height)),
+                                    blur_radius,
+                                    border_radius,
                                     inverted,
                                     border_type)
                             }
@@ -770,13 +767,15 @@ impl Renderer {
     fn update_texture_cache_for_box_shadow(&mut self,
                                            update_id: TextureId,
                                            texture_rect: &Rect<u32>,
-                                           box_rect: &Rect<f32>,
-                                           blur_radius: f32,
-                                           border_radius: f32,
+                                           box_rect: &Rect<DevicePixel>,
+                                           blur_radius: DevicePixel,
+                                           border_radius: DevicePixel,
                                            inverted: bool,
                                            border_type: BorderType) {
         debug_assert!(border_type == BorderType::SinglePixel);
         let box_shadow_program_id = self.box_shadow_program_id;
+
+        let blur_radius = blur_radius.as_f32();
 
         let color = if inverted {
             ColorF::new(1.0, 1.0, 1.0, 0.0)
@@ -794,11 +793,12 @@ impl Renderer {
                                       &texture_rect,
                                       border_type,
                                       |texture_rect| {
-            let box_rect_top_left = Point2D::new(box_rect.origin.x + texture_rect.origin.x,
-                                                 box_rect.origin.y + texture_rect.origin.y);
-            let box_rect_bottom_right = Point2D::new(box_rect_top_left.x + box_rect.size.width,
-                                                     box_rect_top_left.y + box_rect.size.height);
-            let border_radii = Point2D::new(border_radius, border_radius);
+            let box_rect_top_left = Point2D::new(box_rect.origin.x.as_f32() + texture_rect.origin.x,
+                                                 box_rect.origin.y.as_f32() + texture_rect.origin.y);
+            let box_rect_bottom_right = Point2D::new(box_rect_top_left.x + box_rect.size.width.as_f32(),
+                                                     box_rect_top_left.y + box_rect.size.height.as_f32());
+            let border_radii = Point2D::new(border_radius.as_f32(),
+                                            border_radius.as_f32());
 
             [
                 PackedVertexForTextureCacheUpdate::new(&texture_rect.origin,

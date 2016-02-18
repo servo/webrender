@@ -12,7 +12,7 @@ use num::Zero;
 use profiler::BackendProfileCounters;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
-use std::ops::Add;
+use std::ops::{Add, Sub};
 use std::path::PathBuf;
 use std::sync::Arc;
 use texture_cache::BorderType;
@@ -62,6 +62,14 @@ impl Add for DevicePixel {
     #[inline]
     fn add(self, other: DevicePixel) -> DevicePixel {
         DevicePixel(self.0 + other.0)
+    }
+}
+
+impl Sub for DevicePixel {
+    type Output = DevicePixel;
+
+    fn sub(self, other: DevicePixel) -> DevicePixel {
+        DevicePixel(self.0 - other.0)
     }
 }
 
@@ -354,8 +362,8 @@ pub enum TextureUpdateDetails {
     Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage, BorderType),
     /// All four corners, the tessellation index, and whether inverted, respectively.
     BorderRadius(DevicePixel, DevicePixel, DevicePixel, DevicePixel, Option<u32>, bool, BorderType),
-    /// Blur radius, border radius, box rect, raster origin, and whether inverted, respectively.
-    BoxShadow(Au, Au, Size2D<f32>, Point2D<f32>, bool, BorderType),
+    /// Blur radius, border radius, box size, raster origin, and whether inverted, respectively.
+    BoxShadow(DevicePixel, DevicePixel, Size2D<DevicePixel>, Point2D<DevicePixel>, bool, BorderType),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -869,12 +877,12 @@ impl BorderRadiusRasterOp {
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct BoxShadowRasterOp {
-    pub blur_radius: Au,
-    pub border_radius: Au,
+    pub blur_radius: DevicePixel,
+    pub border_radius: DevicePixel,
     // This is a tuple to work around the lack of `Eq` on `Rect`.
-    pub box_rect_size: (Au, Au),
-    pub local_raster_origin: (Au, Au),
-    pub raster_size: (Au, Au),
+    pub box_rect_size: (DevicePixel, DevicePixel),
+    pub local_raster_origin: (DevicePixel, DevicePixel),
+    pub raster_size: (DevicePixel, DevicePixel),
     pub part: BoxShadowPart,
     pub inverted: bool,
 }
@@ -905,7 +913,8 @@ impl BoxShadowRasterOp {
     pub fn create_corner(blur_radius: f32,
                          border_radius: f32,
                          box_rect: &Rect<f32>,
-                         inverted: bool)
+                         inverted: bool,
+                         device_pixel_ratio: f32)
                          -> Option<BoxShadowRasterOp> {
         if blur_radius > 0.0 || border_radius > 0.0 {
             let raster_rect = BoxShadowRasterOp::raster_rect(blur_radius,
@@ -913,15 +922,18 @@ impl BoxShadowRasterOp {
                                                              BoxShadowPart::Corner,
                                                              box_rect);
 
+            let blur_radius = DevicePixel::new(blur_radius, device_pixel_ratio);
+            let border_radius = DevicePixel::new(border_radius, device_pixel_ratio);
+
             Some(BoxShadowRasterOp {
-                blur_radius: Au::from_f32_px(blur_radius),
-                border_radius: Au::from_f32_px(border_radius),
-                local_raster_origin: (Au::from_f32_px(box_rect.origin.x - raster_rect.origin.x),
-                                      Au::from_f32_px(box_rect.origin.y - raster_rect.origin.y)),
-                box_rect_size: (Au::from_f32_px(box_rect.size.width),
-                                Au::from_f32_px(box_rect.size.height)),
-                raster_size: (Au::from_f32_px(raster_rect.size.width),
-                              Au::from_f32_px(raster_rect.size.height)),
+                blur_radius: blur_radius,
+                border_radius: border_radius,
+                local_raster_origin: (DevicePixel::new(box_rect.origin.x - raster_rect.origin.x, device_pixel_ratio),
+                                      DevicePixel::new(box_rect.origin.y - raster_rect.origin.y, device_pixel_ratio)),
+                box_rect_size: (DevicePixel::new(box_rect.size.width, device_pixel_ratio),
+                                DevicePixel::new(box_rect.size.height, device_pixel_ratio)),
+                raster_size: (DevicePixel::new(raster_rect.size.width, device_pixel_ratio),
+                              DevicePixel::new(raster_rect.size.height, device_pixel_ratio)),
                 part: BoxShadowPart::Corner,
                 inverted: inverted,
             })
@@ -930,22 +942,30 @@ impl BoxShadowRasterOp {
         }
     }
 
-    pub fn create_edge(blur_radius: f32, border_radius: f32, box_rect: &Rect<f32>, inverted: bool)
+    pub fn create_edge(blur_radius: f32,
+                       border_radius: f32,
+                       box_rect: &Rect<f32>,
+                       inverted: bool,
+                       device_pixel_ratio: f32)
                        -> Option<BoxShadowRasterOp> {
-        let raster_rect = BoxShadowRasterOp::raster_rect(blur_radius,
-                                                         border_radius,
-                                                         BoxShadowPart::Edge,
-                                                         box_rect);
         if blur_radius > 0.0 {
+            let raster_rect = BoxShadowRasterOp::raster_rect(blur_radius,
+                                                             border_radius,
+                                                             BoxShadowPart::Edge,
+                                                             box_rect);
+
+            let blur_radius = DevicePixel::new(blur_radius, device_pixel_ratio);
+            let border_radius = DevicePixel::new(border_radius, device_pixel_ratio);
+
             Some(BoxShadowRasterOp {
-                blur_radius: Au::from_f32_px(blur_radius),
-                border_radius: Au::from_f32_px(border_radius),
-                local_raster_origin: (Au::from_f32_px(box_rect.origin.x - raster_rect.origin.x),
-                                      Au::from_f32_px(box_rect.origin.y - raster_rect.origin.y)),
-                box_rect_size: (Au::from_f32_px(box_rect.size.width),
-                                Au::from_f32_px(box_rect.size.height)),
-                raster_size: (Au::from_f32_px(raster_rect.size.width),
-                              Au::from_f32_px(raster_rect.size.height)),
+                blur_radius: blur_radius,
+                border_radius: border_radius,
+                local_raster_origin: (DevicePixel::new(box_rect.origin.x - raster_rect.origin.x, device_pixel_ratio),
+                                      DevicePixel::new(box_rect.origin.y - raster_rect.origin.y, device_pixel_ratio)),
+                box_rect_size: (DevicePixel::new(box_rect.size.width, device_pixel_ratio),
+                                DevicePixel::new(box_rect.size.height, device_pixel_ratio)),
+                raster_size: (DevicePixel::new(raster_rect.size.width, device_pixel_ratio),
+                              DevicePixel::new(raster_rect.size.height, device_pixel_ratio)),
                 part: BoxShadowPart::Edge,
                 inverted: inverted,
             })
