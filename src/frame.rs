@@ -233,16 +233,21 @@ impl RenderTarget {
 
                                 let vertex_buffer_id = compiled_node.vertex_buffer_id.unwrap();
 
-                                // Mask out anything outside this AABB tree node.
-                                // This is a requirement to ensure paint order is correctly
-                                // maintained since the batches are built in parallel.
-                                region.add_mask(node.split_rect, layer.world_transform);
+                                // TODO(gw): Support mask regions for nested render targets
+                                //           with transforms.
+                                if self.texture_id.is_none() {
+                                    // Mask out anything outside this AABB tree node.
+                                    // This is a requirement to ensure paint order is correctly
+                                    // maintained since the batches are built in parallel.
+                                    region.add_mask(node.split_rect, layer.world_transform);
 
-                                // Mask out anything outside this viewport. This is used
-                                // for things like clipping content that is outside a
-                                // transformed iframe.
-                                region.add_mask(Rect::new(layer.world_origin, layer.viewport_size),
-                                                layer.local_transform);
+                                    // Mask out anything outside this viewport. This is used
+                                    // for things like clipping content that is outside a
+                                    // transformed iframe.
+                                    region.add_mask(Rect::new(layer.world_origin, layer.viewport_size),
+                                                    layer.local_transform);
+
+                                }
 
                                 for batch in &batch_list.batches {
                                     region.draw_calls.push(DrawCall {
@@ -298,6 +303,7 @@ impl RenderTarget {
         }
 
         self.items.clear();
+        self.page_allocator = None;
     }
 
     fn push_clear(&mut self, clear_info: ClearInfo) {
