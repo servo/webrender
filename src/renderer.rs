@@ -739,7 +739,7 @@ impl Renderer {
                             }
                             TextureUpdateDetails::BoxShadow(blur_radius,
                                                             border_radius,
-                                                            box_rect,
+                                                            box_rect_size,
                                                             raster_origin,
                                                             inverted,
                                                             border_type) => {
@@ -749,10 +749,10 @@ impl Renderer {
                                     &Rect::new(Point2D::new(x, y),
                                                Size2D::new(width, height)),
                                     &Rect::new(
-                                        Point2D::new((box_rect.origin.x - raster_origin.x) * device_pixel_ratio,
-                                                     (box_rect.origin.y - raster_origin.y) * device_pixel_ratio),
-                                        Size2D::new(box_rect.size.width * device_pixel_ratio,
-                                                    box_rect.size.height * device_pixel_ratio)),
+                                        Point2D::new(raster_origin.x * device_pixel_ratio,
+                                                     raster_origin.y * device_pixel_ratio),
+                                        Size2D::new(box_rect_size.width * device_pixel_ratio,
+                                                    box_rect_size.height * device_pixel_ratio)),
                                     blur_radius.to_f32_px() * device_pixel_ratio,
                                     border_radius.to_f32_px() * device_pixel_ratio,
                                     inverted,

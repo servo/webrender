@@ -355,7 +355,7 @@ pub enum TextureUpdateDetails {
     /// All four corners, the tessellation index, and whether inverted, respectively.
     BorderRadius(DevicePixel, DevicePixel, DevicePixel, DevicePixel, Option<u32>, bool, BorderType),
     /// Blur radius, border radius, box rect, raster origin, and whether inverted, respectively.
-    BoxShadow(Au, Au, Rect<f32>, Point2D<f32>, bool, BorderType),
+    BoxShadow(Au, Au, Size2D<f32>, Point2D<f32>, bool, BorderType),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -872,9 +872,8 @@ pub struct BoxShadowRasterOp {
     pub blur_radius: Au,
     pub border_radius: Au,
     // This is a tuple to work around the lack of `Eq` on `Rect`.
-    pub box_rect_origin: (Au, Au),
     pub box_rect_size: (Au, Au),
-    pub raster_origin: (Au, Au),
+    pub local_raster_origin: (Au, Au),
     pub raster_size: (Au, Au),
     pub part: BoxShadowPart,
     pub inverted: bool,
@@ -913,15 +912,14 @@ impl BoxShadowRasterOp {
                                                              border_radius,
                                                              BoxShadowPart::Corner,
                                                              box_rect);
+
             Some(BoxShadowRasterOp {
                 blur_radius: Au::from_f32_px(blur_radius),
                 border_radius: Au::from_f32_px(border_radius),
-                box_rect_origin: (Au::from_f32_px(box_rect.origin.x),
-                                  Au::from_f32_px(box_rect.origin.y)),
+                local_raster_origin: (Au::from_f32_px(box_rect.origin.x - raster_rect.origin.x),
+                                      Au::from_f32_px(box_rect.origin.y - raster_rect.origin.y)),
                 box_rect_size: (Au::from_f32_px(box_rect.size.width),
                                 Au::from_f32_px(box_rect.size.height)),
-                raster_origin: (Au::from_f32_px(raster_rect.origin.x),
-                                Au::from_f32_px(raster_rect.origin.y)),
                 raster_size: (Au::from_f32_px(raster_rect.size.width),
                               Au::from_f32_px(raster_rect.size.height)),
                 part: BoxShadowPart::Corner,
@@ -942,12 +940,10 @@ impl BoxShadowRasterOp {
             Some(BoxShadowRasterOp {
                 blur_radius: Au::from_f32_px(blur_radius),
                 border_radius: Au::from_f32_px(border_radius),
-                box_rect_origin: (Au::from_f32_px(box_rect.origin.x),
-                                  Au::from_f32_px(box_rect.origin.y)),
+                local_raster_origin: (Au::from_f32_px(box_rect.origin.x - raster_rect.origin.x),
+                                      Au::from_f32_px(box_rect.origin.y - raster_rect.origin.y)),
                 box_rect_size: (Au::from_f32_px(box_rect.size.width),
                                 Au::from_f32_px(box_rect.size.height)),
-                raster_origin: (Au::from_f32_px(raster_rect.origin.x),
-                                Au::from_f32_px(raster_rect.origin.y)),
                 raster_size: (Au::from_f32_px(raster_rect.size.width),
                               Au::from_f32_px(raster_rect.size.height)),
                 part: BoxShadowPart::Edge,

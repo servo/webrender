@@ -929,12 +929,10 @@ impl TextureCache {
                         TextureUpdateDetails::BoxShadow(
                             op.blur_radius,
                             op.border_radius,
-                            Rect::new(Point2D::new(op.box_rect_origin.0.to_f32_px(),
-                                                   op.box_rect_origin.1.to_f32_px()),
-                                      Size2D::new(op.box_rect_size.0.to_f32_px(),
-                                                  op.box_rect_size.1.to_f32_px())),
-                            Point2D::new(op.raster_origin.0.to_f32_px(),
-                                         op.raster_origin.1.to_f32_px()),
+                            Size2D::new(op.box_rect_size.0.to_f32_px(),
+                                        op.box_rect_size.1.to_f32_px()),
+                            Point2D::new(op.local_raster_origin.0.to_f32_px(),
+                                         op.local_raster_origin.1.to_f32_px()),
                             op.inverted,
                             BorderType::SinglePixel)),
                 }
