@@ -94,7 +94,8 @@ impl ResourceList {
         if let Some(raster_item) = BoxShadowRasterOp::create_corner(blur_radius,
                                                                     border_radius,
                                                                     box_rect,
-                                                                    inverted) {
+                                                                    inverted,
+                                                                    self.device_pixel_ratio) {
             self.required_rasters.insert(RasterItem::BoxShadow(raster_item));
         }
     }
@@ -107,7 +108,8 @@ impl ResourceList {
         if let Some(raster_item) = BoxShadowRasterOp::create_edge(blur_radius,
                                                                   border_radius,
                                                                   box_rect,
-                                                                  inverted) {
+                                                                  inverted,
+                                                                  self.device_pixel_ratio) {
             self.required_rasters.insert(RasterItem::BoxShadow(raster_item));
         }
     }
