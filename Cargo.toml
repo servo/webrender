@@ -22,7 +22,7 @@ git = "https://github.com/servo/rust-freetype"
 git = "https://github.com/servo/ipc-channel"
 
 [dependencies.webrender_traits]
-git = "https://github.com/glennw/webrender_traits"
+git = "https://github.com/servo/webrender_traits"
 
 [dependencies.offscreen_gl_context]
 git = "https://github.com/ecoal95/rust-offscreen-rendering-context"
