@@ -1168,29 +1168,32 @@ impl<'a> BatchBuilder<'a> {
     /// The following diagram attempts to explain the parameters to this function. It's an enlarged
     /// version of a border corner that looks like this:
     ///
-    ///     ╭─
-    ///     │
+    /// ```ignore
+    /// ╭─
+    /// │
+    /// ```
     ///
     /// The parameters are as follows:
     ///
-    ///     ⤹ corner_bounds.origin
-    ///     ∙┈┈┈┈┈┬┈┈┈┈┈┬┈┈┈┈┈
-    ///     ┊   ╱ ┊     ┊
-    ///     ┊  ╱  ┊     ┊
-    ///     ┊ ╱╲  ┊   ←─┼── color1
-    ///     ┊╱  ╲ ┊     ┊
-    ///     ┊    ╲┊     ┊
-    ///     ├┈┈┈┈┈∙←────┼── radius_extent
-    ///     ┊     ┊╲    ┊
-    ///     ┊     ┊ ╲   ┊
-    ///     ┊     ┊  ╲  ┊
-    ///     ┊  ↑  ┊   ╲ ┊
-    ///     ┊  │  ┊    ╲┊
-    ///     ├┈┈┼┈┈┴┈┈┈┈┈∙┈┈┈┈┈
-    ///     ┊  │        ┊↖︎
-    ///     ┊           ┊  corner_bounds.bottom_right()
-    ///     ┊color0     ┊
-    ///
+    /// ```ignore
+    /// ⤹ corner_bounds.origin
+    /// ∙┈┈┈┈┈┬┈┈┈┈┈┬┈┈┈┈┈
+    /// ┊   ╱ ┊     ┊
+    /// ┊  ╱  ┊     ┊
+    /// ┊ ╱╲  ┊   ←─┼── color1
+    /// ┊╱  ╲ ┊     ┊
+    /// ┊    ╲┊     ┊
+    /// ├┈┈┈┈┈∙←────┼── radius_extent
+    /// ┊     ┊╲    ┊
+    /// ┊     ┊ ╲   ┊
+    /// ┊     ┊  ╲  ┊
+    /// ┊  ↑  ┊   ╲ ┊
+    /// ┊  │  ┊    ╲┊
+    /// ├┈┈┼┈┈┴┈┈┈┈┈∙┈┈┈┈┈
+    /// ┊  │        ┊↖︎
+    /// ┊           ┊  corner_bounds.bottom_right()
+    /// ┊color0     ┊
+    /// ```
     fn add_border_corner(&mut self,
                          border_style: BorderStyle,
                          corner_bounds: &Rect<f32>,
