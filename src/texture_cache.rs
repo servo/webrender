@@ -9,13 +9,14 @@ use fnv::FnvHasher;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
-use internal_types::{RectUv, DevicePixel};
+use internal_types::{RectUv, DevicePixel, BasicRotationAngle};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::hash::BuildHasherDefault;
 use std::mem;
 use std::slice::Iter;
+use tessellator::BorderCornerTessellation;
 use util;
 use webrender_traits::{ImageFormat};
 
@@ -844,32 +845,29 @@ impl TextureCache {
 
     pub fn insert_raster_op(&mut self,
                             image_id: TextureCacheItemId,
-                            item: &RasterItem) {
+                            item: &RasterItem,
+                            device_pixel_ratio: f32) {
         let update_op = match item {
             &RasterItem::BorderRadius(ref op) => {
-                let rect =
-                    Rect::new(Point2D::zero(),
-                              Size2D::new(op.outer_radius_x,
-                                          op.outer_radius_y));
+                let rect = Rect::new(Point2D::zero(),
+                                     Size2D::new(op.outer_radius_x.as_f32(),
+                                                 op.outer_radius_y.as_f32()));
                 let tessellated_rect = match op.index {
-                    Some(_index) => {
-                        panic!("todo - re-enable border tesselation");
-                        /*
+                    Some(index) => {
                         rect.tessellate_border_corner(
-                            &Size2D::new(op.outer_radius_x.to_f32_px(),
-                                         op.outer_radius_y.to_f32_px()),
-                            &Size2D::new(op.inner_radius_x.to_f32_px(),
-                                         op.inner_radius_y.to_f32_px()),
-                            device_pixel_ratio,
+                            &Size2D::new(op.outer_radius_x.as_f32(),
+                                         op.outer_radius_y.as_f32()),
+                            &Size2D::new(op.inner_radius_x.as_f32(),
+                                         op.inner_radius_y.as_f32()),
+                            1.0,
                             BasicRotationAngle::Upright,
                             index)
-                        */
                     }
                     None => rect,
                 };
 
-                let width = tessellated_rect.size.width.as_u32();
-                let height = tessellated_rect.size.height.as_u32();
+                let width = tessellated_rect.size.width.ceil() as u32;
+                let height = tessellated_rect.size.height.ceil() as u32;
 
                 let allocation = self.allocate(image_id,
                                                0,

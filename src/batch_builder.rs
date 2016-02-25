@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::f32;
 use std::hash::BuildHasherDefault;
+use tessellator::{self, BorderCornerTessellation};
 use texture_cache::{TextureCacheItem};
 use util;
 use util::RectVaryings;
@@ -1204,6 +1205,7 @@ impl<'a> BatchBuilder<'a> {
                          inner_radius: &Size2D<f32>,
                          resource_cache: &ResourceCache,
                          frame_id: FrameId,
+                         can_tessellate: bool,
                          rotation_angle: BasicRotationAngle,
                          device_pixel_ratio: f32) {
         if color0.a <= 0.0 && color1.a <= 0.0 {
@@ -1242,6 +1244,7 @@ impl<'a> BatchBuilder<'a> {
                                              inner_radius,
                                              resource_cache,
                                              frame_id,
+                                             can_tessellate,
                                              rotation_angle,
                                              device_pixel_ratio);
                 self.add_solid_border_corner(&inner_corner_rect,
@@ -1252,6 +1255,7 @@ impl<'a> BatchBuilder<'a> {
                                              inner_radius,
                                              resource_cache,
                                              frame_id,
+                                             can_tessellate,
                                              rotation_angle,
                                              device_pixel_ratio);
 
@@ -1337,6 +1341,7 @@ impl<'a> BatchBuilder<'a> {
                                              &Size2D::new(0.0, 0.0),
                                              resource_cache,
                                              frame_id,
+                                             can_tessellate,
                                              rotation_angle,
                                              device_pixel_ratio);
 
@@ -1350,6 +1355,7 @@ impl<'a> BatchBuilder<'a> {
                                              inner_radius,
                                              resource_cache,
                                              frame_id,
+                                             can_tessellate,
                                              rotation_angle,
                                              device_pixel_ratio);
 
@@ -1364,6 +1370,7 @@ impl<'a> BatchBuilder<'a> {
                                              inner_radius,
                                              resource_cache,
                                              frame_id,
+                                             can_tessellate,
                                              rotation_angle,
                                              device_pixel_ratio)
             }
@@ -1379,6 +1386,7 @@ impl<'a> BatchBuilder<'a> {
                                inner_radius: &Size2D<f32>,
                                resource_cache: &ResourceCache,
                                frame_id: FrameId,
+                               can_tessellate: bool,
                                rotation_angle: BasicRotationAngle,
                                _device_pixel_ratio: f32) {
         // TODO: Check for zero width/height borders!
@@ -1390,13 +1398,26 @@ impl<'a> BatchBuilder<'a> {
         let dummy_mask_image = resource_cache.get_dummy_mask_image();
 
         // Draw the rounded part of the corner.
-        //for rect_index in 0..tessellator::quad_count_for_border_corner(outer_radius,
-        //                                                               device_pixel_ratio) {
-            let tessellated_rect = outer_corner_rect;//.tessellate_border_corner(outer_radius,
-                                                     //                         inner_radius,
-                                                     //                         device_pixel_ratio,
-                                                     //                         rotation_angle,
-                                                     //                         rect_index);
+        let quad_count = if can_tessellate {
+            tessellator::quad_count_for_border_corner(outer_radius, self.device_pixel_ratio)
+        } else {
+            1
+        };
+        for rect_index in 0..quad_count {
+            let tessellated_rect;
+            let index;
+            if can_tessellate {
+                tessellated_rect =
+                    outer_corner_rect.tessellate_border_corner(outer_radius,
+                                                               inner_radius,
+                                                               self.device_pixel_ratio,
+                                                               rotation_angle,
+                                                               rect_index);
+                index = Some(rect_index)
+            } else {
+                tessellated_rect = outer_corner_rect;
+                index = None
+            };
 
             let outer_radius_x = DevicePixel::new(outer_radius.width, self.device_pixel_ratio);
             let outer_radius_y = DevicePixel::new(outer_radius.height, self.device_pixel_ratio);
@@ -1408,7 +1429,7 @@ impl<'a> BatchBuilder<'a> {
                                                                 inner_radius_x,
                                                                 inner_radius_y,
                                                                 false,
-                                                                None,//Some(rect_index),
+                                                                index,
                                                                 ImageFormat::A8) {
                 Some(raster_item) => {
                     resource_cache.get_raster(&RasterItem::BorderRadius(raster_item), frame_id)
@@ -1433,7 +1454,7 @@ impl<'a> BatchBuilder<'a> {
                                          color1,
                                          resource_cache,
                                          rotation_angle);
-        //}
+        }
 
         // Draw the inner rect.
         self.add_border_corner_piece(RectPolygon {
@@ -1590,6 +1611,8 @@ impl<'a> BatchBuilder<'a> {
         let right_color = right.border_color(2.0/3.0, 1.0, 0.7, 0.3);
         let bottom_color = bottom.border_color(2.0/3.0, 1.0, 0.7, 0.3);
 
+        let can_tessellate = tessellator::can_tessellate_border(info);
+
         // Edges
         self.add_border_edge(&Rect::new(Point2D::new(tl_outer.x, tl_inner.y),
                                         Size2D::new(left.width, bl_inner.y - tl_inner.y)),
@@ -1638,6 +1661,7 @@ impl<'a> BatchBuilder<'a> {
                                &info.top_left_inner_radius(),
                                resource_cache,
                                frame_id,
+                               can_tessellate,
                                BasicRotationAngle::Upright,
                                device_pixel_ratio);
 
@@ -1653,6 +1677,7 @@ impl<'a> BatchBuilder<'a> {
                                &info.top_right_inner_radius(),
                                resource_cache,
                                frame_id,
+                               can_tessellate,
                                BasicRotationAngle::Clockwise90,
                                device_pixel_ratio);
 
@@ -1668,6 +1693,7 @@ impl<'a> BatchBuilder<'a> {
                                &info.bottom_right_inner_radius(),
                                resource_cache,
                                frame_id,
+                               can_tessellate,
                                BasicRotationAngle::Clockwise180,
                                device_pixel_ratio);
 
@@ -1683,6 +1709,7 @@ impl<'a> BatchBuilder<'a> {
                                &info.bottom_left_inner_radius(),
                                resource_cache,
                                frame_id,
+                               can_tessellate,
                                BasicRotationAngle::Clockwise270,
                                device_pixel_ratio);
     }
