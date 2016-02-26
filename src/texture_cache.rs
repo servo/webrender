@@ -10,18 +10,19 @@ use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
 use internal_types::{RectUv, DevicePixel, BasicRotationAngle};
-use std::cmp::Ordering;
+use std::cmp::{self, Ordering};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::hash::BuildHasherDefault;
 use std::mem;
 use std::slice::Iter;
 use tessellator::BorderCornerTessellation;
+use time;
 use util;
-use webrender_traits::{ImageFormat};
+use webrender_traits::ImageFormat;
 
 /// The number of bytes we're allowed to use for a texture.
-const MAX_BYTES_PER_TEXTURE: u32 = 64 * 1024 * 1024;
+const MAX_BYTES_PER_TEXTURE: u32 = 1024 * 1024 * 1024;  // 1GB
 
 /// The number of RGBA pixels we're allowed to use for a texture.
 const MAX_RGBA_PIXELS_PER_TEXTURE: u32 = MAX_BYTES_PER_TEXTURE / 4;
@@ -29,9 +30,15 @@ const MAX_RGBA_PIXELS_PER_TEXTURE: u32 = MAX_BYTES_PER_TEXTURE / 4;
 /// The total number of RGBA pixels we're allowed to use for our render targets.
 const MAX_RGBA_PIXELS_IN_CACHED_RENDER_TARGETS: u32 = 4096 * 4096 * 2;
 
+/// The desired initial size of each texture, in pixels.
+const INITIAL_TEXTURE_SIZE: u32 = 1024;
+
+/// The desired initial area of each texture, in pixels squared.
+const INITIAL_TEXTURE_AREA: u32 = INITIAL_TEXTURE_SIZE * INITIAL_TEXTURE_SIZE;
+
 /// The square root of the number of RGBA pixels we're allowed to use for a texture, rounded down.
 /// to the next power of two.
-const SQRT_MAX_RGBA_PIXELS_PER_TEXTURE: u32 = 4096;
+const SQRT_MAX_RGBA_PIXELS_PER_TEXTURE: u32 = 16384;
 
 /// The minimum number of pixels on each side that we require for rects to be classified as
 /// "medium" within the free list.
@@ -40,6 +47,13 @@ const MINIMUM_MEDIUM_RECT_SIZE: u32 = 16;
 /// The minimum number of pixels on each side that we require for rects to be classified as
 /// "large" within the free list.
 const MINIMUM_LARGE_RECT_SIZE: u32 = 32;
+
+/// The amount of time in milliseconds we give ourselves to coalesce rects before giving up.
+const COALESCING_TIMEOUT: u64 = 100;
+
+/// The number of items that we process in the coalescing work list before checking whether we hit
+/// the timeout.
+const COALESCING_TIMEOUT_CHECKING_INTERVAL: usize = 256;
 
 pub type TextureCacheItemId = FreeListItemId;
 
@@ -232,7 +246,8 @@ impl TexturePage {
 
     #[inline(never)]
     fn coalesce(&mut self) {
-        // Iterate to a fixed point.
+        // Iterate to a fixed point or until a timeout is reached.
+        let deadline = time::precise_time_ns() + COALESCING_TIMEOUT;
         let mut free_list = mem::replace(&mut self.free_list, FreeRectList::new()).into_vec();
         let mut changed = false;
 
@@ -245,6 +260,13 @@ impl TexturePage {
             }
         });
         for work_index in 0..free_list.len() {
+            if work_index % COALESCING_TIMEOUT_CHECKING_INTERVAL == 0 &&
+                    time::precise_time_ns() >= deadline {
+                self.free_list = FreeRectList::from_slice(&free_list[..]);
+                self.dirty = true;
+                return
+            }
+
             if free_list[work_index].size.width == 0 {
                 continue
             }
@@ -275,6 +297,13 @@ impl TexturePage {
             }
         });
         for work_index in 0..free_list.len() {
+            if work_index % COALESCING_TIMEOUT_CHECKING_INTERVAL == 0 &&
+                    time::precise_time_ns() >= deadline {
+                self.free_list = FreeRectList::from_slice(&free_list[..]);
+                self.dirty = true;
+                return
+            }
+
             if free_list[work_index].size.height == 0 {
                 continue
             }
@@ -318,6 +347,21 @@ impl TexturePage {
 
         self.free_list.push(rect);
         self.dirty = true
+    }
+
+    fn grow(&mut self, new_texture_id: TextureId, new_texture_size: u32) {
+        self.free_list.push(&Rect::new(Point2D::new(self.texture_size, 0),
+                                       Size2D::new(new_texture_size - self.texture_size,
+                                                   new_texture_size)));
+        self.free_list.push(&Rect::new(Point2D::new(0, self.texture_size),
+                                       Size2D::new(self.texture_size,
+                                                   new_texture_size - self.texture_size)));
+        self.texture_id = new_texture_id;
+        self.texture_size = new_texture_size
+    }
+
+    fn can_grow(&self) -> bool {
+        self.texture_size < max_texture_size()
     }
 }
 
@@ -490,15 +534,15 @@ impl TextureCacheItem {
     }
 
     fn to_image(&self) -> TextureImage {
-        let texture_size = texture_size() as f32;
+        let texture_size = self.texture_size;
         TextureImage {
             texture_id: self.texture_id,
             texel_uv: Rect::new(Point2D::new(self.uv_rect.top_left.x,
                                              self.uv_rect.top_left.y),
                                 Size2D::new(self.uv_rect.bottom_right.x - self.uv_rect.top_left.x,
                                             self.uv_rect.bottom_right.y - self.uv_rect.top_left.y)),
-            pixel_uv: Point2D::new((self.uv_rect.top_left.x * texture_size) as u32,
-                                   (self.uv_rect.top_left.y * texture_size) as u32),
+            pixel_uv: Point2D::new(self.uv_rect.top_left.x as u32 * texture_size.width,
+                                   self.uv_rect.top_left.y as u32 * texture_size.height),
         }
     }
 }
@@ -751,9 +795,41 @@ impl TextureCache {
         let location = match location {
             Some(location) => location,
             None => {
-                // We need a new page.
-                let texture_size = texture_size();
-                let texture_id = {
+                if !page_list.is_empty() && page_list.last().unwrap().can_grow() {
+                    let last_page = page_list.last_mut().unwrap();
+                    // Grow the texture.
+                    let texture_size = cmp::min(last_page.texture_size * 2,
+                                                max_texture_size());
+                    let new_texture_id =
+                        self.free_texture_ids
+                            .pop()
+                            .expect("TODO: Handle running out of texture IDs!");
+                    self.pending_updates.push(TextureUpdate {
+                        id: new_texture_id,
+                        op: texture_grow_op(last_page.texture_id, texture_size, format, mode),
+                    });
+                    let old_texture_id = last_page.texture_id;
+                    last_page.grow(new_texture_id, texture_size);
+
+                    {
+                        let mut iter = self.items.iter_mut();
+                        while let Some(id) = iter.next() {
+                            let item = iter.free_list().get_mut(id);
+                            if item.texture_id == old_texture_id {
+                                item.texture_id = new_texture_id;
+                                item.texture_size = Size2D::new(texture_size, texture_size)
+                            }
+                        }
+                    }
+
+                    for update in self.pending_updates.updates.iter_mut() {
+                        if update.id == old_texture_id {
+                            update.id = new_texture_id
+                        }
+                    }
+                } else {
+                    // We need a new page.
+                    let texture_size = initial_texture_size();
                     let free_texture_levels_entry = match kind {
                         TextureCacheItemKind::Standard => self.free_texture_levels.entry(format),
                         TextureCacheItemKind::Alternate => {
@@ -776,11 +852,11 @@ impl TextureCache {
                                                 mode);
                     }
                     let free_texture_level = free_texture_levels.pop().unwrap();
-                    free_texture_level.texture_id
-                };
-
-                let page = TexturePage::new(texture_id, texture_size);
-                page_list.push(page);
+                    let texture_id = free_texture_level.texture_id;
+  
+                    let page = TexturePage::new(texture_id, texture_size);
+                    page_list.push(page);
+                }
 
                 match page_list.last_mut().unwrap().allocate(&allocation_size, filter) {
                     Some(location) => location,
@@ -1147,6 +1223,19 @@ fn texture_create_op(texture_size: u32, format: ImageFormat, mode: RenderTargetM
     TextureUpdateOp::Create(texture_size, texture_size, format, TextureFilter::Linear, mode, None)
 }
 
+fn texture_grow_op(old_texture_id: TextureId,
+                   texture_size: u32,
+                   format: ImageFormat,
+                   mode: RenderTargetMode)
+                   -> TextureUpdateOp {
+    TextureUpdateOp::Grow(old_texture_id,
+                          texture_size,
+                          texture_size,
+                          format,
+                          TextureFilter::Linear,
+                          mode)
+}
+
 pub enum TextureInsertOp {
     Blit(Vec<u8>),
     Blur(Vec<u8>, Size2D<u32>, Au),
@@ -1186,8 +1275,18 @@ fn create_new_texture_page(pending_updates: &mut TextureUpdateList,
     })
 }
 
+/// Returns the number of pixels on a side we start out with for our texture atlases.
+fn initial_texture_size() -> u32 {
+    let max_hardware_texture_size = *MAX_TEXTURE_SIZE as u32;
+    if max_hardware_texture_size * max_hardware_texture_size > INITIAL_TEXTURE_AREA {
+        INITIAL_TEXTURE_SIZE
+    } else {
+        max_hardware_texture_size
+    }
+}
+
 /// Returns the number of pixels on a side we're allowed to use for our texture atlases.
-fn texture_size() -> u32 {
+fn max_texture_size() -> u32 {
     let max_hardware_texture_size = *MAX_TEXTURE_SIZE as u32;
     if max_hardware_texture_size * max_hardware_texture_size > MAX_RGBA_PIXELS_PER_TEXTURE {
         SQRT_MAX_RGBA_PIXELS_PER_TEXTURE

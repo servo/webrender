@@ -504,6 +504,20 @@ impl Renderer {
                             }
                         }
                     }
+                    TextureUpdateOp::Grow(old_texture_id,
+                                          new_width,
+                                          new_height,
+                                          format,
+                                          filter,
+                                          mode) => {
+                        self.device.resize_texture(update.id,
+                                                   old_texture_id,
+                                                   new_width,
+                                                   new_height,
+                                                   format,
+                                                   filter,
+                                                   mode);
+                    }
                     TextureUpdateOp::Update(x, y, width, height, details) => {
                         match details {
                             TextureUpdateDetails::Raw => {
