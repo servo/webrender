@@ -49,7 +49,7 @@ impl MatrixHelpers for Matrix4 {
         let bottom_right = self.transform_point(&rect.bottom_right());
         let (mut min_x, mut min_y) = (top_left.x.clone(), top_left.y.clone());
         let (mut max_x, mut max_y) = (min_x.clone(), min_y.clone());
-        for point in [ top_right, bottom_left, bottom_right ].iter() {
+        for point in &[ top_right, bottom_left, bottom_right ] {
             if point.x < min_x {
                 min_x = point.x.clone()
             }

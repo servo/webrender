@@ -181,7 +181,7 @@ impl RenderTarget {
                                         resource_cache: &mut ResourceCache,
                                         draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, BuildHasherDefault<FnvHasher>>,
                                         layers: &HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>,
-                                        stacking_context_info: &Vec<StackingContextInfo>,
+                                        stacking_context_info: &[StackingContextInfo],
                                         device_pixel_ratio: f32) -> DrawLayer {
         let mut commands = vec![];
         for item in &self.items {
@@ -514,7 +514,7 @@ impl StackingContextHelpers for StackingContext {
         if self.needs_composition_operation_for_mix_blend_mode() {
             composition_operations.push(CompositionOp::MixBlend(self.mix_blend_mode));
         }
-        for filter in self.filters.iter() {
+        for filter in &self.filters {
             match *filter {
                 FilterOp::Blur(radius) => {
                     composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Blur(
@@ -776,7 +776,7 @@ impl Frame {
     }
 
     fn add_items_to_target(&mut self,
-                           scene_items: &Vec<SceneItem>,
+                           scene_items: &[SceneItem],
                            info: &FlattenInfo,
                            target: &mut RenderTarget,
                            context: &mut FlattenContext,

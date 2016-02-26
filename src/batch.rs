@@ -289,7 +289,7 @@ impl<'a> BatchBuilder<'a> {
         old_rect
     }
 
-    pub fn push_complex_clip(&mut self, clip: &Vec<ComplexClipRegion>) {
+    pub fn push_complex_clip(&mut self, clip: &[ComplexClipRegion]) {
         // TODO(gw): Handle nested complex clips!
         debug_assert!(clip.len() == 0 || clip.len() == 1);
         if clip.len() == 1 {

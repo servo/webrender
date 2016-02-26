@@ -822,7 +822,7 @@ impl TextureCache {
                         }
                     }
 
-                    for update in self.pending_updates.updates.iter_mut() {
+                    for update in &mut self.pending_updates.updates {
                         if update.id == old_texture_id {
                             update.id = new_texture_id
                         }

@@ -894,7 +894,7 @@ impl Renderer {
                                    f: F)
                                    where F: Fn(&Rect<f32>) -> [PackedVertexForTextureCacheUpdate; 4] {
         // FIXME(pcwalton): Use a hash table if this linear search shows up in the profile.
-        for batch in self.raster_batches.iter_mut() {
+        for batch in &mut self.raster_batches {
             if batch.add_rect_if_possible(dest_texture_id,
                                           color_texture_id,
                                           program_id,
@@ -932,7 +932,7 @@ impl Renderer {
 
     fn flush_raster_batches(&mut self) {
         let batches = mem::replace(&mut self.raster_batches, vec![]);
-        if batches.len() > 0 {
+        if !batches.is_empty() {
             //println!("flushing {:?} raster batches", batches.len());
 
             gl::disable(gl::DEPTH_TEST);
@@ -1201,7 +1201,7 @@ impl Renderer {
                     self.device.bind_program(self.quad_program_id,
                                              &projection);
 
-                    if info.offset_palette.len() > 0 {
+                    if !info.offset_palette.is_empty() {
                         // TODO(gw): Avoid alloc here...
                         let mut floats = Vec::new();
                         for vec in &info.offset_palette {
@@ -1313,7 +1313,7 @@ impl Renderer {
                                 draw_call.first_instance);
                             self.device.bind_vao(vao_id);
 
-                            if draw_call.tile_params.len() > 0 {
+                            if !draw_call.tile_params.is_empty() {
                                 // TODO(gw): Avoid alloc here...
                                 let mut floats = Vec::new();
                                 for vec in &draw_call.tile_params {
@@ -1327,7 +1327,7 @@ impl Renderer {
                                                                    &floats);
                             }
 
-                            if draw_call.clip_rects.len() > 0 {
+                            if !draw_call.clip_rects.is_empty() {
                                 // TODO(gw): Avoid alloc here...
                                 let mut floats = Vec::new();
                                 for rect in &draw_call.clip_rects {
