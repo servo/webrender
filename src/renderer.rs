@@ -894,7 +894,7 @@ impl Renderer {
                                    f: F)
                                    where F: Fn(&Rect<f32>) -> [PackedVertexForTextureCacheUpdate; 4] {
         // FIXME(pcwalton): Use a hash table if this linear search shows up in the profile.
-        for batch in self.raster_batches.iter_mut() {
+        for batch in &mut self.raster_batches {
             if batch.add_rect_if_possible(dest_texture_id,
                                           color_texture_id,
                                           program_id,

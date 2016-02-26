@@ -94,7 +94,7 @@ impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resourc
 
     fn expire_old_resources(&mut self, texture_cache: &mut TextureCache, frame_id: FrameId) {
         let mut resources_to_destroy = vec![];
-        for (key, this_frame_id) in self.last_access_times.iter() {
+        for (key, this_frame_id) in &self.last_access_times {
             if *this_frame_id < frame_id {
                 resources_to_destroy.push((*key).clone())
             }

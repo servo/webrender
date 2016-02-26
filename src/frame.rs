@@ -514,7 +514,7 @@ impl StackingContextHelpers for StackingContext {
         if self.needs_composition_operation_for_mix_blend_mode() {
             composition_operations.push(CompositionOp::MixBlend(self.mix_blend_mode));
         }
-        for filter in self.filters.iter() {
+        for filter in &self.filters {
             match *filter {
                 FilterOp::Blur(radius) => {
                     composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Blur(

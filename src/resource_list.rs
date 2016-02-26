@@ -160,7 +160,7 @@ impl BuildRequiredResources for AABBTreeNode {
                     let display_item = &draw_list.items[index as usize];
 
                     // Handle border radius for complex clipping regions.
-                    for complex_clip_region in display_item.clip.complex.iter() {
+                    for complex_clip_region in &display_item.clip.complex {
                         resource_list.add_radius_raster_for_border_radii(&complex_clip_region.radii);
                     }
 
