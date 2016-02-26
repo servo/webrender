@@ -19,7 +19,7 @@ pub trait NodeCompiler {
                resource_cache: &ResourceCache,
                frame_id: FrameId,
                device_pixel_ratio: f32,
-               stacking_context_info: &Vec<StackingContextInfo>,
+               stacking_context_info: &[StackingContextInfo],
                draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, BuildHasherDefault<FnvHasher>>);
 }
 
@@ -28,7 +28,7 @@ impl NodeCompiler for AABBTreeNode {
                resource_cache: &ResourceCache,
                frame_id: FrameId,
                device_pixel_ratio: f32,
-               stacking_context_info: &Vec<StackingContextInfo>,
+               stacking_context_info: &[StackingContextInfo],
                draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, BuildHasherDefault<FnvHasher>>) {
         let mut compiled_node = CompiledNode::new();
         let mut vertex_buffer = VertexBuffer::new();
