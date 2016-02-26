@@ -57,7 +57,7 @@ impl RenderBackend {
                                                 device_pixel_ratio,
                                                 enable_aa);
 
-        let backend = RenderBackend {
+        RenderBackend {
             thread_pool: thread_pool,
             api_rx: api_rx,
             result_tx: result_tx,
@@ -70,9 +70,7 @@ impl RenderBackend {
             webrender_context_handle: webrender_context_handle,
             webgl_contexts: HashMap::new(),
             current_bound_webgl_context_id: None,
-        };
-
-        backend
+        }
     }
 
     pub fn run(&mut self) {

@@ -212,7 +212,7 @@ impl PackedVertexForQuad {
                muv: &RectUv<DevicePixel>,
                color_mode: PackedVertexColorMode)
                -> PackedVertexForQuad {
-        return PackedVertexForQuad {
+        PackedVertexForQuad {
             x: position.origin.x,
             y: position.origin.y,
             width: position.size.width,
@@ -244,7 +244,7 @@ impl PackedVertexForQuad {
                 PackedVertexColorMode::Gradient => 0x00,
                 PackedVertexColorMode::BorderCorner => 0x80,
             },
-        };
+        }
     }
 }
 
