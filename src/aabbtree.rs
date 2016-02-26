@@ -280,7 +280,7 @@ impl AABBTree {
         let children = {
             let node = self.node_mut(node_index);
             if node.split_rect.intersects(rect) {
-                if node.draw_list_group_segments.len() > 0 &&
+                if !node.draw_list_group_segments.is_empty() &&
                    node.actual_rect.intersects(rect) {
                     debug_assert!(node.children.is_none());
                     node.is_visible = true;
@@ -304,7 +304,7 @@ impl AABBTree {
         for node in &mut self.nodes {
             node.is_visible = false;
         }
-        if self.nodes.len() > 0 {
+        if !self.nodes.is_empty() {
             self.check_node_visibility(NodeIndex(0), &rect);
         }
     }

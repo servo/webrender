@@ -239,7 +239,7 @@ impl ProfileGraph {
             stats.max_value = stats.max_value.max(*value);
         }
 
-        if self.values.len() > 0 {
+        if !self.values.is_empty() {
             stats.mean_value = stats.mean_value / self.values.len() as f32;
         }
 

@@ -134,7 +134,7 @@ impl NodeCompiler for AABBTreeNode {
             }
 
             let batches = builder.finalize();
-            if batches.len() > 0 {
+            if !batches.is_empty() {
                 compiled_node.batch_list.push(BatchList {
                     batches: batches,
                     draw_list_group_id: draw_list_group_segment.draw_list_group_id,

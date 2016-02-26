@@ -295,7 +295,7 @@ impl RenderBackend {
                                      self.device_pixel_ratio);
 
         let pending_update = self.resource_cache.pending_updates();
-        if pending_update.updates.len() > 0 {
+        if !pending_update.updates.is_empty() {
             self.result_tx.send(ResultMsg::UpdateTextureCache(pending_update)).unwrap();
         }
 

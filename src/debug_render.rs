@@ -162,9 +162,9 @@ impl DebugRenderer {
     pub fn render(&mut self,
                   device: &mut Device,
                   viewport_size: &Size2D<u32>) {
-        if self.font_indices.len() > 0 ||
-           self.line_vertices.len() > 0 ||
-           self.tri_vertices.len() > 0 {
+        if !self.font_indices.is_empty() ||
+           !self.line_vertices.is_empty() ||
+           !self.tri_vertices.is_empty() {
             gl::disable(gl::DEPTH_TEST);
             gl::enable(gl::BLEND);
             gl::blend_equation(gl::FUNC_ADD);
