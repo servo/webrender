@@ -27,7 +27,7 @@ use std::mem;
 use texture_cache::TexturePage;
 use util;
 use webrender_traits::{PipelineId, Epoch, ScrollPolicy, ScrollLayerId, StackingContext};
-use webrender_traits::{FilterOp, ImageFormat, MixBlendMode, StackingLevel};
+use webrender_traits::{FilterOp, ImageFormat, MixBlendMode, StackingLevel, ScrollLayerInfo};
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
 pub struct FrameId(pub u32);
@@ -82,11 +82,13 @@ struct FlattenContext<'a> {
     device_pixel_ratio: f32,
 }
 
+#[derive(Debug)]
 struct FlattenInfo {
     viewport_size: Size2D<f32>,
     current_clip_rect: Rect<f32>,
     default_scroll_layer_id: ScrollLayerId,
     actual_scroll_layer_id: ScrollLayerId,
+    fixed_scroll_layer_id: ScrollLayerId,
     offset_from_origin: Point2D<f32>,
     offset_from_current_layer: Point2D<f32>,
     transform: Matrix4,
@@ -635,11 +637,11 @@ impl Frame {
                 }
             }
 
-            match scroll_layer_id {
-                ScrollLayerId::Fixed => {
+            match scroll_layer_id.info {
+                ScrollLayerInfo::Fixed => {
                     None
                 }
-                ScrollLayerId::Normal(..) => {
+                ScrollLayerInfo::Scrollable(..) => {
                     let inv = transform.invert();
                     let z0 = -10000.0;
                     let z1 =  10000.0;
@@ -721,7 +723,8 @@ impl Frame {
 
                 // Insert global position: fixed elements layer
                 debug_assert!(self.layers.is_empty());
-                self.layers.insert(ScrollLayerId::fixed_layer(),
+                let root_fixed_layer_id = ScrollLayerId::create_fixed(root_pipeline_id);
+                self.layers.insert(root_fixed_layer_id,
                                    Layer::new(root_stacking_context.stacking_context.overflow.origin,
                                               root_stacking_context.stacking_context.overflow.size,
                                               root_pipeline.viewport_size,
@@ -743,6 +746,7 @@ impl Frame {
                         offset_from_current_layer: Point2D::zero(),
                         default_scroll_layer_id: root_scroll_layer_id,
                         actual_scroll_layer_id: root_scroll_layer_id,
+                        fixed_scroll_layer_id: root_fixed_layer_id,
                         current_clip_rect: MAX_RECT,
                         transform: Matrix4::identity(),
                         perspective: Matrix4::identity(),
@@ -862,16 +866,34 @@ impl Frame {
                     if let Some(pipeline) = pipeline {
                         let iframe = SceneItemKind::Pipeline(pipeline);
 
+                        let iframe_fixed_layer_id = ScrollLayerId::create_fixed(pipeline.pipeline_id);
+
                         let iframe_info = FlattenInfo {
                             viewport_size: iframe_info.bounds.size,
                             offset_from_origin: info.offset_from_origin + iframe_info.bounds.origin,
                             offset_from_current_layer: info.offset_from_current_layer + iframe_info.bounds.origin,
                             default_scroll_layer_id: info.default_scroll_layer_id,
                             actual_scroll_layer_id: info.actual_scroll_layer_id,
+                            fixed_scroll_layer_id: iframe_fixed_layer_id,
                             current_clip_rect: MAX_RECT,
                             transform: info.transform,
                             perspective: info.perspective,
                         };
+
+                        let iframe_stacking_context = context.scene
+                                                             .stacking_context_map
+                                                             .get(&pipeline.root_stacking_context_id)
+                                                             .unwrap();
+
+                        let layer_origin = iframe_stacking_context.stacking_context.overflow.origin +
+                                            iframe_info.offset_from_current_layer;
+                        let layer_size = iframe_stacking_context.stacking_context.overflow.size;
+
+                        self.layers.insert(iframe_fixed_layer_id,
+                                           Layer::new(layer_origin,
+                                                      layer_size,
+                                                      iframe_info.viewport_size,
+                                                      iframe_info.transform));
 
                         self.flatten(iframe,
                                      &iframe_info,
@@ -943,6 +965,7 @@ impl Frame {
                     offset_from_current_layer: parent_info.offset_from_current_layer + stacking_context.bounds.origin,
                     default_scroll_layer_id: parent_info.default_scroll_layer_id,
                     actual_scroll_layer_id: parent_info.default_scroll_layer_id,
+                    fixed_scroll_layer_id: parent_info.fixed_scroll_layer_id,
                     current_clip_rect: local_clip_rect,
                     transform: transform,
                     perspective: perspective,
@@ -951,7 +974,7 @@ impl Frame {
                 match (stacking_context.scroll_policy, stacking_context.scroll_layer_id) {
                     (ScrollPolicy::Fixed, _scroll_layer_id) => {
                         debug_assert!(_scroll_layer_id.is_none());
-                        info.actual_scroll_layer_id = ScrollLayerId::fixed_layer();
+                        info.actual_scroll_layer_id = info.fixed_scroll_layer_id;
                     }
                     (ScrollPolicy::Scrollable, Some(scroll_layer_id)) => {
                         debug_assert!(!self.layers.contains_key(&scroll_layer_id));
@@ -1118,6 +1141,21 @@ impl Frame {
     fn update_layer_transforms(&mut self) {
         if let Some(root_scroll_layer_id) = self.root_scroll_layer_id {
             self.update_layer_transform(root_scroll_layer_id, &Matrix4::identity());
+        }
+
+        // Update any fixed layers
+        let mut fixed_layers = Vec::new();
+        for (layer_id, _) in &self.layers {
+            match layer_id.info {
+                ScrollLayerInfo::Scrollable(..) => {}
+                ScrollLayerInfo::Fixed => {
+                    fixed_layers.push(*layer_id);
+                }
+            }
+        }
+
+        for layer_id in fixed_layers {
+            self.update_layer_transform(layer_id, &Matrix4::identity());
         }
     }
 
