@@ -14,6 +14,7 @@ use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, Rend
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePixel};
 use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp, ChildLayerIndex};
 use internal_types::{AxisDirection, LowLevelFilterOp, DrawCommand, DrawLayer, ANGLE_FLOAT_TO_FIXED};
+use internal_types::{BasicRotationAngle};
 use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{RendererProfileTimers, RendererProfileCounters};
@@ -26,7 +27,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
-//use tessellator::BorderCornerTessellation;
+use tessellator::BorderCornerTessellation;
 use texture_cache::{BorderType, TextureCache, TextureInsertOp};
 use time::precise_time_ns;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
@@ -503,6 +504,20 @@ impl Renderer {
                             }
                         }
                     }
+                    TextureUpdateOp::Grow(old_texture_id,
+                                          new_width,
+                                          new_height,
+                                          format,
+                                          filter,
+                                          mode) => {
+                        self.device.resize_texture(update.id,
+                                                   old_texture_id,
+                                                   new_width,
+                                                   new_height,
+                                                   format,
+                                                   filter,
+                                                   mode);
+                    }
                     TextureUpdateOp::Update(x, y, width, height, details) => {
                         match details {
                             TextureUpdateDetails::Raw => {
@@ -661,7 +676,7 @@ impl Renderer {
                                                                outer_ry,
                                                                inner_rx,
                                                                inner_ry,
-                                                               _index,
+                                                               index,
                                                                inverted,
                                                                border_type) => {
                                 // From here on out everything is in device coordinates.
@@ -678,6 +693,8 @@ impl Renderer {
                                 let zero_point = Point2D::new(0.0, 0.0);
                                 let zero_size = Size2D::new(0.0, 0.0);
 
+                                let device_pixel_ratio = self.device_pixel_ratio;
+
                                 self.add_rect_to_raster_batch(update.id,
                                                               TextureId(0),
                                                               border_program_id,
@@ -686,8 +703,30 @@ impl Renderer {
                                                                          Size2D::new(width as u32, height as u32)),
                                                               border_type,
                                                               |texture_rect| {
-                                    let border_position = Point2D::new(texture_rect.origin.x + outer_rx.as_f32(),
-                                                                       texture_rect.origin.y + outer_ry.as_f32());
+                                    let border_radii_outer_size =
+                                        Size2D::new(border_radii_outer.x,
+                                                    border_radii_outer.y);
+                                    let border_radii_inner_size =
+                                        Size2D::new(border_radii_inner.x,
+                                                    border_radii_inner.y);
+                                    let untessellated_rect =
+                                        Rect::new(texture_rect.origin, border_radii_outer_size);
+                                    let tessellated_rect =
+                                        match index {
+                                            None => untessellated_rect,
+                                            Some(index) => {
+                                                untessellated_rect.tessellate_border_corner(
+                                                    &border_radii_outer_size,
+                                                    &border_radii_inner_size,
+                                                    1.0,
+                                                    BasicRotationAngle::Upright,
+                                                    index)
+                                            }
+                                        };
+
+                                    let border_position =
+                                        untessellated_rect.bottom_right() -
+                                        (tessellated_rect.origin - texture_rect.origin);
 
                                     [
                                         PackedVertexForTextureCacheUpdate::new(

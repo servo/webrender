@@ -232,7 +232,8 @@ impl ResourceCache {
             if !self.cached_rasters.contains_key(raster_item) {
                 let image_id = self.texture_cache.new_item_id();
                 self.texture_cache.insert_raster_op(image_id,
-                                                    raster_item);
+                                                    raster_item,
+                                                    self.device_pixel_ratio);
                 self.cached_rasters.insert(raster_item.clone(), image_id, frame_id);
             }
             self.cached_rasters.mark_as_needed(raster_item, frame_id);

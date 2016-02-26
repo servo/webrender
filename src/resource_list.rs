@@ -13,6 +13,7 @@ use resource_cache::ResourceCache;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::hash::BuildHasherDefault;
+use tessellator;
 use webrender_traits::{BorderRadius, BorderStyle, BoxShadowClipMode, ImageRendering};
 use webrender_traits::{FontKey, ImageFormat, ImageKey, SpecificDisplayItem};
 
@@ -203,42 +204,27 @@ impl BuildRequiredResources for AABBTreeNode {
                             }
                         }
                         SpecificDisplayItem::Border(ref info) => {
-                            //for rect_index in 0..tessellator::quad_count_for_border_corner(
-                            //        &info.radius.top_left,
-                            //        resource_cache.device_pixel_ratio()) {
-                                resource_list.add_radius_raster(&info.radius.top_left,
-                                                                &info.top_left_inner_radius(),
-                                                                false,
-                                                                None,//Some(rect_index),
-                                                                ImageFormat::A8);
-                            //}
-                            //for rect_index in 0..tessellator::quad_count_for_border_corner(
-                            //        &info.radius.top_right,
-                            //        resource_cache.device_pixel_ratio()) {
-                                resource_list.add_radius_raster(&info.radius.top_right,
-                                                                &info.top_right_inner_radius(),
-                                                                false,
-                                                                None,//Some(rect_index),
-                                                                ImageFormat::A8);
-                            //}
-                            //for rect_index in 0..tessellator::quad_count_for_border_corner(
-                            //        &info.radius.bottom_left,
-                            //        resource_cache.device_pixel_ratio()) {
-                                resource_list.add_radius_raster(&info.radius.bottom_left,
-                                                                &info.bottom_left_inner_radius(),
-                                                                false,
-                                                                None,//Some(rect_index),
-                                                                ImageFormat::A8);
-                            //}
-                            //for rect_index in 0..tessellator::quad_count_for_border_corner(
-                            //        &info.radius.bottom_right,
-                            //        resource_cache.device_pixel_ratio()) {
-                                resource_list.add_radius_raster(&info.radius.bottom_right,
-                                                                &info.bottom_right_inner_radius(),
-                                                                false,
-                                                                None,//Some(rect_index),
-                                                                ImageFormat::A8);
-                            //}
+                            let can_tessellate = tessellator::can_tessellate_border(info);
+                            add_border_radius_raster(&info.radius.top_left,
+                                                     &info.top_left_inner_radius(),
+                                                     can_tessellate,
+                                                     resource_cache,
+                                                     &mut resource_list);
+                            add_border_radius_raster(&info.radius.top_right,
+                                                     &info.top_right_inner_radius(),
+                                                     can_tessellate,
+                                                     resource_cache,
+                                                     &mut resource_list);
+                            add_border_radius_raster(&info.radius.bottom_right,
+                                                     &info.bottom_right_inner_radius(),
+                                                     can_tessellate,
+                                                     resource_cache,
+                                                     &mut resource_list);
+                            add_border_radius_raster(&info.radius.bottom_left,
+                                                     &info.bottom_left_inner_radius(),
+                                                     can_tessellate,
+                                                     resource_cache,
+                                                     &mut resource_list);
 
                             if info.top.style == BorderStyle::Dotted {
                                 resource_list.add_radius_raster(&Size2D::new(info.top.width / 2.0,
@@ -336,3 +322,29 @@ impl BuildRequiredResources for AABBTreeNode {
         self.resource_list = Some(resource_list);
     }
 }
+
+fn add_border_radius_raster(outer_radius: &Size2D<f32>,
+                            inner_radius: &Size2D<f32>,
+                            can_tessellate: bool,
+                            resource_cache: &ResourceCache,
+                            resource_list: &mut ResourceList) {
+    let quad_count = if can_tessellate {
+        tessellator::quad_count_for_border_corner(outer_radius,
+                                                  resource_cache.device_pixel_ratio())
+    } else {
+        1
+    };
+    for rect_index in 0..quad_count {
+        let index = if can_tessellate {
+            Some(rect_index)
+        } else {
+            None
+        };
+        resource_list.add_radius_raster(outer_radius,
+                                        inner_radius,
+                                        false,
+                                        index,
+                                        ImageFormat::A8);
+    }
+}
+

@@ -1117,24 +1117,8 @@ impl Device {
             RenderTargetMode::RenderTarget => {
                 self.bind_color_texture(texture_id);
                 self.set_texture_parameters(filter);
-
                 self.upload_2d_texture_image(width, height, internal_format, gl_format, None);
-
-                let fbo_ids: Vec<_> =
-                    gl::gen_framebuffers(1).into_iter().map(|fbo_id| FBOId(fbo_id)).collect();
-                for fbo_id in &fbo_ids[..] {
-                    gl::bind_framebuffer(gl::FRAMEBUFFER, fbo_id.0);
-
-                    gl::framebuffer_texture_2d(gl::FRAMEBUFFER,
-                                               gl::COLOR_ATTACHMENT0,
-                                               gl::TEXTURE_2D,
-                                               texture_id.0,
-                                               0);
-                }
-
-                gl::bind_framebuffer(gl::FRAMEBUFFER, self.default_fbo);
-
-                self.textures.get_mut(&texture_id).unwrap().fbo_ids = fbo_ids;
+                self.create_fbo_for_texture_if_necessary(texture_id);
             }
             RenderTargetMode::None => {
                 texture_id.bind();
@@ -1148,7 +1132,63 @@ impl Device {
         }
     }
 
-    #[allow(dead_code)]
+    pub fn create_fbo_for_texture_if_necessary(&mut self, texture_id: TextureId) {
+        if !self.textures.get(&texture_id).unwrap().fbo_ids.is_empty() {
+            return
+        }
+
+        let fbo_ids: Vec<_> =
+            gl::gen_framebuffers(1).into_iter().map(|fbo_id| FBOId(fbo_id)).collect();
+        for fbo_id in &fbo_ids[..] {
+            gl::bind_framebuffer(gl::FRAMEBUFFER, fbo_id.0);
+
+            gl::framebuffer_texture_2d(gl::FRAMEBUFFER,
+                                       gl::COLOR_ATTACHMENT0,
+                                       gl::TEXTURE_2D,
+                                       texture_id.0,
+                                       0);
+        }
+
+        gl::bind_framebuffer(gl::FRAMEBUFFER, self.default_fbo);
+
+        self.textures.get_mut(&texture_id).unwrap().fbo_ids = fbo_ids;
+    }
+
+    pub fn resize_texture(&mut self,
+                          new_texture_id: TextureId,
+                          old_texture_id: TextureId,
+                          width: u32,
+                          height: u32,
+                          format: ImageFormat,
+                          filter: TextureFilter,
+                          mode: RenderTargetMode) {
+        debug_assert!(self.inside_frame);
+
+        self.init_texture(new_texture_id, width, height, format, filter, mode, None);
+
+        self.create_fbo_for_texture_if_necessary(old_texture_id);
+        self.bind_render_target(Some(old_texture_id));
+        self.bind_color_texture(new_texture_id);
+
+        {
+            let old_texture = self.textures
+                                  .get(&old_texture_id)
+                                  .expect("Didn't find old texture ID in texture map?!");
+
+            gl::copy_tex_sub_image_2d(gl::TEXTURE_2D,
+                                      0,
+                                      0,
+                                      0,
+                                      0,
+                                      0,
+                                      old_texture.width as i32,
+                                      old_texture.height as i32);
+        }
+
+        self.bind_render_target(None);
+        self.deinit_texture(old_texture_id);
+    }
+
     pub fn deinit_texture(&mut self, texture_id: TextureId) {
         debug_assert!(self.inside_frame);
 
