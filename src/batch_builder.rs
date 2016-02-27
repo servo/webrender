@@ -1169,14 +1169,14 @@ impl<'a> BatchBuilder<'a> {
     /// The following diagram attempts to explain the parameters to this function. It's an enlarged
     /// version of a border corner that looks like this:
     ///
-    /// ```ignore
+    /// ```notrust
     /// ╭─
     /// │
     /// ```
     ///
     /// The parameters are as follows:
     ///
-    /// ```ignore
+    /// ```notrust
     /// ⤹ corner_bounds.origin
     /// ∙┈┈┈┈┈┬┈┈┈┈┈┬┈┈┈┈┈
     /// ┊   ╱ ┊     ┊
