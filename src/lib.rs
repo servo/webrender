@@ -44,6 +44,18 @@ mod platform {
     pub mod linux {
         pub mod font;
     }
+    // Temporary solution to pass building on Windows
+    #[cfg(target_os = "windows")]
+    pub mod font {
+        pub struct FontContext;
+        impl FontContext {
+            pub fn new() -> FontContext {
+                FontContext
+            }
+        }
+        pub struct RasterizedGlyph;
+        impl RasterizedGlyph {}
+    }
 }
 
 pub mod renderer;
