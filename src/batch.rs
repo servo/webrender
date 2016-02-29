@@ -291,8 +291,7 @@ impl<'a> BatchBuilder<'a> {
 
     pub fn push_complex_clip(&mut self, clip: &[ComplexClipRegion]) {
         // TODO(gw): Handle nested complex clips!
-        debug_assert!(clip.len() == 0 || clip.len() == 1);
-        if clip.len() == 1 {
+        if clip.len() > 0 {
             self.complex_clip = Some(clip[0]);
         } else {
             self.complex_clip = None;
