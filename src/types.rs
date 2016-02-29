@@ -238,18 +238,30 @@ pub trait RenderNotifier : Send {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ScrollLayerId {
+pub enum ScrollLayerInfo {
     Fixed,
-    Normal(PipelineId, usize)
+    Scrollable(usize)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ScrollLayerId {
+    pub pipeline_id: PipelineId,
+    pub info: ScrollLayerInfo,
 }
 
 impl ScrollLayerId {
     pub fn new(pipeline_id: PipelineId, index: usize) -> ScrollLayerId {
-        ScrollLayerId::Normal(pipeline_id, index)
+        ScrollLayerId {
+            pipeline_id: pipeline_id,
+            info: ScrollLayerInfo::Scrollable(index),
+        }
     }
 
-    pub fn fixed_layer() -> ScrollLayerId {
-        ScrollLayerId::Fixed
+    pub fn create_fixed(pipeline_id: PipelineId) -> ScrollLayerId {
+        ScrollLayerId {
+            pipeline_id: pipeline_id,
+            info: ScrollLayerInfo::Fixed,
+        }
     }
 }
 
