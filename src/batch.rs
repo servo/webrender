@@ -432,9 +432,9 @@ impl RasterBatch {
                                                          origin.y as f32),
                                             Size2D::new(dest_rect.size.width as f32,
                                                         dest_rect.size.height as f32)));
-
-                for i in (0..vertices.len()).step_by(4) {
-                    let index_offset = self.vertices.len();
+                let mut i = 0;
+                let index_offset = self.vertices.len();
+                while i < index_offset {
                     let index_base = (index_offset + i) as u16;
                     self.indices.push(index_base + 0);
                     self.indices.push(index_base + 1);
@@ -442,6 +442,7 @@ impl RasterBatch {
                     self.indices.push(index_base + 2);
                     self.indices.push(index_base + 3);
                     self.indices.push(index_base + 1);
+                    i += 4;
                 }
 
                 self.vertices.extend_from_slice(&vertices);
