@@ -34,7 +34,7 @@ git = "https://github.com/ecoal95/rust-offscreen-rendering-context"
 [dependencies]
 gleam = "0.2"
 euclid = {version = "0.6.2", features = ["plugins"]}
-num = {version = "0.1.24", default-features = false}
+num = {version = "0.1.31", default-features = false}
 time = "0.1"
 fnv="1.0"
 scoped_threadpool = "0.1.6"
