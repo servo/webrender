@@ -434,7 +434,7 @@ impl RasterBatch {
                                                         dest_rect.size.height as f32)));
                 let mut i = 0;
                 let index_offset = self.vertices.len();
-                while i < index_offset {
+                while i < vertices.len() {
                     let index_base = (index_offset + i) as u16;
                     self.indices.push(index_base + 0);
                     self.indices.push(index_base + 1);
