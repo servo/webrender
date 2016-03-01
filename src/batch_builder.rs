@@ -1215,7 +1215,7 @@ impl<'a> BatchBuilder<'a> {
         match border_style {
             BorderStyle::Ridge | BorderStyle::Groove => {
                 let corner_center = util::rect_center(corner_bounds);
-                let [outer_corner_rect, inner_corner_rect, color1_rect, color0_rect] =
+                let (outer_corner_rect, inner_corner_rect, color1_rect, color0_rect) =
                     subdivide_border_corner(corner_bounds, &corner_center, rotation_angle);
 
                 let (tl_color, br_color) = groove_ridge_border_colors(color0, border_style);
@@ -1392,7 +1392,7 @@ impl<'a> BatchBuilder<'a> {
         // TODO: Check for zero width/height borders!
         // FIXME(pcwalton): It's kind of messy to be matching on the rotation angle here to pick
         // the right rect to draw the rounded corner in. Is there a more elegant way to do this?
-        let [outer_corner_rect, inner_corner_rect, color0_rect, color1_rect] =
+        let (outer_corner_rect, inner_corner_rect, color0_rect, color1_rect) =
             subdivide_border_corner(corner_bounds, radius_extent, rotation_angle);
 
         let dummy_mask_image = resource_cache.get_dummy_mask_image();
@@ -1916,13 +1916,13 @@ fn groove_ridge_border_colors(color: &ColorF, border_style: BorderStyle) -> (Col
 fn subdivide_border_corner(corner_bounds: &Rect<f32>,
                            point: &Point2D<f32>,
                            rotation_angle: BasicRotationAngle)
-                           -> [Rect<f32>; 4] {
-    let [tl, tr, br, bl] = util::subdivide_rect_into_quadrants(corner_bounds, point);
+                           -> (Rect<f32>, Rect<f32>, Rect<f32>, Rect<f32>) {
+    let (tl, tr, br, bl) = util::subdivide_rect_into_quadrants(corner_bounds, point);
     match rotation_angle {
-        BasicRotationAngle::Upright => [tl, br, bl, tr],
-        BasicRotationAngle::Clockwise90 => [tr, bl, tl, br],
-        BasicRotationAngle::Clockwise180 => [br, tl, tr, bl],
-        BasicRotationAngle::Clockwise270 => [bl, tr, br, tl],
+        BasicRotationAngle::Upright => (tl, br, bl, tr),
+        BasicRotationAngle::Clockwise90 => (tr, bl, tl, br),
+        BasicRotationAngle::Clockwise180 => (br, tl, tr, bl),
+        BasicRotationAngle::Clockwise270 => (bl, tr, br, tl),
     }
 }
 

@@ -178,7 +178,7 @@ pub fn scale_color(color: &ColorF, factor: f32) -> ColorF {
 
 /// Subdivides a rectangle into quadrants formed by a point. The quadrants are returned in the
 /// order of: top left, top right, bottom right, and bottom left.
-pub fn subdivide_rect_into_quadrants(rect: &Rect<f32>, point: &Point2D<f32>) -> [Rect<f32>; 4] {
+pub fn subdivide_rect_into_quadrants(rect: &Rect<f32>, point: &Point2D<f32>) -> (Rect<f32>, Rect<f32>, Rect<f32>, Rect<f32>) {
     let point = Point2D::new(clamp(point.x, rect.origin.x, rect.max_x()),
                              clamp(point.y, rect.origin.y, rect.max_y()));
     let tl_rect = Rect::new(rect.origin,
@@ -189,7 +189,7 @@ pub fn subdivide_rect_into_quadrants(rect: &Rect<f32>, point: &Point2D<f32>) -> 
                             Size2D::new(rect.max_x() - point.x, rect.max_y() - point.y));
     let bl_rect = Rect::new(Point2D::new(rect.origin.x, point.y),
                             Size2D::new(point.x - rect.origin.x, rect.max_y() - point.y));
-    return [tl_rect, tr_rect, br_rect, bl_rect];
+    return (tl_rect, tr_rect, br_rect, bl_rect);
 
     fn clamp(x: f32, lo: f32, hi: f32) -> f32 {
         if x < lo {
