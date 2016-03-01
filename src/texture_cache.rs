@@ -461,7 +461,6 @@ pub struct TextureCacheItem {
     pub user_data: TextureCacheItemUserData,
 
     // The texture coordinates for this item
-    pub uv_rect: RectUv<f32>,
     pub pixel_rect: RectUv<DevicePixel>,
 
     // The size of the entire texture (not just the allocated rectangle)
@@ -507,13 +506,11 @@ impl TextureCacheItem {
            user_x0: i32, user_y0: i32,
            allocated_rect: Rect<u32>,
            requested_rect: Rect<u32>,
-           texture_size: &Size2D<u32>,
-           uv_rect: RectUv<f32>)
+           texture_size: &Size2D<u32>)
            -> TextureCacheItem {
         TextureCacheItem {
             texture_id: texture_id,
             texture_size: *texture_size,
-            uv_rect: uv_rect,
             pixel_rect: RectUv {
                 top_left: Point2D::new(DevicePixel::from_u32(requested_rect.origin.x),
                                        DevicePixel::from_u32(requested_rect.origin.y)),
@@ -537,12 +534,26 @@ impl TextureCacheItem {
         let texture_size = self.texture_size;
         TextureImage {
             texture_id: self.texture_id,
-            texel_uv: Rect::new(Point2D::new(self.uv_rect.top_left.x,
-                                             self.uv_rect.top_left.y),
-                                Size2D::new(self.uv_rect.bottom_right.x - self.uv_rect.top_left.x,
-                                            self.uv_rect.bottom_right.y - self.uv_rect.top_left.y)),
-            pixel_uv: Point2D::new(self.uv_rect.top_left.x as u32 * texture_size.width,
-                                   self.uv_rect.top_left.y as u32 * texture_size.height),
+            texel_uv: Rect::new(
+                Point2D::new(self.uv_rect().top_left.x, self.uv_rect().top_left.y),
+                Size2D::new(self.uv_rect().bottom_right.x - self.uv_rect().top_left.x,
+                            self.uv_rect().bottom_right.y - self.uv_rect().top_left.y)),
+            pixel_uv: Point2D::new(self.uv_rect().top_left.x as u32 * texture_size.width,
+                                   self.uv_rect().top_left.y as u32 * texture_size.height),
+        }
+    }
+
+    pub fn uv_rect(&self) -> RectUv<f32> {
+        let (width, height) = (self.texture_size.width as f32, self.texture_size.height as f32);
+        RectUv {
+            top_left: Point2D::new(self.pixel_rect.top_left.x.as_f32() / width,
+                                   self.pixel_rect.top_left.y.as_f32() / height),
+            top_right: Point2D::new(self.pixel_rect.top_right.x.as_f32() / width,
+                                    self.pixel_rect.top_right.y.as_f32() / height),
+            bottom_left: Point2D::new(self.pixel_rect.bottom_left.x.as_f32() / width,
+                                      self.pixel_rect.bottom_left.y.as_f32() / height),
+            bottom_right: Point2D::new(self.pixel_rect.bottom_right.x.as_f32() / width,
+                                       self.pixel_rect.bottom_right.y.as_f32() / height),
         }
     }
 }
@@ -633,12 +644,6 @@ impl TextureCache {
     //           how the raster_jobs code works.
     pub fn new_item_id(&mut self) -> TextureCacheItemId {
         let new_item = TextureCacheItem {
-            uv_rect: RectUv {
-                top_left: Point2D::zero(),
-                top_right: Point2D::zero(),
-                bottom_left: Point2D::zero(),
-                bottom_right: Point2D::zero(),
-            },
             user_data: TextureCacheItemUserData {
                 x0: 0,
                 y0: 0,
@@ -817,7 +822,7 @@ impl TextureCache {
                             let item = iter.free_list().get_mut(id);
                             if item.texture_id == old_texture_id {
                                 item.texture_id = new_texture_id;
-                                item.texture_size = Size2D::new(texture_size, texture_size)
+                                item.texture_size = Size2D::new(texture_size, texture_size);
                             }
                         }
                     }
@@ -870,13 +875,7 @@ impl TextureCache {
                             user_x0, user_y0,
                             Rect::new(Point2D::zero(), requested_size),
                             Rect::new(Point2D::zero(), requested_size),
-                            &requested_size,
-                            RectUv {
-                                top_left: Point2D::new(0.0, 0.0),
-                                top_right: Point2D::new(1.0, 0.0),
-                                bottom_left: Point2D::new(0.0, 1.0),
-                                bottom_right: Point2D::new(1.0, 1.0),
-                            });
+                            &requested_size);
                         *self.items.get_mut(image_id) = cache_item;
 
                         return AllocationResult {
@@ -895,22 +894,11 @@ impl TextureCache {
                                                     location.y + border_size),
                                        requested_size);
 
-        let u0 = requested_rect.origin.x as f32 / page.texture_size as f32;
-        let v0 = requested_rect.origin.y as f32 / page.texture_size as f32;
-        let u1 = u0 + requested_size.width as f32 / page.texture_size as f32;
-        let v1 = v0 + requested_size.height as f32 / page.texture_size as f32;
         let cache_item = TextureCacheItem::new(page.texture_id,
                                                user_x0, user_y0,
                                                allocated_rect,
                                                requested_rect,
-                                               &Size2D::new(page.texture_size,
-                                                            page.texture_size),
-                                               RectUv {
-                                                    top_left: Point2D::new(u0, v0),
-                                                    top_right: Point2D::new(u1, v0),
-                                                    bottom_left: Point2D::new(u0, v1),
-                                                    bottom_right: Point2D::new(u1, v1)
-                                               });
+                                               &Size2D::new(page.texture_size, page.texture_size));
         *self.items.get_mut(image_id) = cache_item;
 
         AllocationResult {

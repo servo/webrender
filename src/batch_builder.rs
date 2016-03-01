@@ -336,7 +336,7 @@ impl<'a> BatchBuilder<'a> {
         let white_image = resource_cache.get_dummy_color_image();
         self.add_complex_clipped_rectangle(white_image.texture_id,
                                            rect,
-                                           &white_image.uv_rect,
+                                           &white_image.uv_rect(),
                                            &[*color, *color, *color, *color],
                                            None,
                                            resource_cache,
@@ -388,11 +388,12 @@ impl<'a> BatchBuilder<'a> {
             bottom_right: Point2D::new(u1, v1),
         };
 
-        let uv_size = image_info.uv_rect.bottom_right - image_info.uv_rect.top_left;
+        let uv_rect = image_info.uv_rect();
+        let uv_size = uv_rect.bottom_right - uv_rect.top_left;
 
         let tile_params = TileParams {
-            u0: image_info.uv_rect.top_left.x,
-            v0: image_info.uv_rect.top_left.y,
+            u0: image_info.uv_rect().top_left.x,
+            v0: image_info.uv_rect().top_left.y,
             u_size: uv_size.x,
             v_size: uv_size.y,
         };
@@ -444,7 +445,7 @@ impl<'a> BatchBuilder<'a> {
                 let rect = RectPolygon {
                     pos: Rect::new(Point2D::new(x, y),
                                    Size2D::new(width, height)),
-                    varyings: image_info.uv_rect,
+                    varyings: image_info.uv_rect(),
                 };
 
                 let rect_buffer = match text_batches.entry(image_info.texture_id) {
@@ -512,7 +513,7 @@ impl<'a> BatchBuilder<'a> {
 
             self.add_complex_clipped_rectangle(white_image.texture_id,
                                                &piece_rect,
-                                               &white_image.uv_rect,
+                                               &white_image.uv_rect(),
                                                &piece_colors,
                                                None,
                                                resource_cache,
@@ -584,7 +585,7 @@ impl<'a> BatchBuilder<'a> {
             let rect =
                 Rect::new(Point2D::new(-length / 2.0 + midpoint.x, midpoint.y - height / 2.0),
                           Size2D::new(length, height));
-            let mut rect_uv = white_image.uv_rect;
+            let mut rect_uv = white_image.uv_rect();
             rect_uv.bottom_left.x = -angle;
 
             rectangles.push(GradientRect {
@@ -1075,7 +1076,7 @@ impl<'a> BatchBuilder<'a> {
                                               &Rect::new(dot_rect.origin,
                                                          Size2D::new(dot_rect.size.width / 2.0,
                                                                      dot_rect.size.height / 2.0)),
-                                              &color_image.uv_rect,
+                                              &color_image.uv_rect(),
                                               dummy_mask_image.texture_id,
                                               &dummy_mask_image.pixel_rect,
                                               &colors,
@@ -1086,7 +1087,7 @@ impl<'a> BatchBuilder<'a> {
                                               &Rect::new(dot_rect.top_right(),
                                                          Size2D::new(-dot_rect.size.width / 2.0,
                                                                      dot_rect.size.height / 2.0)),
-                                              &color_image.uv_rect,
+                                              &color_image.uv_rect(),
                                               dummy_mask_image.texture_id,
                                               &dummy_mask_image.pixel_rect,
                                               &colors,
@@ -1097,7 +1098,7 @@ impl<'a> BatchBuilder<'a> {
                                               &Rect::new(dot_rect.bottom_right(),
                                                          Size2D::new(-dot_rect.size.width / 2.0,
                                                                      -dot_rect.size.height / 2.0)),
-                                              &color_image.uv_rect,
+                                              &color_image.uv_rect(),
                                               dummy_mask_image.texture_id,
                                               &dummy_mask_image.pixel_rect,
                                               &colors,
@@ -1108,7 +1109,7 @@ impl<'a> BatchBuilder<'a> {
                                               &Rect::new(dot_rect.bottom_left(),
                                                          Size2D::new(dot_rect.size.width / 2.0,
                                                                      -dot_rect.size.height / 2.0)),
-                                              &color_image.uv_rect,
+                                              &color_image.uv_rect(),
                                               dummy_mask_image.texture_id,
                                               &dummy_mask_image.pixel_rect,
                                               &colors,
@@ -1560,7 +1561,7 @@ impl<'a> BatchBuilder<'a> {
 
         let vertices_rect = Rect::new(*v0, Size2D::new(v1.x - v0.x, v1.y - v0.y));
 
-        let color_uv = RectUv::from_uv_rect_rotation_angle(&color_image.uv_rect,
+        let color_uv = RectUv::from_uv_rect_rotation_angle(&color_image.uv_rect(),
                                                            rotation_angle,
                                                            false);
 
