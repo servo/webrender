@@ -384,7 +384,7 @@ impl Renderer {
             self.device.begin_frame();
 
             gl::disable(gl::SCISSOR_TEST);
-            gl::clear_color(1.0, 1.0, 1.0, 1.0);
+            gl::clear_color(1.0, 1.0, 1.0, 0.0);
             gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
 
             self.update_shaders();
@@ -1158,7 +1158,7 @@ impl Renderer {
         let clear_color = if layer.texture_id.is_some() {
             ColorF::new(0.0, 0.0, 0.0, 0.0)
         } else {
-            ColorF::new(1.0, 1.0, 1.0, 1.0)
+            ColorF::new(1.0, 1.0, 1.0, 0.0)
         };
         gl::clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
         gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
