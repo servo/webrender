@@ -12,7 +12,7 @@ use internal_types::{DrawListGroupId};
 use std::hash::BuildHasherDefault;
 use resource_cache::ResourceCache;
 use std::collections::HashMap;
-use webrender_traits::SpecificDisplayItem;
+use webrender_traits::{AuxiliaryLists, PipelineId, SpecificDisplayItem};
 
 pub trait NodeCompiler {
     fn compile(&mut self,
@@ -20,7 +20,12 @@ pub trait NodeCompiler {
                frame_id: FrameId,
                device_pixel_ratio: f32,
                stacking_context_info: &[StackingContextInfo],
-               draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, BuildHasherDefault<FnvHasher>>);
+               draw_list_groups: &HashMap<DrawListGroupId,
+                                          DrawListGroup,
+                                          BuildHasherDefault<FnvHasher>>,
+               pipeline_auxiliary_lists: &HashMap<PipelineId,
+                                                  AuxiliaryLists,
+                                                  BuildHasherDefault<FnvHasher>>);
 }
 
 impl NodeCompiler for AABBTreeNode {
@@ -29,7 +34,12 @@ impl NodeCompiler for AABBTreeNode {
                frame_id: FrameId,
                device_pixel_ratio: f32,
                stacking_context_info: &[StackingContextInfo],
-               draw_list_groups: &HashMap<DrawListGroupId, DrawListGroup, BuildHasherDefault<FnvHasher>>) {
+               draw_list_groups: &HashMap<DrawListGroupId,
+                                          DrawListGroup,
+                                          BuildHasherDefault<FnvHasher>>,
+               pipeline_auxiliary_lists: &HashMap<PipelineId,
+                                                  AuxiliaryLists,
+                                                  BuildHasherDefault<FnvHasher>>) {
         let mut compiled_node = CompiledNode::new();
         let mut vertex_buffer = VertexBuffer::new();
 
@@ -48,6 +58,9 @@ impl NodeCompiler for AABBTreeNode {
 
                 if let Some(draw_list_index_buffer) = draw_list_index_buffer {
                     let draw_list = resource_cache.get_draw_list(draw_list_index_buffer.draw_list_id);
+                    let auxiliary_lists =
+                        pipeline_auxiliary_lists.get(&draw_list.pipeline_id)
+                                                .expect("No auxiliary lists for pipeline?!");
 
                     let StackingContextIndex(stacking_context_id) = draw_list.stacking_context_index.unwrap();
                     let context = &stacking_context_info[stacking_context_id];
@@ -62,7 +75,8 @@ impl NodeCompiler for AABBTreeNode {
 
                         if let Some(ref clip_rect) = clip_rect {
                             builder.push_clip_in_rect(clip_rect);
-                            builder.push_complex_clip(&display_item.clip.complex);
+                            builder.push_complex_clip(
+                                auxiliary_lists.complex_clip_regions(&display_item.clip.complex));
 
                             match display_item.item {
                                 SpecificDisplayItem::WebGL(ref info) => {
@@ -80,12 +94,13 @@ impl NodeCompiler for AABBTreeNode {
                                                       frame_id);
                                 }
                                 SpecificDisplayItem::Text(ref info) => {
+                                    let glyphs = auxiliary_lists.glyph_instances(&info.glyphs);
                                     builder.add_text(&display_item.rect,
                                                      info.font_key,
                                                      info.size,
                                                      info.blur_radius,
                                                      &info.color,
-                                                     &info.glyphs,
+                                                     &glyphs,
                                                      resource_cache,
                                                      frame_id,
                                                      device_pixel_ratio);
@@ -101,6 +116,7 @@ impl NodeCompiler for AABBTreeNode {
                                                          &info.start_point,
                                                          &info.end_point,
                                                          &info.stops,
+                                                         auxiliary_lists,
                                                          resource_cache,
                                                          frame_id);
                                 }

@@ -23,10 +23,10 @@ use tessellator::{self, BorderCornerTessellation};
 use texture_cache::{TextureCacheItem};
 use util;
 use util::RectVaryings;
-use webrender_traits::{ColorF, ImageFormat, BorderStyle, BoxShadowClipMode};
+use webrender_traits::{AuxiliaryLists, ColorF, ImageFormat, BorderStyle, BoxShadowClipMode};
 use webrender_traits::{BorderSide, FontKey, GlyphInstance, ImageKey};
 use webrender_traits::{BorderDisplayItem, GradientStop, ImageRendering};
-use webrender_traits::{WebGLContextId};
+use webrender_traits::{WebGLContextId, ItemRange};
 
 const BORDER_DASH_SIZE: f32 = 3.0;
 
@@ -525,9 +525,12 @@ impl<'a> BatchBuilder<'a> {
                         rect: &Rect<f32>,
                         start_point: &Point2D<f32>,
                         end_point: &Point2D<f32>,
-                        stops: &[GradientStop],
+                        stops: &ItemRange,
+                        auxiliary_lists: &AuxiliaryLists,
                         resource_cache: &ResourceCache,
                         frame_id: FrameId) {
+        let stops = auxiliary_lists.gradient_stops(stops);
+
         // Fast paths for axis-aligned gradients:
         if start_point.x == end_point.x {
             let rect = Rect::new(Point2D::new(rect.origin.x, start_point.y),

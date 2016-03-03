@@ -14,8 +14,9 @@ use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::hash::BuildHasherDefault;
 use tessellator;
-use webrender_traits::{BorderRadius, BorderStyle, BoxShadowClipMode, ImageRendering};
-use webrender_traits::{FontKey, ImageFormat, ImageKey, SpecificDisplayItem};
+use webrender_traits::{AuxiliaryLists, BorderRadius, BorderStyle, BoxShadowClipMode};
+use webrender_traits::{FontKey, ImageFormat, ImageKey, ImageRendering, PipelineId};
+use webrender_traits::{SpecificDisplayItem};
 
 type RequiredImageSet = HashSet<(ImageKey, ImageRendering), BuildHasherDefault<FnvHasher>>;
 type RequiredGlyphMap = HashMap<FontKey, HashSet<Glyph>, BuildHasherDefault<FnvHasher>>;
@@ -143,11 +144,19 @@ impl ResourceList {
 }
 
 pub trait BuildRequiredResources {
-    fn build_resource_list(&mut self, resource_cache: &ResourceCache);
+    fn build_resource_list(&mut self,
+                           resource_cache: &ResourceCache,
+                           pipeline_auxiliary_lists: &HashMap<PipelineId,
+                                                              AuxiliaryLists,
+                                                              BuildHasherDefault<FnvHasher>>);
 }
 
 impl BuildRequiredResources for AABBTreeNode {
-    fn build_resource_list(&mut self, resource_cache: &ResourceCache) {
+    fn build_resource_list(&mut self,
+                           resource_cache: &ResourceCache,
+                           pipeline_auxiliary_lists: &HashMap<PipelineId,
+                                                              AuxiliaryLists,
+                                                              BuildHasherDefault<FnvHasher>>) {
         //let _pf = util::ProfileScope::new("  build_resource_list");
         let mut resource_list = ResourceList::new(resource_cache.device_pixel_ratio());
 
@@ -158,10 +167,15 @@ impl BuildRequiredResources for AABBTreeNode {
                 for index in &draw_list_index_buffer.indices {
                     let DrawListItemIndex(index) = *index;
                     let display_item = &draw_list.items[index as usize];
+                    let auxiliary_lists =
+                        pipeline_auxiliary_lists.get(&draw_list.pipeline_id)
+                                                .expect("No auxiliary lists for pipeline?!");
 
                     // Handle border radius for complex clipping regions.
-                    for complex_clip_region in &display_item.clip.complex {
-                        resource_list.add_radius_raster_for_border_radii(&complex_clip_region.radii);
+                    for complex_clip_region in
+                            auxiliary_lists.complex_clip_regions(&display_item.clip.complex) {
+                        resource_list.add_radius_raster_for_border_radii(
+                            &complex_clip_region.radii);
                     }
 
                     match display_item.item {
@@ -169,7 +183,8 @@ impl BuildRequiredResources for AABBTreeNode {
                             resource_list.add_image(info.image_key, info.image_rendering);
                         }
                         SpecificDisplayItem::Text(ref info) => {
-                            for glyph in &info.glyphs {
+                            let glyphs = auxiliary_lists.glyph_instances(&info.glyphs);
+                            for glyph in glyphs {
                                 let glyph = Glyph::new(info.size, info.blur_radius, glyph.index);
                                 resource_list.add_glyph(info.font_key, glyph);
                             }

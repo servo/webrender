@@ -5,12 +5,10 @@
 use euclid::Size2D;
 use fnv::FnvHasher;
 use internal_types::DrawListId;
-use optimizer;
 use resource_cache::ResourceCache;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
-use webrender_traits::{PipelineId, Epoch};
-use webrender_traits::{DisplayListBuilder};
+use webrender_traits::{AuxiliaryLists, BuiltDisplayList, ItemRange, PipelineId, Epoch};
 use webrender_traits::{ColorF, DisplayListId, StackingContext, StackingContextId};
 use webrender_traits::{SpecificDisplayListItem};
 use webrender_traits::{StackingLevel, SpecificDisplayItem};
@@ -30,6 +28,9 @@ pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
     pub pipeline_map: HashMap<PipelineId, ScenePipeline, BuildHasherDefault<FnvHasher>>,
     pub pipeline_sizes: HashMap<PipelineId, Size2D<f32>>,
+    pub pipeline_auxiliary_lists: HashMap<PipelineId,
+                                          AuxiliaryLists,
+                                          BuildHasherDefault<FnvHasher>>,
     pub display_list_map: HashMap<DisplayListId, SceneDisplayList, BuildHasherDefault<FnvHasher>>,
     pub stacking_context_map: HashMap<StackingContextId, SceneStackingContext, BuildHasherDefault<FnvHasher>>,
 }
@@ -37,8 +38,8 @@ pub struct Scene {
 #[derive(Clone, Debug)]
 pub enum SpecificSceneItem {
     DrawList(DrawListId),
-    StackingContext(StackingContextId),
-    Iframe(Box<IframeInfo>),
+    StackingContext(StackingContextId, PipelineId),
+    Iframe(IframeInfo),
 }
 
 #[derive(Clone, Debug)]
@@ -65,39 +66,39 @@ impl Scene {
             root_pipeline_id: None,
             pipeline_sizes: HashMap::new(),
             pipeline_map: HashMap::with_hasher(Default::default()),
+            pipeline_auxiliary_lists: HashMap::with_hasher(Default::default()),
             display_list_map: HashMap::with_hasher(Default::default()),
             stacking_context_map: HashMap::with_hasher(Default::default()),
         }
     }
 
     pub fn add_display_list(&mut self,
-                        id: DisplayListId,
-                        pipeline_id: PipelineId,
-                        epoch: Epoch,
-                        mut display_list_builder: DisplayListBuilder,
-                        resource_cache: &mut ResourceCache) {
-        display_list_builder.finalize();
-        optimizer::optimize_display_list_builder(&mut display_list_builder);
-
-        let items = display_list_builder.items.into_iter().map(|item| {
+                            id: DisplayListId,
+                            pipeline_id: PipelineId,
+                            epoch: Epoch,
+                            built_display_list: BuiltDisplayList,
+                            resource_cache: &mut ResourceCache) {
+        let items = built_display_list.display_list_items().iter().map(|item| {
             match item.specific {
-                SpecificDisplayListItem::DrawList(info) => {
-                    let draw_list_id = resource_cache.add_draw_list(info.items);
+                SpecificDisplayListItem::DrawList(ref info) => {
+                    let draw_list_id = resource_cache.add_draw_list(
+                        built_display_list.display_items(&info.items).to_vec(),
+                        pipeline_id);
                     SceneItem {
                         stacking_level: item.stacking_level,
                         specific: SpecificSceneItem::DrawList(draw_list_id)
                     }
                 }
-                SpecificDisplayListItem::StackingContext(info) => {
+                SpecificDisplayListItem::StackingContext(ref info) => {
                     SceneItem {
                         stacking_level: item.stacking_level,
-                        specific: SpecificSceneItem::StackingContext(info.id)
+                        specific: SpecificSceneItem::StackingContext(info.id, pipeline_id)
                     }
                 }
-                SpecificDisplayListItem::Iframe(info) => {
+                SpecificDisplayListItem::Iframe(ref info) => {
                     SceneItem {
                         stacking_level: item.stacking_level,
-                        specific: SpecificSceneItem::Iframe(info)
+                        specific: SpecificSceneItem::Iframe(*info)
                     }
                 }
             }
@@ -113,10 +114,10 @@ impl Scene {
     }
 
     pub fn add_stacking_context(&mut self,
-                            id: StackingContextId,
-                            pipeline_id: PipelineId,
-                            epoch: Epoch,
-                            stacking_context: StackingContext) {
+                                id: StackingContextId,
+                                pipeline_id: PipelineId,
+                                epoch: Epoch,
+                                stacking_context: StackingContext) {
         let stacking_context = SceneStackingContext {
             pipeline_id: pipeline_id,
             epoch: epoch,
@@ -136,7 +137,10 @@ impl Scene {
                                      stacking_context_id: StackingContextId,
                                      background_color: ColorF,
                                      viewport_size: Size2D<f32>,
-                                     resource_cache: &mut ResourceCache) {
+                                     resource_cache: &mut ResourceCache,
+                                     auxiliary_lists: AuxiliaryLists) {
+        self.pipeline_auxiliary_lists.insert(pipeline_id, auxiliary_lists);
+
         let old_display_list_keys: Vec<_> = self.display_list_map.iter()
                                                 .filter(|&(_, ref v)| {
                                                     v.pipeline_id == pipeline_id &&
@@ -183,7 +187,7 @@ impl Scene {
             };
             let clip = ClipRegion {
                 main: overflow,
-                complex: vec![],
+                complex: ItemRange::empty(),
             };
             let root_bg_color_item = DisplayItem {
                 item: SpecificDisplayItem::Rectangle(rectangle_item),
@@ -191,7 +195,7 @@ impl Scene {
                 clip: clip,
             };
 
-            let draw_list_id = resource_cache.add_draw_list(vec![root_bg_color_item]);
+            let draw_list_id = resource_cache.add_draw_list(vec![root_bg_color_item], pipeline_id);
             Some(draw_list_id)
         } else {
             None
