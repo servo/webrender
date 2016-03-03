@@ -376,7 +376,7 @@ pub struct TextureImage {
 pub enum TextureUpdateOp {
     Create(u32, u32, ImageFormat, TextureFilter, RenderTargetMode, Option<Vec<u8>>),
     Update(u32, u32, u32, u32, TextureUpdateDetails),
-    Grow(TextureId, u32, u32, ImageFormat, TextureFilter, RenderTargetMode),
+    Grow(u32, u32, ImageFormat, TextureFilter, RenderTargetMode),
 }
 
 pub struct TextureUpdate {

@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::collections::HashSet;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct FreeListItemId(u32);
 
@@ -98,71 +100,22 @@ impl<T: FreeListItem> FreeList<T> {
         self.first_free_index = Some(id);
     }
 
-    /// NB: This iterates over free items too!
-    pub fn iter_mut(&mut self) -> IterMut<T> {
-        let first_free_index = self.first_free_index;
-        let mut iterator = IterMut {
-            free_list: self,
-            next_index: Some(FreeListItemId(0)),
-            next_free_index: first_free_index,
-        };
-        iterator.advance_past_free_indices();
-        iterator
-    }
-}
+    pub fn for_each_item<F>(&mut self, f: F) where F: Fn(&mut T) {
+        let mut free_ids = HashSet::new();
 
-pub struct IterMut<'a, T> where T: FreeListItem + 'a {
-    free_list: &'a mut FreeList<T>,
-    next_index: Option<FreeListItemId>,
-    next_free_index: Option<FreeListItemId>,
-}
+        let mut next_free_id = self.first_free_index;
+        while let Some(free_id) = next_free_id {
+            free_ids.insert(free_id);
+            let FreeListItemId(index) = free_id;
+            let free_item = &self.items[index as usize];
+            next_free_id = free_item.next_free_id();
+        }
 
-impl<'a, T> IterMut<'a, T> where T: FreeListItem + 'a {
-    fn advance_past_free_indices(&mut self) {
-        loop {
-            let next_index = match self.next_index {
-                None => return,
-                Some(next_index) => next_index.0 as usize,
-            };
-            if next_index == self.free_list.items.len() {
-                self.next_index = None;
-                return
+        for (index, mut item) in self.items.iter_mut().enumerate() {
+            let id = FreeListItemId(index as u32);
+            if !free_ids.contains(&id) {
+                f(&mut item);
             }
-            let next_free_index = match self.next_free_index {
-                None => return,
-                Some(next_free_index) => next_free_index.0 as usize,
-            };
-            if next_index == next_free_index {
-                self.next_index = Some(FreeListItemId(next_index as u32 + 1));
-                continue
-            }
-            if next_free_index < next_index {
-                self.next_free_index = self.free_list
-                                           .items[next_free_index]
-                                           .next_free_id();
-                continue
-            }
-            debug_assert!(next_free_index > next_index);
-            break
         }
     }
-
-    pub fn free_list(&mut self) -> &mut FreeList<T> {
-        self.free_list
-    }
 }
-
-impl<'a, T> Iterator for IterMut<'a, T> where T: FreeListItem + 'a {
-    type Item = FreeListItemId;
-
-    fn next(&mut self) -> Option<FreeListItemId> {
-        let next_index = match self.next_index {
-            None => return None,
-            Some(next_index) => next_index,
-        };
-        self.next_index = Some(FreeListItemId(next_index.0 + 1));
-        self.advance_past_free_indices();
-        Some(next_index)
-    }
-}
-

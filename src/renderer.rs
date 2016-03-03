@@ -504,14 +504,12 @@ impl Renderer {
                             }
                         }
                     }
-                    TextureUpdateOp::Grow(old_texture_id,
-                                          new_width,
+                    TextureUpdateOp::Grow(new_width,
                                           new_height,
                                           format,
                                           filter,
                                           mode) => {
                         self.device.resize_texture(update.id,
-                                                   old_texture_id,
                                                    new_width,
                                                    new_height,
                                                    format,
