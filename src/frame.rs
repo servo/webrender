@@ -14,21 +14,27 @@ use internal_types::{CompositeBatchInfo, CompositeBatchJob, MaskRegion};
 use internal_types::{RendererFrame, StackingContextInfo, BatchInfo, DrawCall, StackingContextIndex};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, MAX_RECT, BatchUpdate, BatchUpdateOp, DrawLayer};
 use internal_types::{DrawCommand, ClearInfo, RenderTargetId, DrawListGroupId};
-use layer::Layer;
+use layer::{Layer, ScrollingState};
 use node_compiler::NodeCompiler;
 use renderer::CompositionOpHelpers;
 use resource_cache::ResourceCache;
 use resource_list::BuildRequiredResources;
 use scene::{SceneStackingContext, ScenePipeline, Scene, SceneItem, SpecificSceneItem};
 use scoped_threadpool;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
 use std::mem;
 use texture_cache::TexturePage;
 use util;
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
 use webrender_traits::{StackingContext, FilterOp, ImageFormat, MixBlendMode, StackingLevel};
-use webrender_traits::{ScrollLayerInfo};
+use webrender_traits::{ScrollEventPhase, ScrollLayerInfo};
+
+#[cfg(target_os = "macos")]
+const CAN_OVERSCROLL: bool = true;
+
+#[cfg(not(target_os = "macos"))]
+const CAN_OVERSCROLL: bool = false;
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
 pub struct FrameId(pub u32);
@@ -588,7 +594,7 @@ impl Frame {
     }
 
     pub fn reset(&mut self, resource_cache: &mut ResourceCache)
-                 -> HashMap<ScrollLayerId, Point2D<f32>, BuildHasherDefault<FnvHasher>> {
+                 -> HashMap<ScrollLayerId, ScrollingState, BuildHasherDefault<FnvHasher>> {
         self.draw_list_groups.clear();
         self.pipeline_epoch_map.clear();
         self.stacking_context_info.clear();
@@ -599,16 +605,16 @@ impl Frame {
 
         // Free any render targets from last frame.
         // TODO: This should really re-use existing targets here...
-        let mut old_layer_offsets = HashMap::with_hasher(Default::default());
+        let mut old_layer_scrolling_states = HashMap::with_hasher(Default::default());
         for (layer_id, mut old_layer) in &mut self.layers.drain() {
             old_layer.reset(&mut self.pending_updates);
-            old_layer_offsets.insert(layer_id, old_layer.scroll_offset);
+            old_layer_scrolling_states.insert(layer_id, old_layer.scrolling);
         }
 
         // Advance to the next frame.
         self.id.0 += 1;
 
-        old_layer_offsets
+        old_layer_scrolling_states
     }
 
     fn next_render_target_id(&mut self) -> RenderTargetId {
@@ -673,31 +679,75 @@ impl Frame {
     }
 
     pub fn scroll(&mut self,
-                  delta: Point2D<f32>,
-                  cursor: Point2D<f32>) {
-        if let Some(root_scroll_layer_id) = self.root_scroll_layer_id {
-            let scroll_layer_id = self.get_scroll_layer(&cursor,
-                                                        root_scroll_layer_id,
-                                                        &Matrix4::identity());
+                  mut delta: Point2D<f32>,
+                  cursor: Point2D<f32>,
+                  phase: ScrollEventPhase) {
+        let root_scroll_layer_id = match self.root_scroll_layer_id {
+            Some(root_scroll_layer_id) => root_scroll_layer_id,
+            None => return,
+        };
 
-            if let Some(scroll_layer_id) = scroll_layer_id {
-                let layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+        let scroll_layer_id = match self.get_scroll_layer(&cursor,
+                                                          root_scroll_layer_id,
+                                                          &Matrix4::identity()) {
+            Some(scroll_layer_id) => scroll_layer_id,
+            None => return,
+        };
 
-                if layer.layer_size.width > layer.viewport_size.width {
-                    layer.scroll_offset.x = layer.scroll_offset.x + delta.x;
-                    layer.scroll_offset.x = layer.scroll_offset.x.min(0.0);
-                    layer.scroll_offset.x = layer.scroll_offset.x.max(-layer.layer_size.width + layer.viewport_size.width);
-                }
+        let layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+        if layer.scrolling.started_bouncing_back && phase == ScrollEventPhase::Move(false) {
+            return
+        }
 
-                if layer.layer_size.height > layer.viewport_size.height {
-                    layer.scroll_offset.y = layer.scroll_offset.y + delta.y;
-                    layer.scroll_offset.y = layer.scroll_offset.y.min(0.0);
-                    layer.scroll_offset.y = layer.scroll_offset.y.max(-layer.layer_size.height + layer.viewport_size.height);
-                }
-
-                layer.scroll_offset.x = layer.scroll_offset.x.round();
-                layer.scroll_offset.y = layer.scroll_offset.y.round();
+        let overscroll_amount = layer.overscroll_amount();
+        let overscrolling = overscroll_amount.width != 0.0 || overscroll_amount.height != 0.0;
+        if overscrolling {
+            if overscroll_amount.width != 0.0 {
+                delta.x /= overscroll_amount.width.abs()
             }
+            if overscroll_amount.height != 0.0 {
+                delta.y /= overscroll_amount.height.abs()
+            }
+        }
+
+        let is_unscrollable = layer.layer_size.width <= layer.viewport_size.width &&
+            layer.layer_size.height <= layer.viewport_size.height;
+
+        if layer.layer_size.width > layer.viewport_size.width {
+            layer.scrolling.offset.x = layer.scrolling.offset.x + delta.x;
+            if is_unscrollable || !CAN_OVERSCROLL {
+                layer.scrolling.offset.x = layer.scrolling.offset.x.min(0.0);
+                layer.scrolling.offset.x = layer.scrolling.offset.x.max(-layer.layer_size.width +
+                                                                        layer.viewport_size.width);
+            }
+        }
+
+        if layer.layer_size.height > layer.viewport_size.height {
+            layer.scrolling.offset.y = layer.scrolling.offset.y + delta.y;
+            if is_unscrollable || !CAN_OVERSCROLL {
+                layer.scrolling.offset.y = layer.scrolling.offset.y.min(0.0);
+                layer.scrolling.offset.y =
+                    layer.scrolling.offset.y.max(-layer.layer_size.height +
+                                                 layer.viewport_size.height);
+            }
+        }
+
+        if phase == ScrollEventPhase::Start || phase == ScrollEventPhase::Move(true) {
+            layer.scrolling.started_bouncing_back = false
+        } else if overscrolling &&
+                ((delta.x < 1.0 && delta.y < 1.0) || phase == ScrollEventPhase::End) {
+            layer.scrolling.started_bouncing_back = true
+        }
+
+        layer.scrolling.offset.x = layer.scrolling.offset.x.round();
+        layer.scrolling.offset.y = layer.scrolling.offset.y.round();
+
+        layer.stretch_overscroll_spring();
+    }
+
+    pub fn tick_scrolling_bounce_animations(&mut self) {
+        for (_, layer) in &mut self.layers {
+            layer.tick_scrolling_bounce_animation()
         }
     }
 
@@ -708,7 +758,7 @@ impl Frame {
                   device_pixel_ratio: f32) {
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
             if let Some(root_pipeline) = scene.pipeline_map.get(&root_pipeline_id) {
-                let old_layer_offsets = self.reset(resource_cache);
+                let old_layer_scrolling_states = self.reset(resource_cache);
 
                 self.pipeline_auxiliary_lists = scene.pipeline_auxiliary_lists.clone();
 
@@ -775,12 +825,12 @@ impl Frame {
 
                 // TODO(gw): These are all independent - can be run through thread pool if it shows up in the profile!
                 for (scroll_layer_id, layer) in &mut self.layers {
-                    let scroll_offset = match old_layer_offsets.get(&scroll_layer_id) {
-                        Some(old_offset) => *old_offset,
-                        None => Point2D::zero(),
+                    let scrolling_state = match old_layer_scrolling_states.get(&scroll_layer_id) {
+                        Some(old_scrolling_state) => *old_scrolling_state,
+                        None => ScrollingState::new(),
                     };
 
-                    layer.finalize(scroll_offset);
+                    layer.finalize(&scrolling_state);
                 }
             }
         }
@@ -1135,8 +1185,11 @@ impl Frame {
             match self.layers.get_mut(&layer_id) {
                 Some(layer) => {
                     layer.world_transform = parent_transform.mul(&layer.local_transform)
-                                                            .translate(layer.world_origin.x, layer.world_origin.y, 0.0)
-                                                            .translate(layer.scroll_offset.x, layer.scroll_offset.y, 0.0);
+                                                            .translate(layer.world_origin.x,
+                                                                       layer.world_origin.y, 0.0)
+                                                            .translate(layer.scrolling.offset.x,
+                                                                       layer.scrolling.offset.y,
+                                                                       0.0);
                     (layer.world_transform, layer.children.clone())
                 }
                 None => {
@@ -1289,6 +1342,21 @@ impl Frame {
             }
         };
 
-        RendererFrame::new(self.pipeline_epoch_map.clone(), root_layer)
+        let layers_bouncing_back = self.collect_layers_bouncing_back();
+        RendererFrame::new(self.pipeline_epoch_map.clone(), layers_bouncing_back, root_layer)
+    }
+
+    fn collect_layers_bouncing_back(&self)
+                                    -> HashSet<ScrollLayerId, BuildHasherDefault<FnvHasher>> {
+        let mut layers_bouncing_back = HashSet::with_hasher(Default::default());
+        for (scroll_layer_id, layer) in &self.layers {
+            if layer.scrolling.started_bouncing_back {
+                let overscroll_amount = layer.overscroll_amount();
+                if overscroll_amount.width.abs() >= 0.1 || overscroll_amount.height.abs() >= 0.1 {
+                    layers_bouncing_back.insert(*scroll_layer_id);
+                }
+            }
+        }
+        layers_bouncing_back
     }
 }

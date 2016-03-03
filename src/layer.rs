@@ -6,12 +6,13 @@ use aabbtree::{AABBTree, NodeIndex};
 use euclid::{Point2D, Rect, Size2D, Matrix4};
 use internal_types::{BatchUpdate, BatchUpdateList, BatchUpdateOp};
 use internal_types::{DrawListItemIndex, DrawListId, DrawListGroupId};
+use spring::{DAMPING, STIFFNESS, Spring};
 use webrender_traits::ScrollLayerId;
 
 pub struct Layer {
     // TODO: Remove pub from here if possible in the future
     pub aabb_tree: AABBTree,
-    pub scroll_offset: Point2D<f32>,
+    pub scrolling: ScrollingState,
     pub viewport_size: Size2D<f32>,
     pub layer_size: Size2D<f32>,
     pub world_origin: Point2D<f32>,
@@ -30,7 +31,7 @@ impl Layer {
 
         Layer {
             aabb_tree: aabb_tree,
-            scroll_offset: Point2D::zero(),
+            scrolling: ScrollingState::new(),
             viewport_size: viewport_size,
             world_origin: world_origin,
             layer_size: layer_size,
@@ -68,16 +69,15 @@ impl Layer {
                               item_index);
     }
 
-    pub fn finalize(&mut self,
-                    initial_scroll_offset: Point2D<f32>) {
-        self.scroll_offset = initial_scroll_offset;
+    pub fn finalize(&mut self, scrolling: &ScrollingState) {
+        self.scrolling = *scrolling;
         self.aabb_tree.finalize();
     }
 
     pub fn cull(&mut self) {
         // TODO(gw): Take viewport_size into account here!!!
         let viewport_rect = Rect::new(Point2D::zero(), self.viewport_size);
-        let adjusted_viewport = viewport_rect.translate(&-self.scroll_offset);
+        let adjusted_viewport = viewport_rect.translate(&-self.scrolling.offset);
         self.aabb_tree.cull(&adjusted_viewport);
     }
 
@@ -85,4 +85,54 @@ impl Layer {
     pub fn print(&self) {
         self.aabb_tree.print(NodeIndex(0), 0);
     }
+
+    pub fn overscroll_amount(&self) -> Size2D<f32> {
+        let overscroll_x = if self.scrolling.offset.x > 0.0 {
+            -self.scrolling.offset.x
+        } else if self.scrolling.offset.x < self.viewport_size.width - self.layer_size.width {
+            self.viewport_size.width - self.layer_size.width - self.scrolling.offset.x
+        } else {
+            0.0
+        };
+
+        let overscroll_y = if self.scrolling.offset.y > 0.0 {
+            -self.scrolling.offset.y
+        } else if self.scrolling.offset.y < self.viewport_size.height - self.layer_size.height {
+            self.viewport_size.height - self.layer_size.height - self.scrolling.offset.y
+        } else {
+            0.0
+        };
+
+        Size2D::new(overscroll_x, overscroll_y)
+    }
+
+    pub fn stretch_overscroll_spring(&mut self) {
+        let overscroll_amount = self.overscroll_amount();
+        self.scrolling.spring.coords(self.scrolling.offset,
+                                     self.scrolling.offset,
+                                     self.scrolling.offset + overscroll_amount);
+    }
+
+    pub fn tick_scrolling_bounce_animation(&mut self) {
+        self.scrolling.spring.animate();
+        self.scrolling.offset = self.scrolling.spring.current();
+    }
 }
+
+#[derive(Copy, Clone)]
+pub struct ScrollingState {
+    pub offset: Point2D<f32>,
+    pub spring: Spring,
+    pub started_bouncing_back: bool,
+}
+
+impl ScrollingState {
+    pub fn new() -> ScrollingState {
+        ScrollingState {
+            offset: Point2D::new(0.0, 0.0),
+            spring: Spring::at(Point2D::new(0.0, 0.0), STIFFNESS, DAMPING),
+            started_bouncing_back: false,
+        }
+    }
+}
+

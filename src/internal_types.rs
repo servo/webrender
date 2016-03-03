@@ -10,7 +10,7 @@ use fnv::FnvHasher;
 use freelist::{FreeListItem, FreeListItemId};
 use num::Zero;
 use profiler::BackendProfileCounters;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
 use std::ops::{Add, Sub};
 use std::path::PathBuf;
@@ -18,7 +18,7 @@ use std::sync::Arc;
 use texture_cache::BorderType;
 use util::{self, RectVaryings};
 use webrender_traits::{FontKey, Epoch, ColorF, PipelineId};
-use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem};
+use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem, ScrollLayerId};
 
 #[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct DevicePixel(i32);
@@ -559,14 +559,18 @@ impl DrawLayer {
 
 pub struct RendererFrame {
     pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
+    pub layers_bouncing_back: HashSet<ScrollLayerId, BuildHasherDefault<FnvHasher>>,
     pub root_layer: DrawLayer,
 }
 
 impl RendererFrame {
     pub fn new(pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
-               root_layer: DrawLayer) -> RendererFrame {
+               layers_bouncing_back: HashSet<ScrollLayerId, BuildHasherDefault<FnvHasher>>,
+               root_layer: DrawLayer)
+               -> RendererFrame {
         RendererFrame {
             pipeline_epoch_map: pipeline_epoch_map,
+            layers_bouncing_back: layers_bouncing_back,
             root_layer: root_layer,
         }
     }
