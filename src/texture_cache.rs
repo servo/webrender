@@ -349,14 +349,13 @@ impl TexturePage {
         self.dirty = true
     }
 
-    fn grow(&mut self, new_texture_id: TextureId, new_texture_size: u32) {
+    fn grow(&mut self, new_texture_size: u32) {
         self.free_list.push(&Rect::new(Point2D::new(self.texture_size, 0),
                                        Size2D::new(new_texture_size - self.texture_size,
                                                    new_texture_size)));
         self.free_list.push(&Rect::new(Point2D::new(0, self.texture_size),
                                        Size2D::new(self.texture_size,
                                                    new_texture_size - self.texture_size)));
-        self.texture_id = new_texture_id;
         self.texture_size = new_texture_size
     }
 
@@ -805,33 +804,15 @@ impl TextureCache {
                     // Grow the texture.
                     let texture_size = cmp::min(last_page.texture_size * 2,
                                                 max_texture_size());
-                    let new_texture_id =
-                        self.free_texture_ids
-                            .pop()
-                            .expect("TODO: Handle running out of texture IDs!");
                     self.pending_updates.push(TextureUpdate {
-                        id: new_texture_id,
-                        op: texture_grow_op(last_page.texture_id, texture_size, format, mode),
+                        id: last_page.texture_id,
+                        op: texture_grow_op(texture_size, format, mode),
                     });
-                    let old_texture_id = last_page.texture_id;
-                    last_page.grow(new_texture_id, texture_size);
+                    last_page.grow(texture_size);
 
-                    {
-                        let mut iter = self.items.iter_mut();
-                        while let Some(id) = iter.next() {
-                            let item = iter.free_list().get_mut(id);
-                            if item.texture_id == old_texture_id {
-                                item.texture_id = new_texture_id;
-                                item.texture_size = Size2D::new(texture_size, texture_size);
-                            }
-                        }
-                    }
-
-                    for update in &mut self.pending_updates.updates {
-                        if update.id == old_texture_id {
-                            update.id = new_texture_id
-                        }
-                    }
+                    self.items.for_each_item(|item| {
+                        item.texture_size = Size2D::new(texture_size, texture_size);
+                    });
                 } else {
                     // We need a new page.
                     let texture_size = initial_texture_size();
@@ -1211,13 +1192,11 @@ fn texture_create_op(texture_size: u32, format: ImageFormat, mode: RenderTargetM
     TextureUpdateOp::Create(texture_size, texture_size, format, TextureFilter::Linear, mode, None)
 }
 
-fn texture_grow_op(old_texture_id: TextureId,
-                   texture_size: u32,
+fn texture_grow_op(texture_size: u32,
                    format: ImageFormat,
                    mode: RenderTargetMode)
                    -> TextureUpdateOp {
-    TextureUpdateOp::Grow(old_texture_id,
-                          texture_size,
+    TextureUpdateOp::Grow(texture_size,
                           texture_size,
                           format,
                           TextureFilter::Linear,

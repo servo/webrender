@@ -1155,38 +1155,49 @@ impl Device {
     }
 
     pub fn resize_texture(&mut self,
-                          new_texture_id: TextureId,
-                          old_texture_id: TextureId,
-                          width: u32,
-                          height: u32,
+                          texture_id: TextureId,
+                          new_width: u32,
+                          new_height: u32,
                           format: ImageFormat,
                           filter: TextureFilter,
                           mode: RenderTargetMode) {
         debug_assert!(self.inside_frame);
 
-        self.init_texture(new_texture_id, width, height, format, filter, mode, None);
+        let (old_width, old_height) = self.get_texture_dimensions(texture_id);
 
-        self.create_fbo_for_texture_if_necessary(old_texture_id);
-        self.bind_render_target(Some(old_texture_id));
-        self.bind_color_texture(new_texture_id);
+        let temp_texture_id = self.create_texture_ids(1)[0];
+        self.init_texture(temp_texture_id, old_width, old_height, format, filter, mode, None);
+        self.create_fbo_for_texture_if_necessary(temp_texture_id);
 
-        {
-            let old_texture = self.textures
-                                  .get(&old_texture_id)
-                                  .expect("Didn't find old texture ID in texture map?!");
+        self.bind_render_target(Some(texture_id));
+        self.bind_color_texture(temp_texture_id);
 
-            gl::copy_tex_sub_image_2d(gl::TEXTURE_2D,
-                                      0,
-                                      0,
-                                      0,
-                                      0,
-                                      0,
-                                      old_texture.width as i32,
-                                      old_texture.height as i32);
-        }
+        gl::copy_tex_sub_image_2d(gl::TEXTURE_2D,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  old_width as i32,
+                                  old_height as i32);
+
+        self.deinit_texture(texture_id);
+        self.init_texture(texture_id, new_width, new_height, format, filter, mode, None);
+        self.create_fbo_for_texture_if_necessary(texture_id);
+        self.bind_render_target(Some(temp_texture_id));
+        self.bind_color_texture(texture_id);
+
+        gl::copy_tex_sub_image_2d(gl::TEXTURE_2D,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  old_width as i32,
+                                  old_height as i32);
 
         self.bind_render_target(None);
-        self.deinit_texture(old_texture_id);
+        self.deinit_texture(temp_texture_id);
     }
 
     pub fn deinit_texture(&mut self, texture_id: TextureId) {
