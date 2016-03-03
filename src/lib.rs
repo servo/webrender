@@ -19,7 +19,6 @@ mod geometry;
 mod internal_types;
 mod layer;
 mod node_compiler;
-mod optimizer;
 mod profiler;
 mod render_backend;
 mod resource_cache;

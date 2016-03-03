@@ -78,7 +78,6 @@ impl RenderBackend {
 
         loop {
             let msg = self.api_rx.recv();
-
             match msg {
                 Ok(msg) => {
                     match msg {
@@ -106,20 +105,14 @@ impl RenderBackend {
                                                                       format,
                                                                       bytes);
                         }
-                        ApiMsg::AddDisplayList(id,
-                                               pipeline_id,
-                                               epoch,
-                                               display_list_builder) => {
+                        ApiMsg::AddDisplayList(id, pipeline_id, epoch, built_display_list) => {
                             self.scene.add_display_list(id,
                                                         pipeline_id,
                                                         epoch,
-                                                        display_list_builder,
+                                                        built_display_list,
                                                         &mut self.resource_cache);
                         }
-                        ApiMsg::AddStackingContext(id,
-                                                   pipeline_id,
-                                                   epoch,
-                                                   stacking_context) => {
+                        ApiMsg::AddStackingContext(id, pipeline_id, epoch, stacking_context) => {
                             self.scene.add_stacking_context(id,
                                                             pipeline_id,
                                                             epoch,
@@ -137,14 +130,16 @@ impl RenderBackend {
                                                        background_color,
                                                        epoch,
                                                        pipeline_id,
-                                                       viewport_size) => {
+                                                       viewport_size,
+                                                       auxiliary_lists) => {
                             let frame = profile_counters.total_time.profile(|| {
                                 self.scene.set_root_stacking_context(pipeline_id,
                                                                      epoch,
                                                                      stacking_context_id,
                                                                      background_color,
                                                                      viewport_size,
-                                                                     &mut self.resource_cache);
+                                                                     &mut self.resource_cache,
+                                                                     auxiliary_lists);
 
                                 self.build_scene();
                                 self.render()

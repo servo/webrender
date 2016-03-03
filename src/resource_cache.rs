@@ -27,7 +27,7 @@ use std::time::Duration;
 use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
 use texture_cache::{BorderType, TextureInsertOp};
 use webrender_traits::{Epoch, FontKey, ImageKey, ImageFormat, DisplayItem, ImageRendering};
-use webrender_traits::{WebGLContextId};
+use webrender_traits::{PipelineId, WebGLContextId};
 
 static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
 
@@ -361,8 +361,9 @@ impl ResourceCache {
         return
     }
 
-    pub fn add_draw_list(&mut self, items: Vec<DisplayItem>) -> DrawListId {
-        self.draw_lists.insert(DrawList::new(items))
+    pub fn add_draw_list(&mut self, items: Vec<DisplayItem>, pipeline_id: PipelineId)
+                         -> DrawListId {
+        self.draw_lists.insert(DrawList::new(items, pipeline_id))
     }
 
     pub fn get_draw_list(&self, draw_list_id: DrawListId) -> &DrawList {

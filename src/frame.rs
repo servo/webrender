@@ -26,8 +26,9 @@ use std::hash::BuildHasherDefault;
 use std::mem;
 use texture_cache::TexturePage;
 use util;
-use webrender_traits::{PipelineId, Epoch, ScrollPolicy, ScrollLayerId, StackingContext};
-use webrender_traits::{FilterOp, ImageFormat, MixBlendMode, StackingLevel, ScrollLayerInfo};
+use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
+use webrender_traits::{StackingContext, FilterOp, ImageFormat, MixBlendMode, StackingLevel};
+use webrender_traits::{ScrollLayerInfo};
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
 pub struct FrameId(pub u32);
@@ -363,6 +364,9 @@ impl RenderTarget {
 pub struct Frame {
     pub layers: HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>,
     pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
+    pub pipeline_auxiliary_lists: HashMap<PipelineId,
+                                          AuxiliaryLists,
+                                          BuildHasherDefault<FnvHasher>>,
     pub pending_updates: BatchUpdateList,
     pub root: Option<RenderTarget>,
     pub stacking_context_info: Vec<StackingContextInfo>,
@@ -374,7 +378,7 @@ pub struct Frame {
 }
 
 enum SceneItemKind<'a> {
-    StackingContext(&'a SceneStackingContext),
+    StackingContext(&'a SceneStackingContext, PipelineId),
     Pipeline(&'a ScenePipeline)
 }
 
@@ -394,7 +398,7 @@ impl<'a> SceneItemKind<'a> {
         let mut outlines = Vec::new();
 
         let stacking_context = match *self {
-            SceneItemKind::StackingContext(stacking_context) => {
+            SceneItemKind::StackingContext(stacking_context, _) => {
                 &stacking_context.stacking_context
             }
             SceneItemKind::Pipeline(pipeline) => {
@@ -424,7 +428,7 @@ impl<'a> SceneItemKind<'a> {
                     }
                     StackingLevel::PositionedContent => {
                         let z_index = match item.specific {
-                            SpecificSceneItem::StackingContext(id) => {
+                            SpecificSceneItem::StackingContext(id, _) => {
                                 scene.stacking_context_map
                                      .get(&id)
                                      .unwrap()
@@ -486,7 +490,7 @@ impl<'a> SceneItemKind<'a> {
 
 trait StackingContextHelpers {
     fn needs_composition_operation_for_mix_blend_mode(&self) -> bool;
-    fn composition_operations(&self) -> Vec<CompositionOp>;
+    fn composition_operations(&self, auxiliary_lists: &AuxiliaryLists) -> Vec<CompositionOp>;
 }
 
 impl StackingContextHelpers for StackingContext {
@@ -511,12 +515,12 @@ impl StackingContextHelpers for StackingContext {
         }
     }
 
-    fn composition_operations(&self) -> Vec<CompositionOp> {
+    fn composition_operations(&self, auxiliary_lists: &AuxiliaryLists) -> Vec<CompositionOp> {
         let mut composition_operations = vec![];
         if self.needs_composition_operation_for_mix_blend_mode() {
             composition_operations.push(CompositionOp::MixBlend(self.mix_blend_mode));
         }
-        for filter in &self.filters {
+        for filter in auxiliary_lists.filters(&self.filters) {
             match *filter {
                 FilterOp::Blur(radius) => {
                     composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Blur(
@@ -571,6 +575,7 @@ impl Frame {
         Frame {
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
             pending_updates: BatchUpdateList::new(),
+            pipeline_auxiliary_lists: HashMap::with_hasher(Default::default()),
             root: None,
             layers: HashMap::with_hasher(Default::default()),
             stacking_context_info: Vec::new(),
@@ -704,6 +709,8 @@ impl Frame {
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
             if let Some(root_pipeline) = scene.pipeline_map.get(&root_pipeline_id) {
                 let old_layer_offsets = self.reset(resource_cache);
+
+                self.pipeline_auxiliary_lists = scene.pipeline_auxiliary_lists.clone();
 
                 let root_stacking_context = scene.stacking_context_map
                                                  .get(&root_pipeline.root_stacking_context_id)
@@ -842,13 +849,13 @@ impl Frame {
                                      item_index);
                     }
                 }
-                SpecificSceneItem::StackingContext(id) => {
+                SpecificSceneItem::StackingContext(id, pipeline_id) => {
                     let stacking_context = context.scene
                                                   .stacking_context_map
                                                   .get(&id)
                                                   .unwrap();
 
-                    let child = SceneItemKind::StackingContext(stacking_context);
+                    let child = SceneItemKind::StackingContext(stacking_context, pipeline_id);
                     self.flatten(child,
                                  info,
                                  context,
@@ -914,15 +921,15 @@ impl Frame {
                level: i32) {
         let _pf = util::ProfileScope::new("  flatten");
 
-        let (stacking_context, local_clip_rect) = match scene_item {
-            SceneItemKind::StackingContext(stacking_context) => {
+        let (stacking_context, local_clip_rect, pipeline_id) = match scene_item {
+            SceneItemKind::StackingContext(stacking_context, pipeline_id) => {
                 let stacking_context = &stacking_context.stacking_context;
 
                 let local_clip_rect = parent_info.current_clip_rect
                                                  .translate(&-stacking_context.bounds.origin)
                                                  .intersection(&stacking_context.overflow);
 
-                (stacking_context, local_clip_rect)
+                (stacking_context, local_clip_rect, pipeline_id)
             }
             SceneItemKind::Pipeline(pipeline) => {
                 self.pipeline_epoch_map.insert(pipeline.pipeline_id, pipeline.epoch);
@@ -932,14 +939,19 @@ impl Frame {
                                                .unwrap()
                                                .stacking_context;
 
-                (stacking_context, Some(MAX_RECT))
+                (stacking_context, Some(MAX_RECT), pipeline.pipeline_id)
             }
         };
 
         if let Some(local_clip_rect) = local_clip_rect {
             let scene_items = scene_item.collect_scene_items(&context.scene);
             if !scene_items.is_empty() {
-                let composition_operations = stacking_context.composition_operations();
+                let composition_operations = {
+                    let auxiliary_lists = self.pipeline_auxiliary_lists
+                                              .get(&pipeline_id)
+                                              .expect("No auxiliary lists?!");
+                    stacking_context.composition_operations(auxiliary_lists)
+                };
 
                 // Build world space transform
                 let origin = parent_info.offset_from_current_layer + stacking_context.bounds.origin;
@@ -1166,12 +1178,13 @@ impl Frame {
 
         for (_, layer) in &mut self.layers {
             let nodes = &mut layer.aabb_tree.nodes;
+            let pipeline_auxiliary_lists = &self.pipeline_auxiliary_lists;
 
             thread_pool.scoped(|scope| {
                 for node in nodes {
                     if node.is_visible && node.compiled_node.is_none() {
                         scope.execute(move || {
-                            node.build_resource_list(resource_cache);
+                            node.build_resource_list(resource_cache, pipeline_auxiliary_lists);
                         });
                     }
                 }
@@ -1211,6 +1224,7 @@ impl Frame {
         let stacking_context_info = &self.stacking_context_info;
         let draw_list_groups = &self.draw_list_groups;
         let frame_id = self.id;
+        let pipeline_auxiliary_lists = &self.pipeline_auxiliary_lists;
 
         thread_pool.scoped(|scope| {
             for (_, layer) in layers {
@@ -1222,7 +1236,8 @@ impl Frame {
                                          frame_id,
                                          device_pixel_ratio,
                                          stacking_context_info,
-                                         draw_list_groups);
+                                         draw_list_groups,
+                                         pipeline_auxiliary_lists);
                         });
                     }
                 }

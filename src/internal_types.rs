@@ -605,15 +605,17 @@ pub struct StackingContextInfo {
 pub struct DrawList {
     pub items: Vec<DisplayItem>,
     pub stacking_context_index: Option<StackingContextIndex>,
+    pub pipeline_id: PipelineId,
     // TODO(gw): Structure squat to remove this field.
     next_free_id: Option<FreeListItemId>,
 }
 
 impl DrawList {
-    pub fn new(items: Vec<DisplayItem>) -> DrawList {
+    pub fn new(items: Vec<DisplayItem>, pipeline_id: PipelineId) -> DrawList {
         DrawList {
             items: items,
             stacking_context_index: None,
+            pipeline_id: pipeline_id,
             next_free_id: None,
         }
     }
