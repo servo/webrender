@@ -7,42 +7,66 @@ use display_item::{DisplayItem, SpecificDisplayItem, ImageDisplayItem, WebGLDisp
 use display_item::{RectangleDisplayItem, TextDisplayItem, GradientDisplayItem};
 use display_item::{BorderDisplayItem, BoxShadowDisplayItem};
 use euclid::{Point2D, Rect, Size2D};
+use ipc_channel::ipc::IpcSharedMemory;
 use std::mem;
-use types::{ClipRegion, ColorF, FontKey, ImageKey, PipelineId, StackingLevel};
-use types::{BorderRadius, BorderSide, BoxShadowClipMode, GlyphInstance};
+use std::slice;
+use types::{ClipRegion, ColorF, ComplexClipRegion, FontKey, ImageKey, PipelineId, StackingLevel};
+use types::{BorderRadius, BorderSide, BoxShadowClipMode, FilterOp, GlyphInstance};
 use types::{DisplayListMode, GradientStop, StackingContextId, ImageRendering};
 use webgl::{WebGLContextId};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
 pub struct DrawListInfo {
-    pub items: Vec<DisplayItem>,
+    pub items: ItemRange,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
 pub struct StackingContextInfo {
     pub id: StackingContextId,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct IframeInfo {
     pub id: PipelineId,
     pub bounds: Rect<f32>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
 pub enum SpecificDisplayListItem {
     DrawList(DrawListInfo),
     StackingContext(StackingContextInfo),
-    Iframe(Box<IframeInfo>),
+    Iframe(IframeInfo),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
 pub struct DisplayListItem {
     pub stacking_level: StackingLevel,
     pub specific: SpecificDisplayListItem,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
+pub struct BuiltDisplayList {
+    pub mode: DisplayListMode,
+    pub has_stacking_contexts: bool,
+
+    display_list_items: IpcSharedMemory,
+    display_items: IpcSharedMemory,
+}
+
+impl BuiltDisplayList {
+    pub fn display_list_items<'a>(&'a self) -> &'a [DisplayListItem] {
+        unsafe {
+            convert_blob_to_pod(&self.display_list_items[..])
+        }
+    }
+
+    pub fn display_items<'a>(&'a self, range: &ItemRange) -> &'a [DisplayItem] {
+        unsafe {
+            range.get(convert_blob_to_pod(&self.display_items[..]))
+        }
+    }
+}
+
 pub struct DisplayListBuilder {
     pub mode: DisplayListMode,
     pub has_stacking_contexts: bool,
@@ -54,7 +78,8 @@ pub struct DisplayListBuilder {
     pub work_positioned_content: Vec<DisplayItem>,
     pub work_outlines: Vec<DisplayItem>,
 
-    pub items: Vec<DisplayListItem>,
+    pub display_list_items: Vec<DisplayListItem>,
+    pub display_items: Vec<DisplayItem>,
 }
 
 impl DisplayListBuilder {
@@ -70,7 +95,8 @@ impl DisplayListBuilder {
             work_positioned_content: Vec::new(),
             work_outlines: Vec::new(),
 
-            items: Vec::new(),
+            display_list_items: Vec::new(),
+            display_items: Vec::new(),
         }
     }
 
@@ -140,7 +166,8 @@ impl DisplayListBuilder {
                      font_key: FontKey,
                      color: ColorF,
                      size: Au,
-                     blur_radius: Au) {
+                     blur_radius: Au,
+                     auxiliary_lists_builder: &mut AuxiliaryListsBuilder) {
         // Sanity check - anything with glyphs bigger than this
         // is probably going to consume too much memory to render
         // efficiently anyway. This is specifically to work around
@@ -150,7 +177,7 @@ impl DisplayListBuilder {
         if size < Au::from_px(4096) {
             let item = TextDisplayItem {
                 color: color,
-                glyphs: glyphs,
+                glyphs: auxiliary_lists_builder.add_glyph_instances(&glyphs),
                 font_key: font_key,
                 size: size,
                 blur_radius: blur_radius,
@@ -234,7 +261,7 @@ impl DisplayListBuilder {
             stacking_level: level,
             specific: SpecificDisplayListItem::StackingContext(info),
         };
-        self.items.push(item);
+        self.display_list_items.push(item);
     }
 
     pub fn push_gradient(&mut self,
@@ -243,11 +270,12 @@ impl DisplayListBuilder {
                          clip: ClipRegion,
                          start_point: Point2D<f32>,
                          end_point: Point2D<f32>,
-                         stops: Vec<GradientStop>) {
+                         stops: Vec<GradientStop>,
+                         auxiliary_lists_builder: &mut AuxiliaryListsBuilder) {
         let item = GradientDisplayItem {
             start_point: start_point,
             end_point: end_point,
-            stops: stops,
+            stops: auxiliary_lists_builder.add_gradient_stops(&stops),
         };
 
         let display_item = DisplayItem {
@@ -265,15 +293,15 @@ impl DisplayListBuilder {
                        _clip: ClipRegion,
                        iframe: PipelineId) {
         self.flush_list(level);
-        let info = Box::new(IframeInfo {
+        let info = IframeInfo {
             id: iframe,
             bounds: rect,
-        });
+        };
         let item = DisplayListItem {
             stacking_level: level,
             specific: SpecificDisplayListItem::Iframe(info),
         };
-        self.items.push(item);
+        self.display_list_items.push(item);
     }
 
     fn push_item(&mut self, level: StackingLevel, item: DisplayItem) {
@@ -322,15 +350,17 @@ impl DisplayListBuilder {
         };
 
         let items = mem::replace(list, Vec::new());
-        if items.len() > 0 {
-            let draw_list = DrawListInfo {
-                items: items,
-            };
-            self.items.push(DisplayListItem {
-                stacking_level: level,
-                specific: SpecificDisplayListItem::DrawList(draw_list),
-            });
+        if items.is_empty() {
+            return
         }
+
+        let draw_list = DrawListInfo {
+            items: ItemRange::new(&mut self.display_items, &items),
+        };
+        self.display_list_items.push(DisplayListItem {
+            stacking_level: level,
+            specific: SpecificDisplayListItem::DrawList(draw_list),
+        });
     }
 
     fn flush(&mut self) {
@@ -342,7 +372,169 @@ impl DisplayListBuilder {
         self.flush_list(StackingLevel::Outlines);
     }
 
-    pub fn finalize(&mut self) {
+    pub fn finalize(mut self) -> BuiltDisplayList {
         self.flush();
+
+        unsafe {
+            BuiltDisplayList {
+                mode: self.mode,
+                has_stacking_contexts: self.has_stacking_contexts,
+                display_list_items:
+                    IpcSharedMemory::from_bytes(convert_pod_to_blob(&self.display_list_items)),
+                display_items:
+                    IpcSharedMemory::from_bytes(convert_pod_to_blob(&self.display_items)),
+            }
+        }
+    }
+
+    pub fn display_items<'a>(&'a self, range: &ItemRange) -> &'a [DisplayItem] {
+        range.get(&self.display_items)
+    }
+
+    pub fn display_items_mut<'a>(&'a mut self, range: &ItemRange) -> &'a mut [DisplayItem] {
+        range.get_mut(&mut self.display_items)
     }
 }
+
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ItemRange {
+    pub start: usize,
+    pub length: usize,
+}
+
+impl ItemRange {
+    pub fn new<T>(backing_list: &mut Vec<T>, items: &[T]) -> ItemRange where T: Copy + Clone {
+        let start = backing_list.len();
+        backing_list.extend_from_slice(items);
+        ItemRange {
+            start: start,
+            length: items.len(),
+        }
+    }
+
+    pub fn empty() -> ItemRange {
+        ItemRange {
+            start: 0,
+            length: 0,
+        }
+    }
+
+    pub fn get<'a, T>(&self, backing_list: &'a [T]) -> &'a [T] {
+        &backing_list[self.start..(self.start + self.length)]
+    }
+
+    pub fn get_mut<'a, T>(&self, backing_list: &'a mut [T]) -> &'a mut [T] {
+        &mut backing_list[self.start..(self.start + self.length)]
+    }
+}
+
+#[derive(Clone)]
+pub struct AuxiliaryListsBuilder {
+    gradient_stops: Vec<GradientStop>,
+    complex_clip_regions: Vec<ComplexClipRegion>,
+    filters: Vec<FilterOp>,
+    glyph_instances: Vec<GlyphInstance>,
+}
+
+impl AuxiliaryListsBuilder {
+    pub fn new() -> AuxiliaryListsBuilder {
+        AuxiliaryListsBuilder {
+            gradient_stops: Vec::new(),
+            complex_clip_regions: Vec::new(),
+            filters: Vec::new(),
+            glyph_instances: Vec::new(),
+        }
+    }
+
+    pub fn add_gradient_stops(&mut self, gradient_stops: &[GradientStop]) -> ItemRange {
+        ItemRange::new(&mut self.gradient_stops, gradient_stops)
+    }
+
+    pub fn gradient_stops(&self, gradient_stops_range: &ItemRange) -> &[GradientStop] {
+        gradient_stops_range.get(&self.gradient_stops[..])
+    }
+
+    pub fn add_complex_clip_regions(&mut self, complex_clip_regions: &[ComplexClipRegion])
+                                    -> ItemRange {
+        ItemRange::new(&mut self.complex_clip_regions, complex_clip_regions)
+    }
+
+    pub fn complex_clip_regions(&self, complex_clip_regions_range: &ItemRange)
+                                -> &[ComplexClipRegion] {
+        complex_clip_regions_range.get(&self.complex_clip_regions[..])
+    }
+
+    pub fn add_filters(&mut self, filters: &[FilterOp]) -> ItemRange {
+        ItemRange::new(&mut self.filters, filters)
+    }
+
+    pub fn filters(&self, filters_range: &ItemRange) -> &[FilterOp] {
+        filters_range.get(&self.filters[..])
+    }
+
+    pub fn add_glyph_instances(&mut self, glyph_instances: &[GlyphInstance]) -> ItemRange {
+        ItemRange::new(&mut self.glyph_instances, glyph_instances)
+    }
+
+    pub fn glyph_instances(&self, glyph_instances_range: &ItemRange) -> &[GlyphInstance] {
+        glyph_instances_range.get(&self.glyph_instances[..])
+    }
+
+    pub fn finalize(self) -> AuxiliaryLists {
+        unsafe {
+            AuxiliaryLists {
+                gradient_stops:
+                    IpcSharedMemory::from_bytes(convert_pod_to_blob(&self.gradient_stops)),
+                complex_clip_regions:
+                    IpcSharedMemory::from_bytes(convert_pod_to_blob(&self.complex_clip_regions)),
+                filters: IpcSharedMemory::from_bytes(convert_pod_to_blob(&self.filters)),
+                glyph_instances:
+                    IpcSharedMemory::from_bytes(convert_pod_to_blob(&self.glyph_instances)),
+            }
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct AuxiliaryLists {
+    gradient_stops: IpcSharedMemory,
+    complex_clip_regions: IpcSharedMemory,
+    filters: IpcSharedMemory,
+    glyph_instances: IpcSharedMemory,
+}
+
+impl AuxiliaryLists {
+    pub fn gradient_stops(&self, gradient_stops_range: &ItemRange) -> &[GradientStop] {
+        unsafe {
+            gradient_stops_range.get(convert_blob_to_pod(&self.gradient_stops[..]))
+        }
+    }
+
+    pub fn complex_clip_regions(&self, complex_clip_regions_range: &ItemRange)
+                                -> &[ComplexClipRegion] {
+        unsafe {
+            complex_clip_regions_range.get(convert_blob_to_pod(&self.complex_clip_regions[..]))
+        }
+    }
+
+    pub fn filters(&self, filters_range: &ItemRange) -> &[FilterOp] {
+        unsafe {
+            filters_range.get(convert_blob_to_pod(&self.filters[..]))
+        }
+    }
+
+    pub fn glyph_instances(&self, glyph_instances_range: &ItemRange) -> &[GlyphInstance] {
+        unsafe {
+            glyph_instances_range.get(convert_blob_to_pod(&self.glyph_instances[..]))
+        }
+    }
+}
+
+unsafe fn convert_pod_to_blob<T>(data: &[T]) -> &[u8] where T: Copy + 'static {
+    slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * mem::size_of::<T>())
+}
+
+unsafe fn convert_blob_to_pod<T>(blob: &[u8]) -> &[T] where T: Copy + 'static {
+    slice::from_raw_parts(blob.as_ptr() as *const T, blob.len() / mem::size_of::<T>())
+}
+

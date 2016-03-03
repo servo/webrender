@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use display_list::{AuxiliaryListsBuilder, ItemRange};
 use euclid::{Matrix4, Rect};
 use types::{DisplayListId, FilterOp, MixBlendMode, ScrollLayerId, ScrollPolicy};
 
@@ -17,7 +18,7 @@ pub struct StackingContext {
     pub perspective: Matrix4,
     pub establishes_3d_context: bool,
     pub mix_blend_mode: MixBlendMode,
-    pub filters: Vec<FilterOp>,
+    pub filters: ItemRange,
     pub has_stacking_contexts: bool,
 }
 
@@ -31,7 +32,8 @@ impl StackingContext {
                perspective: &Matrix4,
                establishes_3d_context: bool,
                mix_blend_mode: MixBlendMode,
-               filters: Vec<FilterOp>)
+               filters: Vec<FilterOp>,
+               auxiliary_lists_builder: &mut AuxiliaryListsBuilder)
                -> StackingContext {
         StackingContext {
             scroll_layer_id: scroll_layer_id,
@@ -44,7 +46,7 @@ impl StackingContext {
             perspective: perspective.clone(),
             establishes_3d_context: establishes_3d_context,
             mix_blend_mode: mix_blend_mode,
-            filters: filters,
+            filters: auxiliary_lists_builder.add_filters(&filters),
             has_stacking_contexts: false,
         }
     }

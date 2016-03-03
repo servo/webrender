@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use display_list::DisplayListBuilder;
+use display_list::{AuxiliaryLists, BuiltDisplayList};
 use euclid::{Point2D, Size2D};
 use ipc_channel::ipc::{self, IpcSender};
 use stacking_context::StackingContext;
@@ -24,10 +24,15 @@ pub enum ApiMsg {
     AddNativeFont(FontKey, NativeFontHandle),
     AddImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
     UpdateImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
-    AddDisplayList(DisplayListId, PipelineId, Epoch, DisplayListBuilder),
+    AddDisplayList(DisplayListId, PipelineId, Epoch, BuiltDisplayList),
     AddStackingContext(StackingContextId, PipelineId, Epoch, StackingContext),
     CloneApi(IpcSender<IdNamespace>),
-    SetRootStackingContext(StackingContextId, ColorF, Epoch, PipelineId, Size2D<f32>),
+    SetRootStackingContext(StackingContextId,
+                           ColorF,
+                           Epoch,
+                           PipelineId,
+                           Size2D<f32>,
+                           AuxiliaryLists),
     SetRootPipeline(PipelineId),
     Scroll(Point2D<f32>, Point2D<f32>),
     TranslatePointToLayerSpace(Point2D<f32>, IpcSender<Point2D<f32>>),
@@ -112,7 +117,7 @@ impl RenderApi {
     }
 
     pub fn add_display_list(&self,
-                            display_list: DisplayListBuilder,
+                            display_list: BuiltDisplayList,
                             stacking_context: &mut StackingContext,
                             pipeline_id: PipelineId,
                             epoch: Epoch) -> Option<DisplayListId> {
@@ -149,12 +154,14 @@ impl RenderApi {
                                      background_color: ColorF,
                                      epoch: Epoch,
                                      pipeline_id: PipelineId,
-                                     viewport_size: Size2D<f32>) {
+                                     viewport_size: Size2D<f32>,
+                                     auxiliary_lists: AuxiliaryLists) {
         let msg = ApiMsg::SetRootStackingContext(stacking_context_id,
                                                  background_color,
                                                  epoch,
                                                  pipeline_id,
-                                                 viewport_size);
+                                                 viewport_size,
+                                                 auxiliary_lists);
         self.tx.send(msg).unwrap();
     }
 
