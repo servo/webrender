@@ -3,12 +3,13 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use types::{ClipRegion, ColorF, GlyphInstance, FontKey, ImageKey, BorderSide};
-use types::{GradientStop, BorderRadius, BoxShadowClipMode, ImageRendering};
+use display_list::ItemRange;
+use types::{ClipRegion, ColorF, FontKey, ImageKey, BorderSide};
+use types::{BorderRadius, BoxShadowClipMode, ImageRendering};
 use webgl::{WebGLContextId};
 use euclid::{Point2D, Rect, Size2D};
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BorderDisplayItem {
     pub left: BorderSide,
     pub right: BorderSide,
@@ -39,7 +40,7 @@ impl BorderDisplayItem {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BoxShadowDisplayItem {
     pub box_bounds: Rect<f32>,
     pub offset: Point2D<f32>,
@@ -50,40 +51,40 @@ pub struct BoxShadowDisplayItem {
     pub clip_mode: BoxShadowClipMode,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GradientDisplayItem {
     pub start_point: Point2D<f32>,
     pub end_point: Point2D<f32>,
-    pub stops: Vec<GradientStop>,
+    pub stops: ItemRange,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ImageDisplayItem {
     pub image_key: ImageKey,
     pub stretch_size: Size2D<f32>,
     pub image_rendering: ImageRendering,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WebGLDisplayItem {
     pub context_id: WebGLContextId,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RectangleDisplayItem {
     pub color: ColorF,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextDisplayItem {
-    pub glyphs: Vec<GlyphInstance>,
+    pub glyphs: ItemRange,
     pub font_key: FontKey,
     pub size: Au,
     pub color: ColorF,
     pub blur_radius: Au,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SpecificDisplayItem {
     Rectangle(RectangleDisplayItem),
     Text(TextDisplayItem),
@@ -94,7 +95,7 @@ pub enum SpecificDisplayItem {
     Gradient(GradientDisplayItem),
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DisplayItem {
     pub item: SpecificDisplayItem,
     pub rect: Rect<f32>,

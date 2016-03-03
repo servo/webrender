@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
+use display_list::{AuxiliaryListsBuilder, ItemRange};
 use euclid::{Rect, Size2D};
 
 #[cfg(target_os="macos")]
@@ -36,7 +37,7 @@ impl BorderRadius {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BorderSide {
     pub width: f32,
     pub color: ColorF,
@@ -64,17 +65,20 @@ pub enum BoxShadowClipMode {
     Inset,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClipRegion {
     pub main: Rect<f32>,
-    pub complex: Vec<ComplexClipRegion>,
+    pub complex: ItemRange,
 }
 
 impl ClipRegion {
-    pub fn new(rect: Rect<f32>, complex: Vec<ComplexClipRegion>) -> ClipRegion {
+    pub fn new(rect: &Rect<f32>,
+               complex: Vec<ComplexClipRegion>,
+               auxiliary_lists_builder: &mut AuxiliaryListsBuilder)
+               -> ClipRegion {
         ClipRegion {
-            main: rect,
-            complex: complex,
+            main: *rect,
+            complex: auxiliary_lists_builder.add_complex_clip_regions(&complex),
         }
     }
 }
@@ -130,7 +134,7 @@ pub struct StackingContextId(pub u32, pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DisplayListId(pub u32, pub u32);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
 pub enum DisplayListMode {
     Default,
     PseudoFloat,
@@ -162,14 +166,14 @@ impl FontKey {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GlyphInstance {
     pub index: u32,
     pub x: f32,
     pub y: f32,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GradientStop {
     pub offset: f32,
     pub color: ColorF,

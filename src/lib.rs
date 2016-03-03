@@ -26,8 +26,9 @@ mod types;
 mod webgl;
 
 pub use api::{ApiMsg, IdNamespace, ResourceId, RenderApi, RenderApiSender};
-pub use display_list::{DisplayListBuilder, DisplayListItem};
-pub use display_list::{SpecificDisplayListItem, IframeInfo};
+pub use display_list::{AuxiliaryLists, AuxiliaryListsBuilder, BuiltDisplayList};
+pub use display_list::{DisplayListBuilder, DisplayListItem, IframeInfo, ItemRange};
+pub use display_list::{SpecificDisplayListItem};
 pub use display_item::{DisplayItem, SpecificDisplayItem, ImageDisplayItem};
 pub use display_item::{BorderDisplayItem, GradientDisplayItem, RectangleDisplayItem};
 pub use stacking_context::StackingContext;
