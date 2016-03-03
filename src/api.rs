@@ -18,6 +18,17 @@ pub struct IdNamespace(pub u32);
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ResourceId(pub u32);
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ScrollEventPhase {
+    /// The user started scrolling.
+    Start,
+    /// The user performed a scroll. The Boolean flag indicates whether the user's fingers are
+    /// down, if a touchpad is in use. (If false, the event is a touchpad fling.)
+    Move(bool),
+    /// The user ended scrolling.
+    End,
+}
+
 #[derive(Serialize, Deserialize)]
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>),
@@ -34,7 +45,8 @@ pub enum ApiMsg {
                            Size2D<f32>,
                            AuxiliaryLists),
     SetRootPipeline(PipelineId),
-    Scroll(Point2D<f32>, Point2D<f32>),
+    Scroll(Point2D<f32>, Point2D<f32>, ScrollEventPhase),
+    TickScrollingBounce,
     TranslatePointToLayerSpace(Point2D<f32>, IpcSender<Point2D<f32>>),
     RequestWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<WebGLContextId, String>>),
     WebGLCommand(WebGLContextId, WebGLCommand),
@@ -165,8 +177,13 @@ impl RenderApi {
         self.tx.send(msg).unwrap();
     }
 
-    pub fn scroll(&self, delta: Point2D<f32>, cursor: Point2D<f32>) {
-        let msg = ApiMsg::Scroll(delta, cursor);
+    pub fn scroll(&self, delta: Point2D<f32>, cursor: Point2D<f32>, phase: ScrollEventPhase) {
+        let msg = ApiMsg::Scroll(delta, cursor, phase);
+        self.tx.send(msg).unwrap();
+    }
+
+    pub fn tick_scrolling_bounce_animations(&self) {
+        let msg = ApiMsg::TickScrollingBounce;
         self.tx.send(msg).unwrap();
     }
 
@@ -196,3 +213,4 @@ impl RenderApi {
         (namespace, id)
     }
 }
+
