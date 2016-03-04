@@ -697,6 +697,56 @@ pub struct VBOId(gl::GLuint);
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 struct IBOId(gl::GLuint);
 
+pub struct GpuProfile {
+    active_query: usize,
+    gl_queries: Vec<gl::GLuint>,
+}
+
+impl GpuProfile {
+    pub fn new() -> GpuProfile {
+        let queries = gl::gen_queries(4);
+
+        // Kick initial queries off so that when we wait for the prev
+        // query it doesn't block on the first run through.
+        for qid in &queries {
+            gl::query_counter(*qid, gl::TIMESTAMP);
+        }
+
+        GpuProfile {
+            active_query: 0,
+            gl_queries: queries,
+        }
+    }
+
+    pub fn begin(&mut self) {
+        let qid = self.gl_queries[self.active_query * 2 + 0];
+        gl::query_counter(qid, gl::TIMESTAMP);
+    }
+
+    pub fn end(&mut self) -> u64 {
+        let qid = self.gl_queries[self.active_query * 2 + 1];
+        gl::query_counter(qid, gl::TIMESTAMP);
+
+        self.active_query = 1 - self.active_query;
+
+        // Wait until the previous results are available
+        let qid_prev_start = self.gl_queries[self.active_query * 2 + 0];
+        let qid_prev_end = self.gl_queries[self.active_query * 2 + 1];
+        while gl::get_query_object_iv(qid_prev_end, gl::QUERY_RESULT_AVAILABLE) == 0 {}
+
+        let start_time = gl::get_query_object_ui64v(qid_prev_start, gl::QUERY_RESULT);
+        let end_time = gl::get_query_object_ui64v(qid_prev_end, gl::QUERY_RESULT);
+
+        end_time - start_time
+    }
+}
+
+impl Drop for GpuProfile {
+    fn drop(&mut self) {
+        gl::delete_queries(&self.gl_queries);
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum VertexUsageHint {
     Static,
