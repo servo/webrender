@@ -24,6 +24,7 @@ mod render_backend;
 mod resource_cache;
 mod resource_list;
 mod scene;
+mod spring;
 mod tessellator;
 mod texture_cache;
 mod util;

@@ -157,9 +157,17 @@ impl RenderBackend {
 
                             self.publish_frame(frame, &mut profile_counters);
                         }
-                        ApiMsg::Scroll(delta, cursor) => {
+                        ApiMsg::Scroll(delta, cursor, move_phase) => {
                             let frame = profile_counters.total_time.profile(|| {
-                                self.frame.scroll(delta, cursor);
+                                self.frame.scroll(delta, cursor, move_phase);
+                                self.render()
+                            });
+
+                            self.publish_frame(frame, &mut profile_counters);
+                        }
+                        ApiMsg::TickScrollingBounce => {
+                            let frame = profile_counters.total_time.profile(|| {
+                                self.frame.tick_scrolling_bounce_animations();
                                 self.render()
                             });
 
@@ -172,7 +180,9 @@ impl RenderBackend {
                                 Some(root_pipeline_id) => {
                                     match self.frame.layers.get_mut(&ScrollLayerId::new(root_pipeline_id, 0)) {
                                         None => tx.send(point).unwrap(),
-                                        Some(layer) => tx.send(point - layer.scroll_offset).unwrap(),
+                                        Some(layer) => {
+                                            tx.send(point - layer.scrolling.offset).unwrap()
+                                        }
                                     }
                                 }
                                 None => {

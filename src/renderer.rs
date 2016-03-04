@@ -376,8 +376,7 @@ impl Renderer {
         }
     }
 
-    pub fn render(&mut self,
-                  framebuffer_size: Size2D<u32>) {
+    pub fn render(&mut self, framebuffer_size: Size2D<u32>) {
         let mut profile_timers = RendererProfileTimers::new();
 
         profile_timers.total_time.profile(|| {
@@ -412,6 +411,13 @@ impl Renderer {
         self.debug.render(&mut self.device, &debug_size);
         self.device.end_frame();
         self.last_time = current_time;
+    }
+
+    pub fn layers_are_bouncing_back(&self) -> bool {
+        match self.current_frame {
+            None => false,
+            Some(ref current_frame) => !current_frame.layers_bouncing_back.is_empty(),
+        }
     }
 
     fn update_batches(&mut self) {
