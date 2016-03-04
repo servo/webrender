@@ -25,7 +25,7 @@ mod stacking_context;
 mod types;
 mod webgl;
 
-pub use api::{ApiMsg, IdNamespace, ResourceId, RenderApi, RenderApiSender};
+pub use api::{ApiMsg, IdNamespace, ResourceId, RenderApi, RenderApiSender, ScrollEventPhase};
 pub use display_list::{AuxiliaryLists, AuxiliaryListsBuilder, BuiltDisplayList};
 pub use display_list::{DisplayListBuilder, DisplayListItem, IframeInfo, ItemRange};
 pub use display_list::{SpecificDisplayListItem};
