@@ -697,6 +697,62 @@ pub struct VBOId(gl::GLuint);
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 struct IBOId(gl::GLuint);
 
+pub struct GpuProfile {
+    active_query: usize,
+    gl_queries: Vec<gl::GLuint>,
+    first_frame: bool,
+}
+
+impl GpuProfile {
+    pub fn new() -> GpuProfile {
+        let queries = gl::gen_queries(4);
+
+        GpuProfile {
+            active_query: 0,
+            gl_queries: queries,
+            first_frame: true,
+        }
+    }
+
+    pub fn begin(&mut self) {
+        let qid = self.gl_queries[self.active_query];
+        gl::begin_query(gl::TIME_ELAPSED, qid);
+    }
+
+    pub fn end(&mut self) -> u64 {
+        gl::end_query(gl::TIME_ELAPSED);
+
+        // Wait until the previous results are available
+        let last_qid = if self.active_query == 0 {
+            (self.gl_queries.len() - 1) as u32
+        } else {
+            (self.active_query - 1) as u32
+        };
+
+        self.active_query += 1;
+        if self.active_query == self.gl_queries.len() {
+            self.active_query = 0
+        }
+
+        if self.first_frame {
+            self.first_frame = false;
+            return 0
+        }
+
+        if gl::get_query_object_iv(last_qid, gl::QUERY_RESULT_AVAILABLE) == 1 {
+            gl::get_query_object_ui64v(last_qid, gl::QUERY_RESULT)
+        } else {
+            0
+        }
+    }
+}
+
+impl Drop for GpuProfile {
+    fn drop(&mut self) {
+        gl::delete_queries(&self.gl_queries);
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum VertexUsageHint {
     Static,

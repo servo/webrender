@@ -4,7 +4,7 @@
 
 use batch::{RasterBatch, VertexBufferId};
 use debug_render::DebugRenderer;
-use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat};
+use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat, GpuProfile};
 use device::{TextureFilter, VAOId, VBOId, VertexUsageHint, FileWatcherHandler};
 use euclid::{Rect, Matrix4, Point2D, Size2D};
 use fnv::FnvHasher;
@@ -161,6 +161,8 @@ pub struct Renderer {
     raster_op_target_a8: TextureId,
     raster_op_target_rgba8: TextureId,
     temporary_fb_texture: TextureId,
+
+    gpu_profile: GpuProfile,
 }
 
 impl Renderer {
@@ -311,6 +313,7 @@ impl Renderer {
             raster_op_target_rgba8: raster_op_target_rgba8,
             temporary_fb_texture: temporary_fb_texture,
             max_raster_op_size: max_raster_op_size,
+            gpu_profile: GpuProfile::new(),
         };
 
         renderer.update_uniform_locations();
@@ -379,7 +382,9 @@ impl Renderer {
     pub fn render(&mut self, framebuffer_size: Size2D<u32>) {
         let mut profile_timers = RendererProfileTimers::new();
 
-        profile_timers.total_time.profile(|| {
+        self.gpu_profile.begin();
+
+        profile_timers.cpu_time.profile(|| {
             self.device.begin_frame();
 
             gl::disable(gl::SCISSOR_TEST);
@@ -395,6 +400,9 @@ impl Renderer {
         let current_time = precise_time_ns();
         let ns = current_time - self.last_time;
         self.profile_counters.frame_time.set(ns);
+
+        let gpu_ns = self.gpu_profile.end();
+        profile_timers.gpu_time.set(gpu_ns);
 
         if self.enable_profiler {
             self.profiler.draw_profile(&self.backend_profile_counters,
