@@ -700,44 +700,50 @@ struct IBOId(gl::GLuint);
 pub struct GpuProfile {
     active_query: usize,
     gl_queries: Vec<gl::GLuint>,
+    first_frame: bool,
 }
 
 impl GpuProfile {
     pub fn new() -> GpuProfile {
         let queries = gl::gen_queries(4);
 
-        // Kick initial queries off so that when we wait for the prev
-        // query it doesn't block on the first run through.
-        for qid in &queries {
-            gl::query_counter(*qid, gl::TIMESTAMP);
-        }
-
         GpuProfile {
             active_query: 0,
             gl_queries: queries,
+            first_frame: true,
         }
     }
 
     pub fn begin(&mut self) {
-        let qid = self.gl_queries[self.active_query * 2 + 0];
-        gl::query_counter(qid, gl::TIMESTAMP);
+        let qid = self.gl_queries[self.active_query];
+        gl::begin_query(gl::TIME_ELAPSED, qid);
     }
 
     pub fn end(&mut self) -> u64 {
-        let qid = self.gl_queries[self.active_query * 2 + 1];
-        gl::query_counter(qid, gl::TIMESTAMP);
-
-        self.active_query = 1 - self.active_query;
+        gl::end_query(gl::TIME_ELAPSED);
 
         // Wait until the previous results are available
-        let qid_prev_start = self.gl_queries[self.active_query * 2 + 0];
-        let qid_prev_end = self.gl_queries[self.active_query * 2 + 1];
-        while gl::get_query_object_iv(qid_prev_end, gl::QUERY_RESULT_AVAILABLE) == 0 {}
+        let last_qid = if self.active_query == 0 {
+            (self.gl_queries.len() - 1) as u32
+        } else {
+            (self.active_query - 1) as u32
+        };
 
-        let start_time = gl::get_query_object_ui64v(qid_prev_start, gl::QUERY_RESULT);
-        let end_time = gl::get_query_object_ui64v(qid_prev_end, gl::QUERY_RESULT);
+        self.active_query += 1;
+        if self.active_query == self.gl_queries.len() {
+            self.active_query = 0
+        }
 
-        end_time - start_time
+        if self.first_frame {
+            self.first_frame = false;
+            return 0
+        }
+
+        if gl::get_query_object_iv(last_qid, gl::QUERY_RESULT_AVAILABLE) == 1 {
+            gl::get_query_object_ui64v(last_qid, gl::QUERY_RESULT)
+        } else {
+            0
+        }
     }
 }
 
