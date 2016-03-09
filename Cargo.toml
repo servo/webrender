@@ -45,5 +45,5 @@ app_units = {version = "0.2.1", features = ["plugins"]}
 lazy_static = "0.1"
 
 [target.x86_64-apple-darwin.dependencies]
-core-graphics = "0.2"
+core-graphics = ">=0.2, <0.4"
 core-text = "1.0"
