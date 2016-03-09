@@ -142,7 +142,8 @@ impl RenderTarget {
                             width: f32,
                             height: f32,
                             device_pixel_ratio: f32,
-                            resource_cache: &mut ResourceCache) -> (Point2D<f32>, TextureId) {
+                            resource_cache: &mut ResourceCache,
+                            frame_id: FrameId) -> (Point2D<f32>, TextureId) {
         // If the target is more than 512x512 (an arbitrary choice), assign it
         // to an exact sized render target - assuming that there probably aren't
         // many of them. This minimises GPU memory wastage if there are just a small
@@ -156,7 +157,8 @@ impl RenderTarget {
 
                 let texture_id = resource_cache.allocate_render_target(device_pixel_size,
                                                                        device_pixel_size,
-                                                                       ImageFormat::RGBA8);
+                                                                       ImageFormat::RGBA8,
+                                                                       frame_id);
                 self.texture_id_list.push(texture_id);
                 self.page_allocator = Some(TexturePage::new(texture_id, texture_size));
             }
@@ -180,7 +182,8 @@ impl RenderTarget {
 
         let texture_id = resource_cache.allocate_render_target(device_pixel_width,
                                                                device_pixel_height,
-                                                               ImageFormat::RGBA8);
+                                                               ImageFormat::RGBA8,
+                                                               frame_id);
         self.texture_id_list.push(texture_id);
 
         (Point2D::zero(), texture_id)
@@ -1107,7 +1110,8 @@ impl Frame {
                         target.allocate_target_rect(target_rect.size.width,
                                                     target_rect.size.height,
                                                     context.device_pixel_ratio,
-                                                    context.resource_cache);
+                                                    context.resource_cache,
+                                                    self.id);
 
                     let mut new_target = RenderTarget::new(render_target_id,
                                                            origin,

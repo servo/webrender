@@ -705,8 +705,6 @@ impl Renderer {
                                 let zero_point = Point2D::new(0.0, 0.0);
                                 let zero_size = Size2D::new(0.0, 0.0);
 
-                                let device_pixel_ratio = self.device_pixel_ratio;
-
                                 self.add_rect_to_raster_batch(update.id,
                                                               TextureId(0),
                                                               border_program_id,

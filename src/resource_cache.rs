@@ -381,9 +381,13 @@ impl ResourceCache {
     pub fn allocate_render_target(&mut self,
                                   width: u32,
                                   height: u32,
-                                  format: ImageFormat)
+                                  format: ImageFormat,
+                                  frame_id: FrameId)
                                   -> TextureId {
-        self.texture_cache.allocate_render_target(width, height, format)
+        self.texture_cache.allocate_render_target(width,
+                                                  height,
+                                                  format,
+                                                  frame_id)
     }
 
     pub fn free_old_render_targets(&mut self) {

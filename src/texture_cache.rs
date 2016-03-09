@@ -6,6 +6,7 @@ use app_units::Au;
 use device::{MAX_TEXTURE_SIZE, TextureId, TextureFilter};
 use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
+use frame::FrameId;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
@@ -673,21 +674,24 @@ impl TextureCache {
     pub fn allocate_render_target(&mut self,
                                   width: u32,
                                   height: u32,
-                                  format: ImageFormat)
+                                  format: ImageFormat,
+                                  frame_id: FrameId)
                                   -> TextureId {
         let mut cached_render_target_index = None;
         for (i, cached_render_target) in self.cached_render_targets.iter().enumerate() {
             if cached_render_target.width == width &&
                     cached_render_target.height == height &&
-                    cached_render_target.format == format {
+                    cached_render_target.format == format &&
+                    cached_render_target.frame_id != frame_id {
                 cached_render_target_index = Some(i);
                 break
             }
         }
         if let Some(cached_render_target_index) = cached_render_target_index {
             // Push to the end to mark as recently used.
-            let cached_render_target = self.cached_render_targets
-                                           .remove(cached_render_target_index);
+            let mut cached_render_target = self.cached_render_targets
+                                               .remove(cached_render_target_index);
+            cached_render_target.frame_id = frame_id;
             self.cached_render_targets.push(cached_render_target);
             return cached_render_target.texture_id
         }
@@ -714,6 +718,7 @@ impl TextureCache {
             width: width,
             height: height,
             format: format,
+            frame_id: frame_id,
         });
 
         texture_id
@@ -891,7 +896,7 @@ impl TextureCache {
     pub fn insert_raster_op(&mut self,
                             image_id: TextureCacheItemId,
                             item: &RasterItem,
-                            device_pixel_ratio: f32) {
+                            _device_pixel_ratio: f32) {
         let update_op = match item {
             &RasterItem::BorderRadius(ref op) => {
                 let rect = Rect::new(Point2D::zero(),
@@ -1275,5 +1280,6 @@ pub struct CachedRenderTarget {
     width: u32,
     height: u32,
     format: ImageFormat,
+    frame_id: FrameId,
 }
 
