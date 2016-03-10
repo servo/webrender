@@ -2,7 +2,12 @@ language: rust
 os:
   - linux
   - osx
-rust: nightly
+rust:
+  - nightly
+  - nightly-2016-03-07 # Should be kept in sync with Servo.
+matrix:
+  allow_failures:
+    - rust: nightly
 notifications:
   webhooks: http://build.servo.org:54856/travis
 addons:
