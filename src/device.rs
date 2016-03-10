@@ -697,13 +697,18 @@ pub struct VBOId(gl::GLuint);
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 struct IBOId(gl::GLuint);
 
+#[cfg(not(any(target_os = "android", target_os = "gonk")))]
 pub struct GpuProfile {
     active_query: usize,
     gl_queries: Vec<gl::GLuint>,
     first_frame: bool,
 }
 
+#[cfg(any(target_os = "android", target_os = "gonk"))]
+pub struct GpuProfile;
+
 impl GpuProfile {
+    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     pub fn new() -> GpuProfile {
         let queries = gl::gen_queries(4);
 
@@ -714,11 +719,21 @@ impl GpuProfile {
         }
     }
 
+    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    pub fn new() -> GpuProfile {
+        GpuProfile
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     pub fn begin(&mut self) {
         let qid = self.gl_queries[self.active_query];
         gl::begin_query(gl::TIME_ELAPSED, qid);
     }
 
+    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    pub fn begin(&mut self) {}
+
+    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     pub fn end(&mut self) -> u64 {
         gl::end_query(gl::TIME_ELAPSED);
 
@@ -745,6 +760,9 @@ impl GpuProfile {
             0
         }
     }
+
+    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    pub fn end(&mut self) -> u64 { 0 }
 }
 
 impl Drop for GpuProfile {
