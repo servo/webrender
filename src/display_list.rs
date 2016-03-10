@@ -7,7 +7,6 @@ use display_item::{DisplayItem, SpecificDisplayItem, ImageDisplayItem, WebGLDisp
 use display_item::{RectangleDisplayItem, TextDisplayItem, GradientDisplayItem};
 use display_item::{BorderDisplayItem, BoxShadowDisplayItem};
 use euclid::{Point2D, Rect, Size2D};
-use ipc_channel::ipc::IpcSharedMemory;
 use std::mem;
 use std::slice;
 use types::{ClipRegion, ColorF, ComplexClipRegion, FontKey, ImageKey, PipelineId, StackingLevel};
@@ -44,25 +43,51 @@ pub struct DisplayListItem {
     pub specific: SpecificDisplayListItem,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct BuiltDisplayList {
+/// Describes the memory layout of a display list.
+///
+/// A display list consists of some number of display list items, followed by a number of display
+/// items.
+#[derive(Copy, Clone, Serialize, Deserialize)]
+pub struct BuiltDisplayListDescriptor {
     pub mode: DisplayListMode,
     pub has_stacking_contexts: bool,
 
-    display_list_items: IpcSharedMemory,
-    display_items: IpcSharedMemory,
+    /// The size in bytes of the display items in this display list.
+    display_list_items_size: usize,
+}
+
+/// A display list.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct BuiltDisplayList {
+    data: Vec<u8>,
+    descriptor: BuiltDisplayListDescriptor,
 }
 
 impl BuiltDisplayList {
+    pub fn from_data(data: Vec<u8>, descriptor: BuiltDisplayListDescriptor) -> BuiltDisplayList {
+        BuiltDisplayList {
+            data: data,
+            descriptor: descriptor,
+        }
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.data[..]
+    }
+
+    pub fn descriptor(&self) -> &BuiltDisplayListDescriptor {
+        &self.descriptor
+    }
+
     pub fn display_list_items<'a>(&'a self) -> &'a [DisplayListItem] {
         unsafe {
-            convert_blob_to_pod(&self.display_list_items[..])
+            convert_blob_to_pod(&self.data[0..self.descriptor.display_list_items_size])
         }
     }
 
     pub fn display_items<'a>(&'a self, range: &ItemRange) -> &'a [DisplayItem] {
         unsafe {
-            range.get(convert_blob_to_pod(&self.display_items[..]))
+            range.get(convert_blob_to_pod(&self.data[self.descriptor.display_list_items_size..]))
         }
     }
 }
@@ -376,13 +401,16 @@ impl DisplayListBuilder {
         self.flush();
 
         unsafe {
+            let mut blob = convert_pod_to_blob(&self.display_list_items).to_vec();
+            let display_list_items_size = blob.len();
+            blob.extend_from_slice(convert_pod_to_blob(&self.display_items));
             BuiltDisplayList {
-                mode: self.mode,
-                has_stacking_contexts: self.has_stacking_contexts,
-                display_list_items:
-                    IpcSharedMemory::from_bytes(convert_pod_to_blob(&self.display_list_items)),
-                display_items:
-                    IpcSharedMemory::from_bytes(convert_pod_to_blob(&self.display_items)),
+                descriptor: BuiltDisplayListDescriptor {
+                    mode: self.mode,
+                    has_stacking_contexts: self.has_stacking_contexts,
+                    display_list_items_size: display_list_items_size,
+                },
+                data: blob,
             }
         }
     }
@@ -482,50 +510,96 @@ impl AuxiliaryListsBuilder {
 
     pub fn finalize(self) -> AuxiliaryLists {
         unsafe {
+            let mut blob = convert_pod_to_blob(&self.gradient_stops).to_vec();
+            let gradient_stops_size = blob.len();
+            blob.extend_from_slice(convert_pod_to_blob(&self.complex_clip_regions));
+            let complex_clip_regions_size = blob.len() - gradient_stops_size;
+            blob.extend_from_slice(convert_pod_to_blob(&self.filters));
+            let filters_size = blob.len() - (complex_clip_regions_size + gradient_stops_size);
+            blob.extend_from_slice(convert_pod_to_blob(&self.glyph_instances));
+
             AuxiliaryLists {
-                gradient_stops:
-                    IpcSharedMemory::from_bytes(convert_pod_to_blob(&self.gradient_stops)),
-                complex_clip_regions:
-                    IpcSharedMemory::from_bytes(convert_pod_to_blob(&self.complex_clip_regions)),
-                filters: IpcSharedMemory::from_bytes(convert_pod_to_blob(&self.filters)),
-                glyph_instances:
-                    IpcSharedMemory::from_bytes(convert_pod_to_blob(&self.glyph_instances)),
+                data: blob,
+                descriptor: AuxiliaryListsDescriptor {
+                    gradient_stops_size: gradient_stops_size,
+                    complex_clip_regions_size: complex_clip_regions_size,
+                    filters_size: filters_size,
+                },
             }
         }
     }
 }
 
+/// Describes the memory layout of the auxiliary lists.
+///
+/// Auxiliary lists consist of some number of gradient stops, complex clip regions, filters, and
+/// glyph instances, in that order.
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub struct AuxiliaryListsDescriptor {
+    gradient_stops_size: usize,
+    complex_clip_regions_size: usize,
+    filters_size: usize,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AuxiliaryLists {
-    gradient_stops: IpcSharedMemory,
-    complex_clip_regions: IpcSharedMemory,
-    filters: IpcSharedMemory,
-    glyph_instances: IpcSharedMemory,
+    /// The concatenation of: gradient stops, complex clip regions, filters, and glyph instances,
+    /// in that order.
+    data: Vec<u8>,
+    descriptor: AuxiliaryListsDescriptor,
 }
 
 impl AuxiliaryLists {
+    /// Creates a new `AuxiliaryLists` instance from a descriptor and data received over a channel.
+    pub fn from_data(data: Vec<u8>, descriptor: AuxiliaryListsDescriptor) -> AuxiliaryLists {
+        AuxiliaryLists {
+            data: data,
+            descriptor: descriptor,
+        }
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.data[..]
+    }
+
+    pub fn descriptor(&self) -> &AuxiliaryListsDescriptor {
+        &self.descriptor
+    }
+
+    /// Returns the gradient stops described by `gradient_stops_range`.
     pub fn gradient_stops(&self, gradient_stops_range: &ItemRange) -> &[GradientStop] {
         unsafe {
-            gradient_stops_range.get(convert_blob_to_pod(&self.gradient_stops[..]))
+            let end = self.descriptor.gradient_stops_size;
+            gradient_stops_range.get(convert_blob_to_pod(&self.data[0..end]))
         }
     }
 
+    /// Returns the complex clipping regions described by `complex_clip_regions_range`.
     pub fn complex_clip_regions(&self, complex_clip_regions_range: &ItemRange)
                                 -> &[ComplexClipRegion] {
+        let start = self.descriptor.gradient_stops_size;
+        let end = start + self.descriptor.complex_clip_regions_size;
         unsafe {
-            complex_clip_regions_range.get(convert_blob_to_pod(&self.complex_clip_regions[..]))
+            complex_clip_regions_range.get(convert_blob_to_pod(&self.data[start..end]))
         }
     }
 
+    /// Returns the filters described by `filters_range`.
     pub fn filters(&self, filters_range: &ItemRange) -> &[FilterOp] {
+        let start = self.descriptor.gradient_stops_size +
+            self.descriptor.complex_clip_regions_size;
+        let end = start + self.descriptor.filters_size;
         unsafe {
-            filters_range.get(convert_blob_to_pod(&self.filters[..]))
+            filters_range.get(convert_blob_to_pod(&self.data[start..end]))
         }
     }
 
+    /// Returns the glyph instances described by `glyph_instances_range`.
     pub fn glyph_instances(&self, glyph_instances_range: &ItemRange) -> &[GlyphInstance] {
+        let start = self.descriptor.gradient_stops_size +
+            self.descriptor.complex_clip_regions_size + self.descriptor.filters_size;
         unsafe {
-            glyph_instances_range.get(convert_blob_to_pod(&self.glyph_instances[..]))
+            glyph_instances_range.get(convert_blob_to_pod(&self.data[start..]))
         }
     }
 }
