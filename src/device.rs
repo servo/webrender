@@ -765,6 +765,7 @@ impl GpuProfile {
     pub fn end(&mut self) -> u64 { 0 }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "gonk")))]
 impl Drop for GpuProfile {
     fn drop(&mut self) {
         gl::delete_queries(&self.gl_queries);
