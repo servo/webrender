@@ -353,14 +353,6 @@ impl<'a> BatchBuilder<'a> {
         self.vertex_buffer.instance_count += 1
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
-    fn push_vertex_for_rectangle(&mut self, vertex: PackedVertexForQuad) {
-        for _ in 0..6 {
-            self.vertex_buffer.vertices.push(vertex);
-        }
-    }
-
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     fn push_vertex_for_rectangle(&mut self, vertex: PackedVertexForQuad) {
         self.vertex_buffer.vertices.push(vertex);
     }

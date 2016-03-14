@@ -20,27 +20,24 @@ use std::mem;
 use webrender_traits::ImageFormat;
 
 #[cfg(not(any(target_os = "android", target_os = "gonk")))]
-const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA;
-
-#[cfg(not(any(target_os = "android", target_os = "gonk")))]
 const GL_FORMAT_A: gl::GLuint = gl::RED;
-
-#[cfg(any(target_os = "android", target_os = "gonk"))]
-const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA_EXT;
 
 #[cfg(any(target_os = "android", target_os = "gonk"))]
 const GL_FORMAT_A: gl::GLuint = gl::ALPHA;
 
+#[cfg(not(any(target_os = "android", target_os = "gonk")))]
+const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA;
+
 #[cfg(any(target_os = "android", target_os = "gonk"))]
-static FRAGMENT_SHADER_PREAMBLE: &'static str = "es2_common.fs.glsl";
+const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA_EXT;
 
 #[cfg(not(any(target_os = "android", target_os = "gonk")))]
+const SHADER_VERSION: &'static str = "#version 150\n";
+
+#[cfg(any(target_os = "android", target_os = "gonk"))]
+const SHADER_VERSION: &'static str = "#version 300 es\n";
+
 static FRAGMENT_SHADER_PREAMBLE: &'static str = "gl3_common.fs.glsl";
-
-#[cfg(any(target_os = "android", target_os = "gonk"))]
-static VERTEX_SHADER_PREAMBLE: &'static str = "es2_common.vs.glsl";
-
-#[cfg(not(any(target_os = "android", target_os = "gonk")))]
 static VERTEX_SHADER_PREAMBLE: &'static str = "gl3_common.vs.glsl";
 
 static QUAD_VERTICES: [PackedVertex; 6] = [
@@ -397,84 +394,6 @@ impl VertexFormat {
         }
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
-    fn unbind(&self) {
-        // TODO(gw): This can be made smarter by diffing the two vertex formats.
-        match *self {
-            VertexFormat::DebugFont => {
-                gl::disable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectTL as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectTR as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectBR as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectBL as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorTexCoordRectTop as
-                                                gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorTexCoordRectBottom as
-                                                gl::GLuint);
-            }
-            VertexFormat::DebugColor => {
-                gl::disable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectTL as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectTR as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectBR as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectBL as gl::GLuint);
-            }
-            VertexFormat::Rectangles => {
-                gl::disable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectTL as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectTR as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectBR as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectBL as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorTexCoordRectTop as
-                                                gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorTexCoordRectBottom as
-                                                gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::MaskTexCoordRectTop as
-                                                gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::MaskTexCoordRectBottom as
-                                                gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::Misc as gl::GLuint);
-            }
-            VertexFormat::Triangles => {
-                gl::disable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectTL as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectTR as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectBR as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectBL as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorTexCoordRectTop as
-                                                gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorTexCoordRectBottom as
-                                                gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::MaskTexCoordRectTop as
-                                                gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::MaskTexCoordRectBottom as
-                                                gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::Misc as gl::GLuint);
-            }
-            VertexFormat::RasterOp => {
-                gl::disable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectTL as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectTR as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectBR as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorRectBL as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorTexCoordRectTop as
-                                                gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::ColorTexCoordRectBottom as
-                                                gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::BorderRadii as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::BorderPosition as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::BlurRadius as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::DestTextureSize as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::SourceTextureSize as gl::GLuint);
-                gl::disable_vertex_attrib_array(VertexAttribute::Misc as gl::GLuint);
-            }
-        }
-    }
-
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
-    fn set_divisors(&self, _: u32) {}
-
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     fn set_divisors(&self, divisor: u32) {
         gl::vertex_attrib_divisor(VertexAttribute::PositionRect as gl::GLuint, divisor);
         gl::vertex_attrib_divisor(VertexAttribute::ColorRectTL as gl::GLuint, divisor);
@@ -640,24 +559,6 @@ struct VAO {
     owns_vbos: bool,
 }
 
-#[cfg(any(target_os = "android", target_os = "gonk"))]
-impl Drop for VAO {
-    fn drop(&mut self) {
-        // In the case of a rect batch, the main VBO is the shared quad VBO, so keep that around.
-        if self.vertex_format != VertexFormat::Rectangles {
-            gl::delete_buffers(&[self.main_vbo_id.0]);
-        }
-        if let Some(VBOId(aux_vbo_id)) = self.aux_vbo_id {
-            gl::delete_buffers(&[aux_vbo_id]);
-        }
-
-        // todo(gw): maybe make these their own type with hashmap?
-        let IBOId(ibo_id) = self.ibo_id;
-        gl::delete_buffers(&[ibo_id]);
-    }
-}
-
-#[cfg(not(any(target_os = "android", target_os = "gonk")))]
 impl Drop for VAO {
     fn drop(&mut self) {
         gl::delete_vertex_arrays(&[self.id]);
@@ -948,7 +849,9 @@ impl Device {
         debug!("compile {:?}", path);
 
         let mut f = File::open(&path).unwrap();
-        let mut s = shader_preamble.to_owned();
+        let mut s = String::new();
+        s.push_str(SHADER_VERSION);
+        s.push_str(shader_preamble);
         f.read_to_string(&mut s).unwrap();
 
         let id = gl::create_shader(shader_type);
@@ -1176,7 +1079,13 @@ impl Device {
         }
 
         let (internal_format, gl_format) = match format {
-            ImageFormat::A8 => (GL_FORMAT_A, GL_FORMAT_A),
+            ImageFormat::A8 => {
+                if cfg!(target_os="android") {
+                    (GL_FORMAT_BGRA, GL_FORMAT_BGRA)
+                } else {
+                    (GL_FORMAT_A, GL_FORMAT_A)
+                }
+            },
             ImageFormat::RGB8 => (gl::RGB, gl::RGB),
             ImageFormat::RGBA8 => {
                 if cfg!(target_os="android") {
@@ -1554,14 +1463,28 @@ impl Device {
                           data: &[u8]) {
         debug_assert!(self.inside_frame);
 
-        let (gl_format, bpp) = match self.textures.get(&texture_id).unwrap().format {
-            ImageFormat::A8 => (GL_FORMAT_A, 1),
-            ImageFormat::RGB8 => (gl::RGB, 3),
-            ImageFormat::RGBA8 => (GL_FORMAT_BGRA, 4),
+        let mut expanded_data = Vec::new();
+
+        let (gl_format, bpp, data) = match self.textures.get(&texture_id).unwrap().format {
+            ImageFormat::A8 => {
+                if cfg!(target_os="android") {
+                    for byte in data {
+                        expanded_data.push(*byte);
+                        expanded_data.push(*byte);
+                        expanded_data.push(*byte);
+                        expanded_data.push(*byte);
+                    }
+                    (GL_FORMAT_BGRA, 4, expanded_data.as_slice())
+                } else {
+                    (GL_FORMAT_A, 1, data)
+                }
+            }
+            ImageFormat::RGB8 => (gl::RGB, 3, data),
+            ImageFormat::RGBA8 => (GL_FORMAT_BGRA, 4, data),
             ImageFormat::Invalid => unreachable!(),
         };
 
-        debug_assert!(data.len() as u32 == bpp * width * height);
+        assert!(data.len() as u32 == bpp * width * height);
 
         self.bind_color_texture(texture_id);
         self.update_image_for_2d_texture(x0 as gl::GLint,
@@ -1591,33 +1514,11 @@ impl Device {
                                   height as gl::GLint);
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     fn clear_vertex_array(&mut self) {
         debug_assert!(self.inside_frame);
         gl::bind_vertex_array(0);
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
-    fn clear_vertex_array(&mut self) {
-        debug_assert!(self.inside_frame);
-        gl::disable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::ColorRectTL as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::ColorRectTR as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::ColorRectBR as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::ColorRectBL as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::ColorTexCoordRectTop as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::ColorTexCoordRectBottom as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::MaskTexCoordRectTop as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::MaskTexCoordRectBottom as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::BorderRadii as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::BorderPosition as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::BlurRadius as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::DestTextureSize as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::SourceTextureSize as gl::GLuint);
-        gl::disable_vertex_attrib_array(VertexAttribute::Misc as gl::GLuint);
-    }
-
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     pub fn bind_vao(&mut self, vao_id: VAOId) {
         debug_assert!(self.inside_frame);
 
@@ -1629,75 +1530,6 @@ impl Device {
         }
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
-    pub fn bind_vao(&mut self, vao_id: VAOId) {
-        debug_assert!(self.inside_frame);
-
-        if self.bound_vao != vao_id {
-            if let Some(prev_vao) = self.vaos.get(&self.bound_vao) {
-                prev_vao.vertex_format.unbind();
-            }
-
-            let vao = self.vaos.get(&vao_id).unwrap();
-            self.bound_vao = vao_id;
-
-            vao.ibo_id.bind();
-            vao.vertex_format.bind(vao.main_vbo_id, vao.aux_vbo_id, 0);
-        }
-    }
-
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
-    fn create_vao_with_vbos(&mut self,
-                            format: VertexFormat,
-                            main_vbo_id: VBOId,
-                            aux_vbo_id: Option<VBOId>,
-                            ibo_id: IBOId,
-                            _: u32,
-                            owns_vbos: bool)
-                            -> VAOId {
-        debug_assert!(self.inside_frame);
-
-        let vao_id = self.next_vao_id;
-        self.next_vao_id += 1;
-
-        format.bind(main_vbo_id, aux_vbo_id, 0);
-
-        let vao = VAO {
-            id: vao_id,
-            vertex_format: format,
-            main_vbo_id: main_vbo_id,
-            aux_vbo_id: aux_vbo_id,
-            ibo_id: ibo_id,
-            owns_vbos: owns_vbos,
-        };
-
-        let vao_id = VAOId(vao_id);
-
-        debug_assert!(!self.vaos.contains_key(&vao_id));
-        self.vaos.insert(vao_id, vao);
-
-        vao_id
-    }
-
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
-    pub fn create_vao(&mut self, format: VertexFormat, quad_vertex_buffer: Option<VBOId>)
-                      -> VAOId {
-        debug_assert!(self.inside_frame);
-
-        let buffer_ids = gl::gen_buffers(2);
-        let ibo_id = IBOId(buffer_ids[0]);
-        let (main_vbo_id, aux_vbo_id) = if format == VertexFormat::Rectangles {
-            (quad_vertex_buffer.expect("A quad vertex buffer must be supplied to `create_vao()` if
-                                        we are to render rectangles!"),
-             Some(VBOId(buffer_ids[1])))
-        } else {
-            (VBOId(buffer_ids[1]), None)
-        };
-
-        self.create_vao_with_vbos(format, main_vbo_id, aux_vbo_id, ibo_id, 0, true)
-    }
-
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     fn create_vao_with_vbos(&mut self,
                             format: VertexFormat,
                             main_vbo_id: VBOId,
@@ -1734,7 +1566,6 @@ impl Device {
         vao_id
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     pub fn create_vao(&mut self, format: VertexFormat, quad_vertex_buffer: Option<VBOId>)
                       -> VAOId {
         debug_assert!(self.inside_frame);
@@ -1767,17 +1598,6 @@ impl Device {
         self.create_vao_with_vbos(format, main_vbo_id, aux_vbo_id, ibo_id, offset, false)
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
-    pub fn create_quad_vertex_buffer(&mut self) -> VBOId {
-        let buffer_id = VBOId(gl::gen_buffers(1)[0]);
-        buffer_id.bind();
-        let mut buffer: Vec<_> =
-            (0..0x10000).flat_map(|_| QUAD_VERTICES.iter().cloned()).collect();
-        gl::buffer_data(gl::ARRAY_BUFFER, &buffer[..], gl::STATIC_DRAW);
-        buffer_id
-    }
-
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     pub fn create_quad_vertex_buffer(&mut self) -> VBOId {
         let buffer_id = VBOId(gl::gen_buffers(1)[0]);
         buffer_id.bind();
@@ -1847,16 +1667,6 @@ impl Device {
                           vertex_count);
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
-    pub fn draw_triangles_instanced_u16(&mut self,
-                                        first_vertex: i32,
-                                        index_count: i32,
-                                        instance_count: i32) {
-        debug_assert!(self.inside_frame);
-        gl::draw_arrays(gl::TRIANGLES, first_vertex * index_count, instance_count * index_count);
-    }
-
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
     pub fn draw_triangles_instanced_u16(&mut self,
                                         first_vertex: i32,
                                         index_count: i32,
