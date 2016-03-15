@@ -643,7 +643,7 @@ impl Frame {
         self.layers.get(&scroll_layer_id).and_then(|layer| {
             let transform = parent_transform.mul(&layer.local_transform);
 
-            for child_layer_id in &layer.children {
+            for child_layer_id in layer.children.iter().rev() {
                 if let Some(layer_id) = self.get_scroll_layer(cursor,
                                                               *child_layer_id,
                                                               &transform) {
