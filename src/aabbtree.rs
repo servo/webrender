@@ -222,7 +222,7 @@ impl AABBTree {
             //           include transformed elements, however this isn't currently
             //           handled by the layout code! If it's not that, this is an
             //           unexpected condition and should be investigated!
-            println!("WARNING: insert rect {:?} outside bounds, dropped.", rect);
+            debug!("WARNING: insert rect {:?} outside bounds, dropped.", rect);
         } else {
             for node_index in self.work_node_indices.drain(..) {
                 let NodeIndex(node_index) = node_index;
