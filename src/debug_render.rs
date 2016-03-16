@@ -168,7 +168,8 @@ impl DebugRenderer {
             gl::disable(gl::DEPTH_TEST);
             gl::enable(gl::BLEND);
             gl::blend_equation(gl::FUNC_ADD);
-            gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+            gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
+                                    gl::ONE, gl::ONE);
 
             let projection = Matrix4::ortho(0.0,
                                             viewport_size.width as f32,

@@ -1204,7 +1204,8 @@ impl Renderer {
                         gl::disable(gl::BLEND);
                     } else {
                         gl::enable(gl::BLEND);
-                        gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+                        gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
+                                                gl::ONE, gl::ONE);
                         gl::blend_equation(gl::FUNC_ADD);
                     }
 
@@ -1417,8 +1418,8 @@ impl Renderer {
                                 program = self.blit_program_id;
                             }
                             CompositionOp::Filter(LowLevelFilterOp::Opacity(amount)) => {
-                                gl::blend_func(gl::SRC_ALPHA,
-                                               gl::ONE_MINUS_SRC_ALPHA);
+                                gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
+                                                        gl::ONE, gl::ONE);
                                 gl::blend_equation(gl::FUNC_ADD);
                                 alpha = amount.to_f32_px();
                                 program = self.blit_program_id;
@@ -1430,7 +1431,10 @@ impl Renderer {
                                 let (opcode, amount, param0, param1) = match filter_op {
                                     LowLevelFilterOp::Blur(radius,
                                                            AxisDirection::Horizontal) => {
-                                        gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+                                        gl::blend_func_separate(gl::SRC_ALPHA,
+                                                                gl::ONE_MINUS_SRC_ALPHA,
+                                                                gl::ONE,
+                                                                gl::ONE);
                                         (0.0,
                                          radius.to_f32_px() * self.device_pixel_ratio,
                                          1.0,
@@ -1438,7 +1442,10 @@ impl Renderer {
                                     }
                                     LowLevelFilterOp::Blur(radius,
                                                            AxisDirection::Vertical) => {
-                                        gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+                                        gl::blend_func_separate(gl::SRC_ALPHA,
+                                                                gl::ONE_MINUS_SRC_ALPHA,
+                                                                gl::ONE,
+                                                                gl::ONE);
                                         (0.0,
                                          radius.to_f32_px() * self.device_pixel_ratio,
                                          0.0,
