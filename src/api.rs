@@ -2,9 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use display_list::{AuxiliaryLists, BuiltDisplayList};
+use display_list::{AuxiliaryLists, AuxiliaryListsDescriptor, BuiltDisplayList};
+use display_list::{BuiltDisplayListDescriptor};
 use euclid::{Point2D, Size2D};
-use ipc_channel::ipc::{self, IpcSender};
+use ipc_channel::ipc::{self, IpcBytesSender, IpcSender};
 use stacking_context::StackingContext;
 use std::cell::Cell;
 use types::{ColorF, DisplayListId, Epoch, FontKey, StackingContextId};
@@ -35,15 +36,23 @@ pub enum ApiMsg {
     AddNativeFont(FontKey, NativeFontHandle),
     AddImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
     UpdateImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
-    AddDisplayList(DisplayListId, PipelineId, Epoch, BuiltDisplayList),
-    AddStackingContext(StackingContextId, PipelineId, Epoch, StackingContext),
     CloneApi(IpcSender<IdNamespace>),
+    /// Supplies a new frame to WebRender.
+    ///
+    /// The first `StackingContextId` describes the root stacking context. The actual stacking
+    /// contexts are supplied as the sixth parameter, while the display lists that make up those
+    /// stacking contexts are supplied as the seventh parameter.
+    ///
+    /// After receiving this message, WebRender will read the display lists, followed by the
+    /// auxiliary lists, from the payload channel.
     SetRootStackingContext(StackingContextId,
                            ColorF,
                            Epoch,
                            PipelineId,
                            Size2D<f32>,
-                           AuxiliaryLists),
+                           Vec<(StackingContextId, StackingContext)>,
+                           Vec<(DisplayListId, BuiltDisplayListDescriptor)>,
+                           AuxiliaryListsDescriptor),
     SetRootPipeline(PipelineId),
     Scroll(Point2D<f32>, Point2D<f32>, ScrollEventPhase),
     TickScrollingBounce,
@@ -53,20 +62,30 @@ pub enum ApiMsg {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct RenderApiSender(IpcSender<ApiMsg>);
+pub struct RenderApiSender {
+    api_sender: IpcSender<ApiMsg>,
+    payload_sender: IpcBytesSender,
+}
 
 impl RenderApiSender {
-    pub fn new(tx: IpcSender<ApiMsg>) -> RenderApiSender {
-        RenderApiSender(tx)
+    pub fn new(api_sender: IpcSender<ApiMsg>, payload_sender: IpcBytesSender) -> RenderApiSender {
+        RenderApiSender {
+            api_sender: api_sender,
+            payload_sender: payload_sender,
+        }
     }
 
     pub fn create_api(&self) -> RenderApi {
-        let RenderApiSender(ref tx) = *self;
+        let RenderApiSender {
+            ref api_sender,
+            ref payload_sender
+        } = *self;
         let (sync_tx, sync_rx) = ipc::channel().unwrap();
         let msg = ApiMsg::CloneApi(sync_tx);
-        tx.send(msg).unwrap();
+        api_sender.send(msg).unwrap();
         RenderApi {
-            tx: tx.clone(),
+            api_sender: api_sender.clone(),
+            payload_sender: payload_sender.clone(),
             id_namespace: sync_rx.recv().unwrap(),
             next_id: Cell::new(ResourceId(0)),
         }
@@ -74,21 +93,22 @@ impl RenderApiSender {
 }
 
 pub struct RenderApi {
-    pub tx: IpcSender<ApiMsg>,
+    pub api_sender: IpcSender<ApiMsg>,
+    pub payload_sender: IpcBytesSender,
     pub id_namespace: IdNamespace,
     pub next_id: Cell<ResourceId>,
 }
 
 impl RenderApi {
     pub fn clone_sender(&self) -> RenderApiSender {
-        RenderApiSender::new(self.tx.clone())
+        RenderApiSender::new(self.api_sender.clone(), self.payload_sender.clone())
     }
 
     pub fn add_raw_font(&self, bytes: Vec<u8>) -> FontKey {
         let new_id = self.next_unique_id();
         let key = FontKey::new(new_id.0, new_id.1);
         let msg = ApiMsg::AddRawFont(key, bytes);
-        self.tx.send(msg).unwrap();
+        self.api_sender.send(msg).unwrap();
         key
     }
 
@@ -96,7 +116,7 @@ impl RenderApi {
         let new_id = self.next_unique_id();
         let key = FontKey::new(new_id.0, new_id.1);
         let msg = ApiMsg::AddNativeFont(key, native_font_handle);
-        self.tx.send(msg).unwrap();
+        self.api_sender.send(msg).unwrap();
         key
     }
 
@@ -113,7 +133,7 @@ impl RenderApi {
         let new_id = self.next_unique_id();
         let key = ImageKey::new(new_id.0, new_id.1);
         let msg = ApiMsg::AddImage(key, width, height, format, bytes);
-        self.tx.send(msg).unwrap();
+        self.api_sender.send(msg).unwrap();
         key
     }
 
@@ -125,87 +145,98 @@ impl RenderApi {
                         format: ImageFormat,
                         bytes: Vec<u8>) {
         let msg = ApiMsg::UpdateImage(key, width, height, format, bytes);
-        self.tx.send(msg).unwrap();
-    }
-
-    pub fn add_display_list(&self,
-                            display_list: BuiltDisplayList,
-                            stacking_context: &mut StackingContext,
-                            pipeline_id: PipelineId,
-                            epoch: Epoch) -> Option<DisplayListId> {
-        //TODO! debug_assert!(display_list.item_count() > 0, "Avoid adding empty lists!");
-        let new_id = self.next_unique_id();
-        let id = DisplayListId(new_id.0, new_id.1);
-        stacking_context.has_stacking_contexts = stacking_context.has_stacking_contexts ||
-                                                 display_list.has_stacking_contexts;
-        let msg = ApiMsg::AddDisplayList(id, pipeline_id, epoch, display_list);
-        self.tx.send(msg).unwrap();
-        stacking_context.display_lists.push(id);
-
-        Some(id)
-    }
-
-    pub fn add_stacking_context(&self,
-                                stacking_context: StackingContext,
-                                pipeline_id: PipelineId,
-                                epoch: Epoch) -> StackingContextId {
-        let new_id = self.next_unique_id();
-        let id = StackingContextId(new_id.0, new_id.1);
-        let msg = ApiMsg::AddStackingContext(id, pipeline_id, epoch, stacking_context);
-        self.tx.send(msg).unwrap();
-        id
+        self.api_sender.send(msg).unwrap();
     }
 
     pub fn set_root_pipeline(&self, pipeline_id: PipelineId) {
         let msg = ApiMsg::SetRootPipeline(pipeline_id);
-        self.tx.send(msg).unwrap();
+        self.api_sender.send(msg).unwrap();
     }
 
+    /// Supplies a new frame to WebRender.
+    ///
+    /// Arguments:
+    /// * `stacking_context_id`: The ID of the root stacking context.
+    /// * `background_color`: The background color of this pipeline.
+    /// * `epoch`: A monotonically increasing timestamp.
+    /// * `pipeline_id`: The ID of the pipeline that is supplying this display list.
+    /// * `viewport_size`: The size of the viewport for this frame.
+    /// * `stacking_contexts`: Stacking contexts used in this frame.
+    /// * `display_lists`: Display lists used in this frame.
+    /// * `auxiliary_lists`: Various items that the display lists and stacking contexts reference.
     pub fn set_root_stacking_context(&self,
                                      stacking_context_id: StackingContextId,
                                      background_color: ColorF,
                                      epoch: Epoch,
                                      pipeline_id: PipelineId,
                                      viewport_size: Size2D<f32>,
+                                     stacking_contexts: Vec<(StackingContextId, StackingContext)>,
+                                     display_lists: Vec<(DisplayListId, BuiltDisplayList)>,
                                      auxiliary_lists: AuxiliaryLists) {
+        let display_list_descriptors = display_lists.iter().map(|&(display_list_id,
+                                                                   ref built_display_list)| {
+            (display_list_id, (*built_display_list.descriptor()).clone())
+        }).collect();
         let msg = ApiMsg::SetRootStackingContext(stacking_context_id,
                                                  background_color,
                                                  epoch,
                                                  pipeline_id,
                                                  viewport_size,
-                                                 auxiliary_lists);
-        self.tx.send(msg).unwrap();
+                                                 stacking_contexts,
+                                                 display_list_descriptors,
+                                                 *auxiliary_lists.descriptor());
+        self.api_sender.send(msg).unwrap();
+
+        for &(_, ref built_display_list) in &display_lists {
+            self.payload_sender.send(built_display_list.data()).unwrap();
+        }
+
+        self.payload_sender.send(auxiliary_lists.data()).unwrap();
     }
 
     pub fn scroll(&self, delta: Point2D<f32>, cursor: Point2D<f32>, phase: ScrollEventPhase) {
         let msg = ApiMsg::Scroll(delta, cursor, phase);
-        self.tx.send(msg).unwrap();
+        self.api_sender.send(msg).unwrap();
     }
 
     pub fn tick_scrolling_bounce_animations(&self) {
         let msg = ApiMsg::TickScrollingBounce;
-        self.tx.send(msg).unwrap();
+        self.api_sender.send(msg).unwrap();
     }
 
     pub fn translate_point_to_layer_space(&self, point: &Point2D<f32>) -> Point2D<f32> {
         let (tx, rx) = ipc::channel().unwrap();
         let msg = ApiMsg::TranslatePointToLayerSpace(*point, tx);
-        self.tx.send(msg).unwrap();
+        self.api_sender.send(msg).unwrap();
         rx.recv().unwrap()
     }
 
-    pub fn request_webgl_context(&self, size: &Size2D<i32>, attributes: GLContextAttributes) -> Result<WebGLContextId, String> {
+    pub fn request_webgl_context(&self, size: &Size2D<i32>, attributes: GLContextAttributes)
+                                 -> Result<WebGLContextId, String> {
         let (tx, rx) = ipc::channel().unwrap();
         let msg = ApiMsg::RequestWebGLContext(*size, attributes, tx);
-        self.tx.send(msg).unwrap();
+        self.api_sender.send(msg).unwrap();
         rx.recv().unwrap()
     }
 
     pub fn send_webgl_command(&self, context_id: WebGLContextId, command: WebGLCommand) {
         let msg = ApiMsg::WebGLCommand(context_id, command);
-        self.tx.send(msg).unwrap();
+        self.api_sender.send(msg).unwrap();
     }
 
+    #[inline]
+    pub fn next_stacking_context_id(&self) -> StackingContextId {
+        let new_id = self.next_unique_id();
+        StackingContextId(new_id.0, new_id.1)
+    }
+
+    #[inline]
+    pub fn next_display_list_id(&self) -> DisplayListId {
+        let new_id = self.next_unique_id();
+        DisplayListId(new_id.0, new_id.1)
+    }
+
+    #[inline]
     fn next_unique_id(&self) -> (u32, u32) {
         let IdNamespace(namespace) = self.id_namespace;
         let ResourceId(id) = self.next_id.get();
