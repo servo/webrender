@@ -168,6 +168,7 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(options: RendererOptions) -> (Renderer, RenderApiSender) {
         let (api_tx, api_rx) = ipc::channel().unwrap();
+        let (payload_tx, payload_rx) = ipc::bytes_channel().unwrap();
         let (result_tx, result_rx) = channel();
 
         let notifier = Arc::new(Mutex::new(None));
@@ -260,6 +261,7 @@ impl Renderer {
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
         thread::spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
+                                                 payload_rx,
                                                  result_tx,
                                                  device_pixel_ratio,
                                                  white_image_id,
@@ -318,8 +320,7 @@ impl Renderer {
 
         renderer.update_uniform_locations();
 
-        let sender = RenderApiSender::new(api_tx);
-
+        let sender = RenderApiSender::new(api_tx, payload_tx);
         (renderer, sender)
     }
 

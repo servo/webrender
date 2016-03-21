@@ -4,7 +4,7 @@
 
 use frame::Frame;
 use internal_types::{FontTemplate, ResultMsg, RendererFrame};
-use ipc_channel::ipc::IpcReceiver;
+use ipc_channel::ipc::{IpcBytesReceiver, IpcReceiver};
 use profiler::BackendProfileCounters;
 use resource_cache::ResourceCache;
 use scene::Scene;
@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::{TextureCache, TextureCacheItemId};
-use webrender_traits::{ApiMsg, IdNamespace, RenderNotifier};
+use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, RenderNotifier};
 use webrender_traits::{WebGLContextId, ScrollLayerId};
 use batch::new_id;
 use device::TextureId;
@@ -21,6 +21,7 @@ use offscreen_gl_context::{NativeGLContext, GLContext, ColorAttachmentType, Nati
 
 pub struct RenderBackend {
     api_rx: IpcReceiver<ApiMsg>,
+    payload_rx: IpcBytesReceiver,
     result_tx: Sender<ResultMsg>,
 
     device_pixel_ratio: f32,
@@ -40,6 +41,7 @@ pub struct RenderBackend {
 
 impl RenderBackend {
     pub fn new(api_rx: IpcReceiver<ApiMsg>,
+               payload_rx: IpcBytesReceiver,
                result_tx: Sender<ResultMsg>,
                device_pixel_ratio: f32,
                white_image_id: TextureCacheItemId,
@@ -60,6 +62,7 @@ impl RenderBackend {
         RenderBackend {
             thread_pool: thread_pool,
             api_rx: api_rx,
+            payload_rx: payload_rx,
             result_tx: result_tx,
             device_pixel_ratio: device_pixel_ratio,
             resource_cache: resource_cache,
@@ -105,19 +108,6 @@ impl RenderBackend {
                                                                       format,
                                                                       bytes);
                         }
-                        ApiMsg::AddDisplayList(id, pipeline_id, epoch, built_display_list) => {
-                            self.scene.add_display_list(id,
-                                                        pipeline_id,
-                                                        epoch,
-                                                        built_display_list,
-                                                        &mut self.resource_cache);
-                        }
-                        ApiMsg::AddStackingContext(id, pipeline_id, epoch, stacking_context) => {
-                            self.scene.add_stacking_context(id,
-                                                            pipeline_id,
-                                                            epoch,
-                                                            stacking_context);
-                        }
                         ApiMsg::CloneApi(sender) => {
                             let result = self.next_namespace_id;
 
@@ -131,7 +121,33 @@ impl RenderBackend {
                                                        epoch,
                                                        pipeline_id,
                                                        viewport_size,
-                                                       auxiliary_lists) => {
+                                                       stacking_contexts,
+                                                       display_lists,
+                                                       auxiliary_lists_descriptor) => {
+                            for (id, stacking_context) in stacking_contexts.into_iter() {
+                                self.scene.add_stacking_context(id,
+                                                                pipeline_id,
+                                                                epoch,
+                                                                stacking_context);
+                            }
+
+                            for (display_list_id,
+                                 display_list_descriptor) in display_lists.into_iter() {
+                                let built_display_list_data = self.payload_rx.recv().unwrap();
+                                let built_display_list =
+                                    BuiltDisplayList::from_data(built_display_list_data,
+                                                                display_list_descriptor);
+                                self.scene.add_display_list(display_list_id,
+                                                            pipeline_id,
+                                                            epoch,
+                                                            built_display_list,
+                                                            &mut self.resource_cache);
+                            }
+
+                            let auxiliary_lists_data = self.payload_rx.recv().unwrap();
+                            let auxiliary_lists =
+                                AuxiliaryLists::from_data(auxiliary_lists_data,
+                                                          auxiliary_lists_descriptor);
                             let frame = profile_counters.total_time.profile(|| {
                                 self.scene.set_root_stacking_context(pipeline_id,
                                                                      epoch,
