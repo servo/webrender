@@ -4,7 +4,7 @@ os:
   - osx
 rust:
   - nightly
-  - nightly-2016-03-07 # Should be kept in sync with Servo.
+  - nightly-2016-03-18 # Should be kept in sync with Servo.
 matrix:
   allow_failures:
     - rust: nightly
