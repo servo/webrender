@@ -34,28 +34,16 @@ mod util;
 mod platform {
     #[cfg(target_os="macos")]
     pub use platform::macos::font;
-    #[cfg(any(target_os="linux", target_os="android"))]
+    #[cfg(any(target_os="linux", target_os="android", target_os = "windows"))]
     pub use platform::linux::font;
 
     #[cfg(target_os="macos")]
     pub mod macos {
         pub mod font;
     }
-    #[cfg(any(target_os="linux", target_os="android"))]
+    #[cfg(any(target_os="linux", target_os="android", target_os = "windows"))]
     pub mod linux {
         pub mod font;
-    }
-    // Temporary solution to pass building on Windows
-    #[cfg(target_os = "windows")]
-    pub mod font {
-        pub struct FontContext;
-        impl FontContext {
-            pub fn new() -> FontContext {
-                FontContext
-            }
-        }
-        pub struct RasterizedGlyph;
-        impl RasterizedGlyph {}
     }
 }
 
