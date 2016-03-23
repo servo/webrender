@@ -426,7 +426,7 @@ impl WebGLCommand {
             gl::VENDOR => Ok(WebGLParameter::String("Mozilla/Servo".to_owned())),
             gl::SHADING_LANGUAGE_VERSION => Ok(WebGLParameter::String("WebGL GLSL ES 1.0".to_owned())),
 
-            // TODO(zbarsky, ecoal95): Implement support for the following valid parameters
+            // TODO(zbarsky, emilio): Implement support for the following valid parameters
             // Float32Array
             gl::ALIASED_LINE_WIDTH_RANGE |
             //gl::ALIASED_POINT_SIZE_RANGE |
