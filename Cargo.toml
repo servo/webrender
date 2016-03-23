@@ -27,14 +27,12 @@ git = "https://github.com/servo/ipc-channel"
 [dependencies.webrender_traits]
 git = "https://github.com/servo/webrender_traits"
 
-[dependencies.offscreen_gl_context]
-git = "https://github.com/ecoal95/rust-offscreen-rendering-context"
-
 #[dependencies.notify]
 #git = "https://github.com/glennw/rsnotify.git"
 #branch = "inotify-modify"
 
 [dependencies]
+offscreen_gl_context = {version = "0.1.1", features = ["serde_serialization"]}
 gleam = "0.2"
 euclid = {version = "0.6.2", features = ["plugins"]}
 num = {version = "0.1.31", default-features = false}
