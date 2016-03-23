@@ -3,13 +3,11 @@ name = "webrender_traits"
 version = "0.1.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 
-[dependencies.offscreen_gl_context]
-git = "https://github.com/ecoal95/rust-offscreen-rendering-context"
-
 [dependencies.ipc-channel]
 git = "https://github.com/servo/ipc-channel"
 
 [dependencies]
+offscreen_gl_context = {version = "0.1.1", features = ["serde_serialization"]}
 app_units = {version = "0.2.1", features = ["plugins"]}
 euclid = {version = "0.6.2", features = ["plugins"]}
 gleam = "0.2"
