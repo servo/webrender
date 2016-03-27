@@ -11,7 +11,7 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct WebGLContextId(pub usize);
 
-#[derive(Clone, Copy, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 pub enum WebGLError {
     InvalidEnum,
     InvalidOperation,
@@ -22,13 +22,13 @@ pub enum WebGLError {
 
 pub type WebGLResult<T> = Result<T, WebGLError>;
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum WebGLFramebufferBindingRequest {
     Explicit(u32),
     Default,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum WebGLParameter {
     Int(i32),
     Bool(bool),
@@ -37,7 +37,7 @@ pub enum WebGLParameter {
     Invalid,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum WebGLShaderParameter {
     Int(i32),
     Bool(bool),
