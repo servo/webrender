@@ -113,6 +113,7 @@ pub enum WebGLCommand {
     DrawingBufferWidth(IpcSender<i32>),
     DrawingBufferHeight(IpcSender<i32>),
     Finish(IpcSender<()>),
+    Flush,
 }
 
 impl fmt::Debug for WebGLCommand {
@@ -186,6 +187,7 @@ impl fmt::Debug for WebGLCommand {
             DrawingBufferWidth(..) => "DrawingBufferWidth",
             DrawingBufferHeight(..) => "DrawingBufferHeight",
             Finish(..) => "Finish",
+            Flush => "Flush",
         };
 
         write!(f, "CanvasWebGLMsg::{}(..)", name)
@@ -330,6 +332,8 @@ impl WebGLCommand {
                 sender.send(ctx.borrow_draw_buffer().unwrap().size().height).unwrap(),
             WebGLCommand::Finish(sender) =>
                 { gl::finish(); sender.send(()).unwrap(); },
+            WebGLCommand::Flush =>
+                gl::flush(),
         }
 
         // FIXME: Use debug_assertions once tests are run with them
