@@ -321,7 +321,7 @@ impl WebGLCommand {
             WebGLCommand::VertexAttrib(attrib_id, x, y, z, w) =>
                 gl::vertex_attrib_4f(attrib_id, x, y, z, w),
             WebGLCommand::VertexAttribPointer2f(attrib_id, size, normalized, stride, offset) =>
-                gl::vertex_attrib_pointer_f32(attrib_id, size, normalized, stride, offset as u32),
+                gl::vertex_attrib_pointer_f32(attrib_id, size, normalized, stride, offset),
             WebGLCommand::Viewport(x, y, width, height) =>
                 gl::viewport(x, y, width, height),
             WebGLCommand::TexImage2D(target, level, internal, width, height, format, data_type, data) =>
