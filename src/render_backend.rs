@@ -217,12 +217,14 @@ impl RenderBackend {
                                             (draw_buffer.size(), draw_buffer.get_bound_texture_id().unwrap())
                                         };
 
+                                        let limits = ctx.borrow_limits().clone();
+
                                         self.webgl_contexts.insert(id, ctx);
 
                                         self.resource_cache
                                             .add_webgl_texture(id, TextureId(texture_id), real_size);
 
-                                        tx.send(Ok(id)).unwrap();
+                                        tx.send(Ok((id, limits))).unwrap();
                                     },
                                     Err(msg) => {
                                         tx.send(Err(msg.to_owned())).unwrap();
