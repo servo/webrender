@@ -11,7 +11,7 @@ use std::cell::Cell;
 use types::{ColorF, DisplayListId, Epoch, FontKey, StackingContextId};
 use types::{ImageKey, ImageFormat, NativeFontHandle, PipelineId};
 use webgl::{WebGLContextId, WebGLCommand};
-use offscreen_gl_context::GLContextAttributes;
+use offscreen_gl_context::{GLContextAttributes, GLLimits};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct IdNamespace(pub u32);
@@ -57,7 +57,7 @@ pub enum ApiMsg {
     Scroll(Point2D<f32>, Point2D<f32>, ScrollEventPhase),
     TickScrollingBounce,
     TranslatePointToLayerSpace(Point2D<f32>, IpcSender<Point2D<f32>>),
-    RequestWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<WebGLContextId, String>>),
+    RequestWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<(WebGLContextId, GLLimits), String>>),
     WebGLCommand(WebGLContextId, WebGLCommand),
 }
 
@@ -212,7 +212,7 @@ impl RenderApi {
     }
 
     pub fn request_webgl_context(&self, size: &Size2D<i32>, attributes: GLContextAttributes)
-                                 -> Result<WebGLContextId, String> {
+                                 -> Result<(WebGLContextId, GLLimits), String> {
         let (tx, rx) = ipc::channel().unwrap();
         let msg = ApiMsg::RequestWebGLContext(*size, attributes, tx);
         self.api_sender.send(msg).unwrap();
