@@ -54,6 +54,7 @@ pub enum WebGLCommand {
     BlendFunc(u32, u32),
     BlendFuncSeparate(u32, u32, u32, u32),
     AttachShader(u32, u32),
+    DetachShader(u32, u32),
     BindAttribLocation(u32, u32, String),
     BufferData(u32, Vec<u8>, u32),
     BufferSubData(u32, isize, Vec<u8>),
@@ -128,6 +129,7 @@ impl fmt::Debug for WebGLCommand {
             BlendFunc(..) => "BlendFunc",
             BlendFuncSeparate(..) => "BlendFuncSeparate",
             AttachShader(..) => "AttachShader",
+            DetachShader(..) => "DetachShader",
             BindAttribLocation(..) => "BindAttribLocation",
             BufferData(..) => "BufferData",
             BufferSubData(..) => "BufferSubData",
@@ -204,6 +206,8 @@ impl WebGLCommand {
                 gl::active_texture(target),
             WebGLCommand::AttachShader(program_id, shader_id) =>
                 gl::attach_shader(program_id, shader_id),
+            WebGLCommand::DetachShader(program_id, shader_id) =>
+                gl::detach_shader(program_id, shader_id),
             WebGLCommand::BindAttribLocation(program_id, index, name) =>
                 gl::bind_attrib_location(program_id, index, &name),
             WebGLCommand::BlendColor(r, g, b, a) =>
@@ -331,7 +335,7 @@ impl WebGLCommand {
             WebGLCommand::DrawingBufferHeight(sender) =>
                 sender.send(ctx.borrow_draw_buffer().unwrap().size().height).unwrap(),
             WebGLCommand::Finish(sender) =>
-                { gl::finish(); sender.send(()).unwrap(); },
+                Self::finish(sender),
             WebGLCommand::Flush =>
                 gl::flush(),
         }
@@ -475,6 +479,11 @@ impl WebGLCommand {
         };
 
         chan.send(result).unwrap();
+    }
+
+    fn finish(chan: IpcSender<()>) {
+        gl::finish();
+        chan.send(()).unwrap();
     }
 
     fn buffer_parameter(target: u32,
