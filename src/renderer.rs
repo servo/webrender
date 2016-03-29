@@ -1138,8 +1138,8 @@ impl Renderer {
         self.device.bind_render_target(layer.texture_id);
 
         // TODO(gw): This may not be needed in all cases...
-        let layer_origin = Point2D::new((layer.origin.x * self.device_pixel_ratio).round() as u32,
-                                        (layer.origin.y * self.device_pixel_ratio).round() as u32);
+        let layer_origin = Point2D::new((layer.origin.x * self.device_pixel_ratio).round() as gl::GLint,
+                                        (layer.origin.y * self.device_pixel_ratio).round() as gl::GLint);
 
         let layer_size = Size2D::new((layer.size.width * self.device_pixel_ratio).round() as u32,
                                      (layer.size.height * self.device_pixel_ratio).round() as u32);
@@ -1149,21 +1149,21 @@ impl Renderer {
                 layer_origin
             }
             None => {
-                let inverted_y0 = render_context.framebuffer_size.height -
-                                  layer_size.height -
+                let inverted_y0 = render_context.framebuffer_size.height as gl::GLint -
+                                  layer_size.height as gl::GLint -
                                   layer_origin.y;
 
                 Point2D::new(layer_origin.x, inverted_y0)
             }
         };
 
-        gl::scissor(layer_origin.x as gl::GLint,
-                    layer_origin.y as gl::GLint,
+        gl::scissor(layer_origin.x,
+                    layer_origin.y,
                     layer_size.width as gl::GLint,
                     layer_size.height as gl::GLint);
 
-        gl::viewport(layer_origin.x as gl::GLint,
-                     layer_origin.y as gl::GLint,
+        gl::viewport(layer_origin.x,
+                     layer_origin.y,
                      layer_size.width as gl::GLint,
                      layer_size.height as gl::GLint);
         let clear_color = if layer.texture_id.is_some() {
