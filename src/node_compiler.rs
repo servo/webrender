@@ -65,7 +65,14 @@ impl NodeCompiler for AABBTreeNode {
                     let StackingContextIndex(stacking_context_id) = draw_list.stacking_context_index.unwrap();
                     let context = &stacking_context_info[stacking_context_id];
 
-                    builder.set_current_clip_rect_offset(context.offset_from_layer);
+                    // FIXME(pcwalton): This is a not-great partial solution to servo/servo#10164.
+                    // A better solution would be to do this only if the transform consists of a
+                    // translation+scale only and fall back to stenciling if the object has a more
+                    // complex transform.
+                    let offset_from_layer = context.transform
+                                                   .invert()
+                                                   .transform_point(&context.offset_from_layer);
+                    builder.set_current_clip_rect_offset(offset_from_layer);
 
                     for index in &draw_list_index_buffer.indices {
                         let DrawListItemIndex(index) = *index;
