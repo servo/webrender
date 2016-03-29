@@ -115,6 +115,7 @@ pub enum WebGLCommand {
     DrawingBufferHeight(IpcSender<i32>),
     Finish(IpcSender<()>),
     Flush,
+    GenerateMipmap(u32),
 }
 
 impl fmt::Debug for WebGLCommand {
@@ -190,6 +191,7 @@ impl fmt::Debug for WebGLCommand {
             DrawingBufferHeight(..) => "DrawingBufferHeight",
             Finish(..) => "Finish",
             Flush => "Flush",
+            GenerateMipmap(..) => "GenerateMipmap",
         };
 
         write!(f, "CanvasWebGLMsg::{}(..)", name)
@@ -338,6 +340,8 @@ impl WebGLCommand {
                 Self::finish(sender),
             WebGLCommand::Flush =>
                 gl::flush(),
+            WebGLCommand::GenerateMipmap(target) =>
+                gl::generate_mipmap(target),
         }
 
         // FIXME: Use debug_assertions once tests are run with them
