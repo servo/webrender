@@ -579,16 +579,16 @@ impl TextureCacheArena {
         }
     }
 
-    fn texture_page_for_id(&mut self, id: TextureId) -> &mut TexturePage {
+    fn texture_page_for_id(&mut self, id: TextureId) -> Option<&mut TexturePage> {
         for page in self.pages_a8.iter_mut().chain(self.pages_rgb8.iter_mut())
                                             .chain(self.pages_rgba8.iter_mut())
                                             .chain(self.alternate_pages_a8.iter_mut())
                                             .chain(self.alternate_pages_rgba8.iter_mut()) {
             if page.texture_id == id {
-                return page
+                return Some(page)
             }
         }
-        panic!("No texture page for ID {:?}", id)
+        None
     }
 }
 
@@ -1186,8 +1186,16 @@ impl TextureCache {
     pub fn free(&mut self, id: TextureCacheItemId) {
         {
             let item = self.items.get(id);
-            self.arena.texture_page_for_id(item.texture_id).free(&item.allocated_rect);
+            match self.arena.texture_page_for_id(item.texture_id) {
+                Some(texture_page) => texture_page.free(&item.allocated_rect),
+                None => {
+                    // This is a standalone texture allocation. Just push it back onto the free
+                    // list.
+                    self.free_texture_ids.push(item.texture_id);
+                }
+            }
         }
+
         self.items.free(id)
     }
 }
