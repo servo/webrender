@@ -538,8 +538,9 @@ impl TextureCacheItem {
                 Point2D::new(self.uv_rect().top_left.x, self.uv_rect().top_left.y),
                 Size2D::new(self.uv_rect().bottom_right.x - self.uv_rect().top_left.x,
                             self.uv_rect().bottom_right.y - self.uv_rect().top_left.y)),
-            pixel_uv: Point2D::new(self.uv_rect().top_left.x as u32 * texture_size.width,
-                                   self.uv_rect().top_left.y as u32 * texture_size.height),
+            pixel_uv:
+                Point2D::new((self.uv_rect().top_left.x * texture_size.width as f32) as u32,
+                             (self.uv_rect().top_left.y * texture_size.height as f32) as u32),
         }
     }
 
