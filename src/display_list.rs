@@ -28,6 +28,7 @@ pub struct StackingContextInfo {
 pub struct IframeInfo {
     pub id: PipelineId,
     pub bounds: Rect<f32>,
+    pub clip: ClipRegion,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize)]
@@ -315,12 +316,13 @@ impl DisplayListBuilder {
     pub fn push_iframe(&mut self,
                        level: StackingLevel,
                        rect: Rect<f32>,
-                       _clip: ClipRegion,
+                       clip: ClipRegion,
                        iframe: PipelineId) {
         self.flush_list(level);
         let info = IframeInfo {
             id: iframe,
             bounds: rect,
+            clip: clip,
         };
         let item = DisplayListItem {
             stacking_level: level,
