@@ -889,6 +889,8 @@ impl Frame {
 
                         let iframe_fixed_layer_id = ScrollLayerId::create_fixed(pipeline.pipeline_id);
 
+                        // TODO(servo/servo#9983, pcwalton): Support rounded rectangle clipping.
+                        // Currently we take the main part of the clip rect only.
                         let iframe_info = FlattenInfo {
                             viewport_size: iframe_info.bounds.size,
                             offset_from_origin: info.offset_from_origin + iframe_info.bounds.origin,
@@ -896,11 +898,12 @@ impl Frame {
                             default_scroll_layer_id: info.default_scroll_layer_id,
                             actual_scroll_layer_id: info.actual_scroll_layer_id,
                             fixed_scroll_layer_id: iframe_fixed_layer_id,
-                            current_clip_rect: MAX_RECT,
+                            current_clip_rect: iframe_info.clip.main,
                             transform: info.transform,
                             perspective: info.perspective,
                             pipeline_id: pipeline.pipeline_id,
                         };
+                        //println!("iframe clip={:?}", iframe_info.current_clip_rect);
 
                         let iframe_stacking_context = context.scene
                                                              .stacking_context_map
@@ -937,22 +940,10 @@ impl Frame {
                level: i32) {
         let _pf = util::ProfileScope::new("  flatten");
 
-        let (stacking_context, local_clip_rect, pipeline_id) = match scene_item {
+        let (stacking_context, pipeline_id) = match scene_item {
             SceneItemKind::StackingContext(stacking_context, pipeline_id) => {
                 let stacking_context = &stacking_context.stacking_context;
-
-                // FIXME(pcwalton): This is a not-great partial solution to servo/servo#10164.
-                // A better solution would be to do this only if the transform consists of a
-                // translation+scale only and fall back to stenciling if the object has a more
-                // complex transform.
-                let local_clip_rect =
-                    stacking_context.transform
-                                    .invert()
-                                    .transform_rect(&parent_info.current_clip_rect)
-                                    .translate(&-stacking_context.bounds.origin)
-                                    .intersection(&stacking_context.overflow);
-
-                (stacking_context, local_clip_rect, pipeline_id)
+                (stacking_context, pipeline_id)
             }
             SceneItemKind::Pipeline(pipeline) => {
                 self.pipeline_epoch_map.insert(pipeline.pipeline_id, pipeline.epoch);
@@ -962,9 +953,19 @@ impl Frame {
                                                .unwrap()
                                                .stacking_context;
 
-                (stacking_context, Some(MAX_RECT), pipeline.pipeline_id)
+                (stacking_context, pipeline.pipeline_id)
             }
         };
+
+        // FIXME(pcwalton): This is a not-great partial solution to servo/servo#10164. A better
+        // solution would be to do this only if the transform consists of a translation+scale only
+        // and fall back to stenciling if the object has a more complex transform.
+        let local_clip_rect = stacking_context.transform
+                                              .invert()
+                                              .transform_rect(&parent_info.current_clip_rect)
+                                              .translate(&-stacking_context.bounds.origin)
+                                              .intersection(&stacking_context.overflow);
+        //println!("local_clip_rect={:?}", local_clip_rect);
 
         if let Some(local_clip_rect) = local_clip_rect {
             let scene_items = scene_item.collect_scene_items(&context.scene);
@@ -1034,8 +1035,6 @@ impl Frame {
                         info.offset_from_current_layer = Point2D::zero();
                         info.transform = Matrix4D::identity();
                         info.perspective = Matrix4D::identity();
-                        info.current_clip_rect = Rect::new(Point2D::zero(),
-                                                           stacking_context.overflow.size);
                     }
                     (ScrollPolicy::Scrollable, None) => {
                         // Nothing to do - use defaults as set above.
