@@ -103,6 +103,7 @@ pub enum WebGLCommand {
     PixelStorei(u32, i32),
     LinkProgram(u32),
     Uniform1f(i32, f32),
+    Uniform1i(i32, i32),
     Uniform4f(i32, f32, f32, f32, f32),
     UseProgram(u32),
     VertexAttrib(u32, f32, f32, f32, f32),
@@ -180,6 +181,7 @@ impl fmt::Debug for WebGLCommand {
             LinkProgram(..) => "LinkProgram",
             Uniform4f(..) => "Uniform4f",
             Uniform1f(..) => "Uniform1f",
+            Uniform1i(..) => "Uniform1i",
             UseProgram(..) => "UseProgram",
             VertexAttrib(..) => "VertexAttrib",
             VertexAttribPointer2f(..) => "VertexAttribPointer2f",
@@ -316,6 +318,8 @@ impl WebGLCommand {
                 gl::link_program(program_id),
             WebGLCommand::Uniform1f(uniform_id, v) =>
                 gl::uniform_1f(uniform_id, v),
+            WebGLCommand::Uniform1i(uniform_id, v) =>
+                gl::uniform_1i(uniform_id, v),
             WebGLCommand::Uniform4f(uniform_id, x, y, z, w) =>
                 gl::uniform_4f(uniform_id, x, y, z, w),
             WebGLCommand::UseProgram(program_id) =>
