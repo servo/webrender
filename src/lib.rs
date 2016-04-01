@@ -80,5 +80,6 @@ extern crate scoped_threadpool;
 extern crate time;
 extern crate webrender_traits;
 extern crate offscreen_gl_context;
+extern crate byteorder;
 
 pub use renderer::{Renderer, RendererOptions};
