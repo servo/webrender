@@ -25,7 +25,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
 use std::mem;
 use texture_cache::TexturePage;
-use util;
+use util::{self, MatrixHelpers};
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
 use webrender_traits::{StackingContext, FilterOp, ImageFormat, MixBlendMode, StackingLevel};
 use webrender_traits::{ScrollEventPhase, ScrollLayerInfo};
@@ -978,9 +978,16 @@ impl Frame {
             SceneItemKind::StackingContext(stacking_context, pipeline_id) => {
                 let stacking_context = &stacking_context.stacking_context;
 
-                let local_clip_rect = parent_info.current_clip_rect
-                                                 .translate(&-stacking_context.bounds.origin)
-                                                 .intersection(&stacking_context.overflow);
+                // FIXME(pcwalton): This is a not-great partial solution to servo/servo#10164.
+                // A better solution would be to do this only if the transform consists of a
+                // translation+scale only and fall back to stenciling if the object has a more
+                // complex transform.
+                let local_clip_rect =
+                    stacking_context.transform
+                                    .invert()
+                                    .transform_rect(&parent_info.current_clip_rect)
+                                    .translate(&-stacking_context.bounds.origin)
+                                    .intersection(&stacking_context.overflow);
 
                 (stacking_context, local_clip_rect, pipeline_id)
             }
