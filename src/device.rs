@@ -945,7 +945,7 @@ impl Device {
                           shader_preamble: &str,
                           panic_on_fail: bool)
                           -> Option<gl::GLuint> {
-        println!("compile {:?}", path);
+        debug!("compile {:?}", path);
 
         let mut f = File::open(&path).unwrap();
         let mut s = shader_preamble.to_owned();
