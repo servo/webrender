@@ -94,6 +94,7 @@ pub enum WebGLCommand {
     GetParameter(u32, IpcSender<WebGLResult<WebGLParameter>>),
     GetProgramParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
     GetShaderParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
+    GetActiveAttrib(u32, u32, IpcSender<WebGLResult<(i32, u32, String)>>),
     GetAttribLocation(u32, String, IpcSender<Option<i32>>),
     GetUniformLocation(u32, String, IpcSender<Option<i32>>),
     PolygonOffset(f32, f32),
@@ -173,6 +174,7 @@ impl fmt::Debug for WebGLCommand {
             GetParameter(..) => "GetParameter",
             GetProgramParameter(..) => "GetProgramParameter",
             GetShaderParameter(..) => "GetShaderParameter",
+            GetActiveAttrib(..) => "GetActiveAttrib",
             GetAttribLocation(..) => "GetAttribLocation",
             GetUniformLocation(..) => "GetUniformLocation",
             PolygonOffset(..) => "PolygonOffset",
@@ -272,6 +274,8 @@ impl WebGLCommand {
                 gl::scissor(x, y, width, height),
             WebGLCommand::EnableVertexAttribArray(attrib_id) =>
                 gl::enable_vertex_attrib_array(attrib_id),
+            WebGLCommand::GetActiveAttrib(program_id, index, chan) =>
+                Self::active_attrib(program_id, index, chan),
             WebGLCommand::GetAttribLocation(program_id, name, chan) =>
                 Self::attrib_location(program_id, name, chan),
             WebGLCommand::GetBufferParameter(target, param_id, chan) =>
@@ -360,6 +364,18 @@ impl WebGLCommand {
         let error = gl::get_error();
         assert!(error == gl::NO_ERROR, "Unexpected WebGL error: 0x{:x} ({})", error, error);
     }
+
+    fn active_attrib(program_id: u32,
+                     index: u32,
+                     chan: IpcSender<WebGLResult<(i32, u32, String)>>) {
+        let result = if index >= gl::get_program_iv(program_id, gl::ACTIVE_ATTRIBUTES) as u32 {
+            Err(WebGLError::InvalidValue)
+        } else {
+            Ok(gl::get_active_attrib(program_id, index))
+        };
+        chan.send(result).unwrap();
+    }
+
 
     fn attrib_location(program_id: u32,
                        name: String,
