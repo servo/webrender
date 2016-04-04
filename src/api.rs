@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use byteorder::{LittleEndian, WriteBytesExt};
 use display_list::{AuxiliaryLists, AuxiliaryListsDescriptor, BuiltDisplayList};
 use display_list::{BuiltDisplayListDescriptor};
 use euclid::{Point2D, Size2D};
@@ -187,11 +188,16 @@ impl RenderApi {
                                                  *auxiliary_lists.descriptor());
         self.api_sender.send(msg).unwrap();
 
-        for &(_, ref built_display_list) in &display_lists {
-            self.payload_sender.send(built_display_list.data()).unwrap();
-        }
+        let mut payload = vec![];
+        payload.write_u32::<LittleEndian>(stacking_context_id.0).unwrap();
+        payload.write_u32::<LittleEndian>(epoch.0).unwrap();
 
-        self.payload_sender.send(auxiliary_lists.data()).unwrap();
+        for &(_, ref built_display_list) in &display_lists {
+            payload.extend_from_slice(built_display_list.data());
+        }
+        payload.extend_from_slice(auxiliary_lists.data());
+
+        self.payload_sender.send(&payload[..]).unwrap();
     }
 
     pub fn scroll(&self, delta: Point2D<f32>, cursor: Point2D<f32>, phase: ScrollEventPhase) {

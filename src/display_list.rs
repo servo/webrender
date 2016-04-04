@@ -52,8 +52,16 @@ pub struct BuiltDisplayListDescriptor {
     pub mode: DisplayListMode,
     pub has_stacking_contexts: bool,
 
-    /// The size in bytes of the display items in this display list.
+    /// The size in bytes of the display list items in this display list.
     display_list_items_size: usize,
+    /// The size in bytes of the display items in this display list.
+    display_items_size: usize,
+}
+
+impl BuiltDisplayListDescriptor {
+    pub fn size(&self) -> usize {
+        self.display_list_items_size + self.display_items_size
+    }
 }
 
 /// A display list.
@@ -404,11 +412,13 @@ impl DisplayListBuilder {
             let mut blob = convert_pod_to_blob(&self.display_list_items).to_vec();
             let display_list_items_size = blob.len();
             blob.extend_from_slice(convert_pod_to_blob(&self.display_items));
+            let display_items_size = blob.len() - display_list_items_size;
             BuiltDisplayList {
                 descriptor: BuiltDisplayListDescriptor {
                     mode: self.mode,
                     has_stacking_contexts: self.has_stacking_contexts,
                     display_list_items_size: display_list_items_size,
+                    display_items_size: display_items_size,
                 },
                 data: blob,
             }
@@ -517,6 +527,8 @@ impl AuxiliaryListsBuilder {
             blob.extend_from_slice(convert_pod_to_blob(&self.filters));
             let filters_size = blob.len() - (complex_clip_regions_size + gradient_stops_size);
             blob.extend_from_slice(convert_pod_to_blob(&self.glyph_instances));
+            let glyph_instances_size = blob.len() -
+                (complex_clip_regions_size + gradient_stops_size + filters_size);
 
             AuxiliaryLists {
                 data: blob,
@@ -524,6 +536,7 @@ impl AuxiliaryListsBuilder {
                     gradient_stops_size: gradient_stops_size,
                     complex_clip_regions_size: complex_clip_regions_size,
                     filters_size: filters_size,
+                    glyph_instances_size: glyph_instances_size,
                 },
             }
         }
@@ -539,6 +552,14 @@ pub struct AuxiliaryListsDescriptor {
     gradient_stops_size: usize,
     complex_clip_regions_size: usize,
     filters_size: usize,
+    glyph_instances_size: usize,
+}
+
+impl AuxiliaryListsDescriptor {
+    pub fn size(&self) -> usize {
+        self.gradient_stops_size + self.complex_clip_regions_size + self.filters_size +
+            self.glyph_instances_size
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

@@ -8,6 +8,7 @@
 #![plugin(serde_macros)]
 
 extern crate app_units;
+extern crate byteorder;
 extern crate euclid;
 extern crate ipc_channel;
 extern crate serde;
