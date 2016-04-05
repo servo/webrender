@@ -95,6 +95,7 @@ pub enum WebGLCommand {
     GetProgramParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
     GetShaderParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
     GetActiveAttrib(u32, u32, IpcSender<WebGLResult<(i32, u32, String)>>),
+    GetActiveUniform(u32, u32, IpcSender<WebGLResult<(i32, u32, String)>>),
     GetAttribLocation(u32, String, IpcSender<Option<i32>>),
     GetUniformLocation(u32, String, IpcSender<Option<i32>>),
     PolygonOffset(f32, f32),
@@ -175,6 +176,7 @@ impl fmt::Debug for WebGLCommand {
             GetProgramParameter(..) => "GetProgramParameter",
             GetShaderParameter(..) => "GetShaderParameter",
             GetActiveAttrib(..) => "GetActiveAttrib",
+            GetActiveUniform(..) => "GetActiveUniform",
             GetAttribLocation(..) => "GetAttribLocation",
             GetUniformLocation(..) => "GetUniformLocation",
             PolygonOffset(..) => "PolygonOffset",
@@ -276,6 +278,8 @@ impl WebGLCommand {
                 gl::enable_vertex_attrib_array(attrib_id),
             WebGLCommand::GetActiveAttrib(program_id, index, chan) =>
                 Self::active_attrib(program_id, index, chan),
+            WebGLCommand::GetActiveUniform(program_id, index, chan) =>
+                Self::active_uniform(program_id, index, chan),
             WebGLCommand::GetAttribLocation(program_id, name, chan) =>
                 Self::attrib_location(program_id, name, chan),
             WebGLCommand::GetBufferParameter(target, param_id, chan) =>
@@ -376,6 +380,16 @@ impl WebGLCommand {
         chan.send(result).unwrap();
     }
 
+    fn active_uniform(program_id: u32,
+                     index: u32,
+                     chan: IpcSender<WebGLResult<(i32, u32, String)>>) {
+        let result = if index >= gl::get_program_iv(program_id, gl::ACTIVE_UNIFORMS) as u32 {
+            Err(WebGLError::InvalidValue)
+        } else {
+            Ok(gl::get_active_uniform(program_id, index))
+        };
+        chan.send(result).unwrap();
+    }
 
     fn attrib_location(program_id: u32,
                        name: String,
