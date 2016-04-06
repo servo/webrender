@@ -107,6 +107,9 @@ pub enum WebGLCommand {
     Uniform1f(i32, f32),
     Uniform1i(i32, i32),
     Uniform2f(i32, f32, f32),
+    Uniform2i(i32, i32, i32),
+    Uniform3f(i32, f32, f32, f32),
+    Uniform3i(i32, i32, i32, i32),
     Uniform4f(i32, f32, f32, f32, f32),
     Uniform4i(i32, i32, i32, i32, i32),
     UseProgram(u32),
@@ -185,11 +188,14 @@ impl fmt::Debug for WebGLCommand {
             LineWidth(..) => "LineWidth",
             PixelStorei(..) => "PixelStorei",
             LinkProgram(..) => "LinkProgram",
-            Uniform4f(..) => "Uniform4f",
-            Uniform4i(..) => "Uniform4i",
             Uniform1f(..) => "Uniform1f",
             Uniform1i(..) => "Uniform1i",
             Uniform2f(..) => "Uniform2f",
+            Uniform2i(..) => "Uniform2i",
+            Uniform3f(..) => "Uniform3f",
+            Uniform3i(..) => "Uniform3i",
+            Uniform4f(..) => "Uniform4f",
+            Uniform4i(..) => "Uniform4i",
             UseProgram(..) => "UseProgram",
             VertexAttrib(..) => "VertexAttrib",
             VertexAttribPointer2f(..) => "VertexAttribPointer2f",
@@ -334,6 +340,12 @@ impl WebGLCommand {
                 gl::uniform_1i(uniform_id, v),
             WebGLCommand::Uniform2f(uniform_id, x, y) =>
                 gl::uniform_2f(uniform_id, x, y),
+            WebGLCommand::Uniform2i(uniform_id, x, y) =>
+                gl::uniform_2i(uniform_id, x, y),
+            WebGLCommand::Uniform3f(uniform_id, x, y, z) =>
+                gl::uniform_3f(uniform_id, x, y, z),
+            WebGLCommand::Uniform3i(uniform_id, x, y, z) =>
+                gl::uniform_3i(uniform_id, x, y, z),
             WebGLCommand::Uniform4f(uniform_id, x, y, z, w) =>
                 gl::uniform_4f(uniform_id, x, y, z, w),
             WebGLCommand::Uniform4i(uniform_id, x, y, z, w) =>
