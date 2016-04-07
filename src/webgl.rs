@@ -105,13 +105,21 @@ pub enum WebGLCommand {
     PixelStorei(u32, i32),
     LinkProgram(u32),
     Uniform1f(i32, f32),
+    Uniform1fv(i32, Vec<f32>),
     Uniform1i(i32, i32),
+    Uniform1iv(i32, Vec<i32>),
     Uniform2f(i32, f32, f32),
+    Uniform2fv(i32, Vec<f32>),
     Uniform2i(i32, i32, i32),
+    Uniform2iv(i32, Vec<i32>),
     Uniform3f(i32, f32, f32, f32),
+    Uniform3fv(i32, Vec<f32>),
     Uniform3i(i32, i32, i32, i32),
+    Uniform3iv(i32, Vec<i32>),
     Uniform4f(i32, f32, f32, f32, f32),
+    Uniform4fv(i32, Vec<f32>),
     Uniform4i(i32, i32, i32, i32, i32),
+    Uniform4iv(i32, Vec<i32>),
     UseProgram(u32),
     VertexAttrib(u32, f32, f32, f32, f32),
     VertexAttribPointer2f(u32, i32, bool, i32, u32),
@@ -189,13 +197,21 @@ impl fmt::Debug for WebGLCommand {
             PixelStorei(..) => "PixelStorei",
             LinkProgram(..) => "LinkProgram",
             Uniform1f(..) => "Uniform1f",
+            Uniform1fv(..) => "Uniform1fv",
             Uniform1i(..) => "Uniform1i",
+            Uniform1iv(..) => "Uniform1iv",
             Uniform2f(..) => "Uniform2f",
+            Uniform2fv(..) => "Uniform2fv",
             Uniform2i(..) => "Uniform2i",
+            Uniform2iv(..) => "Uniform2iv",
             Uniform3f(..) => "Uniform3f",
+            Uniform3fv(..) => "Uniform3fv",
             Uniform3i(..) => "Uniform3i",
+            Uniform3iv(..) => "Uniform3iv",
             Uniform4f(..) => "Uniform4f",
+            Uniform4fv(..) => "Uniform4fv",
             Uniform4i(..) => "Uniform4i",
+            Uniform4iv(..) => "Uniform4iv",
             UseProgram(..) => "UseProgram",
             VertexAttrib(..) => "VertexAttrib",
             VertexAttribPointer2f(..) => "VertexAttribPointer2f",
@@ -336,20 +352,36 @@ impl WebGLCommand {
                 gl::link_program(program_id),
             WebGLCommand::Uniform1f(uniform_id, v) =>
                 gl::uniform_1f(uniform_id, v),
+            WebGLCommand::Uniform1fv(uniform_id, v) =>
+                gl::uniform_1fv(uniform_id, &v),
             WebGLCommand::Uniform1i(uniform_id, v) =>
                 gl::uniform_1i(uniform_id, v),
+            WebGLCommand::Uniform1iv(uniform_id, v) =>
+                gl::uniform_1iv(uniform_id, &v),
             WebGLCommand::Uniform2f(uniform_id, x, y) =>
                 gl::uniform_2f(uniform_id, x, y),
+            WebGLCommand::Uniform2fv(uniform_id, v) =>
+                gl::uniform_2fv(uniform_id, &v),
             WebGLCommand::Uniform2i(uniform_id, x, y) =>
                 gl::uniform_2i(uniform_id, x, y),
+            WebGLCommand::Uniform2iv(uniform_id, v) =>
+                gl::uniform_2iv(uniform_id, &v),
             WebGLCommand::Uniform3f(uniform_id, x, y, z) =>
                 gl::uniform_3f(uniform_id, x, y, z),
+            WebGLCommand::Uniform3fv(uniform_id, v) =>
+                gl::uniform_3fv(uniform_id, &v),
             WebGLCommand::Uniform3i(uniform_id, x, y, z) =>
                 gl::uniform_3i(uniform_id, x, y, z),
+            WebGLCommand::Uniform3iv(uniform_id, v) =>
+                gl::uniform_3iv(uniform_id, &v),
             WebGLCommand::Uniform4f(uniform_id, x, y, z, w) =>
                 gl::uniform_4f(uniform_id, x, y, z, w),
+            WebGLCommand::Uniform4fv(uniform_id, v) =>
+                gl::uniform_4fv(uniform_id, &v),
             WebGLCommand::Uniform4i(uniform_id, x, y, z, w) =>
                 gl::uniform_4i(uniform_id, x, y, z, w),
+            WebGLCommand::Uniform4iv(uniform_id, v) =>
+                gl::uniform_4iv(uniform_id, &v),
             WebGLCommand::UseProgram(program_id) =>
                 gl::use_program(program_id),
             WebGLCommand::VertexAttrib(attrib_id, x, y, z, w) =>
