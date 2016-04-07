@@ -259,9 +259,11 @@ impl Renderer {
         let context_handle = NativeGLContext::current_handle();
 
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
+        let payload_tx_for_backend = payload_tx.clone();
         thread::spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  payload_rx,
+                                                 payload_tx_for_backend,
                                                  result_tx,
                                                  device_pixel_ratio,
                                                  white_image_id,

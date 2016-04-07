@@ -2,14 +2,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use byteorder::{LittleEndian, ReadBytesExt};
 use frame::Frame;
 use internal_types::{FontTemplate, ResultMsg, RendererFrame};
-use ipc_channel::ipc::{IpcBytesReceiver, IpcReceiver};
+use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
 use profiler::BackendProfileCounters;
 use resource_cache::ResourceCache;
 use scene::Scene;
 use scoped_threadpool;
 use std::collections::HashMap;
+use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::{TextureCache, TextureCacheItemId};
@@ -22,6 +24,7 @@ use offscreen_gl_context::{NativeGLContext, GLContext, ColorAttachmentType, Nati
 pub struct RenderBackend {
     api_rx: IpcReceiver<ApiMsg>,
     payload_rx: IpcBytesReceiver,
+    payload_tx: IpcBytesSender,
     result_tx: Sender<ResultMsg>,
 
     device_pixel_ratio: f32,
@@ -42,6 +45,7 @@ pub struct RenderBackend {
 impl RenderBackend {
     pub fn new(api_rx: IpcReceiver<ApiMsg>,
                payload_rx: IpcBytesReceiver,
+               payload_tx: IpcBytesSender,
                result_tx: Sender<ResultMsg>,
                device_pixel_ratio: f32,
                white_image_id: TextureCacheItemId,
@@ -63,6 +67,7 @@ impl RenderBackend {
             thread_pool: thread_pool,
             api_rx: api_rx,
             payload_rx: payload_rx,
+            payload_tx: payload_tx,
             result_tx: result_tx,
             device_pixel_ratio: device_pixel_ratio,
             resource_cache: resource_cache,
@@ -131,9 +136,34 @@ impl RenderBackend {
                                                                 stacking_context);
                             }
 
+                            let mut leftover_auxiliary_data = vec![];
+                            let mut auxiliary_data;
+                            loop {
+                                auxiliary_data = self.payload_rx.recv().unwrap();
+                                {
+                                    let mut payload_reader = Cursor::new(&auxiliary_data[..]);
+                                    let payload_stacking_context_id =
+                                        payload_reader.read_u32::<LittleEndian>().unwrap();
+                                    let payload_epoch =
+                                        payload_reader.read_u32::<LittleEndian>().unwrap();
+                                    if payload_epoch == epoch.0 &&
+                                            payload_stacking_context_id == stacking_context_id.0 {
+                                        break
+                                    }
+                                }
+                                leftover_auxiliary_data.push(auxiliary_data)
+                            }
+                            for leftover_auxiliary_data in leftover_auxiliary_data {
+                                self.payload_tx.send(&leftover_auxiliary_data[..]).unwrap()
+                            }
+
+                            let mut auxiliary_data = Cursor::new(&mut auxiliary_data[8..]);
                             for (display_list_id,
                                  display_list_descriptor) in display_lists.into_iter() {
-                                let built_display_list_data = self.payload_rx.recv().unwrap();
+                                let mut built_display_list_data =
+                                    vec![0; display_list_descriptor.size()];
+                                auxiliary_data.read_exact(&mut built_display_list_data[..])
+                                              .unwrap();
                                 let built_display_list =
                                     BuiltDisplayList::from_data(built_display_list_data,
                                                                 display_list_descriptor);
@@ -144,7 +174,9 @@ impl RenderBackend {
                                                             &mut self.resource_cache);
                             }
 
-                            let auxiliary_lists_data = self.payload_rx.recv().unwrap();
+                            let mut auxiliary_lists_data =
+                                vec![0; auxiliary_lists_descriptor.size()];
+                            auxiliary_data.read_exact(&mut auxiliary_lists_data[..]).unwrap();
                             let auxiliary_lists =
                                 AuxiliaryLists::from_data(auxiliary_lists_data,
                                                           auxiliary_lists_descriptor);
