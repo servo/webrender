@@ -40,7 +40,7 @@ time = "0.1"
 fnv="1.0"
 scoped_threadpool = "0.1.6"
 app_units = {version = "0.2.1", features = ["plugins"]}
-lazy_static = "0.1"
+lazy_static = "0.2"
 log = "0.3"
 byteorder = "0.5"
 
