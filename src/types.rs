@@ -274,13 +274,3 @@ pub enum ScrollPolicy {
     Scrollable,
     Fixed,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum StackingLevel {
-    BackgroundAndBorders,
-    BlockBackgroundAndBorders,
-    Floats,
-    Content,
-    PositionedContent,
-    Outlines,
-}

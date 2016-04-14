@@ -39,5 +39,5 @@ pub use types::{ColorF, ClipRegion, ComplexClipRegion};
 pub use types::{DisplayListId, DisplayListMode, ImageRendering};
 pub use types::{Epoch, FilterOp, FontKey, GlyphInstance, GradientStop};
 pub use types::{ImageFormat, ImageKey, MixBlendMode, PipelineId, RenderNotifier};
-pub use types::{ScrollLayerId, ScrollPolicy, StackingLevel, StackingContextId, ScrollLayerInfo};
+pub use types::{ScrollLayerId, ScrollPolicy, StackingContextId, ScrollLayerInfo};
 pub use webgl::*;
