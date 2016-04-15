@@ -11,9 +11,8 @@ use std::hash::BuildHasherDefault;
 use webrender_traits::{AuxiliaryLists, BuiltDisplayList, ItemRange, PipelineId, Epoch};
 use webrender_traits::{ColorF, DisplayListId, StackingContext, StackingContextId};
 use webrender_traits::{SpecificDisplayListItem};
-use webrender_traits::{StackingLevel, SpecificDisplayItem};
 use webrender_traits::{IframeInfo};
-use webrender_traits::{RectangleDisplayItem, ClipRegion, DisplayItem};
+use webrender_traits::{RectangleDisplayItem, ClipRegion, DisplayItem, SpecificDisplayItem};
 
 #[derive(Debug)]
 pub struct ScenePipeline {
@@ -44,7 +43,6 @@ pub enum SpecificSceneItem {
 
 #[derive(Clone, Debug)]
 pub struct SceneItem {
-    pub stacking_level: StackingLevel,
     pub specific: SpecificSceneItem,
 }
 
@@ -85,19 +83,16 @@ impl Scene {
                         built_display_list.display_items(&info.items).to_vec(),
                         pipeline_id);
                     SceneItem {
-                        stacking_level: item.stacking_level,
                         specific: SpecificSceneItem::DrawList(draw_list_id)
                     }
                 }
                 SpecificDisplayListItem::StackingContext(ref info) => {
                     SceneItem {
-                        stacking_level: item.stacking_level,
                         specific: SpecificSceneItem::StackingContext(info.id, pipeline_id)
                     }
                 }
                 SpecificDisplayListItem::Iframe(ref info) => {
                     SceneItem {
-                        stacking_level: item.stacking_level,
                         specific: SpecificSceneItem::Iframe(*info)
                     }
                 }

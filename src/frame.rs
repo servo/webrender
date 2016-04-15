@@ -27,7 +27,7 @@ use std::mem;
 use texture_cache::TexturePage;
 use util::{self, MatrixHelpers};
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
-use webrender_traits::{StackingContext, FilterOp, ImageFormat, MixBlendMode, StackingLevel};
+use webrender_traits::{StackingContext, FilterOp, ImageFormat, MixBlendMode};
 use webrender_traits::{ScrollEventPhase, ScrollLayerInfo};
 
 #[cfg(target_os = "macos")]
@@ -399,21 +399,14 @@ struct SceneItemWithZOrder {
 
 impl<'a> SceneItemKind<'a> {
     fn collect_scene_items(&self, scene: &Scene) -> Vec<SceneItem> {
-        let mut background_and_borders = Vec::new();
-        let mut positioned_content = Vec::new();
-        let mut block_background_and_borders = Vec::new();
-        let mut floats = Vec::new();
-        let mut content = Vec::new();
-        let mut outlines = Vec::new();
-
+        let mut result = Vec::new();
         let stacking_context = match *self {
             SceneItemKind::StackingContext(stacking_context, _) => {
                 &stacking_context.stacking_context
             }
             SceneItemKind::Pipeline(pipeline) => {
                 if let Some(background_draw_list) = pipeline.background_draw_list {
-                    background_and_borders.push(SceneItem {
-                        stacking_level: StackingLevel::BackgroundAndBorders,
+                    result.push(SceneItem {
                         specific: SpecificSceneItem::DrawList(background_draw_list),
                     });
                 }
@@ -428,71 +421,9 @@ impl<'a> SceneItemKind<'a> {
         for display_list_id in &stacking_context.display_lists {
             let display_list = &scene.display_list_map[display_list_id];
             for item in &display_list.items {
-                match item.stacking_level {
-                    StackingLevel::BackgroundAndBorders => {
-                        background_and_borders.push(item.clone());
-                    }
-                    StackingLevel::BlockBackgroundAndBorders => {
-                        block_background_and_borders.push(item.clone());
-                    }
-                    StackingLevel::PositionedContent => {
-                        let z_index = match item.specific {
-                            SpecificSceneItem::StackingContext(id, _) => {
-                                scene.stacking_context_map
-                                     .get(&id)
-                                     .unwrap()
-                                     .stacking_context
-                                     .z_index
-                            }
-                            SpecificSceneItem::DrawList(..) |
-                            SpecificSceneItem::Iframe(..) => {
-                                // TODO(gw): Probably wrong for an iframe?
-                                0
-                            }
-                        };
-
-                        positioned_content.push(SceneItemWithZOrder {
-                            item: item.clone(),
-                            z_index: z_index,
-                        });
-                    }
-                    StackingLevel::Floats => {
-                        floats.push(item.clone());
-                    }
-                    StackingLevel::Content => {
-                        content.push(item.clone());
-                    }
-                    StackingLevel::Outlines => {
-                        outlines.push(item.clone());
-                    }
-                }
+                result.push(item.clone());
             }
         }
-
-        positioned_content.sort_by(|a, b| {
-            a.z_index.cmp(&b.z_index)
-        });
-
-        let mut result = Vec::new();
-        result.extend(background_and_borders);
-        result.extend(positioned_content.iter().filter_map(|item| {
-            if item.z_index < 0 {
-                Some(item.item.clone())
-            } else {
-                None
-            }
-        }));
-        result.extend(block_background_and_borders);
-        result.extend(floats);
-        result.extend(content);
-        result.extend(positioned_content.iter().filter_map(|item| {
-            if item.z_index < 0 {
-                None
-            } else {
-                Some(item.item.clone())
-            }
-        }));
-        result.extend(outlines);
         result
     }
 }
