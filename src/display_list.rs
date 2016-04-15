@@ -9,7 +9,7 @@ use display_item::{BorderDisplayItem, BoxShadowDisplayItem};
 use euclid::{Point2D, Rect, Size2D};
 use std::mem;
 use std::slice;
-use types::{ClipRegion, ColorF, ComplexClipRegion, FontKey, ImageKey, PipelineId, StackingLevel};
+use types::{ClipRegion, ColorF, ComplexClipRegion, FontKey, ImageKey, PipelineId};
 use types::{BorderRadius, BorderSide, BoxShadowClipMode, FilterOp, GlyphInstance};
 use types::{DisplayListMode, GradientStop, StackingContextId, ImageRendering};
 use webgl::{WebGLContextId};
@@ -40,7 +40,6 @@ pub enum SpecificDisplayListItem {
 
 #[derive(Copy, Clone, Serialize, Deserialize)]
 pub struct DisplayListItem {
-    pub stacking_level: StackingLevel,
     pub specific: SpecificDisplayListItem,
 }
 
@@ -105,12 +104,7 @@ pub struct DisplayListBuilder {
     pub mode: DisplayListMode,
     pub has_stacking_contexts: bool,
 
-    pub work_background_and_borders: Vec<DisplayItem>,
-    pub work_block_backgrounds_and_borders: Vec<DisplayItem>,
-    pub work_floats: Vec<DisplayItem>,
-    pub work_content: Vec<DisplayItem>,
-    pub work_positioned_content: Vec<DisplayItem>,
-    pub work_outlines: Vec<DisplayItem>,
+    pub work_list: Vec<DisplayItem>,
 
     pub display_list_items: Vec<DisplayListItem>,
     pub display_items: Vec<DisplayItem>,
@@ -121,21 +115,13 @@ impl DisplayListBuilder {
         DisplayListBuilder {
             mode: DisplayListMode::Default,
             has_stacking_contexts: false,
-
-            work_background_and_borders: Vec::new(),
-            work_block_backgrounds_and_borders: Vec::new(),
-            work_floats: Vec::new(),
-            work_content: Vec::new(),
-            work_positioned_content: Vec::new(),
-            work_outlines: Vec::new(),
-
+            work_list: Vec::new(),
             display_list_items: Vec::new(),
             display_items: Vec::new(),
         }
     }
 
     pub fn push_rect(&mut self,
-                     level: StackingLevel,
                      rect: Rect<f32>,
                      clip: ClipRegion,
                      color: ColorF) {
@@ -149,11 +135,10 @@ impl DisplayListBuilder {
             clip: clip,
         };
 
-        self.push_item(level, display_item);
+        self.push_item(display_item);
     }
 
     pub fn push_image(&mut self,
-                      level: StackingLevel,
                       rect: Rect<f32>,
                       clip: ClipRegion,
                       stretch_size: Size2D<f32>,
@@ -171,11 +156,10 @@ impl DisplayListBuilder {
             clip: clip,
         };
 
-        self.push_item(level, display_item);
+        self.push_item(display_item);
     }
 
     pub fn push_webgl_canvas(&mut self,
-                             level: StackingLevel,
                              rect: Rect<f32>,
                              clip: ClipRegion,
                              context_id: WebGLContextId) {
@@ -189,11 +173,10 @@ impl DisplayListBuilder {
             clip: clip,
         };
 
-        self.push_item(level, display_item);
+        self.push_item(display_item);
     }
 
     pub fn push_text(&mut self,
-                     level: StackingLevel,
                      rect: Rect<f32>,
                      clip: ClipRegion,
                      glyphs: Vec<GlyphInstance>,
@@ -223,12 +206,11 @@ impl DisplayListBuilder {
                 clip: clip,
             };
 
-            self.push_item(level, display_item);
+            self.push_item(display_item);
         }
     }
 
     pub fn push_border(&mut self,
-                       level: StackingLevel,
                        rect: Rect<f32>,
                        clip: ClipRegion,
                        left: BorderSide,
@@ -250,11 +232,10 @@ impl DisplayListBuilder {
             clip: clip,
         };
 
-        self.push_item(level, display_item);
+        self.push_item(display_item);
     }
 
     pub fn push_box_shadow(&mut self,
-                           level: StackingLevel,
                            rect: Rect<f32>,
                            clip: ClipRegion,
                            box_bounds: Rect<f32>,
@@ -280,26 +261,22 @@ impl DisplayListBuilder {
             clip: clip,
         };
 
-        self.push_item(level, display_item);
+        self.push_item(display_item);
     }
 
-    pub fn push_stacking_context(&mut self,
-                                 level: StackingLevel,
-                                 stacking_context_id: StackingContextId) {
+    pub fn push_stacking_context(&mut self, stacking_context_id: StackingContextId) {
         self.has_stacking_contexts = true;
-        self.flush_list(level);
+        self.flush();
         let info = StackingContextInfo {
             id: stacking_context_id,
         };
         let item = DisplayListItem {
-            stacking_level: level,
             specific: SpecificDisplayListItem::StackingContext(info),
         };
         self.display_list_items.push(item);
     }
 
     pub fn push_gradient(&mut self,
-                         level: StackingLevel,
                          rect: Rect<f32>,
                          clip: ClipRegion,
                          start_point: Point2D<f32>,
@@ -318,73 +295,31 @@ impl DisplayListBuilder {
             clip: clip,
         };
 
-        self.push_item(level, display_item);
+        self.push_item(display_item);
     }
 
     pub fn push_iframe(&mut self,
-                       level: StackingLevel,
                        rect: Rect<f32>,
                        clip: ClipRegion,
                        iframe: PipelineId) {
-        self.flush_list(level);
+        self.flush();
         let info = IframeInfo {
             id: iframe,
             bounds: rect,
             clip: clip,
         };
         let item = DisplayListItem {
-            stacking_level: level,
             specific: SpecificDisplayListItem::Iframe(info),
         };
         self.display_list_items.push(item);
     }
 
-    fn push_item(&mut self, level: StackingLevel, item: DisplayItem) {
-        match level {
-            StackingLevel::BackgroundAndBorders => {
-                self.work_background_and_borders.push(item);
-            }
-            StackingLevel::BlockBackgroundAndBorders => {
-                self.work_block_backgrounds_and_borders.push(item);
-            }
-            StackingLevel::Floats => {
-                self.work_floats.push(item);
-            }
-            StackingLevel::Content => {
-                self.work_content.push(item);
-            }
-            StackingLevel::PositionedContent => {
-                self.work_positioned_content.push(item);
-            }
-            StackingLevel::Outlines => {
-                self.work_outlines.push(item);
-            }
-        }
+    fn push_item(&mut self, item: DisplayItem) {
+        self.work_list.push(item);
     }
 
-    fn flush_list(&mut self, level: StackingLevel) {
-        let list = match level {
-            StackingLevel::BackgroundAndBorders => {
-                &mut self.work_background_and_borders
-            }
-            StackingLevel::BlockBackgroundAndBorders => {
-                &mut self.work_block_backgrounds_and_borders
-            }
-            StackingLevel::Floats => {
-                &mut self.work_floats
-            }
-            StackingLevel::Content => {
-                &mut self.work_content
-            }
-            StackingLevel::PositionedContent => {
-                &mut self.work_positioned_content
-            }
-            StackingLevel::Outlines => {
-                &mut self.work_outlines
-            }
-        };
-
-        let items = mem::replace(list, Vec::new());
+    fn flush(&mut self) {
+        let items = mem::replace(&mut self.work_list, Vec::new());
         if items.is_empty() {
             return
         }
@@ -393,18 +328,8 @@ impl DisplayListBuilder {
             items: ItemRange::new(&mut self.display_items, &items),
         };
         self.display_list_items.push(DisplayListItem {
-            stacking_level: level,
             specific: SpecificDisplayListItem::DrawList(draw_list),
         });
-    }
-
-    fn flush(&mut self) {
-        self.flush_list(StackingLevel::BackgroundAndBorders);
-        self.flush_list(StackingLevel::BlockBackgroundAndBorders);
-        self.flush_list(StackingLevel::Floats);
-        self.flush_list(StackingLevel::Content);
-        self.flush_list(StackingLevel::PositionedContent);
-        self.flush_list(StackingLevel::Outlines);
     }
 
     pub fn finalize(mut self) -> BuiltDisplayList {
