@@ -101,6 +101,7 @@ pub enum WebGLCommand {
     GetUniformLocation(u32, String, IpcSender<Option<i32>>),
     GetVertexAttrib(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
     PolygonOffset(f32, f32),
+    ReadPixels(i32, i32, i32, i32, u32, u32, IpcSender<Vec<u8>>),
     Scissor(i32, i32, i32, i32),
     StencilFunc(u32, i32, u32),
     StencilFuncSeparate(u32, u32, i32, u32),
@@ -200,6 +201,7 @@ impl fmt::Debug for WebGLCommand {
             GetUniformLocation(..) => "GetUniformLocation",
             GetVertexAttrib(..) => "GetVertexAttrib",
             PolygonOffset(..) => "PolygonOffset",
+            ReadPixels(..) => "ReadPixels",
             Scissor(..) => "Scissor",
             StencilFunc(..) => "StencilFunc",
             StencilFuncSeparate(..) => "StencilFuncSeparate",
@@ -311,6 +313,8 @@ impl WebGLCommand {
                 gl::pixel_store_i(name, val),
             WebGLCommand::PolygonOffset(factor, units) =>
                 gl::polygon_offset(factor, units),
+            WebGLCommand::ReadPixels(x, y, width, height, format, pixel_type, chan) =>
+                Self::read_pixels(x, y, width, height, format, pixel_type, chan),
             WebGLCommand::Scissor(x, y, width, height) =>
                 gl::scissor(x, y, width, height),
             WebGLCommand::StencilFunc(func, ref_, mask) =>
@@ -440,6 +444,12 @@ impl WebGLCommand {
         // FIXME: Use debug_assertions once tests are run with them
         let error = gl::get_error();
         assert!(error == gl::NO_ERROR, "Unexpected WebGL error: 0x{:x} ({})", error, error);
+    }
+
+    fn read_pixels(x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32,
+                   chan: IpcSender<Vec<u8>>) {
+      let result = gl::read_pixels(x, y, width, height, format, pixel_type);
+      chan.send(result).unwrap()
     }
 
     fn active_attrib(program_id: u32,
