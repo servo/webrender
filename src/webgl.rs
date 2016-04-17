@@ -100,6 +100,12 @@ pub enum WebGLCommand {
     GetUniformLocation(u32, String, IpcSender<Option<i32>>),
     PolygonOffset(f32, f32),
     Scissor(i32, i32, i32, i32),
+    StencilFunc(u32, i32, u32),
+    StencilFuncSeparate(u32, u32, i32, u32),
+    StencilMask(u32),
+    StencilMaskSeparate(u32, u32),
+    StencilOp(u32, u32, u32),
+    StencilOpSeparate(u32, u32, u32, u32),
     Hint(u32, u32),
     LineWidth(f32),
     PixelStorei(u32, i32),
@@ -192,6 +198,12 @@ impl fmt::Debug for WebGLCommand {
             GetUniformLocation(..) => "GetUniformLocation",
             PolygonOffset(..) => "PolygonOffset",
             Scissor(..) => "Scissor",
+            StencilFunc(..) => "StencilFunc",
+            StencilFuncSeparate(..) => "StencilFuncSeparate",
+            StencilMask(..) => "StencilMask",
+            StencilMaskSeparate(..) => "StencilMaskSeparate",
+            StencilOp(..) => "StencilOp",
+            StencilOpSeparate(..) => "StencilOpSeparate",
             Hint(..) => "Hint",
             LineWidth(..) => "LineWidth",
             PixelStorei(..) => "PixelStorei",
@@ -286,6 +298,8 @@ impl WebGLCommand {
                 gl::draw_arrays(mode, first, count),
             WebGLCommand::DrawElements(mode, count, type_, offset) =>
                 gl::draw_elements(mode, count, type_, offset as u32),
+            WebGLCommand::EnableVertexAttribArray(attrib_id) =>
+                gl::enable_vertex_attrib_array(attrib_id),
             WebGLCommand::Hint(name, val) =>
                 gl::hint(name, val),
             WebGLCommand::LineWidth(width) =>
@@ -296,8 +310,18 @@ impl WebGLCommand {
                 gl::polygon_offset(factor, units),
             WebGLCommand::Scissor(x, y, width, height) =>
                 gl::scissor(x, y, width, height),
-            WebGLCommand::EnableVertexAttribArray(attrib_id) =>
-                gl::enable_vertex_attrib_array(attrib_id),
+            WebGLCommand::StencilFunc(func, ref_, mask) =>
+                gl::stencil_func(func, ref_, mask),
+            WebGLCommand::StencilFuncSeparate(face, func, ref_, mask) =>
+                gl::stencil_func_separate(face, func, ref_, mask),
+            WebGLCommand::StencilMask(mask) =>
+                gl::stencil_mask(mask),
+            WebGLCommand::StencilMaskSeparate(face, mask) =>
+                gl::stencil_mask_separate(face, mask),
+            WebGLCommand::StencilOp(fail, zfail, zpass) =>
+                gl::stencil_op(fail, zfail, zpass),
+            WebGLCommand::StencilOpSeparate(face, fail, zfail, zpass) =>
+                gl::stencil_op_separate(face, fail, zfail, zpass),
             WebGLCommand::GetActiveAttrib(program_id, index, chan) =>
                 Self::active_attrib(program_id, index, chan),
             WebGLCommand::GetActiveUniform(program_id, index, chan) =>
@@ -425,8 +449,8 @@ impl WebGLCommand {
     }
 
     fn active_uniform(program_id: u32,
-                     index: u32,
-                     chan: IpcSender<WebGLResult<(i32, u32, String)>>) {
+                      index: u32,
+                      chan: IpcSender<WebGLResult<(i32, u32, String)>>) {
         let result = if index >= gl::get_program_iv(program_id, gl::ACTIVE_UNIFORMS) as u32 {
             Err(WebGLError::InvalidValue)
         } else {
