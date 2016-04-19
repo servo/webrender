@@ -981,9 +981,15 @@ impl Frame {
                     }
                     (ScrollPolicy::Scrollable, Some(scroll_layer_id)) => {
                         debug_assert!(!self.layers.contains_key(&scroll_layer_id));
+                        let viewport_size = match scroll_layer_id.info {
+                            ScrollLayerInfo::Scrollable(index) if index > 0 => {
+                                stacking_context.bounds.size
+                            }
+                            _ => parent_info.viewport_size,
+                        };
                         let layer = Layer::new(parent_info.offset_from_origin,
                                                stacking_context.overflow.size,
-                                               parent_info.viewport_size,
+                                               viewport_size,
                                                transform);
                         if parent_info.actual_scroll_layer_id != scroll_layer_id {
                             self.layers.get_mut(&parent_info.actual_scroll_layer_id).unwrap().add_child(scroll_layer_id);
@@ -994,6 +1000,8 @@ impl Frame {
                         info.offset_from_current_layer = Point2D::zero();
                         info.transform = Matrix4::identity();
                         info.perspective = Matrix4::identity();
+                        info.current_clip_rect = Rect::new(Point2D::zero(),
+                                                           stacking_context.overflow.size);
                     }
                     (ScrollPolicy::Scrollable, None) => {
                         // Nothing to do - use defaults as set above.
