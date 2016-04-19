@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use core::nonzero::NonZero;
-use ipc_channel::ipc::IpcSender;
 use gleam::gl;
+use ipc_channel::ipc::IpcSender;
 use offscreen_gl_context::{GLContext, GLContextAttributes, NativeGLContextMethods};
 use std::fmt;
 

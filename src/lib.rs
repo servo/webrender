@@ -9,15 +9,14 @@
 
 extern crate app_units;
 extern crate byteorder;
-extern crate euclid;
-extern crate ipc_channel;
-extern crate serde;
-extern crate offscreen_gl_context;
 extern crate core;
+extern crate euclid;
 extern crate gleam;
+extern crate ipc_channel;
+extern crate offscreen_gl_context;
+extern crate serde;
 
-#[cfg(target_os="macos")]
-extern crate core_graphics;
+#[cfg(target_os = "macos")] extern crate core_graphics;
 
 mod api;
 mod display_item;

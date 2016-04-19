@@ -6,8 +6,7 @@ use app_units::Au;
 use display_list::{AuxiliaryListsBuilder, ItemRange};
 use euclid::{Rect, Size2D};
 
-#[cfg(target_os="macos")]
-use core_graphics::font::CGFont;
+#[cfg(target_os = "macos")] use core_graphics::font::CGFont;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BorderRadius {
@@ -223,11 +222,11 @@ pub enum MixBlendMode {
     Luminosity,
 }
 
-#[cfg(target_os="macos")]
+#[cfg(target_os = "macos")]
 pub type NativeFontHandle = CGFont;
 
 /// Native fonts are not used on Linux; all fonts are raw.
-#[cfg(not(target_os="macos"))]
+#[cfg(not(target_os = "macos"))]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct NativeFontHandle;
 

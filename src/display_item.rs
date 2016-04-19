@@ -4,10 +4,10 @@
 
 use app_units::Au;
 use display_list::ItemRange;
-use types::{ClipRegion, ColorF, FontKey, ImageKey, BorderSide};
-use types::{BorderRadius, BoxShadowClipMode, ImageRendering};
-use webgl::{WebGLContextId};
 use euclid::{Point2D, Rect, Size2D};
+use types::{BorderRadius, BoxShadowClipMode, ImageRendering};
+use types::{ClipRegion, ColorF, FontKey, ImageKey, BorderSide};
+use webgl::{WebGLContextId};
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BorderDisplayItem {

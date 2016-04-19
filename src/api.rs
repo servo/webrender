@@ -7,12 +7,12 @@ use display_list::{AuxiliaryLists, AuxiliaryListsDescriptor, BuiltDisplayList};
 use display_list::{BuiltDisplayListDescriptor};
 use euclid::{Point2D, Size2D};
 use ipc_channel::ipc::{self, IpcBytesSender, IpcSender};
+use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use stacking_context::StackingContext;
 use std::cell::Cell;
 use types::{ColorF, DisplayListId, Epoch, FontKey, StackingContextId};
 use types::{ImageKey, ImageFormat, NativeFontHandle, PipelineId};
 use webgl::{WebGLContextId, WebGLCommand};
-use offscreen_gl_context::{GLContextAttributes, GLLimits};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct IdNamespace(pub u32);

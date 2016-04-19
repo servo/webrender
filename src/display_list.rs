@@ -3,14 +3,14 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
+use display_item::{BorderDisplayItem, BoxShadowDisplayItem};
 use display_item::{DisplayItem, SpecificDisplayItem, ImageDisplayItem, WebGLDisplayItem};
 use display_item::{RectangleDisplayItem, TextDisplayItem, GradientDisplayItem};
-use display_item::{BorderDisplayItem, BoxShadowDisplayItem};
 use euclid::{Point2D, Rect, Size2D};
 use std::mem;
 use std::slice;
-use types::{ClipRegion, ColorF, ComplexClipRegion, FontKey, ImageKey, PipelineId};
 use types::{BorderRadius, BorderSide, BoxShadowClipMode, FilterOp, GlyphInstance};
+use types::{ClipRegion, ColorF, ComplexClipRegion, FontKey, ImageKey, PipelineId};
 use types::{DisplayListMode, GradientStop, StackingContextId, ImageRendering};
 use webgl::{WebGLContextId};
 
