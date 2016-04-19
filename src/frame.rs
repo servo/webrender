@@ -1301,10 +1301,7 @@ impl Frame {
         let mut layers_bouncing_back = HashSet::with_hasher(Default::default());
         for (scroll_layer_id, layer) in &self.layers {
             if layer.scrolling.started_bouncing_back {
-                let overscroll_amount = layer.overscroll_amount();
-                if overscroll_amount.width.abs() >= 0.1 || overscroll_amount.height.abs() >= 0.1 {
-                    layers_bouncing_back.insert(*scroll_layer_id);
-                }
+                layers_bouncing_back.insert(*scroll_layer_id);
             }
         }
         layers_bouncing_back
