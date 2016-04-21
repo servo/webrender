@@ -34,6 +34,7 @@ pub enum WebGLParameter {
     Bool(bool),
     String(String),
     Float(f32),
+    FloatArray(Vec<f32>),
     Invalid,
 }
 
@@ -98,6 +99,7 @@ pub enum WebGLCommand {
     GetActiveUniform(u32, u32, IpcSender<WebGLResult<(i32, u32, String)>>),
     GetAttribLocation(u32, String, IpcSender<Option<i32>>),
     GetUniformLocation(u32, String, IpcSender<Option<i32>>),
+    GetVertexAttrib(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
     PolygonOffset(f32, f32),
     Scissor(i32, i32, i32, i32),
     StencilFunc(u32, i32, u32),
@@ -196,6 +198,7 @@ impl fmt::Debug for WebGLCommand {
             GetActiveUniform(..) => "GetActiveUniform",
             GetAttribLocation(..) => "GetAttribLocation",
             GetUniformLocation(..) => "GetUniformLocation",
+            GetVertexAttrib(..) => "GetVertexAttrib",
             PolygonOffset(..) => "PolygonOffset",
             Scissor(..) => "Scissor",
             StencilFunc(..) => "StencilFunc",
@@ -328,6 +331,8 @@ impl WebGLCommand {
                 Self::active_uniform(program_id, index, chan),
             WebGLCommand::GetAttribLocation(program_id, name, chan) =>
                 Self::attrib_location(program_id, name, chan),
+            WebGLCommand::GetVertexAttrib(index, pname, chan) =>
+                Self::vertex_attrib(index, pname, chan),
             WebGLCommand::GetBufferParameter(target, param_id, chan) =>
                 Self::buffer_parameter(target, param_id, chan),
             WebGLCommand::GetParameter(param_id, chan) =>
@@ -598,6 +603,30 @@ impl WebGLCommand {
     fn finish(chan: IpcSender<()>) {
         gl::finish();
         chan.send(()).unwrap();
+    }
+
+    fn vertex_attrib(index: u32,
+                     pname: u32,
+                     chan: IpcSender<WebGLResult<WebGLParameter>>) {
+        let result = if index >= gl::get_integer_v(gl::MAX_VERTEX_ATTRIBS) as u32 {
+            Err(WebGLError::InvalidValue)
+        } else {
+            match pname {
+                gl::VERTEX_ATTRIB_ARRAY_ENABLED |
+                gl::VERTEX_ATTRIB_ARRAY_NORMALIZED =>
+                    Ok(WebGLParameter::Bool(gl::get_vertex_attrib_iv(index, pname) != 0)),
+                gl::VERTEX_ATTRIB_ARRAY_SIZE |
+                gl::VERTEX_ATTRIB_ARRAY_STRIDE |
+                gl::VERTEX_ATTRIB_ARRAY_TYPE =>
+                    Ok(WebGLParameter::Int(gl::get_vertex_attrib_iv(index, pname))),
+                gl::CURRENT_VERTEX_ATTRIB =>
+                    Ok(WebGLParameter::FloatArray(gl::get_vertex_attrib_fv(index, pname))),
+                // gl::VERTEX_ATTRIB_ARRAY_BUFFER_BINDING should return WebGLBuffer
+                _ => Err(WebGLError::InvalidEnum),
+            }
+        };
+
+        chan.send(result).unwrap();
     }
 
     fn buffer_parameter(target: u32,
