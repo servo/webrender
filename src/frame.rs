@@ -634,7 +634,8 @@ impl Frame {
         }
 
         let overscroll_amount = layer.overscroll_amount();
-        let overscrolling = overscroll_amount.width != 0.0 || overscroll_amount.height != 0.0;
+        let overscrolling = CAN_OVERSCROLL && (overscroll_amount.width != 0.0 ||
+                                               overscroll_amount.height != 0.0);
         if overscrolling {
             if overscroll_amount.width != 0.0 {
                 delta.x /= overscroll_amount.width.abs()
@@ -676,7 +677,9 @@ impl Frame {
         layer.scrolling.offset.x = layer.scrolling.offset.x.round();
         layer.scrolling.offset.y = layer.scrolling.offset.y.round();
 
-        layer.stretch_overscroll_spring();
+        if CAN_OVERSCROLL {
+            layer.stretch_overscroll_spring();
+        }
     }
 
     pub fn tick_scrolling_bounce_animations(&mut self) {
@@ -1301,10 +1304,7 @@ impl Frame {
         let mut layers_bouncing_back = HashSet::with_hasher(Default::default());
         for (scroll_layer_id, layer) in &self.layers {
             if layer.scrolling.started_bouncing_back {
-                let overscroll_amount = layer.overscroll_amount();
-                if overscroll_amount.width.abs() >= 0.1 || overscroll_amount.height.abs() >= 0.1 {
-                    layers_bouncing_back.insert(*scroll_layer_id);
-                }
+                layers_bouncing_back.insert(*scroll_layer_id);
             }
         }
         layers_bouncing_back

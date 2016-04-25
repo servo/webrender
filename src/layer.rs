@@ -114,8 +114,11 @@ impl Layer {
     }
 
     pub fn tick_scrolling_bounce_animation(&mut self) {
-        self.scrolling.spring.animate();
+        let finished = self.scrolling.spring.animate();
         self.scrolling.offset = self.scrolling.spring.current();
+        if finished {
+            self.scrolling.started_bouncing_back = false;
+        }
     }
 }
 

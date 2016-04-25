@@ -50,7 +50,8 @@ impl Spring {
         self.cur
     }
 
-    pub fn animate(&mut self) {
+    /// Run one tick of the spring animation. Return true if the animation is complete.
+    pub fn animate(&mut self) -> bool {
         if !is_resting(self.cur.x, self.prev.x, self.dest.x) ||
                 !is_resting(self.cur.y, self.prev.y, self.dest.y) {
             let next = Point2D::new(next(self.cur.x,
@@ -64,10 +65,12 @@ impl Spring {
                                          self.stiffness,
                                          self.damping));
             let (cur, dest) = (self.cur, self.dest);
-            self.coords(next, cur, dest)
+            self.coords(next, cur, dest);
+            false
         } else {
             let dest = self.dest;
-            self.coords(dest, dest, dest)
+            self.coords(dest, dest, dest);
+            true
         }
     }
 }
