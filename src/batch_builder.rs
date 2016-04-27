@@ -11,7 +11,7 @@ use frame::FrameId;
 use internal_types::{AxisDirection, BasicRotationAngle, BorderRadiusRasterOp, BoxShadowRasterOp};
 use internal_types::{GlyphKey, PackedVertexColorMode, RasterItem, RectColors, RectPolygon};
 use internal_types::{RectSide, RectUv, DevicePixel};
-use num::Zero;
+use num_traits::Zero;
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use std::cmp::Ordering;

@@ -8,7 +8,7 @@ use device::{TextureId, TextureFilter};
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeListItem, FreeListItemId};
-use num::Zero;
+use num_traits::Zero;
 use profiler::BackendProfileCounters;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
