@@ -4,7 +4,7 @@
 
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use internal_types::{RectColors};
-use num::Zero;
+use num_traits::Zero;
 use time::precise_time_ns;
 use webrender_traits::ColorF;
 

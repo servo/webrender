@@ -35,7 +35,7 @@ git = "https://github.com/servo/webrender_traits"
 offscreen_gl_context = {version = "0.1.1", features = ["serde_serialization"]}
 gleam = "0.2"
 euclid = {version = "0.6.2", features = ["plugins"]}
-num = {version = "0.1.31", default-features = false}
+num-traits = "0.1.32"
 time = "0.1"
 fnv="1.0"
 scoped_threadpool = "0.1.6"
