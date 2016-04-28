@@ -72,6 +72,8 @@ pub enum WebGLCommand {
     Enable(u32),
     Disable(u32),
     CompileShader(u32, String),
+    CopyTexImage2D(u32, i32, u32, i32, i32, i32, i32, i32),
+    CopyTexSubImage2D(u32, i32, i32, i32, i32, i32, i32, i32),
     CreateBuffer(IpcSender<Option<NonZero<u32>>>),
     CreateFramebuffer(IpcSender<Option<NonZero<u32>>>),
     CreateRenderbuffer(IpcSender<Option<NonZero<u32>>>),
@@ -136,6 +138,7 @@ pub enum WebGLCommand {
     TexImage2D(u32, i32, i32, i32, i32, u32, u32, Vec<u8>),
     TexParameteri(u32, u32, i32),
     TexParameterf(u32, u32, f32),
+    TexSubImage2D(u32, i32, i32, i32, i32, i32, u32, u32, Vec<u8>),
     DrawingBufferWidth(IpcSender<i32>),
     DrawingBufferHeight(IpcSender<i32>),
     Finish(IpcSender<()>),
@@ -164,6 +167,8 @@ impl fmt::Debug for WebGLCommand {
             ClearDepth(..) => "ClearDepth",
             ClearStencil(..) => "ClearStencil",
             ColorMask(..) => "ColorMask",
+            CopyTexImage2D(..) => "CopyTexImage2D",
+            CopyTexSubImage2D(..) => "CopyTexSubImage2D",
             CullFace(..) => "CullFace",
             FrontFace(..) => "FrontFace",
             DepthFunc(..) => "DepthFunc",
@@ -236,6 +241,7 @@ impl fmt::Debug for WebGLCommand {
             TexImage2D(..) => "TexImage2D",
             TexParameteri(..) => "TexParameteri",
             TexParameterf(..) => "TexParameterf",
+            TexSubImage2D(..) => "TexSubImage2D",
             DrawingBufferWidth(..) => "DrawingBufferWidth",
             DrawingBufferHeight(..) => "DrawingBufferHeight",
             Finish(..) => "Finish",
@@ -285,6 +291,10 @@ impl WebGLCommand {
                 gl::clear_stencil(stencil),
             WebGLCommand::ColorMask(r, g, b, a) =>
                 gl::color_mask(r, g, b, a),
+            WebGLCommand::CopyTexImage2D(target, level, internal_format, x, y, width, height, border) =>
+                gl::copy_tex_image_2d(target, level, internal_format, x, y, width, height, border),
+            WebGLCommand::CopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height) =>
+                gl::copy_tex_sub_image_2d(target, level, xoffset, yoffset, x, y, width, height),
             WebGLCommand::CullFace(mode) =>
                 gl::cull_face(mode),
             WebGLCommand::DepthFunc(func) =>
@@ -429,6 +439,8 @@ impl WebGLCommand {
                 gl::tex_parameter_i(target, name, value),
             WebGLCommand::TexParameterf(target, name, value) =>
                 gl::tex_parameter_f(target, name, value),
+            WebGLCommand::TexSubImage2D(target, level, xoffset, yoffset, x, y, width, height, data) =>
+                gl::tex_sub_image_2d(target, level, xoffset, yoffset, x, y, width, height, &data),
             WebGLCommand::DrawingBufferWidth(sender) =>
                 sender.send(ctx.borrow_draw_buffer().unwrap().size().width).unwrap(),
             WebGLCommand::DrawingBufferHeight(sender) =>
