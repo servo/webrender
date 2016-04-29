@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use euclid::Matrix4;
+use euclid::Matrix4D;
 use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{PackedColor, PackedVertex, PackedVertexForQuad};
@@ -1038,7 +1038,7 @@ impl Device {
 
     pub fn bind_program(&mut self,
                         program_id: ProgramId,
-                        projection: &Matrix4) {
+                        projection: &Matrix4D<f32>) {
         debug_assert!(self.inside_frame);
 
         if self.bound_program != program_id {
@@ -1496,7 +1496,7 @@ impl Device {
 
     pub fn set_uniform_mat4_array(&self,
                                   uniform: UniformLocation,
-                                  matrices: &[Matrix4]) {
+                                  matrices: &[Matrix4D<f32>]) {
         debug_assert!(self.inside_frame);
         let UniformLocation(location) = uniform;
 
@@ -1524,7 +1524,7 @@ impl Device {
         gl::uniform_matrix_4fv(location, false, &floats);
     }
 
-    fn set_uniforms(&self, program: &Program, transform: &Matrix4) {
+    fn set_uniforms(&self, program: &Program, transform: &Matrix4D<f32>) {
         debug_assert!(self.inside_frame);
         gl::uniform_matrix_4fv(program.u_transform, false, &transform.to_array());
     }

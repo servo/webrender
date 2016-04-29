@@ -5,7 +5,7 @@
 use app_units::Au;
 use batch::{MAX_MATRICES_PER_BATCH, OffsetParams};
 use device::{TextureId, TextureFilter};
-use euclid::{Rect, Point2D, Point3D, Point4D, Size2D, Matrix4};
+use euclid::{Matrix4D, Point2D, Point3D, Point4D, Rect, Size2D};
 use fnv::FnvHasher;
 use geometry::ray_intersects_rect;
 use internal_types::{AxisDirection, LowLevelFilterOp, CompositionOp, DrawListItemIndex};
@@ -98,8 +98,8 @@ struct FlattenInfo {
     fixed_scroll_layer_id: ScrollLayerId,
     offset_from_origin: Point2D<f32>,
     offset_from_current_layer: Point2D<f32>,
-    transform: Matrix4,
-    perspective: Matrix4,
+    transform: Matrix4D<f32>,
+    perspective: Matrix4D<f32>,
 }
 
 #[derive(Debug)]
@@ -214,7 +214,7 @@ impl RenderTarget {
 
                     let layer = &layers[&draw_list_group.scroll_layer_id];
                     let mut matrix_palette =
-                        vec![Matrix4::identity(); draw_list_group.draw_list_ids.len()];
+                        vec![Matrix4D::identity(); draw_list_group.draw_list_ids.len()];
                     let mut offset_palette =
                         vec![OffsetParams::identity(); draw_list_group.draw_list_ids.len()];
 
@@ -344,7 +344,7 @@ impl RenderTarget {
                       op: CompositionOp,
                       texture_id: TextureId,
                       target: Rect<f32>,
-                      transform: &Matrix4,
+                      transform: &Matrix4D<f32>,
                       child_layer_index: ChildLayerIndex,
                       z_clear_needed: bool) {
         // TODO(gw): Relax the restriction on batch breaks for FB reads
@@ -589,7 +589,7 @@ impl Frame {
     pub fn get_scroll_layer(&self,
                             cursor: &Point2D<f32>,
                             scroll_layer_id: ScrollLayerId,
-                            parent_transform: &Matrix4) -> Option<ScrollLayerId> {
+                            parent_transform: &Matrix4D<f32>) -> Option<ScrollLayerId> {
         self.layers.get(&scroll_layer_id).and_then(|layer| {
             let transform = parent_transform.mul(&layer.local_transform);
 
@@ -642,7 +642,7 @@ impl Frame {
 
         let scroll_layer_id = match self.get_scroll_layer(&cursor,
                                                           root_scroll_layer_id,
-                                                          &Matrix4::identity()) {
+                                                          &Matrix4D::identity()) {
             Some(scroll_layer_id) => scroll_layer_id,
             None => return,
         };
@@ -741,7 +741,7 @@ impl Frame {
                                    Layer::new(root_stacking_context.stacking_context.overflow.origin,
                                               root_stacking_context.stacking_context.overflow.size,
                                               root_pipeline.viewport_size,
-                                              Matrix4::identity()));
+                                              Matrix4D::identity()));
 
                 // Work around borrow check on resource cache
                 {
@@ -761,8 +761,8 @@ impl Frame {
                         actual_scroll_layer_id: root_scroll_layer_id,
                         fixed_scroll_layer_id: root_fixed_layer_id,
                         current_clip_rect: MAX_RECT,
-                        transform: Matrix4::identity(),
-                        perspective: Matrix4::identity(),
+                        transform: Matrix4D::identity(),
+                        perspective: Matrix4D::identity(),
                     };
 
                     let root_pipeline = SceneItemKind::Pipeline(root_pipeline);
@@ -971,20 +971,20 @@ impl Frame {
                 // Build world space transform
                 let origin = parent_info.offset_from_current_layer + stacking_context.bounds.origin;
                 let local_transform = if composition_operations.is_empty() {
-                    Matrix4::identity().translate(origin.x, origin.y, 0.0)
-                                       .mul(&stacking_context.transform)
-                                       .translate(-origin.x, -origin.y, 0.0)
+                    Matrix4D::identity().translate(origin.x, origin.y, 0.0)
+                                        .mul(&stacking_context.transform)
+                                        .translate(-origin.x, -origin.y, 0.0)
                 } else {
-                    Matrix4::identity()
+                    Matrix4D::identity()
                 };
 
                 let transform = parent_info.perspective.mul(&parent_info.transform)
                                                        .mul(&local_transform);
 
                 // Build world space perspective transform
-                let perspective = Matrix4::identity().translate(origin.x, origin.y, 0.0)
-                                                     .mul(&stacking_context.perspective)
-                                                     .translate(-origin.x, -origin.y, 0.0);
+                let perspective = Matrix4D::identity().translate(origin.x, origin.y, 0.0)
+                                                      .mul(&stacking_context.perspective)
+                                                      .translate(-origin.x, -origin.y, 0.0);
 
                 let mut info = FlattenInfo {
                     viewport_size: parent_info.viewport_size,
@@ -1022,8 +1022,8 @@ impl Frame {
                         info.default_scroll_layer_id = scroll_layer_id;
                         info.actual_scroll_layer_id = scroll_layer_id;
                         info.offset_from_current_layer = Point2D::zero();
-                        info.transform = Matrix4::identity();
-                        info.perspective = Matrix4::identity();
+                        info.transform = Matrix4D::identity();
+                        info.perspective = Matrix4D::identity();
                         info.current_clip_rect = Rect::new(Point2D::zero(),
                                                            stacking_context.overflow.size);
                     }
@@ -1084,9 +1084,9 @@ impl Frame {
                                                            Some(texture_id));
 
                     let local_transform =
-                        Matrix4::identity().translate(origin.x, origin.y, 0.0)
-                                           .mul(&stacking_context.transform)
-                                           .translate(-origin.x, -origin.y, 0.0);
+                        Matrix4D::identity().translate(origin.x, origin.y, 0.0)
+                                            .mul(&stacking_context.transform)
+                                            .translate(-origin.x, -origin.y, 0.0);
                     for composition_operation in composition_operations {
                         target.push_composite(composition_operation,
                                               texture_id,
@@ -1149,7 +1149,7 @@ impl Frame {
 
     fn update_layer_transform(&mut self,
                               layer_id: ScrollLayerId,
-                              parent_transform: &Matrix4) {
+                              parent_transform: &Matrix4D<f32>) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
         //           Restructure this to avoid the clones!
         let (layer_transform, layer_children) = {
@@ -1176,7 +1176,7 @@ impl Frame {
 
     fn update_layer_transforms(&mut self) {
         if let Some(root_scroll_layer_id) = self.root_scroll_layer_id {
-            self.update_layer_transform(root_scroll_layer_id, &Matrix4::identity());
+            self.update_layer_transform(root_scroll_layer_id, &Matrix4D::identity());
         }
 
         // Update any fixed layers
@@ -1191,7 +1191,7 @@ impl Frame {
         }
 
         for layer_id in fixed_layers {
-            self.update_layer_transform(layer_id, &Matrix4::identity());
+            self.update_layer_transform(layer_id, &Matrix4D::identity());
         }
     }
 

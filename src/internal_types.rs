@@ -5,7 +5,7 @@
 use app_units::Au;
 use batch::{VertexBuffer, Batch, VertexBufferId, OffsetParams, TileParams};
 use device::{TextureId, TextureFilter};
-use euclid::{Matrix4, Point2D, Rect, Size2D};
+use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeListItem, FreeListItemId};
 use num_traits::Zero;
@@ -452,12 +452,12 @@ pub struct DrawCall {
 #[derive(Clone, Debug)]
 pub struct OutputMask {
     pub rect: Rect<f32>,
-    pub transform: Matrix4,
+    pub transform: Matrix4D<f32>,
 }
 
 impl OutputMask {
     pub fn new(rect: Rect<f32>,
-               transform: Matrix4) -> OutputMask {
+               transform: Matrix4D<f32>) -> OutputMask {
         OutputMask {
             rect: rect,
             transform: transform,
@@ -481,20 +481,20 @@ impl MaskRegion {
 
     pub fn add_mask(&mut self,
                     rect: Rect<f32>,
-                    transform: Matrix4) {
+                    transform: Matrix4D<f32>) {
         self.masks.push(OutputMask::new(rect, transform));
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct BatchInfo {
-    pub matrix_palette: Vec<Matrix4>,
+    pub matrix_palette: Vec<Matrix4D<f32>>,
     pub offset_palette: Vec<OffsetParams>,
     pub regions: Vec<MaskRegion>,
 }
 
 impl BatchInfo {
-    pub fn new(matrix_palette: Vec<Matrix4>,
+    pub fn new(matrix_palette: Vec<Matrix4D<f32>>,
                offset_palette: Vec<OffsetParams>) -> BatchInfo {
         BatchInfo {
             matrix_palette: matrix_palette,
@@ -507,7 +507,7 @@ impl BatchInfo {
 #[derive(Debug, Clone)]
 pub struct CompositeBatchJob {
     pub rect: Rect<f32>,
-    pub transform: Matrix4,
+    pub transform: Matrix4D<f32>,
     pub child_layer_index: ChildLayerIndex,
 }
 
@@ -601,8 +601,8 @@ pub struct RenderTargetId(pub usize);
 pub struct StackingContextInfo {
     pub offset_from_layer: Point2D<f32>,
     pub local_clip_rect: Rect<f32>,
-    pub transform: Matrix4,
-    pub perspective: Matrix4,
+    pub transform: Matrix4D<f32>,
+    pub perspective: Matrix4D<f32>,
     pub z_clear_needed: bool,
 }
 
