@@ -104,8 +104,8 @@ struct FlattenInfo {
 
 #[derive(Debug)]
 pub enum FrameRenderItem {
-    Clear(ClearInfo),
-    CompositeBatch(CompositeBatchInfo),
+    /// The extra boolean indicates whether a Z-buffer clear is needed.
+    CompositeBatch(CompositeBatchInfo, bool),
     DrawListBatch(DrawListGroupId),
 }
 
@@ -198,10 +198,14 @@ impl RenderTarget {
         let mut commands = vec![];
         for item in &self.items {
             match item {
-                &FrameRenderItem::Clear(ref info) => {
-                    commands.push(DrawCommand::Clear(info.clone()));
-                }
-                &FrameRenderItem::CompositeBatch(ref info) => {
+                &FrameRenderItem::CompositeBatch(ref info, z_clear_needed) => {
+                    if z_clear_needed {
+                        commands.push(DrawCommand::Clear(ClearInfo {
+                            clear_color: false,
+                            clear_z: true,
+                            clear_stencil: true,
+                        }))
+                    }
                     commands.push(DrawCommand::CompositeBatch(info.clone()));
                 }
                 &FrameRenderItem::DrawListBatch(draw_list_group_id) => {
@@ -215,11 +219,15 @@ impl RenderTarget {
                         vec![OffsetParams::identity(); draw_list_group.draw_list_ids.len()];
 
                     // Update batch matrices
+                    let mut z_clear_needed = false;
                     for (index, draw_list_id) in draw_list_group.draw_list_ids.iter().enumerate() {
                         let draw_list = resource_cache.get_draw_list(*draw_list_id);
 
                         let StackingContextIndex(stacking_context_id) = draw_list.stacking_context_index.unwrap();
                         let context = &stacking_context_info[stacking_context_id];
+                        if context.z_clear_needed {
+                            z_clear_needed = true
+                        }
 
                         let transform = layer.world_transform.mul(&context.transform);
                         matrix_palette[index] = transform;
@@ -231,8 +239,11 @@ impl RenderTarget {
                     let mut batch_info = BatchInfo::new(matrix_palette, offset_palette);
 
                     // Collect relevant draws from each node in the tree.
+                    let mut any_were_visible = false;
                     for node in &layer.aabb_tree.nodes {
                         if node.is_visible {
+                            any_were_visible = true;
+
                             debug_assert!(node.compiled_node.is_some());
                             let compiled_node = node.compiled_node.as_ref().unwrap();
 
@@ -278,8 +289,19 @@ impl RenderTarget {
                         }
                     }
 
-                    // Finally, add the batch + draw calls
-                    commands.push(DrawCommand::Batch(batch_info));
+                    if any_were_visible {
+                        // Add a clear command if necessary.
+                        if z_clear_needed {
+                            commands.push(DrawCommand::Clear(ClearInfo {
+                                clear_color: false,
+                                clear_z: true,
+                                clear_stencil: true,
+                            }))
+                        }
+
+                        // Finally, add the batch + draw calls
+                        commands.push(DrawCommand::Batch(batch_info));
+                    }
                 }
             }
         }
@@ -318,27 +340,20 @@ impl RenderTarget {
         self.page_allocator = None;
     }
 
-    fn push_clear(&mut self, clear_info: ClearInfo) {
-        self.items.push(FrameRenderItem::Clear(clear_info));
-    }
-
     fn push_composite(&mut self,
                       op: CompositionOp,
                       texture_id: TextureId,
                       target: Rect<f32>,
                       transform: &Matrix4,
-                      child_layer_index: ChildLayerIndex) {
+                      child_layer_index: ChildLayerIndex,
+                      z_clear_needed: bool) {
         // TODO(gw): Relax the restriction on batch breaks for FB reads
         //           once the proper render target allocation code is done!
         let need_new_batch = op.needs_framebuffer() || match self.items.last() {
-            Some(&FrameRenderItem::CompositeBatch(ref info)) => {
+            Some(&FrameRenderItem::CompositeBatch(ref info, _)) => {
                 info.operation != op || info.texture_id != texture_id
             }
-            Some(&FrameRenderItem::Clear(..)) |
-            Some(&FrameRenderItem::DrawListBatch(..)) |
-            None => {
-                true
-            }
+            Some(&FrameRenderItem::DrawListBatch(..)) | None => true,
         };
 
         if need_new_batch {
@@ -346,18 +361,22 @@ impl RenderTarget {
                 operation: op,
                 texture_id: texture_id,
                 jobs: Vec::new(),
-            }));
+            }, z_clear_needed));
         }
 
         // TODO(gw): This seems a little messy - restructure how current batch works!
         match self.items.last_mut().unwrap() {
-            &mut FrameRenderItem::CompositeBatch(ref mut batch) => {
+            &mut FrameRenderItem::CompositeBatch(ref mut batch, ref mut old_z_clear_needed) => {
                 let job = CompositeBatchJob {
                     rect: target,
                     transform: *transform,
                     child_layer_index: child_layer_index,
                 };
                 batch.jobs.push(job);
+
+                if !*old_z_clear_needed && z_clear_needed {
+                    *old_z_clear_needed = true
+                }
             }
             _ => {
                 unreachable!();
@@ -778,13 +797,15 @@ impl Frame {
                            info: &FlattenInfo,
                            target: &mut RenderTarget,
                            context: &mut FlattenContext,
-                           _level: i32) {
+                           _level: i32,
+                           z_clear_needed: bool) {
         let stacking_context_index = StackingContextIndex(self.stacking_context_info.len());
         self.stacking_context_info.push(StackingContextInfo {
             offset_from_layer: info.offset_from_current_layer,
             local_clip_rect: info.current_clip_rect,
             transform: info.transform,
             perspective: info.perspective,
+            z_clear_needed: z_clear_needed,
         });
 
         for item in scene_items {
@@ -1013,14 +1034,8 @@ impl Frame {
 
                 // When establishing a new 3D context, clear Z. This is only needed if there
                 // are child stacking contexts, otherwise it is a redundant clear.
-                if stacking_context.establishes_3d_context &&
-                   stacking_context.has_stacking_contexts {
-                    target.push_clear(ClearInfo {
-                        clear_color: false,
-                        clear_z: true,
-                        clear_stencil: true,
-                    });
-                }
+                let z_clear_needed = stacking_context.establishes_3d_context &&
+                   stacking_context.has_stacking_contexts;
 
                 // TODO: Account for scroll offset with transforms!
                 if composition_operations.is_empty() {
@@ -1028,7 +1043,8 @@ impl Frame {
                                              &info,
                                              target,
                                              context,
-                                             level);
+                                             level,
+                                             z_clear_needed);
                 } else {
                     // TODO(gw): This makes the reftests work (mix_blend_mode) and
                     //           inline_stacking_context, but it seems wrong.
@@ -1076,7 +1092,8 @@ impl Frame {
                                               texture_id,
                                               target_rect,
                                               &local_transform,
-                                              child_layer_index);
+                                              child_layer_index,
+                                              z_clear_needed);
                     }
 
                     info.offset_from_current_layer = Point2D::zero();
@@ -1085,7 +1102,8 @@ impl Frame {
                                              &info,
                                              &mut new_target,
                                              context,
-                                             level);
+                                             level,
+                                             z_clear_needed);
 
                     target.children.push(new_target);
                 }
