@@ -302,7 +302,6 @@ impl ResourceCache {
         });
     }
 
-    #[cfg(not(target_os = "windows"))]
     pub fn raster_pending_glyphs(&mut self,
                                  thread_pool: &mut scoped_threadpool::Pool,
                                  frame_id: FrameId) {
@@ -352,13 +351,6 @@ impl ResourceCache {
             };
             self.cached_glyphs.insert(job.glyph_key, image_id, frame_id);
         }
-    }
-
-    #[cfg(target_os = "windows")]
-    pub fn raster_pending_glyphs(&mut self,
-                                 thread_pool: &mut scoped_threadpool::Pool,
-                                 frame_id: FrameId) {
-        return
     }
 
     pub fn add_draw_list(&mut self, items: Vec<DisplayItem>, pipeline_id: PipelineId)
@@ -446,7 +438,6 @@ impl ResourceCache {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
 fn run_raster_jobs(thread_pool: &mut scoped_threadpool::Pool,
                    pending_raster_jobs: &mut Vec<GlyphRasterJob>,
                    font_templates: &HashMap<FontKey, FontTemplate, BuildHasherDefault<FnvHasher>>,
