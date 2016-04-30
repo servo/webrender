@@ -603,6 +603,7 @@ pub struct StackingContextInfo {
     pub local_clip_rect: Rect<f32>,
     pub transform: Matrix4,
     pub perspective: Matrix4,
+    pub z_clear_needed: bool,
 }
 
 #[derive(Debug)]
