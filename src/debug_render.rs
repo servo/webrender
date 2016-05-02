@@ -5,7 +5,7 @@
 use debug_font_data;
 use device::{Device, ProgramId, VAOId, TextureId, VertexFormat};
 use device::{TextureFilter, VertexUsageHint};
-use euclid::{Matrix4, Point2D, Size2D, Rect};
+use euclid::{Matrix4D, Point2D, Size2D, Rect};
 use gleam::gl;
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE};
 use internal_types::{DebugFontVertex, DebugColorVertex, RenderTargetMode, PackedColor};
@@ -171,12 +171,12 @@ impl DebugRenderer {
             gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
                                     gl::ONE, gl::ONE);
 
-            let projection = Matrix4::ortho(0.0,
-                                            viewport_size.width as f32,
-                                            viewport_size.height as f32,
-                                            0.0,
-                                            ORTHO_NEAR_PLANE,
-                                            ORTHO_FAR_PLANE);
+            let projection = Matrix4D::ortho(0.0,
+                                             viewport_size.width as f32,
+                                             viewport_size.height as f32,
+                                             0.0,
+                                             ORTHO_NEAR_PLANE,
+                                             ORTHO_FAR_PLANE);
 
             // Triangles
             device.bind_program(self.color_program_id, &projection);

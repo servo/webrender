@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use euclid::{Matrix4, Point2D, Rect, Size2D};
+use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use internal_types::{RectColors};
 use num_traits::Zero;
 use time::precise_time_ns;
@@ -40,7 +40,7 @@ pub trait MatrixHelpers {
     fn transform_rect(&self, rect: &Rect<f32>) -> Rect<f32>;
 }
 
-impl MatrixHelpers for Matrix4 {
+impl MatrixHelpers for Matrix4D<f32> {
     #[inline]
     fn transform_rect(&self, rect: &Rect<f32>) -> Rect<f32> {
         let top_left = self.transform_point(&rect.origin);

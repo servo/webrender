@@ -6,7 +6,7 @@ use batch::{RasterBatch, VertexBufferId};
 use debug_render::DebugRenderer;
 use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat, GpuProfile};
 use device::{TextureFilter, VAOId, VBOId, VertexUsageHint, FileWatcherHandler};
-use euclid::{Rect, Matrix4, Point2D, Size2D};
+use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
@@ -954,12 +954,12 @@ impl Renderer {
             // Disable MSAA here for raster ops
             self.enable_msaa(false);
 
-            let projection = Matrix4::ortho(0.0,
-                                            self.max_raster_op_size as f32,
-                                            0.0,
-                                            self.max_raster_op_size as f32,
-                                            ORTHO_NEAR_PLANE,
-                                            ORTHO_FAR_PLANE);
+            let projection = Matrix4D::ortho(0.0,
+                                             self.max_raster_op_size as f32,
+                                             0.0,
+                                             self.max_raster_op_size as f32,
+                                             ORTHO_NEAR_PLANE,
+                                             ORTHO_FAR_PLANE);
 
             // All horizontal blurs must complete before anything else.
             let mut remaining_batches = vec![];
@@ -994,7 +994,7 @@ impl Renderer {
                                                 color_texture_id: TextureId,
                                                 program_id: ProgramId,
                                                 blur_direction: Option<AxisDirection>,
-                                                projection: &Matrix4) {
+                                                projection: &Matrix4D<f32>) {
         if !self.device.texture_has_alpha(target_texture_id) {
             gl::enable(gl::BLEND);
             gl::blend_func(gl::SRC_ALPHA, gl::ZERO);
@@ -1176,12 +1176,12 @@ impl Renderer {
         gl::clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
         gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
 
-        let projection = Matrix4::ortho(0.0,
-                                        layer.size.width,
-                                        layer.size.height,
-                                        0.0,
-                                        ORTHO_NEAR_PLANE,
-                                        ORTHO_FAR_PLANE);
+        let projection = Matrix4D::ortho(0.0,
+                                         layer.size.width,
+                                         layer.size.height,
+                                         0.0,
+                                         ORTHO_NEAR_PLANE,
+                                         ORTHO_FAR_PLANE);
 
         for cmd in &layer.commands {
             match cmd {
@@ -1240,7 +1240,7 @@ impl Renderer {
 
                             // If the mask is larger than the viewport / scissor rect
                             // then there is no need to draw it.
-                            if mask.transform == Matrix4::identity() &&
+                            if mask.transform == Matrix4D::identity() &&
                                mask.rect.contains_rect(&layer_rect) {
                                 continue;
                             }

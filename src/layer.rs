@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use aabbtree::{AABBTree, NodeIndex};
-use euclid::{Point2D, Rect, Size2D, Matrix4};
+use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use internal_types::{BatchUpdate, BatchUpdateList, BatchUpdateOp};
 use internal_types::{DrawListItemIndex, DrawListId, DrawListGroupId};
 use spring::{DAMPING, STIFFNESS, Spring};
@@ -16,8 +16,8 @@ pub struct Layer {
     pub viewport_size: Size2D<f32>,
     pub layer_size: Size2D<f32>,
     pub world_origin: Point2D<f32>,
-    pub local_transform: Matrix4,
-    pub world_transform: Matrix4,
+    pub local_transform: Matrix4D<f32>,
+    pub world_transform: Matrix4D<f32>,
     pub children: Vec<ScrollLayerId>,
 }
 
@@ -25,7 +25,7 @@ impl Layer {
     pub fn new(world_origin: Point2D<f32>,
                layer_size: Size2D<f32>,
                viewport_size: Size2D<f32>,
-               transform: Matrix4) -> Layer {
+               transform: Matrix4D<f32>) -> Layer {
         let rect = Rect::new(Point2D::zero(), layer_size);
         let aabb_tree = AABBTree::new(1024.0, &rect);
 
