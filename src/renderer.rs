@@ -42,18 +42,6 @@ const MAX_CACHED_QUAD_VAOS: usize = 8;
 
 // TODO(gw): HACK! Need to support lighten/darken mix-blend-mode properly on android...
 
-#[cfg(not(any(target_os = "android", target_os = "gonk")))]
-const GL_BLEND_MIN: gl::GLuint = gl::MIN;
-
-#[cfg(any(target_os = "android", target_os = "gonk"))]
-const GL_BLEND_MIN: gl::GLuint = gl::FUNC_ADD;
-
-#[cfg(not(any(target_os = "android", target_os = "gonk")))]
-const GL_BLEND_MAX: gl::GLuint = gl::MAX;
-
-#[cfg(any(target_os = "android", target_os = "gonk"))]
-const GL_BLEND_MAX: gl::GLuint = gl::FUNC_ADD;
-
 #[derive(Clone, Copy)]
 struct VertexBuffer {
     vao_id: VAOId,
@@ -1499,13 +1487,13 @@ impl Renderer {
                             }
                             CompositionOp::MixBlend(MixBlendMode::Darken) => {
                                 gl::blend_func(gl::ONE, gl::ONE);
-                                gl::blend_equation(GL_BLEND_MIN);
+                                gl::blend_equation(gl::MIN);
                                 program = self.blit_program_id;
                                 alpha = 1.0;
                             }
                             CompositionOp::MixBlend(MixBlendMode::Lighten) => {
                                 gl::blend_func(gl::ONE, gl::ONE);
-                                gl::blend_equation(GL_BLEND_MAX);
+                                gl::blend_equation(gl::MAX);
                                 program = self.blit_program_id;
                                 alpha = 1.0;
                             }

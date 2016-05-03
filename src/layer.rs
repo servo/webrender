@@ -27,7 +27,7 @@ impl Layer {
                viewport_size: Size2D<f32>,
                transform: Matrix4D<f32>) -> Layer {
         let rect = Rect::new(Point2D::zero(), layer_size);
-        let aabb_tree = AABBTree::new(1024.0, &rect);
+        let aabb_tree = AABBTree::new(8192.0, &rect);
 
         Layer {
             aabb_tree: aabb_tree,
