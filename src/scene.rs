@@ -8,10 +8,9 @@ use internal_types::DrawListId;
 use resource_cache::ResourceCache;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
-use webrender_traits::{AuxiliaryLists, BuiltDisplayList, ItemRange, PipelineId, Epoch};
-use webrender_traits::{ColorF, DisplayListId, StackingContext, StackingContextId};
-use webrender_traits::{SpecificDisplayListItem};
-use webrender_traits::{IframeInfo};
+use webrender_traits::{AuxiliaryLists, BuiltDisplayList, BuiltDisplayListRef, ItemRange};
+use webrender_traits::{ColorF, DisplayListId, Epoch, PipelineId, StackingContext};
+use webrender_traits::{IframeInfo, StackingContextId, SpecificDisplayListItem};
 use webrender_traits::{RectangleDisplayItem, ClipRegion, DisplayItem, SpecificDisplayItem};
 
 #[derive(Debug)]
@@ -74,7 +73,7 @@ impl Scene {
                             id: DisplayListId,
                             pipeline_id: PipelineId,
                             epoch: Epoch,
-                            built_display_list: BuiltDisplayList,
+                            built_display_list: BuiltDisplayListRef,
                             resource_cache: &mut ResourceCache) {
         let items = built_display_list.display_list_items().iter().map(|item| {
             match item.specific {

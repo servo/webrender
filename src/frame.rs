@@ -389,12 +389,13 @@ impl RenderTarget {
     }
 }
 
+pub type PipelineAuxiliaryLists = HashMap<PipelineId,
+                                          AuxiliaryLists,
+                                          BuildHasherDefault<FnvHasher>>;
+
 pub struct Frame {
     pub layers: HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>,
     pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
-    pub pipeline_auxiliary_lists: HashMap<PipelineId,
-                                          AuxiliaryLists,
-                                          BuildHasherDefault<FnvHasher>>,
     pub pending_updates: BatchUpdateList,
     pub root: Option<RenderTarget>,
     pub stacking_context_info: Vec<StackingContextInfo>,
@@ -534,7 +535,6 @@ impl Frame {
         Frame {
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
             pending_updates: BatchUpdateList::new(),
-            pipeline_auxiliary_lists: HashMap::with_hasher(Default::default()),
             root: None,
             layers: HashMap::with_hasher(Default::default()),
             stacking_context_info: Vec::new(),
@@ -715,8 +715,6 @@ impl Frame {
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
             if let Some(root_pipeline) = scene.pipeline_map.get(&root_pipeline_id) {
                 let old_layer_scrolling_states = self.reset(resource_cache);
-
-                self.pipeline_auxiliary_lists = scene.pipeline_auxiliary_lists.clone();
 
                 let root_stacking_context = scene.stacking_context_map
                                                  .get(&root_pipeline.root_stacking_context_id)
@@ -962,9 +960,10 @@ impl Frame {
             let scene_items = scene_item.collect_scene_items(&context.scene);
             if !scene_items.is_empty() {
                 let composition_operations = {
-                    let auxiliary_lists = self.pipeline_auxiliary_lists
-                                              .get(&pipeline_id)
-                                              .expect("No auxiliary lists?!");
+                    let auxiliary_lists = context.scene
+                                                 .pipeline_auxiliary_lists
+                                                 .get(&pipeline_id)
+                                                 .expect("No auxiliary lists?!");
                     stacking_context.composition_operations(auxiliary_lists)
                 };
 
@@ -1113,6 +1112,7 @@ impl Frame {
 
     pub fn build(&mut self,
                  resource_cache: &mut ResourceCache,
+                 pipeline_auxiliary_lists: &PipelineAuxiliaryLists,
                  thread_pool: &mut scoped_threadpool::Pool,
                  device_pixel_ratio: f32)
                  -> RendererFrame {
@@ -1122,7 +1122,7 @@ impl Frame {
         }
 
         // Build resource list for newly visible nodes
-        self.update_resource_lists(resource_cache, thread_pool);
+        self.update_resource_lists(resource_cache, pipeline_auxiliary_lists, thread_pool);
 
         // Update texture cache and build list of raster jobs.
         self.update_texture_cache_and_build_raster_jobs(resource_cache);
@@ -1131,7 +1131,10 @@ impl Frame {
         self.raster_glyphs(thread_pool, resource_cache);
 
         // Compile nodes that have become visible
-        self.compile_visible_nodes(thread_pool, resource_cache, device_pixel_ratio);
+        self.compile_visible_nodes(thread_pool,
+                                   resource_cache,
+                                   pipeline_auxiliary_lists,
+                                   device_pixel_ratio);
 
         // Update the batch cache from newly compiled nodes
         self.update_batch_cache();
@@ -1197,12 +1200,12 @@ impl Frame {
 
     pub fn update_resource_lists(&mut self,
                                  resource_cache: &ResourceCache,
+                                 pipeline_auxiliary_lists: &PipelineAuxiliaryLists,
                                  thread_pool: &mut scoped_threadpool::Pool) {
         let _pf = util::ProfileScope::new("  update_resource_lists");
 
         for (_, layer) in &mut self.layers {
             let nodes = &mut layer.aabb_tree.nodes;
-            let pipeline_auxiliary_lists = &self.pipeline_auxiliary_lists;
 
             thread_pool.scoped(|scope| {
                 for node in nodes {
@@ -1241,6 +1244,7 @@ impl Frame {
     pub fn compile_visible_nodes(&mut self,
                                  thread_pool: &mut scoped_threadpool::Pool,
                                  resource_cache: &ResourceCache,
+                                 pipeline_auxiliary_lists: &PipelineAuxiliaryLists,
                                  device_pixel_ratio: f32) {
         let _pf = util::ProfileScope::new("  compile_visible_nodes");
 
@@ -1248,7 +1252,6 @@ impl Frame {
         let stacking_context_info = &self.stacking_context_info;
         let draw_list_groups = &self.draw_list_groups;
         let frame_id = self.id;
-        let pipeline_auxiliary_lists = &self.pipeline_auxiliary_lists;
 
         thread_pool.scoped(|scope| {
             for (_, layer) in layers {
