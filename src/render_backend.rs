@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use frame::Frame;
+use frame::{Frame, PipelineAuxiliaryLists};
 use internal_types::{FontTemplate, ResultMsg, RendererFrame};
 use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
 use profiler::BackendProfileCounters;
@@ -15,8 +15,8 @@ use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::{TextureCache, TextureCacheItemId};
-use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, RenderNotifier};
-use webrender_traits::{WebGLContextId, ScrollLayerId};
+use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, BuiltDisplayListRef, IdNamespace};
+use webrender_traits::{RenderNotifier, WebGLContextId, ScrollLayerId};
 use batch::new_id;
 use device::TextureId;
 use offscreen_gl_context::{NativeGLContext, GLContext, ColorAttachmentType, NativeGLContextMethods, NativeGLContextHandle};
@@ -157,16 +157,16 @@ impl RenderBackend {
                                 self.payload_tx.send(&leftover_auxiliary_data[..]).unwrap()
                             }
 
-                            let mut auxiliary_data = Cursor::new(&mut auxiliary_data[8..]);
+                            let mut auxiliary_data_index = 8;
                             for (display_list_id,
                                  display_list_descriptor) in display_lists.into_iter() {
-                                let mut built_display_list_data =
-                                    vec![0; display_list_descriptor.size()];
-                                auxiliary_data.read_exact(&mut built_display_list_data[..])
-                                              .unwrap();
+                                let start = auxiliary_data_index;
+                                let end = auxiliary_data_index + display_list_descriptor.size();
+                                let built_display_list_data = &auxiliary_data[start..end];
+                                auxiliary_data_index = end;
                                 let built_display_list =
-                                    BuiltDisplayList::from_data(built_display_list_data,
-                                                                display_list_descriptor);
+                                    BuiltDisplayListRef::from_data(built_display_list_data,
+                                                                   display_list_descriptor);
                                 self.scene.add_display_list(display_list_id,
                                                             pipeline_id,
                                                             epoch,
@@ -174,11 +174,12 @@ impl RenderBackend {
                                                             &mut self.resource_cache);
                             }
 
-                            let mut auxiliary_lists_data =
-                                vec![0; auxiliary_lists_descriptor.size()];
-                            auxiliary_data.read_exact(&mut auxiliary_lists_data[..]).unwrap();
+                            let start = auxiliary_data_index;
+                            let end = auxiliary_data_index + auxiliary_lists_descriptor.size();
+                            auxiliary_data_index = end;
                             let auxiliary_lists =
-                                AuxiliaryLists::from_data(auxiliary_lists_data,
+                                AuxiliaryLists::from_data(auxiliary_data,
+                                                          start,
                                                           auxiliary_lists_descriptor);
                             let frame = profile_counters.total_time.profile(|| {
                                 self.scene.set_root_stacking_context(pipeline_id,
@@ -344,6 +345,7 @@ impl RenderBackend {
 
     fn render(&mut self) -> RendererFrame {
         let frame = self.frame.build(&mut self.resource_cache,
+                                     &self.scene.pipeline_auxiliary_lists,
                                      &mut self.thread_pool,
                                      self.device_pixel_ratio);
 
