@@ -100,6 +100,7 @@ struct FlattenInfo {
     offset_from_current_layer: Point2D<f32>,
     transform: Matrix4D<f32>,
     perspective: Matrix4D<f32>,
+    pipeline_id: PipelineId,
 }
 
 #[derive(Debug)]
@@ -389,8 +390,10 @@ impl RenderTarget {
     }
 }
 
+pub type LayerMap = HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>;
+
 pub struct Frame {
-    pub layers: HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>,
+    pub layers: LayerMap,
     pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
     pub pipeline_auxiliary_lists: HashMap<PipelineId,
                                           AuxiliaryLists,
@@ -401,7 +404,7 @@ pub struct Frame {
     next_render_target_id: RenderTargetId,
     next_draw_list_group_id: DrawListGroupId,
     draw_list_groups: HashMap<DrawListGroupId, DrawListGroup, BuildHasherDefault<FnvHasher>>,
-    root_scroll_layer_id: Option<ScrollLayerId>,
+    pub root_scroll_layer_id: Option<ScrollLayerId>,
     id: FrameId,
 }
 
@@ -737,11 +740,13 @@ impl Frame {
                 // Insert global position: fixed elements layer
                 debug_assert!(self.layers.is_empty());
                 let root_fixed_layer_id = ScrollLayerId::create_fixed(root_pipeline_id);
-                self.layers.insert(root_fixed_layer_id,
-                                   Layer::new(root_stacking_context.stacking_context.overflow.origin,
-                                              root_stacking_context.stacking_context.overflow.size,
-                                              root_pipeline.viewport_size,
-                                              Matrix4D::identity()));
+                self.layers.insert(
+                    root_fixed_layer_id,
+                    Layer::new(root_stacking_context.stacking_context.overflow.origin,
+                               root_stacking_context.stacking_context.overflow.size,
+                               root_pipeline.viewport_size,
+                               Matrix4D::identity(),
+                               root_pipeline_id));
 
                 // Work around borrow check on resource cache
                 {
@@ -763,6 +768,7 @@ impl Frame {
                         current_clip_rect: MAX_RECT,
                         transform: Matrix4D::identity(),
                         perspective: Matrix4D::identity(),
+                        pipeline_id: root_pipeline_id,
                     };
 
                     let root_pipeline = SceneItemKind::Pipeline(root_pipeline);
@@ -893,6 +899,7 @@ impl Frame {
                             current_clip_rect: MAX_RECT,
                             transform: info.transform,
                             perspective: info.perspective,
+                            pipeline_id: pipeline.pipeline_id,
                         };
 
                         let iframe_stacking_context = context.scene
@@ -908,7 +915,8 @@ impl Frame {
                                            Layer::new(layer_origin,
                                                       layer_size,
                                                       iframe_info.viewport_size,
-                                                      iframe_info.transform));
+                                                      iframe_info.transform,
+                                                      pipeline.pipeline_id));
 
                         self.flatten(iframe,
                                      &iframe_info,
@@ -996,6 +1004,7 @@ impl Frame {
                     current_clip_rect: local_clip_rect,
                     transform: transform,
                     perspective: perspective,
+                    pipeline_id: parent_info.pipeline_id,
                 };
 
                 match (stacking_context.scroll_policy, stacking_context.scroll_layer_id) {
@@ -1014,7 +1023,8 @@ impl Frame {
                         let layer = Layer::new(parent_info.offset_from_origin,
                                                stacking_context.overflow.size,
                                                viewport_size,
-                                               transform);
+                                               transform,
+                                               parent_info.pipeline_id);
                         if parent_info.actual_scroll_layer_id != scroll_layer_id {
                             self.layers.get_mut(&parent_info.actual_scroll_layer_id).unwrap().add_child(scroll_layer_id);
                         }
@@ -1326,5 +1336,28 @@ impl Frame {
             }
         }
         layers_bouncing_back
+    }
+
+    pub fn root_scroll_layer_for_pipeline(&self, pipeline_id: PipelineId)
+                                          -> Option<ScrollLayerId> {
+        let root_scroll_layer_id = match self.root_scroll_layer_id {
+            Some(root_scroll_layer_id) => root_scroll_layer_id,
+            None => return None,
+        };
+        return search(&self.layers, root_scroll_layer_id, pipeline_id);
+
+        fn search(layers: &LayerMap, layer_id: ScrollLayerId, query: PipelineId)
+                  -> Option<ScrollLayerId> {
+            let layer = layers.get(&layer_id).expect("No layer with that ID!");
+            if layer.pipeline_id == query {
+                return Some(layer_id)
+            }
+            for &kid in &layer.children {
+                if let Some(layer_id) = search(layers, kid, query) {
+                    return Some(layer_id)
+                }
+            }
+            None
+        }
     }
 }
