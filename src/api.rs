@@ -57,7 +57,7 @@ pub enum ApiMsg {
     SetRootPipeline(PipelineId),
     Scroll(Point2D<f32>, Point2D<f32>, ScrollEventPhase),
     TickScrollingBounce,
-    TranslatePointToLayerSpace(Point2D<f32>, IpcSender<Point2D<f32>>),
+    TranslatePointToLayerSpace(Point2D<f32>, IpcSender<(Point2D<f32>, PipelineId)>),
     RequestWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<(WebGLContextId, GLLimits), String>>),
     WebGLCommand(WebGLContextId, WebGLCommand),
 }
@@ -210,7 +210,8 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
     }
 
-    pub fn translate_point_to_layer_space(&self, point: &Point2D<f32>) -> Point2D<f32> {
+    pub fn translate_point_to_layer_space(&self, point: &Point2D<f32>)
+                                          -> (Point2D<f32>, PipelineId) {
         let (tx, rx) = ipc::channel().unwrap();
         let msg = ApiMsg::TranslatePointToLayerSpace(*point, tx);
         self.api_sender.send(msg).unwrap();
