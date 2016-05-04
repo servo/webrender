@@ -131,6 +131,9 @@ pub enum WebGLCommand {
     Uniform4fv(i32, Vec<f32>),
     Uniform4i(i32, i32, i32, i32, i32),
     Uniform4iv(i32, Vec<i32>),
+    UniformMatrix2fv(i32, bool, Vec<f32>),
+    UniformMatrix3fv(i32, bool, Vec<f32>),
+    UniformMatrix4fv(i32, bool, Vec<f32>),
     UseProgram(u32),
     VertexAttrib(u32, f32, f32, f32, f32),
     VertexAttribPointer2f(u32, i32, bool, i32, u32),
@@ -234,6 +237,9 @@ impl fmt::Debug for WebGLCommand {
             Uniform4fv(..) => "Uniform4fv",
             Uniform4i(..) => "Uniform4i",
             Uniform4iv(..) => "Uniform4iv",
+            UniformMatrix2fv(..) => "UniformMatrix2fv",
+            UniformMatrix3fv(..) => "UniformMatrix3fv",
+            UniformMatrix4fv(..) => "UniformMatrix4fv",
             UseProgram(..) => "UseProgram",
             VertexAttrib(..) => "VertexAttrib",
             VertexAttribPointer2f(..) => "VertexAttribPointer2f",
@@ -425,6 +431,12 @@ impl WebGLCommand {
                 gl::uniform_4i(uniform_id, x, y, z, w),
             WebGLCommand::Uniform4iv(uniform_id, v) =>
                 gl::uniform_4iv(uniform_id, &v),
+            WebGLCommand::UniformMatrix2fv(uniform_id, transpose,  v) =>
+                gl::uniform_matrix_2fv(uniform_id, transpose, &v),
+            WebGLCommand::UniformMatrix3fv(uniform_id, transpose,  v) =>
+                gl::uniform_matrix_3fv(uniform_id, transpose, &v),
+            WebGLCommand::UniformMatrix4fv(uniform_id, transpose,  v) =>
+                gl::uniform_matrix_4fv(uniform_id, transpose, &v),
             WebGLCommand::UseProgram(program_id) =>
                 gl::use_program(program_id),
             WebGLCommand::VertexAttrib(attrib_id, x, y, z, w) =>
