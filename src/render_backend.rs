@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use byteorder::{LittleEndian, ReadBytesExt};
+use euclid::Matrix4D;
 use frame::Frame;
 use internal_types::{FontTemplate, ResultMsg, RendererFrame};
 use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
@@ -16,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::{TextureCache, TextureCacheItemId};
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, RenderNotifier};
-use webrender_traits::{WebGLContextId, ScrollLayerId};
+use webrender_traits::{PipelineId, WebGLContextId, ScrollLayerId};
 use batch::new_id;
 use device::TextureId;
 use offscreen_gl_context::{NativeGLContext, GLContext, ColorAttachmentType, NativeGLContextMethods, NativeGLContextHandle};
@@ -222,21 +223,36 @@ impl RenderBackend {
                             self.publish_frame(frame, &mut profile_counters);
                         }
                         ApiMsg::TranslatePointToLayerSpace(point, tx) => {
-                            // TODO(pcwalton): Select other layers for mouse events.
+                            // First, find the specific layer that contains the point.
                             let point = point / self.device_pixel_ratio;
-                            match self.scene.root_pipeline_id {
-                                Some(root_pipeline_id) => {
-                                    match self.frame.layers.get_mut(&ScrollLayerId::new(root_pipeline_id, 0)) {
-                                        None => tx.send(point).unwrap(),
-                                        Some(layer) => {
-                                            tx.send(point - layer.scrolling.offset).unwrap()
+                            if let (Some(root_pipeline_id), Some(root_scroll_layer_id)) =
+                                    (self.scene.root_pipeline_id,
+                                     self.frame.root_scroll_layer_id) {
+                                if let Some(scroll_layer_id) =
+                                        self.frame.get_scroll_layer(&point,
+                                                                    root_scroll_layer_id,
+                                                                    &Matrix4D::identity()) {
+                                    if let Some(layer) = self.frame.layers.get(&scroll_layer_id) {
+                                        // Now, because we send a *pipeline ID*, not a layer ID, as
+                                        // a response, we need the translated point to be relative
+                                        // to the origin of that pipeline in the scene. So we need
+                                        // to find the root layer for the pipeline. (We don't send
+                                        // layer IDs because layer IDs are internal to WebRender;
+                                        // Servo won't know what to do with them.)
+                                        if let Some(layer_id) =
+                                                self.frame.root_scroll_layer_for_pipeline(
+                                                    layer.pipeline_id) {
+                                            if let Some(layer) = self.frame.layers.get(&layer_id) {
+                                                let point = point - layer.world_origin -
+                                                    layer.scrolling.offset;
+                                                tx.send((point, layer.pipeline_id)).unwrap();
+                                                continue
+                                            }
                                         }
                                     }
                                 }
-                                None => {
-                                    tx.send(point).unwrap()
-                                }
                             }
+                            tx.send((point, PipelineId(0, 0))).unwrap()
                         }
                         ApiMsg::RequestWebGLContext(size, attributes, tx) => {
                             if let Some(ref handle) = self.webrender_context_handle {

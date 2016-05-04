@@ -7,7 +7,7 @@ use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use internal_types::{BatchUpdate, BatchUpdateList, BatchUpdateOp};
 use internal_types::{DrawListItemIndex, DrawListId, DrawListGroupId};
 use spring::{DAMPING, STIFFNESS, Spring};
-use webrender_traits::ScrollLayerId;
+use webrender_traits::{PipelineId, ScrollLayerId};
 
 pub struct Layer {
     // TODO: Remove pub from here if possible in the future
@@ -18,6 +18,7 @@ pub struct Layer {
     pub world_origin: Point2D<f32>,
     pub local_transform: Matrix4D<f32>,
     pub world_transform: Matrix4D<f32>,
+    pub pipeline_id: PipelineId,
     pub children: Vec<ScrollLayerId>,
 }
 
@@ -25,7 +26,9 @@ impl Layer {
     pub fn new(world_origin: Point2D<f32>,
                layer_size: Size2D<f32>,
                viewport_size: Size2D<f32>,
-               transform: Matrix4D<f32>) -> Layer {
+               transform: Matrix4D<f32>,
+               pipeline_id: PipelineId)
+               -> Layer {
         let rect = Rect::new(Point2D::zero(), layer_size);
         let aabb_tree = AABBTree::new(8192.0, &rect);
 
@@ -38,6 +41,7 @@ impl Layer {
             local_transform: transform,
             world_transform: transform,
             children: Vec::new(),
+            pipeline_id: pipeline_id,
         }
     }
 
