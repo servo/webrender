@@ -3,35 +3,10 @@ name = "webrender"
 version = "0.1.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 
-[target.i686-unknown-linux-gnu.dependencies.freetype]
-git = "https://github.com/servo/rust-freetype"
-
-[target.x86_64-unknown-linux-gnu.dependencies.freetype]
-git = "https://github.com/servo/rust-freetype"
-
-[target.arm-linux-androideabi.dependencies.freetype]
-git = "https://github.com/servo/rust-freetype"
-
-[target.arm-unknown-linux-gnueabihf.dependencies.freetype]
-git = "https://github.com/servo/rust-freetype"
-
-[target.aarch64-unknown-linux-gnu.dependencies.freetype]
-git = "https://github.com/servo/rust-freetype"
-
-[target.x86_64-pc-windows-gnu.dependencies.freetype]
-git = "https://github.com/servo/rust-freetype"
-
-[dependencies.ipc-channel]
-git = "https://github.com/servo/ipc-channel"
-
-[dependencies.webrender_traits]
-git = "https://github.com/servo/webrender_traits"
-
-#[dependencies.notify]
-#git = "https://github.com/glennw/rsnotify.git"
-#branch = "inotify-modify"
-
 [dependencies]
+ipc-channel = {git = "https://github.com/servo/ipc-channel"}
+webrender_traits = {git = "https://github.com/servo/webrender_traits"}
+#notify = {git = "https://github.com/glennw/rsnotify.git", branch = "inotify-modify"}
 offscreen_gl_context = {version = "0.1.1", features = ["serde_serialization"]}
 gleam = "0.2"
 euclid = {version = "0.6.2", features = ["plugins"]}
@@ -44,6 +19,9 @@ lazy_static = "0.2"
 log = "0.3"
 byteorder = "0.5"
 
-[target.x86_64-apple-darwin.dependencies]
+[target.'cfg(any(target_os = "android", target_os = "linux", target_os = "windows"))'.dependencies]
+freetype = {git = "https://github.com/servo/rust-freetype"}
+
+[target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = ">=0.2, <0.4"
 core-text = "1.0"
