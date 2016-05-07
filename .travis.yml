@@ -1,7 +1,7 @@
 language: rust
 rust:
   - nightly
-  - nightly-2016-04-11 # Should be kept in sync with Servo.
+  - nightly-2016-04-29 # Should be kept in sync with Servo.
 
 matrix:
   allow_failures:
@@ -24,4 +24,4 @@ before_script:
 
 script:
     - servo-tidy
-
+    - cargo build --verbose
