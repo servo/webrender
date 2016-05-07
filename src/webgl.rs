@@ -112,8 +112,6 @@ pub enum WebGLCommand {
     StencilOp(u32, u32, u32),
     StencilOpSeparate(u32, u32, u32, u32),
     Hint(u32, u32),
-    IsShader(u32),
-    IsTexture(u32),
     LineWidth(f32),
     PixelStorei(u32, i32),
     LinkProgram(u32),
@@ -220,8 +218,6 @@ impl fmt::Debug for WebGLCommand {
             StencilOp(..) => "StencilOp",
             StencilOpSeparate(..) => "StencilOpSeparate",
             Hint(..) => "Hint",
-            IsShader(..) => "IsShader",
-            IsTexture(..) => "IsTexture",
             LineWidth(..) => "LineWidth",
             PixelStorei(..) => "PixelStorei",
             LinkProgram(..) => "LinkProgram",
@@ -327,10 +323,6 @@ impl WebGLCommand {
                 gl::enable_vertex_attrib_array(attrib_id),
             WebGLCommand::Hint(name, val) =>
                 gl::hint(name, val),
-            WebGLCommand::IsShader(shader) =>
-                gl::is_shader(shader),
-            WebGLCommand::IsTexture(texture) =>
-                gl::is_texture(texture),
             WebGLCommand::LineWidth(width) =>
                 gl::line_width(width),
             WebGLCommand::PixelStorei(name, val) =>
