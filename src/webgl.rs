@@ -104,6 +104,7 @@ pub enum WebGLCommand {
     GetVertexAttrib(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
     PolygonOffset(f32, f32),
     ReadPixels(i32, i32, i32, i32, u32, u32, IpcSender<Vec<u8>>),
+    SampleCoverage(f32, bool),
     Scissor(i32, i32, i32, i32),
     StencilFunc(u32, i32, u32),
     StencilFuncSeparate(u32, u32, i32, u32),
@@ -210,6 +211,7 @@ impl fmt::Debug for WebGLCommand {
             GetVertexAttrib(..) => "GetVertexAttrib",
             PolygonOffset(..) => "PolygonOffset",
             ReadPixels(..) => "ReadPixels",
+            SampleCoverage(..) => "SampleCoverage",
             Scissor(..) => "Scissor",
             StencilFunc(..) => "StencilFunc",
             StencilFuncSeparate(..) => "StencilFuncSeparate",
@@ -331,6 +333,8 @@ impl WebGLCommand {
                 gl::polygon_offset(factor, units),
             WebGLCommand::ReadPixels(x, y, width, height, format, pixel_type, chan) =>
                 Self::read_pixels(x, y, width, height, format, pixel_type, chan),
+            WebGLCommand::SampleCoverage(value, invert) =>
+                gl::sample_coverage(value, invert),
             WebGLCommand::Scissor(x, y, width, height) =>
                 gl::scissor(x, y, width, height),
             WebGLCommand::StencilFunc(func, ref_, mask) =>
