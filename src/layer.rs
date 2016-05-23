@@ -7,13 +7,22 @@ use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use internal_types::{BatchUpdate, BatchUpdateList, BatchUpdateOp};
 use internal_types::{DrawListItemIndex, DrawListId, DrawListGroupId};
 use spring::{DAMPING, STIFFNESS, Spring};
+use util::MatrixHelpers;
 use webrender_traits::{PipelineId, ScrollLayerId};
 
 pub struct Layer {
     // TODO: Remove pub from here if possible in the future
     pub aabb_tree: AABBTree,
     pub scrolling: ScrollingState,
-    pub viewport_size: Size2D<f32>,
+
+    /// The viewable region, in world coordinates.
+    pub viewport_rect: Rect<f32>,
+
+    /// The transform to apply to the viewable region, in world coordinates.
+    ///
+    /// TODO(pcwalton): These should really be a stack of clip regions and transforms.
+    pub viewport_transform: Matrix4D<f32>,
+
     pub layer_size: Size2D<f32>,
     pub world_origin: Point2D<f32>,
     pub local_transform: Matrix4D<f32>,
@@ -25,7 +34,8 @@ pub struct Layer {
 impl Layer {
     pub fn new(world_origin: Point2D<f32>,
                layer_size: Size2D<f32>,
-               viewport_size: Size2D<f32>,
+               viewport_rect: &Rect<f32>,
+               viewport_transform: &Matrix4D<f32>,
                transform: Matrix4D<f32>,
                pipeline_id: PipelineId)
                -> Layer {
@@ -35,7 +45,8 @@ impl Layer {
         Layer {
             aabb_tree: aabb_tree,
             scrolling: ScrollingState::new(),
-            viewport_size: viewport_size,
+            viewport_rect: *viewport_rect,
+            viewport_transform: *viewport_transform,
             world_origin: world_origin,
             layer_size: layer_size,
             local_transform: transform,
@@ -79,9 +90,9 @@ impl Layer {
     }
 
     pub fn cull(&mut self) {
-        // TODO(gw): Take viewport_size into account here!!!
-        let viewport_rect = Rect::new(Point2D::zero(), self.viewport_size);
-        let adjusted_viewport = viewport_rect.translate(&-self.scrolling.offset);
+        let viewport_rect = self.viewport_rect;
+        let adjusted_viewport = viewport_rect.translate(&-self.world_origin)
+                                             .translate(&-self.scrolling.offset);
         self.aabb_tree.cull(&adjusted_viewport);
     }
 
@@ -93,16 +104,17 @@ impl Layer {
     pub fn overscroll_amount(&self) -> Size2D<f32> {
         let overscroll_x = if self.scrolling.offset.x > 0.0 {
             -self.scrolling.offset.x
-        } else if self.scrolling.offset.x < self.viewport_size.width - self.layer_size.width {
-            self.viewport_size.width - self.layer_size.width - self.scrolling.offset.x
+        } else if self.scrolling.offset.x < self.viewport_rect.size.width - self.layer_size.width {
+            self.viewport_rect.size.width - self.layer_size.width - self.scrolling.offset.x
         } else {
             0.0
         };
 
         let overscroll_y = if self.scrolling.offset.y > 0.0 {
             -self.scrolling.offset.y
-        } else if self.scrolling.offset.y < self.viewport_size.height - self.layer_size.height {
-            self.viewport_size.height - self.layer_size.height - self.scrolling.offset.y
+        } else if self.scrolling.offset.y < self.viewport_rect.size.height -
+                self.layer_size.height {
+            self.viewport_rect.size.height - self.layer_size.height - self.scrolling.offset.y
         } else {
             0.0
         };

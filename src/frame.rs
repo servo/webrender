@@ -14,6 +14,7 @@ use internal_types::{CompositeBatchInfo, CompositeBatchJob, MaskRegion};
 use internal_types::{RendererFrame, StackingContextInfo, BatchInfo, DrawCall, StackingContextIndex};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, MAX_RECT, BatchUpdate, BatchUpdateOp, DrawLayer};
 use internal_types::{DrawCommand, ClearInfo, RenderTargetId, DrawListGroupId};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE};
 use layer::{Layer, ScrollingState};
 use node_compiler::NodeCompiler;
 use renderer::CompositionOpHelpers;
@@ -91,7 +92,14 @@ struct FlattenContext<'a> {
 
 #[derive(Debug)]
 struct FlattenInfo {
-    viewport_size: Size2D<f32>,
+    /// The viewable region, in world coordinates.
+    viewport_rect: Rect<f32>,
+
+    /// The transform to apply to the viewable region, in world coordinates.
+    ///
+    /// TODO(pcwalton): These should really be a stack of clip regions and transforms.
+    viewport_transform: Matrix4D<f32>,
+
     current_clip_rect: Rect<f32>,
     default_scroll_layer_id: ScrollLayerId,
     actual_scroll_layer_id: ScrollLayerId,
@@ -268,9 +276,8 @@ impl RenderTarget {
                                     // Mask out anything outside this viewport. This is used
                                     // for things like clipping content that is outside a
                                     // transformed iframe.
-                                    region.add_mask(Rect::new(layer.world_origin, layer.viewport_size),
-                                                    layer.local_transform);
-
+                                    let mask_rect = layer.viewport_rect;
+                                    region.add_mask(mask_rect, layer.viewport_transform);
                                 }
 
                                 for batch in &batch_list.batches {
@@ -622,9 +629,7 @@ impl Frame {
                                           p1.y / p1.w,
                                           p1.z / p1.w);
 
-                    let layer_rect = Rect::new(layer.world_origin, layer.viewport_size);
-
-                    if ray_intersects_rect(p0, p1, layer_rect) {
+                    if ray_intersects_rect(p0, p1, layer.viewport_rect) {
                         Some(scroll_layer_id)
                     } else {
                         None
@@ -667,25 +672,26 @@ impl Frame {
             }
         }
 
-        let is_unscrollable = layer.layer_size.width <= layer.viewport_size.width &&
-            layer.layer_size.height <= layer.viewport_size.height;
+        let is_unscrollable = layer.layer_size.width <= layer.viewport_rect.size.width &&
+            layer.layer_size.height <= layer.viewport_rect.size.height;
 
-        if layer.layer_size.width > layer.viewport_size.width {
+        if layer.layer_size.width > layer.viewport_rect.size.width {
             layer.scrolling.offset.x = layer.scrolling.offset.x + delta.x;
             if is_unscrollable || !CAN_OVERSCROLL {
                 layer.scrolling.offset.x = layer.scrolling.offset.x.min(0.0);
-                layer.scrolling.offset.x = layer.scrolling.offset.x.max(-layer.layer_size.width +
-                                                                        layer.viewport_size.width);
+                layer.scrolling.offset.x =
+                    layer.scrolling.offset.x.max(-layer.layer_size.width +
+                                                 layer.viewport_rect.size.width);
             }
         }
 
-        if layer.layer_size.height > layer.viewport_size.height {
+        if layer.layer_size.height > layer.viewport_rect.size.height {
             layer.scrolling.offset.y = layer.scrolling.offset.y + delta.y;
             if is_unscrollable || !CAN_OVERSCROLL {
                 layer.scrolling.offset.y = layer.scrolling.offset.y.min(0.0);
                 layer.scrolling.offset.y =
                     layer.scrolling.offset.y.max(-layer.layer_size.height +
-                                                 layer.viewport_size.height);
+                                                 layer.viewport_rect.size.height);
             }
         }
 
@@ -744,7 +750,8 @@ impl Frame {
                     root_fixed_layer_id,
                     Layer::new(root_stacking_context.stacking_context.overflow.origin,
                                root_stacking_context.stacking_context.overflow.size,
-                               root_pipeline.viewport_size,
+                               &Rect::new(Point2D::zero(), root_pipeline.viewport_size),
+                               &Matrix4D::identity(),
                                Matrix4D::identity(),
                                root_pipeline_id));
 
@@ -759,7 +766,8 @@ impl Frame {
                     };
 
                     let parent_info = FlattenInfo {
-                        viewport_size: root_pipeline.viewport_size,
+                        viewport_rect: Rect::new(Point2D::zero(), root_pipeline.viewport_size),
+                        viewport_transform: Matrix4D::identity(),
                         offset_from_origin: Point2D::zero(),
                         offset_from_current_layer: Point2D::zero(),
                         default_scroll_layer_id: root_scroll_layer_id,
@@ -891,33 +899,40 @@ impl Frame {
 
                         // TODO(servo/servo#9983, pcwalton): Support rounded rectangle clipping.
                         // Currently we take the main part of the clip rect only.
+                        let offset_from_origin = info.offset_from_origin +
+                            iframe_info.bounds.origin;
+                        let clipped_iframe_bounds =
+                            iframe_info.bounds
+                                       .intersection(&iframe_info.clip.main)
+                                       .unwrap_or(Rect::new(Point2D::zero(), Size2D::zero()))
+                                       .translate(&info.offset_from_origin);
                         let iframe_info = FlattenInfo {
-                            viewport_size: iframe_info.bounds.size,
-                            offset_from_origin: info.offset_from_origin + iframe_info.bounds.origin,
+                            viewport_rect: clipped_iframe_bounds,
+                            viewport_transform: Matrix4D::identity(),
+                            offset_from_origin: offset_from_origin,
                             offset_from_current_layer: info.offset_from_current_layer + iframe_info.bounds.origin,
                             default_scroll_layer_id: info.default_scroll_layer_id,
                             actual_scroll_layer_id: info.actual_scroll_layer_id,
                             fixed_scroll_layer_id: iframe_fixed_layer_id,
-                            current_clip_rect: iframe_info.clip.main,
+                            current_clip_rect: MAX_RECT,
                             transform: info.transform,
                             perspective: info.perspective,
                             pipeline_id: pipeline.pipeline_id,
                         };
-                        //println!("iframe clip={:?}", iframe_info.current_clip_rect);
 
                         let iframe_stacking_context = context.scene
                                                              .stacking_context_map
                                                              .get(&pipeline.root_stacking_context_id)
                                                              .unwrap();
 
-                        let layer_origin = iframe_stacking_context.stacking_context.overflow.origin +
-                                            iframe_info.offset_from_current_layer;
+                        let layer_origin = iframe_info.offset_from_origin;
                         let layer_size = iframe_stacking_context.stacking_context.overflow.size;
 
                         self.layers.insert(iframe_fixed_layer_id,
                                            Layer::new(layer_origin,
                                                       layer_size,
-                                                      iframe_info.viewport_size,
+                                                      &iframe_info.viewport_rect,
+                                                      &iframe_info.transform,
                                                       iframe_info.transform,
                                                       pipeline.pipeline_id));
 
@@ -960,12 +975,24 @@ impl Frame {
         // FIXME(pcwalton): This is a not-great partial solution to servo/servo#10164. A better
         // solution would be to do this only if the transform consists of a translation+scale only
         // and fall back to stenciling if the object has a more complex transform.
-        let local_clip_rect = stacking_context.transform
-                                              .invert()
-                                              .transform_rect(&parent_info.current_clip_rect)
-                                              .translate(&-stacking_context.bounds.origin)
-                                              .intersection(&stacking_context.overflow);
-        //println!("local_clip_rect={:?}", local_clip_rect);
+        let local_clip_rect =
+            match (stacking_context.scroll_policy, stacking_context.scroll_layer_id) {
+                (ScrollPolicy::Scrollable, Some(ScrollLayerId {
+                    info: ScrollLayerInfo::Scrollable(index),
+                    ..
+                })) if index > 0 => {
+                    Some(stacking_context.transform
+                                         .invert()
+                                         .transform_rect(&stacking_context.overflow))
+                }
+                _ => {
+                    stacking_context.transform
+                                    .invert()
+                                    .transform_rect(&parent_info.current_clip_rect)
+                                    .translate(&-stacking_context.bounds.origin)
+                                    .intersection(&stacking_context.overflow)
+                }
+            };
 
         if let Some(local_clip_rect) = local_clip_rect {
             let scene_items = scene_item.collect_scene_items(&context.scene);
@@ -995,8 +1022,17 @@ impl Frame {
                                                       .mul(&stacking_context.perspective)
                                                       .translate(-origin.x, -origin.y, 0.0);
 
+                let viewport_rect = if composition_operations.is_empty() {
+                    parent_info.viewport_rect
+                } else {
+                    Rect::new(Point2D::new(0.0, 0.0), parent_info.viewport_rect.size)
+                };
+
+                let viewport_transform = transform;
+
                 let mut info = FlattenInfo {
-                    viewport_size: parent_info.viewport_size,
+                    viewport_rect: viewport_rect,
+                    viewport_transform: viewport_transform,
                     offset_from_origin: parent_info.offset_from_origin + stacking_context.bounds.origin,
                     offset_from_current_layer: parent_info.offset_from_current_layer + stacking_context.bounds.origin,
                     default_scroll_layer_id: parent_info.default_scroll_layer_id,
@@ -1015,15 +1051,23 @@ impl Frame {
                     }
                     (ScrollPolicy::Scrollable, Some(scroll_layer_id)) => {
                         debug_assert!(!self.layers.contains_key(&scroll_layer_id));
-                        let viewport_size = match scroll_layer_id.info {
+                        let viewport_rect = match scroll_layer_id.info {
                             ScrollLayerInfo::Scrollable(index) if index > 0 => {
-                                stacking_context.bounds.size
+                                let mut stacking_context_rect =
+                                    Rect::new(parent_info.offset_from_origin,
+                                              stacking_context.bounds.size);
+
+                                transform.transform_rect(&stacking_context_rect)
+                                         .intersection(&parent_info.viewport_rect)
+                                         .unwrap_or(Rect::new(Point2D::new(0.0, 0.0),
+                                                              Size2D::new(0.0, 0.0)))
                             }
-                            _ => parent_info.viewport_size,
+                            _ => parent_info.viewport_rect,
                         };
                         let layer = Layer::new(parent_info.offset_from_origin,
                                                stacking_context.overflow.size,
-                                               viewport_size,
+                                               &viewport_rect,
+                                               &info.viewport_transform,
                                                transform,
                                                parent_info.pipeline_id);
                         if parent_info.actual_scroll_layer_id != scroll_layer_id {
@@ -1161,16 +1205,19 @@ impl Frame {
                               parent_transform: &Matrix4D<f32>) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
         //           Restructure this to avoid the clones!
-        let (layer_transform, layer_children) = {
+        let (layer_transform_for_children, layer_children) = {
             match self.layers.get_mut(&layer_id) {
                 Some(layer) => {
-                    layer.world_transform = parent_transform.mul(&layer.local_transform)
-                                                            .translate(layer.world_origin.x,
-                                                                       layer.world_origin.y, 0.0)
-                                                            .translate(layer.scrolling.offset.x,
-                                                                       layer.scrolling.offset.y,
-                                                                       0.0);
-                    (layer.world_transform, layer.children.clone())
+                    let layer_transform_for_children =
+                        parent_transform.mul(&layer.local_transform);
+                    layer.world_transform =
+                        layer_transform_for_children.translate(layer.world_origin.x,
+                                                               layer.world_origin.y,
+                                                               0.0)
+                                                    .translate(layer.scrolling.offset.x,
+                                                               layer.scrolling.offset.y,
+                                                               0.0);
+                    (layer_transform_for_children, layer.children.clone())
                 }
                 None => {
                     return;
@@ -1179,7 +1226,7 @@ impl Frame {
         };
 
         for child_layer_id in layer_children {
-            self.update_layer_transform(child_layer_id, &layer_transform);
+            self.update_layer_transform(child_layer_id, &layer_transform_for_children);
         }
     }
 

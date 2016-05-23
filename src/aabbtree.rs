@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::{Point2D, Rect, Size2D};
-use internal_types::{CompiledNode, DrawListId, DrawListItemIndex, DrawListGroupId};
+use internal_types::{CompiledNode, DrawListId, DrawListItemIndex, DrawListGroupId, MAX_RECT};
 use resource_list::ResourceList;
 use util;
 
