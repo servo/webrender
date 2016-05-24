@@ -1,0 +1,16 @@
+[package]
+name = "wr-sample"
+version = "0.1.0"
+authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
+
+[dependencies.webrender]
+git = "https://github.com/servo/webrender"
+
+[dependencies.webrender_traits]
+git = "https://github.com/servo/webrender_traits"
+
+[dependencies]
+glutin = "*"
+gleam = "*"
+euclid = "*"
+app_units = "*"
