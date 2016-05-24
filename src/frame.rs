@@ -232,17 +232,28 @@ impl RenderTarget {
                     for (index, draw_list_id) in draw_list_group.draw_list_ids.iter().enumerate() {
                         let draw_list = resource_cache.get_draw_list(*draw_list_id);
 
-                        let StackingContextIndex(stacking_context_id) = draw_list.stacking_context_index.unwrap();
-                        let context = &stacking_context_info[stacking_context_id];
-                        if context.z_clear_needed {
-                            z_clear_needed = true
+                        match draw_list.stacking_context_index {
+                            Some(StackingContextIndex(stacking_context_id)) => {
+                                let context = &stacking_context_info[stacking_context_id];
+                                if context.z_clear_needed {
+                                    z_clear_needed = true
+                                }
+
+                                let transform = layer.world_transform.mul(&context.transform);
+                                matrix_palette[index] = transform;
+
+                                offset_palette[index].stacking_context_x0 =
+                                    context.offset_from_layer.x;
+                                offset_palette[index].stacking_context_y0 =
+                                    context.offset_from_layer.y;
+                            }
+                            None => {
+                                // This can happen if the root pipeline was set before any stacking
+                                // context was set for it (during navigation, usually). In that
+                                // case we just render nothing.
+                                continue
+                            }
                         }
-
-                        let transform = layer.world_transform.mul(&context.transform);
-                        matrix_palette[index] = transform;
-
-                        offset_palette[index].stacking_context_x0 = context.offset_from_layer.x;
-                        offset_palette[index].stacking_context_y0 = context.offset_from_layer.y;
                     }
 
                     let mut batch_info = BatchInfo::new(matrix_palette, offset_palette);
