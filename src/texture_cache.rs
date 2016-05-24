@@ -817,7 +817,9 @@ impl TextureCache {
                     last_page.grow(texture_size);
 
                     self.items.for_each_item(|item| {
-                        item.texture_size = Size2D::new(texture_size, texture_size);
+                        if item.texture_id == last_page.texture_id {
+                            item.texture_size = Size2D::new(texture_size, texture_size);
+                        }
                     });
                 } else {
                     // We need a new page.
