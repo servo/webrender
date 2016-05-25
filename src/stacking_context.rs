@@ -5,9 +5,11 @@
 use display_list::{AuxiliaryListsBuilder, ItemRange};
 use euclid::{Matrix4, Rect};
 use types::{DisplayListId, FilterOp, MixBlendMode, ScrollLayerId, ScrollPolicy};
+use types::{ServoStackingContextId};
 
 #[derive(Serialize, Deserialize)]
 pub struct StackingContext {
+    pub servo_id: ServoStackingContextId,
     pub scroll_layer_id: Option<ScrollLayerId>,
     pub scroll_policy: ScrollPolicy,
     pub bounds: Rect<f32>,
@@ -23,7 +25,8 @@ pub struct StackingContext {
 }
 
 impl StackingContext {
-    pub fn new(scroll_layer_id: Option<ScrollLayerId>,
+    pub fn new(servo_id: ServoStackingContextId,
+               scroll_layer_id: Option<ScrollLayerId>,
                scroll_policy: ScrollPolicy,
                bounds: Rect<f32>,
                overflow: Rect<f32>,
@@ -36,6 +39,7 @@ impl StackingContext {
                auxiliary_lists_builder: &mut AuxiliaryListsBuilder)
                -> StackingContext {
         StackingContext {
+            servo_id: servo_id,
             scroll_layer_id: scroll_layer_id,
             scroll_policy: scroll_policy,
             bounds: bounds,

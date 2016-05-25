@@ -11,7 +11,7 @@ use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use stacking_context::StackingContext;
 use std::cell::Cell;
 use types::{ColorF, DisplayListId, Epoch, FontKey, StackingContextId};
-use types::{ImageKey, ImageFormat, NativeFontHandle, PipelineId};
+use types::{ImageKey, ImageFormat, NativeFontHandle, PipelineId, ScrollLayerState};
 use webgl::{WebGLContextId, WebGLCommand};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -58,6 +58,7 @@ pub enum ApiMsg {
     Scroll(Point2D<f32>, Point2D<f32>, ScrollEventPhase),
     TickScrollingBounce,
     TranslatePointToLayerSpace(Point2D<f32>, IpcSender<(Point2D<f32>, PipelineId)>),
+    GetScrollLayerState(IpcSender<Vec<ScrollLayerState>>),
     RequestWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<(WebGLContextId, GLLimits), String>>),
     WebGLCommand(WebGLContextId, WebGLCommand),
 }
@@ -214,6 +215,13 @@ impl RenderApi {
                                           -> (Point2D<f32>, PipelineId) {
         let (tx, rx) = ipc::channel().unwrap();
         let msg = ApiMsg::TranslatePointToLayerSpace(*point, tx);
+        self.api_sender.send(msg).unwrap();
+        rx.recv().unwrap()
+    }
+
+    pub fn get_scroll_layer_state(&self) -> Vec<ScrollLayerState> {
+        let (tx, rx) = ipc::channel().unwrap();
+        let msg = ApiMsg::GetScrollLayerState(tx);
         self.api_sender.send(msg).unwrap();
         rx.recv().unwrap()
     }
