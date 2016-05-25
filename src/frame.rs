@@ -29,7 +29,7 @@ use texture_cache::TexturePage;
 use util::{self, MatrixHelpers};
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
 use webrender_traits::{StackingContext, FilterOp, ImageFormat, MixBlendMode};
-use webrender_traits::{ScrollEventPhase, ScrollLayerInfo};
+use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, ScrollLayerState};
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
@@ -650,6 +650,23 @@ impl Frame {
         })
     }
 
+    pub fn get_scroll_layer_state(&self) -> Vec<ScrollLayerState> {
+        let mut result = vec![];
+        for (scroll_layer_id, scroll_layer) in &self.layers {
+            match scroll_layer_id.info {
+                ScrollLayerInfo::Scrollable(_) => {
+                    result.push(ScrollLayerState {
+                        pipeline_id: scroll_layer.pipeline_id,
+                        stacking_context_id: scroll_layer.stacking_context_id,
+                        scroll_offset: scroll_layer.scrolling.offset
+                    })
+                }
+                ScrollLayerInfo::Fixed => {}
+            }
+        }
+        result
+    }
+
     pub fn scroll(&mut self,
                   mut delta: Point2D<f32>,
                   cursor: Point2D<f32>,
@@ -764,7 +781,8 @@ impl Frame {
                                &Rect::new(Point2D::zero(), root_pipeline.viewport_size),
                                &Matrix4D::identity(),
                                Matrix4D::identity(),
-                               root_pipeline_id));
+                               root_pipeline_id,
+                               root_stacking_context.stacking_context.servo_id));
 
                 // Work around borrow check on resource cache
                 {
@@ -945,7 +963,9 @@ impl Frame {
                                                       &iframe_info.viewport_rect,
                                                       &iframe_info.transform,
                                                       iframe_info.transform,
-                                                      pipeline.pipeline_id));
+                                                      pipeline.pipeline_id,
+                                                      iframe_stacking_context.stacking_context
+                                                                             .servo_id));
 
                         self.flatten(iframe,
                                      &iframe_info,
@@ -968,8 +988,7 @@ impl Frame {
 
         let (stacking_context, pipeline_id) = match scene_item {
             SceneItemKind::StackingContext(stacking_context, pipeline_id) => {
-                let stacking_context = &stacking_context.stacking_context;
-                (stacking_context, pipeline_id)
+                (&stacking_context.stacking_context, pipeline_id)
             }
             SceneItemKind::Pipeline(pipeline) => {
                 self.pipeline_epoch_map.insert(pipeline.pipeline_id, pipeline.epoch);
@@ -1080,7 +1099,8 @@ impl Frame {
                                                &viewport_rect,
                                                &info.viewport_transform,
                                                transform,
-                                               parent_info.pipeline_id);
+                                               parent_info.pipeline_id,
+                                               stacking_context.servo_id);
                         if parent_info.actual_scroll_layer_id != scroll_layer_id {
                             self.layers.get_mut(&parent_info.actual_scroll_layer_id).unwrap().add_child(scroll_layer_id);
                         }
