@@ -1062,29 +1062,37 @@ impl Frame {
                     }
                     (ScrollPolicy::Scrollable, Some(scroll_layer_id)) => {
                         debug_assert!(!self.layers.contains_key(&scroll_layer_id));
-                        let viewport_rect = match scroll_layer_id.info {
+                        let (viewport_rect, viewport_transform) = match scroll_layer_id.info {
                             ScrollLayerInfo::Scrollable(index) if index > 0 => {
                                 let mut stacking_context_rect =
                                     Rect::new(parent_info.offset_from_origin,
                                               stacking_context.bounds.size);
-
-                                transform.transform_rect(&stacking_context_rect)
-                                         .intersection(&parent_info.viewport_rect)
-                                         .unwrap_or(Rect::new(Point2D::new(0.0, 0.0),
-                                                              Size2D::new(0.0, 0.0)))
+                                (parent_info.viewport_rect
+                                            .intersection(&stacking_context_rect)
+                                            .unwrap_or(Rect::new(Point2D::new(0.0, 0.0),
+                                                                 Size2D::new(0.0, 0.0))),
+                                 Matrix4D::identity())
                             }
-                            _ => parent_info.viewport_rect,
+                            _ if transform.can_losslessly_transform_a_2d_rect() => {
+                                // FIXME(pcwalton): This is pretty much just a hack for
+                                // browser.html to stave off `viewport_rect` becoming a full stack
+                                // of matrices and clipping regions as long as we can.
+                                (transform.transform_rect(&parent_info.viewport_rect),
+                                 Matrix4D::identity())
+                            }
+                            _ => (parent_info.viewport_rect, transform),
                         };
                         let layer = Layer::new(parent_info.offset_from_origin,
                                                stacking_context.overflow.size,
                                                &viewport_rect,
-                                               &info.viewport_transform,
+                                               &viewport_transform,
                                                transform,
                                                parent_info.pipeline_id);
                         if parent_info.actual_scroll_layer_id != scroll_layer_id {
                             self.layers.get_mut(&parent_info.actual_scroll_layer_id).unwrap().add_child(scroll_layer_id);
                         }
                         self.layers.insert(scroll_layer_id, layer);
+                        info.viewport_rect = viewport_rect;
                         info.default_scroll_layer_id = scroll_layer_id;
                         info.actual_scroll_layer_id = scroll_layer_id;
                         info.offset_from_current_layer = Point2D::zero();
@@ -1418,3 +1426,19 @@ impl Frame {
         }
     }
 }
+
+trait Matrix4DUtils {
+    /// Returns true if this matrix transforms an axis-aligned 2D rectangle to another axis-aligned
+    /// 2D rectangle.
+    ///
+    /// This is used as part of `flatten()` above, as essentially a hack for browser.html.
+    fn can_losslessly_transform_a_2d_rect(&self) -> bool;
+}
+
+impl Matrix4DUtils for Matrix4D<f32> {
+    fn can_losslessly_transform_a_2d_rect(&self) -> bool {
+        self.m31 == 0.0 && self.m32 == 0.0 && self.m33 == 1.0 && self.m34 == 0.0 &&
+            self.m43 == 0.0 && self.m44 == 1.0
+    }
+}
+
