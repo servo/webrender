@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use display_list::{AuxiliaryListsBuilder, ItemRange};
-use euclid::{Rect, Size2D};
+use euclid::{Point2D, Rect, Size2D};
 
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
 
@@ -131,14 +131,24 @@ impl ColorF {
 pub struct StackingContextId(pub u32, pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct DisplayListId(pub u32, pub u32);
+pub struct ServoStackingContextId(pub FragmentType, pub usize);
 
-#[derive(Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FragmentType {
+    FragmentBody,
+    BeforePseudoContent,
+    AfterPseudoContent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DisplayListMode {
     Default,
     PseudoFloat,
     PseudoPositionedContent,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DisplayListId(pub u32, pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct Epoch(pub u32);
@@ -273,3 +283,11 @@ pub enum ScrollPolicy {
     Scrollable,
     Fixed,
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ScrollLayerState {
+    pub pipeline_id: PipelineId,
+    pub stacking_context_id: ServoStackingContextId,
+    pub scroll_offset: Point2D<f32>,
+}
+
