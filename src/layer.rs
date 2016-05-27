@@ -8,7 +8,7 @@ use internal_types::{BatchUpdate, BatchUpdateList, BatchUpdateOp};
 use internal_types::{DrawListItemIndex, DrawListId, DrawListGroupId};
 use spring::{DAMPING, STIFFNESS, Spring};
 use util::MatrixHelpers;
-use webrender_traits::{PipelineId, ScrollLayerId};
+use webrender_traits::{PipelineId, ScrollLayerId, ServoStackingContextId, StackingContextId};
 
 pub struct Layer {
     // TODO: Remove pub from here if possible in the future
@@ -28,6 +28,7 @@ pub struct Layer {
     pub local_transform: Matrix4D<f32>,
     pub world_transform: Matrix4D<f32>,
     pub pipeline_id: PipelineId,
+    pub stacking_context_id: ServoStackingContextId,
     pub children: Vec<ScrollLayerId>,
 }
 
@@ -37,7 +38,8 @@ impl Layer {
                viewport_rect: &Rect<f32>,
                viewport_transform: &Matrix4D<f32>,
                transform: Matrix4D<f32>,
-               pipeline_id: PipelineId)
+               pipeline_id: PipelineId,
+               stacking_context_id: ServoStackingContextId)
                -> Layer {
         let rect = Rect::new(Point2D::zero(), layer_size);
         let aabb_tree = AABBTree::new(8192.0, &rect);
@@ -53,6 +55,7 @@ impl Layer {
             world_transform: transform,
             children: Vec::new(),
             pipeline_id: pipeline_id,
+            stacking_context_id: stacking_context_id,
         }
     }
 

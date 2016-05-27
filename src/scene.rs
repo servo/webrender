@@ -56,6 +56,7 @@ pub struct SceneStackingContext {
     pub pipeline_id: PipelineId,
     pub epoch: Epoch,
     pub stacking_context: StackingContext,
+    pub stacking_context_id: StackingContextId,
 }
 
 impl Scene {
@@ -117,6 +118,7 @@ impl Scene {
             pipeline_id: pipeline_id,
             epoch: epoch,
             stacking_context: stacking_context,
+            stacking_context_id: id,
         };
 
         self.stacking_context_map.insert(id, stacking_context);
