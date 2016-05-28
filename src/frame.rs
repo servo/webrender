@@ -208,7 +208,7 @@ impl RenderTarget {
         for item in &self.items {
             match item {
                 &FrameRenderItem::CompositeBatch(ref info, z_clear_needed) => {
-                    if z_clear_needed {
+                    if z_clear_needed && !commands.is_empty() {
                         commands.push(DrawCommand::Clear(ClearInfo {
                             clear_color: false,
                             clear_z: true,
@@ -310,7 +310,7 @@ impl RenderTarget {
 
                     if any_were_visible {
                         // Add a clear command if necessary.
-                        if z_clear_needed {
+                        if z_clear_needed && !commands.is_empty() {
                             commands.push(DrawCommand::Clear(ClearInfo {
                                 clear_color: false,
                                 clear_z: true,
