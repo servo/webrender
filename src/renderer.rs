@@ -33,7 +33,7 @@ use time::precise_time_ns;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
 use webrender_traits::{ImageFormat, MixBlendMode, RenderApiSender};
 use offscreen_gl_context::{NativeGLContext, NativeGLContextMethods};
-use util::RectHelpers;
+use util::MatrixHelpers;
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
 pub const MAX_RASTER_OP_SIZE: u32 = 2048;
@@ -1130,31 +1130,13 @@ impl Renderer {
         let layer_origin = Point2D::new((layer.origin.x * self.device_pixel_ratio).round() as gl::GLint,
                                         (layer.origin.y * self.device_pixel_ratio).round() as gl::GLint);
 
-        let layer_size = Size2D::new((layer.size.width * self.device_pixel_ratio).round() as u32,
-                                     (layer.size.height * self.device_pixel_ratio).round() as u32);
+        let layer_size = Size2D::new((layer.size.width * self.device_pixel_ratio).round() as i32,
+                                     (layer.size.height * self.device_pixel_ratio).round() as i32);
 
-        let layer_origin = match layer.texture_id {
-            Some(..) => {
-                layer_origin
-            }
-            None => {
-                let inverted_y0 = render_context.framebuffer_size.height as gl::GLint -
-                                  layer_size.height as gl::GLint -
-                                  layer_origin.y;
+        let layer_viewport = Rect::new(layer_origin, layer_size);
+        set_scissor_or_viewport(&layer_viewport, render_context, layer.texture_id, gl::scissor);
+        set_scissor_or_viewport(&layer_viewport, render_context, layer.texture_id, gl::viewport);
 
-                Point2D::new(layer_origin.x, inverted_y0)
-            }
-        };
-
-        gl::scissor(layer_origin.x,
-                    layer_origin.y,
-                    layer_size.width as gl::GLint,
-                    layer_size.height as gl::GLint);
-
-        gl::viewport(layer_origin.x,
-                     layer_origin.y,
-                     layer_size.width as gl::GLint,
-                     layer_size.height as gl::GLint);
         let clear_color = if layer.texture_id.is_some() {
             ColorF::new(0.0, 0.0, 0.0, 0.0)
         } else {
@@ -1221,19 +1203,37 @@ impl Renderer {
 
                     // Render any masks to the stencil buffer.
                     for region in &info.regions {
-                        let layer_rect = Rect::new(layer.origin, layer.size);
                         let mut valid_mask_count = 0;
+                        let mut scissor_rect = layer_viewport;
                         for mask in &region.masks {
 
-                            // If the mask is larger than the viewport / scissor rect
-                            // then there is no need to draw it.
-                            if mask.transform == Matrix4D::identity() &&
-                               mask.rect.contains_rect(&layer_rect) {
-                                continue;
+                            // If we can represent the mask by just adjusting the scissor rect,
+                            // don't draw it.
+                            if mask.transform.can_losslessly_transform_a_2d_rect() {
+                                let transformed_mask_rect = mask.transform
+                                                                .transform_rect(&mask.rect);
+                                let transformed_mask_origin = Point2D::new(
+                                    (transformed_mask_rect.origin.x *
+                                     self.device_pixel_ratio).round() as gl::GLint,
+                                    (transformed_mask_rect.origin.y *
+                                     self.device_pixel_ratio).round() as gl::GLint);
+                                let transformed_mask_size = Size2D::new(
+                                        (transformed_mask_rect.size.width *
+                                         self.device_pixel_ratio).round() as gl::GLint,
+                                        (transformed_mask_rect.size.height *
+                                         self.device_pixel_ratio).round() as gl::GLint);
+                                let transformed_mask_rect =
+                                    Rect::new(transformed_mask_origin,
+                                              transformed_mask_size);
+
+                                scissor_rect = transformed_mask_rect.intersection(&scissor_rect)
+                                                                    .unwrap_or(Rect::zero());
+                                continue
                             }
 
                             // First time we find a valid mask, clear stencil and setup render states
                             if valid_mask_count == 0 {
+                                // TODO(pcwalton): Don't clear stencil if already clear!!!
                                 gl::clear(gl::STENCIL_BUFFER_BIT);
                                 gl::enable(gl::STENCIL_TEST);
                                 gl::color_mask(false, false, false, false);
@@ -1307,6 +1307,14 @@ impl Renderer {
                                                      &projection);
                         }
 
+                        // If the scissor rect was updated, scissor.
+                        if scissor_rect != layer_viewport {
+                            set_scissor_or_viewport(&scissor_rect,
+                                                    render_context,
+                                                    layer.texture_id,
+                                                    gl::scissor)
+                        }
+
                         for draw_call in &region.draw_calls {
                             let vao_id = self.get_or_create_similar_vao_with_offset(
                                 draw_call.vertex_buffer_id,
@@ -1367,6 +1375,14 @@ impl Renderer {
                         // Disable stencil test if it was used
                         if valid_mask_count > 0 {
                             gl::disable(gl::STENCIL_TEST);
+                        }
+
+                        // Reset scissor if it was used.
+                        if scissor_rect != layer_viewport {
+                            set_scissor_or_viewport(&layer_viewport,
+                                                    render_context,
+                                                    layer.texture_id,
+                                                    gl::scissor);
                         }
                     }
                 }
@@ -1636,6 +1652,20 @@ impl Renderer {
                                           info.texture_id);
                 }
             }
+        }
+
+        fn set_scissor_or_viewport(rect: &Rect<gl::GLint>,
+                                   render_context: &RenderContext,
+                                   layer_texture_id: Option<TextureId>,
+                                   function: fn(gl::GLint, gl::GLint, gl::GLint, gl::GLint)) {
+            let y = match layer_texture_id {
+                Some(_) => rect.origin.y,
+                None => {
+                    render_context.framebuffer_size.height as gl::GLint - rect.size.height -
+                        rect.origin.y
+                }
+            };
+            function(rect.origin.x, y, rect.size.width, rect.size.height)
         }
     }
 
