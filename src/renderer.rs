@@ -380,7 +380,6 @@ impl Renderer {
 
             gl::disable(gl::SCISSOR_TEST);
             gl::clear_color(1.0, 1.0, 1.0, 0.0);
-            gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
 
             self.update_shaders();
             self.update_texture_cache();
