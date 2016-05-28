@@ -208,7 +208,7 @@ impl RenderTarget {
         for item in &self.items {
             match item {
                 &FrameRenderItem::CompositeBatch(ref info, z_clear_needed) => {
-                    if z_clear_needed {
+                    if z_clear_needed && !commands.is_empty() {
                         commands.push(DrawCommand::Clear(ClearInfo {
                             clear_color: false,
                             clear_z: true,
@@ -310,7 +310,7 @@ impl RenderTarget {
 
                     if any_were_visible {
                         // Add a clear command if necessary.
-                        if z_clear_needed {
+                        if z_clear_needed && !commands.is_empty() {
                             commands.push(DrawCommand::Clear(ClearInfo {
                                 clear_color: false,
                                 clear_z: true,
@@ -1444,21 +1444,6 @@ impl Frame {
             }
             None
         }
-    }
-}
-
-trait Matrix4DUtils {
-    /// Returns true if this matrix transforms an axis-aligned 2D rectangle to another axis-aligned
-    /// 2D rectangle.
-    ///
-    /// This is used as part of `flatten()` above, as essentially a hack for browser.html.
-    fn can_losslessly_transform_a_2d_rect(&self) -> bool;
-}
-
-impl Matrix4DUtils for Matrix4D<f32> {
-    fn can_losslessly_transform_a_2d_rect(&self) -> bool {
-        self.m31 == 0.0 && self.m32 == 0.0 && self.m33 == 1.0 && self.m34 == 0.0 &&
-            self.m43 == 0.0 && self.m44 == 1.0
     }
 }
 

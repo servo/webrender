@@ -38,6 +38,12 @@ impl Drop for ProfileScope {
 // TODO: Implement these in euclid!
 pub trait MatrixHelpers {
     fn transform_rect(&self, rect: &Rect<f32>) -> Rect<f32>;
+
+    /// Returns true if this matrix transforms an axis-aligned 2D rectangle to another axis-aligned
+    /// 2D rectangle.
+    ///
+    /// This is used as part of `flatten()` above, as essentially a hack for browser.html.
+    fn can_losslessly_transform_a_2d_rect(&self) -> bool;
 }
 
 impl MatrixHelpers for Matrix4D<f32> {
@@ -65,6 +71,10 @@ impl MatrixHelpers for Matrix4D<f32> {
         }
         Rect::new(Point2D::new(min_x.clone(), min_y.clone()),
                   Size2D::new(max_x - min_x, max_y - min_y))
+    }
+
+    fn can_losslessly_transform_a_2d_rect(&self) -> bool {
+        self.m12 == 0.0 && self.m14 == 0.0 && self.m21 == 0.0 && self.m24 == 0.0 && self.m44 == 1.0
     }
 }
 
