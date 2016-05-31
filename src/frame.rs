@@ -1034,6 +1034,14 @@ impl Frame {
                     stacking_context.composition_operations(auxiliary_lists)
                 };
 
+                // Detect composition operations that will make us invisible.
+                for composition_operation in &composition_operations {
+                    match *composition_operation {
+                        CompositionOp::Filter(LowLevelFilterOp::Opacity(Au(0))) => return,
+                        _ => {}
+                    }
+                }
+
                 // Build world space transform
                 let origin = parent_info.offset_from_current_layer + stacking_context.bounds.origin;
                 let local_transform = if composition_operations.is_empty() {
