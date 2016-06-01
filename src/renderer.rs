@@ -6,7 +6,7 @@ use batch::{RasterBatch, VertexBufferId};
 use debug_render::DebugRenderer;
 use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat, GpuProfile};
 use device::{TextureFilter, VAOId, VBOId, VertexUsageHint, FileWatcherHandler};
-use euclid::{Matrix4D, Point2D, Rect, Size2D};
+use euclid::{Matrix4D, Point2D, Point4D, Rect, Size2D};
 use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp, BatchUpdateOp, BatchUpdateList};
@@ -33,7 +33,7 @@ use time::precise_time_ns;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
 use webrender_traits::{ImageFormat, MixBlendMode, RenderApiSender};
 use offscreen_gl_context::{NativeGLContext, NativeGLContextMethods};
-use util::MatrixHelpers;
+use util::{MatrixHelpers, RectHelpers};
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
 pub const MAX_RASTER_OP_SIZE: u32 = 2048;
@@ -1114,9 +1114,7 @@ impl Renderer {
         }
     }
 
-    fn draw_layer(&mut self,
-                  layer: &DrawLayer,
-                  render_context: &RenderContext) {
+    fn draw_layer(&mut self, layer: &DrawLayer, render_context: &RenderContext) {
         // Draw child layers first, to ensure that dependent render targets
         // have been built before they are read as a texture.
         for child in &layer.child_layers {
@@ -1209,22 +1207,59 @@ impl Renderer {
 
                             // If we can represent the mask by just adjusting the scissor rect,
                             // don't draw it.
-                            if mask.transform.can_losslessly_transform_a_2d_rect() {
-                                let transformed_mask_rect = mask.transform
-                                                                .transform_rect(&mask.rect);
+                            if mask.transform
+                                   .can_losslessly_transform_and_perspective_project_a_2d_rect() {
+                                // Convert the mask rect to 4D points.
+                                let top_left = to_point4d(&mask.rect.origin);
+                                let top_right = to_point4d(&mask.rect.top_right());
+                                let bottom_right = to_point4d(&mask.rect.bottom_right());
+                                let bottom_left = to_point4d(&mask.rect.bottom_left());
+
+                                // Transform in normalized device coordinates.
+                                let transform = projection.mul(&mask.transform);
+                                let top_left =
+                                    transform.transform_point_and_perspective_project(&top_left);
+                                let top_right =
+                                    transform.transform_point_and_perspective_project(&top_right);
+                                let bottom_right =
+                                    transform.transform_point_and_perspective_project(
+                                        &bottom_right);
+                                let bottom_left =
+                                    transform.transform_point_and_perspective_project(
+                                        &bottom_left);
+                                let transformed_mask_rect = Rect::from_points(&top_left,
+                                                                              &top_right,
+                                                                              &bottom_right,
+                                                                              &bottom_left);
+                                /*println!("... transformed mask rect in NDC: {:?}",
+                                         transformed_mask_rect);*/
+
+                                // Convert to window coordinates.
                                 let transformed_mask_origin = Point2D::new(
-                                    (transformed_mask_rect.origin.x *
-                                     self.device_pixel_ratio).round() as gl::GLint,
-                                    (transformed_mask_rect.origin.y *
-                                     self.device_pixel_ratio).round() as gl::GLint);
+                                    (transformed_mask_rect.origin.x + 1.0) / 2.0 *
+                                    layer_viewport.size.width as f32 +
+                                    layer_viewport.origin.x as f32,
+                                    (1.0 - transformed_mask_rect.size.height -
+                                     transformed_mask_rect.origin.y) / 2.0 *
+                                    layer_viewport.size.height as f32 +
+                                    layer_viewport.origin.y as f32);
                                 let transformed_mask_size = Size2D::new(
-                                        (transformed_mask_rect.size.width *
-                                         self.device_pixel_ratio).round() as gl::GLint,
-                                        (transformed_mask_rect.size.height *
-                                         self.device_pixel_ratio).round() as gl::GLint);
-                                let transformed_mask_rect =
-                                    Rect::new(transformed_mask_origin,
-                                              transformed_mask_size);
+                                    transformed_mask_rect.size.width / 2.0 *
+                                     layer_viewport.size.width as f32,
+                                    transformed_mask_rect.size.height / 2.0 *
+                                     layer_viewport.size.height as f32);
+                                let transformed_mask_rect = Rect::new(transformed_mask_origin,
+                                                                      transformed_mask_size);
+
+                                // Round and convert to integers.
+                                let transformed_mask_origin =
+                                    Point2D::new(transformed_mask_rect.origin.x.round() as i32,
+                                                 transformed_mask_rect.origin.y.round() as i32);
+                                let transformed_mask_size =
+                                    Size2D::new(transformed_mask_rect.size.width.round() as i32,
+                                                transformed_mask_rect.size.height.round() as i32);
+                                let transformed_mask_rect = Rect::new(transformed_mask_origin,
+                                                                      transformed_mask_size);
 
                                 scissor_rect = transformed_mask_rect.intersection(&scissor_rect)
                                                                     .unwrap_or(Rect::zero());
@@ -1666,6 +1701,10 @@ impl Renderer {
                 }
             };
             function(rect.origin.x, y, rect.size.width, rect.size.height)
+        }
+
+        fn to_point4d(point: &Point2D<f32>) -> Point4D<f32> {
+            Point4D::new(point.x, point.y, 0.0, 1.0)
         }
     }
 

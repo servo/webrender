@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use euclid::{Matrix4D, Point2D, Rect, Size2D};
+use euclid::{Matrix4D, Point2D, Point4D, Rect, Size2D};
 use internal_types::{RectColors};
 use num_traits::Zero;
 use time::precise_time_ns;
@@ -37,25 +37,52 @@ impl Drop for ProfileScope {
 
 // TODO: Implement these in euclid!
 pub trait MatrixHelpers {
+    fn transform_point_and_perspective_project(&self, point: &Point4D<f32>) -> Point2D<f32>;
     fn transform_rect(&self, rect: &Rect<f32>) -> Rect<f32>;
 
     /// Returns true if this matrix transforms an axis-aligned 2D rectangle to another axis-aligned
     /// 2D rectangle.
-    ///
-    /// This is used as part of `flatten()` above, as essentially a hack for browser.html.
     fn can_losslessly_transform_a_2d_rect(&self) -> bool;
+
+    /// Returns true if this matrix will transforms an axis-aligned 2D rectangle to another axis-
+    /// aligned 2D rectangle after perspective divide.
+    fn can_losslessly_transform_and_perspective_project_a_2d_rect(&self) -> bool;
 }
 
 impl MatrixHelpers for Matrix4D<f32> {
-    #[inline]
+    fn transform_point_and_perspective_project(&self, point: &Point4D<f32>) -> Point2D<f32> {
+        let point = self.transform_point4d(point);
+        Point2D::new(point.x / point.w, point.y / point.w)
+    }
+
     fn transform_rect(&self, rect: &Rect<f32>) -> Rect<f32> {
         let top_left = self.transform_point(&rect.origin);
         let top_right = self.transform_point(&rect.top_right());
         let bottom_left = self.transform_point(&rect.bottom_left());
         let bottom_right = self.transform_point(&rect.bottom_right());
-        let (mut min_x, mut min_y) = (top_left.x.clone(), top_left.y.clone());
+        Rect::from_points(&top_left, &top_right, &bottom_right, &bottom_left)
+    }
+
+    fn can_losslessly_transform_a_2d_rect(&self) -> bool {
+        self.m12 == 0.0 && self.m14 == 0.0 && self.m21 == 0.0 && self.m24 == 0.0 && self.m44 == 1.0
+    }
+
+    fn can_losslessly_transform_and_perspective_project_a_2d_rect(&self) -> bool {
+        self.m12 == 0.0 && self.m21 == 0.0
+    }
+}
+
+pub trait RectHelpers {
+    fn from_points(a: &Point2D<f32>, b: &Point2D<f32>, c: &Point2D<f32>, d: &Point2D<f32>) -> Self;
+    fn contains_rect(&self, other: &Rect<f32>) -> bool;
+}
+
+impl RectHelpers for Rect<f32> {
+    fn from_points(a: &Point2D<f32>, b: &Point2D<f32>, c: &Point2D<f32>, d: &Point2D<f32>)
+                   -> Rect<f32> {
+        let (mut min_x, mut min_y) = (a.x.clone(), a.y.clone());
         let (mut max_x, mut max_y) = (min_x.clone(), min_y.clone());
-        for point in &[ top_right, bottom_left, bottom_right ] {
+        for point in &[b, c, d] {
             if point.x < min_x {
                 min_x = point.x.clone()
             }
@@ -73,16 +100,6 @@ impl MatrixHelpers for Matrix4D<f32> {
                   Size2D::new(max_x - min_x, max_y - min_y))
     }
 
-    fn can_losslessly_transform_a_2d_rect(&self) -> bool {
-        self.m12 == 0.0 && self.m14 == 0.0 && self.m21 == 0.0 && self.m24 == 0.0 && self.m44 == 1.0
-    }
-}
-
-pub trait RectHelpers {
-    fn contains_rect(&self, other: &Rect<f32>) -> bool;
-}
-
-impl RectHelpers for Rect<f32> {
     fn contains_rect(&self, other: &Rect<f32>) -> bool {
         self.origin.x <= other.origin.x &&
         self.origin.y <= other.origin.y &&
