@@ -69,5 +69,6 @@ extern crate time;
 extern crate webrender_traits;
 extern crate offscreen_gl_context;
 extern crate byteorder;
+extern crate bit_set;
 
 pub use renderer::{Renderer, RendererOptions};

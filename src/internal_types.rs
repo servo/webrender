@@ -512,16 +512,33 @@ pub struct CompositeBatchJob {
 }
 
 #[derive(Debug, Clone)]
+pub struct DrawCompositeBatchJob {
+    pub rect: Rect<f32>,
+    pub local_transform: Matrix4D<f32>,
+    pub world_transform: Matrix4D<f32>,
+    pub child_layer_index: ChildLayerIndex,
+}
+
+#[derive(Debug, Clone)]
 pub struct CompositeBatchInfo {
     pub operation: CompositionOp,
     pub texture_id: TextureId,
+    pub scroll_layer_id: ScrollLayerId,
     pub jobs: Vec<CompositeBatchJob>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DrawCompositeBatchInfo {
+    pub operation: CompositionOp,
+    pub texture_id: TextureId,
+    pub scroll_layer_id: ScrollLayerId,
+    pub jobs: Vec<DrawCompositeBatchJob>,
 }
 
 #[derive(Clone, Debug)]
 pub enum DrawCommand {
     Batch(BatchInfo),
-    CompositeBatch(CompositeBatchInfo),
+    CompositeBatch(DrawCompositeBatchInfo),
     Clear(ClearInfo),
 }
 
@@ -531,6 +548,7 @@ pub struct ChildLayerIndex(pub u32);
 #[derive(Debug)]
 pub struct DrawLayer {
     // This layer
+    pub id: RenderTargetId,
     pub commands: Vec<DrawCommand>,
     pub texture_id: Option<TextureId>,
     pub origin: Point2D<f32>,
@@ -541,13 +559,15 @@ pub struct DrawLayer {
 }
 
 impl DrawLayer {
-    pub fn new(origin: Point2D<f32>,
+    pub fn new(id: RenderTargetId,
+               origin: Point2D<f32>,
                size: Size2D<f32>,
                texture_id: Option<TextureId>,
                commands: Vec<DrawCommand>,
                child_layers: Vec<DrawLayer>)
                -> DrawLayer {
         DrawLayer {
+            id: id,
             origin: origin,
             size: size,
             texture_id: texture_id,

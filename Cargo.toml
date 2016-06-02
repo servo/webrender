@@ -18,6 +18,7 @@ app_units = {version = "0.2.1", features = ["plugins"]}
 lazy_static = "0.2"
 log = "0.3"
 byteorder = "0.5"
+bit-set = "0.4"
 
 [target.'cfg(any(target_os = "android", target_os = "linux", target_os = "windows"))'.dependencies]
 freetype = {git = "https://github.com/servo/rust-freetype"}
