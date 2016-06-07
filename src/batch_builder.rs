@@ -642,7 +642,7 @@ impl<'a> BatchBuilder<'a> {
                           clip_mode: BoxShadowClipMode,
                           resource_cache: &ResourceCache,
                           frame_id: FrameId) {
-        let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
+        let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius, clip_mode);
 
         // Fast path.
         if blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None {
@@ -732,7 +732,7 @@ impl<'a> BatchBuilder<'a> {
         //      |##|                  |##|
         //      +--+------------------+--+
 
-        let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
+        let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius, clip_mode);
         let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
 
         let clip_state = self.adjust_clip_for_box_shadow_clip_mode(box_bounds,
@@ -812,7 +812,7 @@ impl<'a> BatchBuilder<'a> {
                             clip_mode: BoxShadowClipMode,
                             resource_cache: &ResourceCache,
                             frame_id: FrameId) {
-        let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
+        let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius, clip_mode);
         let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
 
         let clip_state = self.adjust_clip_for_box_shadow_clip_mode(box_bounds,
@@ -903,7 +903,7 @@ impl<'a> BatchBuilder<'a> {
                                              border_radius: f32,
                                              resource_cache: &ResourceCache,
                                              frame_id: FrameId) {
-        let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius);
+        let rect = compute_box_shadow_rect(box_bounds, box_offset, spread_radius, BoxShadowClipMode::Inset);
         let metrics = BoxShadowMetrics::new(&rect, border_radius, blur_radius);
 
         let clip_state = self.adjust_clip_for_box_shadow_clip_mode(box_bounds,
@@ -1884,11 +1884,17 @@ impl BoxShadowMetrics {
 
 pub fn compute_box_shadow_rect(box_bounds: &Rect<f32>,
                                box_offset: &Point2D<f32>,
-                               spread_radius: f32)
+                               mut spread_radius: f32,
+                               clip_mode: BoxShadowClipMode)
                                -> Rect<f32> {
     let mut rect = (*box_bounds).clone();
     rect.origin.x += box_offset.x;
     rect.origin.y += box_offset.y;
+
+    if clip_mode == BoxShadowClipMode::Inset {
+        spread_radius = -spread_radius;
+    };
+
     rect.inflate(spread_radius, spread_radius)
 }
 

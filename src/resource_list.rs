@@ -198,7 +198,8 @@ impl BuildRequiredResources for AABBTreeNode {
 
                             let box_rect = batch_builder::compute_box_shadow_rect(&info.box_bounds,
                                                                                   &info.offset,
-                                                                                  info.spread_radius);
+                                                                                  info.spread_radius,
+                                                                                  info.clip_mode);
                             resource_list.add_box_shadow_corner(info.blur_radius,
                                                                 info.border_radius,
                                                                 &box_rect,
