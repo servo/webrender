@@ -819,6 +819,10 @@ impl<'a> BatchBuilder<'a> {
                                                                    border_radius,
                                                                    clip_mode);
 
+        if clip_mode == BoxShadowClipMode::Inset && blur_radius == 0.0 {
+            return;
+        }
+
         // Draw the sides.
         //
         //      +--+------------------+--+
