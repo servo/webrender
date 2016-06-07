@@ -255,7 +255,8 @@ impl RenderBackend {
                             tx.send((point, PipelineId(0, 0))).unwrap()
                         }
                         ApiMsg::GetScrollLayerState(tx) => {
-                            tx.send(self.frame.get_scroll_layer_state()).unwrap()
+                            tx.send(self.frame.get_scroll_layer_state(self.device_pixel_ratio))
+                              .unwrap()
                         }
                         ApiMsg::RequestWebGLContext(size, attributes, tx) => {
                             if let Some(ref handle) = self.webrender_context_handle {

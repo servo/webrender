@@ -9,8 +9,8 @@ use euclid::{Matrix4D, Point2D, Point3D, Point4D, Rect, Size2D};
 use fnv::FnvHasher;
 use geometry::ray_intersects_rect;
 use internal_types::{AxisDirection, LowLevelFilterOp, CompositionOp, DrawListItemIndex};
-use internal_types::{BatchUpdateList, ChildLayerIndex, DrawListId};
-use internal_types::{CompositeBatchInfo, CompositeBatchJob, MaskRegion};
+use internal_types::{BatchUpdateList, ChildLayerIndex, DrawListId, DrawCompositeBatchInfo};
+use internal_types::{CompositeBatchInfo, CompositeBatchJob, DrawCompositeBatchJob, MaskRegion};
 use internal_types::{RendererFrame, StackingContextInfo, BatchInfo, DrawCall, StackingContextIndex};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, MAX_RECT, BatchUpdate, BatchUpdateOp, DrawLayer};
 use internal_types::{DrawCommand, ClearInfo, RenderTargetId, DrawListGroupId};
@@ -121,7 +121,10 @@ pub enum FrameRenderItem {
 pub struct RenderTarget {
     id: RenderTargetId,
     size: Size2D<f32>,
+    /// The origin in render target space.
     origin: Point2D<f32>,
+    /// The origin in world space.
+    world_origin: Point2D<f32>,
     items: Vec<FrameRenderItem>,
     texture_id: Option<TextureId>,
     children: Vec<RenderTarget>,
@@ -133,12 +136,14 @@ pub struct RenderTarget {
 impl RenderTarget {
     fn new(id: RenderTargetId,
            origin: Point2D<f32>,
+           world_origin: Point2D<f32>,
            size: Size2D<f32>,
            texture_id: Option<TextureId>) -> RenderTarget {
         RenderTarget {
             id: id,
             size: size,
             origin: origin,
+            world_origin: world_origin,
             items: Vec::new(),
             texture_id: texture_id,
             children: Vec::new(),
@@ -208,6 +213,8 @@ impl RenderTarget {
         for item in &self.items {
             match item {
                 &FrameRenderItem::CompositeBatch(ref info, z_clear_needed) => {
+                    let layer = &layers[&info.scroll_layer_id];
+                    let transform = layer.world_transform;
                     if z_clear_needed && !commands.is_empty() {
                         commands.push(DrawCommand::Clear(ClearInfo {
                             clear_color: false,
@@ -215,7 +222,23 @@ impl RenderTarget {
                             clear_stencil: true,
                         }))
                     }
-                    commands.push(DrawCommand::CompositeBatch(info.clone()));
+
+                    let mut draw_jobs = vec![];
+                    for job in &info.jobs {
+                        draw_jobs.push(DrawCompositeBatchJob {
+                            rect: job.rect,
+                            local_transform: job.transform,
+                            world_transform: job.transform.mul(&transform),
+                            child_layer_index: job.child_layer_index,
+                        })
+                    }
+
+                    commands.push(DrawCommand::CompositeBatch(DrawCompositeBatchInfo {
+                        operation: info.operation,
+                        texture_id: info.texture_id,
+                        scroll_layer_id: info.scroll_layer_id,
+                        jobs: draw_jobs,
+                    }))
                 }
                 &FrameRenderItem::DrawListBatch(draw_list_group_id) => {
                     let draw_list_group = &draw_list_groups[&draw_list_group_id];
@@ -239,7 +262,17 @@ impl RenderTarget {
                                     z_clear_needed = true
                                 }
 
-                                let transform = layer.world_transform.mul(&context.transform);
+                                let mut world_transform_in_render_target_space =
+                                    layer.world_transform;
+                                if self.texture_id.is_some() {
+                                    // If we're rendering to a temporary target, the X/Y
+                                    // translation part of the transform will be applied by whoever
+                                    // composites us.
+                                    world_transform_in_render_target_space.m41 = 0.0;
+                                    world_transform_in_render_target_space.m42 = 0.0;
+                                };
+                                let transform =
+                                    world_transform_in_render_target_space.mul(&context.transform);
                                 matrix_palette[index] = transform;
 
                                 offset_palette[index].stacking_context_x0 =
@@ -337,7 +370,8 @@ impl RenderTarget {
             child_layers.push(child_layer);
         }
 
-        DrawLayer::new(self.origin,
+        DrawLayer::new(self.id,
+                       self.origin,
                        self.size,
                        self.texture_id,
                        commands,
@@ -365,6 +399,7 @@ impl RenderTarget {
                       target: Rect<f32>,
                       transform: &Matrix4D<f32>,
                       child_layer_index: ChildLayerIndex,
+                      scroll_layer_id: ScrollLayerId,
                       z_clear_needed: bool) {
         // TODO(gw): Relax the restriction on batch breaks for FB reads
         //           once the proper render target allocation code is done!
@@ -380,6 +415,7 @@ impl RenderTarget {
                 operation: op,
                 texture_id: texture_id,
                 jobs: Vec::new(),
+                scroll_layer_id: scroll_layer_id,
             }, z_clear_needed));
         }
 
@@ -650,7 +686,7 @@ impl Frame {
         })
     }
 
-    pub fn get_scroll_layer_state(&self) -> Vec<ScrollLayerState> {
+    pub fn get_scroll_layer_state(&self, device_pixel_ratio: f32) -> Vec<ScrollLayerState> {
         let mut result = vec![];
         for (scroll_layer_id, scroll_layer) in &self.layers {
             match scroll_layer_id.info {
@@ -658,7 +694,7 @@ impl Frame {
                     result.push(ScrollLayerState {
                         pipeline_id: scroll_layer.pipeline_id,
                         stacking_context_id: scroll_layer.stacking_context_id,
-                        scroll_offset: scroll_layer.scrolling.offset
+                        scroll_offset: scroll_layer.scrolling.offset,
                     })
                 }
                 ScrollLayerInfo::Fixed => {}
@@ -767,6 +803,7 @@ impl Frame {
                 let root_target_id = self.next_render_target_id();
 
                 let mut root_target = RenderTarget::new(root_target_id,
+                                                        Point2D::zero(),
                                                         Point2D::zero(),
                                                         root_pipeline.viewport_size,
                                                         None);
@@ -1180,6 +1217,7 @@ impl Frame {
 
                     let mut new_target = RenderTarget::new(render_target_id,
                                                            origin,
+                                                           target_rect.origin,
                                                            render_target_size,
                                                            Some(texture_id));
 
@@ -1193,6 +1231,7 @@ impl Frame {
                                               target_rect,
                                               &local_transform,
                                               child_layer_index,
+                                              info.actual_scroll_layer_id,
                                               z_clear_needed);
                     }
 
@@ -1408,7 +1447,8 @@ impl Frame {
                                                        device_pixel_ratio)
             }
             None => {
-                DrawLayer::new(Point2D::zero(),
+                DrawLayer::new(RenderTargetId(0),
+                               Point2D::zero(),
                                Size2D::zero(),
                                None,
                                Vec::new(),
