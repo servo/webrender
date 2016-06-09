@@ -850,8 +850,15 @@ impl<'a> BatchBuilder<'a> {
         let left_rect = Rect::new(metrics.tl_outer + Point2D::new(0.0, metrics.edge_size),
                                   vertical_size);
 
+        // Prevent overlap of the box shadow edges when the size of the blur is larger than the
+        // size of the box.
+        let center = Point2D::new(box_bounds.origin.x + box_bounds.size.width / 2.0,
+                                  box_bounds.origin.y + box_bounds.size.height / 2.0);
+
         self.add_box_shadow_edge(&top_rect.origin,
                                  &top_rect.bottom_right(),
+                                 &top_rect.origin,
+                                 &Point2D::new(metrics.tr_inner.x, center.y),
                                  &rect,
                                  color,
                                  blur_radius,
@@ -861,6 +868,8 @@ impl<'a> BatchBuilder<'a> {
                                  frame_id,
                                  BasicRotationAngle::Clockwise90);
         self.add_box_shadow_edge(&right_rect.origin,
+                                 &right_rect.bottom_right(),
+                                 &Point2D::new(center.x, metrics.tr_inner.y),
                                  &right_rect.bottom_right(),
                                  &rect,
                                  color,
@@ -872,6 +881,8 @@ impl<'a> BatchBuilder<'a> {
                                  BasicRotationAngle::Clockwise180);
         self.add_box_shadow_edge(&bottom_rect.origin,
                                  &bottom_rect.bottom_right(),
+                                 &Point2D::new(metrics.bl_inner.x, center.y),
+                                 &bottom_rect.bottom_right(),
                                  &rect,
                                  color,
                                  blur_radius,
@@ -882,6 +893,8 @@ impl<'a> BatchBuilder<'a> {
                                  BasicRotationAngle::Clockwise270);
         self.add_box_shadow_edge(&left_rect.origin,
                                  &left_rect.bottom_right(),
+                                 &left_rect.origin,
+                                 &Point2D::new(center.x, metrics.bl_inner.y),
                                  &rect,
                                  color,
                                  blur_radius,
@@ -1561,7 +1574,8 @@ impl<'a> BatchBuilder<'a> {
                                  color1: &ColorF,
                                  color_image: &TextureCacheItem,
                                  resource_cache: &ResourceCache,
-                                 rotation_angle: BasicRotationAngle) {
+                                 rotation_angle: BasicRotationAngle,
+                                 flip: bool) {
         if color0.a <= 0.0 || color1.a <= 0.0 {
             return
         }
@@ -1570,7 +1584,7 @@ impl<'a> BatchBuilder<'a> {
 
         let color_uv = RectUv::from_uv_rect_rotation_angle(&color_image.uv_rect(),
                                                            rotation_angle,
-                                                           false);
+                                                           flip);
 
         let dummy_mask_image = resource_cache.get_dummy_mask_image();
 
@@ -1766,7 +1780,8 @@ impl<'a> BatchBuilder<'a> {
                                        color,
                                        &color_image,
                                        resource_cache,
-                                       rotation_angle);
+                                       rotation_angle,
+                                       true);
 
         self.pop_clip_in_rect();
     }
@@ -1774,6 +1789,8 @@ impl<'a> BatchBuilder<'a> {
     fn add_box_shadow_edge(&mut self,
                            top_left: &Point2D<f32>,
                            bottom_right: &Point2D<f32>,
+                           edge_area_top_left: &Point2D<f32>,
+                           edge_area_bottom_right: &Point2D<f32>,
                            box_rect: &Rect<f32>,
                            color: &ColorF,
                            blur_radius: f32,
@@ -1782,10 +1799,17 @@ impl<'a> BatchBuilder<'a> {
                            resource_cache: &ResourceCache,
                            frame_id: FrameId,
                            rotation_angle: BasicRotationAngle) {
+
         if top_left.x >= bottom_right.x || top_left.y >= bottom_right.y {
             return
         }
 
+        let edge_area_rect =
+            Rect::new(*edge_area_top_left,
+                      Size2D::new(edge_area_bottom_right.x - edge_area_top_left.x,
+                                  edge_area_bottom_right.y - edge_area_top_left.y));
+
+        self.push_clip_in_rect(&edge_area_rect);
         let inverted = match clip_mode {
             BoxShadowClipMode::Outset | BoxShadowClipMode::None => false,
             BoxShadowClipMode::Inset => true,
@@ -1809,7 +1833,9 @@ impl<'a> BatchBuilder<'a> {
                                        color,
                                        &color_image,
                                        resource_cache,
-                                       rotation_angle)
+                                       rotation_angle,
+                                       false);
+        self.pop_clip_in_rect();
     }
 }
 
