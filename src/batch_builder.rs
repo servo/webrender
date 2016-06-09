@@ -1570,7 +1570,8 @@ impl<'a> BatchBuilder<'a> {
                                  color1: &ColorF,
                                  color_image: &TextureCacheItem,
                                  resource_cache: &ResourceCache,
-                                 rotation_angle: BasicRotationAngle) {
+                                 rotation_angle: BasicRotationAngle,
+                                 flip: bool) {
         if color0.a <= 0.0 || color1.a <= 0.0 {
             return
         }
@@ -1579,7 +1580,7 @@ impl<'a> BatchBuilder<'a> {
 
         let color_uv = RectUv::from_uv_rect_rotation_angle(&color_image.uv_rect(),
                                                            rotation_angle,
-                                                           false);
+                                                           flip);
 
         let dummy_mask_image = resource_cache.get_dummy_mask_image();
 
@@ -1775,7 +1776,8 @@ impl<'a> BatchBuilder<'a> {
                                        color,
                                        &color_image,
                                        resource_cache,
-                                       rotation_angle);
+                                       rotation_angle,
+                                       true);
 
         self.pop_clip_in_rect();
     }
@@ -1827,7 +1829,8 @@ impl<'a> BatchBuilder<'a> {
                                        color,
                                        &color_image,
                                        resource_cache,
-                                       rotation_angle);
+                                       rotation_angle,
+                                       false);
         self.pop_clip_in_rect();
     }
 }
