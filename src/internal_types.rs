@@ -11,6 +11,7 @@ use freelist::{FreeListItem, FreeListItemId};
 use num_traits::Zero;
 use profiler::BackendProfileCounters;
 use std::collections::{HashMap, HashSet};
+use std::f32;
 use std::hash::BuildHasherDefault;
 use std::ops::{Add, Sub};
 use std::path::PathBuf;
@@ -93,12 +94,12 @@ pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
 
 pub static MAX_RECT: Rect<f32> = Rect {
     origin: Point2D {
-        x: -1000.0,
-        y: -1000.0,
+        x: f32::MIN,
+        y: f32::MIN,
     },
     size: Size2D {
-        width: 10000.0,
-        height: 10000.0,
+        width: f32::INFINITY,
+        height: f32::INFINITY,
     },
 };
 
