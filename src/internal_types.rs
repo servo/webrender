@@ -622,7 +622,6 @@ pub struct StackingContextInfo {
     pub offset_from_layer: Point2D<f32>,
     pub local_clip_rect: Rect<f32>,
     pub transform: Matrix4D<f32>,
-    pub perspective: Matrix4D<f32>,
     pub z_clear_needed: bool,
 }
 
