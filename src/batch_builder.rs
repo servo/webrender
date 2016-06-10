@@ -741,8 +741,8 @@ impl<'a> BatchBuilder<'a> {
 
         // Prevent overlap of the box shadow corners when the size of the blur is larger than the
         // size of the box.
-        let center = Point2D::new(box_bounds.origin.x + box_bounds.size.width / 2.0,
-                                  box_bounds.origin.y + box_bounds.size.height / 2.0);
+        let center = Point2D::new(rect.origin.x + rect.size.width / 2.0,
+                                  rect.origin.y + rect.size.height / 2.0);
 
         self.add_box_shadow_corner(&metrics.tl_outer,
                                    &Point2D::new(metrics.tl_outer.x + metrics.edge_size,
@@ -852,8 +852,8 @@ impl<'a> BatchBuilder<'a> {
 
         // Prevent overlap of the box shadow edges when the size of the blur is larger than the
         // size of the box.
-        let center = Point2D::new(box_bounds.origin.x + box_bounds.size.width / 2.0,
-                                  box_bounds.origin.y + box_bounds.size.height / 2.0);
+        let center = Point2D::new(rect.origin.x + rect.size.width / 2.0,
+                                  rect.origin.y + rect.size.height / 2.0);
 
         self.add_box_shadow_edge(&top_rect.origin,
                                  &top_rect.bottom_right(),
