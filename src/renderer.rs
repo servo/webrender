@@ -1195,12 +1195,7 @@ impl Renderer {
         set_scissor_or_viewport(&layer_viewport, render_context, layer.texture_id, gl::scissor);
         set_scissor_or_viewport(&layer_viewport, render_context, layer.texture_id, gl::viewport);
 
-        let clear_color = if layer.texture_id.is_some() {
-            ColorF::new(0.0, 0.0, 0.0, 0.0)
-        } else {
-            ColorF::new(1.0, 1.0, 1.0, 0.0)
-        };
-        gl::clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
+        gl::clear_color(1.0, 1.0, 1.0, 0.0);
         gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
 
         let projection = Matrix4D::ortho(0.0,
@@ -1230,17 +1225,12 @@ impl Renderer {
 
                     self.enable_msaa(true);
 
-                    if layer.texture_id.is_some() {
-                        gl::disable(gl::BLEND);
-                    } else {
-                        gl::enable(gl::BLEND);
-                        gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
-                                                gl::ONE, gl::ONE);
-                        gl::blend_equation(gl::FUNC_ADD);
-                    }
+                    gl::enable(gl::BLEND);
+                    gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
+                                            gl::ONE, gl::ONE);
+                    gl::blend_equation(gl::FUNC_ADD);
 
-                    self.device.bind_program(self.quad_program_id,
-                                             &projection);
+                    self.device.bind_program(self.quad_program_id, &projection);
 
                     if !info.offset_palette.is_empty() {
                         // TODO(gw): Avoid alloc here...
