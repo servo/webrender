@@ -83,3 +83,39 @@ pub fn ray_intersects_rect(ray_origin: Point3D<f32>,
     (tmin < t1) && (tmax > t0)
     */
 }
+
+/*
+pub fn circle_contains_rect(circle_center: &Point2D<f32>,
+                        radius: f32,
+                        rect: &Rect<f32>) -> bool {
+    let dx = (circle_center.x - rect.origin.x).max(rect.origin.x + rect.size.width - circle_center.x);
+    let dy = (circle_center.y - rect.origin.y).max(rect.origin.y + rect.size.height - circle_center.y);
+    radius * radius >= dx * dx + dy * dy
+}
+
+pub fn rect_intersects_circle(circle_center: &Point2D<f32>,
+                          radius: f32,
+                          rect: &Rect<f32>) -> bool {
+    let circle_distance_x = (circle_center.x - (rect.origin.x + rect.size.width * 0.5)).abs();
+    let circle_distance_y = (circle_center.y - (rect.origin.y + rect.size.height * 0.5)).abs();
+
+    if circle_distance_x > rect.size.width * 0.5 + radius {
+        return false
+    }
+    if circle_distance_y > rect.size.height * 0.5 + radius {
+        return false
+    }
+
+    if circle_distance_x <= rect.size.width * 0.5 {
+        return true;
+    }
+    if circle_distance_y <= rect.size.height * 0.5 {
+        return true;
+    }
+
+    let corner_distance_sq = (circle_distance_x - rect.size.width * 0.5) * (circle_distance_x - rect.size.width * 0.5) +
+                             (circle_distance_y - rect.size.height * 0.5) * (circle_distance_y - rect.size.height * 0.5);
+
+    corner_distance_sq <= radius * radius
+}
+*/

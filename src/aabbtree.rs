@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+/*
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::{CompiledNode, DrawListGroupId, DrawListId, DrawListItemIndex};
 use resource_list::ResourceList;
@@ -10,35 +11,12 @@ use util;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NodeIndex(pub u32);
 
-pub struct DrawListIndexBuffer {
-    pub draw_list_id: DrawListId,
-    pub indices: Vec<DrawListItemIndex>,
-}
-
-pub struct DrawListGroupSegment {
-    pub draw_list_group_id: DrawListGroupId,
-    pub index_buffers: Vec<DrawListIndexBuffer>,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-enum TreeState {
-    Building,
-    Finalized,
-}
-
 pub struct AABBTreeNode {
     pub split_rect: Rect<f32>,
     pub actual_rect: Rect<f32>,
-
+    pub primitives: Vec<PrimitiveIndex>,
     // TODO: Use Option + NonZero here
     pub children: Option<NodeIndex>,
-
-    pub is_visible: bool,
-
-    pub draw_list_group_segments: Vec<DrawListGroupSegment>,
-
-    pub resource_list: Option<ResourceList>,
-    pub compiled_node: Option<CompiledNode>,
 }
 
 impl AABBTreeNode {
@@ -46,82 +24,24 @@ impl AABBTreeNode {
         AABBTreeNode {
             split_rect: split_rect.clone(),
             actual_rect: Rect::zero(),
+            primitives: Vec::new(),
             children: None,
-            is_visible: false,
-            resource_list: None,
-            draw_list_group_segments: Vec::new(),
-            compiled_node: None,
         }
     }
 
     #[inline]
-    fn append_item(&mut self,
-                   draw_list_group_id: DrawListGroupId,
-                   draw_list_id: DrawListId,
-                   item_index: DrawListItemIndex,
-                   rect: &Rect<f32>) {
+    fn append_item(&mut self, prim_index: PrimitiveIndex, rect: &Rect<f32>) {
+        debug_assert!(self.split_rect.intersects(rect));
+
         self.actual_rect = self.actual_rect.union(rect);
-
-        let need_new_group = match self.draw_list_group_segments.last() {
-            Some(group) => {
-                group.draw_list_group_id != draw_list_group_id
-            }
-            None => {
-                true
-            }
-        };
-
-        if need_new_group {
-            self.draw_list_group_segments.push(DrawListGroupSegment {
-                draw_list_group_id: draw_list_group_id,
-                index_buffers: Vec::new(),
-            })
-        }
-
-        let need_new_list = match self.draw_list_group_segments.last().unwrap().index_buffers.last() {
-            Some(draw_list) => {
-                draw_list.draw_list_id != draw_list_id
-            }
-            None => {
-                true
-            }
-        };
-
-        if need_new_list {
-            self.draw_list_group_segments.last_mut().unwrap().index_buffers.push(DrawListIndexBuffer {
-                draw_list_id: draw_list_id,
-                indices: Vec::new(),
-            });
-        }
-
-        self.draw_list_group_segments
-            .last_mut()
-            .unwrap()
-            .index_buffers
-            .last_mut()
-            .unwrap()
-            .indices
-            .push(item_index);
-    }
-
-    fn item_count(&self) -> usize {
-        let mut count = 0;
-        for group in &self.draw_list_group_segments {
-            for list in &group.index_buffers {
-                count += list.indices.len();
-            }
-        }
-        count
+        self.primitives.push(prim_index);
     }
 }
 
 pub struct AABBTree {
     pub nodes: Vec<AABBTreeNode>,
     pub split_size: f32,
-
     work_node_indices: Vec<NodeIndex>,
-
-    state: TreeState,
 }
 
 impl AABBTree {
@@ -131,18 +51,12 @@ impl AABBTree {
             nodes: Vec::new(),
             split_size: split_size,
             work_node_indices: Vec::new(),
-            state: TreeState::Building,
         };
 
         let root_node = AABBTreeNode::new(local_bounds);
         tree.nodes.push(root_node);
 
         tree
-    }
-
-    pub fn finalize(&mut self) {
-        debug_assert!(self.state == TreeState::Building);
-        self.state = TreeState::Finalized;
     }
 
     #[allow(dead_code)]
@@ -153,14 +67,12 @@ impl AABBTree {
         }
 
         let node = self.node(node_index);
-        println!("{}n={:?} sr={:?} ar={:?} c={:?} lists={} segments={}",
+        println!("{}n={:?} sr={:?} ar={:?} c={:?}",
                  indent,
                  node_index,
                  node.split_rect,
                  node.actual_rect,
-                 node.children,
-                 node.draw_list_group_segments.len(),
-                 node.item_count());
+                 node.children);
 
         if let Some(child_index) = node.children {
             let NodeIndex(child_index) = child_index;
@@ -207,13 +119,7 @@ impl AABBTree {
     }
 
     #[inline]
-    pub fn insert(&mut self,
-                  rect: Rect<f32>,
-                  draw_list_group_id: DrawListGroupId,
-                  draw_list_id: DrawListId,
-                  item_index: DrawListItemIndex) {
-        debug_assert!(self.state == TreeState::Building);
-
+    pub fn insert(&mut self, rect: Rect<f32>, prim_index: PrimitiveIndex) {
         self.find_best_nodes(NodeIndex(0), &rect);
         if self.work_node_indices.is_empty() {
             // TODO(gw): If this happens, it it probably caused by items having
@@ -223,14 +129,12 @@ impl AABBTree {
             //           handled by the layout code! If it's not that, this is an
             //           unexpected condition and should be investigated!
             debug!("WARNING: insert rect {:?} outside bounds, dropped.", rect);
+            self.work_node_indices.clear();
         } else {
             for node_index in self.work_node_indices.drain(..) {
                 let NodeIndex(node_index) = node_index;
                 let node = &mut self.nodes[node_index as usize];
-                node.append_item(draw_list_group_id,
-                                 draw_list_id,
-                                 item_index,
-                                 &rect);
+                node.append_item(prim_index, &rect);
             }
         }
     }
@@ -274,16 +178,18 @@ impl AABBTree {
         }
     }
 
-    fn check_node_visibility(&mut self,
+/*
+    fn check_node_visibility(&self,
                              node_index: NodeIndex,
-                             rect: &Rect<f32>) {
+                             rect: &Rect<f32>,
+                             vis_prims: &mut Vec<PrimitiveIndex>) {
         let children = {
-            let node = self.node_mut(node_index);
+            let node = self.node(node_index);
             if node.split_rect.intersects(rect) {
-                if !node.draw_list_group_segments.is_empty() &&
+                if !node.primitives.is_empty() &&
                    node.actual_rect.intersects(rect) {
-                    debug_assert!(node.children.is_none());
-                    node.is_visible = true;
+                    //node.is_visible = true;
+                    vis_prims.extend_from_slice(&node.primitives);
                 }
                 node.children
             } else {
@@ -293,19 +199,18 @@ impl AABBTree {
 
         if let Some(child_index) = children {
             let NodeIndex(child_index) = child_index;
-            self.check_node_visibility(NodeIndex(child_index+0), rect);
-            self.check_node_visibility(NodeIndex(child_index+1), rect);
+            self.check_node_visibility(NodeIndex(child_index+0), rect, vis_prims);
+            self.check_node_visibility(NodeIndex(child_index+1), rect, vis_prims);
         }
     }
 
-    pub fn cull(&mut self, rect: &Rect<f32>) {
-        let _pf = util::ProfileScope::new("  cull");
+    pub fn vis_query(&self, rect: &Rect<f32>) -> Vec<PrimitiveIndex> {
         debug_assert!(self.state == TreeState::Finalized);
-        for node in &mut self.nodes {
-            node.is_visible = false;
-        }
+        let mut vis_prims = Vec::new();
         if !self.nodes.is_empty() {
-            self.check_node_visibility(NodeIndex(0), &rect);
+            self.check_node_visibility(NodeIndex(0), &rect, &mut vis_prims);
         }
-    }
+        vis_prims
+    }*/
 }
+*/

@@ -130,15 +130,13 @@ pub struct ResourceCache {
 
     pending_raster_jobs: Vec<GlyphRasterJob>,
 
-    white_image_id: TextureCacheItemId,
-    dummy_mask_image_id: TextureCacheItemId,
+    //white_image_id: TextureCacheItemId,
 }
 
 impl ResourceCache {
     pub fn new(thread_pool: &mut scoped_threadpool::Pool,
                texture_cache: TextureCache,
-               white_image_id: TextureCacheItemId,
-               dummy_mask_image_id: TextureCacheItemId,
+               _white_image_id: TextureCacheItemId,
                device_pixel_ratio: f32,
                enable_aa: bool) -> ResourceCache {
 
@@ -167,8 +165,6 @@ impl ResourceCache {
             texture_cache: texture_cache,
             pending_raster_jobs: Vec::new(),
             device_pixel_ratio: device_pixel_ratio,
-            white_image_id: white_image_id,
-            dummy_mask_image_id: dummy_mask_image_id,
             enable_aa: enable_aa,
         }
     }
@@ -307,10 +303,10 @@ impl ResourceCache {
     }
 
     pub fn raster_pending_glyphs(&mut self,
-                                 thread_pool: &mut scoped_threadpool::Pool,
+                                 //thread_pool: &mut scoped_threadpool::Pool,
                                  frame_id: FrameId) {
         // Run raster jobs in parallel
-        run_raster_jobs(thread_pool,
+        run_raster_jobs(//thread_pool,
                         &mut self.pending_raster_jobs,
                         &self.font_templates,
                         self.device_pixel_ratio,
@@ -366,42 +362,12 @@ impl ResourceCache {
         self.draw_lists.get(draw_list_id)
     }
 
-    pub fn get_draw_list_mut(&mut self, draw_list_id: DrawListId) -> &mut DrawList {
-        self.draw_lists.get_mut(draw_list_id)
-    }
-
     pub fn remove_draw_list(&mut self, draw_list_id: DrawListId) {
         self.draw_lists.free(draw_list_id);
     }
 
-    pub fn allocate_render_target(&mut self,
-                                  width: u32,
-                                  height: u32,
-                                  format: ImageFormat,
-                                  frame_id: FrameId)
-                                  -> TextureId {
-        self.texture_cache.allocate_render_target(width,
-                                                  height,
-                                                  format,
-                                                  frame_id)
-    }
-
-    pub fn free_old_render_targets(&mut self) {
-        self.texture_cache.free_old_render_targets()
-    }
-
     pub fn pending_updates(&mut self) -> TextureUpdateList {
         self.texture_cache.pending_updates()
-    }
-
-    #[inline]
-    pub fn get_dummy_mask_image(&self) -> &TextureCacheItem {
-        self.texture_cache.get(self.dummy_mask_image_id)
-    }
-
-    #[inline]
-    pub fn get_dummy_color_image(&self) -> &TextureCacheItem {
-        self.texture_cache.get(self.white_image_id)
     }
 
     #[inline]
@@ -420,20 +386,20 @@ impl ResourceCache {
         self.texture_cache.get(image_info.texture_cache_id)
     }
 
+/*
     #[inline]
     pub fn get_raster(&self, raster_item: &RasterItem, frame_id: FrameId) -> &TextureCacheItem {
         let image_id = self.cached_rasters.get(raster_item, frame_id);
         self.texture_cache.get(*image_id)
     }
+*/
 
+/*
     #[inline]
     pub fn get_webgl_texture(&self, context_id: &WebGLContextId) -> TextureId {
         self.webgl_textures.get(context_id).unwrap().clone()
     }
-
-    pub fn device_pixel_ratio(&self) -> f32 {
-        self.device_pixel_ratio
-    }
+*/
 
     pub fn expire_old_resources(&mut self, frame_id: FrameId) {
         self.cached_glyphs.expire_old_resources(&mut self.texture_cache, frame_id);
@@ -442,7 +408,7 @@ impl ResourceCache {
     }
 }
 
-fn run_raster_jobs(thread_pool: &mut scoped_threadpool::Pool,
+fn run_raster_jobs(//thread_pool: &mut scoped_threadpool::Pool,
                    pending_raster_jobs: &mut Vec<GlyphRasterJob>,
                    font_templates: &HashMap<FontKey, FontTemplate, BuildHasherDefault<FnvHasher>>,
                    device_pixel_ratio: f32,
@@ -452,9 +418,9 @@ fn run_raster_jobs(thread_pool: &mut scoped_threadpool::Pool,
     }
 
     // Run raster jobs in parallel
-    thread_pool.scoped(|scope| {
+    //thread_pool.scoped(|scope| {
         for job in pending_raster_jobs {
-            scope.execute(|| {
+            //scope.execute(|| {
                 let font_template = &font_templates[&job.glyph_key.font_key];
                 FONT_CONTEXT.with(move |font_context| {
                     let mut font_context = font_context.borrow_mut();
@@ -473,9 +439,9 @@ fn run_raster_jobs(thread_pool: &mut scoped_threadpool::Pool,
                                                         device_pixel_ratio,
                                                         enable_aa);
                 });
-            });
+            //});
         }
-    });
+    //});
 }
 
 pub trait Resource {

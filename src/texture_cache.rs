@@ -10,14 +10,13 @@ use frame::FrameId;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RasterItem, RenderTargetMode, TextureImage, TextureUpdateList};
-use internal_types::{RectUv, DevicePixel, BasicRotationAngle};
+use internal_types::{RectUv, DevicePixel};
 use std::cmp::{self, Ordering};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::hash::BuildHasherDefault;
 use std::mem;
 use std::slice::Iter;
-use tessellator::BorderCornerTessellation;
 use time;
 use util;
 use webrender_traits::ImageFormat;
@@ -27,9 +26,6 @@ const MAX_BYTES_PER_TEXTURE: u32 = 1024 * 1024 * 256;  // 256MB
 
 /// The number of RGBA pixels we're allowed to use for a texture.
 const MAX_RGBA_PIXELS_PER_TEXTURE: u32 = MAX_BYTES_PER_TEXTURE / 4;
-
-/// The total number of RGBA pixels we're allowed to use for our render targets.
-const MAX_RGBA_PIXELS_IN_CACHED_RENDER_TARGETS: u32 = 4096 * 4096 * 2;
 
 /// The desired initial size of each texture, in pixels.
 const INITIAL_TEXTURE_SIZE: u32 = 1024;
@@ -106,6 +102,12 @@ impl TexturePage {
         page.clear();
         page
     }
+
+/*
+    pub fn size(&self) -> u32 {
+        self.texture_size
+    }
+*/
 
     pub fn texture_id(&self) -> TextureId {
         self.texture_id
@@ -317,7 +319,7 @@ impl TexturePage {
         self.dirty = changed
     }
 
-    fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.free_list = FreeRectList::new();
         self.free_list.push(&Rect::new(Point2D::new(0, 0),
                                        Size2D::new(self.texture_size, self.texture_size)));
@@ -460,6 +462,8 @@ pub struct TextureCacheItem {
     // bilinear filtering / texture bleeding purposes.
     pub allocated_rect: Rect<u32>,
     pub requested_rect: Rect<u32>,
+
+    pub is_opaque: bool,
 }
 
 // Structure squat the width/height fields to maintain the free list information :)
@@ -493,7 +497,8 @@ impl TextureCacheItem {
            user_x0: i32, user_y0: i32,
            allocated_rect: Rect<u32>,
            requested_rect: Rect<u32>,
-           texture_size: &Size2D<u32>)
+           texture_size: &Size2D<u32>,
+           is_opaque: bool)
            -> TextureCacheItem {
         TextureCacheItem {
             texture_id: texture_id,
@@ -514,6 +519,7 @@ impl TextureCacheItem {
             },
             allocated_rect: allocated_rect,
             requested_rect: requested_rect,
+            is_opaque: is_opaque,
         }
     }
 
@@ -590,8 +596,6 @@ pub struct TextureCache {
     //                                           Vec<FreeTextureLevel>,
     //                                           BuildHasherDefault<FnvHasher>>,
     items: FreeList<TextureCacheItem>,
-    cached_render_targets: Vec<CachedRenderTarget>,
-    total_pixel_count_of_cached_render_targets: u32,
     arena: TextureCacheArena,
     pending_updates: TextureUpdateList,
 }
@@ -614,9 +618,6 @@ impl TextureCache {
             free_texture_ids: free_texture_ids,
             free_texture_levels: HashMap::with_hasher(Default::default()),
             alternate_free_texture_levels: HashMap::with_hasher(Default::default()),
-            //render_target_free_texture_levels: HashMap::with_hasher(Default::default()),
-            cached_render_targets: vec![],
-            total_pixel_count_of_cached_render_targets: 0,
             items: FreeList::new(),
             pending_updates: TextureUpdateList::new(),
             arena: TextureCacheArena::new(),
@@ -646,103 +647,9 @@ impl TextureCache {
             requested_rect: Rect::zero(),
             texture_size: Size2D::zero(),
             texture_id: TextureId::invalid(),
+            is_opaque: false,
         };
         self.items.insert(new_item)
-    }
-
-    /*
-    pub fn free(&mut self,
-                _texture_id: TextureId,
-                _uv: &Rect<u32>,
-                _kind: TextureCacheItemKind) {
-        panic!("can't free texture items yet!");
-    }
-    */
-
-    pub fn allocate_render_target(&mut self,
-                                  width: u32,
-                                  height: u32,
-                                  format: ImageFormat,
-                                  frame_id: FrameId)
-                                  -> TextureId {
-        let mut cached_render_target_index = None;
-        for (i, cached_render_target) in self.cached_render_targets.iter().enumerate() {
-            if cached_render_target.width == width &&
-                    cached_render_target.height == height &&
-                    cached_render_target.format == format &&
-                    cached_render_target.frame_id != frame_id {
-                cached_render_target_index = Some(i);
-                break
-            }
-        }
-        if let Some(cached_render_target_index) = cached_render_target_index {
-            // Push to the end to mark as recently used.
-            let mut cached_render_target = self.cached_render_targets
-                                               .remove(cached_render_target_index);
-            cached_render_target.frame_id = frame_id;
-            self.cached_render_targets.push(cached_render_target);
-            return cached_render_target.texture_id
-        }
-
-        self.total_pixel_count_of_cached_render_targets += width * height;
-
-        let texture_id = self.free_texture_ids
-                             .pop()
-                             .expect("TODO: Handle running out of texture IDs!");
-        let op = TextureUpdateOp::Create(width,
-                                         height,
-                                         format,
-                                         TextureFilter::Linear,
-                                         RenderTargetMode::RenderTarget,
-                                         None);
-        let update_op = TextureUpdate {
-            id: texture_id,
-            op: op,
-        };
-        self.pending_updates.push(update_op);
-
-        self.cached_render_targets.push(CachedRenderTarget {
-            texture_id: texture_id,
-            width: width,
-            height: height,
-            format: format,
-            frame_id: frame_id,
-        });
-
-        texture_id
-    }
-
-    pub fn free_old_render_targets(&mut self) {
-        if self.total_pixel_count_of_cached_render_targets <=
-                MAX_RGBA_PIXELS_IN_CACHED_RENDER_TARGETS {
-            return
-        }
-
-        let mut cached_render_targets_to_destroy = 0;
-        for cached_render_target in &self.cached_render_targets {
-            let op = TextureUpdateOp::Update(0, 0, 0, 0,
-                                             TextureUpdateDetails::Blit(Vec::new()));
-            let update_op = TextureUpdate {
-                id: cached_render_target.texture_id,
-                op: op,
-            };
-            self.pending_updates.push(update_op);
-            self.free_texture_ids.push(cached_render_target.texture_id);
-
-            cached_render_targets_to_destroy += 1;
-
-            self.total_pixel_count_of_cached_render_targets -= cached_render_target.width *
-                cached_render_target.height;
-            if self.total_pixel_count_of_cached_render_targets <
-                    MAX_RGBA_PIXELS_IN_CACHED_RENDER_TARGETS {
-                break
-            }
-        }
-
-        self.cached_render_targets = self.cached_render_targets[cached_render_targets_to_destroy..]
-                                         .iter()
-                                         .cloned()
-                                         .collect()
     }
 
     pub fn allocate(&mut self,
@@ -754,7 +661,8 @@ impl TextureCache {
                     format: ImageFormat,
                     kind: TextureCacheItemKind,
                     border_type: BorderType,
-                    filter: TextureFilter)
+                    filter: TextureFilter,
+                    is_opaque: bool)
                     -> AllocationResult {
         let requested_size = Size2D::new(requested_width, requested_height);
 
@@ -835,7 +743,8 @@ impl TextureCache {
                                                        user_x0, user_y0,
                                                        allocated_rect,
                                                        requested_rect,
-                                                       &Size2D::new(page.texture_size, page.texture_size));
+                                                       &Size2D::new(page.texture_size, page.texture_size),
+                                                       is_opaque);
                 *self.items.get_mut(image_id) = cache_item;
 
                 return AllocationResult {
@@ -900,55 +809,6 @@ impl TextureCache {
                             item: &RasterItem,
                             _device_pixel_ratio: f32) {
         let update_op = match item {
-            &RasterItem::BorderRadius(ref op) => {
-                let rect = Rect::new(Point2D::zero(),
-                                     Size2D::new(op.outer_radius_x.as_f32(),
-                                                 op.outer_radius_y.as_f32()));
-                let tessellated_rect = match op.index {
-                    Some(index) => {
-                        rect.tessellate_border_corner(
-                            &Size2D::new(op.outer_radius_x.as_f32(),
-                                         op.outer_radius_y.as_f32()),
-                            &Size2D::new(op.inner_radius_x.as_f32(),
-                                         op.inner_radius_y.as_f32()),
-                            1.0,
-                            BasicRotationAngle::Upright,
-                            index)
-                    }
-                    None => rect,
-                };
-
-                let width = tessellated_rect.size.width.ceil() as u32;
-                let height = tessellated_rect.size.height.ceil() as u32;
-
-                let allocation = self.allocate(image_id,
-                                               0,
-                                               0,
-                                               width,
-                                               height,
-                                               op.image_format,
-                                               TextureCacheItemKind::Standard,
-                                               BorderType::SinglePixel,
-                                               TextureFilter::Linear);
-
-                assert!(allocation.kind == AllocationKind::TexturePage);        // TODO: Handle large border radii not fitting in texture cache page
-
-                TextureUpdate {
-                    id: allocation.item.texture_id,
-                    op: TextureUpdateOp::Update(allocation.item.requested_rect.origin.x,
-                                                allocation.item.requested_rect.origin.y,
-                                                width,
-                                                height,
-                                                TextureUpdateDetails::BorderRadius(
-                                                    op.outer_radius_x,
-                                                    op.outer_radius_y,
-                                                    op.inner_radius_x,
-                                                    op.inner_radius_y,
-                                                    op.index,
-                                                    op.inverted,
-                                                    BorderType::SinglePixel)),
-                }
-            }
             &RasterItem::BoxShadow(ref op) => {
                 let allocation = self.allocate(image_id,
                                                0,
@@ -958,7 +818,8 @@ impl TextureCache {
                                                ImageFormat::RGBA8,
                                                TextureCacheItemKind::Standard,
                                                BorderType::SinglePixel,
-                                               TextureFilter::Linear);
+                                               TextureFilter::Linear,
+                                               false);
 
                 // TODO(pcwalton): Handle large box shadows not fitting in texture cache page.
                 assert!(allocation.kind == AllocationKind::TexturePage);
@@ -1033,6 +894,23 @@ impl TextureCache {
                   insert_op: TextureInsertOp,
                   border_type: BorderType) {
 
+        let is_opaque = match (&insert_op, format) {
+            (&TextureInsertOp::Blit(ref bytes), ImageFormat::RGBA8) => {
+                let mut is_opaque = true;
+                for i in (0..bytes.len()).step_by(4) {
+                    if bytes[i + 3] != 255 {
+                        is_opaque = false;
+                        break;
+                    }
+                }
+                is_opaque
+            }
+            (&TextureInsertOp::Blit(..), ImageFormat::RGB8) => true,
+            (&TextureInsertOp::Blit(..), ImageFormat::A8) => false,
+            (&TextureInsertOp::Blit(..), ImageFormat::Invalid) => unreachable!(),
+            (&TextureInsertOp::Blur(..), _) => false,
+        };
+
         let result = self.allocate(image_id,
                                    x0,
                                    y0,
@@ -1041,7 +919,8 @@ impl TextureCache {
                                    format,
                                    TextureCacheItemKind::Standard,
                                    border_type,
-                                   filter);
+                                   filter,
+                                   is_opaque);
 
         let op = match (result.kind, insert_op) {
             (AllocationKind::TexturePage, TextureInsertOp::Blit(bytes)) => {
@@ -1137,14 +1016,16 @@ impl TextureCache {
                               ImageFormat::RGBA8,
                               TextureCacheItemKind::Standard,
                               BorderType::SinglePixel,
-                              TextureFilter::Linear);
+                              TextureFilter::Linear,
+                              false);
                 self.allocate(horizontal_blur_image_id,
                               0, 0,
                               width, height,
                               ImageFormat::RGBA8,
                               TextureCacheItemKind::Alternate,
                               BorderType::SinglePixel,
-                              TextureFilter::Linear);
+                              TextureFilter::Linear,
+                              false);
                 let unblurred_glyph_item = self.get(unblurred_glyph_image_id);
                 let horizontal_blur_item = self.get(horizontal_blur_image_id);
                 TextureUpdateOp::Update(
