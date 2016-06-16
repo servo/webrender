@@ -10,8 +10,8 @@ use euclid::{Size2D, Point2D, Rect, Matrix4D};
 use gleam::gl;
 use std::path::PathBuf;
 use std::ffi::CStr;
-use webrender_traits::{PipelineId, StackingContextId, DisplayListId};
-use webrender_traits::{AuxiliaryListsBuilder, Epoch, ColorF, GlyphInstance};
+use webrender_traits::{PipelineId, ServoStackingContextId, StackingContextId, DisplayListId};
+use webrender_traits::{AuxiliaryListsBuilder, Epoch, ColorF, FragmentType, GlyphInstance};
 use std::fs::File;
 use std::io::Read;
 
@@ -99,7 +99,7 @@ impl webrender_traits::RenderNotifier for Notifier {
 fn main() {
     let window = glutin::WindowBuilder::new()
                 .with_gl_profile(glutin::GlProfile::Compatibility)
-                .with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGl, (2, 1)))
+                .with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGl, (3, 2)))
                 .build()
                 .unwrap();
 
@@ -118,7 +118,7 @@ fn main() {
 
     let (width, height) = window.get_inner_size().unwrap();
 
-    let res_path = "/home/gw/projects/work/servo_main/servo/resources/shaders";
+    let res_path = "/Users/larsberg/servo/resources/shaders";
 
     let opts = webrender::RendererOptions {
         device_pixel_ratio: 1.0,
@@ -131,9 +131,9 @@ fn main() {
     let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);
     let mut api = sender.create_api();
 
-    let font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf";
-    let font_bytes = load_file(font_path);
-    let font_key = api.add_raw_font(font_bytes);
+//     let font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf";
+//     let font_bytes = load_file(font_path);
+//     let font_key = api.add_raw_font(font_bytes);
 
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));
     renderer.set_render_notifier(notifier);
@@ -147,8 +147,10 @@ fn main() {
 
     let bounds = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(width as f32, height as f32));
 
+    let servo_id = ServoStackingContextId(FragmentType::FragmentBody, 0);
     let mut sc =
-        webrender_traits::StackingContext::new(Some(root_scroll_layer_id),
+        webrender_traits::StackingContext::new(servo_id,
+                                               Some(root_scroll_layer_id),
                                                webrender_traits::ScrollPolicy::Scrollable,
                                                bounds,
                                                bounds,
@@ -235,14 +237,14 @@ fn main() {
         },
     ];
 
-    builder.push_text(text_bounds,
-                      clip_region,
-                      glyphs,
-                      font_key,
-                      ColorF::new(1.0, 1.0, 0.0, 1.0),
-                      Au::from_px(32),
-                      Au::from_px(0),
-                      &mut frame_builder.auxiliary_lists_builder);
+//     builder.push_text(text_bounds,
+//                       clip_region,
+//                       glyphs,
+//                       font_key,
+//                       ColorF::new(1.0, 1.0, 0.0, 1.0),
+//                       Au::from_px(32),
+//                       Au::from_px(0),
+//                       &mut frame_builder.auxiliary_lists_builder);
 
     frame_builder.add_display_list(&mut api, builder.finalize(), &mut sc);
     let sc_id = frame_builder.add_stacking_context(&mut api, pipeline_id, sc);
