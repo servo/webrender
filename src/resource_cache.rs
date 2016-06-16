@@ -221,6 +221,10 @@ impl ResourceCache {
         self.image_templates.insert(image_key, resource);
     }
 
+    pub fn delete_image_template(&mut self, image_key: ImageKey) {
+        self.image_templates.remove(&image_key);
+    }
+
     pub fn add_webgl_texture(&mut self, id: WebGLContextId, texture_id: TextureId, size: Size2D<i32>) {
         self.webgl_textures.insert(id, texture_id);
         self.texture_cache.add_raw_update(texture_id, size);

@@ -114,6 +114,9 @@ impl RenderBackend {
                                                                       format,
                                                                       bytes);
                         }
+                        ApiMsg::DeleteImage(id) => {
+                            self.resource_cache.delete_image_template(id);
+                        }
                         ApiMsg::CloneApi(sender) => {
                             let result = self.next_namespace_id;
 

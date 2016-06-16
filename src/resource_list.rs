@@ -46,16 +46,9 @@ impl ResourceList {
     }
 
     pub fn add_glyph(&mut self, font_key: FontKey, glyph: Glyph) {
-        match self.required_glyphs.entry(font_key) {
-            Occupied(entry) => {
-                entry.into_mut().insert(glyph);
-            }
-            Vacant(entry) => {
-                let mut hash_set = HashSet::new();
-                hash_set.insert(glyph);
-                entry.insert(hash_set);
-            }
-        }
+        self.required_glyphs.entry(font_key)
+                            .or_insert_with(HashSet::new)
+                            .insert(glyph);
     }
 
     pub fn add_radius_raster(&mut self,
