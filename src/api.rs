@@ -35,8 +35,12 @@ pub enum ScrollEventPhase {
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>),
     AddNativeFont(FontKey, NativeFontHandle),
+    /// Adds an image from the resource cache.
     AddImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
+    /// Updates the the resource cache with the new image data.
     UpdateImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
+    /// Drops an image from the resource cache.
+    DeleteImage(ImageKey),
     CloneApi(IpcSender<IdNamespace>),
     /// Supplies a new frame to WebRender.
     ///
@@ -147,6 +151,11 @@ impl RenderApi {
                         format: ImageFormat,
                         bytes: Vec<u8>) {
         let msg = ApiMsg::UpdateImage(key, width, height, format, bytes);
+        self.api_sender.send(msg).unwrap();
+    }
+
+    pub fn delete_image(&self, key: ImageKey) {
+        let msg = ApiMsg::DeleteImage(key);
         self.api_sender.send(msg).unwrap();
     }
 
