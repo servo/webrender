@@ -10,8 +10,8 @@ use euclid::{Size2D, Point2D, Rect, Matrix4D};
 use gleam::gl;
 use std::path::PathBuf;
 use std::ffi::CStr;
-use webrender_traits::{PipelineId, StackingContextId, DisplayListId};
-use webrender_traits::{AuxiliaryListsBuilder, Epoch, ColorF, GlyphInstance};
+use webrender_traits::{PipelineId, ServoStackingContextId, StackingContextId, DisplayListId};
+use webrender_traits::{AuxiliaryListsBuilder, Epoch, ColorF, FragmentType, GlyphInstance};
 use std::fs::File;
 use std::io::Read;
 
@@ -147,8 +147,10 @@ fn main() {
 
     let bounds = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(width as f32, height as f32));
 
+    let servo_id = ServoStackingContextId(FragmentType::FragmentBody, 0);
     let mut sc =
-        webrender_traits::StackingContext::new(Some(root_scroll_layer_id),
+        webrender_traits::StackingContext::new(servo_id,
+                                               Some(root_scroll_layer_id),
                                                webrender_traits::ScrollPolicy::Scrollable,
                                                bounds,
                                                bounds,
