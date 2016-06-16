@@ -14,6 +14,7 @@ use webrender_traits::{PipelineId, ServoStackingContextId, StackingContextId, Di
 use webrender_traits::{AuxiliaryListsBuilder, Epoch, ColorF, FragmentType, GlyphInstance};
 use std::fs::File;
 use std::io::Read;
+use std::env;
 
 fn load_file(name: &str) -> Vec<u8> {
     let mut file = File::open(name).unwrap();
@@ -97,8 +98,15 @@ impl webrender_traits::RenderNotifier for Notifier {
 }
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 2 {
+        println!("{} <shader path>", args[0]);
+        return;
+    }
+
+    let res_path = &args[1];
+
     let window = glutin::WindowBuilder::new()
-                .with_gl_profile(glutin::GlProfile::Compatibility)
                 .with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGl, (3, 2)))
                 .build()
                 .unwrap();
@@ -115,10 +123,9 @@ fn main() {
     };
 
     println!("OpenGL version {}", version);
+    println!("Shader resource path: {}", res_path);
 
     let (width, height) = window.get_inner_size().unwrap();
-
-    let res_path = "/Users/larsberg/servo/resources/shaders";
 
     let opts = webrender::RendererOptions {
         device_pixel_ratio: 1.0,
