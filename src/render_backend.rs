@@ -232,9 +232,7 @@ impl RenderBackend {
                                     (self.scene.root_pipeline_id,
                                      self.frame.root_scroll_layer_id) {
                                 if let Some(scroll_layer_id) =
-                                        self.frame.get_scroll_layer(&point,
-                                                                    root_scroll_layer_id,
-                                                                    &Matrix4D::identity()) {
+                                        self.frame.get_scroll_layer(&point, root_scroll_layer_id) {
                                     if let Some(layer) = self.frame.layers.get(&scroll_layer_id) {
                                         // Now, because we send a *pipeline ID*, not a layer ID, as
                                         // a response, we need the translated point to be relative

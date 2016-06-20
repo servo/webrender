@@ -7,7 +7,6 @@ use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use internal_types::{BatchUpdate, BatchUpdateList, BatchUpdateOp};
 use internal_types::{DrawListItemIndex, DrawListId, DrawListGroupId};
 use spring::{DAMPING, STIFFNESS, Spring};
-use util::MatrixHelpers;
 use webrender_traits::{PipelineId, ScrollLayerId, ServoStackingContextId, StackingContextId};
 
 pub struct Layer {
@@ -26,7 +25,8 @@ pub struct Layer {
     pub layer_size: Size2D<f32>,
     pub world_origin: Point2D<f32>,
     pub local_transform: Matrix4D<f32>,
-    pub world_transform: Matrix4D<f32>,
+    pub local_perspective: Matrix4D<f32>,
+    pub world_transform: Option<Matrix4D<f32>>,
     pub pipeline_id: PipelineId,
     pub stacking_context_id: ServoStackingContextId,
     pub children: Vec<ScrollLayerId>,
@@ -37,7 +37,8 @@ impl Layer {
                layer_size: Size2D<f32>,
                viewport_rect: &Rect<f32>,
                viewport_transform: &Matrix4D<f32>,
-               transform: Matrix4D<f32>,
+               local_transform: &Matrix4D<f32>,
+               local_perspective: &Matrix4D<f32>,
                pipeline_id: PipelineId,
                stacking_context_id: ServoStackingContextId)
                -> Layer {
@@ -51,8 +52,9 @@ impl Layer {
             viewport_transform: *viewport_transform,
             world_origin: world_origin,
             layer_size: layer_size,
-            local_transform: transform,
-            world_transform: transform,
+            local_transform: *local_transform,
+            local_perspective: *local_perspective,
+            world_transform: None,
             children: Vec::new(),
             pipeline_id: pipeline_id,
             stacking_context_id: stacking_context_id,

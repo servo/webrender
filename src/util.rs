@@ -47,6 +47,10 @@ pub trait MatrixHelpers {
     /// Returns true if this matrix will transforms an axis-aligned 2D rectangle to another axis-
     /// aligned 2D rectangle after perspective divide.
     fn can_losslessly_transform_and_perspective_project_a_2d_rect(&self) -> bool;
+
+    /// Clears out the portions of the matrix that `transform_rect()` uses. This allows the use of
+    /// `transform_rect()` while keeping the Z/W transform portions of the matrix intact.
+    fn reset_after_transforming_rect(&self) -> Matrix4D<f32>;
 }
 
 impl MatrixHelpers for Matrix4D<f32> {
@@ -69,6 +73,15 @@ impl MatrixHelpers for Matrix4D<f32> {
 
     fn can_losslessly_transform_and_perspective_project_a_2d_rect(&self) -> bool {
         self.m12 == 0.0 && self.m21 == 0.0
+    }
+
+    fn reset_after_transforming_rect(&self) -> Matrix4D<f32> {
+        Matrix4D {
+            m11: 1.0,      m12: 0.0,      m13: self.m13, m14: 0.0,
+            m21: 0.0,      m22: 1.0,      m23: self.m23, m24: 0.0,
+            m31: self.m31, m32: self.m32, m33: self.m33, m34: self.m34,
+            m41: 0.0,      m42: 0.0,      m43: self.m43, m44: 1.0,
+        }
     }
 }
 
