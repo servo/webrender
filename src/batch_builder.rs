@@ -436,8 +436,8 @@ impl<'a> BatchBuilder<'a> {
             glyph_key.index = glyph.index;
             let image_info = resource_cache.get_glyph(&glyph_key, frame_id);
             if let Some(image_info) = image_info {
-                let x = glyph.x + image_info.user_data.x0 as f32 / device_pixel_ratio - blur_offset;
-                let y = glyph.y - image_info.user_data.y0 as f32 / device_pixel_ratio - blur_offset;
+                let x = glyph.x.floor() + image_info.user_data.x0 as f32 / device_pixel_ratio - blur_offset;
+                let y = glyph.y.floor() - image_info.user_data.y0 as f32 / device_pixel_ratio - blur_offset;
 
                 let width = image_info.requested_rect.size.width as f32 / device_pixel_ratio;
                 let height = image_info.requested_rect.size.height as f32 / device_pixel_ratio;
