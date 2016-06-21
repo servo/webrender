@@ -2,13 +2,83 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+// Every serialisable type is defined in this file to only codegen one file
+// for the serde implementations.
+
 use app_units::Au;
-use display_list::{AuxiliaryListsBuilder, ItemRange};
-use euclid::{Point2D, Rect, Size2D};
+use core::nonzero::NonZero;
+use euclid::{Matrix4, Point2D, Rect, Size2D};
+use ipc_channel::ipc::{IpcBytesSender, IpcSender};
+use offscreen_gl_context::{GLContextAttributes, GLLimits};
 
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Deserialize, Serialize)]
+pub enum ApiMsg {
+    AddRawFont(FontKey, Vec<u8>),
+    AddNativeFont(FontKey, NativeFontHandle),
+    /// Adds an image from the resource cache.
+    AddImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
+    /// Updates the the resource cache with the new image data.
+    UpdateImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
+    /// Drops an image from the resource cache.
+    DeleteImage(ImageKey),
+    CloneApi(IpcSender<IdNamespace>),
+    /// Supplies a new frame to WebRender.
+    ///
+    /// The first `StackingContextId` describes the root stacking context. The actual stacking
+    /// contexts are supplied as the sixth parameter, while the display lists that make up those
+    /// stacking contexts are supplied as the seventh parameter.
+    ///
+    /// After receiving this message, WebRender will read the display lists, followed by the
+    /// auxiliary lists, from the payload channel.
+    SetRootStackingContext(StackingContextId,
+                           ColorF,
+                           Epoch,
+                           PipelineId,
+                           Size2D<f32>,
+                           Vec<(StackingContextId, StackingContext)>,
+                           Vec<(DisplayListId, BuiltDisplayListDescriptor)>,
+                           AuxiliaryListsDescriptor),
+    SetRootPipeline(PipelineId),
+    Scroll(Point2D<f32>, Point2D<f32>, ScrollEventPhase),
+    TickScrollingBounce,
+    TranslatePointToLayerSpace(Point2D<f32>, IpcSender<(Point2D<f32>, PipelineId)>),
+    GetScrollLayerState(IpcSender<Vec<ScrollLayerState>>),
+    RequestWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<(WebGLContextId, GLLimits), String>>),
+    WebGLCommand(WebGLContextId, WebGLCommand),
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct AuxiliaryLists {
+    /// The concatenation of: gradient stops, complex clip regions, filters, and glyph instances,
+    /// in that order.
+    data: Vec<u8>,
+    descriptor: AuxiliaryListsDescriptor,
+}
+
+/// Describes the memory layout of the auxiliary lists.
+///
+/// Auxiliary lists consist of some number of gradient stops, complex clip regions, filters, and
+/// glyph instances, in that order.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct AuxiliaryListsDescriptor {
+    gradient_stops_size: usize,
+    complex_clip_regions_size: usize,
+    filters_size: usize,
+    glyph_instances_size: usize,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct BorderDisplayItem {
+    pub left: BorderSide,
+    pub right: BorderSide,
+    pub top: BorderSide,
+    pub bottom: BorderSide,
+    pub radius: BorderRadius,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BorderRadius {
     pub top_left: Size2D<f32>,
     pub top_right: Size2D<f32>,
@@ -16,34 +86,14 @@ pub struct BorderRadius {
     pub bottom_right: Size2D<f32>,
 }
 
-impl BorderRadius {
-    pub fn zero() -> BorderRadius {
-        BorderRadius {
-            top_left: Size2D::new(0.0, 0.0),
-            top_right: Size2D::new(0.0, 0.0),
-            bottom_left: Size2D::new(0.0, 0.0),
-            bottom_right: Size2D::new(0.0, 0.0),
-        }
-    }
-
-    pub fn uniform(radius: f32) -> BorderRadius {
-        BorderRadius {
-            top_left: Size2D::new(radius, radius),
-            top_right: Size2D::new(radius, radius),
-            bottom_left: Size2D::new(radius, radius),
-            bottom_right: Size2D::new(radius, radius),
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BorderSide {
     pub width: f32,
     pub color: ColorF,
     pub style: BorderStyle,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum BorderStyle {
     None,
     Solid,
@@ -57,49 +107,47 @@ pub enum BorderStyle {
     Outset,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum BoxShadowClipMode {
     None,
     Outset,
     Inset,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ClipRegion {
-    pub main: Rect<f32>,
-    pub complex: ItemRange,
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct BoxShadowDisplayItem {
+    pub box_bounds: Rect<f32>,
+    pub offset: Point2D<f32>,
+    pub color: ColorF,
+    pub blur_radius: f32,
+    pub spread_radius: f32,
+    pub border_radius: f32,
+    pub clip_mode: BoxShadowClipMode,
 }
 
-impl ClipRegion {
-    pub fn new(rect: &Rect<f32>,
-               complex: Vec<ComplexClipRegion>,
-               auxiliary_lists_builder: &mut AuxiliaryListsBuilder)
-               -> ClipRegion {
-        ClipRegion {
-            main: *rect,
-            complex: auxiliary_lists_builder.add_complex_clip_regions(&complex),
-        }
-    }
+/// A display list.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct BuiltDisplayList {
+    data: Vec<u8>,
+    descriptor: BuiltDisplayListDescriptor,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct ComplexClipRegion {
-    /// The boundaries of the rectangle.
-    pub rect: Rect<f32>,
-    /// Border radii of this rectangle.
-    pub radii: BorderRadius,
+/// Describes the memory layout of a display list.
+///
+/// A display list consists of some number of display list items, followed by a number of display
+/// items.
+#[derive(Copy, Clone, Deserialize, Serialize)]
+pub struct BuiltDisplayListDescriptor {
+    pub mode: DisplayListMode,
+    pub has_stacking_contexts: bool,
+
+    /// The size in bytes of the display list items in this display list.
+    display_list_items_size: usize,
+    /// The size in bytes of the display items in this display list.
+    display_items_size: usize,
 }
 
-impl ComplexClipRegion {
-    pub fn new(rect: Rect<f32>, radii: BorderRadius) -> ComplexClipRegion {
-        ComplexClipRegion {
-            rect: rect,
-            radii: radii,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ColorF {
     pub r: f32,
     pub g: f32,
@@ -107,53 +155,51 @@ pub struct ColorF {
     pub a: f32,
 }
 
-impl ColorF {
-    pub fn new(r: f32, g: f32, b: f32, a: f32) -> ColorF {
-        ColorF {
-            r: r,
-            g: g,
-            b: b,
-            a: a,
-        }
-    }
-
-    pub fn scale_rgb(&self, scale: f32) -> ColorF {
-        ColorF {
-            r: self.r * scale,
-            g: self.g * scale,
-            b: self.b * scale,
-            a: self.a,
-        }
-    }
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ClipRegion {
+    pub main: Rect<f32>,
+    pub complex: ItemRange,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct StackingContextId(pub u32, pub u32);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ServoStackingContextId(pub FragmentType, pub usize);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum FragmentType {
-    FragmentBody,
-    BeforePseudoContent,
-    AfterPseudoContent,
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ComplexClipRegion {
+    /// The boundaries of the rectangle.
+    pub rect: Rect<f32>,
+    /// Border radii of this rectangle.
+    pub radii: BorderRadius,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct DisplayItem {
+    pub item: SpecificDisplayItem,
+    pub rect: Rect<f32>,
+    pub clip: ClipRegion,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct DisplayListId(pub u32, pub u32);
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+pub struct DisplayListItem {
+    pub specific: SpecificDisplayListItem,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum DisplayListMode {
     Default,
     PseudoFloat,
     PseudoPositionedContent,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct DisplayListId(pub u32, pub u32);
+#[derive(Clone, Copy, Deserialize, Serialize)]
+pub struct DrawListInfo {
+    pub items: ItemRange,
+}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Epoch(pub u32);
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum FilterOp {
     Blur(Au),
     Brightness(f32),
@@ -166,29 +212,54 @@ pub enum FilterOp {
     Sepia(f32),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct FontKey(u32, u32);
 
-impl FontKey {
-    pub fn new(key0: u32, key1: u32) -> FontKey {
-        FontKey(key0, key1)
-    }
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub enum FragmentType {
+    FragmentBody,
+    BeforePseudoContent,
+    AfterPseudoContent,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GlyphInstance {
     pub index: u32,
     pub x: f32,
     pub y: f32,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct GradientDisplayItem {
+    pub start_point: Point2D<f32>,
+    pub end_point: Point2D<f32>,
+    pub stops: ItemRange,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GradientStop {
     pub offset: f32,
     pub color: ColorF,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct IdNamespace(pub u32);
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct IframeInfo {
+    pub id: PipelineId,
+    pub bounds: Rect<f32>,
+    pub clip: ClipRegion,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ImageDisplayItem {
+    pub image_key: ImageKey,
+    pub stretch_size: Size2D<f32>,
+    pub image_rendering: ImageRendering,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ImageFormat {
     Invalid,
     A8,
@@ -196,23 +267,23 @@ pub enum ImageFormat {
     RGBA8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct ImageKey(u32, u32);
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ImageRendering {
     Auto,
     CrispEdges,
     Pixelated,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct ImageKey(u32, u32);
-
-impl ImageKey {
-    pub fn new(key0: u32, key1: u32) -> ImageKey {
-        ImageKey(key0, key1)
-    }
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ItemRange {
+    pub start: usize,
+    pub length: usize,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum MixBlendMode {
     Normal,
     Multiply,
@@ -237,57 +308,267 @@ pub type NativeFontHandle = CGFont;
 
 /// Native fonts are not used on Linux; all fonts are raw.
 #[cfg(not(target_os = "macos"))]
-#[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(not(target_os = "macos"), derive(Clone, Serialize, Deserialize))]
 pub struct NativeFontHandle;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct PipelineId(pub u32, pub u32);
 
-pub trait RenderNotifier : Send {
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RectangleDisplayItem {
+    pub color: ColorF,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct RenderApiSender {
+    api_sender: IpcSender<ApiMsg>,
+    payload_sender: IpcBytesSender,
+}
+
+pub trait RenderNotifier: Send {
     fn new_frame_ready(&mut self);
     fn pipeline_size_changed(&mut self,
                              pipeline_id: PipelineId,
                              size: Option<Size2D<f32>>);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ScrollLayerInfo {
-    Fixed,
-    Scrollable(usize)
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct ResourceId(pub u32);
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum ScrollEventPhase {
+    /// The user started scrolling.
+    Start,
+    /// The user performed a scroll. The Boolean flag indicates whether the user's fingers are
+    /// down, if a touchpad is in use. (If false, the event is a touchpad fling.)
+    Move(bool),
+    /// The user ended scrolling.
+    End,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ScrollLayerId {
     pub pipeline_id: PipelineId,
     pub info: ScrollLayerInfo,
 }
 
-impl ScrollLayerId {
-    pub fn new(pipeline_id: PipelineId, index: usize) -> ScrollLayerId {
-        ScrollLayerId {
-            pipeline_id: pipeline_id,
-            info: ScrollLayerInfo::Scrollable(index),
-        }
-    }
-
-    pub fn create_fixed(pipeline_id: PipelineId) -> ScrollLayerId {
-        ScrollLayerId {
-            pipeline_id: pipeline_id,
-            info: ScrollLayerInfo::Fixed,
-        }
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, Copy, Deserialize, Serialize, Debug)]
-pub enum ScrollPolicy {
-    Scrollable,
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub enum ScrollLayerInfo {
     Fixed,
+    Scrollable(usize)
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct ScrollLayerState {
     pub pipeline_id: PipelineId,
     pub stacking_context_id: ServoStackingContextId,
     pub scroll_offset: Point2D<f32>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ScrollPolicy {
+    Scrollable,
+    Fixed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct ServoStackingContextId(pub FragmentType, pub usize);
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum SpecificDisplayItem {
+    Rectangle(RectangleDisplayItem),
+    Text(TextDisplayItem),
+    Image(ImageDisplayItem),
+    WebGL(WebGLDisplayItem),
+    Border(BorderDisplayItem),
+    BoxShadow(BoxShadowDisplayItem),
+    Gradient(GradientDisplayItem),
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+pub enum SpecificDisplayListItem {
+    DrawList(DrawListInfo),
+    StackingContext(StackingContextInfo),
+    Iframe(IframeInfo),
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct StackingContext {
+    pub servo_id: ServoStackingContextId,
+    pub scroll_layer_id: Option<ScrollLayerId>,
+    pub scroll_policy: ScrollPolicy,
+    pub bounds: Rect<f32>,
+    pub overflow: Rect<f32>,
+    pub z_index: i32,
+    pub display_lists: Vec<DisplayListId>,
+    pub transform: Matrix4,
+    pub perspective: Matrix4,
+    pub establishes_3d_context: bool,
+    pub mix_blend_mode: MixBlendMode,
+    pub filters: ItemRange,
+    pub has_stacking_contexts: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct StackingContextId(pub u32, pub u32);
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+pub struct StackingContextInfo {
+    pub id: StackingContextId,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TextDisplayItem {
+    pub glyphs: ItemRange,
+    pub font_key: FontKey,
+    pub size: Au,
+    pub color: ColorF,
+    pub blur_radius: Au,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub enum WebGLCommand {
+    GetContextAttributes(IpcSender<GLContextAttributes>),
+    ActiveTexture(u32),
+    BlendColor(f32, f32, f32, f32),
+    BlendEquation(u32),
+    BlendEquationSeparate(u32, u32),
+    BlendFunc(u32, u32),
+    BlendFuncSeparate(u32, u32, u32, u32),
+    AttachShader(u32, u32),
+    DetachShader(u32, u32),
+    BindAttribLocation(u32, u32, String),
+    BufferData(u32, Vec<u8>, u32),
+    BufferSubData(u32, isize, Vec<u8>),
+    Clear(u32),
+    ClearColor(f32, f32, f32, f32),
+    ClearDepth(f64),
+    ClearStencil(i32),
+    ColorMask(bool, bool, bool, bool),
+    CullFace(u32),
+    FrontFace(u32),
+    DepthFunc(u32),
+    DepthMask(bool),
+    DepthRange(f64, f64),
+    Enable(u32),
+    Disable(u32),
+    CompileShader(u32, String),
+    CopyTexImage2D(u32, i32, u32, i32, i32, i32, i32, i32),
+    CopyTexSubImage2D(u32, i32, i32, i32, i32, i32, i32, i32),
+    CreateBuffer(IpcSender<Option<NonZero<u32>>>),
+    CreateFramebuffer(IpcSender<Option<NonZero<u32>>>),
+    CreateRenderbuffer(IpcSender<Option<NonZero<u32>>>),
+    CreateTexture(IpcSender<Option<NonZero<u32>>>),
+    CreateProgram(IpcSender<Option<NonZero<u32>>>),
+    CreateShader(u32, IpcSender<Option<NonZero<u32>>>),
+    DeleteBuffer(u32),
+    DeleteFramebuffer(u32),
+    DeleteRenderbuffer(u32),
+    DeleteTexture(u32),
+    DeleteProgram(u32),
+    DeleteShader(u32),
+    BindBuffer(u32, u32),
+    BindFramebuffer(u32, WebGLFramebufferBindingRequest),
+    BindRenderbuffer(u32, u32),
+    BindTexture(u32, u32),
+    DrawArrays(u32, i32, i32),
+    DrawElements(u32, i32, u32, i64),
+    EnableVertexAttribArray(u32),
+    GetBufferParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
+    GetParameter(u32, IpcSender<WebGLResult<WebGLParameter>>),
+    GetProgramParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
+    GetShaderParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
+    GetActiveAttrib(u32, u32, IpcSender<WebGLResult<(i32, u32, String)>>),
+    GetActiveUniform(u32, u32, IpcSender<WebGLResult<(i32, u32, String)>>),
+    GetAttribLocation(u32, String, IpcSender<Option<i32>>),
+    GetUniformLocation(u32, String, IpcSender<Option<i32>>),
+    GetVertexAttrib(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
+    PolygonOffset(f32, f32),
+    ReadPixels(i32, i32, i32, i32, u32, u32, IpcSender<Vec<u8>>),
+    SampleCoverage(f32, bool),
+    Scissor(i32, i32, i32, i32),
+    StencilFunc(u32, i32, u32),
+    StencilFuncSeparate(u32, u32, i32, u32),
+    StencilMask(u32),
+    StencilMaskSeparate(u32, u32),
+    StencilOp(u32, u32, u32),
+    StencilOpSeparate(u32, u32, u32, u32),
+    Hint(u32, u32),
+    LineWidth(f32),
+    PixelStorei(u32, i32),
+    LinkProgram(u32),
+    Uniform1f(i32, f32),
+    Uniform1fv(i32, Vec<f32>),
+    Uniform1i(i32, i32),
+    Uniform1iv(i32, Vec<i32>),
+    Uniform2f(i32, f32, f32),
+    Uniform2fv(i32, Vec<f32>),
+    Uniform2i(i32, i32, i32),
+    Uniform2iv(i32, Vec<i32>),
+    Uniform3f(i32, f32, f32, f32),
+    Uniform3fv(i32, Vec<f32>),
+    Uniform3i(i32, i32, i32, i32),
+    Uniform3iv(i32, Vec<i32>),
+    Uniform4f(i32, f32, f32, f32, f32),
+    Uniform4fv(i32, Vec<f32>),
+    Uniform4i(i32, i32, i32, i32, i32),
+    Uniform4iv(i32, Vec<i32>),
+    UniformMatrix2fv(i32, bool, Vec<f32>),
+    UniformMatrix3fv(i32, bool, Vec<f32>),
+    UniformMatrix4fv(i32, bool, Vec<f32>),
+    UseProgram(u32),
+    VertexAttrib(u32, f32, f32, f32, f32),
+    VertexAttribPointer2f(u32, i32, bool, i32, u32),
+    Viewport(i32, i32, i32, i32),
+    TexImage2D(u32, i32, i32, i32, i32, u32, u32, Vec<u8>),
+    TexParameteri(u32, u32, i32),
+    TexParameterf(u32, u32, f32),
+    TexSubImage2D(u32, i32, i32, i32, i32, i32, u32, u32, Vec<u8>),
+    DrawingBufferWidth(IpcSender<i32>),
+    DrawingBufferHeight(IpcSender<i32>),
+    Finish(IpcSender<()>),
+    Flush,
+    GenerateMipmap(u32),
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct WebGLContextId(pub usize);
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct WebGLDisplayItem {
+    pub context_id: WebGLContextId,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum WebGLError {
+    InvalidEnum,
+    InvalidOperation,
+    InvalidValue,
+    OutOfMemory,
+    ContextLost,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum WebGLFramebufferBindingRequest {
+    Explicit(u32),
+    Default,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum WebGLParameter {
+    Int(i32),
+    Bool(bool),
+    String(String),
+    Float(f32),
+    FloatArray(Vec<f32>),
+    Invalid,
+}
+
+pub type WebGLResult<T> = Result<T, WebGLError>;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum WebGLShaderParameter {
+    Int(i32),
+    Bool(bool),
+    Invalid,
+}
