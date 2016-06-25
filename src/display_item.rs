@@ -2,21 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use app_units::Au;
-use display_list::ItemRange;
-use euclid::{Point2D, Rect, Size2D};
-use types::{BorderRadius, BoxShadowClipMode, ImageRendering};
-use types::{ClipRegion, ColorF, FontKey, ImageKey, BorderSide};
-use webgl::{WebGLContextId};
-
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BorderDisplayItem {
-    pub left: BorderSide,
-    pub right: BorderSide,
-    pub top: BorderSide,
-    pub bottom: BorderSide,
-    pub radius: BorderRadius,
-}
+use display_list::AuxiliaryListsBuilder;
+use euclid::{Rect, Size2D};
+use {BorderRadius, BorderDisplayItem, ClipRegion, ColorF, ComplexClipRegion};
+use {FontKey, ImageKey, PipelineId, ScrollLayerId, ScrollLayerInfo};
 
 impl BorderDisplayItem {
     pub fn top_left_inner_radius(&self) -> Size2D<f32> {
@@ -40,64 +29,91 @@ impl BorderDisplayItem {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BoxShadowDisplayItem {
-    pub box_bounds: Rect<f32>,
-    pub offset: Point2D<f32>,
-    pub color: ColorF,
-    pub blur_radius: f32,
-    pub spread_radius: f32,
-    pub border_radius: f32,
-    pub clip_mode: BoxShadowClipMode,
+impl BorderRadius {
+    pub fn zero() -> BorderRadius {
+        BorderRadius {
+            top_left: Size2D::new(0.0, 0.0),
+            top_right: Size2D::new(0.0, 0.0),
+            bottom_left: Size2D::new(0.0, 0.0),
+            bottom_right: Size2D::new(0.0, 0.0),
+        }
+    }
+
+    pub fn uniform(radius: f32) -> BorderRadius {
+        BorderRadius {
+            top_left: Size2D::new(radius, radius),
+            top_right: Size2D::new(radius, radius),
+            bottom_left: Size2D::new(radius, radius),
+            bottom_right: Size2D::new(radius, radius),
+        }
+    }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct GradientDisplayItem {
-    pub start_point: Point2D<f32>,
-    pub end_point: Point2D<f32>,
-    pub stops: ItemRange,
+impl ClipRegion {
+    pub fn new(rect: &Rect<f32>,
+               complex: Vec<ComplexClipRegion>,
+               auxiliary_lists_builder: &mut AuxiliaryListsBuilder)
+               -> ClipRegion {
+        ClipRegion {
+            main: *rect,
+            complex: auxiliary_lists_builder.add_complex_clip_regions(&complex),
+        }
+    }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ImageDisplayItem {
-    pub image_key: ImageKey,
-    pub stretch_size: Size2D<f32>,
-    pub image_rendering: ImageRendering,
+impl ColorF {
+    pub fn new(r: f32, g: f32, b: f32, a: f32) -> ColorF {
+        ColorF {
+            r: r,
+            g: g,
+            b: b,
+            a: a,
+        }
+    }
+
+    pub fn scale_rgb(&self, scale: f32) -> ColorF {
+        ColorF {
+            r: self.r * scale,
+            g: self.g * scale,
+            b: self.b * scale,
+            a: self.a,
+        }
+    }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct WebGLDisplayItem {
-    pub context_id: WebGLContextId,
+impl ComplexClipRegion {
+    pub fn new(rect: Rect<f32>, radii: BorderRadius) -> ComplexClipRegion {
+        ComplexClipRegion {
+            rect: rect,
+            radii: radii,
+        }
+    }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct RectangleDisplayItem {
-    pub color: ColorF,
+impl FontKey {
+    pub fn new(key0: u32, key1: u32) -> FontKey {
+        FontKey(key0, key1)
+    }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct TextDisplayItem {
-    pub glyphs: ItemRange,
-    pub font_key: FontKey,
-    pub size: Au,
-    pub color: ColorF,
-    pub blur_radius: Au,
+impl ImageKey {
+    pub fn new(key0: u32, key1: u32) -> ImageKey {
+        ImageKey(key0, key1)
+    }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum SpecificDisplayItem {
-    Rectangle(RectangleDisplayItem),
-    Text(TextDisplayItem),
-    Image(ImageDisplayItem),
-    WebGL(WebGLDisplayItem),
-    Border(BorderDisplayItem),
-    BoxShadow(BoxShadowDisplayItem),
-    Gradient(GradientDisplayItem),
-}
+impl ScrollLayerId {
+    pub fn new(pipeline_id: PipelineId, index: usize) -> ScrollLayerId {
+        ScrollLayerId {
+            pipeline_id: pipeline_id,
+            info: ScrollLayerInfo::Scrollable(index),
+        }
+    }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DisplayItem {
-    pub item: SpecificDisplayItem,
-    pub rect: Rect<f32>,
-    pub clip: ClipRegion,
+    pub fn create_fixed(pipeline_id: PipelineId) -> ScrollLayerId {
+        ScrollLayerId {
+            pipeline_id: pipeline_id,
+            info: ScrollLayerInfo::Fixed,
+        }
+    }
 }

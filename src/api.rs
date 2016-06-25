@@ -3,78 +3,19 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use display_list::{AuxiliaryLists, AuxiliaryListsDescriptor, BuiltDisplayList};
-use display_list::{BuiltDisplayListDescriptor};
 use euclid::{Point2D, Size2D};
 use ipc_channel::ipc::{self, IpcBytesSender, IpcSender};
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
-use stacking_context::StackingContext;
 use std::cell::Cell;
-use types::{ColorF, DisplayListId, Epoch, FontKey, StackingContextId};
-use types::{ImageKey, ImageFormat, NativeFontHandle, PipelineId, ScrollLayerState};
-use webgl::{WebGLContextId, WebGLCommand};
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct IdNamespace(pub u32);
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct ResourceId(pub u32);
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ScrollEventPhase {
-    /// The user started scrolling.
-    Start,
-    /// The user performed a scroll. The Boolean flag indicates whether the user's fingers are
-    /// down, if a touchpad is in use. (If false, the event is a touchpad fling.)
-    Move(bool),
-    /// The user ended scrolling.
-    End,
-}
-
-#[derive(Serialize, Deserialize)]
-pub enum ApiMsg {
-    AddRawFont(FontKey, Vec<u8>),
-    AddNativeFont(FontKey, NativeFontHandle),
-    /// Adds an image from the resource cache.
-    AddImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
-    /// Updates the the resource cache with the new image data.
-    UpdateImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
-    /// Drops an image from the resource cache.
-    DeleteImage(ImageKey),
-    CloneApi(IpcSender<IdNamespace>),
-    /// Supplies a new frame to WebRender.
-    ///
-    /// The first `StackingContextId` describes the root stacking context. The actual stacking
-    /// contexts are supplied as the sixth parameter, while the display lists that make up those
-    /// stacking contexts are supplied as the seventh parameter.
-    ///
-    /// After receiving this message, WebRender will read the display lists, followed by the
-    /// auxiliary lists, from the payload channel.
-    SetRootStackingContext(StackingContextId,
-                           ColorF,
-                           Epoch,
-                           PipelineId,
-                           Size2D<f32>,
-                           Vec<(StackingContextId, StackingContext)>,
-                           Vec<(DisplayListId, BuiltDisplayListDescriptor)>,
-                           AuxiliaryListsDescriptor),
-    SetRootPipeline(PipelineId),
-    Scroll(Point2D<f32>, Point2D<f32>, ScrollEventPhase),
-    TickScrollingBounce,
-    TranslatePointToLayerSpace(Point2D<f32>, IpcSender<(Point2D<f32>, PipelineId)>),
-    GetScrollLayerState(IpcSender<Vec<ScrollLayerState>>),
-    RequestWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<(WebGLContextId, GLLimits), String>>),
-    WebGLCommand(WebGLContextId, WebGLCommand),
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct RenderApiSender {
-    api_sender: IpcSender<ApiMsg>,
-    payload_sender: IpcBytesSender,
-}
+use {ApiMsg, AuxiliaryLists, BuiltDisplayList, ColorF, DisplayListId, Epoch};
+use {FontKey, IdNamespace, ImageFormat, ImageKey, NativeFontHandle, PipelineId};
+use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState};
+use {StackingContext, StackingContextId, WebGLContextId, WebGLCommand};
 
 impl RenderApiSender {
-    pub fn new(api_sender: IpcSender<ApiMsg>, payload_sender: IpcBytesSender) -> RenderApiSender {
+    pub fn new(api_sender: IpcSender<ApiMsg>,
+               payload_sender: IpcBytesSender)
+               -> RenderApiSender {
         RenderApiSender {
             api_sender: api_sender,
             payload_sender: payload_sender,

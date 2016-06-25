@@ -3,72 +3,23 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use display_item::{BorderDisplayItem, BoxShadowDisplayItem};
-use display_item::{DisplayItem, SpecificDisplayItem, ImageDisplayItem, WebGLDisplayItem};
-use display_item::{RectangleDisplayItem, TextDisplayItem, GradientDisplayItem};
 use euclid::{Point2D, Rect, Size2D};
 use std::mem;
 use std::slice;
-use types::{BorderRadius, BorderSide, BoxShadowClipMode, FilterOp, GlyphInstance};
-use types::{ClipRegion, ColorF, ComplexClipRegion, FontKey, ImageKey, PipelineId};
-use types::{DisplayListMode, GradientStop, StackingContextId, ImageRendering};
-use webgl::{WebGLContextId};
-
-#[derive(Copy, Clone, Serialize, Deserialize)]
-pub struct DrawListInfo {
-    pub items: ItemRange,
-}
-
-#[derive(Copy, Clone, Serialize, Deserialize)]
-pub struct StackingContextInfo {
-    pub id: StackingContextId,
-}
-
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-pub struct IframeInfo {
-    pub id: PipelineId,
-    pub bounds: Rect<f32>,
-    pub clip: ClipRegion,
-}
-
-#[derive(Copy, Clone, Serialize, Deserialize)]
-pub enum SpecificDisplayListItem {
-    DrawList(DrawListInfo),
-    StackingContext(StackingContextInfo),
-    Iframe(IframeInfo),
-}
-
-#[derive(Copy, Clone, Serialize, Deserialize)]
-pub struct DisplayListItem {
-    pub specific: SpecificDisplayListItem,
-}
-
-/// Describes the memory layout of a display list.
-///
-/// A display list consists of some number of display list items, followed by a number of display
-/// items.
-#[derive(Copy, Clone, Serialize, Deserialize)]
-pub struct BuiltDisplayListDescriptor {
-    pub mode: DisplayListMode,
-    pub has_stacking_contexts: bool,
-
-    /// The size in bytes of the display list items in this display list.
-    display_list_items_size: usize,
-    /// The size in bytes of the display items in this display list.
-    display_items_size: usize,
-}
+use {AuxiliaryLists, AuxiliaryListsDescriptor, BorderDisplayItem, BorderRadius};
+use {BorderSide, BoxShadowClipMode, BoxShadowDisplayItem, BuiltDisplayList};
+use {BuiltDisplayListDescriptor, ClipRegion, ComplexClipRegion, ColorF};
+use {DisplayItem, DisplayListItem, DisplayListMode, DrawListInfo, FilterOp};
+use {FontKey, GlyphInstance, GradientDisplayItem, GradientStop, IframeInfo};
+use {ImageDisplayItem, ImageKey, ImageRendering, ItemRange, PipelineId};
+use {RectangleDisplayItem, SpecificDisplayItem, SpecificDisplayListItem};
+use {StackingContextId, StackingContextInfo, TextDisplayItem};
+use {WebGLContextId, WebGLDisplayItem};
 
 impl BuiltDisplayListDescriptor {
     pub fn size(&self) -> usize {
         self.display_list_items_size + self.display_items_size
     }
-}
-
-/// A display list.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct BuiltDisplayList {
-    data: Vec<u8>,
-    descriptor: BuiltDisplayListDescriptor,
 }
 
 impl BuiltDisplayList {
@@ -361,12 +312,6 @@ impl DisplayListBuilder {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ItemRange {
-    pub start: usize,
-    pub length: usize,
-}
-
 impl ItemRange {
     pub fn new<T>(backing_list: &mut Vec<T>, items: &[T]) -> ItemRange where T: Copy + Clone {
         let start = backing_list.len();
@@ -470,31 +415,11 @@ impl AuxiliaryListsBuilder {
     }
 }
 
-/// Describes the memory layout of the auxiliary lists.
-///
-/// Auxiliary lists consist of some number of gradient stops, complex clip regions, filters, and
-/// glyph instances, in that order.
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-pub struct AuxiliaryListsDescriptor {
-    gradient_stops_size: usize,
-    complex_clip_regions_size: usize,
-    filters_size: usize,
-    glyph_instances_size: usize,
-}
-
 impl AuxiliaryListsDescriptor {
     pub fn size(&self) -> usize {
         self.gradient_stops_size + self.complex_clip_regions_size + self.filters_size +
             self.glyph_instances_size
     }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct AuxiliaryLists {
-    /// The concatenation of: gradient stops, complex clip regions, filters, and glyph instances,
-    /// in that order.
-    data: Vec<u8>,
-    descriptor: AuxiliaryListsDescriptor,
 }
 
 impl AuxiliaryLists {

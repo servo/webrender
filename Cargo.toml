@@ -1,19 +1,22 @@
 [package]
 name = "webrender_traits"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
+build = "build.rs"
 
 [dependencies.ipc-channel]
 git = "https://github.com/servo/ipc-channel"
 
 [dependencies]
-offscreen_gl_context = {version = "0.1.1", features = ["serde_serialization"]}
-app_units = {version = "0.2.1", features = ["plugins"]}
-euclid = {version = "0.6.2", features = ["plugins"]}
-gleam = "0.2.19"
-serde = {version = ">=0.6, <0.8", features = ["nightly"]}
-serde_macros = ">=0.6, <0.8"
+app_units = "0.2.5"
 byteorder = "0.5"
+euclid = "0.7.1"
+gleam = "0.2.19"
+offscreen_gl_context = {version = "0.1.9", features = ["serde_serialization"]}
+serde = {version = "0.7.11", features = ["nightly"]}
 
 [target.x86_64-apple-darwin.dependencies]
 core-graphics = ">=0.2, <0.4"
+
+[build-dependencies]
+serde_codegen = "0.7.11"
