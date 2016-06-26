@@ -539,7 +539,7 @@ pub struct WebGLDisplayItem {
     pub context_id: WebGLContextId,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum WebGLError {
     InvalidEnum,
     InvalidOperation,
