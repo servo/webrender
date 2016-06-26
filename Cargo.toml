@@ -3,6 +3,10 @@ name = "webrender"
 version = "0.1.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 
+[features]
+default = ["webrender_traits/serde_codegen"]
+serde_macros = ["webrender_traits/serde_macros"]
+
 [dependencies]
 app_units = "0.2.5"
 bit-set = "0.4"
@@ -18,7 +22,7 @@ num-traits = "0.1.32"
 offscreen_gl_context = {version = "0.1.9", features = ["serde_serialization"]}
 scoped_threadpool = "0.1.6"
 time = "0.1"
-webrender_traits = {git = "https://github.com/servo/webrender_traits"}
+webrender_traits = {git = "https://github.com/servo/webrender_traits", default-features = false}
 
 [target.'cfg(any(target_os = "android", target_os = "linux", target_os = "windows"))'.dependencies]
 freetype = {git = "https://github.com/servo/rust-freetype"}
