@@ -4,6 +4,9 @@ version = "0.2.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 build = "build.rs"
 
+[features]
+default = ["serde_codegen"]
+
 [dependencies.ipc-channel]
 git = "https://github.com/servo/ipc-channel"
 
@@ -14,9 +17,10 @@ euclid = "0.7.1"
 gleam = "0.2.19"
 offscreen_gl_context = {version = "0.1.9", features = ["serde_serialization"]}
 serde = {version = "0.7.11", features = ["nightly"]}
+serde_macros = {version = "0.7.11", optional = true}
 
 [target.x86_64-apple-darwin.dependencies]
 core-graphics = ">=0.2, <0.4"
 
 [build-dependencies]
-serde_codegen = "0.7.11"
+serde_codegen = {version = "0.7.11", optional = true}
