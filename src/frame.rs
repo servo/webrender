@@ -132,8 +132,6 @@ pub struct RenderTarget {
     size: Size2D<f32>,
     /// The origin in render target space.
     origin: Point2D<f32>,
-    /// The origin in world space.
-    world_origin: Point2D<f32>,
     items: Vec<FrameRenderItem>,
     texture_id: Option<TextureId>,
     children: Vec<RenderTarget>,
@@ -145,14 +143,12 @@ pub struct RenderTarget {
 impl RenderTarget {
     fn new(id: RenderTargetId,
            origin: Point2D<f32>,
-           world_origin: Point2D<f32>,
            size: Size2D<f32>,
            texture_id: Option<TextureId>) -> RenderTarget {
         RenderTarget {
             id: id,
             size: size,
             origin: origin,
-            world_origin: world_origin,
             items: Vec::new(),
             texture_id: texture_id,
             children: Vec::new(),
@@ -810,7 +806,6 @@ impl Frame {
 
                 let mut root_target = RenderTarget::new(root_target_id,
                                                         Point2D::zero(),
-                                                        Point2D::zero(),
                                                         root_pipeline.viewport_size,
                                                         None);
 
@@ -1235,7 +1230,6 @@ impl Frame {
 
                     let mut new_target = RenderTarget::new(render_target_id,
                                                            origin,
-                                                           target_rect.origin,
                                                            render_target_size,
                                                            Some(texture_id));
 
