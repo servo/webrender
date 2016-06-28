@@ -77,7 +77,7 @@ impl FontContext {
                      size: Au,
                      character: u32,
                      device_pixel_ratio: f32,
-                     enable_aa: bool)
+                     _enable_aa: bool)
                      -> Option<RasterizedGlyph> {
         let ct_font = match self.ct_fonts.entry(((font_key).clone(), size)) {
             Entry::Occupied(entry) => (*entry.get()).clone(),
