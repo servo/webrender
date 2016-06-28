@@ -6,6 +6,7 @@
 // for the serde implementations.
 
 use app_units::Au;
+#[cfg(feature = "nightly")]
 use core::nonzero::NonZero;
 use euclid::{Matrix4, Point2D, Rect, Size2D};
 use ipc_channel::ipc::{IpcBytesSender, IpcSender};
@@ -435,9 +436,9 @@ pub enum WebGLCommand {
     BlendEquationSeparate(u32, u32),
     BlendFunc(u32, u32),
     BlendFuncSeparate(u32, u32, u32, u32),
-    AttachShader(u32, u32),
-    DetachShader(u32, u32),
-    BindAttribLocation(u32, u32, String),
+    AttachShader(WebGLProgramId, WebGLShaderId),
+    DetachShader(WebGLProgramId, WebGLShaderId),
+    BindAttribLocation(WebGLProgramId, u32, String),
     BufferData(u32, Vec<u8>, u32),
     BufferSubData(u32, isize, Vec<u8>),
     Clear(u32),
@@ -452,36 +453,36 @@ pub enum WebGLCommand {
     DepthRange(f64, f64),
     Enable(u32),
     Disable(u32),
-    CompileShader(u32, String),
+    CompileShader(WebGLShaderId, String),
     CopyTexImage2D(u32, i32, u32, i32, i32, i32, i32, i32),
     CopyTexSubImage2D(u32, i32, i32, i32, i32, i32, i32, i32),
-    CreateBuffer(IpcSender<Option<NonZero<u32>>>),
-    CreateFramebuffer(IpcSender<Option<NonZero<u32>>>),
-    CreateRenderbuffer(IpcSender<Option<NonZero<u32>>>),
-    CreateTexture(IpcSender<Option<NonZero<u32>>>),
-    CreateProgram(IpcSender<Option<NonZero<u32>>>),
-    CreateShader(u32, IpcSender<Option<NonZero<u32>>>),
-    DeleteBuffer(u32),
-    DeleteFramebuffer(u32),
-    DeleteRenderbuffer(u32),
-    DeleteTexture(u32),
-    DeleteProgram(u32),
-    DeleteShader(u32),
-    BindBuffer(u32, u32),
+    CreateBuffer(IpcSender<Option<WebGLBufferId>>),
+    CreateFramebuffer(IpcSender<Option<WebGLFramebufferId>>),
+    CreateRenderbuffer(IpcSender<Option<WebGLRenderbufferId>>),
+    CreateTexture(IpcSender<Option<WebGLTextureId>>),
+    CreateProgram(IpcSender<Option<WebGLProgramId>>),
+    CreateShader(u32, IpcSender<Option<WebGLShaderId>>),
+    DeleteBuffer(WebGLBufferId),
+    DeleteFramebuffer(WebGLFramebufferId),
+    DeleteRenderbuffer(WebGLRenderbufferId),
+    DeleteTexture(WebGLTextureId),
+    DeleteProgram(WebGLProgramId),
+    DeleteShader(WebGLShaderId),
+    BindBuffer(u32, Option<WebGLBufferId>),
     BindFramebuffer(u32, WebGLFramebufferBindingRequest),
-    BindRenderbuffer(u32, u32),
-    BindTexture(u32, u32),
+    BindRenderbuffer(u32, Option<WebGLRenderbufferId>),
+    BindTexture(u32, Option<WebGLTextureId>),
     DrawArrays(u32, i32, i32),
     DrawElements(u32, i32, u32, i64),
     EnableVertexAttribArray(u32),
     GetBufferParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
     GetParameter(u32, IpcSender<WebGLResult<WebGLParameter>>),
-    GetProgramParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
-    GetShaderParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
-    GetActiveAttrib(u32, u32, IpcSender<WebGLResult<(i32, u32, String)>>),
-    GetActiveUniform(u32, u32, IpcSender<WebGLResult<(i32, u32, String)>>),
-    GetAttribLocation(u32, String, IpcSender<Option<i32>>),
-    GetUniformLocation(u32, String, IpcSender<Option<i32>>),
+    GetProgramParameter(WebGLProgramId, u32, IpcSender<WebGLResult<WebGLParameter>>),
+    GetShaderParameter(WebGLShaderId, u32, IpcSender<WebGLResult<WebGLParameter>>),
+    GetActiveAttrib(WebGLProgramId, u32, IpcSender<WebGLResult<(i32, u32, String)>>),
+    GetActiveUniform(WebGLProgramId, u32, IpcSender<WebGLResult<(i32, u32, String)>>),
+    GetAttribLocation(WebGLProgramId, String, IpcSender<Option<i32>>),
+    GetUniformLocation(WebGLProgramId, String, IpcSender<Option<i32>>),
     GetVertexAttrib(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
     PolygonOffset(f32, f32),
     ReadPixels(i32, i32, i32, i32, u32, u32, IpcSender<Vec<u8>>),
@@ -496,7 +497,7 @@ pub enum WebGLCommand {
     Hint(u32, u32),
     LineWidth(f32),
     PixelStorei(u32, i32),
-    LinkProgram(u32),
+    LinkProgram(WebGLProgramId),
     Uniform1f(i32, f32),
     Uniform1fv(i32, Vec<f32>),
     Uniform1i(i32, i32),
@@ -516,7 +517,7 @@ pub enum WebGLCommand {
     UniformMatrix2fv(i32, bool, Vec<f32>),
     UniformMatrix3fv(i32, bool, Vec<f32>),
     UniformMatrix4fv(i32, bool, Vec<f32>),
-    UseProgram(u32),
+    UseProgram(WebGLProgramId),
     VertexAttrib(u32, f32, f32, f32, f32),
     VertexAttribPointer2f(u32, i32, bool, i32, u32),
     Viewport(i32, i32, i32, i32),
@@ -530,6 +531,101 @@ pub enum WebGLCommand {
     Flush,
     GenerateMipmap(u32),
 }
+
+#[cfg(feature = "nightly")]
+macro_rules! define_resource_id_struct {
+    ($name:ident) => {
+        #[derive(Clone, Copy, PartialEq)]
+        pub struct $name(NonZero<u32>);
+
+        impl $name {
+            #[inline]
+            unsafe fn new(id: u32) -> Self {
+                $name(NonZero::new(id))
+            }
+
+            #[inline]
+            fn get(self) -> u32 {
+                *self.0
+            }
+        }
+
+    };
+}
+
+#[cfg(not(feature = "nightly"))]
+macro_rules! define_resource_id_struct {
+    ($name:ident) => {
+        #[derive(Clone, Copy, PartialEq)]
+        pub struct $name(u32);
+
+        impl $name {
+            #[inline]
+            unsafe fn new(id: u32) -> Self {
+                $name(id)
+            }
+
+            #[inline]
+            fn get(self) -> u32 {
+                self.0
+            }
+        }
+    };
+}
+
+macro_rules! define_resource_id {
+    ($name:ident) => {
+        define_resource_id_struct!($name);
+
+        impl ::serde::Deserialize for $name {
+            fn deserialize<D>(deserializer: &mut D) -> Result<Self, D::Error>
+                where D: ::serde::Deserializer
+            {
+                let id = try!(u32::deserialize(deserializer));
+                if id == 0 {
+                    Err(::serde::Error::invalid_value("expected a non-zero value"))
+                } else {
+                    Ok(unsafe { $name::new(id) })
+                }
+            }
+        }
+
+        impl ::serde::Serialize for $name {
+            fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error>
+                where S: ::serde::Serializer
+            {
+                self.get().serialize(serializer)
+            }
+        }
+
+        impl ::std::fmt::Debug for $name {
+            fn fmt(&self, fmt: &mut ::std::fmt::Formatter)
+                  -> Result<(), ::std::fmt::Error> {
+                fmt.debug_tuple(stringify!($name))
+                   .field(&self.get())
+                   .finish()
+            }
+        }
+
+        impl ::std::fmt::Display for $name {
+            fn fmt(&self, fmt: &mut ::std::fmt::Formatter)
+                  -> Result<(), ::std::fmt::Error> {
+                write!(fmt, "{}", self.get())
+            }
+        }
+
+        impl ::heapsize::HeapSizeOf for $name {
+            fn heap_size_of_children(&self) -> usize { 0 }
+        }
+    }
+}
+
+define_resource_id!(WebGLBufferId);
+define_resource_id!(WebGLFramebufferId);
+define_resource_id!(WebGLRenderbufferId);
+define_resource_id!(WebGLTextureId);
+define_resource_id!(WebGLProgramId);
+define_resource_id!(WebGLShaderId);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct WebGLContextId(pub usize);
@@ -550,7 +646,7 @@ pub enum WebGLError {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum WebGLFramebufferBindingRequest {
-    Explicit(u32),
+    Explicit(WebGLFramebufferId),
     Default,
 }
 

@@ -2,13 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use core::nonzero::NonZero;
 use gleam::gl;
 use ipc_channel::ipc::IpcSender;
 use offscreen_gl_context::{GLContext, NativeGLContextMethods};
 use std::fmt;
-use {WebGLCommand, WebGLError, WebGLFramebufferBindingRequest};
-use {WebGLParameter, WebGLResult};
+use {WebGLBufferId, WebGLCommand, WebGLError, WebGLFramebufferBindingRequest};
+use {WebGLFramebufferId, WebGLParameter, WebGLProgramId, WebGLRenderbufferId};
+use {WebGLResult, WebGLShaderId, WebGLTextureId};
 
 impl fmt::Debug for WebGLCommand {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -130,11 +130,11 @@ impl WebGLCommand {
             WebGLCommand::ActiveTexture(target) =>
                 gl::active_texture(target),
             WebGLCommand::AttachShader(program_id, shader_id) =>
-                gl::attach_shader(program_id, shader_id),
+                gl::attach_shader(program_id.get(), shader_id.get()),
             WebGLCommand::DetachShader(program_id, shader_id) =>
-                gl::detach_shader(program_id, shader_id),
+                gl::detach_shader(program_id.get(), shader_id.get()),
             WebGLCommand::BindAttribLocation(program_id, index, name) =>
-                gl::bind_attrib_location(program_id, index, &name),
+                gl::bind_attrib_location(program_id.get(), index, &name),
             WebGLCommand::BlendColor(r, g, b, a) =>
                 gl::blend_color(r, g, b, a),
             WebGLCommand::BlendEquation(mode) =>
@@ -242,27 +242,27 @@ impl WebGLCommand {
             WebGLCommand::CreateShader(shader_type, chan) =>
                 Self::create_shader(shader_type, chan),
             WebGLCommand::DeleteBuffer(id) =>
-                gl::delete_buffers(&[id]),
+                gl::delete_buffers(&[id.get()]),
             WebGLCommand::DeleteFramebuffer(id) =>
-                gl::delete_framebuffers(&[id]),
+                gl::delete_framebuffers(&[id.get()]),
             WebGLCommand::DeleteRenderbuffer(id) =>
-                gl::delete_renderbuffers(&[id]),
+                gl::delete_renderbuffers(&[id.get()]),
             WebGLCommand::DeleteTexture(id) =>
-                gl::delete_textures(&[id]),
+                gl::delete_textures(&[id.get()]),
             WebGLCommand::DeleteProgram(id) =>
-                gl::delete_program(id),
+                gl::delete_program(id.get()),
             WebGLCommand::DeleteShader(id) =>
-                gl::delete_shader(id),
+                gl::delete_shader(id.get()),
             WebGLCommand::BindBuffer(target, id) =>
-                gl::bind_buffer(target, id),
+                gl::bind_buffer(target, id.map_or(0, WebGLBufferId::get)),
             WebGLCommand::BindFramebuffer(target, request) =>
                 Self::bind_framebuffer(target, request, ctx),
             WebGLCommand::BindRenderbuffer(target, id) =>
-                gl::bind_renderbuffer(target, id),
+                gl::bind_renderbuffer(target, id.map_or(0, WebGLRenderbufferId::get)),
             WebGLCommand::BindTexture(target, id) =>
-                gl::bind_texture(target, id),
+                gl::bind_texture(target, id.map_or(0, WebGLTextureId::get)),
             WebGLCommand::LinkProgram(program_id) =>
-                gl::link_program(program_id),
+                gl::link_program(program_id.get()),
             WebGLCommand::Uniform1f(uniform_id, v) =>
                 gl::uniform_1f(uniform_id, v),
             WebGLCommand::Uniform1fv(uniform_id, v) =>
@@ -302,7 +302,7 @@ impl WebGLCommand {
             WebGLCommand::UniformMatrix4fv(uniform_id, transpose,  v) =>
                 gl::uniform_matrix_4fv(uniform_id, transpose, &v),
             WebGLCommand::UseProgram(program_id) =>
-                gl::use_program(program_id),
+                gl::use_program(program_id.get()),
             WebGLCommand::VertexAttrib(attrib_id, x, y, z, w) =>
                 gl::vertex_attrib_4f(attrib_id, x, y, z, w),
             WebGLCommand::VertexAttribPointer2f(attrib_id, size, normalized, stride, offset) =>
@@ -340,32 +340,32 @@ impl WebGLCommand {
       chan.send(result).unwrap()
     }
 
-    fn active_attrib(program_id: u32,
+    fn active_attrib(program_id: WebGLProgramId,
                      index: u32,
                      chan: IpcSender<WebGLResult<(i32, u32, String)>>) {
-        let result = if index >= gl::get_program_iv(program_id, gl::ACTIVE_ATTRIBUTES) as u32 {
+        let result = if index >= gl::get_program_iv(program_id.get(), gl::ACTIVE_ATTRIBUTES) as u32 {
             Err(WebGLError::InvalidValue)
         } else {
-            Ok(gl::get_active_attrib(program_id, index))
+            Ok(gl::get_active_attrib(program_id.get(), index))
         };
         chan.send(result).unwrap();
     }
 
-    fn active_uniform(program_id: u32,
+    fn active_uniform(program_id: WebGLProgramId,
                       index: u32,
                       chan: IpcSender<WebGLResult<(i32, u32, String)>>) {
-        let result = if index >= gl::get_program_iv(program_id, gl::ACTIVE_UNIFORMS) as u32 {
+        let result = if index >= gl::get_program_iv(program_id.get(), gl::ACTIVE_UNIFORMS) as u32 {
             Err(WebGLError::InvalidValue)
         } else {
-            Ok(gl::get_active_uniform(program_id, index))
+            Ok(gl::get_active_uniform(program_id.get(), index))
         };
         chan.send(result).unwrap();
     }
 
-    fn attrib_location(program_id: u32,
+    fn attrib_location(program_id: WebGLProgramId,
                        name: String,
                        chan: IpcSender<Option<i32>> ) {
-        let attrib_location = gl::get_attrib_location(program_id, &name);
+        let attrib_location = gl::get_attrib_location(program_id.get(), &name);
 
         let attrib_location = if attrib_location == -1 {
             None
@@ -540,43 +540,43 @@ impl WebGLCommand {
         chan.send(result).unwrap();
     }
 
-    fn program_parameter(program_id: u32,
+    fn program_parameter(program_id: WebGLProgramId,
                          param_id: u32,
                          chan: IpcSender<WebGLResult<WebGLParameter>>) {
         let result = match param_id {
             gl::DELETE_STATUS |
             gl::LINK_STATUS |
             gl::VALIDATE_STATUS =>
-                Ok(WebGLParameter::Bool(gl::get_program_iv(program_id, param_id) != 0)),
+                Ok(WebGLParameter::Bool(gl::get_program_iv(program_id.get(), param_id) != 0)),
             gl::ATTACHED_SHADERS |
             gl::ACTIVE_ATTRIBUTES |
             gl::ACTIVE_UNIFORMS =>
-                Ok(WebGLParameter::Int(gl::get_program_iv(program_id, param_id))),
+                Ok(WebGLParameter::Int(gl::get_program_iv(program_id.get(), param_id))),
             _ => Err(WebGLError::InvalidEnum),
         };
 
         chan.send(result).unwrap();
     }
 
-    fn shader_parameter(shader_id: u32,
+    fn shader_parameter(shader_id: WebGLShaderId,
                         param_id: u32,
                         chan: IpcSender<WebGLResult<WebGLParameter>>) {
         let result = match param_id {
             gl::SHADER_TYPE =>
-                Ok(WebGLParameter::Int(gl::get_shader_iv(shader_id, param_id))),
+                Ok(WebGLParameter::Int(gl::get_shader_iv(shader_id.get(), param_id))),
             gl::DELETE_STATUS |
             gl::COMPILE_STATUS =>
-                Ok(WebGLParameter::Bool(gl::get_shader_iv(shader_id, param_id) != 0)),
+                Ok(WebGLParameter::Bool(gl::get_shader_iv(shader_id.get(), param_id) != 0)),
             _ => Err(WebGLError::InvalidEnum),
         };
 
         chan.send(result).unwrap();
     }
 
-    fn uniform_location(program_id: u32,
+    fn uniform_location(program_id: WebGLProgramId,
                         name: String,
                         chan: IpcSender<Option<i32>>) {
-        let location = gl::get_uniform_location(program_id, &name);
+        let location = gl::get_uniform_location(program_id.get(), &name);
         let location = if location == -1 {
             None
         } else {
@@ -586,64 +586,64 @@ impl WebGLCommand {
         chan.send(location).unwrap();
     }
 
-    fn create_buffer(chan: IpcSender<Option<NonZero<u32>>>) {
+    fn create_buffer(chan: IpcSender<Option<WebGLBufferId>>) {
         let buffer = gl::gen_buffers(1)[0];
         let buffer = if buffer == 0 {
             None
         } else {
-            Some(unsafe { NonZero::new(buffer) })
+            Some(unsafe { WebGLBufferId::new(buffer) })
         };
         chan.send(buffer).unwrap();
     }
 
-    fn create_framebuffer(chan: IpcSender<Option<NonZero<u32>>>) {
+    fn create_framebuffer(chan: IpcSender<Option<WebGLFramebufferId>>) {
         let framebuffer = gl::gen_framebuffers(1)[0];
         let framebuffer = if framebuffer == 0 {
             None
         } else {
-            Some(unsafe { NonZero::new(framebuffer) })
+            Some(unsafe { WebGLFramebufferId::new(framebuffer) })
         };
         chan.send(framebuffer).unwrap();
     }
 
 
-    fn create_renderbuffer(chan: IpcSender<Option<NonZero<u32>>>) {
+    fn create_renderbuffer(chan: IpcSender<Option<WebGLRenderbufferId>>) {
         let renderbuffer = gl::gen_renderbuffers(1)[0];
         let renderbuffer = if renderbuffer == 0 {
             None
         } else {
-            Some(unsafe { NonZero::new(renderbuffer) })
+            Some(unsafe { WebGLRenderbufferId::new(renderbuffer) })
         };
         chan.send(renderbuffer).unwrap();
     }
 
-    fn create_texture(chan: IpcSender<Option<NonZero<u32>>>) {
+    fn create_texture(chan: IpcSender<Option<WebGLTextureId>>) {
         let texture = gl::gen_textures(1)[0];
         let texture = if texture == 0 {
             None
         } else {
-            Some(unsafe { NonZero::new(texture) })
+            Some(unsafe { WebGLTextureId::new(texture) })
         };
         chan.send(texture).unwrap();
     }
 
 
-    fn create_program(chan: IpcSender<Option<NonZero<u32>>>) {
+    fn create_program(chan: IpcSender<Option<WebGLProgramId>>) {
         let program = gl::create_program();
         let program = if program == 0 {
             None
         } else {
-            Some(unsafe { NonZero::new(program) })
+            Some(unsafe { WebGLProgramId::new(program) })
         };
         chan.send(program).unwrap();
     }
 
-    fn create_shader(shader_type: u32, chan: IpcSender<Option<NonZero<u32>>>) {
+    fn create_shader(shader_type: u32, chan: IpcSender<Option<WebGLShaderId>>) {
         let shader = gl::create_shader(shader_type);
         let shader = if shader == 0 {
             None
         } else {
-            Some(unsafe { NonZero::new(shader) })
+            Some(unsafe { WebGLShaderId::new(shader) })
         };
         chan.send(shader).unwrap();
     }
@@ -653,7 +653,7 @@ impl WebGLCommand {
                                                         request: WebGLFramebufferBindingRequest,
                                                         ctx: &GLContext<Native>) {
         let id = match request {
-            WebGLFramebufferBindingRequest::Explicit(id) => id,
+            WebGLFramebufferBindingRequest::Explicit(id) => id.get(),
             WebGLFramebufferBindingRequest::Default =>
                 ctx.borrow_draw_buffer().unwrap().get_framebuffer(),
         };
@@ -663,8 +663,8 @@ impl WebGLCommand {
 
 
     #[inline]
-    fn compile_shader(shader_id: u32, source: String) {
-        gl::shader_source(shader_id, &[source.as_bytes()]);
-        gl::compile_shader(shader_id);
+    fn compile_shader(shader_id: WebGLShaderId, source: String) {
+        gl::shader_source(shader_id.get(), &[source.as_bytes()]);
+        gl::compile_shader(shader_id.get());
     }
 }

@@ -6,6 +6,7 @@ build = "build.rs"
 
 [features]
 default = ["serde_codegen"]
+nightly = ["euclid/unstable", "serde/nightly"]
 
 [dependencies.ipc-channel]
 git = "https://github.com/servo/ipc-channel"
@@ -15,8 +16,9 @@ app_units = "0.2.5"
 byteorder = "0.5"
 euclid = "0.7.1"
 gleam = "0.2.19"
+heapsize = "0.3.6"
 offscreen_gl_context = {version = "0.1.9", features = ["serde_serialization"]}
-serde = {version = "0.7.11", features = ["nightly"]}
+serde = "0.7.11"
 serde_macros = {version = "0.7.11", optional = true}
 
 [target.x86_64-apple-darwin.dependencies]
