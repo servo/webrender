@@ -690,7 +690,7 @@ impl Frame {
         })
     }
 
-    pub fn get_scroll_layer_state(&self, device_pixel_ratio: f32) -> Vec<ScrollLayerState> {
+    pub fn get_scroll_layer_state(&self) -> Vec<ScrollLayerState> {
         let mut result = vec![];
         for (scroll_layer_id, scroll_layer) in &self.layers {
             match scroll_layer_id.info {
