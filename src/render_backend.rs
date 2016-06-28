@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use euclid::Matrix4D;
 use frame::Frame;
 use internal_types::{FontTemplate, ResultMsg, RendererFrame};
 use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
@@ -17,11 +16,12 @@ use std::mem;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::{TextureCache, TextureCacheItemId};
-use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, RenderNotifier};
-use webrender_traits::{PipelineId, WebGLContextId, ScrollLayerId};
+use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
+use webrender_traits::{PipelineId, RenderNotifier, WebGLContextId};
 use batch::new_id;
 use device::TextureId;
-use offscreen_gl_context::{NativeGLContext, GLContext, ColorAttachmentType, NativeGLContextMethods, NativeGLContextHandle};
+use offscreen_gl_context::{ColorAttachmentType, GLContext};
+use offscreen_gl_context::{NativeGLContext, NativeGLContextHandle};
 
 pub struct RenderBackend {
     api_rx: IpcReceiver<ApiMsg>,

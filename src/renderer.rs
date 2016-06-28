@@ -20,7 +20,7 @@ use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{RendererProfileTimers, RendererProfileCounters};
 use render_backend::RenderBackend;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::f32;
 use std::hash::BuildHasherDefault;
 use std::mem;
