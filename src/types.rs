@@ -8,7 +8,7 @@
 use app_units::Au;
 #[cfg(feature = "nightly")]
 use core::nonzero::NonZero;
-use euclid::{Matrix4, Point2D, Rect, Size2D};
+use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use ipc_channel::ipc::{IpcBytesSender, IpcSender};
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 
@@ -402,8 +402,8 @@ pub struct StackingContext {
     pub overflow: Rect<f32>,
     pub z_index: i32,
     pub display_lists: Vec<DisplayListId>,
-    pub transform: Matrix4,
-    pub perspective: Matrix4,
+    pub transform: Matrix4D<f32>,
+    pub perspective: Matrix4D<f32>,
     pub establishes_3d_context: bool,
     pub mix_blend_mode: MixBlendMode,
     pub filters: ItemRange,
