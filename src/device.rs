@@ -31,7 +31,10 @@ const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA;
 #[cfg(any(target_os = "android", target_os = "gonk"))]
 const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA_EXT;
 
-#[cfg(not(any(target_os = "android", target_os = "gonk")))]
+#[cfg(target_os = "linux")]
+const SHADER_VERSION: &'static str = "#version 130\n";
+
+#[cfg(target_os = "macos")]
 const SHADER_VERSION: &'static str = "#version 150\n";
 
 #[cfg(any(target_os = "android", target_os = "gonk"))]
