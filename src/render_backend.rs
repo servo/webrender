@@ -229,7 +229,7 @@ impl RenderBackend {
                             self.render()
                         });
 
-                        self.publish_frame(frame, &mut profile_counters);
+                        self.publish_frame_and_notify_compositor(frame, &mut profile_counters);
                     }
                     ApiMsg::SetRootPipeline(pipeline_id) => {
                         let frame = profile_counters.total_time.profile(|| {
@@ -243,11 +243,20 @@ impl RenderBackend {
                     }
                     ApiMsg::Scroll(delta, cursor, move_phase) => {
                         let frame = profile_counters.total_time.profile(|| {
-                            self.frame.scroll(delta, cursor, move_phase);
-                            self.render()
+                            if self.frame.scroll(delta, cursor, move_phase) {
+                                Some(self.render())
+                            } else {
+                                None
+                            }
                         });
 
-                        self.publish_frame(frame, &mut profile_counters);
+                        match frame {
+                            Some(frame) => {
+                                self.publish_frame(frame, &mut profile_counters);
+                                self.notify_compositor_of_new_scroll_frame(true)
+                            }
+                            None => self.notify_compositor_of_new_scroll_frame(false),
+                        }
                     }
                     ApiMsg::TickScrollingBounce => {
                         let frame = profile_counters.total_time.profile(|| {
@@ -255,7 +264,7 @@ impl RenderBackend {
                             self.render()
                         });
 
-                        self.publish_frame(frame, &mut profile_counters);
+                        self.publish_frame_and_notify_compositor(frame, &mut profile_counters);
                     }
                     ApiMsg::TranslatePointToLayerSpace(point, tx) => {
                         // First, find the specific layer that contains the point.
@@ -425,6 +434,12 @@ impl RenderBackend {
         let msg = ResultMsg::NewFrame(frame, pending_updates, profile_counters.clone());
         self.result_tx.send(msg).unwrap();
         profile_counters.reset();
+    }
+
+    fn publish_frame_and_notify_compositor(&mut self,
+                                           frame: RendererFrame,
+                                           profile_counters: &mut BackendProfileCounters) {
+        self.publish_frame(frame, profile_counters);
 
         // TODO(gw): This is kindof bogus to have to lock the notifier
         //           each time it's used. This is due to some nastiness
@@ -432,6 +447,15 @@ impl RenderBackend {
         //           cleaner way to do this, or use the OnceMutex on crates.io?
         let mut notifier = self.notifier.lock();
         notifier.as_mut().unwrap().as_mut().unwrap().new_frame_ready();
+    }
+
+    fn notify_compositor_of_new_scroll_frame(&mut self, composite_needed: bool) {
+        // TODO(gw): This is kindof bogus to have to lock the notifier
+        //           each time it's used. This is due to some nastiness
+        //           in initialization order for Servo. Perhaps find a
+        //           cleaner way to do this, or use the OnceMutex on crates.io?
+        let mut notifier = self.notifier.lock();
+        notifier.as_mut().unwrap().as_mut().unwrap().new_scroll_frame_ready(composite_needed);
     }
 }
 
