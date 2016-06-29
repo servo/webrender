@@ -768,7 +768,8 @@ impl Frame {
             layer.scrolling.started_bouncing_back = false
         } else if overscrolling &&
                 ((delta.x < 1.0 && delta.y < 1.0) || phase == ScrollEventPhase::End) {
-            layer.scrolling.started_bouncing_back = true
+            layer.scrolling.started_bouncing_back = true;
+            layer.scrolling.bouncing_back = true
         }
 
         layer.scrolling.offset.x = layer.scrolling.offset.x.round();
@@ -1479,7 +1480,7 @@ impl Frame {
                                     -> HashSet<ScrollLayerId, BuildHasherDefault<FnvHasher>> {
         let mut layers_bouncing_back = HashSet::with_hasher(Default::default());
         for (scroll_layer_id, layer) in &self.layers {
-            if layer.scrolling.started_bouncing_back {
+            if layer.scrolling.bouncing_back {
                 layers_bouncing_back.insert(*scroll_layer_id);
             }
         }
