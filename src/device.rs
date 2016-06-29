@@ -37,6 +37,9 @@ const SHADER_VERSION: &'static str = "#version 130\n";
 #[cfg(target_os = "macos")]
 const SHADER_VERSION: &'static str = "#version 150\n";
 
+#[cfg(target_os = "windows")]
+const SHADER_VERSION: &'static str = "#version 150\n";
+
 #[cfg(any(target_os = "android", target_os = "gonk"))]
 const SHADER_VERSION: &'static str = "#version 300 es\n";
 
