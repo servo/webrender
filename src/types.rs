@@ -328,9 +328,8 @@ pub struct RenderApiSender {
 
 pub trait RenderNotifier: Send {
     fn new_frame_ready(&mut self);
-    fn pipeline_size_changed(&mut self,
-                             pipeline_id: PipelineId,
-                             size: Option<Size2D<f32>>);
+    fn new_scroll_frame_ready(&mut self, composite_needed: bool);
+    fn pipeline_size_changed(&mut self, pipeline_id: PipelineId, size: Option<Size2D<f32>>);
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
