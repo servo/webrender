@@ -683,10 +683,17 @@ impl Frame {
                                           p1.y / p1.w,
                                           p1.z / p1.w);
 
-                    if ray_intersects_rect(p0, p1, layer.viewport_rect) {
-                        Some(scroll_layer_id)
-                    } else {
+                    let is_unscrollable = layer.layer_size.width <= layer.viewport_rect.size.width &&
+                        layer.layer_size.height <= layer.viewport_rect.size.height;
+                    if is_unscrollable {
                         None
+                    } else {
+                        let result = ray_intersects_rect(p0, p1, layer.viewport_rect);
+                        if result {
+                            Some(scroll_layer_id)
+                        } else {
+                            None
+                        }
                     }
                 }
             }
@@ -1312,14 +1319,15 @@ impl Frame {
             match self.layers.get_mut(&layer_id) {
                 Some(layer) => {
                     let layer_transform_for_children =
-                        parent_world_transform.mul(&layer.local_transform);
+                        parent_world_transform.mul(&layer.local_transform)
+                                              .translate(layer.scrolling.offset.x,
+                                                         layer.scrolling.offset.y,
+                                                         0.0);
+                    layer.viewport_transform = parent_world_transform.mul(&layer.local_transform);
                     layer.world_transform =
                         Some(layer_transform_for_children.translate(layer.world_origin.x,
                                                                     layer.world_origin.y,
-                                                                    0.0)
-                                                            .translate(layer.scrolling.offset.x,
-                                                                       layer.scrolling.offset.y,
-                                                                       0.0));
+                                                                    0.0));
                     (layer_transform_for_children, layer.children.clone())
                 }
                 None => return,
