@@ -799,100 +799,87 @@ impl TextureCache {
         let requested_size = Size2D::new(requested_width, requested_height);
         let allocation_size = Size2D::new(requested_width + border_size * 2,
                                           requested_height + border_size * 2);
-        let location = page_list.last_mut().and_then(|last_page| {
-            last_page.allocate(&allocation_size, filter)
-        });
-        let location = match location {
-            Some(location) => location,
-            None => {
-                if !page_list.is_empty() && page_list.last().unwrap().can_grow() {
-                    let last_page = page_list.last_mut().unwrap();
-                    // Grow the texture.
-                    let texture_size = cmp::min(last_page.texture_size * 2,
-                                                max_texture_size());
-                    self.pending_updates.push(TextureUpdate {
-                        id: last_page.texture_id,
-                        op: texture_grow_op(texture_size, format, mode),
-                    });
-                    last_page.grow(texture_size);
 
-                    self.items.for_each_item(|item| {
-                        if item.texture_id == last_page.texture_id {
-                            item.texture_size = Size2D::new(texture_size, texture_size);
-                        }
-                    });
-                } else {
-                    // We need a new page.
-                    let texture_size = initial_texture_size();
-                    let free_texture_levels_entry = match kind {
-                        TextureCacheItemKind::Standard => self.free_texture_levels.entry(format),
-                        TextureCacheItemKind::Alternate => {
-                            self.alternate_free_texture_levels.entry(format)
-                        }
-                        //TextureCacheItemKind::RenderTarget => {
-                        //    self.render_target_free_texture_levels.entry(format)
-                        //}
-                    };
-                    let mut free_texture_levels = match free_texture_levels_entry {
-                        Entry::Vacant(entry) => entry.insert(Vec::new()),
-                        Entry::Occupied(entry) => entry.into_mut(),
-                    };
-                    if free_texture_levels.is_empty() {
-                        create_new_texture_page(&mut self.pending_updates,
-                                                &mut self.free_texture_ids,
-                                                &mut free_texture_levels,
-                                                texture_size,
-                                                format,
-                                                mode);
-                    }
-                    let free_texture_level = free_texture_levels.pop().unwrap();
-                    let texture_id = free_texture_level.texture_id;
-  
-                    let page = TexturePage::new(texture_id, texture_size);
-                    page_list.push(page);
-                }
+        // TODO(gw): Handle this sensibly (support failing to render items that can't fit?)
+        assert!(allocation_size.width < max_texture_size());
+        assert!(allocation_size.height < max_texture_size());
 
-                match page_list.last_mut().unwrap().allocate(&allocation_size, filter) {
-                    Some(location) => location,
-                    None => {
-                        // Fall back to standalone texture allocation.
-                        let texture_id = self.free_texture_ids
-                                             .pop()
-                                             .expect("TODO: Handle running out of texture ids!");
-                        let cache_item = TextureCacheItem::new(
-                            texture_id,
-                            user_x0, user_y0,
-                            Rect::new(Point2D::zero(), requested_size),
-                            Rect::new(Point2D::zero(), requested_size),
-                            &requested_size);
-                        *self.items.get_mut(image_id) = cache_item;
+        // Loop until an allocation succeeds, growing or adding new
+        // texture pages as required.
+        loop {
+            let location = page_list.last_mut().and_then(|last_page| {
+                last_page.allocate(&allocation_size, filter)
+            });
 
-                        return AllocationResult {
-                            item: self.items.get(image_id).clone(),
-                            kind: AllocationKind::Standalone,
-                        }
-                    }
+            if let Some(location) = location {
+                let page = page_list.last_mut().unwrap();
+
+                let allocated_rect = Rect::new(location, allocation_size);
+                let requested_rect = Rect::new(Point2D::new(location.x + border_size,
+                                                            location.y + border_size),
+                                               requested_size);
+
+                let cache_item = TextureCacheItem::new(page.texture_id,
+                                                       user_x0, user_y0,
+                                                       allocated_rect,
+                                                       requested_rect,
+                                                       &Size2D::new(page.texture_size, page.texture_size));
+                *self.items.get_mut(image_id) = cache_item;
+
+                return AllocationResult {
+                    item: self.items.get(image_id).clone(),
+                    kind: AllocationKind::TexturePage,
                 }
             }
-        };
 
-        let page = page_list.last_mut().unwrap();
+            if !page_list.is_empty() && page_list.last().unwrap().can_grow() {
+                let last_page = page_list.last_mut().unwrap();
+                // Grow the texture.
+                let texture_size = cmp::min(last_page.texture_size * 2,
+                                            max_texture_size());
+                self.pending_updates.push(TextureUpdate {
+                    id: last_page.texture_id,
+                    op: texture_grow_op(texture_size, format, mode),
+                });
+                last_page.grow(texture_size);
 
-        let allocated_rect = Rect::new(location, allocation_size);
-        let requested_rect = Rect::new(Point2D::new(location.x + border_size,
-                                                    location.y + border_size),
-                                       requested_size);
+                self.items.for_each_item(|item| {
+                    if item.texture_id == last_page.texture_id {
+                        item.texture_size = Size2D::new(texture_size, texture_size);
+                    }
+                });
 
-        let cache_item = TextureCacheItem::new(page.texture_id,
-                                               user_x0, user_y0,
-                                               allocated_rect,
-                                               requested_rect,
-                                               &Size2D::new(page.texture_size, page.texture_size));
-        *self.items.get_mut(image_id) = cache_item;
+                continue;
+            }
 
-        AllocationResult {
-            item: self.items.get(image_id).clone(),
-            kind: AllocationKind::TexturePage,
+            // We need a new page.
+            let texture_size = initial_texture_size();
+            let free_texture_levels_entry = match kind {
+                TextureCacheItemKind::Standard => self.free_texture_levels.entry(format),
+                TextureCacheItemKind::Alternate => {
+                    self.alternate_free_texture_levels.entry(format)
+                }
+                //TextureCacheItemKind::RenderTarget => {
+                //    self.render_target_free_texture_levels.entry(format)
+                //}
+            };
+            let mut free_texture_levels = match free_texture_levels_entry {
+                Entry::Vacant(entry) => entry.insert(Vec::new()),
+                Entry::Occupied(entry) => entry.into_mut(),
+            };
+            if free_texture_levels.is_empty() {
+                create_new_texture_page(&mut self.pending_updates,
+                                        &mut self.free_texture_ids,
+                                        &mut free_texture_levels,
+                                        texture_size,
+                                        format,
+                                        mode);
+            }
+            let free_texture_level = free_texture_levels.pop().unwrap();
+            let texture_id = free_texture_level.texture_id;
+
+            let page = TexturePage::new(texture_id, texture_size);
+            page_list.push(page);
         }
     }
 
