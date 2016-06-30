@@ -23,7 +23,7 @@ use util;
 use webrender_traits::ImageFormat;
 
 /// The number of bytes we're allowed to use for a texture.
-const MAX_BYTES_PER_TEXTURE: u32 = 1024 * 1024 * 1024;  // 1GB
+const MAX_BYTES_PER_TEXTURE: u32 = 1024 * 1024 * 256;  // 256MB
 
 /// The number of RGBA pixels we're allowed to use for a texture.
 const MAX_RGBA_PIXELS_PER_TEXTURE: u32 = MAX_BYTES_PER_TEXTURE / 4;
@@ -39,7 +39,7 @@ const INITIAL_TEXTURE_AREA: u32 = INITIAL_TEXTURE_SIZE * INITIAL_TEXTURE_SIZE;
 
 /// The square root of the number of RGBA pixels we're allowed to use for a texture, rounded down.
 /// to the next power of two.
-const SQRT_MAX_RGBA_PIXELS_PER_TEXTURE: u32 = 16384;
+const SQRT_MAX_RGBA_PIXELS_PER_TEXTURE: u32 = 8192;
 
 /// The minimum number of pixels on each side that we require for rects to be classified as
 /// "medium" within the free list.
