@@ -717,23 +717,25 @@ impl Frame {
         result
     }
 
+    /// Returns true if any layers actually changed position or false otherwise.
     pub fn scroll(&mut self,
                   mut delta: Point2D<f32>,
                   cursor: Point2D<f32>,
-                  phase: ScrollEventPhase) {
+                  phase: ScrollEventPhase)
+                  -> bool {
         let root_scroll_layer_id = match self.root_scroll_layer_id {
             Some(root_scroll_layer_id) => root_scroll_layer_id,
-            None => return,
+            None => return false,
         };
 
         let scroll_layer_id = match self.get_scroll_layer(&cursor, root_scroll_layer_id) {
             Some(scroll_layer_id) => scroll_layer_id,
-            None => return,
+            None => return false,
         };
 
         let layer = self.layers.get_mut(&scroll_layer_id).unwrap();
         if layer.scrolling.started_bouncing_back && phase == ScrollEventPhase::Move(false) {
-            return
+            return false
         }
 
         let overscroll_amount = layer.overscroll_amount();
@@ -750,6 +752,8 @@ impl Frame {
 
         let is_unscrollable = layer.layer_size.width <= layer.viewport_rect.size.width &&
             layer.layer_size.height <= layer.viewport_rect.size.height;
+
+        let original_layer_scroll_offset = layer.scrolling.offset;
 
         if layer.layer_size.width > layer.viewport_rect.size.width {
             layer.scrolling.offset.x = layer.scrolling.offset.x + delta.x;
@@ -775,7 +779,8 @@ impl Frame {
             layer.scrolling.started_bouncing_back = false
         } else if overscrolling &&
                 ((delta.x < 1.0 && delta.y < 1.0) || phase == ScrollEventPhase::End) {
-            layer.scrolling.started_bouncing_back = true
+            layer.scrolling.started_bouncing_back = true;
+            layer.scrolling.bouncing_back = true
         }
 
         layer.scrolling.offset.x = layer.scrolling.offset.x.round();
@@ -784,6 +789,9 @@ impl Frame {
         if CAN_OVERSCROLL {
             layer.stretch_overscroll_spring();
         }
+
+        layer.scrolling.offset != original_layer_scroll_offset || layer.scrolling
+                                                                       .started_bouncing_back
     }
 
     pub fn tick_scrolling_bounce_animations(&mut self) {
@@ -1487,7 +1495,7 @@ impl Frame {
                                     -> HashSet<ScrollLayerId, BuildHasherDefault<FnvHasher>> {
         let mut layers_bouncing_back = HashSet::with_hasher(Default::default());
         for (scroll_layer_id, layer) in &self.layers {
-            if layer.scrolling.started_bouncing_back {
+            if layer.scrolling.bouncing_back {
                 layers_bouncing_back.insert(*scroll_layer_id);
             }
         }

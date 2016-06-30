@@ -138,7 +138,7 @@ impl Layer {
         let finished = self.scrolling.spring.animate();
         self.scrolling.offset = self.scrolling.spring.current();
         if finished {
-            self.scrolling.started_bouncing_back = false;
+            self.scrolling.bouncing_back = false
         }
     }
 }
@@ -148,6 +148,7 @@ pub struct ScrollingState {
     pub offset: Point2D<f32>,
     pub spring: Spring,
     pub started_bouncing_back: bool,
+    pub bouncing_back: bool,
 }
 
 impl ScrollingState {
@@ -156,6 +157,7 @@ impl ScrollingState {
             offset: Point2D::new(0.0, 0.0),
             spring: Spring::at(Point2D::new(0.0, 0.0), STIFFNESS, DAMPING),
             started_bouncing_back: false,
+            bouncing_back: false,
         }
     }
 }

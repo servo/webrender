@@ -5,7 +5,7 @@
 use euclid::Point2D;
 
 /// Some arbitrarily small positive number used as threshold value.
-pub const EPSILON: f32 = 0.001;
+pub const EPSILON: f32 = 0.1;
 
 /// The default stiffness factor.
 pub const STIFFNESS: f32 = 0.2;
