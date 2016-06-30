@@ -11,7 +11,6 @@ use internal_types::{BorderRadiusRasterOp, BoxShadowRasterOp, DrawListItemIndex}
 use internal_types::{Glyph, GlyphKey, RasterItem, DevicePixel};
 use resource_cache::ResourceCache;
 use std::collections::{HashMap, HashSet};
-use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::hash::BuildHasherDefault;
 use tessellator;
 use webrender_traits::{AuxiliaryLists, BorderRadius, BorderStyle, BoxShadowClipMode};

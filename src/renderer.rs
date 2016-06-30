@@ -20,7 +20,7 @@ use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{RendererProfileTimers, RendererProfileCounters};
 use render_backend::RenderBackend;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::f32;
 use std::hash::BuildHasherDefault;
 use std::mem;
@@ -1479,282 +1479,279 @@ impl Renderer {
                             break
                         }
                     }
-                    if any_jobs_were_visible {
-                        let needs_fb = info.operation.needs_framebuffer();
+                    if !any_jobs_were_visible {
+                        continue;
+                    }
 
-                        let alpha;
-                        if needs_fb {
-                            match info.operation {
-                                CompositionOp::MixBlend(blend_mode) => {
-                                    gl::disable(gl::BLEND);
-                                    self.device.bind_program(render_context.blend_program_id,
-                                                             &projection);
-                                    self.device.set_uniform_4f(self.u_blend_params,
-                                                               blend_mode as i32 as f32,
-                                                               0.0,
-                                                               0.0,
-                                                               0.0);
-                                }
-                                _ => unreachable!(),
+                    let needs_fb = info.operation.needs_framebuffer();
+
+                    let alpha;
+                    if needs_fb {
+                        match info.operation {
+                            CompositionOp::MixBlend(blend_mode) => {
+                                gl::disable(gl::BLEND);
+                                self.device.bind_program(render_context.blend_program_id,
+                                                         &projection);
+                                self.device.set_uniform_4f(self.u_blend_params,
+                                                           blend_mode as i32 as f32,
+                                                           0.0,
+                                                           0.0,
+                                                           0.0);
                             }
-                            self.device.bind_mask_texture(self.temporary_fb_texture);
-                            alpha = 1.0;
-                        } else {
-                            gl::enable(gl::BLEND);
-
-                            let program;
-                            let mut filter_params = None;
-                            match info.operation {
-                                CompositionOp::Filter(LowLevelFilterOp::Brightness(
-                                        amount)) => {
-                                    gl::blend_func(gl::CONSTANT_COLOR, gl::ZERO);
-                                    gl::blend_equation(gl::FUNC_ADD);
-                                    gl::blend_color(amount.to_f32_px(),
-                                                    amount.to_f32_px(),
-                                                    amount.to_f32_px(),
-                                                    1.0);
-                                    alpha = 1.0;
-                                    program = self.blit_program_id;
-                                }
-                                CompositionOp::Filter(LowLevelFilterOp::Opacity(amount)) => {
-                                    gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
-                                                            gl::ONE, gl::ONE);
-                                    gl::blend_equation(gl::FUNC_ADD);
-                                    alpha = amount.to_f32_px();
-                                    program = self.blit_program_id;
-                                }
-                                CompositionOp::Filter(filter_op) => {
-                                    alpha = 1.0;
-                                    program = render_context.filter_program_id;
-
-                                    let (opcode, amount, param0, param1) = match filter_op {
-                                        LowLevelFilterOp::Blur(radius,
-                                                               AxisDirection::Horizontal) => {
-                                            gl::blend_func_separate(gl::SRC_ALPHA,
-                                                                    gl::ONE_MINUS_SRC_ALPHA,
-                                                                    gl::ONE,
-                                                                    gl::ONE);
-                                            (0.0,
-                                             radius.to_f32_px() * self.device_pixel_ratio,
-                                             1.0,
-                                             0.0)
-                                        }
-                                        LowLevelFilterOp::Blur(radius,
-                                                               AxisDirection::Vertical) => {
-                                            gl::blend_func_separate(gl::SRC_ALPHA,
-                                                                    gl::ONE_MINUS_SRC_ALPHA,
-                                                                    gl::ONE,
-                                                                    gl::ONE);
-                                            (0.0,
-                                             radius.to_f32_px() * self.device_pixel_ratio,
-                                             0.0,
-                                             1.0)
-                                        }
-                                        LowLevelFilterOp::Contrast(amount) => {
-                                            gl::disable(gl::BLEND);
-                                            (1.0, amount.to_f32_px(), 0.0, 0.0)
-                                        }
-                                        LowLevelFilterOp::Grayscale(amount) => {
-                                            gl::disable(gl::BLEND);
-                                            (2.0, amount.to_f32_px(), 0.0, 0.0)
-                                        }
-                                        LowLevelFilterOp::HueRotate(angle) => {
-                                            gl::disable(gl::BLEND);
-                                            (3.0,
-                                             (angle as f32) / ANGLE_FLOAT_TO_FIXED,
-                                             0.0,
-                                             0.0)
-                                        }
-                                        LowLevelFilterOp::Invert(amount) => {
-                                            gl::disable(gl::BLEND);
-                                            (4.0, amount.to_f32_px(), 0.0, 0.0)
-                                        }
-                                        LowLevelFilterOp::Saturate(amount) => {
-                                            gl::disable(gl::BLEND);
-                                            (5.0, amount.to_f32_px(), 0.0, 0.0)
-                                        }
-                                        LowLevelFilterOp::Sepia(amount) => {
-                                            gl::disable(gl::BLEND);
-                                            (6.0, amount.to_f32_px(), 0.0, 0.0)
-                                        }
-                                        LowLevelFilterOp::Brightness(_) |
-                                        LowLevelFilterOp::Opacity(_) => {
-                                            // Expressible using GL blend modes, so not handled
-                                            // here.
-                                            unreachable!()
-                                        }
-                                    };
-
-                                    filter_params = Some((opcode, amount, param0, param1));
-                                }
-                                CompositionOp::MixBlend(MixBlendMode::Multiply) => {
-                                    gl::blend_func(gl::DST_COLOR, gl::ZERO);
-                                    gl::blend_equation(gl::FUNC_ADD);
-                                    program = self.blit_program_id;
-                                    alpha = 1.0;
-                                }
-                                CompositionOp::MixBlend(MixBlendMode::Darken) => {
-                                    gl::blend_func(gl::ONE, gl::ONE);
-                                    gl::blend_equation(gl::MIN);
-                                    program = self.blit_program_id;
-                                    alpha = 1.0;
-                                }
-                                CompositionOp::MixBlend(MixBlendMode::Lighten) => {
-                                    gl::blend_func(gl::ONE, gl::ONE);
-                                    gl::blend_equation(gl::MAX);
-                                    program = self.blit_program_id;
-                                    alpha = 1.0;
-                                }
-                                _ => unreachable!(),
-                            }
-
-                            self.device.bind_program(program, &projection);
-
-                            if let Some(ref filter_params) = filter_params {
-                                self.device.set_uniform_4f(self.u_filter_params,
-                                                           filter_params.0,
-                                                           filter_params.1,
-                                                           filter_params.2,
-                                                           filter_params.3);
-                            }
+                            _ => unreachable!(),
                         }
-
-                        let (mut indices, mut vertices) = (vec![], vec![]);
-                        for job in &info.jobs {
-                            let ChildLayerIndex(child_layer_index) = job.child_layer_index;
-                            let src_target = &layer.child_layers[child_layer_index as usize];
-                            if !layer_viewports.contains_key(&src_target.id) {
-                                continue
-                            }
-
-                            let p0 = Point2D::new(job.rect.origin.x as f32, job.rect.origin.y as f32);
-                            let p1 = Point2D::new(job.rect.max_x() as f32, job.rect.max_y() as f32);
-
-                            // TODO(glennw): No need to re-init this FB working copy texture
-                            // every time...
-                            if needs_fb {
-                                let fb_rect_size = Size2D::new(job.rect.size.width as f32 * render_context.device_pixel_ratio,
-                                                               job.rect.size.height as f32 * render_context.device_pixel_ratio);
-
-                                let inverted_y0 = layer.size.height -
-                                                  job.rect.size.height as f32 -
-                                                  p0.y;
-                                let fb_rect_origin = Point2D::new(
-                                    p0.x * render_context.device_pixel_ratio,
-                                    inverted_y0 * render_context.device_pixel_ratio);
-
-                                self.device.init_texture_if_necessary(self.temporary_fb_texture,
-                                                                      fb_rect_size.width as u32,
-                                                                      fb_rect_size.height as u32,
-                                                                      ImageFormat::RGBA8,
-                                                                      TextureFilter::Nearest,
-                                                                      RenderTargetMode::None);
-                                self.device.read_framebuffer_rect(
-                                    self.temporary_fb_texture,
-                                    0,
-                                    0,
-                                    fb_rect_origin.x as i32,
-                                    fb_rect_origin.y as i32,
-                                    fb_rect_size.width as i32,
-                                    fb_rect_size.height as i32);
-                            }
-
-                            let vertex_count = vertices.len() as u16;
-                            indices.push(vertex_count + 0);
-                            indices.push(vertex_count + 1);
-                            indices.push(vertex_count + 2);
-                            indices.push(vertex_count + 2);
-                            indices.push(vertex_count + 3);
-                            indices.push(vertex_count + 1);
-
-                            let color = ColorF::new(1.0, 1.0, 1.0, alpha);
-
-                            debug_assert!(src_target.texture_id.unwrap() == info.texture_id);
-
-                            let pixel_uv = Rect::new(
-                                Point2D::new(src_target.origin.x as u32,
-                                             src_target.origin.y as u32),
-                                Size2D::new(src_target.size.width as u32,
-                                            src_target.size.height as u32));
-
-                            let (texture_width, texture_height) = self.device.get_texture_dimensions(info.texture_id);
-                            let texture_width = texture_width as f32 / self.device_pixel_ratio;
-                            let texture_height = texture_height as f32 / self.device_pixel_ratio;
-                            let texture_uv = Rect::new(
-                                Point2D::new(
-                                    pixel_uv.origin.x as f32 / texture_width,
-                                    pixel_uv.origin.y as f32 / texture_height),
-                                Size2D::new(pixel_uv.size.width as f32 / texture_width,
-                                            pixel_uv.size.height as f32 / texture_height));
-
-                            let tl = job.world_transform.transform_point(&p0);
-                            let tr = job.world_transform
-                                        .transform_point(&Point2D::new(p1.x, p0.y));
-                            let br = job.world_transform.transform_point(&p1);
-                            let bl = job.world_transform
-                                        .transform_point(&Point2D::new(p0.x, p1.y));
-
-                            if needs_fb {
-                                vertices.extend_from_slice(&[
-                                    PackedVertex::from_components(
-                                        tl.x, tl.y,
-                                        &color,
-                                        texture_uv.origin.x, texture_uv.max_y(),
-                                        0.0, 1.0),
-                                    PackedVertex::from_components(
-                                        tr.x, tr.y,
-                                        &color,
-                                        texture_uv.max_x(), texture_uv.max_y(),
-                                        1.0, 1.0),
-                                    PackedVertex::from_components(
-                                        bl.x, bl.y,
-                                        &color,
-                                        texture_uv.origin.x, texture_uv.origin.y,
-                                        0.0, 0.0),
-                                    PackedVertex::from_components(
-                                        br.x, br.y,
-                                        &color,
-                                        texture_uv.max_x(), texture_uv.origin.y,
-                                        1.0, 0.0),
-                                ]);
-                            } else {
-                                vertices.extend_from_slice(&[
-                                    PackedVertex::from_components_unscaled_muv(
-                                        tl.x, tl.y,
-                                        &color,
-                                        texture_uv.origin.x, texture_uv.max_y(),
-                                        texture_width as u16, texture_height as u16),
-                                    PackedVertex::from_components_unscaled_muv(
-                                        tr.x, tr.y,
-                                        &color,
-                                        texture_uv.max_x(), texture_uv.max_y(),
-                                        texture_width as u16, texture_height as u16),
-                                    PackedVertex::from_components_unscaled_muv(
-                                        bl.x, bl.y,
-                                        &color,
-                                        texture_uv.origin.x, texture_uv.origin.y,
-                                        texture_width as u16, texture_height as u16),
-                                    PackedVertex::from_components_unscaled_muv(
-                                        br.x, br.y,
-                                        &color,
-                                        texture_uv.max_x(), texture_uv.origin.y,
-                                        texture_width as u16, texture_height as u16),
-                                ]);
-                            }
-                        }
-
-                        draw_simple_triangles(&mut self.simple_triangles_vao,
-                                              &mut self.device,
-                                              &mut self.profile_counters,
-                                              &indices[..],
-                                              &vertices[..],
-                                              info.texture_id);
+                        self.device.bind_mask_texture(self.temporary_fb_texture);
+                        alpha = 1.0;
                     } else {
-                        for job in &info.jobs {
-                            let ChildLayerIndex(child_layer_index) = job.child_layer_index;
-                            let src_target = &layer.child_layers[child_layer_index as usize];
+                        gl::enable(gl::BLEND);
+
+                        let program;
+                        let mut filter_params = None;
+                        match info.operation {
+                            CompositionOp::Filter(LowLevelFilterOp::Brightness(
+                                    amount)) => {
+                                gl::blend_func(gl::CONSTANT_COLOR, gl::ZERO);
+                                gl::blend_equation(gl::FUNC_ADD);
+                                gl::blend_color(amount.to_f32_px(),
+                                                amount.to_f32_px(),
+                                                amount.to_f32_px(),
+                                                1.0);
+                                alpha = 1.0;
+                                program = self.blit_program_id;
+                            }
+                            CompositionOp::Filter(LowLevelFilterOp::Opacity(amount)) => {
+                                gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
+                                                        gl::ONE, gl::ONE);
+                                gl::blend_equation(gl::FUNC_ADD);
+                                alpha = amount.to_f32_px();
+                                program = self.blit_program_id;
+                            }
+                            CompositionOp::Filter(filter_op) => {
+                                alpha = 1.0;
+                                program = render_context.filter_program_id;
+
+                                let (opcode, amount, param0, param1) = match filter_op {
+                                    LowLevelFilterOp::Blur(radius,
+                                                           AxisDirection::Horizontal) => {
+                                        gl::blend_func_separate(gl::SRC_ALPHA,
+                                                                gl::ONE_MINUS_SRC_ALPHA,
+                                                                gl::ONE,
+                                                                gl::ONE);
+                                        (0.0,
+                                         radius.to_f32_px() * self.device_pixel_ratio,
+                                         1.0,
+                                         0.0)
+                                    }
+                                    LowLevelFilterOp::Blur(radius,
+                                                           AxisDirection::Vertical) => {
+                                        gl::blend_func_separate(gl::SRC_ALPHA,
+                                                                gl::ONE_MINUS_SRC_ALPHA,
+                                                                gl::ONE,
+                                                                gl::ONE);
+                                        (0.0,
+                                         radius.to_f32_px() * self.device_pixel_ratio,
+                                         0.0,
+                                         1.0)
+                                    }
+                                    LowLevelFilterOp::Contrast(amount) => {
+                                        gl::disable(gl::BLEND);
+                                        (1.0, amount.to_f32_px(), 0.0, 0.0)
+                                    }
+                                    LowLevelFilterOp::Grayscale(amount) => {
+                                        gl::disable(gl::BLEND);
+                                        (2.0, amount.to_f32_px(), 0.0, 0.0)
+                                    }
+                                    LowLevelFilterOp::HueRotate(angle) => {
+                                        gl::disable(gl::BLEND);
+                                        (3.0,
+                                         (angle as f32) / ANGLE_FLOAT_TO_FIXED,
+                                         0.0,
+                                         0.0)
+                                    }
+                                    LowLevelFilterOp::Invert(amount) => {
+                                        gl::disable(gl::BLEND);
+                                        (4.0, amount.to_f32_px(), 0.0, 0.0)
+                                    }
+                                    LowLevelFilterOp::Saturate(amount) => {
+                                        gl::disable(gl::BLEND);
+                                        (5.0, amount.to_f32_px(), 0.0, 0.0)
+                                    }
+                                    LowLevelFilterOp::Sepia(amount) => {
+                                        gl::disable(gl::BLEND);
+                                        (6.0, amount.to_f32_px(), 0.0, 0.0)
+                                    }
+                                    LowLevelFilterOp::Brightness(_) |
+                                    LowLevelFilterOp::Opacity(_) => {
+                                        // Expressible using GL blend modes, so not handled
+                                        // here.
+                                        unreachable!()
+                                    }
+                                };
+
+                                filter_params = Some((opcode, amount, param0, param1));
+                            }
+                            CompositionOp::MixBlend(MixBlendMode::Multiply) => {
+                                gl::blend_func(gl::DST_COLOR, gl::ZERO);
+                                gl::blend_equation(gl::FUNC_ADD);
+                                program = self.blit_program_id;
+                                alpha = 1.0;
+                            }
+                            CompositionOp::MixBlend(MixBlendMode::Darken) => {
+                                gl::blend_func(gl::ONE, gl::ONE);
+                                gl::blend_equation(gl::MIN);
+                                program = self.blit_program_id;
+                                alpha = 1.0;
+                            }
+                            CompositionOp::MixBlend(MixBlendMode::Lighten) => {
+                                gl::blend_func(gl::ONE, gl::ONE);
+                                gl::blend_equation(gl::MAX);
+                                program = self.blit_program_id;
+                                alpha = 1.0;
+                            }
+                            _ => unreachable!(),
+                        }
+
+                        self.device.bind_program(program, &projection);
+
+                        if let Some(ref filter_params) = filter_params {
+                            self.device.set_uniform_4f(self.u_filter_params,
+                                                       filter_params.0,
+                                                       filter_params.1,
+                                                       filter_params.2,
+                                                       filter_params.3);
                         }
                     }
+
+                    let (mut indices, mut vertices) = (vec![], vec![]);
+                    for job in &info.jobs {
+                        let ChildLayerIndex(child_layer_index) = job.child_layer_index;
+                        let src_target = &layer.child_layers[child_layer_index as usize];
+                        if !layer_viewports.contains_key(&src_target.id) {
+                            continue
+                        }
+
+                        let p0 = Point2D::new(job.rect.origin.x as f32, job.rect.origin.y as f32);
+                        let p1 = Point2D::new(job.rect.max_x() as f32, job.rect.max_y() as f32);
+
+                        // TODO(glennw): No need to re-init this FB working copy texture
+                        // every time...
+                        if needs_fb {
+                            let fb_rect_size = Size2D::new(job.rect.size.width as f32 * render_context.device_pixel_ratio,
+                                                           job.rect.size.height as f32 * render_context.device_pixel_ratio);
+
+                            let inverted_y0 = layer.size.height -
+                                              job.rect.size.height as f32 -
+                                              p0.y;
+                            let fb_rect_origin = Point2D::new(
+                                p0.x * render_context.device_pixel_ratio,
+                                inverted_y0 * render_context.device_pixel_ratio);
+
+                            self.device.init_texture_if_necessary(self.temporary_fb_texture,
+                                                                  fb_rect_size.width as u32,
+                                                                  fb_rect_size.height as u32,
+                                                                  ImageFormat::RGBA8,
+                                                                  TextureFilter::Nearest,
+                                                                  RenderTargetMode::None);
+                            self.device.read_framebuffer_rect(
+                                self.temporary_fb_texture,
+                                0,
+                                0,
+                                fb_rect_origin.x as i32,
+                                fb_rect_origin.y as i32,
+                                fb_rect_size.width as i32,
+                                fb_rect_size.height as i32);
+                        }
+
+                        let vertex_count = vertices.len() as u16;
+                        indices.push(vertex_count + 0);
+                        indices.push(vertex_count + 1);
+                        indices.push(vertex_count + 2);
+                        indices.push(vertex_count + 2);
+                        indices.push(vertex_count + 3);
+                        indices.push(vertex_count + 1);
+
+                        let color = ColorF::new(1.0, 1.0, 1.0, alpha);
+
+                        debug_assert!(src_target.texture_id.unwrap() == info.texture_id);
+
+                        let pixel_uv = Rect::new(
+                            Point2D::new(src_target.origin.x as u32,
+                                         src_target.origin.y as u32),
+                            Size2D::new(src_target.size.width as u32,
+                                        src_target.size.height as u32));
+
+                        let (texture_width, texture_height) = self.device.get_texture_dimensions(info.texture_id);
+                        let texture_width = texture_width as f32 / self.device_pixel_ratio;
+                        let texture_height = texture_height as f32 / self.device_pixel_ratio;
+                        let texture_uv = Rect::new(
+                            Point2D::new(
+                                pixel_uv.origin.x as f32 / texture_width,
+                                pixel_uv.origin.y as f32 / texture_height),
+                            Size2D::new(pixel_uv.size.width as f32 / texture_width,
+                                        pixel_uv.size.height as f32 / texture_height));
+
+                        let tl = job.world_transform.transform_point(&p0);
+                        let tr = job.world_transform
+                                    .transform_point(&Point2D::new(p1.x, p0.y));
+                        let br = job.world_transform.transform_point(&p1);
+                        let bl = job.world_transform
+                                    .transform_point(&Point2D::new(p0.x, p1.y));
+
+                        if needs_fb {
+                            vertices.extend_from_slice(&[
+                                PackedVertex::from_components(
+                                    tl.x, tl.y,
+                                    &color,
+                                    texture_uv.origin.x, texture_uv.max_y(),
+                                    0.0, 1.0),
+                                PackedVertex::from_components(
+                                    tr.x, tr.y,
+                                    &color,
+                                    texture_uv.max_x(), texture_uv.max_y(),
+                                    1.0, 1.0),
+                                PackedVertex::from_components(
+                                    bl.x, bl.y,
+                                    &color,
+                                    texture_uv.origin.x, texture_uv.origin.y,
+                                    0.0, 0.0),
+                                PackedVertex::from_components(
+                                    br.x, br.y,
+                                    &color,
+                                    texture_uv.max_x(), texture_uv.origin.y,
+                                    1.0, 0.0),
+                            ]);
+                        } else {
+                            vertices.extend_from_slice(&[
+                                PackedVertex::from_components_unscaled_muv(
+                                    tl.x, tl.y,
+                                    &color,
+                                    texture_uv.origin.x, texture_uv.max_y(),
+                                    texture_width as u16, texture_height as u16),
+                                PackedVertex::from_components_unscaled_muv(
+                                    tr.x, tr.y,
+                                    &color,
+                                    texture_uv.max_x(), texture_uv.max_y(),
+                                    texture_width as u16, texture_height as u16),
+                                PackedVertex::from_components_unscaled_muv(
+                                    bl.x, bl.y,
+                                    &color,
+                                    texture_uv.origin.x, texture_uv.origin.y,
+                                    texture_width as u16, texture_height as u16),
+                                PackedVertex::from_components_unscaled_muv(
+                                    br.x, br.y,
+                                    &color,
+                                    texture_uv.max_x(), texture_uv.origin.y,
+                                    texture_width as u16, texture_height as u16),
+                            ]);
+                        }
+                    }
+
+                    draw_simple_triangles(&mut self.simple_triangles_vao,
+                                          &mut self.device,
+                                          &mut self.profile_counters,
+                                          &indices[..],
+                                          &vertices[..],
+                                          info.texture_id);
                 }
             }
         }

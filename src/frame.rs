@@ -8,13 +8,14 @@ use device::{TextureId, TextureFilter};
 use euclid::{Matrix4D, Point2D, Point3D, Point4D, Rect, Size2D};
 use fnv::FnvHasher;
 use geometry::ray_intersects_rect;
-use internal_types::{AxisDirection, LowLevelFilterOp, CompositionOp, DrawListItemIndex};
-use internal_types::{BatchUpdateList, ChildLayerIndex, DrawListId, DrawCompositeBatchInfo};
-use internal_types::{CompositeBatchInfo, CompositeBatchJob, DrawCompositeBatchJob, MaskRegion};
-use internal_types::{RendererFrame, StackingContextInfo, BatchInfo, DrawCall, StackingContextIndex};
-use internal_types::{ANGLE_FLOAT_TO_FIXED, MAX_RECT, BatchUpdate, BatchUpdateOp, DrawLayer};
-use internal_types::{DrawCommand, ClearInfo, RenderTargetId, DrawListGroupId};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE};
+use internal_types::{ANGLE_FLOAT_TO_FIXED, AxisDirection, BatchInfo, BatchUpdate};
+use internal_types::{BatchUpdateList, BatchUpdateOp, ChildLayerIndex, ClearInfo};
+use internal_types::{CompositeBatchInfo, CompositeBatchJob, CompositionOp};
+use internal_types::{DrawCall, DrawCommand, DrawCompositeBatchInfo};
+use internal_types::{DrawCompositeBatchJob, DrawLayer, DrawListGroupId};
+use internal_types::{DrawListId, DrawListItemIndex, LowLevelFilterOp, MAX_RECT};
+use internal_types::{MaskRegion, RenderTargetId, RendererFrame};
+use internal_types::{StackingContextInfo, StackingContextIndex};
 use layer::{Layer, ScrollingState};
 use node_compiler::NodeCompiler;
 use renderer::CompositionOpHelpers;
@@ -131,8 +132,6 @@ pub struct RenderTarget {
     size: Size2D<f32>,
     /// The origin in render target space.
     origin: Point2D<f32>,
-    /// The origin in world space.
-    world_origin: Point2D<f32>,
     items: Vec<FrameRenderItem>,
     texture_id: Option<TextureId>,
     children: Vec<RenderTarget>,
@@ -144,14 +143,12 @@ pub struct RenderTarget {
 impl RenderTarget {
     fn new(id: RenderTargetId,
            origin: Point2D<f32>,
-           world_origin: Point2D<f32>,
            size: Size2D<f32>,
            texture_id: Option<TextureId>) -> RenderTarget {
         RenderTarget {
             id: id,
             size: size,
             origin: origin,
-            world_origin: world_origin,
             items: Vec::new(),
             texture_id: texture_id,
             children: Vec::new(),
@@ -700,7 +697,7 @@ impl Frame {
         })
     }
 
-    pub fn get_scroll_layer_state(&self, device_pixel_ratio: f32) -> Vec<ScrollLayerState> {
+    pub fn get_scroll_layer_state(&self) -> Vec<ScrollLayerState> {
         let mut result = vec![];
         for (scroll_layer_id, scroll_layer) in &self.layers {
             match scroll_layer_id.info {
@@ -823,7 +820,6 @@ impl Frame {
                 let root_target_id = self.next_render_target_id();
 
                 let mut root_target = RenderTarget::new(root_target_id,
-                                                        Point2D::zero(),
                                                         Point2D::zero(),
                                                         root_pipeline.viewport_size,
                                                         None);
@@ -1249,7 +1245,6 @@ impl Frame {
 
                     let mut new_target = RenderTarget::new(render_target_id,
                                                            origin,
-                                                           target_rect.origin,
                                                            render_target_size,
                                                            Some(texture_id));
 

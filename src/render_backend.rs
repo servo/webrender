@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use euclid::Matrix4D;
 use frame::Frame;
 use internal_types::{FontTemplate, ResultMsg, RendererFrame};
 use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
@@ -17,11 +16,12 @@ use std::mem;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::{TextureCache, TextureCacheItemId};
-use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, RenderNotifier};
-use webrender_traits::{PipelineId, WebGLContextId, ScrollLayerId};
+use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
+use webrender_traits::{PipelineId, RenderNotifier, WebGLContextId};
 use batch::new_id;
 use device::TextureId;
-use offscreen_gl_context::{NativeGLContext, GLContext, ColorAttachmentType, NativeGLContextMethods, NativeGLContextHandle};
+use offscreen_gl_context::{ColorAttachmentType, GLContext};
+use offscreen_gl_context::{NativeGLContext, NativeGLContextHandle};
 
 pub struct RenderBackend {
     api_rx: IpcReceiver<ApiMsg>,
@@ -269,7 +269,7 @@ impl RenderBackend {
                     ApiMsg::TranslatePointToLayerSpace(point, tx) => {
                         // First, find the specific layer that contains the point.
                         let point = point / self.device_pixel_ratio;
-                        if let (Some(root_pipeline_id), Some(root_scroll_layer_id)) =
+                        if let (Some(_), Some(root_scroll_layer_id)) =
                                 (self.scene.root_pipeline_id,
                                  self.frame.root_scroll_layer_id) {
                             if let Some(scroll_layer_id) =
@@ -303,7 +303,7 @@ impl RenderBackend {
                         tx.send((point, PipelineId(0, 0))).unwrap()
                     }
                     ApiMsg::GetScrollLayerState(tx) => {
-                        tx.send(self.frame.get_scroll_layer_state(self.device_pixel_ratio))
+                        tx.send(self.frame.get_scroll_layer_state())
                           .unwrap()
                     }
                     ApiMsg::RequestWebGLContext(size, attributes, tx) => {

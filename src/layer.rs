@@ -7,7 +7,7 @@ use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use internal_types::{BatchUpdate, BatchUpdateList, BatchUpdateOp};
 use internal_types::{DrawListItemIndex, DrawListId, DrawListGroupId};
 use spring::{DAMPING, STIFFNESS, Spring};
-use webrender_traits::{PipelineId, ScrollLayerId, ServoStackingContextId, StackingContextId};
+use webrender_traits::{PipelineId, ScrollLayerId, ServoStackingContextId};
 
 pub struct Layer {
     // TODO: Remove pub from here if possible in the future
