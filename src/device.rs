@@ -19,13 +19,13 @@ use std::mem;
 //use std::thread;
 use webrender_traits::ImageFormat;
 
-#[cfg(not(any(target_os = "android", target_os = "gonk")))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 const GL_FORMAT_A: gl::GLuint = gl::RED;
 
 #[cfg(any(target_os = "android", target_os = "gonk"))]
 const GL_FORMAT_A: gl::GLuint = gl::ALPHA;
 
-#[cfg(not(any(target_os = "android", target_os = "gonk")))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA;
 
 #[cfg(any(target_os = "android", target_os = "gonk"))]
@@ -604,7 +604,7 @@ pub struct VBOId(gl::GLuint);
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 struct IBOId(gl::GLuint);
 
-#[cfg(not(any(target_os = "android", target_os = "gonk")))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 pub struct GpuProfile {
     active_query: usize,
     gl_queries: Vec<gl::GLuint>,
@@ -615,7 +615,7 @@ pub struct GpuProfile {
 pub struct GpuProfile;
 
 impl GpuProfile {
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     pub fn new() -> GpuProfile {
         let queries = gl::gen_queries(4);
 
@@ -631,7 +631,7 @@ impl GpuProfile {
         GpuProfile
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     pub fn begin(&mut self) {
         let qid = self.gl_queries[self.active_query];
         gl::begin_query(gl::TIME_ELAPSED, qid);
@@ -640,7 +640,7 @@ impl GpuProfile {
     #[cfg(any(target_os = "android", target_os = "gonk"))]
     pub fn begin(&mut self) {}
 
-    #[cfg(not(any(target_os = "android", target_os = "gonk")))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     pub fn end(&mut self) -> u64 {
         gl::end_query(gl::TIME_ELAPSED);
 
@@ -672,7 +672,7 @@ impl GpuProfile {
     pub fn end(&mut self) -> u64 { 0 }
 }
 
-#[cfg(not(any(target_os = "android", target_os = "gonk")))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 impl Drop for GpuProfile {
     fn drop(&mut self) {
         gl::delete_queries(&self.gl_queries);
