@@ -315,7 +315,7 @@ impl Renderer {
         (renderer, sender)
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    #[cfg(target_os = "android")]
     fn enable_msaa(&self, _: bool) {
     }
 
