@@ -22,13 +22,13 @@ use webrender_traits::ImageFormat;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 const GL_FORMAT_A: gl::GLuint = gl::RED;
 
-#[cfg(any(target_os = "android", target_os = "gonk"))]
+#[cfg(target_os = "android")]
 const GL_FORMAT_A: gl::GLuint = gl::ALPHA;
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA;
 
-#[cfg(any(target_os = "android", target_os = "gonk"))]
+#[cfg(target_os = "android")]
 const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA_EXT;
 
 #[cfg(target_os = "linux")]
@@ -40,7 +40,7 @@ const SHADER_VERSION: &'static str = "#version 150\n";
 #[cfg(target_os = "windows")]
 const SHADER_VERSION: &'static str = "#version 150\n";
 
-#[cfg(any(target_os = "android", target_os = "gonk"))]
+#[cfg(target_os = "android")]
 const SHADER_VERSION: &'static str = "#version 300 es\n";
 
 static FRAGMENT_SHADER_PREAMBLE: &'static str = "gl3_common.fs.glsl";
@@ -611,7 +611,7 @@ pub struct GpuProfile {
     first_frame: bool,
 }
 
-#[cfg(any(target_os = "android", target_os = "gonk"))]
+#[cfg(target_os = "android")]
 pub struct GpuProfile;
 
 impl GpuProfile {
@@ -626,7 +626,7 @@ impl GpuProfile {
         }
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    #[cfg(target_os = "android")]
     pub fn new() -> GpuProfile {
         GpuProfile
     }
@@ -637,7 +637,7 @@ impl GpuProfile {
         gl::begin_query(gl::TIME_ELAPSED, qid);
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    #[cfg(target_os = "android")]
     pub fn begin(&mut self) {}
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
@@ -668,7 +668,7 @@ impl GpuProfile {
         }
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    #[cfg(target_os = "android")]
     pub fn end(&mut self) -> u64 { 0 }
 }
 
