@@ -18,11 +18,11 @@ euclid = "0.7.1"
 gleam = "0.2.19"
 heapsize = "0.3.6"
 offscreen_gl_context = {version = "0.1.9", features = ["serde_serialization"]}
-serde = "0.7.11"
-serde_macros = {version = "0.7.11", optional = true}
+serde = "0.7.14"
+serde_macros = {version = "0.7.14", optional = true}
 
 [target.x86_64-apple-darwin.dependencies]
 core-graphics = ">=0.2, <0.4"
 
 [build-dependencies]
-serde_codegen = {version = "0.7.11", optional = true}
+serde_codegen = {version = "0.7.14", optional = true}

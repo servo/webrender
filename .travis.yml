@@ -1,7 +1,7 @@
 language: rust
 rust:
   - nightly
-  - nightly-2016-06-14 # Should be kept in sync with Servo.
+  - nightly-2016-07-11 # Should be kept in sync with Servo.
 
 matrix:
   allow_failures:
