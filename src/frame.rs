@@ -946,8 +946,8 @@ impl Frame {
                     let layer = self.layers.get_mut(&info.actual_scroll_layer_id).unwrap();
                     for (item_index, item) in draw_list.items.iter().enumerate() {
                         let item_index = DrawListItemIndex(item_index as u32);
-                        let rect = item.rect
-                                       .translate(&info.offset_from_current_layer);
+                        let rect = info.world_transform.transform_rect(&item.rect
+                                       .translate(&info.offset_from_current_layer));
                         layer.insert(rect,
                                      draw_list_group_id,
                                      draw_list_id,
