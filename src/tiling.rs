@@ -631,6 +631,7 @@ struct BorderPrimitive {
 struct ImagePrimitive {
     image_key: ImageKey,
     image_rendering: ImageRendering,
+    stretch_size: Size2D<f32>,
 }
 
 #[derive(Debug)]
@@ -770,6 +771,8 @@ impl Primitive {
                     local_rect: self.rect,
                     st0: uv_rect.top_left,
                     st1: uv_rect.bottom_right,
+                    stretch_size: details.stretch_size,
+                    padding: [0, 0],
                 });
 
                 true
@@ -1120,6 +1123,7 @@ impl CompositeBatchKey {
     }
 }
 
+// All Pcked Primitives below must be 16 byte aligned.
 #[derive(Debug)]
 pub struct PackedTile {
     actual_rect: Rect<DevicePixel>,
@@ -1192,6 +1196,8 @@ pub struct PackedImagePrimitive {
     local_rect: Rect<f32>,
     st0: Point2D<f32>,
     st1: Point2D<f32>,
+    stretch_size: Size2D<f32>,
+    padding: [u32; 2],
 }
 
 #[derive(Debug, Clone)]
@@ -1874,12 +1880,13 @@ impl FrameBuilder {
                      rect: Rect<f32>,
                      clip_rect: &Rect<f32>,
                      clip: Option<Box<Clip>>,
-                     _stretch_size: &Size2D<f32>,
+                     stretch_size: &Size2D<f32>,
                      image_key: ImageKey,
                      image_rendering: ImageRendering) {
         let prim = ImagePrimitive {
             image_key: image_key,
             image_rendering: image_rendering,
+            stretch_size: stretch_size.clone(),
         };
 
         self.add_primitive(&rect,
