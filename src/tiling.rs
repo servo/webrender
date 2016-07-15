@@ -1123,7 +1123,7 @@ impl CompositeBatchKey {
     }
 }
 
-// All Pcked Primitives below must be 16 byte aligned.
+// All Packed Primitives below must be 16 byte aligned.
 #[derive(Debug)]
 pub struct PackedTile {
     actual_rect: Rect<DevicePixel>,
