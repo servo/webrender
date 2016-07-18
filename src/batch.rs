@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use device::{ProgramId, TextureId, TextureFilter};
+use device::{ProgramId, TextureId};
 use euclid::{Point2D, Rect, Size2D};
 use internal_types::{MAX_RECT, AxisDirection, PackedVertexColorMode, PackedVertexForQuad};
 use internal_types::{PackedVertexForTextureCacheUpdate, RectUv, DevicePixel};
@@ -416,7 +416,7 @@ impl RasterBatch {
             dest_texture_id == self.dest_texture_id;
 
         if batch_ok {
-            let origin = self.page_allocator.allocate(&dest_rect.size, TextureFilter::Linear);
+            let origin = self.page_allocator.allocate(&dest_rect.size);
 
             if let Some(origin) = origin {
                 let vertices = f(&Rect::new(Point2D::new(origin.x as f32,

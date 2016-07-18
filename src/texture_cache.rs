@@ -163,20 +163,7 @@ impl TexturePage {
     }
 
     pub fn allocate(&mut self,
-                    requested_dimensions: &Size2D<u32>,
-                    filter: TextureFilter) -> Option<Point2D<u32>> {
-        // TODO(gw): For now, anything that requests nearest filtering
-        //           just fails to allocate in a texture page, and gets a standalone
-        //           texture. This isn't ideal, as it causes lots of batch breaks,
-        //           but is probably rare enough that it can be fixed up later (it's also
-        //           fairly trivial to implement, just tedious).
-        match filter {
-            TextureFilter::Nearest => {
-                return None;
-            }
-            TextureFilter::Linear => {}
-        }
-
+                    requested_dimensions: &Size2D<u32>) -> Option<Point2D<u32>> {
         // First, try to find a suitable rect in the free list. We choose the smallest such rect
         // in terms of area (Best-Area-Fit, BAF).
         let mut index = self.find_index_of_best_rect(requested_dimensions);
@@ -769,6 +756,32 @@ impl TextureCache {
                     border_type: BorderType,
                     filter: TextureFilter)
                     -> AllocationResult {
+        let requested_size = Size2D::new(requested_width, requested_height);
+
+        // TODO(gw): For now, anything that requests nearest filtering
+        //           just fails to allocate in a texture page, and gets a standalone
+        //           texture. This isn't ideal, as it causes lots of batch breaks,
+        //           but is probably rare enough that it can be fixed up later (it's also
+        //           fairly trivial to implement, just tedious).
+        if filter == TextureFilter::Nearest {
+            // Fall back to standalone texture allocation.
+            let texture_id = self.free_texture_ids
+                                 .pop()
+                                 .expect("TODO: Handle running out of texture ids!");
+            let cache_item = TextureCacheItem::new(
+                texture_id,
+                user_x0, user_y0,
+                Rect::new(Point2D::zero(), requested_size),
+                Rect::new(Point2D::zero(), requested_size),
+                &requested_size);
+            *self.items.get_mut(image_id) = cache_item;
+
+            return AllocationResult {
+                item: self.items.get(image_id).clone(),
+                kind: AllocationKind::Standalone,
+            }
+        }
+
         let (page_list, mode) = match (format, kind) {
             (ImageFormat::A8, TextureCacheItemKind::Standard) => {
                 (&mut self.arena.pages_a8, RenderTargetMode::RenderTarget)
@@ -796,7 +809,6 @@ impl TextureCache {
             BorderType::_NoBorder => 0,
             BorderType::SinglePixel => 1,
         };
-        let requested_size = Size2D::new(requested_width, requested_height);
         let allocation_size = Size2D::new(requested_width + border_size * 2,
                                           requested_height + border_size * 2);
 
@@ -808,7 +820,7 @@ impl TextureCache {
         // texture pages as required.
         loop {
             let location = page_list.last_mut().and_then(|last_page| {
-                last_page.allocate(&allocation_size, filter)
+                last_page.allocate(&allocation_size)
             });
 
             if let Some(location) = location {

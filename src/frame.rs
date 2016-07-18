@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use batch::{MAX_MATRICES_PER_BATCH, OffsetParams};
-use device::{TextureId, TextureFilter};
+use device::{TextureId};
 use euclid::{Matrix4D, Point2D, Point3D, Point4D, Rect, Size2D};
 use fnv::FnvHasher;
 use geometry::ray_intersects_rect;
@@ -188,7 +188,7 @@ impl RenderTarget {
             let allocated_origin = self.page_allocator
                                        .as_mut()
                                        .unwrap()
-                                       .allocate(&size, TextureFilter::Linear);
+                                       .allocate(&size);
             if let Some(allocated_origin) = allocated_origin {
                 let origin = Point2D::new(allocated_origin.x as f32,
                                           allocated_origin.y as f32);
