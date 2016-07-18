@@ -389,8 +389,7 @@ impl RenderTask {
                 let alloc_size = Size2D::new(size.width.0 as u32,
                                              size.height.0 as u32);
 
-                let alloc_origin = target.page_allocator
-                                         .allocate(&alloc_size, TextureFilter::Linear);
+                let alloc_origin = target.page_allocator.allocate(&alloc_size);
 
                 match alloc_origin {
                     Some(alloc_origin) => {
@@ -755,9 +754,11 @@ impl Primitive {
                                                               ctx.frame_id);
                 let uv_rect = image_info.uv_rect();
 
-                // TODO(gw): Need a general solution to handle multiple texture pages per tile in WR2!
-                assert!(batch.color_texture_id == TextureId(0) ||
-                        batch.color_texture_id == image_info.texture_id);
+                // TODO(gw): Tidy the support for batch breaks up...
+                if batch.color_texture_id != TextureId(0) &&
+                   batch.color_texture_id != image_info.texture_id {
+                    return false;
+                }
                 batch.color_texture_id = image_info.texture_id;
 
                 data.push(PackedImagePrimitive {
@@ -1001,7 +1002,16 @@ impl Primitive {
             (&mut PrimitiveBatchData::Gradient(..), _) => false,
             (&mut PrimitiveBatchData::BoxShadows(ref mut data), &PrimitiveDetails::BoxShadow(ref details)) => {
                 let mut rects = Vec::new();
-                subtract_rect(&self.rect, &details.src_rect, &mut rects);
+                let inverted = match details.clip_mode {
+                    BoxShadowClipMode::None | BoxShadowClipMode::Outset => {
+                        subtract_rect(&self.rect, &details.src_rect, &mut rects);
+                        0.0
+                    }
+                    BoxShadowClipMode::Inset => {
+                        subtract_rect(&self.rect, &details.bs_rect, &mut rects);
+                        1.0
+                    }
+                };
 
                 for rect in rects {
                     data.push(PackedBoxShadowPrimitive {
@@ -1017,7 +1027,7 @@ impl Primitive {
 
                         border_radii: Point2D::new(details.border_radius, details.border_radius),
                         blur_radius: details.blur_radius,
-                        inverted: 0.0,
+                        inverted: inverted,
                         bs_rect: details.bs_rect,
                         src_rect: details.src_rect,
                     });
@@ -1847,6 +1857,15 @@ impl FrameBuilder {
             return
         }
 
+        // Fast path.
+        if blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None {
+            self.add_solid_rectangle(&box_bounds,
+                                     clip_rect,
+                                     None,
+                                     color);
+            return;
+        }
+
         let bs_rect = compute_box_shadow_rect(box_bounds,
                                               box_offset,
                                               spread_radius);
@@ -1855,9 +1874,16 @@ impl FrameBuilder {
                                             border_radius,
                                             blur_radius);
 
-        let prim_rect = Rect::new(metrics.tl_outer,
-                                  Size2D::new(metrics.br_outer.x - metrics.tl_outer.x,
-                                              metrics.br_outer.y - metrics.tl_outer.y));
+        let prim_rect = match clip_mode {
+            BoxShadowClipMode::Outset | BoxShadowClipMode::None => {
+                 Rect::new(metrics.tl_outer,
+                           Size2D::new(metrics.br_outer.x - metrics.tl_outer.x,
+                                       metrics.br_outer.y - metrics.tl_outer.y))
+            }
+            BoxShadowClipMode::Inset => {
+                *box_bounds
+            }
+        };
 
         let prim = BoxShadowPrimitive {
             metrics: metrics,

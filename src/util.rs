@@ -178,34 +178,38 @@ pub fn subtract_rect(rect: &Rect<f32>,
                      results: &mut Vec<Rect<f32>>) {
     results.clear();
 
-    if rect.intersects(other) {
-        let rx0 = rect.origin.x;
-        let ry0 = rect.origin.y;
-        let rx1 = rx0 + rect.size.width;
-        let ry1 = ry0 + rect.size.height;
+    let int = rect.intersection(other);
+    match int {
+        Some(int) => {
+            let rx0 = rect.origin.x;
+            let ry0 = rect.origin.y;
+            let rx1 = rx0 + rect.size.width;
+            let ry1 = ry0 + rect.size.height;
 
-        let ox0 = other.origin.x;
-        let oy0 = other.origin.y;
-        let ox1 = ox0 + other.size.width;
-        let oy1 = oy0 + other.size.height;
+            let ox0 = int.origin.x;
+            let oy0 = int.origin.y;
+            let ox1 = ox0 + int.size.width;
+            let oy1 = oy0 + int.size.height;
 
-        let r = rect_from_points_f(rx0, ry0, ox0, ry1);
-        if r.size.width > 0.0 && r.size.height > 0.0 {
-            results.push(r);
+            let r = rect_from_points_f(rx0, ry0, ox0, ry1);
+            if r.size.width > 0.0 && r.size.height > 0.0 {
+                results.push(r);
+            }
+            let r = rect_from_points_f(ox0, ry0, ox1, oy0);
+            if r.size.width > 0.0 && r.size.height > 0.0 {
+                results.push(r);
+            }
+            let r = rect_from_points_f(ox0, oy1, ox1, ry1);
+            if r.size.width > 0.0 && r.size.height > 0.0 {
+                results.push(r);
+            }
+            let r = rect_from_points_f(ox1, ry0, rx1, ry1);
+            if r.size.width > 0.0 && r.size.height > 0.0 {
+                results.push(r);
+            }
         }
-        let r = rect_from_points_f(ox0, ry0, ox1, oy0);
-        if r.size.width > 0.0 && r.size.height > 0.0 {
-            results.push(r);
+        None => {
+            results.push(*rect);
         }
-        let r = rect_from_points_f(ox0, oy1, ox1, ry1);
-        if r.size.width > 0.0 && r.size.height > 0.0 {
-            results.push(r);
-        }
-        let r = rect_from_points_f(ox1, ry0, rx1, ry1);
-        if r.size.width > 0.0 && r.size.height > 0.0 {
-            results.push(r);
-        }
-    } else {
-        results.push(*rect);
     }
 }

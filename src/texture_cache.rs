@@ -681,7 +681,8 @@ impl TextureCache {
                 user_x0, user_y0,
                 Rect::new(Point2D::zero(), requested_size),
                 Rect::new(Point2D::zero(), requested_size),
-                &requested_size);
+                &requested_size,
+                is_opaque);
             *self.items.get_mut(image_id) = cache_item;
 
             return AllocationResult {

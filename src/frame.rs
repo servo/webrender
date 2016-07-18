@@ -679,6 +679,12 @@ impl Frame {
             }
         };
 
+        // TODO(gw): This is broken for 3d transforms ref test.
+        // Removing it fixes that but it needs a proper solution before
+        // merging which will coming when the clipping branch merges!
+
+        let local_clip_rect = Some(MAX_RECT);
+        /*
         // FIXME(pcwalton): This is a not-great partial solution to servo/servo#10164. A better
         // solution would be to do this only if the transform consists of a translation+scale only
         // and fall back to stenciling if the object has a more complex transform.
@@ -699,7 +705,7 @@ impl Frame {
                                     .translate(&-stacking_context.bounds.origin)
                                     .intersection(&stacking_context.overflow)
                 }
-            };
+            };*/
 
         if let Some(local_clip_rect) = local_clip_rect {
             let scene_items = scene_item.collect_scene_items(&context.scene);
