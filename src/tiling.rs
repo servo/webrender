@@ -22,7 +22,7 @@ use std::hash::{BuildHasherDefault};
 use texture_cache::{TexturePage, TextureCacheItem};
 use util::{self, rect_from_points, rect_from_points_f, MatrixHelpers, subtract_rect, RectHelpers, rect_contains_rect};
 use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, ComplexClipRegion};
-use webrender_traits::{BorderDisplayItem, BorderStyle, ItemRange, AuxiliaryLists, BorderRadius};
+use webrender_traits::{BorderDisplayItem, BorderStyle, ItemRange, AuxiliaryLists, BorderRadius, BorderSide};
 use webrender_traits::{BoxShadowClipMode, PipelineId, ScrollLayerId};
 
 struct RenderTargetContext<'a> {
@@ -624,6 +624,10 @@ struct BorderPrimitive {
     top_color: ColorF,
     right_color: ColorF,
     bottom_color: ColorF,
+    left_style: BorderStyle,
+    top_style: BorderStyle,
+    right_style: BorderStyle,
+    bottom_style: BorderStyle,
 }
 
 #[derive(Debug)]
@@ -813,6 +817,10 @@ impl Primitive {
                     outer_radius_y: details.radius.top_left.height,
                     inner_radius_x: inner_radius.top_left.width,
                     inner_radius_y: inner_radius.top_left.height,
+                    top_style: details.top_style as u32,
+                    right_style: details.right_style as u32,
+                    bottom_style: details.bottom_style as u32,
+                    left_style: details.bottom_style as u32,
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -833,6 +841,10 @@ impl Primitive {
                     outer_radius_y: details.radius.top_right.height,
                     inner_radius_x: inner_radius.top_right.width,
                     inner_radius_y: inner_radius.top_right.height,
+                    top_style: details.top_style as u32,
+                    right_style: details.right_style as u32,
+                    bottom_style: details.bottom_style as u32,
+                    left_style: details.bottom_style as u32,
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -853,6 +865,10 @@ impl Primitive {
                     outer_radius_y: details.radius.bottom_left.height,
                     inner_radius_x: inner_radius.bottom_left.width,
                     inner_radius_y: inner_radius.bottom_left.height,
+                    top_style: details.top_style as u32,
+                    right_style: details.right_style as u32,
+                    bottom_style: details.bottom_style as u32,
+                    left_style: details.bottom_style as u32,
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -873,6 +889,10 @@ impl Primitive {
                     outer_radius_y: details.radius.bottom_right.height,
                     inner_radius_x: inner_radius.bottom_right.width,
                     inner_radius_y: inner_radius.bottom_right.height,
+                    top_style: details.top_style as u32,
+                    right_style: details.right_style as u32,
+                    bottom_style: details.bottom_style as u32,
+                    left_style: details.bottom_style as u32,
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -893,6 +913,10 @@ impl Primitive {
                     outer_radius_y: 0.0,
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
+                    top_style: details.top_style as u32,
+                    right_style: details.right_style as u32,
+                    bottom_style: details.bottom_style as u32,
+                    left_style: details.bottom_style as u32,
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -913,6 +937,10 @@ impl Primitive {
                     outer_radius_y: 0.0,
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
+                    top_style: details.top_style as u32,
+                    right_style: details.right_style as u32,
+                    bottom_style: details.bottom_style as u32,
+                    left_style: details.bottom_style as u32,
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -933,6 +961,10 @@ impl Primitive {
                     outer_radius_y: 0.0,
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
+                    top_style: details.top_style as u32,
+                    right_style: details.right_style as u32,
+                    bottom_style: details.bottom_style as u32,
+                    left_style: details.bottom_style as u32,
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -953,6 +985,10 @@ impl Primitive {
                     outer_radius_y: 0.0,
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
+                    top_style: details.top_style as u32,
+                    right_style: details.right_style as u32,
+                    bottom_style: details.bottom_style as u32,
+                    left_style: details.bottom_style as u32,
                 });
 
                 true
@@ -1230,6 +1266,10 @@ pub struct PackedBorderPrimitive {
     outer_radius_y: f32,
     inner_radius_x: f32,
     inner_radius_y: f32,
+    top_style: u32,
+    right_style: u32,
+    bottom_style: u32,
+    left_style: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -1714,6 +1754,20 @@ impl FrameBuilder {
                            PrimitiveDetails::Rectangle(prim));
     }
 
+    pub fn supported_style(&mut self, border: &BorderSide) -> bool {
+        match border.style {
+            BorderStyle::Solid |
+            BorderStyle::None |
+            BorderStyle::Dotted => {
+                return true;
+            }
+            _ => {
+                println!("TODO: Other border styles {:?}", border.style);
+                return false;
+            }
+        }
+    }
+
     pub fn add_border(&mut self,
                       rect: Rect<f32>,
                       clip_rect: &Rect<f32>,
@@ -1725,11 +1779,9 @@ impl FrameBuilder {
         let top = &border.top;
         let bottom = &border.bottom;
 
-        if (left.style != BorderStyle::Solid && left.style != BorderStyle::None) ||
-           (top.style != BorderStyle::Solid && top.style != BorderStyle::None) ||
-           (bottom.style != BorderStyle::Solid && bottom.style != BorderStyle::None) ||
-           (right.style != BorderStyle::Solid && right.style != BorderStyle::None) {
-            println!("TODO: Other border styles {:?} {:?} {:?} {:?}", left.style, top.style, bottom.style, right.style);
+        if !self.supported_style(left) || !self.supported_style(right) ||
+           !self.supported_style(top) || !self.supported_style(bottom) {
+            println!("Unsupported border style, not rendering border");
             return;
         }
 
@@ -1750,6 +1802,7 @@ impl FrameBuilder {
         let br_inner = br_outer - Point2D::new(radius.bottom_right.width.max(right.width),
                                                radius.bottom_right.height.max(bottom.width));
 
+        // These don't seem to do anything right now.
         let left_color = left.border_color(1.0, 2.0/3.0, 0.3, 0.7);
         let top_color = top.border_color(1.0, 2.0/3.0, 0.3, 0.7);
         let right_color = right.border_color(2.0/3.0, 1.0, 0.7, 0.3);
@@ -1773,6 +1826,10 @@ impl FrameBuilder {
             top_color: top_color,
             bottom_color: bottom_color,
             right_color: right_color,
+            left_style: left.style,
+            top_style: top.style,
+            right_style: right.style,
+            bottom_style: bottom.style,
         };
 
         self.add_primitive(&rect,
