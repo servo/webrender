@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use display_list::AuxiliaryListsBuilder;
-use euclid::{Matrix4, Rect};
+use euclid::{Matrix4D, Rect};
 use {FilterOp, MixBlendMode, ScrollLayerId, ScrollPolicy};
 use {ServoStackingContextId, StackingContext};
 
@@ -14,8 +14,8 @@ impl StackingContext {
                bounds: Rect<f32>,
                overflow: Rect<f32>,
                z_index: i32,
-               transform: &Matrix4,
-               perspective: &Matrix4,
+               transform: &Matrix4D<f32>,
+               perspective: &Matrix4D<f32>,
                establishes_3d_context: bool,
                mix_blend_mode: MixBlendMode,
                filters: Vec<FilterOp>,
