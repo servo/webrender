@@ -13,6 +13,18 @@
 #define PST_BOTTOM       uint(7)
 #define PST_RIGHT        uint(8)
 
+// Border styles as defined in webrender_traits/types.rs
+#define BORDER_STYLE_NONE         uint(0)
+#define BORDER_STYLE_SOLID        uint(1)
+#define BORDER_STYLE_DOUBLE       uint(2)
+#define BORDER_STYLE_DOTTED       uint(3)
+#define BORDER_STYLE_DASHED       uint(4)
+#define BORDER_STYLE_HIDDEN       uint(5)
+#define BORDER_STYLE_GROOVE       uint(6)
+#define BORDER_STYLE_RIDGE        uint(7)
+#define BORDER_STYLE_INSET        uint(8)
+#define BORDER_STYLE_OUTSET       uint(9)
+
 struct Layer {
     mat4 transform;
     mat4 inv_transform;

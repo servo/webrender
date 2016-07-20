@@ -9,11 +9,25 @@ struct Border {
     vec4 color0;
     vec4 color1;
     vec4 radii;
+    ivec4 border_style_trbl;
 };
 
 layout(std140) uniform Items {
     Border borders[WR_MAX_PRIM_ITEMS];
 };
+
+int get_border_style(Border a_border, uint a_edge) {
+  switch (a_edge) {
+    case PST_TOP:
+      return a_border.border_style_trbl.x;
+    case PST_LEFT:
+      return a_border.border_style_trbl.z;
+    case PST_BOTTOM:
+      return a_border.border_style_trbl.w;
+    case PST_RIGHT:
+      return a_border.border_style_trbl.y;
+  }
+}
 
 void main(void) {
     Border border = borders[gl_InstanceID];
@@ -38,21 +52,25 @@ void main(void) {
 
     gl_Position = uTransform * vec4(final_pos, 0, 1);
 
+    // Just our boring radius position.
     vRadii = border.radii;
 
-    float w = border.local_rect.z;
-    float h = border.local_rect.w;
     float x0, y0, x1, y1;
+    vBorderStyle = 0;
     switch (border.info.layer_tile_part.z) {
+        // These are the layer tile part PrimitivePart as uploaded by the tiling.rs
         case PST_TOP_LEFT:
             x0 = border.local_rect.x;
             y0 = border.local_rect.y;
+            // These are width / heights
             x1 = border.local_rect.x + border.local_rect.z;
             y1 = border.local_rect.y + border.local_rect.w;
+
+            // The radius here is the border-radius. This is 0, so vRefPoint will
+            // just be the top left (x,y) corner.
             vRefPoint = vec2(x0, y0) + vRadii.xy;
             break;
         case PST_TOP_RIGHT:
-            vRefPoint = border.local_rect.xy + vRadii.xy;
             x0 = border.local_rect.x + border.local_rect.z;
             y0 = border.local_rect.y;
             x1 = border.local_rect.x;
@@ -84,9 +102,21 @@ void main(void) {
             y1 = border.local_rect.y + border.local_rect.w;
             break;
     }
-    vF = (local_clamped_pos.x - x0) * (y1 - y0) - (local_clamped_pos.y - y0) * (x1 - x0);
 
+    vBorderStyle = get_border_style(border, border.info.layer_tile_part.z);
+
+    // y1 - y0 is the height of the corner / line
+    // x1 - x0 is the width of the corner / line.
+    float width = x1 - x0;
+    float height = y1 - y0;
+    // This is just a weighting of the pixel colors it seems?
+    vF = (local_clamped_pos.x - x0) * height - (local_clamped_pos.y - y0) * width;
+
+    // This is what was currently sent.
     vColor0 = border.color0;
     vColor1 = border.color1;
-    vPos = local_clamped_pos.xy;
+
+    // These are in device space
+    vPos = clamped_pos;
+    vBorders = vec4(x0, y0, x1, y1) * uDevicePixelRatio;
 }
