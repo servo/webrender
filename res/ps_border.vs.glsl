@@ -38,9 +38,15 @@ void main(void) {
     Layer layer = layers[border.info.layer_tile_part.x];
     Tile tile = tiles[border.info.layer_tile_part.y];
 
-    vec2 local_pos = mix(border.local_rect.xy,
-                         border.local_rect.xy + border.local_rect.zw,
-                         aPosition.xy);
+    vec2 p0 = floor(0.5 + border.local_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
+    vec2 p1 = p0 + border.local_rect.zw;
+
+    vec2 local_pos = mix(p0, p1, aPosition.xy);
+
+    vec2 cp0 = floor(0.5 + border.info.local_clip_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
+    vec2 cp1 = cp0 + border.info.local_clip_rect.zw;
+
+    local_pos = clamp(local_pos, cp0, cp1);
 
     vec4 world_pos = layer.transform * vec4(local_pos, 0, 1);
 
@@ -120,8 +126,10 @@ void main(void) {
     vColor0 = border.color0;
     vColor1 = border.color1;
 
+    // Local space
+    vPos = local_clamped_pos.xy;
+
     // These are in device space
-    vPos = clamped_pos;
     vBorders = vec4(border.local_rect.x, border.local_rect.y,
                     border.local_rect.z,
                     border.local_rect.w) * uDevicePixelRatio;

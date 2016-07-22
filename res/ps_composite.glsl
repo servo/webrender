@@ -4,14 +4,5 @@
 
 varying vec2 vUv0;
 varying vec2 vUv1;
-varying vec2 vUv2;
-varying vec2 vUv3;
-varying vec2 vUv4;
-varying vec2 vUv5;
-varying vec2 vUv6;
-
-flat varying vec4 vLayerValues0;
-flat varying vec4 vLayerValues1;
-
-flat varying uvec4 vPartialRects0;
-flat varying uvec4 vPartialRects1;
+flat varying ivec2 vInfo;
+flat varying float vAmount;

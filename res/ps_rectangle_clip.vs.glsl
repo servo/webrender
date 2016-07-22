@@ -29,7 +29,7 @@ void main(void) {
                       rect.info.local_clip_rect.xy,
                       rect.info.local_clip_rect.xy + rect.info.local_clip_rect.zw);
 
-    vClipRect = rect.clip.rect;
+    vClipRect = vec4(rect.clip.rect.xy, rect.clip.rect.xy + rect.clip.rect.zw);
     vClipRadius = rect.clip.top_left.outer_inner_radius.x;
 
     vec4 world_pos = layer.transform * vec4(local_pos, 0, 1);

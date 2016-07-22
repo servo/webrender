@@ -8,6 +8,7 @@ struct Image {
     vec4 local_rect;    // Size of the box we need to fill with this image.
     vec4 st_rect;       // Location of the image texture in the texture atlas.
     vec2 stretch_size;  // Size of the actual image.
+    Clip clip;
 };
 
 layout(std140) uniform Items {
@@ -20,14 +21,16 @@ void main(void) {
     Tile tile = tiles[image.info.layer_tile_part.y];
 
     // Our location within the image
-    vec2 p0 = floor(0.5 + image.local_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
-    vec2 p1 = floor(0.5 + (image.local_rect.xy + image.local_rect.zw) * uDevicePixelRatio) / uDevicePixelRatio;
+    vec2 local_pos = mix(image.local_rect.xy,
+                         image.local_rect.xy + image.local_rect.zw,
+                         aPosition.xy);
 
-    vec2 local_pos = mix(p0, p1, aPosition.xy);
+    local_pos = clamp(local_pos,
+                      image.info.local_clip_rect.xy,
+                      image.info.local_clip_rect.xy + image.info.local_clip_rect.zw);
 
-    vec2 cp0 = floor(0.5 + image.info.local_clip_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
-    vec2 cp1 = floor(0.5 + (image.info.local_clip_rect.xy + image.info.local_clip_rect.zw) * uDevicePixelRatio) / uDevicePixelRatio;
-    local_pos = clamp(local_pos, cp0, cp1);
+    vClipRect = vec4(image.clip.rect.xy, image.clip.rect.xy + image.clip.rect.zw);
+    vClipRadius = image.clip.top_left.outer_inner_radius.x;
 
     vec4 world_pos = layer.transform * vec4(local_pos, 0, 1);
 
@@ -38,9 +41,10 @@ void main(void) {
                              tile.actual_rect.xy + tile.actual_rect.zw);
 
     vec4 local_clamped_pos = layer.inv_transform * vec4(clamped_pos / uDevicePixelRatio, 0, 1);
+    vPos = local_clamped_pos.xy;
 
     // vUv will contain how many times this image has wrapped around the image size.
-    vUv = (local_clamped_pos.xy - p0) / image.stretch_size.xy;
+    vUv = (local_clamped_pos.xy - image.local_rect.xy) / image.stretch_size.xy;
     vTextureSize = image.st_rect.zw - image.st_rect.xy;
     vTextureOffset = image.st_rect.xy;
 
