@@ -16,11 +16,11 @@ vec4 drawCircle(vec2 aPixel, vec2 aDesiredPos, float aRadius, vec3 aColor) {
 vec2 adjust_dotted_padding(float radius) {
   switch (vBorderPart) {
     // These are the layer tile part PrimitivePart as uploaded by the tiling.rs
-    case PST_TOP_LEFT:
+    case PST_BOTTOM_RIGHT:
     case PST_TOP_RIGHT:
     case PST_BOTTOM_LEFT:
-    case PST_BOTTOM_RIGHT:
-      return vec2(0.0, 0.0);
+    case PST_TOP_LEFT:
+      return vec2(-radius, -radius);
     case PST_BOTTOM:
     case PST_TOP:
       return vec2(0, -radius);
@@ -30,7 +30,11 @@ vec2 adjust_dotted_padding(float radius) {
   }
 }
 
-void draw_dotted_border(void) {
+vec4 draw_dotted_corner() {
+  return vec4(1, 0, 0, 1.0);
+}
+
+vec4 draw_dotted_edge() {
   // Everything here should be in device pixels.
   // We want the dot to be roughly the size of the whole border spacing
   // 2.2 was picked because it's roughly what Firefox is using.
@@ -55,6 +59,9 @@ void draw_dotted_border(void) {
 
   // Where we want to draw the actual circle.
   vec2 tileCenter = destTile + circleCenter;
+  // Snap the tile back because we calculate the center
+  // based on the spacing but we need to make sure we have enough
+  // space to draw the actual circle.
   tileCenter += adjust_dotted_padding(radius);
 
   // Find the position within the tile
@@ -66,7 +73,25 @@ void draw_dotted_border(void) {
   // See if we should draw a circle or not
   vec4 circleColor = drawCircle(finalPosition, tileCenter, radius, black);
 
-  oFragColor = mix(white, circleColor, circleColor.a);
+  return mix(white, circleColor, circleColor.a);
+}
+
+void draw_dotted_border(void) {
+  switch (vBorderPart) {
+    // These are the layer tile part PrimitivePart as uploaded by the tiling.rs
+    case PST_TOP_LEFT:
+    case PST_TOP_RIGHT:
+    case PST_BOTTOM_LEFT:
+    case PST_BOTTOM_RIGHT:
+      oFragColor = draw_dotted_edge();
+      break;
+    case PST_BOTTOM:
+    case PST_TOP:
+    case PST_LEFT:
+    case PST_RIGHT:
+      oFragColor = draw_dotted_edge();
+      break;
+  }
 }
 
 void main(void) {
@@ -78,13 +103,20 @@ void main(void) {
 
   switch (vBorderStyle) {
     case BORDER_STYLE_DOTTED:
+    {
       draw_dotted_border();
       break;
+    }
     case BORDER_STYLE_NONE:
     case BORDER_STYLE_SOLID:
     {
       float color = step(0.0, vF);
       oFragColor = mix(vColor1, vColor0, color);
+      break;
+    }
+    default:
+    {
+      discard;
       break;
     }
   }

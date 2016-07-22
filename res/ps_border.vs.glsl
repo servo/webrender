@@ -19,11 +19,15 @@ layout(std140) uniform Items {
 uint get_border_style(Border a_border, uint a_edge) {
   switch (a_edge) {
     case PST_TOP:
+    case PST_TOP_LEFT:
       return a_border.border_style_trbl.x;
+    case PST_BOTTOM_LEFT:
     case PST_LEFT:
       return a_border.border_style_trbl.z;
+    case PST_BOTTOM_RIGHT:
     case PST_BOTTOM:
       return a_border.border_style_trbl.w;
+    case PST_TOP_RIGHT:
     case PST_RIGHT:
       return a_border.border_style_trbl.y;
   }
@@ -103,7 +107,7 @@ void main(void) {
             break;
     }
 
-    vBorderStyle = get_border_style(border, border.info.layer_tile_part.z);
+    vBorderStyle = get_border_style(border, vBorderPart);
 
     // y1 - y0 is the height of the corner / line
     // x1 - x0 is the width of the corner / line.
@@ -118,5 +122,7 @@ void main(void) {
 
     // These are in device space
     vPos = clamped_pos;
-    vBorders = vec4(x0, y0, x1, y1) * uDevicePixelRatio;
+    vBorders = vec4(border.local_rect.x, border.local_rect.y,
+                    border.local_rect.x + border.local_rect.z,
+                    border.local_rect.y + border.local_rect.w) * uDevicePixelRatio;
 }
