@@ -123,6 +123,6 @@ void main(void) {
     // These are in device space
     vPos = clamped_pos;
     vBorders = vec4(border.local_rect.x, border.local_rect.y,
-                    border.local_rect.x + border.local_rect.z,
-                    border.local_rect.y + border.local_rect.w) * uDevicePixelRatio;
+                    border.local_rect.z,
+                    border.local_rect.w) * uDevicePixelRatio;
 }

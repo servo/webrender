@@ -39,7 +39,7 @@ vec4 draw_dotted_edge() {
   // We want the dot to be roughly the size of the whole border spacing
   // 2.2 was picked because it's roughly what Firefox is using.
   float spacing_fudge = 2.2;
-  float border_spacing = min(vBorders.z - vBorders.x, vBorders.w - vBorders.y);
+  float border_spacing = min(vBorders.w, vBorders.z);
   float radius = floor(border_spacing / spacing_fudge);
   float diameter = radius * 2.0;
   float circleSpacing = diameter * 2.0;
