@@ -9,14 +9,14 @@ struct Border {
     vec4 color0;
     vec4 color1;
     vec4 radii;
-    ivec4 border_style_trbl;
+    uvec4 border_style_trbl;
 };
 
 layout(std140) uniform Items {
     Border borders[WR_MAX_PRIM_ITEMS];
 };
 
-int get_border_style(Border a_border, uint a_edge) {
+uint get_border_style(Border a_border, uint a_edge) {
   switch (a_edge) {
     case PST_TOP:
       return a_border.border_style_trbl.x;
@@ -56,8 +56,8 @@ void main(void) {
     vRadii = border.radii;
 
     float x0, y0, x1, y1;
-    vBorderStyle = 0;
-    switch (border.info.layer_tile_part.z) {
+    vBorderPart = border.info.layer_tile_part.z;
+    switch (vBorderPart) {
         // These are the layer tile part PrimitivePart as uploaded by the tiling.rs
         case PST_TOP_LEFT:
             x0 = border.local_rect.x;

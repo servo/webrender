@@ -10,13 +10,14 @@ varying float vF;   // This is a weighting as we get closer to the bottom right 
 // These are not changing.
 flat varying vec4 vColor0;  // The border color
 flat varying vec4 vColor1;  // The border color
-flat varying vec4 vRadii;   // The border radius
+flat varying vec4 vRadii;   // The border radius from CSS border-radius
 
 // These are in device space
 varying vec2 vPos;  // This is the clamped position of the current position.
-flat varying vec4 vBorders; // The borders
+flat varying vec4 vBorders; // The borders sizes.
 
 // for corners, this is the beginning of the corner.
 // For the lines, this is the top left of the line.
 flat varying vec2 vRefPoint;
-flat varying int vBorderStyle;
+flat varying uint vBorderStyle;
+flat varying uint vBorderPart; // Which part of the border we're drawing.

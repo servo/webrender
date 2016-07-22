@@ -9,9 +9,34 @@ vec4 drawCircle(vec2 aPixel, vec2 aDesiredPos, float aRadius, vec3 aColor) {
   return vec4(aColor, pixelInCircle);
 }
 
+// We want to be in the center of the tile along the axis we're
+// repeating the circle but at the top for X axis and left for Y axis.
+// e.g. we only care about being equal spacing between circles for the edge we're drawing along
+// and snap the other axis to the top or left.
+vec2 adjust_dotted_padding(float radius) {
+  switch (vBorderPart) {
+    // These are the layer tile part PrimitivePart as uploaded by the tiling.rs
+    case PST_TOP_LEFT:
+    case PST_TOP_RIGHT:
+    case PST_BOTTOM_LEFT:
+    case PST_BOTTOM_RIGHT:
+      return vec2(0.0, 0.0);
+    case PST_BOTTOM:
+    case PST_TOP:
+      return vec2(0, -radius);
+    case PST_LEFT:
+    case PST_RIGHT:
+      return vec2(-radius, 0);
+  }
+}
+
 void draw_dotted_border(void) {
   // Everything here should be in device pixels.
-  float radius = 3;   // Diameter of 20
+  // We want the dot to be roughly the size of the whole border spacing
+  // 2.2 was picked because it's roughly what Firefox is using.
+  float spacing_fudge = 2.2;
+  float border_spacing = min(vBorders.z - vBorders.x, vBorders.w - vBorders.y);
+  float radius = floor(border_spacing / spacing_fudge);
   float diameter = radius * 2.0;
   float circleSpacing = diameter * 2.0;
 
@@ -27,7 +52,10 @@ void draw_dotted_border(void) {
   // Find out which tile this pixel belongs to.
   vec2 destTile = floor(position / distBetweenCircles);
   destTile = destTile * distBetweenCircles;
+
+  // Where we want to draw the actual circle.
   vec2 tileCenter = destTile + circleCenter;
+  tileCenter += adjust_dotted_padding(radius);
 
   // Find the position within the tile
   vec2 positionInTile = mod(position, distBetweenCircles);
@@ -56,9 +84,7 @@ void main(void) {
     case BORDER_STYLE_SOLID:
     {
       float color = step(0.0, vF);
-      vec4 red = vec4(1, 0, 0, 1);
-      vec4 green = vec4(0, 1, 0, 1);
-      oFragColor = mix(green, red, color);
+      oFragColor = mix(vColor1, vColor0, color);
       break;
     }
   }
