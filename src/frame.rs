@@ -7,13 +7,9 @@ use euclid::{Matrix4D, Point2D, Point3D, Point4D, Rect, Size2D};
 use fnv::FnvHasher;
 use geometry::ray_intersects_rect;
 use internal_types::{ANGLE_FLOAT_TO_FIXED, AxisDirection};
-use internal_types::{ChildLayerIndex, ClearInfo};
-use internal_types::{CompositeBatchInfo, CompositeBatchJob, CompositionOp};
-use internal_types::{DrawCall};
-use internal_types::{DrawCompositeBatchJob, DrawListGroupId};
-use internal_types::{DrawListId, DrawListItemIndex, LowLevelFilterOp, MAX_RECT};
-use internal_types::{RenderTargetId, RendererFrame};
-use internal_types::{StackingContextInfo, StackingContextIndex};
+use internal_types::{CompositionOp};
+use internal_types::{LowLevelFilterOp, MAX_RECT};
+use internal_types::{RendererFrame};
 use layer::{Layer, ScrollingState};
 use resource_cache::ResourceCache;
 use scene::{SceneStackingContext, ScenePipeline, Scene, SceneItem, SpecificSceneItem};
@@ -224,7 +220,7 @@ impl Frame {
         }
     }
 
-    pub fn reset(&mut self, resource_cache: &mut ResourceCache)
+    pub fn reset(&mut self)
                  -> HashMap<ScrollLayerId, ScrollingState, BuildHasherDefault<FnvHasher>> {
         self.pipeline_epoch_map.clear();
 
@@ -392,7 +388,7 @@ impl Frame {
                   device_pixel_ratio: f32) {
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
             if let Some(root_pipeline) = scene.pipeline_map.get(&root_pipeline_id) {
-                let old_layer_scrolling_states = self.reset(resource_cache);
+                let old_layer_scrolling_states = self.reset();
 
                 self.pipeline_auxiliary_lists = scene.pipeline_auxiliary_lists.clone();
 
@@ -452,8 +448,7 @@ impl Frame {
                         let root_pipeline = SceneItemKind::Pipeline(root_pipeline);
                         self.flatten(root_pipeline,
                                      &parent_info,
-                                     &mut context,
-                                     0);
+                                     &mut context);
                     }
 
                     self.frame_builder = Some(frame_builder);
@@ -476,16 +471,15 @@ impl Frame {
                            scene_items: &[SceneItem],
                            info: &FlattenInfo,
                            context: &mut FlattenContext,
-                           _level: i32,
                            sc_rect: Rect<f32>,
-                           opacity: f32) {
+                           composition_ops: Vec<CompositionOp>) {
         context.builder.push_layer(sc_rect,
                                    info.current_clip_rect,
                                    info.local_transform,
-                                   opacity,
                                    info.pipeline_id,
                                    info.actual_scroll_layer_id,
-                                   info.offset_from_current_layer);
+                                   info.offset_from_current_layer,
+                                   composition_ops);
 
         for item in scene_items {
             match item.specific {
@@ -508,14 +502,11 @@ impl Frame {
                         };
 
                         match item.item {
-                            SpecificDisplayItem::WebGL(ref _info) => {
-                                println!("TODO: WebGL");
-                                /*
-                                builder.add_webgl_rectangle(&display_item.rect,
-                                                            resource_cache,
-                                                            &info.context_id,
-                                                            frame_id);
-                                                            */
+                            SpecificDisplayItem::WebGL(ref info) => {
+                                builder.add_webgl_rectangle(item.rect,
+                                                            &item.clip.main,
+                                                            clip,
+                                                            info.context_id);
                             }
                             SpecificDisplayItem::Image(ref info) => {
                                 builder.add_image(item.rect,
@@ -578,8 +569,7 @@ impl Frame {
                     let child = SceneItemKind::StackingContext(stacking_context, pipeline_id);
                     self.flatten(child,
                                  info,
-                                 context,
-                                 _level+1);
+                                 context);
                 }
                 SpecificSceneItem::Iframe(ref iframe_info) => {
                     let pipeline = context.scene
@@ -646,8 +636,7 @@ impl Frame {
 
                         self.flatten(iframe,
                                      &iframe_info,
-                                     context,
-                                     _level+1);
+                                     context);
                     }
                 }
             }
@@ -659,8 +648,7 @@ impl Frame {
     fn flatten(&mut self,
                scene_item: SceneItemKind,
                parent_info: &FlattenInfo,
-               context: &mut FlattenContext,
-               level: i32) {
+               context: &mut FlattenContext) {
         //let _pf = util::ProfileScope::new("  flatten");
 
         let (stacking_context, pipeline_id) = match scene_item {
@@ -683,7 +671,7 @@ impl Frame {
         // Removing it fixes that but it needs a proper solution before
         // merging which will coming when the clipping branch merges!
 
-        let local_clip_rect = Some(MAX_RECT);
+        let local_clip_rect = Some(stacking_context.overflow);
         /*
         // FIXME(pcwalton): This is a not-great partial solution to servo/servo#10164. A better
         // solution would be to do this only if the transform consists of a translation+scale only
@@ -824,36 +812,20 @@ impl Frame {
                     }
                 }
 
-                let mut opacity = 1.0;
-                for composition_op in composition_operations {
-                    match composition_op {
-                        CompositionOp::Filter(filter_op) => {
-                            match filter_op {
-                                LowLevelFilterOp::Opacity(o) => {
-                                    opacity = o.to_f32_px();
-                                }
-                                _ => {}
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-
                 // TODO: Account for scroll offset with transforms!
                 self.add_items_to_target(&scene_items,
                                          &info,
                                          context,
-                                         level,
                                          stacking_context.overflow,
-                                         opacity);
+                                         composition_operations);
             }
         }
     }
 
     pub fn build(&mut self,
                  resource_cache: &mut ResourceCache,
-                 thread_pool: &mut scoped_threadpool::Pool,
-                 device_pixel_ratio: f32)
+                 _thread_pool: &mut scoped_threadpool::Pool,
+                 _device_pixel_ratio: f32)
                  -> RendererFrame {
         self.update_layer_transforms();
         let frame = self.build_frame(resource_cache);

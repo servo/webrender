@@ -810,7 +810,7 @@ impl TextureCache {
                             item: &RasterItem,
                             _device_pixel_ratio: f32) {
         let update_op = match item {
-            &RasterItem::BoxShadow(ref op) => {
+            &RasterItem::_BoxShadow(ref op) => {
                 let allocation = self.allocate(image_id,
                                                0,
                                                0,

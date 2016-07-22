@@ -17,7 +17,6 @@ use std::ops::{Add, Sub};
 use std::path::PathBuf;
 use std::sync::Arc;
 use texture_cache::BorderType;
-use util;
 use tiling;
 use webrender_traits::{FontKey, Epoch, ColorF, PipelineId};
 use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem, ScrollLayerId};
@@ -28,10 +27,6 @@ pub struct DevicePixel(pub i32);
 impl DevicePixel {
     pub fn new(value: f32, device_pixel_ratio: f32) -> DevicePixel {
         DevicePixel((value * device_pixel_ratio).round() as i32)
-    }
-
-    pub fn from_i32(value: i32) -> DevicePixel {
-        DevicePixel(value)
     }
 
     pub fn from_u32(value: u32) -> DevicePixel {
@@ -608,6 +603,7 @@ pub struct BoxShadowRasterOp {
     pub inverted: bool,
 }
 
+/*
 impl BoxShadowRasterOp {
     pub fn raster_rect(blur_radius: f32,
                        border_radius: f32,
@@ -694,12 +690,12 @@ impl BoxShadowRasterOp {
             None
         }
     }
-}
+}*/
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum BoxShadowPart {
-    Corner,
-    Edge,
+    _Corner,
+    _Edge,
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
@@ -723,7 +719,7 @@ impl GlyphKey {
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub enum RasterItem {
-    BoxShadow(BoxShadowRasterOp),
+    _BoxShadow(BoxShadowRasterOp),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

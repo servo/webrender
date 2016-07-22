@@ -134,23 +134,6 @@ pub fn rect_is_empty<N:PartialEq + Zero>(rect: &Rect<N>) -> bool {
     rect.size.width == Zero::zero() || rect.size.height == Zero::zero()
 }
 
-/*
-#[inline(always)]
-pub fn rect_contains_rect(rect: &Rect<Au>, other: &Rect<Au>) -> bool {
-    rect.origin.x <= other.origin.x &&
-    rect.origin.y <= other.origin.y &&
-    rect.max_x() >= other.max_x() &&
-    rect.max_y() >= other.max_y()
-}*/
-
-#[inline(always)]
-pub fn rect_contains_rect(rect: &Rect<DevicePixel>, other: &Rect<DevicePixel>) -> bool {
-    rect.origin.x <= other.origin.x &&
-    rect.origin.y <= other.origin.y &&
-    rect.max_x() >= other.max_x() &&
-    rect.max_y() >= other.max_y()
-}
-
 #[inline]
 pub fn rect_from_points(x0: DevicePixel,
                         y0: DevicePixel,

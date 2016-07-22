@@ -394,12 +394,10 @@ impl ResourceCache {
     }
 */
 
-/*
     #[inline]
     pub fn get_webgl_texture(&self, context_id: &WebGLContextId) -> TextureId {
         self.webgl_textures.get(context_id).unwrap().clone()
     }
-*/
 
     pub fn expire_old_resources(&mut self, frame_id: FrameId) {
         self.cached_glyphs.expire_old_resources(&mut self.texture_cache, frame_id);

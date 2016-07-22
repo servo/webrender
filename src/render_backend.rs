@@ -250,7 +250,7 @@ impl RenderBackend {
                         ApiMsg::TranslatePointToLayerSpace(point, tx) => {
                             // First, find the specific layer that contains the point.
                             let point = point / self.device_pixel_ratio;
-                            if let (Some(root_pipeline_id), Some(root_scroll_layer_id)) =
+                            if let (Some(..), Some(root_scroll_layer_id)) =
                                     (self.scene.root_pipeline_id,
                                      self.frame.root_scroll_layer_id) {
                                 if let Some(scroll_layer_id) =
