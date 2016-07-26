@@ -13,7 +13,8 @@ flat varying vec4 vColor1;  // The border color
 flat varying vec4 vRadii;   // The border radius from CSS border-radius
 
 // These are in device space
-varying vec2 vPos;  // This is the clamped position of the current position.
+varying vec2 vLocalPos;     // The clamped position in local space.
+varying vec2 vDevicePos;    // The clamped position in device space.
 flat varying vec4 vBorders; // the rect of the border in (x, y, width, height) form
 
 // for corners, this is the beginning of the corner.

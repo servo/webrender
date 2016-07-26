@@ -127,7 +127,8 @@ void main(void) {
     vColor1 = border.color1;
 
     // Local space
-    vPos = local_clamped_pos.xy;
+    vLocalPos = local_clamped_pos.xy;
+    vDevicePos = clamped_pos;
 
     // These are in device space
     vBorders = vec4(border.local_rect.x, border.local_rect.y,

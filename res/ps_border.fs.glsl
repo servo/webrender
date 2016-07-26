@@ -21,7 +21,7 @@ vec4 draw_dotted_edge() {
 
   vec2 size = vec2(vBorders.z, vBorders.w);
   // Get our position within this specific segment
-  vec2 position = vPos - vBorders.xy;
+  vec2 position = vDevicePos - vBorders.xy;
 
   // Break our position into square tiles with circles in them.
   vec2 circleCount = floor(size / circleSpacing);
@@ -70,8 +70,8 @@ void draw_dotted_border(void) {
 
 void main(void) {
 	if (vRadii.x > 0.0 &&
-		(distance(vRefPoint, vPos) > vRadii.x ||
-		 distance(vRefPoint, vPos) < vRadii.z)) {
+		(distance(vRefPoint, vLocalPos) > vRadii.x ||
+		 distance(vRefPoint, vLocalPos) < vRadii.z)) {
 		discard;
 	}
 
