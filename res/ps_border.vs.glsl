@@ -34,32 +34,7 @@ uint get_border_style(Border a_border, uint a_edge) {
 
 void main(void) {
     Border border = borders[gl_InstanceID];
-    Layer layer = layers[border.info.layer_tile_part.x];
-    Tile tile = tiles[border.info.layer_tile_part.y];
-
-    vec2 p0 = floor(0.5 + border.info.local_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
-    vec2 p1 = p0 + border.info.local_rect.zw;
-
-    vec2 local_pos = mix(p0, p1, aPosition.xy);
-
-    vec2 cp0 = floor(0.5 + border.info.local_clip_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
-    vec2 cp1 = cp0 + border.info.local_clip_rect.zw;
-
-    local_pos = clamp(local_pos, cp0, cp1);
-
-    vec4 world_pos = layer.transform * vec4(local_pos, 0, 1);
-
-    vec2 device_pos = world_pos.xy * uDevicePixelRatio;
-
-    vec2 clamped_pos = clamp(device_pos,
-                             tile.actual_rect.xy,
-                             tile.actual_rect.xy + tile.actual_rect.zw);
-
-    vec4 local_clamped_pos = layer.inv_transform * vec4(clamped_pos / uDevicePixelRatio, 0, 1);
-
-    vec2 final_pos = clamped_pos + tile.target_rect.xy - tile.actual_rect.xy;
-
-    gl_Position = uTransform * vec4(final_pos, 0, 1);
+    VertexInfo vi = write_vertex(border.info);
 
     // Just our boring radius position.
     vRadii = border.radii;
@@ -119,7 +94,7 @@ void main(void) {
     float width = x1 - x0;
     float height = y1 - y0;
     // This is just a weighting of the pixel colors it seems?
-    vF = (local_clamped_pos.x - x0) * height - (local_clamped_pos.y - y0) * width;
+    vF = (vi.local_clamped_pos.x - x0) * height - (vi.local_clamped_pos.y - y0) * width;
 
     // This is what was currently sent.
     vColor0 = border.color0;

@@ -25,6 +25,7 @@
 #define BORDER_STYLE_INSET        uint(8)
 #define BORDER_STYLE_OUTSET       uint(9)
 
+#ifdef WR_VERTEX_SHADER
 struct Layer {
     mat4 transform;
     mat4 inv_transform;
@@ -97,6 +98,52 @@ vec3 get_layer_pos(vec2 pos, uint layer_index) {
     vec4 local_pos = untransform(pos, n, a, layer.inv_transform);
     return local_pos.xyw;
 }
+
+struct Rect {
+    vec2 p0;
+    vec2 p1;
+};
+
+struct VertexInfo {
+    Rect local_rect;
+    vec2 local_clamped_pos;
+};
+
+VertexInfo write_vertex(PrimitiveInfo info) {
+    Layer layer = layers[info.layer_tile_part.x];
+    Tile tile = tiles[info.layer_tile_part.y];
+
+    vec2 p0 = floor(0.5 + info.local_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
+    vec2 p1 = floor(0.5 + (info.local_rect.xy + info.local_rect.zw) * uDevicePixelRatio) / uDevicePixelRatio;
+
+    vec2 local_pos = mix(p0, p1, aPosition.xy);
+
+    vec2 cp0 = floor(0.5 + info.local_clip_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
+    vec2 cp1 = floor(0.5 + (info.local_clip_rect.xy + info.local_clip_rect.zw) * uDevicePixelRatio) / uDevicePixelRatio;
+    local_pos = clamp(local_pos, cp0, cp1);
+
+    vec4 world_pos = layer.transform * vec4(local_pos, 0, 1);
+
+    vec2 device_pos = world_pos.xy * uDevicePixelRatio;
+
+    vec2 clamped_pos = clamp(device_pos,
+                             tile.actual_rect.xy,
+                             tile.actual_rect.xy + tile.actual_rect.zw);
+
+    clamped_pos = clamp(clamped_pos,
+                        layer.world_clip_rect.xy,
+                        layer.world_clip_rect.xy + layer.world_clip_rect.zw);
+
+    vec4 local_clamped_pos = layer.inv_transform * vec4(clamped_pos / uDevicePixelRatio, 0, 1);
+
+    vec2 final_pos = clamped_pos + tile.target_rect.xy - tile.actual_rect.xy;
+
+    gl_Position = uTransform * vec4(final_pos, 0, 1);
+
+    VertexInfo vi = VertexInfo(Rect(p0, p1), local_clamped_pos.xy);
+    return vi;
+}
+#endif
 
 #ifdef WR_FRAGMENT_SHADER
 void do_clip(vec2 pos, vec4 clip_rect, float radius) {

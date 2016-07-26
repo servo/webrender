@@ -15,33 +15,12 @@ layout(std140) uniform Items {
 
 void main(void) {
     Glyph glyph = glyphs[gl_InstanceID];
-    Layer layer = layers[glyph.info.layer_tile_part.x];
-    Tile tile = tiles[glyph.info.layer_tile_part.y];
+    VertexInfo vi = write_vertex(glyph.info);
+
+    vec2 f = (vi.local_clamped_pos - vi.local_rect.p0) / (vi.local_rect.p1 - vi.local_rect.p0);
 
     vColor = glyph.color;
-
-    vec2 p0 = floor(0.5 + glyph.info.local_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
-    vec2 p1 = p0 + glyph.info.local_rect.zw;
-
-    vec2 local_pos = mix(p0, p1, aPosition.xy);
-
-    vec4 world_pos = layer.transform * vec4(local_pos, 0, 1);
-
-    vec2 device_pos = world_pos.xy * uDevicePixelRatio;
-
-    vec2 clamped_pos = clamp(device_pos,
-                             tile.actual_rect.xy,
-                             tile.actual_rect.xy + tile.actual_rect.zw);
-
-    vec4 local_clamped_pos = layer.inv_transform * vec4(clamped_pos / uDevicePixelRatio, 0, 1);
-
-    vec2 f = (local_clamped_pos.xy - p0) / glyph.info.local_rect.zw;
-
     vUv = mix(glyph.st_rect.xy,
               glyph.st_rect.zw,
               f);
-
-    vec2 final_pos = clamped_pos + tile.target_rect.xy - tile.actual_rect.xy;
-
-    gl_Position = uTransform * vec4(final_pos, 0, 1);
 }

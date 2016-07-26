@@ -15,34 +15,11 @@ layout(std140) uniform Items {
 
 void main(void) {
     Rectangle rect = rects[gl_InstanceID];
-    Layer layer = layers[rect.info.layer_tile_part.x];
-    Tile tile = tiles[rect.info.layer_tile_part.y];
-
-    vColor = rect.color;
-
-    vec2 local_pos = mix(rect.info.local_rect.xy,
-                         rect.info.local_rect.xy + rect.info.local_rect.zw,
-                         aPosition.xy);
-
-    local_pos = clamp(local_pos,
-                      rect.info.local_clip_rect.xy,
-                      rect.info.local_clip_rect.xy + rect.info.local_clip_rect.zw);
+    VertexInfo vi = write_vertex(rect.info);
 
     vClipRect = vec4(rect.clip.rect.xy, rect.clip.rect.xy + rect.clip.rect.zw);
     vClipRadius = rect.clip.top_left.outer_inner_radius.x;
+    vPos = vi.local_clamped_pos;
 
-    vec4 world_pos = layer.transform * vec4(local_pos, 0, 1);
-
-    vec2 device_pos = world_pos.xy * uDevicePixelRatio;
-
-    vec2 clamped_pos = clamp(device_pos,
-                             tile.actual_rect.xy,
-                             tile.actual_rect.xy + tile.actual_rect.zw);
-
-    vec4 local_clamped_pos = layer.inv_transform * vec4(clamped_pos / uDevicePixelRatio, 0, 1);
-    vPos = local_clamped_pos.xy;
-
-    vec2 final_pos = clamped_pos + tile.target_rect.xy - tile.actual_rect.xy;
-
-    gl_Position = uTransform * vec4(final_pos, 0, 1);
+    vColor = rect.color;
 }
