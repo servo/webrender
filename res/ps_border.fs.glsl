@@ -61,7 +61,7 @@ vec4 draw_dotted_edge() {
 vec4 draw_dashed_edge() {
   // Everything here should be in device pixels.
   // We want the dot to be roughly the size of the whole border spacing
-  float dash_interval = min(vBorders.w, vBorders.z) * 2;
+  float dash_interval = min(vBorders.w, vBorders.z) * 3;
   vec2 edge_size = vec2(vBorders.z, vBorders.w);
   vec2 dash_size = vec2(dash_interval / 2.0, dash_interval / 2.0);
   vec2 position = vDevicePos - vBorders.xy;
