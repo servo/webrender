@@ -5,7 +5,6 @@
 
 struct AngleGradient {
 	PrimitiveInfo info;
-    vec4 local_rect;
     vec4 start_end_point;
     uvec4 stop_count;
     vec4 colors[MAX_STOPS_PER_ANGLE_GRADIENT];
@@ -21,8 +20,8 @@ void main(void) {
     Layer layer = layers[gradient.info.layer_tile_part.x];
     Tile tile = tiles[gradient.info.layer_tile_part.y];
 
-    vec2 local_pos = mix(gradient.local_rect.xy,
-                         gradient.local_rect.xy + gradient.local_rect.zw,
+    vec2 local_pos = mix(gradient.info.local_rect.xy,
+                         gradient.info.local_rect.xy + gradient.info.local_rect.zw,
                          aPosition.xy);
 
     vec4 world_pos = layer.transform * vec4(local_pos, 0, 1);

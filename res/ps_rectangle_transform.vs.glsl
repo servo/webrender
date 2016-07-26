@@ -5,7 +5,6 @@
 
 struct Rectangle {
 	PrimitiveInfo info;
-    vec4 local_rect;
 	vec4 color;
 };
 
@@ -18,10 +17,10 @@ void main(void) {
     Layer layer = layers[rect.info.layer_tile_part.x];
     Tile tile = tiles[rect.info.layer_tile_part.y];
 
-    vec2 p0 = rect.local_rect.xy;
-    vec2 p1 = rect.local_rect.xy + vec2(rect.local_rect.z, 0.0);
-    vec2 p2 = rect.local_rect.xy + vec2(0.0, rect.local_rect.w);
-    vec2 p3 = rect.local_rect.xy + rect.local_rect.zw;
+    vec2 p0 = rect.info.local_rect.xy;
+    vec2 p1 = rect.info.local_rect.xy + vec2(rect.info.local_rect.z, 0.0);
+    vec2 p2 = rect.info.local_rect.xy + vec2(0.0, rect.info.local_rect.w);
+    vec2 p3 = rect.info.local_rect.xy + rect.info.local_rect.zw;
 
     vec4 t0 = layer.transform * vec4(p0, 0, 1);
     vec4 t1 = layer.transform * vec4(p1, 0, 1);
@@ -50,7 +49,7 @@ void main(void) {
 
     vec3 layer_pos = get_layer_pos(clamped_pos / uDevicePixelRatio, rect.info.layer_tile_part.x);
 
-    vRect = rect.local_rect;
+    vRect = rect.info.local_rect;
     vPos = layer_pos;
     vColor = rect.color;
 

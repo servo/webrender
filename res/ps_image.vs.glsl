@@ -5,7 +5,6 @@
 
 struct Image {
     PrimitiveInfo info;
-    vec4 local_rect;    // Size of the box we need to fill with this image.
     vec4 st_rect;       // Location of the image texture in the texture atlas.
     vec2 stretch_size;  // Size of the actual image.
 };
@@ -20,8 +19,8 @@ void main(void) {
     Tile tile = tiles[image.info.layer_tile_part.y];
 
     // Our location within the image
-    vec2 p0 = floor(0.5 + image.local_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
-    vec2 p1 = floor(0.5 + (image.local_rect.xy + image.local_rect.zw) * uDevicePixelRatio) / uDevicePixelRatio;
+    vec2 p0 = floor(0.5 + image.info.local_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
+    vec2 p1 = floor(0.5 + (image.info.local_rect.xy + image.info.local_rect.zw) * uDevicePixelRatio) / uDevicePixelRatio;
 
     vec2 local_pos = mix(p0, p1, aPosition.xy);
 

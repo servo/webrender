@@ -4,9 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 struct Rectangle {
-	PrimitiveInfo info;
-    vec4 local_rect;
-	vec4 color;
+  	PrimitiveInfo info;
+  	vec4 color;
     Clip clip;
 };
 
@@ -21,8 +20,8 @@ void main(void) {
 
     vColor = rect.color;
 
-    vec2 local_pos = mix(rect.local_rect.xy,
-                         rect.local_rect.xy + rect.local_rect.zw,
+    vec2 local_pos = mix(rect.info.local_rect.xy,
+                         rect.info.local_rect.xy + rect.info.local_rect.zw,
                          aPosition.xy);
 
     local_pos = clamp(local_pos,

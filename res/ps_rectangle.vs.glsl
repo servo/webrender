@@ -5,7 +5,6 @@
 
 struct Rectangle {
 	PrimitiveInfo info;
-    vec4 local_rect;
 	vec4 color;
 };
 
@@ -20,8 +19,8 @@ void main(void) {
 
     vColor = rect.color;
 
-    vec2 p0 = floor(0.5 + rect.local_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
-    vec2 p1 = floor(0.5 + (rect.local_rect.xy + rect.local_rect.zw) * uDevicePixelRatio) / uDevicePixelRatio;
+    vec2 p0 = floor(0.5 + rect.info.local_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
+    vec2 p1 = floor(0.5 + (rect.info.local_rect.xy + rect.info.local_rect.zw) * uDevicePixelRatio) / uDevicePixelRatio;
 
     vec2 local_pos = mix(p0, p1, aPosition.xy);
 

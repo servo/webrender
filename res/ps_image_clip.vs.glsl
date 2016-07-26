@@ -5,7 +5,6 @@
 
 struct Image {
     PrimitiveInfo info;
-    vec4 local_rect;    // Size of the box we need to fill with this image.
     vec4 st_rect;       // Location of the image texture in the texture atlas.
     vec2 stretch_size;  // Size of the actual image.
     Clip clip;
@@ -21,8 +20,8 @@ void main(void) {
     Tile tile = tiles[image.info.layer_tile_part.y];
 
     // Our location within the image
-    vec2 local_pos = mix(image.local_rect.xy,
-                         image.local_rect.xy + image.local_rect.zw,
+    vec2 local_pos = mix(image.info.local_rect.xy,
+                         image.info.local_rect.xy + image.info.local_rect.zw,
                          aPosition.xy);
 
     local_pos = clamp(local_pos,
@@ -44,7 +43,7 @@ void main(void) {
     vPos = local_clamped_pos.xy;
 
     // vUv will contain how many times this image has wrapped around the image size.
-    vUv = (local_clamped_pos.xy - image.local_rect.xy) / image.stretch_size.xy;
+    vUv = (local_clamped_pos.xy - image.info.local_rect.xy) / image.stretch_size.xy;
     vTextureSize = image.st_rect.zw - image.st_rect.xy;
     vTextureOffset = image.st_rect.xy;
 

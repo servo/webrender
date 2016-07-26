@@ -5,7 +5,6 @@
 
 struct Border {
     PrimitiveInfo info;
-    vec4 local_rect;
     vec4 color0;
     vec4 color1;
     vec4 radii;
@@ -38,8 +37,8 @@ void main(void) {
     Layer layer = layers[border.info.layer_tile_part.x];
     Tile tile = tiles[border.info.layer_tile_part.y];
 
-    vec2 p0 = floor(0.5 + border.local_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
-    vec2 p1 = p0 + border.local_rect.zw;
+    vec2 p0 = floor(0.5 + border.info.local_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
+    vec2 p1 = p0 + border.info.local_rect.zw;
 
     vec2 local_pos = mix(p0, p1, aPosition.xy);
 
@@ -70,46 +69,46 @@ void main(void) {
     switch (vBorderPart) {
         // These are the layer tile part PrimitivePart as uploaded by the tiling.rs
         case PST_TOP_LEFT:
-            x0 = border.local_rect.x;
-            y0 = border.local_rect.y;
+            x0 = border.info.local_rect.x;
+            y0 = border.info.local_rect.y;
             // These are width / heights
-            x1 = border.local_rect.x + border.local_rect.z;
-            y1 = border.local_rect.y + border.local_rect.w;
+            x1 = border.info.local_rect.x + border.info.local_rect.z;
+            y1 = border.info.local_rect.y + border.info.local_rect.w;
 
             // The radius here is the border-radius. This is 0, so vRefPoint will
             // just be the top left (x,y) corner.
             vRefPoint = vec2(x0, y0) + vRadii.xy;
             break;
         case PST_TOP_RIGHT:
-            x0 = border.local_rect.x + border.local_rect.z;
-            y0 = border.local_rect.y;
-            x1 = border.local_rect.x;
-            y1 = border.local_rect.y + border.local_rect.w;
+            x0 = border.info.local_rect.x + border.info.local_rect.z;
+            y0 = border.info.local_rect.y;
+            x1 = border.info.local_rect.x;
+            y1 = border.info.local_rect.y + border.info.local_rect.w;
             vRefPoint = vec2(x0, y0) + vec2(-vRadii.x, vRadii.y);
             break;
         case PST_BOTTOM_LEFT:
-            x0 = border.local_rect.x;
-            y0 = border.local_rect.y + border.local_rect.w;
-            x1 = border.local_rect.x + border.local_rect.z;
-            y1 = border.local_rect.y;
+            x0 = border.info.local_rect.x;
+            y0 = border.info.local_rect.y + border.info.local_rect.w;
+            x1 = border.info.local_rect.x + border.info.local_rect.z;
+            y1 = border.info.local_rect.y;
             vRefPoint = vec2(x0, y0) + vec2(vRadii.x, -vRadii.y);
             break;
         case PST_BOTTOM_RIGHT:
-            x0 = border.local_rect.x;
-            y0 = border.local_rect.y;
-            x1 = border.local_rect.x + border.local_rect.z;
-            y1 = border.local_rect.y + border.local_rect.w;
+            x0 = border.info.local_rect.x;
+            y0 = border.info.local_rect.y;
+            x1 = border.info.local_rect.x + border.info.local_rect.z;
+            y1 = border.info.local_rect.y + border.info.local_rect.w;
             vRefPoint = vec2(x1, y1) + vec2(-vRadii.x, -vRadii.y);
             break;
         case PST_TOP:
         case PST_LEFT:
         case PST_BOTTOM:
         case PST_RIGHT:
-            vRefPoint = border.local_rect.xy;
-            x0 = border.local_rect.x;
-            y0 = border.local_rect.y;
-            x1 = border.local_rect.x + border.local_rect.z;
-            y1 = border.local_rect.y + border.local_rect.w;
+            vRefPoint = border.info.local_rect.xy;
+            x0 = border.info.local_rect.x;
+            y0 = border.info.local_rect.y;
+            x1 = border.info.local_rect.x + border.info.local_rect.z;
+            y1 = border.info.local_rect.y + border.info.local_rect.w;
             break;
     }
 
@@ -131,7 +130,7 @@ void main(void) {
     vDevicePos = clamped_pos;
 
     // These are in device space
-    vBorders = vec4(border.local_rect.x, border.local_rect.y,
-                    border.local_rect.z,
-                    border.local_rect.w) * uDevicePixelRatio;
+    vBorders = vec4(border.info.local_rect.x, border.info.local_rect.y,
+                    border.info.local_rect.z,
+                    border.info.local_rect.w) * uDevicePixelRatio;
 }

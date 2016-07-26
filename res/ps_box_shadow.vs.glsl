@@ -5,7 +5,6 @@
 
 struct BoxShadow {
 	PrimitiveInfo info;
-	vec4 local_rect;
 	vec4 color;
     vec4 border_radii_blur_radius_inverted;
     vec4 bs_rect;
@@ -23,8 +22,8 @@ void main(void) {
 
     vColor = bs.color;
 
-    vec2 local_pos = mix(bs.local_rect.xy,
-                         bs.local_rect.xy + bs.local_rect.zw,
+    vec2 local_pos = mix(bs.info.local_rect.xy,
+                         bs.info.local_rect.xy + bs.info.local_rect.zw,
                          aPosition.xy);
 
     vec4 world_pos = layer.transform * vec4(local_pos, 0, 1);

@@ -5,7 +5,6 @@
 
 struct Image {
     PrimitiveInfo info;
-    vec4 local_rect;
     vec4 st_rect;
 };
 
@@ -18,10 +17,10 @@ void main(void) {
     Layer layer = layers[image.info.layer_tile_part.x];
     Tile tile = tiles[image.info.layer_tile_part.y];
 
-    vec2 p0 = image.local_rect.xy;
-    vec2 p1 = image.local_rect.xy + vec2(image.local_rect.z, 0.0);
-    vec2 p2 = image.local_rect.xy + vec2(0.0, image.local_rect.w);
-    vec2 p3 = image.local_rect.xy + image.local_rect.zw;
+    vec2 p0 = image.info.local_rect.xy;
+    vec2 p1 = image.info.local_rect.xy + vec2(image.info.local_rect.z, 0.0);
+    vec2 p2 = image.info.local_rect.xy + vec2(0.0, image.info.local_rect.w);
+    vec2 p3 = image.info.local_rect.xy + image.info.local_rect.zw;
 
     vec4 t0 = layer.transform * vec4(p0, 0, 1);
     vec4 t1 = layer.transform * vec4(p1, 0, 1);
@@ -50,10 +49,10 @@ void main(void) {
 
     vec3 layer_pos = get_layer_pos(clamped_pos / uDevicePixelRatio, image.info.layer_tile_part.x);
 
-    vRect = image.local_rect;
+    vRect = image.info.local_rect;
     vPos = layer_pos;
 
-    vec2 f = (layer_pos.xy - image.local_rect.xy) / image.local_rect.zw;
+    vec2 f = (layer_pos.xy - image.info.local_rect.xy) / image.info.local_rect.zw;
 
     vUv = mix(image.st_rect.xy,
               image.st_rect.zw,

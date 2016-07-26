@@ -8,7 +8,6 @@
 
 struct Gradient {
 	PrimitiveInfo info;
-    vec4 local_rect;
     vec4 color0;
     vec4 color1;
     uvec4 dir;
@@ -23,8 +22,8 @@ void main(void) {
     Layer layer = layers[gradient.info.layer_tile_part.x];
     Tile tile = tiles[gradient.info.layer_tile_part.y];
 
-    vec2 local_pos = mix(gradient.local_rect.xy,
-                         gradient.local_rect.xy + gradient.local_rect.zw,
+    vec2 local_pos = mix(gradient.info.local_rect.xy,
+                         gradient.info.local_rect.xy + gradient.info.local_rect.zw,
                          aPosition.xy);
 
     vec4 world_pos = layer.transform * vec4(local_pos, 0, 1);
@@ -37,7 +36,7 @@ void main(void) {
 
     vec4 local_clamped_pos = layer.inv_transform * vec4(clamped_pos / uDevicePixelRatio, 0, 1);
 
-    vec2 f = (local_clamped_pos.xy - gradient.local_rect.xy) / gradient.local_rect.zw;
+    vec2 f = (local_clamped_pos.xy - gradient.info.local_rect.xy) / gradient.info.local_rect.zw;
 
     vec2 final_pos = clamped_pos + tile.target_rect.xy - tile.actual_rect.xy;
 
