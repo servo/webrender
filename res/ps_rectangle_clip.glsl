@@ -7,4 +7,4 @@
 varying vec4 vColor;
 varying vec2 vPos;
 flat varying vec4 vClipRect;
-flat varying float vClipRadius;	// TODO: Expand to handle irregular radii!
+flat varying vec4 vClipRadius;

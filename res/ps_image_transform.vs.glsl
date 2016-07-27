@@ -6,6 +6,7 @@
 struct Image {
     PrimitiveInfo info;
     vec4 st_rect;
+    vec4 stretch_size;  // Size of the actual image.
 };
 
 layout(std140) uniform Items {

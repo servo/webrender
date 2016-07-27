@@ -7,7 +7,12 @@ float offset(int index) {
 }
 
 float linearStep(float lo, float hi, float x) {
-    return clamp((x - lo) / (hi - lo), 0.0, 1.0);
+    float d = hi - lo;
+    float v = x - lo;
+    if (d != 0.0) {
+        v /= d;
+    }
+    return clamp(v, 0.0, 1.0);
 }
 
 void main(void) {

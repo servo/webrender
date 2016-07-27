@@ -3,5 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 void main(void) {
+    do_clip(vPos, vClipRect, vClipRadius);
     oFragColor = mix(vColor0, vColor1, vF);
 }

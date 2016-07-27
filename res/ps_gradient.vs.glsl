@@ -11,6 +11,7 @@ struct Gradient {
     vec4 color0;
     vec4 color1;
     uvec4 dir;
+    Clip clip;
 };
 
 layout(std140) uniform Items {
@@ -31,6 +32,13 @@ void main(void) {
             vF = f.y;
             break;
     }
+
+    vClipRect = vec4(gradient.clip.rect.xy, gradient.clip.rect.xy + gradient.clip.rect.zw);
+    vClipRadius = vec4(gradient.clip.top_left.outer_inner_radius.x,
+                       gradient.clip.top_right.outer_inner_radius.x,
+                       gradient.clip.bottom_right.outer_inner_radius.x,
+                       gradient.clip.bottom_left.outer_inner_radius.x);
+    vPos = vi.local_clamped_pos;
 
     vColor0 = gradient.color0;
     vColor1 = gradient.color1;

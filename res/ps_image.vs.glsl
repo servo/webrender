@@ -6,7 +6,7 @@
 struct Image {
     PrimitiveInfo info;
     vec4 st_rect;       // Location of the image texture in the texture atlas.
-    vec2 stretch_size;  // Size of the actual image.
+    vec4 stretch_size;  // Size of the actual image.
 };
 
 layout(std140) uniform Items {
