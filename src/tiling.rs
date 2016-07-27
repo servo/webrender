@@ -554,6 +554,7 @@ impl TransformedRect {
             TransformedRectKind::Complex
         };
 
+/*
         match kind {
             TransformedRectKind::AxisAligned => {
                 let v0 = transform.transform_point(&rect.origin);
@@ -582,6 +583,7 @@ impl TransformedRect {
                 }
             }
             TransformedRectKind::Complex => {
+                */
                 let vertices = [
                     transform.transform_point4d(&Point4D::new(rect.origin.x,
                                                               rect.origin.y,
@@ -628,8 +630,9 @@ impl TransformedRect {
                     bounding_rect: screen_rect_dp,
                     kind: kind,
                 }
+                /*
             }
-        }
+        }*/
     }
 }
 
@@ -1124,6 +1127,43 @@ impl Primitive {
                     }
 
                     let piece_rect = Rect::new(piece_origin, piece_size);
+                    let mut clip = Clip::invalid(piece_rect);
+
+                    if let Some(ref prim_clip) = self.complex_clip {
+                        if i == 0 {
+                            clip.top_left.outer_radius_x = prim_clip.top_left.outer_radius_x;
+                            clip.top_left.outer_radius_y = prim_clip.top_left.outer_radius_y;
+
+                            match details.kind {
+                                GradientType::Horizontal => {
+                                    clip.bottom_left.outer_radius_x = prim_clip.bottom_left.outer_radius_x;
+                                    clip.bottom_left.outer_radius_y = prim_clip.bottom_left.outer_radius_y;
+                                }
+                                GradientType::Vertical => {
+                                    clip.top_right.outer_radius_x = prim_clip.top_right.outer_radius_x;
+                                    clip.top_right.outer_radius_y = prim_clip.top_right.outer_radius_y;
+                                }
+                                GradientType::Rotated => unreachable!(),
+                            }
+                        }
+
+                        if i == stops.len() - 2 {
+                            clip.bottom_right.outer_radius_x = prim_clip.bottom_right.outer_radius_x;
+                            clip.bottom_right.outer_radius_y = prim_clip.bottom_right.outer_radius_y;
+
+                            match details.kind {
+                                GradientType::Horizontal => {
+                                    clip.top_right.outer_radius_x = prim_clip.top_right.outer_radius_x;
+                                    clip.top_right.outer_radius_y = prim_clip.top_right.outer_radius_y;
+                                }
+                                GradientType::Vertical => {
+                                    clip.bottom_left.outer_radius_x = prim_clip.bottom_left.outer_radius_x;
+                                    clip.bottom_left.outer_radius_y = prim_clip.bottom_left.outer_radius_y;
+                                }
+                                GradientType::Rotated => unreachable!(),
+                            }
+                        }
+                    }
 
                     data.push(PackedAlignedGradientPrimitive {
                         common: PackedPrimitiveInfo {
@@ -1138,6 +1178,7 @@ impl Primitive {
                         color1: next_stop.color,
                         padding: [0, 0, 0],
                         kind: details.kind,
+                        clip: clip,
                     });
                 }
 
@@ -1157,10 +1198,24 @@ impl Primitive {
                     let mut stops: [f32; MAX_STOPS_PER_ANGLE_GRADIENT] = unsafe { mem::uninitialized() };
                     let mut colors: [ColorF; MAX_STOPS_PER_ANGLE_GRADIENT] = unsafe { mem::uninitialized() };
 
-                    for (stop_index, stop) in src_stops.iter().enumerate() {
-                        stops[stop_index] = stop.offset;
-                        colors[stop_index] = stop.color;
-                    }
+                    let sx = details.start_point.x;
+                    let ex = details.end_point.x;
+
+                    let (sp, ep) = if sx > ex {
+                        for (stop_index, stop) in src_stops.iter().rev().enumerate() {
+                            stops[stop_index] = 1.0 - stop.offset;
+                            colors[stop_index] = stop.color;
+                        }
+
+                        (details.end_point, details.start_point)
+                    } else {
+                        for (stop_index, stop) in src_stops.iter().enumerate() {
+                            stops[stop_index] = stop.offset;
+                            colors[stop_index] = stop.color;
+                        }
+
+                        (details.start_point, details.end_point)
+                    };
 
                     data.push(PackedAngleGradientPrimitive {
                         common: PackedPrimitiveInfo {
@@ -1172,8 +1227,8 @@ impl Primitive {
                             local_rect: self.rect,
                         },
                         padding: [0, 0, 0],
-                        start_point: details.start_point,
-                        end_point: details.end_point,
+                        start_point: sp,
+                        end_point: ep,
                         stop_count: src_stops.len() as u32,
                         stops: stops,
                         colors: colors,
@@ -1354,6 +1409,7 @@ pub struct PackedAlignedGradientPrimitive {
     color1: ColorF,
     kind: GradientType,
     padding: [u32; 3],
+    clip: Clip,
 }
 
 // TODO(gw): Angle gradient only support 8 stops due
@@ -1742,6 +1798,18 @@ pub struct ClipCorner {
     inner_radius_y: f32,
 }
 
+impl ClipCorner {
+    fn invalid(rect: Rect<f32>) -> ClipCorner {
+        ClipCorner {
+            rect: rect,
+            outer_radius_x: 0.0,
+            outer_radius_y: 0.0,
+            inner_radius_x: 0.0,
+            inner_radius_y: 0.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Clip {
     rect: Rect<f32>,
@@ -1828,6 +1896,16 @@ impl Clip {
                 inner_radius_x: 0.0,
                 inner_radius_y: 0.0,
             },
+        }
+    }
+
+    fn invalid(rect: Rect<f32>) -> Clip {
+        Clip {
+            rect: rect,
+            top_left: ClipCorner::invalid(rect),
+            top_right: ClipCorner::invalid(rect),
+            bottom_left: ClipCorner::invalid(rect),
+            bottom_right: ClipCorner::invalid(rect),
         }
     }
 }

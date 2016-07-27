@@ -475,7 +475,7 @@ impl Frame {
                            composition_ops: Vec<CompositionOp>) {
         context.builder.push_layer(sc_rect,
                                    info.current_clip_rect,
-                                   info.local_transform,
+                                   info.world_transform,
                                    info.pipeline_id,
                                    info.actual_scroll_layer_id,
                                    info.offset_from_current_layer,
