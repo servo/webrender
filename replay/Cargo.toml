@@ -1,0 +1,17 @@
+[package]
+name = "replay"
+version = "0.1.0"
+authors = ["lana <alanamramjit@gmail.com>"]
+
+[dependencies.webrender_traits]
+git = "https://github.com/servo/webrender_traits"
+
+[dependencies.webrender]
+git = "https://github.com/servo/webrender"
+
+[dependencies]
+bincode = "*"
+byteorder = "*"
+euclid = "*"
+gleam = "*"
+glutin = "*"
