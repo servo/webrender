@@ -101,8 +101,10 @@ void main(void) {
     vColor1 = border.color1;
 
     // Local space
-    vLocalPos = local_clamped_pos.xy;
-    vDevicePos = clamped_pos;
+    vLocalPos = vi.local_clamped_pos.xy;
+
+    // These are in device space
+    vDevicePos = vi.global_clamped_pos;
 
     // These are in device space
     vBorders = vec4(border.info.local_rect.x, border.info.local_rect.y,

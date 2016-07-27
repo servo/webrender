@@ -107,6 +107,7 @@ struct Rect {
 struct VertexInfo {
     Rect local_rect;
     vec2 local_clamped_pos;
+    vec2 global_clamped_pos;
 };
 
 VertexInfo write_vertex(PrimitiveInfo info) {
@@ -140,7 +141,7 @@ VertexInfo write_vertex(PrimitiveInfo info) {
 
     gl_Position = uTransform * vec4(final_pos, 0, 1);
 
-    VertexInfo vi = VertexInfo(Rect(p0, p1), local_clamped_pos.xy);
+    VertexInfo vi = VertexInfo(Rect(p0, p1), local_clamped_pos.xy, clamped_pos.xy);
     return vi;
 }
 #endif
