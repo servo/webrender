@@ -392,7 +392,7 @@ pub enum SpecificDisplayListItem {
     Iframe(IframeInfo),
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct StackingContext {
     pub servo_id: ServoStackingContextId,
     pub scroll_layer_id: Option<ScrollLayerId>,
