@@ -70,7 +70,7 @@ fn main() {
 		enable_aa: false,
 		enable_msaa: false,
 		enable_profiler: false,
-		save_display_lists: false,
+		enable_recording: false,
 	};
 
 	let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);	

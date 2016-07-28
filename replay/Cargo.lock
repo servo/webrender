@@ -7,8 +7,8 @@ dependencies = [
  "euclid 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
  "glutin 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "webrender 0.1.0 (git+https://github.com/servo/webrender)",
- "webrender_traits 0.2.0 (git+https://github.com/servo/webrender_traits)",
+ "webrender 0.1.0 (git+https://github.com/alanamramjit/webrender)",
+ "webrender_traits 0.2.0 (git+https://github.com/alanamramjit/webrender_traits)",
 ]
 
 [[package]]
@@ -646,7 +646,7 @@ dependencies = [
 [[package]]
 name = "webrender"
 version = "0.1.0"
-source = "git+https://github.com/servo/webrender#cbf5fe95e7b6fe52c5a513e390e7cfdb26b1a43b"
+source = "git+https://github.com/alanamramjit/webrender#fd38ab8994be39ba194f56182af8c467b4f9f929"
 dependencies = [
  "app_units 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "bit-set 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -665,6 +665,23 @@ dependencies = [
  "scoped_threadpool 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.35 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender_traits 0.2.0 (git+https://github.com/servo/webrender_traits)",
+]
+
+[[package]]
+name = "webrender_traits"
+version = "0.2.0"
+source = "git+https://github.com/alanamramjit/webrender_traits#e1b35f3d3ca984cfe79c3a04a43847b1a5979bb4"
+dependencies = [
+ "app_units 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "core-graphics 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "euclid 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gleam 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
+ "heapsize 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ipc-channel 0.4.0 (git+https://github.com/servo/ipc-channel)",
+ "offscreen_gl_context 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 0.7.14 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_codegen 0.7.14 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
