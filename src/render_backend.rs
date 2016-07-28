@@ -2,7 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use byteorder::{LittleEndian, ReadBytesExt};
+use bincode;
+use bincode::serde::serialize;
+use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
 use frame::Frame;
 use internal_types::{FontTemplate, ResultMsg, RendererFrame};
 use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
@@ -11,7 +13,8 @@ use resource_cache::ResourceCache;
 use scene::Scene;
 use scoped_threadpool;
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
+use std::fs::{self, File, OpenOptions};
+use std::io::{Cursor, Read, Write};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
@@ -42,6 +45,8 @@ pub struct RenderBackend {
     webrender_context_handle: Option<NativeGLContextHandle>,
     webgl_contexts: HashMap<WebGLContextId, GLContext<NativeGLContext>>,
     current_bound_webgl_context_id: Option<WebGLContextId>,
+
+    enable_recording: bool,
 }
 
 impl RenderBackend {
@@ -55,7 +60,8 @@ impl RenderBackend {
                notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
                webrender_context_handle: Option<NativeGLContextHandle>,
                config: FrameBuilderConfig,
-               debug: bool) -> RenderBackend {
+               debug: bool,
+               enable_recording: bool) -> RenderBackend {
         let mut thread_pool = scoped_threadpool::Pool::new(8);
 
         let resource_cache = ResourceCache::new(&mut thread_pool,
@@ -78,24 +84,31 @@ impl RenderBackend {
             webrender_context_handle: webrender_context_handle,
             webgl_contexts: HashMap::new(),
             current_bound_webgl_context_id: None,
-        }
+            enable_recording: enable_recording,
+	}
     }
 
     pub fn run(&mut self) {
         let mut profile_counters = BackendProfileCounters::new();
-
-        loop {
+        let mut frame_counter:u32 = 0;
+	if self.enable_recording{
+		fs::create_dir("record").ok();
+	}
+	loop {
             let msg = self.api_rx.recv();
             match msg {
                 Ok(msg) => {
-                    match msg {
-                        ApiMsg::AddRawFont(id, bytes) => {
-                            profile_counters.font_templates.inc(bytes.len());
+		   if self.enable_recording{
+			write_msg(frame_counter, &msg);
+		   } 
+        	    match msg {
+                        ApiMsg::AddRawFont(id, bytes) => {  
+                           profile_counters.font_templates.inc(bytes.len());
                             self.resource_cache
                                 .add_font_template(id, FontTemplate::Raw(Arc::new(bytes)));
                         }
-                        ApiMsg::AddNativeFont(id, native_font_handle) => {
-                            self.resource_cache
+                        ApiMsg::AddNativeFont(id, native_font_handle) => {   
+			        self.resource_cache
                                 .add_font_template(id, FontTemplate::Native(native_font_handle));
                         }
                         ApiMsg::AddImage(id, width, height, format, bytes) => {
@@ -131,7 +144,7 @@ impl RenderBackend {
                                                        viewport_size,
                                                        stacking_contexts,
                                                        display_lists,
-                                                       auxiliary_lists_descriptor) => {
+                                                       auxiliary_lists_descriptor) => { 
                             for (id, stacking_context) in stacking_contexts.into_iter() {
                                 self.scene.add_stacking_context(id,
                                                                 pipeline_id,
@@ -160,6 +173,13 @@ impl RenderBackend {
                                 self.payload_tx.send(&leftover_auxiliary_data[..]).unwrap()
                             }
 
+			    if self.enable_recording{
+				let filename = format!("record/frame_{}.bin", frame_counter);	
+				let mut file = OpenOptions::new().append(true).open(filename).unwrap();
+				file.write_u32::<LittleEndian>(auxiliary_data.len() as u32).ok();
+			    	file.write(&auxiliary_data).ok();
+				frame_counter += 1;
+			    }	
                             let mut auxiliary_data = Cursor::new(&mut auxiliary_data[8..]);
                             for (display_list_id,
                                  display_list_descriptor) in display_lists.into_iter() {
@@ -191,15 +211,15 @@ impl RenderBackend {
                                                                      viewport_size,
                                                                      &mut self.resource_cache,
                                                                      auxiliary_lists);
-
+				
                                 self.build_scene();
                                 self.render()
                             });
 
                             self.publish_frame_and_notify_compositor(frame, &mut profile_counters);
                         }
-                        ApiMsg::SetRootPipeline(pipeline_id) => {
-                            let frame = profile_counters.total_time.profile(|| {
+                        ApiMsg::SetRootPipeline(pipeline_id) => {                        
+			 let frame = profile_counters.total_time.profile(|| {
                                 self.scene.set_root_pipeline_id(pipeline_id);
 
                                 self.build_scene();
@@ -417,3 +437,23 @@ impl RenderBackend {
     }
 }
 
+fn write_msg(frame: u32, msg: &ApiMsg){
+	match msg{
+		ref msg @ &ApiMsg::AddRawFont(..) | 
+		ref msg @ &ApiMsg::AddNativeFont(..) |
+		ref msg @ &ApiMsg::AddImage(..) |
+		ref msg @ &ApiMsg::SetRootPipeline(..) |
+		ref msg @ &ApiMsg::UpdateImage(..) |
+		ref msg @ &ApiMsg::Scroll(..)|
+		ref msg @ &ApiMsg::TickScrollingBounce|
+		ref msg @ &ApiMsg::DeleteImage(..)|
+		ref msg @ &ApiMsg::SetRootStackingContext(..) =>{
+			let filename = format!("record/frame_{}.bin", frame);
+			let mut file = OpenOptions::new().append(true).create(true).open(filename).unwrap();
+			let buff = serialize(msg, bincode::SizeLimit::Infinite).unwrap();
+			file.write_u32::<LittleEndian>(buff.len() as u32).unwrap();
+			file.write(&buff).unwrap();
+		}
+		_ => {}
+	}
+}	

@@ -10,6 +10,7 @@ serde_macros = ["webrender_traits/serde_macros"]
 [dependencies]
 app_units = "0.2.5"
 bit-set = "0.4"
+bincode = "0.5.9"
 byteorder = "0.5"
 euclid = "0.7.1"
 fnv="1.0"

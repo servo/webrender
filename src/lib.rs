@@ -95,6 +95,7 @@ extern crate core_text;
 extern crate freetype;
 
 extern crate app_units;
+extern crate bincode;
 extern crate euclid;
 extern crate fnv;
 extern crate gleam;
