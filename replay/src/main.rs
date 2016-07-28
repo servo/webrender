@@ -14,6 +14,7 @@ use std::fs::File;
 use std::io::{BufReader};
 use std::io::prelude::*;
 use std::path::PathBuf;
+use std::env;
 use webrender_traits::{ApiMsg, PipelineId};
 
 struct Notifier {
@@ -54,6 +55,14 @@ fn read_struct(reader: &mut BufReader<File>) -> Option<Vec<u8>>{
 }
 
 fn main() {
+	let args:Vec<String> = env::args().collect();
+	if args.len() != 2{
+		println!("{}  <resources_path>", args[0]);
+		return;
+	}
+	let resource_path = &args[1];
+	let resources = "resources.bin";
+	let display_lists = "display_list.bin";
 	let window = glutin::WindowBuilder::new()
 		.with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGl, (3,2)))
 		.build()
@@ -66,7 +75,7 @@ fn main() {
 	}
 
 	let opts = webrender::RendererOptions{device_pixel_ratio: 2.0,
-		resource_path: PathBuf::from("/Users/lramjit/work/servo/resources/shaders"),
+		resource_path: PathBuf::from(resource_path),
 		enable_aa: false,
 		enable_msaa: false,
 		enable_profiler: false,
@@ -77,7 +86,7 @@ fn main() {
 	let mut api = sender.create_api();
 	let notifier = Box::new(Notifier::new(window.create_window_proxy()));
 	renderer.set_render_notifier(notifier);
-	let (mut width, mut height) = window.get_inner_size().unwrap();
+	let (mut width, mut height) = window.get_outer_size().unwrap();
 	width *= window.hidpi_factor() as u32;
 	height *= window.hidpi_factor() as u32;
 	//read and send the resources file
@@ -88,8 +97,8 @@ fn main() {
 		let msg:ApiMsg = deserialize(&buffer).unwrap();
 		api.api_sender.send(msg).unwrap()
 	}		
-	window.swap_buffers();
-	let f = File::open("display_list.bin").unwrap();
+
+	let f = File::open(display_lists).unwrap();
 	let mut reader = BufReader::new(f);
 	if let Some(buff) = read_struct(&mut reader){
 		let msg:ApiMsg = deserialize(&buff).unwrap();
@@ -106,6 +115,7 @@ fn main() {
 					gl::clear(gl::COLOR_BUFFER_BIT);
 					renderer.update();
 					renderer.render(Size2D::new(width, height as u32));
+					window.swap_buffers();
 			}
 			glutin::Event::KeyboardInput(glutin::ElementState::Released, _, _) =>{
 				if let Some(buff) = read_struct(&mut reader){
