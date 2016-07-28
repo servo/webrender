@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use webrender_traits::{ApiMsg, PipelineId};
 
 struct Notifier {
-	window_proxy: glutin::WindowProxy,
+window_proxy: glutin::WindowProxy,
 }
 
 impl Notifier {
@@ -77,8 +77,9 @@ fn main() {
 	let mut api = sender.create_api();
 	let notifier = Box::new(Notifier::new(window.create_window_proxy()));
 	renderer.set_render_notifier(notifier);
-	let (width, height) = window.get_inner_size().unwrap();
-
+	let (mut width, mut height) = window.get_inner_size().unwrap();
+	width *= window.hidpi_factor() as u32;
+	height *= window.hidpi_factor() as u32;
 	//read and send the resources file
 	let f = File::open("resources.bin").unwrap();
 	let mut reader = BufReader::new(f);
@@ -87,7 +88,7 @@ fn main() {
 		let msg:ApiMsg = deserialize(&buffer).unwrap();
 		api.api_sender.send(msg).unwrap()
 	}		
-
+	window.swap_buffers();
 	let f = File::open("display_list.bin").unwrap();
 	let mut reader = BufReader::new(f);
 	if let Some(buff) = read_struct(&mut reader){
@@ -104,10 +105,21 @@ fn main() {
 				glutin::Event::Awakened => { 				
 					gl::clear(gl::COLOR_BUFFER_BIT);
 					renderer.update();
-					renderer.render(Size2D::new(width *2, height*2));
-					window.swap_buffers();
+					renderer.render(Size2D::new(width, height as u32));
+			}
+			glutin::Event::KeyboardInput(glutin::ElementState::Released, _, _) =>{
+				if let Some(buff) = read_struct(&mut reader){
+					let msg:ApiMsg = deserialize(&buff).unwrap();
+					api.api_sender.send(msg).unwrap();
 				}
+
+				if let Some(auxiliary_data) = read_struct(&mut reader){
+					api.payload_sender.send(&auxiliary_data[..]).unwrap();
+				}
+
+			}
 			_ => ()
 		}
 	}
 }
+
