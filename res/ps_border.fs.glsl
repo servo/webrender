@@ -51,10 +51,8 @@ vec4 draw_dotted_edge() {
   vec2 finalPosition = positionInTile + destTile;
 
   vec4 white = vec4(1.0, 1.0, 1.0, 1.0);
-  vec3 black = vec3(0.0, 0.0, 0.0);
   // See if we should draw a circle or not
-  vec4 circleColor = drawCircle(finalPosition, tileCenter, radius, black);
-
+  vec4 circleColor = drawCircle(finalPosition, tileCenter, radius, vVerticalColor.xyz);
   return mix(white, circleColor, circleColor.a);
 }
 
@@ -90,14 +88,10 @@ vec4 draw_dashed_edge(bool is_corner) {
   vec2 target_rect_index = floor(position / dist_between_dashes);
   vec2 target_rect_loc = target_rect_index * dist_between_dashes;
   target_rect_loc += get_dashed_nudge_factor(dash_size, is_corner);
-
-  // TODO correct for center spacing.
   vec4 target_rect = vec4(target_rect_loc, dash_size);
 
   vec4 white = vec4(1.0, 1.0, 1.0, 1.0);
-  vec3 black = vec3(0.0, 0.0, 0.0);
-  vec4 target_colored_rect = drawRect(position, target_rect, black);
-
+  vec4 target_colored_rect = drawRect(position, target_rect, vVerticalColor.xyz);
   return mix(white, target_colored_rect, target_colored_rect.a);
 }
 
@@ -149,6 +143,28 @@ void draw_dashed_border(void) {
   }
 }
 
+void draw_inset_border(void) {
+  switch (vBorderPart) {
+    // These are the layer tile part PrimitivePart as uploaded by the tiling.rs
+    case PST_TOP_LEFT:
+    case PST_TOP_RIGHT:
+    case PST_TOP:
+    case PST_LEFT:
+    {
+      oFragColor = vec4(0, 0, 0, 1.0);
+      break;
+    }
+    case PST_BOTTOM_LEFT:
+    case PST_BOTTOM_RIGHT:
+    case PST_BOTTOM:
+    case PST_RIGHT:
+    {
+      oFragColor = vec4(1, 0, 0, 1.0);
+      break;
+    }
+  }
+}
+
 void main(void) {
 	if (vRadii.x > 0.0 &&
 		(distance(vRefPoint, vLocalPos) > vRadii.x ||
@@ -167,11 +183,17 @@ void main(void) {
       draw_dotted_border();
       break;
     }
+    case BORDER_STYLE_OUTSET:
+    case BORDER_STYLE_INSET:
+    {
+      draw_inset_border();
+      break;
+    }
     case BORDER_STYLE_NONE:
     case BORDER_STYLE_SOLID:
     {
       float color = step(0.0, vF);
-      oFragColor = mix(vColor1, vColor0, color);
+      oFragColor = mix(vHorizontalColor, vVerticalColor, color);
       break;
     }
     default:

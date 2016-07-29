@@ -8,9 +8,9 @@
 varying float vF;   // This is a weighting as we get closer to the bottom right corner?
 
 // These are not changing.
-flat varying vec4 vColor0;  // The border color
-flat varying vec4 vColor1;  // The border color
-flat varying vec4 vRadii;   // The border radius from CSS border-radius
+flat varying vec4 vVerticalColor;     // The vertical color, e.g. top/bottom
+flat varying vec4 vHorizontalColor;   // The horizontal color e.g. left/right
+flat varying vec4 vRadii;             // The border radius from CSS border-radius
 
 // These are in device space
 varying vec2 vLocalPos;     // The clamped position in local space.

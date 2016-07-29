@@ -5,8 +5,8 @@
 
 struct Border {
     PrimitiveInfo info;
-    vec4 color0;
-    vec4 color1;
+    vec4 verticalColor;
+    vec4 horizontalColor;
     vec4 radii;
     uvec4 border_style_trbl;
 };
@@ -97,8 +97,8 @@ void main(void) {
     vF = (vi.local_clamped_pos.x - x0) * height - (vi.local_clamped_pos.y - y0) * width;
 
     // This is what was currently sent.
-    vColor0 = border.color0;
-    vColor1 = border.color1;
+    vVerticalColor = border.verticalColor;
+    vHorizontalColor = border.horizontalColor;
 
     // Local space
     vLocalPos = vi.local_clamped_pos.xy;
