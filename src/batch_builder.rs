@@ -28,14 +28,14 @@ impl BorderSideHelpers for BorderSide {
                 if self.color.r != 0.0 || self.color.g != 0.0 || self.color.b != 0.0 {
                     self.color.scale_rgb(scale_factor_1)
                 } else {
-                    ColorF::new(black_color_1, black_color_1, black_color_1, self.color.a)
+                    ColorF::new(black_color_0, black_color_0, black_color_0, self.color.a)
                 }
             }
             BorderStyle::Outset => {
                 if self.color.r != 0.0 || self.color.g != 0.0 || self.color.b != 0.0 {
                     self.color.scale_rgb(scale_factor_0)
                 } else {
-                    ColorF::new(black_color_0, black_color_0, black_color_0, self.color.a)
+                    ColorF::new(black_color_1, black_color_1, black_color_1, self.color.a)
                 }
             }
             _ => self.color,
