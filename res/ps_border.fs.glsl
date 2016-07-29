@@ -143,28 +143,6 @@ void draw_dashed_border(void) {
   }
 }
 
-void draw_inset_border(void) {
-  switch (vBorderPart) {
-    // These are the layer tile part PrimitivePart as uploaded by the tiling.rs
-    case PST_TOP_LEFT:
-    case PST_TOP_RIGHT:
-    case PST_TOP:
-    case PST_LEFT:
-    {
-      oFragColor = vec4(0, 0, 0, 1.0);
-      break;
-    }
-    case PST_BOTTOM_LEFT:
-    case PST_BOTTOM_RIGHT:
-    case PST_BOTTOM:
-    case PST_RIGHT:
-    {
-      oFragColor = vec4(1, 0, 0, 1.0);
-      break;
-    }
-  }
-}
-
 void main(void) {
 	if (vRadii.x > 0.0 &&
 		(distance(vRefPoint, vLocalPos) > vRadii.x ||
@@ -186,7 +164,8 @@ void main(void) {
     case BORDER_STYLE_OUTSET:
     case BORDER_STYLE_INSET:
     {
-      draw_inset_border();
+      float color = step(0.0, vF);
+      oFragColor = mix(vVerticalColor, vHorizontalColor, color);
       break;
     }
     case BORDER_STYLE_NONE:
