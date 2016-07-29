@@ -917,8 +917,8 @@ impl Primitive {
                                                        details.tl_inner.x,
                                                        details.tl_inner.y),
                     },
-                    color0: details.top_color,
-                    color1: details.left_color,
+                    vertical_color: details.top_color,
+                    horizontal_color: details.left_color,
                     outer_radius_x: details.radius.top_left.width,
                     outer_radius_y: details.radius.top_left.height,
                     inner_radius_x: inner_radius.top_left.width,
@@ -941,8 +941,8 @@ impl Primitive {
                                                        details.tr_outer.x,
                                                        details.tr_inner.y),
                     },
-                    color0: details.right_color,
-                    color1: details.top_color,
+                    vertical_color: details.top_color,
+                    horizontal_color: details.right_color,
                     outer_radius_x: details.radius.top_right.width,
                     outer_radius_y: details.radius.top_right.height,
                     inner_radius_x: inner_radius.top_right.width,
@@ -965,8 +965,8 @@ impl Primitive {
                                                        details.bl_inner.x,
                                                        details.bl_outer.y),
                     },
-                    color0: details.left_color,
-                    color1: details.bottom_color,
+                    vertical_color: details.bottom_color,
+                    horizontal_color: details.left_color,
                     outer_radius_x: details.radius.bottom_left.width,
                     outer_radius_y: details.radius.bottom_left.height,
                     inner_radius_x: inner_radius.bottom_left.width,
@@ -989,8 +989,8 @@ impl Primitive {
                                                        details.br_outer.x,
                                                        details.br_outer.y),
                     },
-                    color0: details.right_color,
-                    color1: details.bottom_color,
+                    vertical_color: details.bottom_color,
+                    horizontal_color: details.right_color,
                     outer_radius_x: details.radius.bottom_right.width,
                     outer_radius_y: details.radius.bottom_right.height,
                     inner_radius_x: inner_radius.bottom_right.width,
@@ -1013,8 +1013,8 @@ impl Primitive {
                                                        details.tl_outer.x + details.left_width,
                                                        details.bl_inner.y),
                     },
-                    color0: details.left_color,
-                    color1: details.left_color,
+                    vertical_color: details.left_color,
+                    horizontal_color: details.left_color,
                     outer_radius_x: 0.0,
                     outer_radius_y: 0.0,
                     inner_radius_x: 0.0,
@@ -1037,8 +1037,8 @@ impl Primitive {
                                                        details.br_outer.x,
                                                        details.br_inner.y),
                     },
-                    color0: details.right_color,
-                    color1: details.right_color,
+                    vertical_color: details.right_color,
+                    horizontal_color: details.right_color,
                     outer_radius_x: 0.0,
                     outer_radius_y: 0.0,
                     inner_radius_x: 0.0,
@@ -1061,8 +1061,8 @@ impl Primitive {
                                                        details.tr_inner.x,
                                                        details.tr_outer.y + details.top_width),
                     },
-                    color0: details.top_color,
-                    color1: details.top_color,
+                    vertical_color: details.top_color,
+                    horizontal_color: details.top_color,
                     outer_radius_x: 0.0,
                     outer_radius_y: 0.0,
                     inner_radius_x: 0.0,
@@ -1085,8 +1085,8 @@ impl Primitive {
                                                        details.br_inner.x,
                                                        details.br_outer.y),
                     },
-                    color0: details.bottom_color,
-                    color1: details.bottom_color,
+                    vertical_color: details.bottom_color,
+                    horizontal_color: details.bottom_color,
                     outer_radius_x: 0.0,
                     outer_radius_y: 0.0,
                     inner_radius_x: 0.0,
@@ -1428,8 +1428,8 @@ pub struct PackedAngleGradientPrimitive {
 #[derive(Debug, Clone)]
 pub struct PackedBorderPrimitive {
     common: PackedPrimitiveInfo,
-    color0: ColorF,
-    color1: ColorF,
+    vertical_color:     ColorF,
+    horizontal_color:   ColorF,
     outer_radius_x: f32,
     outer_radius_y: f32,
     inner_radius_x: f32,
@@ -2144,7 +2144,9 @@ impl FrameBuilder {
             BorderStyle::Solid |
             BorderStyle::None |
             BorderStyle::Dotted |
-            BorderStyle::Dashed => {
+            BorderStyle::Dashed |
+            BorderStyle::Inset |
+            BorderStyle::Outset => {
                 return true;
             }
             _ => {
@@ -2187,8 +2189,12 @@ impl FrameBuilder {
                                     rect.origin.y + rect.size.height);
         let br_inner = br_outer - Point2D::new(radius.bottom_right.width.max(right.width),
                                                radius.bottom_right.height.max(bottom.width));
+        println!("Left color is: {:?}", left.color);
+        println!("Right color is: {:?}", right.color);
+        println!("Top color is: {:?}", top.color);
+        println!("Bottom color is: {:?}", bottom.color);
 
-        // These don't seem to do anything right now.
+        // These colors are used during inset/outset scaling.
         let left_color = left.border_color(1.0, 2.0/3.0, 0.3, 0.7);
         let top_color = top.border_color(1.0, 2.0/3.0, 0.3, 0.7);
         let right_color = right.border_color(2.0/3.0, 1.0, 0.7, 0.3);
