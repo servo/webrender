@@ -138,7 +138,7 @@ impl AlphaBatcher {
         self.tasks.push(task);
     }
 
-    fn build(&mut self, ctx: &RenderTargetContext) {
+    fn build(&mut self, packed_primitive_cache: &PackedPrimitiveCache, ctx: &RenderTargetContext) {
         for _ in 0..ctx.layer_store.len() {
             self.layer_to_ubo_map.push(None);
         }
@@ -149,124 +149,116 @@ impl AlphaBatcher {
         loop {
             // Pull next primitive
             let mut batch = None;
-
             for (task_index, task) in self.tasks.iter_mut().enumerate() {
-                if let Some(next_item) = task.items.pop() {
-                    match next_item {
-                        AlphaRenderItem::Composite(info) => {
-                            batch = Some(PrimitiveBatch::composite(task.child_rects[0],
-                                                                   task.child_rects[1],
-                                                                   task.target_rect,
-                                                                   info));
-                            break;
-                        }
-                        AlphaRenderItem::Blend(child_index, opacity) => {
-                            batch = Some(PrimitiveBatch::blend(task.child_rects[child_index],
+                let next_item = match task.items.pop() {
+                    Some(next_item) => next_item,
+                    None => continue,
+                };
+                match next_item {
+                    AlphaRenderItem::Composite(info) => {
+                        batch = Some(PrimitiveBatch::composite(task.child_rects[0],
+                                                               task.child_rects[1],
                                                                task.target_rect,
-                                                               opacity));
-                            break;
-                        }
-                        AlphaRenderItem::Primitive(sc_index, prim_index) => {
-                            // See if this task fits into the tile UBO
-                            let layer = &ctx.layer_store[sc_index.0];
-                            let prim = &ctx.prim_store[prim_index.0];
-                            let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
-                            let auxiliary_lists = ctx.pipeline_auxiliary_lists.get(&layer.pipeline_id)
-                                                                              .expect("No auxiliary lists?!");
-                            let (layer_ubo_index, index_in_layer_ubo) = AlphaBatcher::add_layer_to_ubo(&mut self.layer_ubos,
-                                                                                                       &mut self.layer_to_ubo_map,
-                                                                                                       sc_index,
-                                                                                                       ctx);
-                            let (tile_ubo_index, index_in_tile_ubo) = AlphaBatcher::add_tile_to_ubo(&mut self.tile_ubos,
-                                                                                                    &mut self.tile_to_ubo_map,
-                                                                                                    TaskIndex(task_index),
-                                                                                                    task,
-                                                                                                    ctx);
-                            let mut new_batch = PrimitiveBatch::new(prim,
-                                                                    transform_kind,
-                                                                    layer_ubo_index,
-                                                                    tile_ubo_index);
-                            let ok = prim.pack(&mut new_batch,
-                                               index_in_layer_ubo,
-                                               index_in_tile_ubo,
-                                               auxiliary_lists,
-                                               transform_kind,
-                                               ctx);
-                            debug_assert!(ok);
-                            batch = Some(new_batch);
-                            break;
-                        }
+                                                               info));
+                        break;
+                    }
+                    AlphaRenderItem::Blend(child_index, opacity) => {
+                        batch = Some(PrimitiveBatch::blend(task.child_rects[child_index],
+                                                           task.target_rect,
+                                                           opacity));
+                        break;
+                    }
+                    AlphaRenderItem::Primitive(sc_index, prim_index) => {
+                        // See if this task fits into the tile UBO
+                        let layer = &ctx.layer_store[sc_index.0];
+                        let prim = &ctx.prim_store[prim_index.0];
+                        let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
+                        let (layer_ubo_index, index_in_layer_ubo) =
+                            AlphaBatcher::add_layer_to_ubo(&mut self.layer_ubos,
+                                                           &mut self.layer_to_ubo_map,
+                                                           sc_index,
+                                                           ctx);
+                        let (tile_ubo_index, index_in_tile_ubo) =
+                            AlphaBatcher::add_tile_to_ubo(&mut self.tile_ubos,
+                                                          &mut self.tile_to_ubo_map,
+                                                          TaskIndex(task_index),
+                                                          task,
+                                                          ctx);
+                        let mut new_batch = PrimitiveBatch::new(prim,
+                                                                transform_kind,
+                                                                layer_ubo_index,
+                                                                tile_ubo_index);
+                        let ok = packed_primitive_cache.add_to_batch(prim_index,
+                                                                     &mut new_batch,
+                                                                     index_in_layer_ubo,
+                                                                     index_in_tile_ubo,
+                                                                     transform_kind);
+                        debug_assert!(ok);
+                        batch = Some(new_batch);
+                        break;
                     }
                 }
             }
 
-            match batch {
-                Some(mut batch) => {
-                    for (task_index, task) in self.tasks.iter_mut().enumerate() {
-                        loop {
-                            match task.items.pop() {
-                                Some(next_item) => {
-                                    match next_item {
-                                        AlphaRenderItem::Composite(info) => {
-                                            if !batch.pack_composite(task.child_rects[0],
-                                                                     task.child_rects[1],
-                                                                     task.target_rect,
-                                                                     info) {
-                                                task.items.push(next_item);
-                                                break;
-                                            }
-                                        }
-                                        AlphaRenderItem::Blend(child_index, opacity) => {
-                                            if !batch.pack_blend(task.child_rects[child_index],
-                                                                 task.target_rect,
-                                                                 opacity) {
-                                                task.items.push(next_item);
-                                                break;
-                                            }
-                                        }
-                                        AlphaRenderItem::Primitive(sc_index, prim_index) => {
-                                            let layer = &ctx.layer_store[sc_index.0];
-                                            let prim = &ctx.prim_store[prim_index.0];
-                                            let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
-                                            let auxiliary_lists = ctx.pipeline_auxiliary_lists.get(&layer.pipeline_id)
-                                                                                              .expect("No auxiliary lists?!");
-                                            let (layer_ubo_index, index_in_layer_ubo) = AlphaBatcher::add_layer_to_ubo(&mut self.layer_ubos,
-                                                                                                                       &mut self.layer_to_ubo_map,
-                                                                                                                       sc_index,
-                                                                                                                       ctx);
-                                            let (tile_ubo_index, index_in_tile_ubo) = AlphaBatcher::add_tile_to_ubo(&mut self.tile_ubos,
-                                                                                                                    &mut self.tile_to_ubo_map,
-                                                                                                                    TaskIndex(task_index),
-                                                                                                                    task,
-                                                                                                                    ctx);
+            let mut batch = match batch {
+                Some(batch) => batch,
+                None => break,
+            };
+            for (task_index, task) in self.tasks.iter_mut().enumerate() {
+                loop {
+                    let next_item = match task.items.pop() {
+                        Some(next_item) => next_item,
+                        None => break,
+                    };
+                    match next_item {
+                        AlphaRenderItem::Composite(info) => {
+                            if !batch.pack_composite(task.child_rects[0],
+                                                     task.child_rects[1],
+                                                     task.target_rect,
+                                                     info) {
+                                task.items.push(next_item);
+                                break;
+                            }
+                        }
+                        AlphaRenderItem::Blend(child_index, opacity) => {
+                            if !batch.pack_blend(task.child_rects[child_index],
+                                                 task.target_rect,
+                                                 opacity) {
+                                task.items.push(next_item);
+                                break;
+                            }
+                        }
+                        AlphaRenderItem::Primitive(sc_index, prim_index) => {
+                            let layer = &ctx.layer_store[sc_index.0];
+                            let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
+                            let (layer_ubo_index, index_in_layer_ubo) =
+                                AlphaBatcher::add_layer_to_ubo(&mut self.layer_ubos,
+                                                               &mut self.layer_to_ubo_map,
+                                                               sc_index,
+                                                               ctx);
+                            let (tile_ubo_index, index_in_tile_ubo) =
+                                AlphaBatcher::add_tile_to_ubo(&mut self.tile_ubos,
+                                                              &mut self.tile_to_ubo_map,
+                                                              TaskIndex(task_index),
+                                                              task,
+                                                              ctx);
 
-                                            if layer_ubo_index != batch.layer_ubo_index ||
-                                               tile_ubo_index != batch.tile_ubo_index ||
-                                               !prim.pack(&mut batch,
-                                                          index_in_layer_ubo,
-                                                          index_in_tile_ubo,
-                                                          auxiliary_lists,
-                                                          transform_kind,
-                                                          ctx) {
-                                                task.items.push(next_item);
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                                None => {
-                                    break;
-                                }
+                            if layer_ubo_index != batch.layer_ubo_index ||
+                               tile_ubo_index != batch.tile_ubo_index ||
+                               !packed_primitive_cache.add_to_batch(prim_index,
+                                                                    &mut batch,
+                                                                    index_in_layer_ubo,
+                                                                    index_in_tile_ubo,
+                                                                    transform_kind) {
+                                task.items.push(next_item);
+                                break;
                             }
                         }
                     }
-
-                    self.batches.push(batch);
-                }
-                None => {
-                    break;
                 }
             }
+
+            self.batches.push(batch);
         }
     }
 }
@@ -276,7 +268,6 @@ struct RenderTargetContext<'a> {
     prim_store: &'a Vec<Primitive>,
     resource_cache: &'a ResourceCache,
     device_pixel_ratio: f32,
-    pipeline_auxiliary_lists: &'a HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>,
     frame_id: FrameId,
     alpha_batch_max_tiles: usize,
     alpha_batch_max_layers: usize,
@@ -305,7 +296,7 @@ impl RenderTarget {
         self.tasks.push(task);
     }
 
-    fn build(&mut self, ctx: &RenderTargetContext) {
+    fn build(&mut self, packed_primitive_cache: &PackedPrimitiveCache, ctx: &RenderTargetContext) {
         // Step through each task, adding to batches as appropriate.
 
         for task in self.tasks.drain(..) {
@@ -331,7 +322,7 @@ impl RenderTarget {
         }
 
         for ab in &mut self.alpha_batchers {
-            ab.build(ctx);
+            ab.build(packed_primitive_cache, ctx);
         }
     }
 }
@@ -368,9 +359,9 @@ impl RenderPhase {
         }
     }
 
-    fn build(&mut self, ctx: &RenderTargetContext) {
+    fn build(&mut self, packed_primitive_cache: &PackedPrimitiveCache, ctx: &RenderTargetContext) {
         for target in &mut self.targets {
-            target.build(ctx);
+            target.build(packed_primitive_cache, ctx);
         }
     }
 }
@@ -716,6 +707,17 @@ enum PrimitiveDetails {
     BoxShadow(BoxShadowPrimitive),
 }
 
+#[derive(Copy, Clone, Debug)]
+struct LayerPackedPrimitiveRangeStartOffsets {
+    rectangles: usize,
+    rectangles_clip: usize,
+    borders: usize,
+    box_shadows: usize,
+    text: usize,
+    images: usize,
+    gradients: usize,
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct PrimitiveIndex(usize);
 
@@ -729,49 +731,21 @@ struct Primitive {
 
 impl Primitive {
     fn pack(&self,
-            batch: &mut PrimitiveBatch,
-            layer_index_in_ubo: u32,
-            tile_index_in_ubo: u32,
+            index: PrimitiveIndex,
+            cache: &mut PackedPrimitiveCache,
             auxiliary_lists: &AuxiliaryLists,
-            transform_kind: TransformedRectKind,
-            ctx: &RenderTargetContext) -> bool {
-        if transform_kind != batch.transform_kind {
-            return false;
-        }
-
-        match (&mut batch.data, &self.details) {
-            (&mut PrimitiveBatchData::Blend(..), _) => false,
-            (&mut PrimitiveBatchData::Composite(..), _) => false,
-            (&mut PrimitiveBatchData::Rectangles(ref mut data), &PrimitiveDetails::Rectangle(ref details)) => {
-                match self.complex_clip {
-                    Some(..) => {
-                        false
-                    }
-                    None => {
-                        data.push(PackedRectanglePrimitive {
-                            common: PackedPrimitiveInfo {
-                                padding: 0,
-                                tile_index: tile_index_in_ubo,
-                                layer_index: layer_index_in_ubo,
-                                part: PrimitivePart::Invalid,
-                                local_clip_rect: self.local_clip_rect,
-                                local_rect: self.rect,
-                            },
-                            color: details.color,
-                        });
-                        true
-                    }
-                }
-            }
-            (&mut PrimitiveBatchData::Rectangles(..), _) => false,
-            (&mut PrimitiveBatchData::RectanglesClip(ref mut data), &PrimitiveDetails::Rectangle(ref details)) => {
+            ctx: &RenderTargetContext) {
+        // TODO(pcwalton): Only pack visible primitives!
+        cache.init_packed_primitive(index);
+        match self.details {
+            PrimitiveDetails::Rectangle(ref details) => {
                 match self.complex_clip {
                     Some(ref clip) => {
-                        data.push(PackedRectanglePrimitiveClip {
+                        let packed = PackedPrimitive::RectangleClip(PackedRectanglePrimitiveClip {
                             common: PackedPrimitiveInfo {
                                 padding: 0,
-                                tile_index: tile_index_in_ubo,
-                                layer_index: layer_index_in_ubo,
+                                tile_index: 0,
+                                layer_index: 0,
                                 part: PrimitivePart::Invalid,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: self.rect,
@@ -779,101 +753,51 @@ impl Primitive {
                             color: details.color,
                             clip: (**clip).clone(),
                         });
-
-                        true
+                        cache.add_packed_primitive(index, packed, TextureId(0))
                     }
                     None => {
-                        false
-                    }
-                }
-            }
-            (&mut PrimitiveBatchData::RectanglesClip(..), _) => false,
-            (&mut PrimitiveBatchData::Image(ref mut data), &PrimitiveDetails::Image(ref details)) => {
-                match self.complex_clip {
-                    Some(..) => {
-                        false
-                    }
-                    None => {
-                        let (texture_id, uv_rect, stretch_size) = match details.kind {
-                            ImagePrimitiveKind::Image(image_key, image_rendering, stretch_size) => {
-                                let info = ctx.resource_cache.get_image(image_key,
-                                                                        image_rendering,
-                                                                        ctx.frame_id);
-                                (info.texture_id, info.uv_rect(), stretch_size)
-                            }
-                            ImagePrimitiveKind::WebGL(context_id) => {
-                                let texture_id = ctx.resource_cache.get_webgl_texture(&context_id);
-                                let uv = RectUv {
-                                    top_left: Point2D::new(0.0, 1.0),
-                                    top_right: Point2D::new(1.0, 1.0),
-                                    bottom_left: Point2D::zero(),
-                                    bottom_right: Point2D::new(1.0, 0.0),
-                                };
-                                (texture_id, uv, self.rect.size)
-                            }
-                        };
-
-                        // TODO(gw): Tidy the support for batch breaks up...
-                        if batch.color_texture_id != TextureId(0) &&
-                           batch.color_texture_id != texture_id {
-                            return false;
-                        }
-                        batch.color_texture_id = texture_id;
-
-                        data.push(PackedImagePrimitive {
+                        let packed = PackedPrimitive::Rectangle(PackedRectanglePrimitive {
                             common: PackedPrimitiveInfo {
                                 padding: 0,
-                                tile_index: tile_index_in_ubo,
-                                layer_index: layer_index_in_ubo,
+                                tile_index: 0,
+                                layer_index: 0,
                                 part: PrimitivePart::Invalid,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: self.rect,
                             },
-                            st0: uv_rect.top_left,
-                            st1: uv_rect.bottom_right,
-                            stretch_size: stretch_size,
-                            padding: [0, 0],
+                            color: details.color,
                         });
-
-                        true
+                        cache.add_packed_primitive(index, packed, TextureId(0))
                     }
                 }
             }
-            (&mut PrimitiveBatchData::Image(..), _) => false,
-            (&mut PrimitiveBatchData::ImageClip(ref mut data), &PrimitiveDetails::Image(ref details)) => {
-                match self.complex_clip {
-                    Some(ref clip) => {
-                        let (texture_id, uv_rect, stretch_size) = match details.kind {
-                            ImagePrimitiveKind::Image(image_key, image_rendering, stretch_size) => {
-                                let info = ctx.resource_cache.get_image(image_key,
-                                                                        image_rendering,
-                                                                        ctx.frame_id);
-                                (info.texture_id, info.uv_rect(), stretch_size)
-                            }
-                            ImagePrimitiveKind::WebGL(context_id) => {
-                                let texture_id = ctx.resource_cache.get_webgl_texture(&context_id);
-                                let uv = RectUv {
-                                    top_left: Point2D::new(0.0, 1.0),
-                                    top_right: Point2D::new(1.0, 1.0),
-                                    bottom_left: Point2D::zero(),
-                                    bottom_right: Point2D::new(1.0, 0.0),
-                                };
-                                (texture_id, uv, self.rect.size)
-                            }
+            PrimitiveDetails::Image(ref details) => {
+                let (texture_id, uv_rect, stretch_size) = match details.kind {
+                    ImagePrimitiveKind::Image(image_key, image_rendering, stretch_size) => {
+                        let info = ctx.resource_cache.get_image(image_key,
+                                                                image_rendering,
+                                                                ctx.frame_id);
+                        (info.texture_id, info.uv_rect(), stretch_size)
+                    }
+                    ImagePrimitiveKind::WebGL(context_id) => {
+                        let texture_id = ctx.resource_cache.get_webgl_texture(&context_id);
+                        let uv = RectUv {
+                            top_left: Point2D::new(0.0, 1.0),
+                            top_right: Point2D::new(1.0, 1.0),
+                            bottom_left: Point2D::zero(),
+                            bottom_right: Point2D::new(1.0, 0.0),
                         };
+                        (texture_id, uv, self.rect.size)
+                    }
+                };
 
-                        // TODO(gw): Tidy the support for batch breaks up...
-                        if batch.color_texture_id != TextureId(0) &&
-                           batch.color_texture_id != texture_id {
-                            return false;
-                        }
-                        batch.color_texture_id = texture_id;
-
-                        data.push(PackedImagePrimitiveClip {
+                let packed = match self.complex_clip {
+                    Some(ref clip) => {
+                        PackedPrimitive::ImageClip(PackedImagePrimitiveClip {
                             common: PackedPrimitiveInfo {
                                 padding: 0,
-                                tile_index: tile_index_in_ubo,
-                                layer_index: layer_index_in_ubo,
+                                tile_index: 0,
+                                layer_index: 0,
                                 part: PrimitivePart::Invalid,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: self.rect,
@@ -883,33 +807,47 @@ impl Primitive {
                             stretch_size: stretch_size,
                             padding: [0, 0],
                             clip: (**clip).clone(),
-                        });
-
-                        true
+                        })
                     }
                     None => {
-                        false
+                         PackedPrimitive::Image(PackedImagePrimitive {
+                            common: PackedPrimitiveInfo {
+                                padding: 0,
+                                tile_index: 0,
+                                layer_index: 0,
+                                part: PrimitivePart::Invalid,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: self.rect,
+                            },
+                            st0: uv_rect.top_left,
+                            st1: uv_rect.bottom_right,
+                            stretch_size: stretch_size,
+                            padding: [0, 0],
+                        })
                     }
-                }
+                };
+
+                cache.add_packed_primitive(index, packed, texture_id)
             }
-            (&mut PrimitiveBatchData::ImageClip(..), _) => false,
-            (&mut PrimitiveBatchData::Borders(ref mut data), &PrimitiveDetails::Border(ref details)) => {
+            PrimitiveDetails::Border(ref details) => {
                 let inner_radius = BorderRadius {
                     top_left: Size2D::new(details.radius.top_left.width - details.left_width,
                                           details.radius.top_left.width - details.left_width),
                     top_right: Size2D::new(details.radius.top_right.width - details.right_width,
                                            details.radius.top_right.width - details.right_width),
-                    bottom_left: Size2D::new(details.radius.bottom_left.width - details.left_width,
-                                             details.radius.bottom_left.width - details.left_width),
-                    bottom_right: Size2D::new(details.radius.bottom_right.width - details.right_width,
-                                              details.radius.bottom_right.width - details.right_width),
+                    bottom_left:
+                        Size2D::new(details.radius.bottom_left.width - details.left_width,
+                                    details.radius.bottom_left.width - details.left_width),
+                    bottom_right:
+                        Size2D::new(details.radius.bottom_right.width - details.right_width,
+                                    details.radius.bottom_right.width - details.right_width),
                 };
 
-                data.push(PackedBorderPrimitive {
+                cache.add_packed_primitive(index, PackedPrimitive::Border(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
                         padding: 0,
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
+                        tile_index: 0,
+                        layer_index: 0,
                         part: PrimitivePart::TopLeft,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(details.tl_outer.x,
@@ -927,13 +865,13 @@ impl Primitive {
                     right_style: details.right_style as u32,
                     bottom_style: details.bottom_style as u32,
                     left_style: details.bottom_style as u32,
-                });
+                }), TextureId(0));
 
-                data.push(PackedBorderPrimitive {
+                cache.add_packed_primitive(index, PackedPrimitive::Border(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
                         padding: 0,
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
+                        tile_index: 0,
+                        layer_index: 0,
                         part: PrimitivePart::TopRight,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(details.tr_inner.x,
@@ -951,13 +889,13 @@ impl Primitive {
                     right_style: details.right_style as u32,
                     bottom_style: details.bottom_style as u32,
                     left_style: details.bottom_style as u32,
-                });
+                }), TextureId(0));
 
-                data.push(PackedBorderPrimitive {
+                cache.add_packed_primitive(index, PackedPrimitive::Border(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
                         padding: 0,
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
+                        tile_index: 0,
+                        layer_index: 0,
                         part: PrimitivePart::BottomLeft,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(details.bl_outer.x,
@@ -975,13 +913,13 @@ impl Primitive {
                     right_style: details.right_style as u32,
                     bottom_style: details.bottom_style as u32,
                     left_style: details.bottom_style as u32,
-                });
+                }), TextureId(0));
 
-                data.push(PackedBorderPrimitive {
+                cache.add_packed_primitive(index, PackedPrimitive::Border(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
                         padding: 0,
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
+                        tile_index: 0,
+                        layer_index: 0,
                         part: PrimitivePart::BottomRight,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(details.br_inner.x,
@@ -999,13 +937,13 @@ impl Primitive {
                     right_style: details.right_style as u32,
                     bottom_style: details.bottom_style as u32,
                     left_style: details.bottom_style as u32,
-                });
+                }), TextureId(0));
 
-                data.push(PackedBorderPrimitive {
+                cache.add_packed_primitive(index, PackedPrimitive::Border(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
                         padding: 0,
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
+                        tile_index: 0,
+                        layer_index: 0,
                         part: PrimitivePart::Left,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(details.tl_outer.x,
@@ -1023,13 +961,13 @@ impl Primitive {
                     right_style: details.right_style as u32,
                     bottom_style: details.bottom_style as u32,
                     left_style: details.bottom_style as u32,
-                });
+                }), TextureId(0));
 
-                data.push(PackedBorderPrimitive {
+                cache.add_packed_primitive(index, PackedPrimitive::Border(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
                         padding: 0,
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
+                        tile_index: 0,
+                        layer_index: 0,
                         part: PrimitivePart::Right,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(details.tr_outer.x - details.right_width,
@@ -1047,13 +985,13 @@ impl Primitive {
                     right_style: details.right_style as u32,
                     bottom_style: details.bottom_style as u32,
                     left_style: details.bottom_style as u32,
-                });
+                }), TextureId(0));
 
-                data.push(PackedBorderPrimitive {
+                cache.add_packed_primitive(index, PackedPrimitive::Border(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
                         padding: 0,
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
+                        tile_index: 0,
+                        layer_index: 0,
                         part: PrimitivePart::Top,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(details.tl_inner.x,
@@ -1071,13 +1009,13 @@ impl Primitive {
                     right_style: details.right_style as u32,
                     bottom_style: details.bottom_style as u32,
                     left_style: details.bottom_style as u32,
-                });
+                }), TextureId(0));
 
-                data.push(PackedBorderPrimitive {
+                cache.add_packed_primitive(index, PackedPrimitive::Border(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
                         padding: 0,
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
+                        tile_index: 0,
+                        layer_index: 0,
                         part: PrimitivePart::Bottom,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(details.bl_inner.x,
@@ -1095,150 +1033,169 @@ impl Primitive {
                     right_style: details.right_style as u32,
                     bottom_style: details.bottom_style as u32,
                     left_style: details.bottom_style as u32,
-                });
-
-                true
+                }), TextureId(0));
             }
-            (&mut PrimitiveBatchData::Borders(..), _) => false,
-            (&mut PrimitiveBatchData::AlignedGradient(ref mut data), &PrimitiveDetails::Gradient(ref details)) => {
-                if details.kind == GradientType::Rotated {
-                    return false;
-                }
-
-                let stops = auxiliary_lists.gradient_stops(&details.stops_range);
-                for i in 0..(stops.len() - 1) {
-                    let (prev_stop, next_stop) = (&stops[i], &stops[i + 1]);
-                    let piece_origin;
-                    let piece_size;
-                    match details.kind {
-                        GradientType::Horizontal => {
-                            let prev_x = util::lerp(details.start_point.x, details.end_point.x, prev_stop.offset);
-                            let next_x = util::lerp(details.start_point.x, details.end_point.x, next_stop.offset);
-                            piece_origin = Point2D::new(prev_x, self.rect.origin.y);
-                            piece_size = Size2D::new(next_x - prev_x, self.rect.size.height);
-                        }
-                        GradientType::Vertical => {
-                            let prev_y = util::lerp(details.start_point.y, details.end_point.y, prev_stop.offset);
-                            let next_y = util::lerp(details.start_point.y, details.end_point.y, next_stop.offset);
-                            piece_origin = Point2D::new(self.rect.origin.x, prev_y);
-                            piece_size = Size2D::new(self.rect.size.width, next_y - prev_y);
-                        }
-                        GradientType::Rotated => unreachable!(),
-                    }
-
-                    let piece_rect = Rect::new(piece_origin, piece_size);
-                    let mut clip = Clip::invalid(piece_rect);
-
-                    if let Some(ref prim_clip) = self.complex_clip {
-                        if i == 0 {
-                            clip.top_left.outer_radius_x = prim_clip.top_left.outer_radius_x;
-                            clip.top_left.outer_radius_y = prim_clip.top_left.outer_radius_y;
-
+            PrimitiveDetails::Gradient(ref details) => {
+                match details.kind {
+                    GradientType::Horizontal | GradientType::Vertical => {
+                        let stops = auxiliary_lists.gradient_stops(&details.stops_range);
+                        for i in 0..(stops.len() - 1) {
+                            let (prev_stop, next_stop) = (&stops[i], &stops[i + 1]);
+                            let piece_origin;
+                            let piece_size;
                             match details.kind {
                                 GradientType::Horizontal => {
-                                    clip.bottom_left.outer_radius_x = prim_clip.bottom_left.outer_radius_x;
-                                    clip.bottom_left.outer_radius_y = prim_clip.bottom_left.outer_radius_y;
+                                    let prev_x = util::lerp(details.start_point.x,
+                                                            details.end_point.x,
+                                                            prev_stop.offset);
+                                    let next_x = util::lerp(details.start_point.x,
+                                                            details.end_point.x,
+                                                            next_stop.offset);
+                                    piece_origin = Point2D::new(prev_x, self.rect.origin.y);
+                                    piece_size = Size2D::new(next_x - prev_x,
+                                                             self.rect.size.height);
                                 }
                                 GradientType::Vertical => {
-                                    clip.top_right.outer_radius_x = prim_clip.top_right.outer_radius_x;
-                                    clip.top_right.outer_radius_y = prim_clip.top_right.outer_radius_y;
+                                    let prev_y = util::lerp(details.start_point.y,
+                                                            details.end_point.y,
+                                                            prev_stop.offset);
+                                    let next_y = util::lerp(details.start_point.y,
+                                                            details.end_point.y,
+                                                            next_stop.offset);
+                                    piece_origin = Point2D::new(self.rect.origin.x, prev_y);
+                                    piece_size = Size2D::new(self.rect.size.width, next_y - prev_y);
                                 }
                                 GradientType::Rotated => unreachable!(),
                             }
-                        }
 
-                        if i == stops.len() - 2 {
-                            clip.bottom_right.outer_radius_x = prim_clip.bottom_right.outer_radius_x;
-                            clip.bottom_right.outer_radius_y = prim_clip.bottom_right.outer_radius_y;
+                            let piece_rect = Rect::new(piece_origin, piece_size);
+                            let mut clip = Clip::invalid(piece_rect);
 
-                            match details.kind {
-                                GradientType::Horizontal => {
-                                    clip.top_right.outer_radius_x = prim_clip.top_right.outer_radius_x;
-                                    clip.top_right.outer_radius_y = prim_clip.top_right.outer_radius_y;
+                            if let Some(ref prim_clip) = self.complex_clip {
+                                if i == 0 {
+                                    clip.top_left.outer_radius_x = prim_clip.top_left
+                                                                            .outer_radius_x;
+                                    clip.top_left.outer_radius_y = prim_clip.top_left
+                                                                            .outer_radius_y;
+
+                                    match details.kind {
+                                        GradientType::Horizontal => {
+                                            clip.bottom_left.outer_radius_x =
+                                                prim_clip.bottom_left.outer_radius_x;
+                                            clip.bottom_left.outer_radius_y =
+                                                prim_clip.bottom_left.outer_radius_y;
+                                        }
+                                        GradientType::Vertical => {
+                                            clip.top_right.outer_radius_x =
+                                                prim_clip.top_right.outer_radius_x;
+                                            clip.top_right.outer_radius_y =
+                                                prim_clip.top_right.outer_radius_y;
+                                        }
+                                        GradientType::Rotated => unreachable!(),
+                                    }
                                 }
-                                GradientType::Vertical => {
-                                    clip.bottom_left.outer_radius_x = prim_clip.bottom_left.outer_radius_x;
-                                    clip.bottom_left.outer_radius_y = prim_clip.bottom_left.outer_radius_y;
+
+                                if i == stops.len() - 2 {
+                                    clip.bottom_right.outer_radius_x = prim_clip.bottom_right
+                                                                                .outer_radius_x;
+                                    clip.bottom_right.outer_radius_y = prim_clip.bottom_right
+                                                                                .outer_radius_y;
+
+                                    match details.kind {
+                                        GradientType::Horizontal => {
+                                            clip.top_right.outer_radius_x =
+                                                prim_clip.top_right.outer_radius_x;
+                                            clip.top_right.outer_radius_y =
+                                                prim_clip.top_right.outer_radius_y;
+                                        }
+                                        GradientType::Vertical => {
+                                            clip.bottom_left.outer_radius_x =
+                                                prim_clip.bottom_left.outer_radius_x;
+                                            clip.bottom_left.outer_radius_y =
+                                                prim_clip.bottom_left.outer_radius_y;
+                                        }
+                                        GradientType::Rotated => unreachable!(),
+                                    }
                                 }
-                                GradientType::Rotated => unreachable!(),
                             }
+
+                            cache.add_packed_primitive(
+                                index,
+                                PackedPrimitive::AlignedGradient(PackedAlignedGradientPrimitive {
+                                    common: PackedPrimitiveInfo {
+                                        padding: 0,
+                                        tile_index: 0,
+                                        layer_index: 0,
+                                        part: PrimitivePart::Bottom,
+                                        local_clip_rect: self.local_clip_rect,
+                                        local_rect: piece_rect,
+                                    },
+                                    color0: prev_stop.color,
+                                    color1: next_stop.color,
+                                    padding: [0, 0, 0],
+                                    kind: details.kind,
+                                    clip: clip,
+                                }),
+                                TextureId(0));
                         }
                     }
-
-                    data.push(PackedAlignedGradientPrimitive {
-                        common: PackedPrimitiveInfo {
-                            padding: 0,
-                            tile_index: tile_index_in_ubo,
-                            layer_index: layer_index_in_ubo,
-                            part: PrimitivePart::Bottom,
-                            local_clip_rect: self.local_clip_rect,
-                            local_rect: piece_rect,
-                        },
-                        color0: prev_stop.color,
-                        color1: next_stop.color,
-                        padding: [0, 0, 0],
-                        kind: details.kind,
-                        clip: clip,
-                    });
-                }
-
-                true
-            }
-            (&mut PrimitiveBatchData::AlignedGradient(..), _) => false,
-            (&mut PrimitiveBatchData::AngleGradient(ref mut data), &PrimitiveDetails::Gradient(ref details)) => {
-                if details.kind != GradientType::Rotated {
-                    return false;
-                }
-
-                let src_stops = auxiliary_lists.gradient_stops(&details.stops_range);
-
-                if src_stops.len() > MAX_STOPS_PER_ANGLE_GRADIENT {
-                    println!("TODO: Angle gradients with > {} stops", MAX_STOPS_PER_ANGLE_GRADIENT);
-                } else {
-                    let mut stops: [f32; MAX_STOPS_PER_ANGLE_GRADIENT] = unsafe { mem::uninitialized() };
-                    let mut colors: [ColorF; MAX_STOPS_PER_ANGLE_GRADIENT] = unsafe { mem::uninitialized() };
-
-                    let sx = details.start_point.x;
-                    let ex = details.end_point.x;
-
-                    let (sp, ep) = if sx > ex {
-                        for (stop_index, stop) in src_stops.iter().rev().enumerate() {
-                            stops[stop_index] = 1.0 - stop.offset;
-                            colors[stop_index] = stop.color;
+                    GradientType::Rotated => {
+                        let src_stops = auxiliary_lists.gradient_stops(&details.stops_range);
+                        if src_stops.len() > MAX_STOPS_PER_ANGLE_GRADIENT {
+                            println!("TODO: Angle gradients with > {} stops",
+                                     MAX_STOPS_PER_ANGLE_GRADIENT);
+                            return
                         }
 
-                        (details.end_point, details.start_point)
-                    } else {
-                        for (stop_index, stop) in src_stops.iter().enumerate() {
-                            stops[stop_index] = stop.offset;
-                            colors[stop_index] = stop.color;
-                        }
+                        let mut stops: [f32; MAX_STOPS_PER_ANGLE_GRADIENT] = unsafe {
+                            mem::uninitialized()
+                        };
+                        let mut colors: [ColorF; MAX_STOPS_PER_ANGLE_GRADIENT] = unsafe {
+                            mem::uninitialized()
+                        };
 
-                        (details.start_point, details.end_point)
-                    };
+                        let sx = details.start_point.x;
+                        let ex = details.end_point.x;
 
-                    data.push(PackedAngleGradientPrimitive {
-                        common: PackedPrimitiveInfo {
-                            padding: 0,
-                            tile_index: tile_index_in_ubo,
-                            layer_index: layer_index_in_ubo,
-                            part: PrimitivePart::Invalid,
-                            local_clip_rect: self.local_clip_rect,
-                            local_rect: self.rect,
-                        },
-                        padding: [0, 0, 0],
-                        start_point: sp,
-                        end_point: ep,
-                        stop_count: src_stops.len() as u32,
-                        stops: stops,
-                        colors: colors,
-                    });
+                        let (sp, ep) = if sx > ex {
+                            for (stop_index, stop) in src_stops.iter().rev().enumerate() {
+                                stops[stop_index] = 1.0 - stop.offset;
+                                colors[stop_index] = stop.color;
+                            }
+
+                            (details.end_point, details.start_point)
+                        } else {
+                            for (stop_index, stop) in src_stops.iter().enumerate() {
+                                stops[stop_index] = stop.offset;
+                                colors[stop_index] = stop.color;
+                            }
+
+                            (details.start_point, details.end_point)
+                        };
+
+                        cache.add_packed_primitive(
+                            index,
+                            PackedPrimitive::AngleGradient(PackedAngleGradientPrimitive {
+                                common: PackedPrimitiveInfo {
+                                    padding: 0,
+                                    tile_index: 0,
+                                    layer_index: 0,
+                                    part: PrimitivePart::Invalid,
+                                    local_clip_rect: self.local_clip_rect,
+                                    local_rect: self.rect,
+                                },
+                                padding: [0, 0, 0],
+                                start_point: sp,
+                                end_point: ep,
+                                stop_count: src_stops.len() as u32,
+                                stops: stops,
+                                colors: colors,
+                            }),
+                            TextureId(0));
+                    }
                 }
-
-                true
             }
-            (&mut PrimitiveBatchData::AngleGradient(..), _) => false,
-            (&mut PrimitiveBatchData::BoxShadows(ref mut data), &PrimitiveDetails::BoxShadow(ref details)) => {
+            PrimitiveDetails::BoxShadow(ref details) => {
                 let mut rects = Vec::new();
                 let inverted = match details.clip_mode {
                     BoxShadowClipMode::None | BoxShadowClipMode::Outset => {
@@ -1252,73 +1209,82 @@ impl Primitive {
                 };
 
                 for rect in rects {
-                    data.push(PackedBoxShadowPrimitive {
-                        common: PackedPrimitiveInfo {
-                            padding: 0,
-                            tile_index: tile_index_in_ubo,
-                            layer_index: layer_index_in_ubo,
-                            part: PrimitivePart::Invalid,
-                            local_clip_rect: self.local_clip_rect,
-                            local_rect: rect,
-                        },
-                        color: details.color,
+                    cache.add_packed_primitive(
+                        index,
+                        PackedPrimitive::BoxShadow(PackedBoxShadowPrimitive {
+                            common: PackedPrimitiveInfo {
+                                padding: 0,
+                                tile_index: 0,
+                                layer_index: 0,
+                                part: PrimitivePart::Invalid,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: rect,
+                            },
+                            color: details.color,
 
-                        border_radii: Point2D::new(details.border_radius, details.border_radius),
-                        blur_radius: details.blur_radius,
-                        inverted: inverted,
-                        bs_rect: details.bs_rect,
-                        src_rect: details.src_rect,
-                    });
+                            border_radii: Point2D::new(details.border_radius,
+                                                       details.border_radius),
+                            blur_radius: details.blur_radius,
+                            inverted: inverted,
+                            bs_rect: details.bs_rect,
+                            src_rect: details.src_rect,
+                        }),
+                        TextureId(0))
                 }
-
-                true
             }
-            (&mut PrimitiveBatchData::BoxShadows(..), _) => false,
-            (&mut PrimitiveBatchData::Text(ref mut data), &PrimitiveDetails::Text(ref details)) => {
+            PrimitiveDetails::Text(ref details) => {
                 let src_glyphs = auxiliary_lists.glyph_instances(&details.glyph_range);
                 let mut glyph_key = GlyphKey::new(details.font_key,
                                                   details.size,
                                                   details.blur_radius,
                                                   src_glyphs[0].index);
-                let blur_offset = details.blur_radius.to_f32_px() * (BLUR_INFLATION_FACTOR as f32) / 2.0;
+                let blur_offset = details.blur_radius.to_f32_px() *
+                    (BLUR_INFLATION_FACTOR as f32) / 2.0;
 
                 for glyph in src_glyphs {
                     glyph_key.index = glyph.index;
-                    let image_info = ctx.resource_cache.get_glyph(&glyph_key, ctx.frame_id);
-                    if let Some(image_info) = image_info {
-                        // TODO(gw): Need a general solution to handle multiple texture pages per tile in WR2!
-                        assert!(batch.color_texture_id == TextureId(0) ||
-                                batch.color_texture_id == image_info.texture_id);
-                        batch.color_texture_id = image_info.texture_id;
 
-                        let x = glyph.x + image_info.user_data.x0 as f32 / ctx.device_pixel_ratio - blur_offset;
-                        let y = glyph.y - image_info.user_data.y0 as f32 / ctx.device_pixel_ratio - blur_offset;
+                    let image_info = match ctx.resource_cache.get_glyph(&glyph_key, ctx.frame_id) {
+                        None => continue,
+                        Some(image_info) => image_info,
+                    };
 
-                        let width = image_info.requested_rect.size.width as f32 / ctx.device_pixel_ratio;
-                        let height = image_info.requested_rect.size.height as f32 / ctx.device_pixel_ratio;
+                    // TODO(gw): Need a general solution to handle multiple texture pages per tile
+                    // in WR2!
+                    let texture_id = image_info.texture_id;
+                    assert!(texture_id == TextureId(0) || texture_id == image_info.texture_id);
 
-                        let uv_rect = image_info.uv_rect();
+                    let x = glyph.x + image_info.user_data.x0 as f32 / ctx.device_pixel_ratio -
+                        blur_offset;
+                    let y = glyph.y - image_info.user_data.y0 as f32 / ctx.device_pixel_ratio -
+                        blur_offset;
 
-                        data.push(PackedGlyphPrimitive {
+                    let width = image_info.requested_rect.size.width as f32 /
+                        ctx.device_pixel_ratio;
+                    let height = image_info.requested_rect.size.height as f32 /
+                        ctx.device_pixel_ratio;
+
+                    let uv_rect = image_info.uv_rect();
+                    let local_rect = Rect::new(Point2D::new(x, y), Size2D::new(width, height));
+
+                    cache.add_packed_primitive(
+                        index,
+                        PackedPrimitive::Text(PackedGlyphPrimitive {
                             common: PackedPrimitiveInfo {
                                 padding: 0,
-                                tile_index: tile_index_in_ubo,
-                                layer_index: layer_index_in_ubo,
+                                tile_index: 0,
+                                layer_index: 0,
                                 part: PrimitivePart::Invalid,
                                 local_clip_rect: self.local_clip_rect,
-                                local_rect: Rect::new(Point2D::new(x, y),
-                                                      Size2D::new(width, height)),
+                                local_rect: local_rect,
                             },
                             color: details.color,
                             st0: uv_rect.top_left,
                             st1: uv_rect.bottom_right,
-                        });
-                    }
+                        }),
+                        texture_id)
                 }
-
-                true
             }
-            (&mut PrimitiveBatchData::Text(..), _) => false,
         }
     }
 }
@@ -1531,6 +1497,18 @@ pub enum PrimitiveBatchData {
     AngleGradient(Vec<PackedAngleGradientPrimitive>),
 }
 
+enum PackedPrimitive {
+    Rectangle(PackedRectanglePrimitive),
+    RectangleClip(PackedRectanglePrimitiveClip),
+    Border(PackedBorderPrimitive),
+    BoxShadow(PackedBoxShadowPrimitive),
+    Text(PackedGlyphPrimitive),
+    Image(PackedImagePrimitive),
+    ImageClip(PackedImagePrimitiveClip),
+    AlignedGradient(PackedAlignedGradientPrimitive),
+    AngleGradient(PackedAngleGradientPrimitive),
+}
+
 #[derive(Debug)]
 pub struct PrimitiveBatch {
     pub transform_kind: TransformedRectKind,
@@ -1707,30 +1685,29 @@ impl StackingContext {
                            auxiliary_lists: &AuxiliaryLists,
                            prim_store: &Vec<Primitive>) {
         for item in &self.items {
-            match item {
-                &StackingContextItem::StackingContext(..) => {}
-                &StackingContextItem::Primitive(prim_index) => {
-                    let prim = &prim_store[prim_index.0];
-                    match prim.details {
-                        PrimitiveDetails::Rectangle(..) => {}
-                        PrimitiveDetails::Gradient(..) => {}
-                        PrimitiveDetails::Border(..) => {}
-                        PrimitiveDetails::BoxShadow(..) => {}
-                        PrimitiveDetails::Image(ref details) => {
-                            match details.kind {
-                                ImagePrimitiveKind::Image(image_key, image_rendering, _) => {
-                                    resource_list.add_image(image_key, image_rendering);
-                                }
-                                ImagePrimitiveKind::WebGL(..) => {}
-                            }
+            let prim_index = match item {
+                &StackingContextItem::Primitive(prim_index) => prim_index,
+                &StackingContextItem::StackingContext(..) => continue,
+            };
+            let prim = &prim_store[prim_index.0];
+            match prim.details {
+                PrimitiveDetails::Rectangle(..) => {}
+                PrimitiveDetails::Gradient(..) => {}
+                PrimitiveDetails::Border(..) => {}
+                PrimitiveDetails::BoxShadow(..) => {}
+                PrimitiveDetails::Image(ref details) => {
+                    match details.kind {
+                        ImagePrimitiveKind::Image(image_key, image_rendering, _) => {
+                            resource_list.add_image(image_key, image_rendering);
                         }
-                        PrimitiveDetails::Text(ref details) => {
-                            let glyphs = auxiliary_lists.glyph_instances(&details.glyph_range);
-                            for glyph in glyphs {
-                                let glyph = Glyph::new(details.size, details.blur_radius, glyph.index);
-                                resource_list.add_glyph(details.font_key, glyph);
-                            }
-                        }
+                        ImagePrimitiveKind::WebGL(..) => {}
+                    }
+                }
+                PrimitiveDetails::Text(ref details) => {
+                    let glyphs = auxiliary_lists.glyph_instances(&details.glyph_range);
+                    for glyph in glyphs {
+                        let glyph = Glyph::new(details.size, details.blur_radius, glyph.index);
+                        resource_list.add_glyph(details.font_key, glyph);
                     }
                 }
             }
@@ -1975,8 +1952,7 @@ impl ScreenTile {
         }
     }
 
-    fn compile(self,
-               layer_store: &Vec<StackingContext>) -> Option<CompiledScreenTile> {
+    fn compile(self, layer_store: &Vec<StackingContext>) -> Option<CompiledScreenTile> {
         if self.prim_count == 0 {
             return None;
         }
@@ -2486,6 +2462,7 @@ impl FrameBuilder {
         (x_tile_count, y_tile_count, screen_tiles)
     }
 
+
     fn assign_prims_to_screen_tiles(&self,
                                     stacking_context_index: StackingContextIndex,
                                     x_tile_count: i32,
@@ -2599,6 +2576,56 @@ impl FrameBuilder {
         resource_cache.raster_pending_glyphs(frame_id);
     }
 
+    fn pack_primitives_for_layer(
+            &self,
+            stacking_context_index: StackingContextIndex,
+            packed_primitive_cache: &mut PackedPrimitiveCache,
+            pipeline_auxiliary_lists: &HashMap<PipelineId,
+                                               AuxiliaryLists,
+                                               BuildHasherDefault<FnvHasher>>,
+            render_target_context: &RenderTargetContext) {
+        let layer = &self.layer_store[stacking_context_index.0];
+        if !layer.is_valid {
+            return;
+        }
+
+        for item in &layer.items {
+            match item {
+                &StackingContextItem::StackingContext(sc_index) => {
+                    self.pack_primitives_for_layer(sc_index,
+                                                   packed_primitive_cache,
+                                                   pipeline_auxiliary_lists,
+                                                   render_target_context)
+                }
+                &StackingContextItem::Primitive(prim_index) => {
+                    let prim = &self.prim_store[prim_index.0];
+                    let auxiliary_lists = pipeline_auxiliary_lists.get(&layer.pipeline_id)
+                                                                  .expect("No auxiliary lists?!");
+                    prim.pack(prim_index,
+                              packed_primitive_cache,
+                              auxiliary_lists,
+                              render_target_context)
+                }
+            }
+        }
+    }
+
+    fn pack_primitives(&self,
+                       pipeline_auxiliary_lists: &HashMap<PipelineId,
+                                                          AuxiliaryLists,
+                                                          BuildHasherDefault<FnvHasher>>,
+                       render_target_context: &RenderTargetContext)
+                       -> PackedPrimitiveCache {
+        let mut packed_primitive_cache = PackedPrimitiveCache::new();
+        if !self.layer_store.is_empty() {
+            self.pack_primitives_for_layer(StackingContextIndex(0),
+                                           &mut packed_primitive_cache,
+                                           pipeline_auxiliary_lists,
+                                           render_target_context);
+        }
+        packed_primitive_cache
+    }
+
     pub fn build(&mut self,
                  resource_cache: &mut ResourceCache,
                  frame_id: FrameId,
@@ -2611,8 +2638,21 @@ impl FrameBuilder {
         self.cull_layers(&screen_rect, layer_map);
 
         let mut debug_rects = Vec::new();
+
+        self.build_resource_list(resource_cache, frame_id, pipeline_auxiliary_lists);
         let (x_tile_count, y_tile_count, mut screen_tiles) = self.create_screen_tiles();
 
+        let ctx = RenderTargetContext {
+            layer_store: &self.layer_store,
+            prim_store: &self.prim_store,
+            resource_cache: resource_cache,
+            device_pixel_ratio: self.device_pixel_ratio,
+            frame_id: frame_id,
+            alpha_batch_max_layers: self.config.max_prim_layers,
+            alpha_batch_max_tiles: self.config.max_prim_tiles,
+        };
+
+        let packed_primitive_cache = self.pack_primitives(pipeline_auxiliary_lists, &ctx);
         if !self.layer_store.is_empty() {
             let root_sc_index = StackingContextIndex(0);
             self.assign_prims_to_screen_tiles(root_sc_index,
@@ -2630,10 +2670,6 @@ impl FrameBuilder {
                 });
             }
         }
-
-        self.build_resource_list(resource_cache,
-                                 frame_id,
-                                 pipeline_auxiliary_lists);
 
         let mut clear_tiles = Vec::new();
 
@@ -2681,19 +2717,8 @@ impl FrameBuilder {
 
             phases.push(current_phase);
 
-            let ctx = RenderTargetContext {
-                layer_store: &self.layer_store,
-                prim_store: &self.prim_store,
-                resource_cache: resource_cache,
-                device_pixel_ratio: self.device_pixel_ratio,
-                frame_id: frame_id,
-                pipeline_auxiliary_lists: pipeline_auxiliary_lists,
-                alpha_batch_max_layers: self.config.max_prim_layers,
-                alpha_batch_max_tiles: self.config.max_prim_tiles,
-            };
-
             for phase in &mut phases {
-                phase.build(&ctx);
+                phase.build(&packed_primitive_cache, &ctx);
             }
         }
 
@@ -2717,3 +2742,188 @@ fn compute_box_shadow_rect(box_bounds: &Rect<f32>,
     rect.origin.y += box_offset.y;
     rect.inflate(spread_radius, spread_radius)
 }
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct PackedPrimitiveMetadata {
+    start: usize,
+    end: usize,
+    texture_id: TextureId,
+}
+
+impl PackedPrimitiveMetadata {
+    fn new(start: usize, end: usize, texture_id: TextureId) -> PackedPrimitiveMetadata {
+        PackedPrimitiveMetadata {
+            start: start,
+            end: end,
+            texture_id: texture_id,
+        }
+    }
+
+    fn none() -> PackedPrimitiveMetadata {
+        PackedPrimitiveMetadata::new(0, 0, TextureId(0))
+    }
+}
+
+/// To find the packed primitives for a primitive index, first look up the metadata within the
+/// `metadata` field, and then consult the indices defined by the range specified by that metadata
+/// in the `primitives` field.
+struct PackedPrimitiveCache {
+    /// A mapping from primitive index to range in the `primitives` vector below.
+    metadata: Vec<PackedPrimitiveMetadata>,
+    /// A list of packed primitives.
+    primitives: Vec<PackedPrimitive>,
+}
+
+impl PackedPrimitiveCache {
+    fn new() -> PackedPrimitiveCache {
+        PackedPrimitiveCache {
+            metadata: vec![],
+            primitives: vec![],
+        }
+    }
+
+    /// Reserves space for the packed primitive with the given index.
+    ///
+    /// This must be called before `add_packed_primitive` below.
+    fn init_packed_primitive(&mut self, primitive_index: PrimitiveIndex) {
+        while self.metadata.len() < primitive_index.0 + 1 {
+            self.metadata.push(PackedPrimitiveMetadata::none())
+        }
+    }
+
+    fn add_packed_primitive(&mut self,
+                            primitive_index: PrimitiveIndex,
+                            packed_primitive: PackedPrimitive,
+                            texture_id: TextureId) {
+        let mut metadata = &mut self.metadata[primitive_index.0];
+        if *metadata == PackedPrimitiveMetadata::none() {
+            metadata.start = self.primitives.len();
+        } else {
+            debug_assert!(metadata.end == self.primitives.len());
+        }
+        metadata.end = self.primitives.len() + 1;
+        metadata.texture_id = texture_id;
+
+        self.primitives.push(packed_primitive)
+    }
+
+    fn add_to_batch(&self,
+                    primitive_index: PrimitiveIndex,
+                    batch: &mut PrimitiveBatch,
+                    layer_index_in_ubo: u32,
+                    tile_index_in_ubo: u32,
+                    transform_kind: TransformedRectKind)
+                    -> bool {
+        if transform_kind != batch.transform_kind {
+            return false
+        }
+
+        // TODO(gw): Tidy the support for batch breaks up...
+        let metadata = self.metadata[primitive_index.0];
+        if metadata.texture_id != TextureId(0) {
+            if batch.color_texture_id != TextureId(0) &&
+                    batch.color_texture_id != metadata.texture_id {
+                return false
+            }
+            batch.color_texture_id = metadata.texture_id;
+        }
+
+        for packed_primitive_index in metadata.start..metadata.end {
+            match (&mut batch.data, &self.primitives[packed_primitive_index]) {
+                (&mut PrimitiveBatchData::Blend(..), _) => return false,
+                (&mut PrimitiveBatchData::Composite(..), _) => return false,
+                (&mut PrimitiveBatchData::Rectangles(ref mut data),
+                 &PackedPrimitive::Rectangle(ref rectangle)) => {
+                    // FIXME(pcwalton): Don't clone here!
+                    // TODO(pcwalton): Check rect intersection.
+                    let mut rectangle = (*rectangle).clone();
+                    rectangle.common.tile_index = tile_index_in_ubo;
+                    rectangle.common.layer_index = layer_index_in_ubo;
+                    data.push(rectangle)
+                }
+                (&mut PrimitiveBatchData::Rectangles(..), _) => return false,
+                (&mut PrimitiveBatchData::RectanglesClip(ref mut data),
+                 &PackedPrimitive::RectangleClip(ref rectangle)) => {
+                    // FIXME(pcwalton): Don't clone here!
+                    // TODO(pcwalton): Check rect intersection.
+                    let mut rectangle = (*rectangle).clone();
+                    rectangle.common.tile_index = tile_index_in_ubo;
+                    rectangle.common.layer_index = layer_index_in_ubo;
+                    data.push(rectangle)
+                }
+                (&mut PrimitiveBatchData::RectanglesClip(..), _) => return false,
+                (&mut PrimitiveBatchData::Image(ref mut data),
+                 &PackedPrimitive::Image(ref image)) => {
+                    // FIXME(pcwalton): Don't clone here!
+                    let mut image = (*image).clone();
+                    image.common.tile_index = tile_index_in_ubo;
+                    image.common.layer_index = layer_index_in_ubo;
+                    data.push(image)
+                }
+                (&mut PrimitiveBatchData::Image(..), _) => return false,
+                (&mut PrimitiveBatchData::ImageClip(ref mut data),
+                 &PackedPrimitive::ImageClip(ref image)) => {
+                    // FIXME(pcwalton): Don't clone here!
+                    // TODO(pcwalton): Check rect intersection.
+                    let mut image = (*image).clone();
+                    image.common.tile_index = tile_index_in_ubo;
+                    image.common.layer_index = layer_index_in_ubo;
+                    data.push(image)
+                }
+                (&mut PrimitiveBatchData::ImageClip(..), _) => return false,
+                (&mut PrimitiveBatchData::Borders(ref mut data),
+                 &PackedPrimitive::Border(ref border)) => {
+                    // FIXME(pcwalton): Don't clone here!
+                    // TODO(pcwalton): Check rect intersection.
+                    let mut border = (*border).clone();
+                    border.common.tile_index = tile_index_in_ubo;
+                    border.common.layer_index = layer_index_in_ubo;
+                    data.push(border)
+                }
+                (&mut PrimitiveBatchData::Borders(..), _) => return false,
+                (&mut PrimitiveBatchData::AlignedGradient(ref mut data),
+                 &PackedPrimitive::AlignedGradient(ref gradient)) => {
+                    // FIXME(pcwalton): Don't clone here!
+                    // TODO(pcwalton): Check rect intersection.
+                    let mut gradient = (*gradient).clone();
+                    gradient.common.tile_index = tile_index_in_ubo;
+                    gradient.common.layer_index = layer_index_in_ubo;
+                    data.push(gradient)
+                }
+                (&mut PrimitiveBatchData::AlignedGradient(..), _) => return false,
+                (&mut PrimitiveBatchData::AngleGradient(ref mut data),
+                 &PackedPrimitive::AngleGradient(ref gradient)) => {
+                    // FIXME(pcwalton): Don't clone here!
+                    let mut gradient = (*gradient).clone();
+                    gradient.common.tile_index = tile_index_in_ubo;
+                    gradient.common.layer_index = layer_index_in_ubo;
+                    data.push(gradient)
+                }
+                (&mut PrimitiveBatchData::AngleGradient(..), _) => return false,
+                (&mut PrimitiveBatchData::BoxShadows(ref mut data),
+                 &PackedPrimitive::BoxShadow(ref shadow)) => {
+                    // FIXME(pcwalton): Don't clone here!
+                    // TODO(pcwalton): Check rect intersection.
+                    let mut shadow = (*shadow).clone();
+                    shadow.common.tile_index = tile_index_in_ubo;
+                    shadow.common.layer_index = layer_index_in_ubo;
+                    data.push(shadow)
+                }
+                (&mut PrimitiveBatchData::BoxShadows(..), _) => return false,
+                (&mut PrimitiveBatchData::Text(ref mut data),
+                 &PackedPrimitive::Text(ref glyph)) => {
+                    // FIXME(pcwalton): Don't clone here!
+                    // TODO(pcwalton): Check rect intersection. Binary search to find the start
+                    // point, maybe?
+                    let mut glyph = (*glyph).clone();
+                    glyph.common.tile_index = tile_index_in_ubo;
+                    glyph.common.layer_index = layer_index_in_ubo;
+                    data.push(glyph)
+                }
+                (&mut PrimitiveBatchData::Text(..), _) => return false,
+            }
+        }
+        true
+    }
+}
+
