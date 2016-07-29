@@ -2189,16 +2189,12 @@ impl FrameBuilder {
                                     rect.origin.y + rect.size.height);
         let br_inner = br_outer - Point2D::new(radius.bottom_right.width.max(right.width),
                                                radius.bottom_right.height.max(bottom.width));
-        println!("Left color is: {:?}", left.color);
-        println!("Right color is: {:?}", right.color);
-        println!("Top color is: {:?}", top.color);
-        println!("Bottom color is: {:?}", bottom.color);
 
         // These colors are used during inset/outset scaling.
-        let left_color = left.border_color(1.0, 2.0/3.0, 0.3, 0.7);
-        let top_color = top.border_color(1.0, 2.0/3.0, 0.3, 0.7);
-        let right_color = right.border_color(2.0/3.0, 1.0, 0.7, 0.3);
-        let bottom_color = bottom.border_color(2.0/3.0, 1.0, 0.7, 0.3);
+        let right_color = right.border_color(1.0, 2.0/3.0, 0.3, 0.7);
+        let bottom_color = bottom.border_color(1.0, 2.0/3.0, 0.3, 0.7);
+        let left_color = left.border_color(2.0/3.0, 1.0, 0.7, 0.3);
+        let top_color = top.border_color(2.0/3.0, 1.0, 0.7, 0.3);
 
         let prim = BorderPrimitive {
             tl_outer: tl_outer,
