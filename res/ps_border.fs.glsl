@@ -34,7 +34,7 @@ vec4 draw_dotted_edge() {
 
   // Break our position into square tiles with circles in them.
   vec2 circleCount = floor(size / circleSpacing);
-  circleCount = max(circleCount, 1);
+  circleCount = max(circleCount, 1.0);
 
   vec2 distBetweenCircles = size / circleCount;
   vec2 circleCenter = distBetweenCircles / 2.0;

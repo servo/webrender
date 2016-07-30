@@ -37,12 +37,12 @@ void main(void) {
     vec2 max_pos = max(tp0.xy, max(tp1.xy, max(tp2.xy, tp3.xy)));
 
     vec2 min_pos_clamped = clamp(min_pos * uDevicePixelRatio,
-                                 tile.actual_rect.xy,
-                                 tile.actual_rect.xy + tile.actual_rect.zw);
+                                 vec2(tile.actual_rect.xy),
+                                 vec2(tile.actual_rect.xy + tile.actual_rect.zw));
 
     vec2 max_pos_clamped = clamp(max_pos * uDevicePixelRatio,
-                                 tile.actual_rect.xy,
-                                 tile.actual_rect.xy + tile.actual_rect.zw);
+                                 vec2(tile.actual_rect.xy),
+                                 vec2(tile.actual_rect.xy + tile.actual_rect.zw));
 
     vec2 clamped_pos = mix(min_pos_clamped,
                            max_pos_clamped,
@@ -59,7 +59,7 @@ void main(void) {
               image.st_rect.zw,
               f);
 
-    vec2 final_pos = clamped_pos + tile.target_rect.xy - tile.actual_rect.xy;
+    vec2 final_pos = clamped_pos + vec2(tile.target_rect.xy) - vec2(tile.actual_rect.xy);
 
     gl_Position = uTransform * vec4(final_pos, 0, 1);
 }

@@ -129,17 +129,17 @@ VertexInfo write_vertex(PrimitiveInfo info) {
     vec2 device_pos = world_pos.xy * uDevicePixelRatio;
 
     vec2 clamped_pos = clamp(device_pos,
-                             tile.actual_rect.xy,
-                             tile.actual_rect.xy + tile.actual_rect.zw);
+                             vec2(tile.actual_rect.xy),
+                             vec2(tile.actual_rect.xy + tile.actual_rect.zw));
 
     clamped_pos = clamp(clamped_pos,
-                        layer.world_clip_rect.xy,
-                        layer.world_clip_rect.xy + layer.world_clip_rect.zw);
+                        vec2(layer.world_clip_rect.xy),
+                        vec2(layer.world_clip_rect.xy + layer.world_clip_rect.zw));
 
     vec4 local_clamped_pos = layer.inv_transform * vec4(clamped_pos / uDevicePixelRatio, world_pos.z, 1);
     local_clamped_pos.xyz /= local_clamped_pos.w;
 
-    vec2 final_pos = clamped_pos + tile.target_rect.xy - tile.actual_rect.xy;
+    vec2 final_pos = clamped_pos + vec2(tile.target_rect.xy) - vec2(tile.actual_rect.xy);
 
     gl_Position = uTransform * vec4(final_pos, 0, 1);
 

@@ -18,16 +18,16 @@ layout(std140) uniform Items {
 void main(void) {
     Composite composite = composites[gl_InstanceID];
 
-    vec2 local_pos = mix(composite.target_rect.xy,
-                         composite.target_rect.xy + composite.target_rect.zw,
+    vec2 local_pos = mix(vec2(composite.target_rect.xy),
+                         vec2(composite.target_rect.xy + composite.target_rect.zw),
                          aPosition.xy);
 
-    vec2 st0 = composite.src0.xy / 2048.0;
-    vec2 st1 = (composite.src0.xy + composite.src0.zw) / 2048.0;
+    vec2 st0 = vec2(composite.src0.xy) / 2048.0;
+    vec2 st1 = vec2(composite.src0.xy + composite.src0.zw) / 2048.0;
     vUv0 = mix(st0, st1, aPosition.xy);
 
-    st0 = composite.src1.xy / 2048.0;
-    st1 = (composite.src1.xy + composite.src1.zw) / 2048.0;
+    st0 = vec2(composite.src1.xy) / 2048.0;
+    st1 = vec2(composite.src1.xy + composite.src1.zw) / 2048.0;
     vUv1 = mix(st0, st1, aPosition.xy);
 
     vInfo = composite.info.xy;

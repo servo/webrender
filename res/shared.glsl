@@ -20,6 +20,8 @@
 // Fragment shader attributes and uniforms
 //======================================================================================
 #ifdef WR_FRAGMENT_SHADER
+    precision highp float;
+
     #define varying in
 
     // Uniform inputs

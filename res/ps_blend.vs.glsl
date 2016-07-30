@@ -16,12 +16,12 @@ layout(std140) uniform Items {
 void main(void) {
     Blend blend = blends[gl_InstanceID];
 
-    vec2 local_pos = mix(blend.target_rect.xy,
-                         blend.target_rect.xy + blend.target_rect.zw,
+    vec2 local_pos = mix(vec2(blend.target_rect.xy),
+                         vec2(blend.target_rect.xy + blend.target_rect.zw),
                          aPosition.xy);
 
-    vec2 st0 = blend.src_rect.xy / 2048.0;
-    vec2 st1 = (blend.src_rect.xy + blend.src_rect.zw) / 2048.0;
+    vec2 st0 = vec2(blend.src_rect.xy) / 2048.0;
+    vec2 st1 = vec2(blend.src_rect.xy + blend.src_rect.zw) / 2048.0;
     vUv = mix(st0, st1, aPosition.xy);
     vOpacity = blend.opacity.x;
 
