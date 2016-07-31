@@ -169,11 +169,12 @@ impl Renderer {
     /// [RendererOptions][rendereroptions].
     /// [rendereroptions]: struct.RendererOptions.html
     ///
-    /// ```
+    /// ```rust,ignore
     /// # use webrender::renderer::Renderer;
+    /// # use std::path::PathBuf;
     /// let opts = webrender::RendererOptions {
     ///    device_pixel_ratio: 1.0,
-    ///    resource_path: PathBuf::from(res_path),
+    ///    resource_path: PathBuf::from("../webrender/res"),
     ///    enable_aa: false,
     ///    enable_msaa: false,
     ///    enable_profiler: false,
