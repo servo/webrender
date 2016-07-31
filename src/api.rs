@@ -67,11 +67,13 @@ impl RenderApi {
         key
     }
 
+    /// Creates an `ImageKey`.
     pub fn alloc_image(&self) -> ImageKey {
         let new_id = self.next_unique_id();
         ImageKey::new(new_id.0, new_id.1)
     }
 
+    /// Adds an image and returns the corresponding `ImageKey`.
     pub fn add_image(&self,
                      width: u32,
                      height: u32,
@@ -84,6 +86,9 @@ impl RenderApi {
         key
     }
 
+    /// Updates a specific image.
+    ///
+    /// Currently doesn't support changing dimensions or format by updating.
     // TODO: Support changing dimensions (and format) during image update?
     pub fn update_image(&self,
                         key: ImageKey,
@@ -95,11 +100,23 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
     }
 
+    /// Deletes the specific image.
     pub fn delete_image(&self, key: ImageKey) {
         let msg = ApiMsg::DeleteImage(key);
         self.api_sender.send(msg).unwrap();
     }
 
+    /// Sets the root pipeline.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);
+    /// let api = sender.create_api();
+    /// ...
+    /// let pipeline_id = PipelineId(0,0);
+    /// api.set_root_pipeline(pipeline_id);
+    /// ```
     pub fn set_root_pipeline(&self, pipeline_id: PipelineId) {
         let msg = ApiMsg::SetRootPipeline(pipeline_id);
         self.api_sender.send(msg).unwrap();
@@ -109,7 +126,7 @@ impl RenderApi {
     ///
     /// Non-blocking, it notifies a worker process which processes the stacking context.
     /// When it's done and a RenderNotifier has been set in `webrender::renderer::Renderer`,
-    /// [RenderNotifier][notifier] gets called.
+    /// [new_frame_ready()][notifier] gets called.
     ///
     /// Note: Scrolling doesn't require an own Frame.
     ///
@@ -160,6 +177,10 @@ impl RenderApi {
         self.payload_sender.send(&payload[..]).unwrap();
     }
 
+    /// Scrolls the scrolling layer under the `cursor`
+    ///
+    /// Webrender looks for the layer closest to the user
+    /// which has `ScrollPolicy::Scrollable` set.
     pub fn scroll(&self, delta: Point2D<f32>, cursor: Point2D<f32>, phase: ScrollEventPhase) {
         let msg = ApiMsg::Scroll(delta, cursor, phase);
         self.api_sender.send(msg).unwrap();
@@ -170,6 +191,7 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
     }
 
+    /// Translates a point from viewport coordinates to layer space
     pub fn translate_point_to_layer_space(&self, point: &Point2D<f32>)
                                           -> (Point2D<f32>, PipelineId) {
         let (tx, rx) = ipc::channel().unwrap();
