@@ -107,16 +107,24 @@ impl RenderApi {
 
     /// Supplies a new frame to WebRender.
     ///
+    /// Non-blocking, it notifies a worker process which processes the stacking context.
+    /// When it's done and a RenderNotifier has been set in `webrender::renderer::Renderer`,
+    /// [RenderNotifier][notifier] gets called.
+    ///
+    /// Note: Scrolling doesn't require an own Frame.
+    ///
     /// Arguments:
     ///
     /// * `stacking_context_id`: The ID of the root stacking context.
     /// * `background_color`: The background color of this pipeline.
-    /// * `epoch`: A monotonically increasing timestamp.
+    /// * `epoch`: The unique Frame ID, monotonically increasing.
     /// * `pipeline_id`: The ID of the pipeline that is supplying this display list.
     /// * `viewport_size`: The size of the viewport for this frame.
     /// * `stacking_contexts`: Stacking contexts used in this frame.
     /// * `display_lists`: Display lists used in this frame.
     /// * `auxiliary_lists`: Various items that the display lists and stacking contexts reference.
+    ///
+    /// [notifier]: trait.RenderNotifier.html#tymethod.new_frame_ready
     pub fn set_root_stacking_context(&self,
                                      stacking_context_id: StackingContextId,
                                      background_color: ColorF,
