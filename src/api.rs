@@ -108,6 +108,7 @@ impl RenderApi {
     /// Supplies a new frame to WebRender.
     ///
     /// Arguments:
+    ///
     /// * `stacking_context_id`: The ID of the root stacking context.
     /// * `background_color`: The background color of this pipeline.
     /// * `epoch`: A monotonically increasing timestamp.
@@ -209,4 +210,3 @@ impl RenderApi {
         (namespace, id)
     }
 }
-
