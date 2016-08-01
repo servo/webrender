@@ -242,6 +242,7 @@ impl RenderBackend {
                         ApiMsg::TickScrollingBounce => {
                             let frame = profile_counters.total_time.profile(|| {
                                 self.frame.tick_scrolling_bounce_animations();
+                                self.build_scene();
                                 self.render()
                             });
 
