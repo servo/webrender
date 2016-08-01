@@ -2,6 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+//! The webrender API.
+//!
+//! The `webrender::renderer` module provides the interface to webrender, which
+//! is accessible through [`Renderer`][renderer]
+//!
+//! [renderer]: struct.Renderer.html
+
 use batch::{RasterBatch, VertexBufferId};
 use bit_set::BitSet;
 use debug_render::DebugRenderer;
@@ -155,6 +162,25 @@ pub struct Renderer {
 }
 
 impl Renderer {
+    /// Initializes webrender and creates a Renderer and RenderApiSender.
+    ///
+    /// # Examples
+    /// Initializes a Renderer with some reasonable values. For more information see
+    /// [RendererOptions][rendereroptions].
+    /// [rendereroptions]: struct.RendererOptions.html
+    ///
+    /// ```rust,ignore
+    /// # use webrender::renderer::Renderer;
+    /// # use std::path::PathBuf;
+    /// let opts = webrender::RendererOptions {
+    ///    device_pixel_ratio: 1.0,
+    ///    resource_path: PathBuf::from("../webrender/res"),
+    ///    enable_aa: false,
+    ///    enable_msaa: false,
+    ///    enable_profiler: false,
+    /// };
+    /// let (renderer, sender) = Renderer::new(opts);
+    /// ```
     pub fn new(options: RendererOptions) -> (Renderer, RenderApiSender) {
         let (api_tx, api_rx) = ipc::channel().unwrap();
         let (payload_tx, payload_rx) = ipc::bytes_channel().unwrap();
@@ -341,17 +367,25 @@ impl Renderer {
         self.u_direction = self.device.get_uniform_location(self.blur_program_id, "uDirection");
     }
 
+    /// Sets the new RenderNotifier.
+    ///
+    /// The RenderNotifier will be called when processing e.g. of a (scrolling) frame is done,
+    /// and therefore the screen should be updated.
     pub fn set_render_notifier(&self, notifier: Box<RenderNotifier>) {
         let mut notifier_arc = self.notifier.lock().unwrap();
         *notifier_arc = Some(notifier);
     }
 
+    /// Returns the Epoch of the current frame in a pipeline.
     pub fn current_epoch(&self, pipeline_id: PipelineId) -> Option<Epoch> {
         self.current_frame.as_ref().and_then(|frame| {
             frame.pipeline_epoch_map.get(&pipeline_id).map(|epoch| *epoch)
         })
     }
 
+    /// Processes the result queue.
+    ///
+    /// Should be called before `render()`, as texture cache updates are done here.
     pub fn update(&mut self) {
         // Pull any pending results and return the most recent.
         while let Ok(msg) = self.result_rx.try_recv() {
@@ -371,6 +405,10 @@ impl Renderer {
         }
     }
 
+    /// Renders the current frame.
+    ///
+    /// A Frame is supplied by calling [set_root_stacking_context()][newframe].
+    /// [newframe]: ../../webrender_traits/struct.RenderApi.html#method.set_root_stacking_context
     pub fn render(&mut self, framebuffer_size: Size2D<u32>) {
         let mut profile_timers = RendererProfileTimers::new();
 
