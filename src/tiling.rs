@@ -25,6 +25,16 @@ use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, ComplexClipReg
 use webrender_traits::{BorderDisplayItem, BorderStyle, ItemRange, AuxiliaryLists, BorderRadius, BorderSide};
 use webrender_traits::{BoxShadowClipMode, PipelineId, ScrollLayerId, WebGLContextId};
 
+pub static SCREEN_MIN: Point2D<f32> = Point2D {
+    x: 10000000.0,
+    y: 10000000.0,
+};
+
+pub static SCREEN_MAX: Point2D<f32> = Point2D {
+    x: -10000000.0,
+    y: -10000000.0,
+};
+
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum GradientType {
@@ -399,8 +409,6 @@ impl AlphaRenderTask {
 #[derive(Debug)]
 enum RenderTaskKind {
     Alpha(AlphaRenderTask),
-    //AlphaBatch(ScreenTileLayer),
-    //Composite(CompositeTileInfo),
 }
 
 #[derive(Debug)]
@@ -594,8 +602,8 @@ impl TransformedRect {
                                                               1.0)),
                 ];
 
-                let mut screen_min: Point2D<f32> = Point2D::new( 10000000.0,  10000000.0);
-                let mut screen_max: Point2D<f32> = Point2D::new(-10000000.0, -10000000.0);
+                let mut screen_min: Point2D<f32> = SCREEN_MIN;
+                let mut screen_max: Point2D<f32> = SCREEN_MAX;
 
                 for vertex in &vertices {
                     let inv_w = 1.0 / vertex.w;
@@ -2517,7 +2525,6 @@ impl FrameBuilder {
                     //           assigned to tiles where their containing layer intersects with.
                     //           Does this cause any problems / demonstrate other bugs?
                     //           Restrict the tiles by clamping to the layer tile indices...
-                    //debug_assert!(rect_contains_rect(l_rect, p_rect), format!("layer={:?} prim={:?}", l_rect, p_rect));
 
                     let p_tile_x0 = p_rect.origin.x.0 / SCREEN_TILE_SIZE;
                     let p_tile_y0 = p_rect.origin.y.0 / SCREEN_TILE_SIZE;
@@ -2556,7 +2563,7 @@ impl FrameBuilder {
                            resource_cache: &mut ResourceCache,
                            frame_id: FrameId,
                            pipeline_auxiliary_lists: &HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>) {
-        let mut resource_list = ResourceList::new(self.device_pixel_ratio);
+        let mut resource_list = ResourceList::new();
 
         // Non-visible layers have been marked invalid by now
         for layer in &self.layer_store {

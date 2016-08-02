@@ -58,22 +58,7 @@ impl Layer {
 
     pub fn finalize(&mut self, scrolling: &ScrollingState) {
         self.scrolling = *scrolling;
-        //self.aabb_tree.finalize();
     }
-
-/*
-    pub fn cull(&mut self) {
-        let viewport_rect = self.viewport_rect;
-        let adjusted_viewport = viewport_rect.translate(&-self.world_origin)
-                                             .translate(&-self.scrolling.offset);
-        self.aabb_tree.cull(&adjusted_viewport);
-    }
-
-    #[allow(dead_code)]
-    pub fn print(&self) {
-        self.aabb_tree.print(NodeIndex(0), 0);
-    }
-*/
 
     pub fn overscroll_amount(&self) -> Size2D<f32> {
         let overscroll_x = if self.scrolling.offset.x > 0.0 {

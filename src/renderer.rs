@@ -451,7 +451,6 @@ impl Renderer {
                                                  payload_tx_for_backend,
                                                  result_tx,
                                                  device_pixel_ratio,
-                                                 white_image_id,
                                                  texture_cache,
                                                  enable_aa,
                                                  backend_notifier,
@@ -1193,37 +1192,35 @@ impl Renderer {
         let tile_x1 = p1.x;
         let tile_y1 = p1.y;
 
-        //let c = &ColorF::new(1.0, 0.0, 1.0, 1.0);
-
         self.debug.add_line(tile_x0,
                             tile_y0,
-                            c,//&ColorF::new(0.0, 0.0, 0.0, 1.0),
+                            c,
                             tile_x1,
                             tile_y0,
-                            c);//&ColorF::new(0.0, 0.0, 0.0, 1.0));
+                            c);
         self.debug.add_line(tile_x0,
                             tile_y1,
-                            c,//&ColorF::new(0.0, 0.0, 0.0, 1.0),
+                            c,
                             tile_x1,
                             tile_y1,
-                            c);//&ColorF::new(0.0, 0.0, 0.0, 1.0));
+                            c);
         self.debug.add_line(tile_x0,
                             tile_y0,
-                            c,//&ColorF::new(0.0, 0.0, 0.0, 1.0),
+                            c,
                             tile_x0,
                             tile_y1,
-                            c);//&ColorF::new(0.0, 0.0, 0.0, 1.0));
+                            c);
         self.debug.add_line(tile_x1,
                             tile_y0,
-                            c,//&ColorF::new(0.0, 0.0, 0.0, 1.0),
+                            c,
                             tile_x1,
                             tile_y1,
-                            c);//&ColorF::new(0.0, 0.0, 0.0, 1.0));
+                            c);
         if label.len() > 0 {
             self.debug.add_text((tile_x0.0 as f32 + tile_x1.0 as f32) * 0.5,
                                 (tile_y0.0 as f32 + tile_y1.0 as f32) * 0.5,
                                 label,
-                                c);//&ColorF::new(0.0, 0.0, 0.0, 1.0));
+                                c);
         }
     }
 

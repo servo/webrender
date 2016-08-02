@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
-use texture_cache::{TextureCache, TextureCacheItemId};
+use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
 use webrender_traits::{PipelineId, RenderNotifier, WebGLContextId};
 use batch::new_id;
@@ -50,7 +50,6 @@ impl RenderBackend {
                payload_tx: IpcBytesSender,
                result_tx: Sender<ResultMsg>,
                device_pixel_ratio: f32,
-               white_image_id: TextureCacheItemId,
                texture_cache: TextureCache,
                enable_aa: bool,
                notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
@@ -61,7 +60,6 @@ impl RenderBackend {
 
         let resource_cache = ResourceCache::new(&mut thread_pool,
                                                 texture_cache,
-                                                white_image_id,
                                                 device_pixel_ratio,
                                                 enable_aa);
 
@@ -185,9 +183,7 @@ impl RenderBackend {
                             let auxiliary_lists =
                                 AuxiliaryLists::from_data(auxiliary_lists_data,
                                                           auxiliary_lists_descriptor);
-//                            hprof::start_frame();
                             let frame = profile_counters.total_time.profile(|| {
-//                                let _pf = hprof::enter("root1");
                                 self.scene.set_root_stacking_context(pipeline_id,
                                                                      epoch,
                                                                      stacking_context_id,
@@ -199,27 +195,20 @@ impl RenderBackend {
                                 self.build_scene();
                                 self.render()
                             });
-//                            hprof::end_frame();
-                            //hprof::profiler().print_timing();
 
                             self.publish_frame_and_notify_compositor(frame, &mut profile_counters);
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
-//                            hprof::start_frame();
                             let frame = profile_counters.total_time.profile(|| {
-//                                let _pf = hprof::enter("root2");
                                 self.scene.set_root_pipeline_id(pipeline_id);
 
                                 self.build_scene();
                                 self.render()
                             });
-//                            hprof::end_frame();
-                            //hprof::profiler().print_timing();
 
                             self.publish_frame(frame, &mut profile_counters);
                         }
                         ApiMsg::Scroll(delta, cursor, move_phase) => {
-//                            hprof::start_frame();
                             let frame = profile_counters.total_time.profile(|| {
                                 if self.frame.scroll(delta, cursor, move_phase) {
                                     self.build_scene();
@@ -228,8 +217,6 @@ impl RenderBackend {
                                     None
                                 }
                             });
-//                            hprof::end_frame();
-                            //hprof::profiler().print_timing();
 
                             match frame {
                                 Some(frame) => {

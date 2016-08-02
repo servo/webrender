@@ -129,14 +129,11 @@ pub struct ResourceCache {
     texture_cache: TextureCache,
 
     pending_raster_jobs: Vec<GlyphRasterJob>,
-
-    //white_image_id: TextureCacheItemId,
 }
 
 impl ResourceCache {
     pub fn new(thread_pool: &mut scoped_threadpool::Pool,
                texture_cache: TextureCache,
-               _white_image_id: TextureCacheItemId,
                device_pixel_ratio: f32,
                enable_aa: bool) -> ResourceCache {
 
@@ -303,11 +300,9 @@ impl ResourceCache {
     }
 
     pub fn raster_pending_glyphs(&mut self,
-                                 //thread_pool: &mut scoped_threadpool::Pool,
                                  frame_id: FrameId) {
         // Run raster jobs in parallel
-        run_raster_jobs(//thread_pool,
-                        &mut self.pending_raster_jobs,
+        run_raster_jobs(&mut self.pending_raster_jobs,
                         &self.font_templates,
                         self.device_pixel_ratio,
                         self.enable_aa);
@@ -386,14 +381,6 @@ impl ResourceCache {
         self.texture_cache.get(image_info.texture_cache_id)
     }
 
-/*
-    #[inline]
-    pub fn get_raster(&self, raster_item: &RasterItem, frame_id: FrameId) -> &TextureCacheItem {
-        let image_id = self.cached_rasters.get(raster_item, frame_id);
-        self.texture_cache.get(*image_id)
-    }
-*/
-
     #[inline]
     pub fn get_webgl_texture(&self, context_id: &WebGLContextId) -> TextureId {
         self.webgl_textures.get(context_id).unwrap().clone()
@@ -406,8 +393,7 @@ impl ResourceCache {
     }
 }
 
-fn run_raster_jobs(//thread_pool: &mut scoped_threadpool::Pool,
-                   pending_raster_jobs: &mut Vec<GlyphRasterJob>,
+fn run_raster_jobs(pending_raster_jobs: &mut Vec<GlyphRasterJob>,
                    font_templates: &HashMap<FontKey, FontTemplate, BuildHasherDefault<FnvHasher>>,
                    device_pixel_ratio: f32,
                    enable_aa: bool) {
@@ -415,31 +401,27 @@ fn run_raster_jobs(//thread_pool: &mut scoped_threadpool::Pool,
         return
     }
 
-    // Run raster jobs in parallel
-    //thread_pool.scoped(|scope| {
-        for job in pending_raster_jobs {
-            //scope.execute(|| {
-                let font_template = &font_templates[&job.glyph_key.font_key];
-                FONT_CONTEXT.with(move |font_context| {
-                    let mut font_context = font_context.borrow_mut();
-                    match *font_template {
-                        FontTemplate::Raw(ref bytes) => {
-                            font_context.add_raw_font(&job.glyph_key.font_key, &**bytes);
-                        }
-                        FontTemplate::Native(ref native_font_handle) => {
-                            font_context.add_native_font(&job.glyph_key.font_key,
-                                                         (*native_font_handle).clone());
-                        }
-                    }
-                    job.result = font_context.get_glyph(job.glyph_key.font_key,
-                                                        job.glyph_key.size,
-                                                        job.glyph_key.index,
-                                                        device_pixel_ratio,
-                                                        enable_aa);
-                });
-            //});
-        }
-    //});
+    // TODO(gw): Run raster jobs in parallel again
+    for job in pending_raster_jobs {
+        let font_template = &font_templates[&job.glyph_key.font_key];
+        FONT_CONTEXT.with(move |font_context| {
+            let mut font_context = font_context.borrow_mut();
+            match *font_template {
+                FontTemplate::Raw(ref bytes) => {
+                    font_context.add_raw_font(&job.glyph_key.font_key, &**bytes);
+                }
+                FontTemplate::Native(ref native_font_handle) => {
+                    font_context.add_native_font(&job.glyph_key.font_key,
+                                                 (*native_font_handle).clone());
+                }
+            }
+            job.result = font_context.get_glyph(job.glyph_key.font_key,
+                                                job.glyph_key.size,
+                                                job.glyph_key.index,
+                                                device_pixel_ratio,
+                                                enable_aa);
+        });
+    }
 }
 
 pub trait Resource {

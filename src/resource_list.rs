@@ -17,16 +17,14 @@ pub struct ResourceList {
     required_images: RequiredImageSet,
     required_glyphs: RequiredGlyphMap,
     required_rasters: RequiredRasterSet,
-    _device_pixel_ratio: f32,
 }
 
 impl ResourceList {
-    pub fn new(device_pixel_ratio: f32) -> ResourceList {
+    pub fn new() -> ResourceList {
         ResourceList {
             required_glyphs: HashMap::with_hasher(Default::default()),
             required_images: HashSet::with_hasher(Default::default()),
             required_rasters: HashSet::with_hasher(Default::default()),
-            _device_pixel_ratio: device_pixel_ratio,
         }
     }
 
@@ -41,35 +39,6 @@ impl ResourceList {
                             .or_insert_with(HashSet::new)
                             .insert(glyph);
     }
-
-/*
-    pub fn add_box_shadow_corner(&mut self,
-                                 blur_radius: f32,
-                                 border_radius: f32,
-                                 box_rect: &Rect<f32>,
-                                 inverted: bool) {
-        if let Some(raster_item) = BoxShadowRasterOp::create_corner(blur_radius,
-                                                                    border_radius,
-                                                                    box_rect,
-                                                                    inverted,
-                                                                    self.device_pixel_ratio) {
-            self.required_rasters.insert(RasterItem::BoxShadow(raster_item));
-        }
-    }
-
-    pub fn add_box_shadow_edge(&mut self,
-                               blur_radius: f32,
-                               border_radius: f32,
-                               box_rect: &Rect<f32>,
-                               inverted: bool) {
-        if let Some(raster_item) = BoxShadowRasterOp::create_edge(blur_radius,
-                                                                  border_radius,
-                                                                  box_rect,
-                                                                  inverted,
-                                                                  self.device_pixel_ratio) {
-            self.required_rasters.insert(RasterItem::BoxShadow(raster_item));
-        }
-    }*/
 
     pub fn for_each_image<F>(&self, mut f: F) where F: FnMut(ImageKey, ImageRendering) {
         for &(image_id, image_rendering) in &self.required_images {

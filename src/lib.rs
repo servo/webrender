@@ -98,7 +98,6 @@ extern crate app_units;
 extern crate euclid;
 extern crate fnv;
 extern crate gleam;
-//extern crate hprof;
 extern crate ipc_channel;
 extern crate num_traits;
 //extern crate notify;

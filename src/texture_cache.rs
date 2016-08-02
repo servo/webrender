@@ -103,12 +103,6 @@ impl TexturePage {
         page
     }
 
-/*
-    pub fn size(&self) -> u32 {
-        self.texture_size
-    }
-*/
-
     pub fn texture_id(&self) -> TextureId {
         self.texture_id
     }
