@@ -127,14 +127,13 @@ fn create_prim_shader(name: &'static str,
     let item_index = gl::get_uniform_block_index(program_id.0, "Items");
     gl::uniform_block_binding(program_id.0, item_index, UBO_BIND_CACHE_ITEMS);
 
-    println!("PrimShader {}: items={}/{} tiles={}/{} layers={}/{}", name,
-                                                                    item_index,
-                                                                    max_prim_items,
-                                                                    tiles_index,
-                                                                    max_prim_tiles,
-                                                                    layer_index,
-                                                                    max_prim_layers);
-
+    debug!("PrimShader {}: items={}/{} tiles={}/{} layers={}/{}", name,
+                                                                  item_index,
+                                                                  max_prim_items,
+                                                                  tiles_index,
+                                                                  max_prim_tiles,
+                                                                  layer_index,
+                                                                  max_prim_layers);
     program_id
 }
 
@@ -150,7 +149,7 @@ fn create_clear_shader(name: &'static str,
     let tile_index = gl::get_uniform_block_index(program_id.0, "Tiles");
     gl::uniform_block_binding(program_id.0, tile_index, UBO_BIND_CLEAR_TILES);
 
-    println!("ClearShader {}: tiles={}/{}", name, tile_index, max_clear_tiles);
+    debug!("ClearShader {}: tiles={}/{}", name, tile_index, max_clear_tiles);
 
     program_id
 }
