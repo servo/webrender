@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::{TextureCache, TextureCacheItemId};
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
-use webrender_traits::{PipelineId, RenderNotifier, WebGLContextId};
+use webrender_traits::{RenderNotifier, WebGLContextId};
 use batch::new_id;
 use device::TextureId;
 use offscreen_gl_context::{ColorAttachmentType, GLContext};
@@ -233,36 +233,6 @@ impl RenderBackend {
                             });
 
                             self.publish_frame_and_notify_compositor(frame, &mut profile_counters);
-                        }
-                        ApiMsg::TranslatePointToLayerSpace(point, tx) => {
-                            // First, find the specific layer that contains the point.
-                            let point = point / self.device_pixel_ratio;
-                            if let (Some(root_pipeline_id), Some(root_scroll_layer_id)) =
-                                    (self.scene.root_pipeline_id,
-                                     self.frame.root_scroll_layer_id) {
-                                if let Some(scroll_layer_id) =
-                                        self.frame.get_scroll_layer(&point, root_scroll_layer_id) {
-                                    if let Some(layer) = self.frame.layers.get(&scroll_layer_id) {
-                                        // Now, because we send a *pipeline ID*, not a layer ID, as
-                                        // a response, we need the translated point to be relative
-                                        // to the origin of that pipeline in the scene. So we need
-                                        // to find the root layer for the pipeline. (We don't send
-                                        // layer IDs because layer IDs are internal to WebRender;
-                                        // Servo won't know what to do with them.)
-                                        if let Some(layer_id) =
-                                                self.frame.root_scroll_layer_for_pipeline(
-                                                    layer.pipeline_id) {
-                                            if let Some(layer) = self.frame.layers.get(&layer_id) {
-                                                let point = point - layer.world_origin -
-                                                    layer.scrolling.offset;
-                                                tx.send((point, layer.pipeline_id)).unwrap();
-                                                continue
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            tx.send((point, PipelineId(0, 0))).unwrap()
                         }
                         ApiMsg::GetScrollLayerState(tx) => {
                             tx.send(self.frame.get_scroll_layer_state())

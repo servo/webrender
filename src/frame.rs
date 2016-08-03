@@ -1496,28 +1496,5 @@ impl Frame {
         }
         layers_bouncing_back
     }
-
-    pub fn root_scroll_layer_for_pipeline(&self, pipeline_id: PipelineId)
-                                          -> Option<ScrollLayerId> {
-        let root_scroll_layer_id = match self.root_scroll_layer_id {
-            Some(root_scroll_layer_id) => root_scroll_layer_id,
-            None => return None,
-        };
-        return search(&self.layers, root_scroll_layer_id, pipeline_id);
-
-        fn search(layers: &LayerMap, layer_id: ScrollLayerId, query: PipelineId)
-                  -> Option<ScrollLayerId> {
-            let layer = layers.get(&layer_id).expect("No layer with that ID!");
-            if layer.pipeline_id == query {
-                return Some(layer_id)
-            }
-            for &kid in &layer.children {
-                if let Some(layer_id) = search(layers, kid, query) {
-                    return Some(layer_id)
-                }
-            }
-            None
-        }
-    }
 }
 
