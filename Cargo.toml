@@ -17,7 +17,7 @@ heapsize = "0.3.6"
 offscreen_gl_context = {version = "0.1.9", features = ["serde_serialization"]}
 serde = "0.7.14"
 serde_macros = {version = "0.7.14", optional = true}
-ipc-channel = {git = "https://github.com/servo/ipc-channel", rev="346456b"}
+ipc-channel = "0.4.0"
 
 [target.x86_64-apple-darwin.dependencies]
 core-graphics = ">=0.2, <0.4"
