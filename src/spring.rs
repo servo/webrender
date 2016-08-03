@@ -101,5 +101,3 @@ fn next(cur: f32, prev: f32, dest: f32, stiffness: f32, damping: f32) -> f32 {
 fn is_resting(cur: f32, prev: f32, dest: f32) -> bool {
     (cur - prev).abs() < EPSILON && (cur - dest).abs() < EPSILON
 }
-
-

@@ -7,7 +7,7 @@ use device::{Device, ProgramId, VAOId, TextureId, VertexFormat};
 use device::{TextureFilter, VertexUsageHint};
 use euclid::{Matrix4D, Point2D, Size2D, Rect};
 use gleam::gl;
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePixel};
 use internal_types::{DebugFontVertex, DebugColorVertex, RenderTargetMode, PackedColor};
 use std::f32;
 use webrender_traits::{ColorF, ImageFormat};
@@ -29,8 +29,8 @@ pub struct DebugRenderer {
 
 impl DebugRenderer {
     pub fn new(device: &mut Device) -> DebugRenderer {
-        let font_program_id = device.create_program("debug_font");
-        let color_program_id = device.create_program("debug_color");
+        let font_program_id = device.create_program("debug_font", "shared_other");
+        let color_program_id = device.create_program("debug_color", "shared_other");
 
         let font_vao = device.create_vao(VertexFormat::DebugFont, None);
         let line_vao = device.create_vao(VertexFormat::DebugColor, None);
@@ -147,16 +147,16 @@ impl DebugRenderer {
 
     #[allow(dead_code)]
     pub fn add_line(&mut self,
-                    x0: f32,
-                    y0: f32,
+                    x0: DevicePixel,
+                    y0: DevicePixel,
                     color0: &ColorF,
-                    x1: f32,
-                    y1: f32,
+                    x1: DevicePixel,
+                    y1: DevicePixel,
                     color1: &ColorF) {
         let color0 = PackedColor::from_color(color0);
         let color1 = PackedColor::from_color(color1);
-        self.line_vertices.push(DebugColorVertex::new(x0, y0, color0));
-        self.line_vertices.push(DebugColorVertex::new(x1, y1, color1));
+        self.line_vertices.push(DebugColorVertex::new(x0.0 as f32, y0.0 as f32, color0));
+        self.line_vertices.push(DebugColorVertex::new(x1.0 as f32, y1.0 as f32, color1));
     }
 
     pub fn render(&mut self,
