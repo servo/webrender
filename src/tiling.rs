@@ -19,11 +19,13 @@ use std::collections::{HashMap};
 use std::f32;
 use std::mem;
 use std::hash::{BuildHasherDefault};
-use texture_cache::{TexturePage};
+use texture_cache::TexturePage;
 use util::{self, rect_from_points, rect_from_points_f, MatrixHelpers, subtract_rect};
 use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, ComplexClipRegion};
-use webrender_traits::{BorderDisplayItem, BorderStyle, ItemRange, AuxiliaryLists, BorderRadius, BorderSide};
-use webrender_traits::{BoxShadowClipMode, PipelineId, ScrollLayerId, WebGLContextId};
+use webrender_traits::{BorderDisplayItem, BorderStyle, ItemRange, AuxiliaryLists, BorderRadius};
+use webrender_traits::{BorderSide, BoxShadowClipMode, PipelineId, ScrollLayerId, WebGLContextId};
+
+pub const GLYPHS_PER_TEXT_CHUNK: u32 = 32;
 
 pub static SCREEN_MIN: Point2D<f32> = Point2D {
     x: 10000000.0,
@@ -56,6 +58,7 @@ struct AlphaBatchTask {
 pub struct AlphaBatcher {
     pub layer_ubos: Vec<Vec<PackedLayer>>,
     pub tile_ubos: Vec<Vec<PackedTile>>,
+    pub glyph_ubo: Vec<PackedGlyph>,
     pub batches: Vec<PrimitiveBatch>,
     layer_to_ubo_map: Vec<Option<usize>>,
     tile_to_ubo_map: Vec<Option<usize>>,
@@ -67,6 +70,7 @@ impl AlphaBatcher {
         AlphaBatcher {
             layer_ubos: Vec::new(),
             tile_ubos: Vec::new(),
+            glyph_ubo: Vec::new(),
             batches: Vec::new(),
             layer_to_ubo_map: Vec::new(),
             tile_to_ubo_map: Vec::new(),
@@ -155,6 +159,8 @@ impl AlphaBatcher {
         for _ in 0..self.tasks.len() {
             self.tile_to_ubo_map.push(None);
         }
+
+        self.glyph_ubo.extend(packed_primitive_cache.glyphs.iter().cloned());
 
         loop {
             // Pull next primitive
@@ -738,12 +744,21 @@ struct Primitive {
 }
 
 impl Primitive {
+    fn intersects_screen_area(&self,
+                              layer: &StackingContext,
+                              screen_rect: &Rect<DevicePixel>,
+                              device_pixel_ratio: f32)
+                              -> bool {
+        TransformedRect::new(&self.rect,
+                             &layer.transform,
+                             device_pixel_ratio).bounding_rect.intersects(screen_rect)
+    }
+
     fn pack(&self,
             index: PrimitiveIndex,
             cache: &mut PackedPrimitiveCache,
             auxiliary_lists: &AuxiliaryLists,
             ctx: &RenderTargetContext) {
-        // TODO(pcwalton): Only pack visible primitives!
         cache.init_packed_primitive(index);
         match self.details {
             PrimitiveDetails::Rectangle(ref details) => {
@@ -1249,6 +1264,8 @@ impl Primitive {
                 let blur_offset = details.blur_radius.to_f32_px() *
                     (BLUR_INFLATION_FACTOR as f32) / 2.0;
 
+                let first_glyph_index_in_ubo = cache.glyphs.len() as u32;
+                let mut texture_id = TextureId(0);
                 for glyph in src_glyphs {
                     glyph_key.index = glyph.index;
 
@@ -1259,8 +1276,8 @@ impl Primitive {
 
                     // TODO(gw): Need a general solution to handle multiple texture pages per tile
                     // in WR2!
-                    let texture_id = image_info.texture_id;
                     assert!(texture_id == TextureId(0) || texture_id == image_info.texture_id);
+                    texture_id = image_info.texture_id;
 
                     let x = glyph.x + image_info.user_data.x0 as f32 / ctx.device_pixel_ratio -
                         blur_offset;
@@ -1275,23 +1292,22 @@ impl Primitive {
                     let uv_rect = image_info.uv_rect();
                     let local_rect = Rect::new(Point2D::new(x, y), Size2D::new(width, height));
 
-                    cache.add_packed_primitive(
-                        index,
-                        PackedPrimitive::Text(PackedGlyphPrimitive {
-                            common: PackedPrimitiveInfo {
-                                padding: 0,
-                                tile_index: 0,
-                                layer_index: 0,
-                                part: PrimitivePart::Invalid,
-                                local_clip_rect: self.local_clip_rect,
-                                local_rect: local_rect,
-                            },
-                            color: details.color,
-                            st0: uv_rect.top_left,
-                            st1: uv_rect.bottom_right,
-                        }),
-                        texture_id)
+                    cache.glyphs.push(PackedGlyph {
+                        local_rect: local_rect,
+                        color: details.color,
+                        st0: uv_rect.top_left,
+                        st1: uv_rect.bottom_right,
+                    });
                 }
+                let last_glyph_index_in_ubo = cache.glyphs.len() as u32;
+
+                cache.add_text(index,
+                               texture_id,
+                               &self.local_clip_rect,
+                               &self.rect,
+                               first_glyph_index_in_ubo,
+                               last_glyph_index_in_ubo);
+
             }
         }
     }
@@ -1350,11 +1366,11 @@ pub struct PackedRectanglePrimitive {
 }
 
 #[derive(Debug, Clone)]
-pub struct PackedGlyphPrimitive {
+pub struct PackedTextPrimitive {
     common: PackedPrimitiveInfo,
-    color: ColorF,
-    st0: Point2D<f32>,
-    st1: Point2D<f32>,
+    first_glyph_index_in_ubo: u32,
+    last_glyph_index_in_ubo: u32,
+    padding: [u32; 2],
 }
 
 #[derive(Debug, Clone)]
@@ -1434,6 +1450,14 @@ pub struct PackedBlendPrimitive {
 }
 
 #[derive(Debug, Copy, Clone)]
+pub struct PackedGlyph {
+    local_rect: Rect<f32>,
+    color: ColorF,
+    st0: Point2D<f32>,
+    st1: Point2D<f32>,
+}
+
+#[derive(Debug, Copy, Clone)]
 struct PackedCompositeInfo {
     kind: u32,
     op: u32,
@@ -1496,7 +1520,7 @@ pub enum PrimitiveBatchData {
     RectanglesClip(Vec<PackedRectanglePrimitiveClip>),
     Borders(Vec<PackedBorderPrimitive>),
     BoxShadows(Vec<PackedBoxShadowPrimitive>),
-    Text(Vec<PackedGlyphPrimitive>),
+    Text(Vec<PackedTextPrimitive>),
     Image(Vec<PackedImagePrimitive>),
     ImageClip(Vec<PackedImagePrimitiveClip>),
     Blend(Vec<PackedBlendPrimitive>),
@@ -1510,7 +1534,7 @@ enum PackedPrimitive {
     RectangleClip(PackedRectanglePrimitiveClip),
     Border(PackedBorderPrimitive),
     BoxShadow(PackedBoxShadowPrimitive),
-    Text(PackedGlyphPrimitive),
+    Text(PackedTextPrimitive),
     Image(PackedImagePrimitive),
     ImageClip(PackedImagePrimitiveClip),
     AlignedGradient(PackedAlignedGradientPrimitive),
@@ -1691,6 +1715,8 @@ impl StackingContext {
     fn build_resource_list(&self,
                            resource_list: &mut ResourceList,
                            auxiliary_lists: &AuxiliaryLists,
+                           screen_rect: &Rect<DevicePixel>,
+                           device_pixel_ratio: f32,
                            prim_store: &Vec<Primitive>) {
         for item in &self.items {
             let prim_index = match item {
@@ -1698,6 +1724,9 @@ impl StackingContext {
                 &StackingContextItem::StackingContext(..) => continue,
             };
             let prim = &prim_store[prim_index.0];
+            if !prim.intersects_screen_area(self, screen_rect, device_pixel_ratio) {
+                continue
+            }
             match prim.details {
                 PrimitiveDetails::Rectangle(..) => {}
                 PrimitiveDetails::Gradient(..) => {}
@@ -1826,7 +1855,7 @@ impl FrameBuilderConfig {
 }
 
 pub struct FrameBuilder {
-    screen_rect: Rect<i32>,
+    screen_rect: Rect<DevicePixel>,
     prim_store: Vec<Primitive>,
     layer_store: Vec<StackingContext>,
     layer_stack: Vec<StackingContextIndex>,
@@ -2031,8 +2060,10 @@ impl FrameBuilder {
                debug: bool,
                config: FrameBuilderConfig) -> FrameBuilder {
         let viewport_size = Size2D::new(viewport_size.width as i32, viewport_size.height as i32);
+        let size = Size2D::new(DevicePixel::new(viewport_size.width as f32, device_pixel_ratio),
+                               DevicePixel::new(viewport_size.height as f32, device_pixel_ratio));
         FrameBuilder {
-            screen_rect: Rect::new(Point2D::zero(), viewport_size),
+            screen_rect: Rect::new(Point2D::zero(), size),
             layer_store: Vec::new(),
             prim_store: Vec::new(),
             layer_stack: Vec::new(),
@@ -2441,10 +2472,7 @@ impl FrameBuilder {
     }
 
     fn create_screen_tiles(&self) -> (i32, i32, Vec<ScreenTile>) {
-        let dp_size = Size2D::new(DevicePixel::new(self.screen_rect.size.width as f32,
-                                                   self.device_pixel_ratio),
-                                  DevicePixel::new(self.screen_rect.size.height as f32,
-                                                   self.device_pixel_ratio));
+        let dp_size = self.screen_rect.size;
 
         let x_tile_size = DevicePixel(SCREEN_TILE_SIZE);
         let y_tile_size = DevicePixel(SCREEN_TILE_SIZE);
@@ -2574,6 +2602,8 @@ impl FrameBuilder {
                 // Non-visible chunks have also been removed by now
                 layer.build_resource_list(&mut resource_list,
                                           auxiliary_lists,
+                                          &self.screen_rect,
+                                          self.device_pixel_ratio,
                                           &self.prim_store);
             }
         }
@@ -2606,6 +2636,12 @@ impl FrameBuilder {
                 }
                 &StackingContextItem::Primitive(prim_index) => {
                     let prim = &self.prim_store[prim_index.0];
+                    if !prim.intersects_screen_area(layer,
+                                                    &self.screen_rect,
+                                                    self.device_pixel_ratio) {
+                        continue
+                    }
+
                     let auxiliary_lists = pipeline_auxiliary_lists.get(&layer.pipeline_id)
                                                                   .expect("No auxiliary lists?!");
                     prim.pack(prim_index,
@@ -2638,9 +2674,7 @@ impl FrameBuilder {
                  frame_id: FrameId,
                  pipeline_auxiliary_lists: &HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>,
                  layer_map: &HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>) -> Frame {
-        let screen_rect = Rect::new(Point2D::zero(),
-                                    Size2D::new(DevicePixel::new(self.screen_rect.size.width as f32, self.device_pixel_ratio),
-                                                DevicePixel::new(self.screen_rect.size.height as f32, self.device_pixel_ratio)));
+        let screen_rect = self.screen_rect;
 
         self.cull_layers(&screen_rect, layer_map);
 
@@ -2779,6 +2813,8 @@ struct PackedPrimitiveCache {
     metadata: Vec<PackedPrimitiveMetadata>,
     /// A list of packed primitives.
     primitives: Vec<PackedPrimitive>,
+    /// A list of packed glyphs.
+    glyphs: Vec<PackedGlyph>,
 }
 
 impl PackedPrimitiveCache {
@@ -2786,6 +2822,7 @@ impl PackedPrimitiveCache {
         PackedPrimitiveCache {
             metadata: vec![],
             primitives: vec![],
+            glyphs: vec![],
         }
     }
 
@@ -2812,6 +2849,36 @@ impl PackedPrimitiveCache {
         metadata.texture_id = texture_id;
 
         self.primitives.push(packed_primitive)
+    }
+
+    fn add_text(&mut self,
+                primitive_index: PrimitiveIndex,
+                texture_id: TextureId,
+                local_clip_rect: &Rect<f32>,
+                local_rect: &Rect<f32>,
+                mut first_glyph_index_in_ubo: u32,
+                last_glyph_index_in_ubo: u32) {
+        let common = PackedPrimitiveInfo {
+            padding: 0,
+            tile_index: 0,
+            layer_index: 0,
+            part: PrimitivePart::Invalid,
+            local_clip_rect: *local_clip_rect,
+            local_rect: *local_rect,
+        };
+        while first_glyph_index_in_ubo < last_glyph_index_in_ubo {
+            let last_glyph_index_in_ubo_for_this_chunk =
+                cmp::min(first_glyph_index_in_ubo + GLYPHS_PER_TEXT_CHUNK,
+                         last_glyph_index_in_ubo);
+            let primitive = PackedPrimitive::Text(PackedTextPrimitive {
+                common: common.clone(),
+                first_glyph_index_in_ubo: first_glyph_index_in_ubo,
+                last_glyph_index_in_ubo: last_glyph_index_in_ubo_for_this_chunk,
+                padding: [0, 0],
+            });
+            self.add_packed_primitive(primitive_index, primitive, texture_id);
+            first_glyph_index_in_ubo = last_glyph_index_in_ubo_for_this_chunk
+        }
     }
 
     fn add_to_batch(&self,
