@@ -14,7 +14,7 @@ byteorder = "0.5"
 euclid = "0.7.1"
 fnv="1.0"
 gleam = "0.2"
-ipc-channel = {git = "https://github.com/servo/ipc-channel", rev="346456b"}
+ipc-channel = "0.4.0"
 lazy_static = "0.2"
 log = "0.3"
 #notify = {git = "https://github.com/glennw/rsnotify.git", branch = "inotify-modify"}
