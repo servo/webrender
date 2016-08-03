@@ -5,12 +5,11 @@
 use app_units::Au;
 use webrender_traits::{FontKey, NativeFontHandle};
 
-use freetype::freetype::{FTErrorMethods, FT_PIXEL_MODE_GRAY, FT_PIXEL_MODE_MONO};
-use freetype::freetype::{FT_Done_FreeType, FT_LOAD_RENDER, FT_LOAD_MONOCHROME};
-use freetype::freetype::{FT_Library, FT_Set_Char_Size};
-use freetype::freetype::{FT_Face, FT_Long, FT_UInt, FT_F26Dot6};
-use freetype::freetype::{FT_Init_FreeType, FT_Load_Glyph};
-use freetype::freetype::{FT_New_Memory_Face, FT_GlyphSlot};
+use freetype_sys::{FT_Done_FreeType, FT_F26Dot6, FT_Face, FT_GlyphSlot};
+use freetype_sys::{FT_Init_FreeType, FT_Library, FT_Load_Glyph};
+use freetype_sys::{FT_LOAD_MONOCHROME, FT_LOAD_RENDER, FT_Long};
+use freetype_sys::{FT_New_Memory_Face, FT_PIXEL_MODE_GRAY, FT_PIXEL_MODE_MONO};
+use freetype_sys::{FT_Set_Char_Size, FT_UInt, FTErrorMethods};
 
 use std::{mem, ptr, slice};
 use std::collections::HashMap;

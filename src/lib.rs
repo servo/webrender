@@ -92,8 +92,8 @@ extern crate core_graphics;
 #[cfg(target_os="macos")]
 extern crate core_text;
 
-#[cfg(not(target_os="macos"))]
-extern crate freetype;
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "windows"))]
+extern crate freetype_sys;
 
 extern crate app_units;
 extern crate euclid;
