@@ -114,6 +114,7 @@ fn main() {
 					renderer.update();
 					renderer.render(Size2D::new(width, height));
 					window.swap_buffers();
+					println!("Showing frame #{}", frame_num);
 			}
 			Event::KeyboardInput(ElementState::Pressed, _, Some(Key::Right)) =>{
 				frame_num += 1;
