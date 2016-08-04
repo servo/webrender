@@ -115,7 +115,7 @@ fn main() {
 					renderer.render(Size2D::new(width, height));
 					window.swap_buffers();
 			}
-			Event::KeyboardInput(ElementState::Released, _, Some(Key::Right)) =>{
+			Event::KeyboardInput(ElementState::Pressed, _, Some(Key::Right)) =>{
 				frame_num += 1;
 				if let Some(mut file) = get_file(dir, frame_num){
 					read_file(&mut file, &api);
@@ -125,7 +125,7 @@ fn main() {
 					println!("At last frame.");
 				}	
 			}
-			Event::KeyboardInput(ElementState::Released, _, Some(Key::Left)) => {
+			Event::KeyboardInput(ElementState::Pressed, _, Some(Key::Left)) => {
 				frame_num -= 1;
 				if let Some(mut file) = get_file(dir, frame_num){
 					read_file(&mut file, &api);
