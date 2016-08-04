@@ -74,6 +74,37 @@ impl Zero for DevicePixel {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct LogicalPixel(pub f32);
+
+impl Add for LogicalPixel {
+    type Output = LogicalPixel;
+
+    #[inline]
+    fn add(self, other: LogicalPixel) -> LogicalPixel {
+        LogicalPixel(self.0 + other.0)
+    }
+}
+
+impl Sub for LogicalPixel {
+    type Output = LogicalPixel;
+
+    fn sub(self, other: LogicalPixel) -> LogicalPixel {
+        LogicalPixel(self.0 - other.0)
+    }
+}
+
+impl Zero for LogicalPixel {
+    fn zero() -> LogicalPixel {
+        LogicalPixel(0.0)
+    }
+
+    fn is_zero(&self) -> bool {
+        let LogicalPixel(value) = *self;
+        value == 0.0
+    }
+}
+
 const UV_FLOAT_TO_FIXED: f32 = 65535.0;
 const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
 pub const ANGLE_FLOAT_TO_FIXED: f32 = 65535.0;

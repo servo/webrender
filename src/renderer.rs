@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::{BorderType, TextureCache, TextureInsertOp};
-use tiling::{self, Frame, FrameBuilderConfig, GLYPHS_PER_TEXT_CHUNK, PrimitiveBatchData};
+use tiling::{self, Frame, FrameBuilderConfig, GLYPHS_PER_TEXT_RUN, PrimitiveBatchData};
 use tiling::{PackedTile, TransformedRectKind, RenderTarget, ClearTile, PackedLayer};
 use time::precise_time_ns;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
@@ -182,6 +182,7 @@ pub struct Renderer {
 
     ps_rectangle: ProgramId,
     ps_text: ProgramId,
+    ps_text_run: ProgramId,
     ps_image: ProgramId,
     ps_border: ProgramId,
     ps_box_shadow: ProgramId,
@@ -307,6 +308,12 @@ impl Renderer {
                                          max_prim_layers,
                                          max_prim_texts,
                                          max_prim_glyphs);
+        let ps_text_run = create_prim_shader("ps_text_run",
+                                             &mut device,
+                                             max_prim_tiles,
+                                             max_prim_layers,
+                                             max_prim_texts,
+                                             max_prim_glyphs);
         let ps_image = create_prim_shader("ps_image",
                                           &mut device,
                                           max_prim_tiles,
@@ -500,6 +507,7 @@ impl Renderer {
             ps_rectangle_clip: ps_rectangle_clip,
             ps_image_clip: ps_image_clip,
             ps_text: ps_text,
+            ps_text_run: ps_text_run,
             ps_image: ps_image,
             ps_border: ps_border,
             ps_box_shadow: ps_box_shadow,
@@ -1498,8 +1506,8 @@ impl Renderer {
                             gl::delete_buffers(&ubos);
                         }
                     }
-                    &PrimitiveBatchData::Text(ref ubo_data) => {
-                        self.device.bind_program(self.ps_text, &projection);
+                    &PrimitiveBatchData::TextRun(ref ubo_data) => {
+                        self.device.bind_program(self.ps_text_run, &projection);
                         self.device.bind_vao(self.quad_vao_id);
                         self.device.bind_color_texture(batch.color_texture_id);
 
@@ -1513,10 +1521,30 @@ impl Renderer {
 
                             self.device.draw_indexed_triangles_instanced_u16(
                                 6,
-                                ((chunk.len() as u32) * GLYPHS_PER_TEXT_CHUNK) as gl::GLint);
+                                ((chunk.len() as u32) * GLYPHS_PER_TEXT_RUN) as gl::GLint);
                             self.profile_counters
                                 .vertices
-                                .add(6 * chunk.len() * (GLYPHS_PER_TEXT_CHUNK as usize));
+                                .add(6 * chunk.len() * (GLYPHS_PER_TEXT_RUN as usize));
+                            self.profile_counters.draw_calls.inc();
+
+                            gl::delete_buffers(&ubos);
+                        }
+                    }
+                    &PrimitiveBatchData::Text(ref ubo_data) => {
+                        self.device.bind_program(self.ps_text, &projection);
+                        self.device.bind_vao(self.quad_vao_id);
+                        self.device.bind_color_texture(batch.color_texture_id);
+
+                        for chunk in ubo_data.chunks(self.max_prim_texts) {
+                            let ubos = gl::gen_buffers(1);
+                            let ubo = ubos[0];
+
+                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
+                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
+                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
+
+                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
+                            self.profile_counters.vertices.add(6 * chunk.len());
                             self.profile_counters.draw_calls.inc();
 
                             gl::delete_buffers(&ubos);
@@ -1564,6 +1592,7 @@ impl Renderer {
             }
 
             gl::disable(gl::BLEND);
+            gl::delete_buffers(&[glyph_ubo]);
             gl::delete_buffers(&tile_ubos);
             gl::delete_buffers(&layer_ubos);
         }
