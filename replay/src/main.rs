@@ -35,8 +35,8 @@ impl webrender_traits::RenderNotifier for Notifier {
 	}
 
 	fn pipeline_size_changed(&mut self,
-			_: PipelineId,
-			_: Option<Size2D<f32>>) {
+			pid: PipelineId,
+			size: Option<Size2D<f32>>) {
 	}
 
 	fn new_scroll_frame_ready(&mut self, composite_needed:bool){}
@@ -89,7 +89,7 @@ fn main() {
 		enable_aa: false,
 		enable_msaa: false,
 		enable_profiler: false,
-		enable_recording: false,
+		debug: false,
 	};
 
 	let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);	
@@ -113,8 +113,7 @@ fn main() {
 					gl::clear(gl::COLOR_BUFFER_BIT);
 					renderer.update();
 					renderer.render(Size2D::new(width, height));
-					window.swap_buffers();
-					println!("Showing frame #{}", frame_num);
+					window.swap_buffers();	
 			}
 			Event::KeyboardInput(ElementState::Pressed, _, Some(Key::Right)) =>{
 				frame_num += 1;
