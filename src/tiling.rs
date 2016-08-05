@@ -2151,7 +2151,8 @@ impl FrameBuilder {
             BorderStyle::Dotted |
             BorderStyle::Dashed |
             BorderStyle::Inset |
-            BorderStyle::Outset => {
+            BorderStyle::Outset |
+            BorderStyle::Double => {
                 return true;
             }
             _ => {
