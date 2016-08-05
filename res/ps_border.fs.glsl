@@ -181,7 +181,6 @@ void main(void) {
     default:
     {
       discard;
-      break;
     }
   }
 }
