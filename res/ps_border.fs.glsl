@@ -56,6 +56,59 @@ vec4 draw_dotted_edge() {
   return mix(white, circleColor, circleColor.a);
 }
 
+vec4 draw_double_edge(float pos, float len) {
+  // Devided border to 3 parts, draw color on first and third part,
+  // leave second part blank.
+  float one_third_len = len / 3.0;
+
+  // The original algorithm should be check if pos in the blank part.
+  // That is, checking (1/3 * len) < pos < (2/3 * len)
+  //
+  // The idea here is, offset pos by (1/3 * len) then mod it by len.
+  // And if this value is lesser than (2/3 * len) then we're in
+  // blank part. Thus, we can use only 1 check instead of 2.
+  float compared_pos = mod(pos + one_third_len, len);
+  float in_blank_part = step(len - one_third_len, compared_pos);
+
+  float color_weight = step(0.0, vF);
+  vec4 color = mix(vHorizontalColor, vVerticalColor, color_weight);
+
+  vec4 white = vec4(1.0, 1.0, 1.0, 1.0);
+  return mix(color, white, in_blank_part);
+}
+
+vec4 draw_double_edge_vertical() {
+  // Get our position within this specific segment
+  float position = vDevicePos.x - vBorders.x;
+  return draw_double_edge(position, vBorders.z);
+}
+
+vec4 draw_double_edge_horizontal() {
+  // Get our position within this specific segment
+  float position = vDevicePos.y - vBorders.y;
+  return draw_double_edge(position, vBorders.w);
+}
+
+vec4 draw_double_edge_with_radius() {
+  // Get our position within this specific segment
+  float position = distance(vRefPoint, vLocalPos) - vRadii.z;
+  float len = vRadii.x - vRadii.z;
+  return draw_double_edge(position, len);
+}
+
+vec4 draw_double_edge_corner() {
+  if (vRadii.x > 0) {
+    return draw_double_edge_with_radius();
+  }
+
+  bool is_vertical = (vBorderPart == PST_TOP_LEFT) ? vF < 0 : vF >= 0;
+  if (is_vertical) {
+    return draw_double_edge_vertical();
+  } else {
+    return draw_double_edge_horizontal();
+  }
+}
+
 // Our current edge calculation is based only on
 // the size of the border-size, but we need to draw
 // the dashes in the center of the segment we're drawing.
@@ -144,6 +197,32 @@ void draw_dashed_border(void) {
   }
 }
 
+void draw_double_border(void) {
+  switch (vBorderPart) {
+    // These are the layer tile part PrimitivePart as uploaded by the tiling.rs
+    case PST_TOP_LEFT:
+    case PST_TOP_RIGHT:
+    case PST_BOTTOM_LEFT:
+    case PST_BOTTOM_RIGHT:
+    {
+      oFragColor = draw_double_edge_corner();
+      break;
+    }
+    case PST_BOTTOM:
+    case PST_TOP:
+    {
+      oFragColor = draw_double_edge_horizontal();
+      break;
+    }
+    case PST_LEFT:
+    case PST_RIGHT:
+    {
+      oFragColor = draw_double_edge_vertical();
+      break;
+    }
+  }
+}
+
 // TODO: Investigate performance of this shader and see
 //       if it's worthwhile splitting it / removing branches etc.
 void main(void) {
@@ -176,6 +255,11 @@ void main(void) {
     {
       float color = step(0.0, vF);
       oFragColor = mix(vHorizontalColor, vVerticalColor, color);
+      break;
+    }
+    case BORDER_STYLE_DOUBLE:
+    {
+      draw_double_border();
       break;
     }
     default:
