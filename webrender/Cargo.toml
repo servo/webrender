@@ -1,7 +1,9 @@
 [package]
 name = "webrender"
-version = "0.2.0"
+version = "0.4.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
+license = "MPL-2.0"
+repository = "https://github.com/servo/webrender"
 
 [features]
 default = ["webrender_traits/serde_codegen"]
@@ -17,7 +19,6 @@ gleam = "0.2"
 ipc-channel = "0.5"
 lazy_static = "0.2"
 log = "0.3"
-#notify = {git = "https://github.com/glennw/rsnotify.git", branch = "inotify-modify"}
 num-traits = "0.1.32"
 offscreen_gl_context = {version = "0.3", features = ["serde_serialization"]}
 rayon = "0.4.0"

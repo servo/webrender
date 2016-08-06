@@ -110,7 +110,7 @@ impl RenderApi {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);
     /// let api = sender.create_api();
     /// ...
