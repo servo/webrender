@@ -10,3 +10,5 @@ addons:
   apt:
     packages:
       - libgles2-mesa-dev
+script:
+  - (cd webrender && cargo test --verbose)
