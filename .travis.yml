@@ -11,4 +11,5 @@ addons:
     packages:
       - libgles2-mesa-dev
 script:
+  - (cd webrender_traits && cargo test --verbose)
   - (cd webrender && cargo test --verbose)

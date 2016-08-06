@@ -22,7 +22,7 @@ num-traits = "0.1.32"
 offscreen_gl_context = {version = "0.3", features = ["serde_serialization"]}
 rayon = "0.4.0"
 time = "0.1"
-webrender_traits = {git = "https://github.com/servo/webrender_traits", default-features = false}
+webrender_traits = {path = "../webrender_traits", default-features = false}
 
 [target.'cfg(any(target_os = "android", target_os = "linux", target_os = "windows"))'.dependencies]
 freetype = {git = "https://github.com/servo/rust-freetype"}
