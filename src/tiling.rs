@@ -2934,3 +2934,31 @@ impl PackedPrimitiveCache {
     }
 }
 
+//Test for one clip region contains another
+pub trait InsideTest<T> {
+    fn might_contain(&self, clip: &T) -> bool;
+}
+
+impl InsideTest<ComplexClipRegion> for ComplexClipRegion {
+    // Returns true if clip is inside self, can return false negative
+    fn might_contain(&self, clip: &ComplexClipRegion) -> bool {
+        let delta_left = clip.rect.origin.x - self.rect.origin.x;
+        let delta_top = clip.rect.origin.y - self.rect.origin.y;
+        let delta_right = self.rect.max_x() - clip.rect.max_x();
+        let delta_bottom = self.rect.max_y() - clip.rect.max_y();
+
+        delta_left >= 0f32 &&
+        delta_top >= 0f32 &&
+        delta_right >= 0f32 &&
+        delta_bottom >= 0f32 &&
+        clip.radii.top_left.width >= self.radii.top_left.width - delta_left &&
+        clip.radii.top_left.height >= self.radii.top_left.height - delta_top &&
+        clip.radii.top_right.width >= self.radii.top_right.width - delta_right &&
+        clip.radii.top_right.height >= self.radii.top_right.height - delta_top &&
+        clip.radii.bottom_left.width >= self.radii.bottom_left.width - delta_left &&
+        clip.radii.bottom_left.height >= self.radii.bottom_left.height - delta_bottom &&
+        clip.radii.bottom_right.width >= self.radii.bottom_right.width - delta_right &&
+        clip.radii.bottom_right.height >= self.radii.bottom_right.height - delta_bottom
+    }
+}
+
