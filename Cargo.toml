@@ -11,7 +11,7 @@ serde_macros = ["webrender_traits/serde_macros"]
 app_units = "0.2.5"
 bit-set = "0.4"
 byteorder = "0.5"
-euclid = "0.7.1"
+euclid = "0.8"
 fnv="1.0"
 gleam = "0.2"
 ipc-channel = "0.4.0"
@@ -19,7 +19,7 @@ lazy_static = "0.2"
 log = "0.3"
 #notify = {git = "https://github.com/glennw/rsnotify.git", branch = "inotify-modify"}
 num-traits = "0.1.32"
-offscreen_gl_context = {version = "0.1.9", features = ["serde_serialization"]}
+offscreen_gl_context = {version = "0.2.0", features = ["serde_serialization"]}
 scoped_threadpool = "0.1.6"
 time = "0.1"
 webrender_traits = {git = "https://github.com/servo/webrender_traits", default-features = false}

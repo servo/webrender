@@ -25,16 +25,6 @@ use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, ComplexClipReg
 use webrender_traits::{BorderDisplayItem, BorderStyle, ItemRange, AuxiliaryLists, BorderRadius, BorderSide};
 use webrender_traits::{BoxShadowClipMode, PipelineId, ScrollLayerId, WebGLContextId};
 
-pub static SCREEN_MIN: Point2D<f32> = Point2D {
-    x: 10000000.0,
-    y: 10000000.0,
-};
-
-pub static SCREEN_MAX: Point2D<f32> = Point2D {
-    x: -10000000.0,
-    y: -10000000.0,
-};
-
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum GradientType {
@@ -602,8 +592,9 @@ impl TransformedRect {
                                                               1.0)),
                 ];
 
-                let mut screen_min: Point2D<f32> = SCREEN_MIN;
-                let mut screen_max: Point2D<f32> = SCREEN_MAX;
+
+                let mut screen_min : Point2D<f32> = Point2D::new(10000000.0, 10000000.0);
+                let mut screen_max : Point2D<f32>  = Point2D::new(-10000000.0, -10000000.0);
 
                 for vertex in &vertices {
                     let inv_w = 1.0 / vertex.w;

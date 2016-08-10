@@ -8,7 +8,7 @@ use fnv::FnvHasher;
 use geometry::ray_intersects_rect;
 use internal_types::{ANGLE_FLOAT_TO_FIXED, AxisDirection};
 use internal_types::{CompositionOp};
-use internal_types::{LowLevelFilterOp, MAX_RECT};
+use internal_types::{LowLevelFilterOp, max_rect};
 use internal_types::{RendererFrame};
 use layer::{Layer, ScrollingState};
 use resource_cache::ResourceCache;
@@ -438,7 +438,7 @@ impl Frame {
                             default_scroll_layer_id: root_scroll_layer_id,
                             actual_scroll_layer_id: root_scroll_layer_id,
                             fixed_scroll_layer_id: root_fixed_layer_id,
-                            current_clip_rect: MAX_RECT,
+                            current_clip_rect: max_rect(),
                             local_transform: Matrix4D::identity(),
                             local_perspective: Matrix4D::identity(),
                             world_transform: Matrix4D::identity(),
@@ -615,7 +615,7 @@ impl Frame {
                             default_scroll_layer_id: info.default_scroll_layer_id,
                             actual_scroll_layer_id: info.actual_scroll_layer_id,
                             fixed_scroll_layer_id: iframe_fixed_layer_id,
-                            current_clip_rect: MAX_RECT,
+                            current_clip_rect: max_rect(),
                             local_transform: info.local_transform,
                             local_perspective: info.local_perspective,
                             world_transform: info.world_transform,

@@ -72,12 +72,12 @@ impl MatrixHelpers for Matrix4D<f32> {
     }
 
     fn reset_after_transforming_rect(&self) -> Matrix4D<f32> {
-        Matrix4D {
-            m11: 1.0,      m12: 0.0,      m13: self.m13, m14: 0.0,
-            m21: 0.0,      m22: 1.0,      m23: self.m23, m24: 0.0,
-            m31: self.m31, m32: self.m32, m33: self.m33, m34: self.m34,
-            m41: 0.0,      m42: 0.0,      m43: self.m43, m44: 1.0,
-        }
+        Matrix4D::new(
+            1.0,      0.0,      self.m13, 0.0,
+            0.0,      1.0,      self.m23, 0.0,
+            self.m31, self.m32, self.m33, self.m34,
+            0.0,      0.0,      self.m43, 1.0,
+        )
     }
 }
 

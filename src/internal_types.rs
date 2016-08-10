@@ -81,16 +81,11 @@ pub const ANGLE_FLOAT_TO_FIXED: f32 = 65535.0;
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
 pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
 
-pub static MAX_RECT: Rect<f32> = Rect {
-    origin: Point2D {
-        x: f32::MIN,
-        y: f32::MIN,
-    },
-    size: Size2D {
-        width: f32::INFINITY,
-        height: f32::INFINITY,
-    },
-};
+
+#[inline(always)]
+pub fn max_rect() -> Rect<f32> {
+    Rect::new(Point2D::new(f32::MIN, f32::MIN), Size2D::new(f32::INFINITY, f32::INFINITY))
+}
 
 pub enum FontTemplate {
     Raw(Arc<Vec<u8>>),
