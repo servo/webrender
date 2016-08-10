@@ -10,7 +10,9 @@ use std::hash::BuildHasherDefault;
 use webrender_traits::{FontKey, ImageKey, ImageRendering};
 
 type RequiredImageSet = HashSet<(ImageKey, ImageRendering), BuildHasherDefault<FnvHasher>>;
-type RequiredGlyphMap = HashMap<FontKey, HashSet<Glyph>, BuildHasherDefault<FnvHasher>>;
+type RequiredGlyphMap = HashMap<FontKey,
+                                HashSet<Glyph, BuildHasherDefault<FnvHasher>>,
+                                BuildHasherDefault<FnvHasher>>;
 type RequiredRasterSet = HashSet<RasterItem, BuildHasherDefault<FnvHasher>>;
 
 pub struct ResourceList {
@@ -36,7 +38,7 @@ impl ResourceList {
 
     pub fn add_glyph(&mut self, font_key: FontKey, glyph: Glyph) {
         self.required_glyphs.entry(font_key)
-                            .or_insert_with(HashSet::new)
+                            .or_insert_with(|| HashSet::with_hasher(Default::default()))
                             .insert(glyph);
     }
 
