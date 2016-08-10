@@ -840,15 +840,15 @@ impl Primitive {
             PrimitiveDetails::Border(ref details) => {
                 let inner_radius = BorderRadius {
                     top_left: Size2D::new(details.radius.top_left.width - details.left_width,
-                                          details.radius.top_left.width - details.left_width),
+                                          details.radius.top_left.height - details.top_width),
                     top_right: Size2D::new(details.radius.top_right.width - details.right_width,
-                                           details.radius.top_right.width - details.right_width),
+                                           details.radius.top_right.height - details.top_width),
                     bottom_left:
                         Size2D::new(details.radius.bottom_left.width - details.left_width,
-                                    details.radius.bottom_left.width - details.left_width),
+                                    details.radius.bottom_left.height - details.bottom_width),
                     bottom_right:
                         Size2D::new(details.radius.bottom_right.width - details.right_width,
-                                    details.radius.bottom_right.width - details.right_width),
+                                    details.radius.bottom_right.height - details.bottom_width),
                 };
 
                 cache.add_packed_primitive(index, PackedPrimitive::Border(PackedBorderPrimitive {
