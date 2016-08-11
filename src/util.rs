@@ -5,6 +5,7 @@
 use euclid::{Matrix4D, Point2D, Point4D, Rect, Size2D};
 use internal_types::DevicePixel;
 use num_traits::Zero;
+use std::ops::Sub;
 use time::precise_time_ns;
 
 #[allow(dead_code)]
@@ -47,6 +48,8 @@ pub trait MatrixHelpers {
     /// Clears out the portions of the matrix that `transform_rect()` uses. This allows the use of
     /// `transform_rect()` while keeping the Z/W transform portions of the matrix intact.
     fn reset_after_transforming_rect(&self) -> Matrix4D<f32>;
+
+    fn is_identity(&self) -> bool;
 }
 
 impl MatrixHelpers for Matrix4D<f32> {
@@ -79,18 +82,28 @@ impl MatrixHelpers for Matrix4D<f32> {
             0.0,      0.0,      self.m43, 1.0,
         )
     }
+
+    fn is_identity(&self) -> bool {
+        *self == Matrix4D::identity()
+    }
 }
 
-pub trait RectHelpers {
-    fn from_points(a: &Point2D<f32>, b: &Point2D<f32>, c: &Point2D<f32>, d: &Point2D<f32>) -> Self;
-    fn contains_rect(&self, other: &Rect<f32>) -> bool;
-    fn from_floats(x0: f32, y0: f32, x1: f32, y1: f32) -> Rect<f32>;
+pub trait RectHelpers where Self: Sized {
+    type N;
+    fn from_points(a: &Point2D<Self::N>,
+                   b: &Point2D<Self::N>,
+                   c: &Point2D<Self::N>,
+                   d: &Point2D<Self::N>)
+                   -> Self;
+    fn contains_rect(&self, other: &Self) -> bool;
+    fn from_floats(x0: Self::N, y0: Self::N, x1: Self::N, y1: Self::N) -> Self;
     fn is_well_formed_and_nonempty(&self) -> bool;
 }
 
-impl RectHelpers for Rect<f32> {
-    fn from_points(a: &Point2D<f32>, b: &Point2D<f32>, c: &Point2D<f32>, d: &Point2D<f32>)
-                   -> Rect<f32> {
+impl<T> RectHelpers for Rect<T> where T: Clone + Copy + PartialOrd + Sub<T, Output=T> + Zero {
+    type N = T;
+
+    fn from_points(a: &Point2D<T>, b: &Point2D<T>, c: &Point2D<T>, d: &Point2D<T>) -> Rect<T> {
         let (mut min_x, mut min_y) = (a.x.clone(), a.y.clone());
         let (mut max_x, mut max_y) = (min_x.clone(), min_y.clone());
         for point in &[b, c, d] {
@@ -111,20 +124,20 @@ impl RectHelpers for Rect<f32> {
                   Size2D::new(max_x - min_x, max_y - min_y))
     }
 
-    fn contains_rect(&self, other: &Rect<f32>) -> bool {
+    fn contains_rect(&self, other: &Self) -> bool {
         self.origin.x <= other.origin.x &&
         self.origin.y <= other.origin.y &&
         self.max_x() >= other.max_x() &&
         self.max_y() >= other.max_y()
     }
 
-    fn from_floats(x0: f32, y0: f32, x1: f32, y1: f32) -> Rect<f32> {
+    fn from_floats(x0: T, y0: T, x1: T, y1: T) -> Rect<T> {
         Rect::new(Point2D::new(x0, y0),
                   Size2D::new(x1 - x0, y1 - y0))
     }
 
     fn is_well_formed_and_nonempty(&self) -> bool {
-        self.size.width > 0.0 && self.size.height > 0.0
+        self.size.width > T::zero() && self.size.height > T::zero()
     }
 }
 
