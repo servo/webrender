@@ -730,6 +730,7 @@ struct Primitive {
     rect: Rect<f32>,
     local_clip_rect: Rect<f32>,
     complex_clip: Option<Box<Clip>>,
+    xf_rect: Option<TransformedRect>,
     details: PrimitiveDetails,
 }
 
@@ -751,6 +752,11 @@ impl Primitive {
             ctx: &RenderTargetContext) {
         // TODO(pcwalton): Only pack visible primitives!
         cache.init_packed_primitive(index);
+
+        if self.xf_rect.is_none() {
+            return;
+        }
+
         match self.details {
             PrimitiveDetails::Rectangle(ref details) => {
                 match self.complex_clip {
@@ -1709,6 +1715,9 @@ impl StackingContext {
                 &StackingContextItem::StackingContext(..) => continue,
             };
             let prim = &prim_store[prim_index.0];
+            if prim.xf_rect.is_none() {
+                continue;
+            }
             match prim.details {
                 PrimitiveDetails::Rectangle(..) => {}
                 PrimitiveDetails::Gradient(..) => {}
@@ -2067,6 +2076,7 @@ impl FrameBuilder {
             complex_clip: clip,
             local_clip_rect: *clip_rect,
             details: details,
+            xf_rect: None,
         };
         let prim_index = self.prim_store.len();
         self.prim_store.push(prim);
@@ -2441,11 +2451,33 @@ impl FrameBuilder {
                                                        });
 
                 if layer.world_clip_rect.is_some() {
-                    layer.is_valid = layer.xf_rect
-                                          .as_ref()
-                                          .unwrap()
-                                          .bounding_rect
-                                          .intersects(&screen_rect);
+                    if layer.xf_rect
+                            .as_ref()
+                            .unwrap()
+                            .bounding_rect
+                            .intersects(&screen_rect) {
+
+                        for item in &mut layer.items {
+                            match item {
+                                &mut StackingContextItem::StackingContext(..) => {
+                                    // TODO(gw): Worth removing these to reduce cmd list size?
+                                }
+                                &mut StackingContextItem::Primitive(prim_index) => {
+                                    let prim = &mut self.prim_store[prim_index.0];
+
+                                    let xf_rect = TransformedRect::new(&prim.rect,
+                                                                       &layer.transform,
+                                                                       self.device_pixel_ratio);
+
+                                    if xf_rect.bounding_rect.intersects(&screen_rect) {
+                                        prim.xf_rect = Some(xf_rect);
+                                    }
+                                }
+                            }
+                        }
+
+                        layer.is_valid = true;
+                    }
                 }
             }
         }
@@ -2527,35 +2559,34 @@ impl FrameBuilder {
                 &StackingContextItem::Primitive(prim_index) => {
                     let prim = &self.prim_store[prim_index.0];
 
-                    let p_rect = TransformedRect::new(&prim.rect,
-                                                      &layer.transform,
-                                                      self.device_pixel_ratio);
-                    let p_rect = &p_rect.bounding_rect;
+                    if let Some(ref p_rect) = prim.xf_rect {
+                        let p_rect = &p_rect.bounding_rect;
 
-                    // TODO(gw): Ensure that certain primitives (such as background-image) only get
-                    //           assigned to tiles where their containing layer intersects with.
-                    //           Does this cause any problems / demonstrate other bugs?
-                    //           Restrict the tiles by clamping to the layer tile indices...
+                        // TODO(gw): Ensure that certain primitives (such as background-image) only get
+                        //           assigned to tiles where their containing layer intersects with.
+                        //           Does this cause any problems / demonstrate other bugs?
+                        //           Restrict the tiles by clamping to the layer tile indices...
 
-                    let p_tile_x0 = p_rect.origin.x.0 / SCREEN_TILE_SIZE;
-                    let p_tile_y0 = p_rect.origin.y.0 / SCREEN_TILE_SIZE;
-                    let p_tile_x1 = (p_rect.origin.x.0 + p_rect.size.width.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
-                    let p_tile_y1 = (p_rect.origin.y.0 + p_rect.size.height.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+                        let p_tile_x0 = p_rect.origin.x.0 / SCREEN_TILE_SIZE;
+                        let p_tile_y0 = p_rect.origin.y.0 / SCREEN_TILE_SIZE;
+                        let p_tile_x1 = (p_rect.origin.x.0 + p_rect.size.width.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+                        let p_tile_y1 = (p_rect.origin.y.0 + p_rect.size.height.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
 
-                    let p_tile_x0 = cmp::min(p_tile_x0, l_tile_x1);
-                    let p_tile_x0 = cmp::max(p_tile_x0, l_tile_x0);
-                    let p_tile_x1 = cmp::min(p_tile_x1, l_tile_x1);
-                    let p_tile_x1 = cmp::max(p_tile_x1, l_tile_x0);
+                        let p_tile_x0 = cmp::min(p_tile_x0, l_tile_x1);
+                        let p_tile_x0 = cmp::max(p_tile_x0, l_tile_x0);
+                        let p_tile_x1 = cmp::min(p_tile_x1, l_tile_x1);
+                        let p_tile_x1 = cmp::max(p_tile_x1, l_tile_x0);
 
-                    let p_tile_y0 = cmp::min(p_tile_y0, l_tile_y1);
-                    let p_tile_y0 = cmp::max(p_tile_y0, l_tile_y0);
-                    let p_tile_y1 = cmp::min(p_tile_y1, l_tile_y1);
-                    let p_tile_y1 = cmp::max(p_tile_y1, l_tile_y0);
+                        let p_tile_y0 = cmp::min(p_tile_y0, l_tile_y1);
+                        let p_tile_y0 = cmp::max(p_tile_y0, l_tile_y0);
+                        let p_tile_y1 = cmp::min(p_tile_y1, l_tile_y1);
+                        let p_tile_y1 = cmp::max(p_tile_y1, l_tile_y0);
 
-                    for py in p_tile_y0..p_tile_y1 {
-                        for px in p_tile_x0..p_tile_x1 {
-                            let tile = &mut screen_tiles[(py * x_tile_count + px) as usize];
-                            tile.push_primitive(prim_index);
+                        for py in p_tile_y0..p_tile_y1 {
+                            for px in p_tile_x0..p_tile_x1 {
+                                let tile = &mut screen_tiles[(py * x_tile_count + px) as usize];
+                                tile.push_primitive(prim_index);
+                            }
                         }
                     }
                 }
