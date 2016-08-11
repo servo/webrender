@@ -1291,11 +1291,16 @@ impl Renderer {
                 gl::buffer_data(gl::UNIFORM_BUFFER, ubo_data, gl::STATIC_DRAW);
             }
 
-            gl::enable(gl::BLEND);
             gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
             gl::blend_equation(gl::FUNC_ADD);
 
             for batch in &batcher.batches {
+                if batch.blending_enabled {
+                    gl::enable(gl::BLEND);
+                } else {
+                    gl::disable(gl::BLEND);
+                }
+
                 match &batch.data {
                     &PrimitiveBatchData::Blend(..) => {}
                     &PrimitiveBatchData::Composite(..) => {}
