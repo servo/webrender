@@ -184,15 +184,18 @@ impl AlphaBatcher {
                                                           TaskIndex(task_index),
                                                           task,
                                                           ctx);
+                        let needs_blending = !prim.is_opaque(ctx.resource_cache, ctx.frame_id);
                         let mut new_batch = PrimitiveBatch::new(prim,
                                                                 transform_kind,
                                                                 layer_ubo_index,
-                                                                tile_ubo_index);
+                                                                tile_ubo_index,
+                                                                needs_blending);
                         let ok = packed_primitive_cache.add_to_batch(prim_index,
                                                                      &mut new_batch,
                                                                      index_in_layer_ubo,
                                                                      index_in_tile_ubo,
-                                                                     transform_kind);
+                                                                     transform_kind,
+                                                                     needs_blending);
                         debug_assert!(ok);
                         batch = Some(new_batch);
                         break;
@@ -230,6 +233,7 @@ impl AlphaBatcher {
                         }
                         AlphaRenderItem::Primitive(sc_index, prim_index) => {
                             let layer = &ctx.layer_store[sc_index.0];
+                            let prim = &ctx.prim_store[prim_index.0];
                             let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
                             let (layer_ubo_index, index_in_layer_ubo) =
                                 AlphaBatcher::add_layer_to_ubo(&mut self.layer_ubos,
@@ -249,7 +253,8 @@ impl AlphaBatcher {
                                                                     &mut batch,
                                                                     index_in_layer_ubo,
                                                                     index_in_tile_ubo,
-                                                                    transform_kind) {
+                                                                    transform_kind,
+                                                                    !prim.is_opaque(ctx.resource_cache, ctx.frame_id)) {
                                 task.items.push(next_item);
                                 break;
                             }
@@ -729,6 +734,16 @@ struct Primitive {
 }
 
 impl Primitive {
+    fn is_opaque(&self, resource_cache: &ResourceCache, frame_id: FrameId) -> bool {
+        match self.details {
+            PrimitiveDetails::Rectangle(ref primitive) => primitive.color.a == 1.0,
+            PrimitiveDetails::Image(ImagePrimitive {
+                kind: ImagePrimitiveKind::Image(image_key, image_rendering, _),
+            }) => resource_cache.get_image(image_key, image_rendering, frame_id).is_opaque,
+            _ => false,
+        }
+    }
+
     fn pack(&self,
             index: PrimitiveIndex,
             cache: &mut PackedPrimitiveCache,
@@ -1514,6 +1529,7 @@ pub struct PrimitiveBatch {
     pub color_texture_id: TextureId,        // TODO(gw): Expand to sampler array to handle all glyphs!
     pub layer_ubo_index: usize,
     pub tile_ubo_index: usize,
+    pub blending_enabled: bool,
     pub data: PrimitiveBatchData,
 }
 
@@ -1533,6 +1549,7 @@ impl PrimitiveBatch {
             transform_kind: TransformedRectKind::AxisAligned,
             layer_ubo_index: 0,
             tile_ubo_index: 0,
+            blending_enabled: true,
             data: PrimitiveBatchData::Blend(vec![blend]),
         }
     }
@@ -1553,6 +1570,7 @@ impl PrimitiveBatch {
             transform_kind: TransformedRectKind::AxisAligned,
             layer_ubo_index: 0,
             tile_ubo_index: 0,
+            blending_enabled: true,
             data: PrimitiveBatchData::Composite(vec![composite]),
         }
     }
@@ -1599,7 +1617,8 @@ impl PrimitiveBatch {
     fn new(prim: &Primitive,
            transform_kind: TransformedRectKind,
            layer_ubo_index: usize,
-           tile_ubo_index: usize) -> PrimitiveBatch {
+           tile_ubo_index: usize,
+           blending_enabled: bool) -> PrimitiveBatch {
         let data = match prim.details {
             PrimitiveDetails::Rectangle(..) => {
                 match prim.complex_clip {
@@ -1639,6 +1658,7 @@ impl PrimitiveBatch {
             transform_kind: transform_kind,
             layer_ubo_index: layer_ubo_index,
             tile_ubo_index: tile_ubo_index,
+            blending_enabled: blending_enabled,
             data: data,
         }
     }
@@ -2810,9 +2830,11 @@ impl PackedPrimitiveCache {
                     batch: &mut PrimitiveBatch,
                     layer_index_in_ubo: u32,
                     tile_index_in_ubo: u32,
-                    transform_kind: TransformedRectKind)
+                    transform_kind: TransformedRectKind,
+                    needs_blending: bool)
                     -> bool {
-        if transform_kind != batch.transform_kind {
+        if transform_kind != batch.transform_kind ||
+           needs_blending != batch.blending_enabled {
             return false
         }
 
