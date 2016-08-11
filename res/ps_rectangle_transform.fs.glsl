@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 void main(void) {
-    init_transform_fs(vLocalPos, vLocalRect);
-    oFragColor = vColor;
+    float alpha = 0;
+    init_transform_fs(vLocalPos, vLocalRect, alpha);
+    oFragColor = vColor * vec4(1.0, 1.0, 1.0, alpha);
 }
