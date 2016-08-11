@@ -47,6 +47,13 @@ const UBO_BIND_CLEAR_TILES: u32 = 2;
 const UBO_BIND_PRIM_TILES: u32 = 3;
 const UBO_BIND_CACHE_ITEMS: u32 = 4;
 
+#[derive(Copy, Clone)]
+struct PrimitiveShader {
+    simple: ProgramId,
+    transform: ProgramId,
+    max_items: usize,
+}
+
 #[derive(Clone, Copy)]
 struct VertexBuffer {
     vao_id: VAOId,
@@ -105,14 +112,50 @@ fn get_ubo_max_len<T>(max_ubo_size: usize) -> usize {
     cmp::min(max_items, 1024)
 }
 
+impl PrimitiveShader {
+    fn new(name: &'static str,
+           device: &mut Device,
+           max_prim_tiles: usize,
+           max_prim_layers: usize,
+           max_prim_items: usize) -> PrimitiveShader {
+        let simple = create_prim_shader(name,
+                                        device,
+                                        max_prim_tiles,
+                                        max_prim_layers,
+                                        max_prim_items,
+                                        &[]);
+
+        let transform = create_prim_shader(name,
+                                           device,
+                                           max_prim_tiles,
+                                           max_prim_layers,
+                                           max_prim_items,
+                                           &["TRANSFORM"]);
+
+        PrimitiveShader {
+            simple: simple,
+            transform: transform,
+            max_items: max_prim_items,
+        }
+    }
+}
+
 fn create_prim_shader(name: &'static str,
                       device: &mut Device,
                       max_prim_tiles: usize,
                       max_prim_layers: usize,
-                      max_prim_items: usize) -> ProgramId {
-    let prefix = format!("#define WR_MAX_PRIM_TILES {}\n#define WR_MAX_PRIM_LAYERS {}\n#define WR_MAX_PRIM_ITEMS {}\n", max_prim_tiles,
-                                                                                                                        max_prim_layers,
-                                                                                                                        max_prim_items);
+                      max_prim_items: usize,
+                      features: &[&'static str]) -> ProgramId {
+    let mut prefix = format!("#define WR_MAX_PRIM_TILES {}\n\
+                              #define WR_MAX_PRIM_LAYERS {}\n\
+                              #define WR_MAX_PRIM_ITEMS {}\n",
+                              max_prim_tiles,
+                              max_prim_layers,
+                              max_prim_items);
+
+    for feature in features {
+        prefix.push_str(&format!("#define WR_FEATURE_{}\n", feature));
+    }
 
     let program_id = device.create_program_with_prefix(name,
                                                        "prim_shared",
@@ -169,36 +212,24 @@ pub struct Renderer {
     blur_program_id: ProgramId,
     u_direction: UniformLocation,
 
-    ps_rectangle: ProgramId,
-    ps_text: ProgramId,
-    ps_image: ProgramId,
-    ps_border: ProgramId,
-    ps_box_shadow: ProgramId,
+    ps_rectangle: PrimitiveShader,
+    ps_text: PrimitiveShader,
+    ps_image: PrimitiveShader,
+    ps_border: PrimitiveShader,
+    ps_box_shadow: PrimitiveShader,
+    ps_aligned_gradient: PrimitiveShader,
+    ps_angle_gradient: PrimitiveShader,
+    ps_rectangle_clip: PrimitiveShader,
+    ps_image_clip: PrimitiveShader,
+
     ps_blend: ProgramId,
     ps_composite: ProgramId,
-    ps_aligned_gradient: ProgramId,
-    ps_angle_gradient: ProgramId,
-
-    ps_rectangle_clip: ProgramId,
-    ps_image_clip: ProgramId,
-
-    ps_rectangle_transform: ProgramId,
-    ps_image_transform: ProgramId,
 
     tile_clear_shader: ProgramId,
 
     max_clear_tiles: usize,
-    max_prim_rectangles: usize,
-    max_prim_rectangles_clip: usize,
-    max_prim_texts: usize,
-    max_prim_images: usize,
-    max_prim_images_clip: usize,
-    max_prim_borders: usize,
-    max_prim_box_shadows: usize,
     max_prim_blends: usize,
     max_prim_composites: usize,
-    max_prim_aligned_gradients: usize,
-    max_prim_angle_gradients: usize,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
@@ -277,73 +308,65 @@ impl Renderer {
         let max_prim_aligned_gradients = get_ubo_max_len::<tiling::PackedAlignedGradientPrimitive>(max_ubo_size);
         let max_prim_angle_gradients = get_ubo_max_len::<tiling::PackedAngleGradientPrimitive>(max_ubo_size);
 
-        let ps_rectangle = create_prim_shader("ps_rectangle",
-                                              &mut device,
-                                              max_prim_tiles,
-                                              max_prim_layers,
-                                              max_prim_rectangles);
-        let ps_rectangle_clip = create_prim_shader("ps_rectangle_clip",
-                                                   &mut device,
-                                                   max_prim_tiles,
-                                                   max_prim_layers,
-                                                   max_prim_rectangles_clip);
-        let ps_text = create_prim_shader("ps_text",
-                                         &mut device,
-                                         max_prim_tiles,
-                                         max_prim_layers,
-                                         max_prim_texts);
-        let ps_image = create_prim_shader("ps_image",
-                                          &mut device,
-                                          max_prim_tiles,
-                                          max_prim_layers,
-                                          max_prim_images);
-        let ps_image_clip = create_prim_shader("ps_image_clip",
-                                               &mut device,
-                                               max_prim_tiles,
-                                               max_prim_layers,
-                                               max_prim_images_clip);
-
-        let ps_border = create_prim_shader("ps_border",
-                                           &mut device,
-                                           max_prim_tiles,
-                                           max_prim_layers,
-                                           max_prim_borders);
-        let ps_box_shadow = create_prim_shader("ps_box_shadow",
-                                               &mut device,
-                                               max_prim_tiles,
-                                               max_prim_layers,
-                                               max_prim_box_shadows);
-        let ps_aligned_gradient = create_prim_shader("ps_gradient",
+        let ps_rectangle = PrimitiveShader::new("ps_rectangle",
+                                                &mut device,
+                                                max_prim_tiles,
+                                                max_prim_layers,
+                                                max_prim_rectangles);
+        let ps_rectangle_clip = PrimitiveShader::new("ps_rectangle_clip",
                                                      &mut device,
                                                      max_prim_tiles,
                                                      max_prim_layers,
-                                                     max_prim_aligned_gradients);
-        let ps_angle_gradient = create_prim_shader("ps_angle_gradient",
-                                                   &mut device,
-                                                   max_prim_tiles,
-                                                   max_prim_layers,
-                                                   max_prim_angle_gradients);
+                                                     max_prim_rectangles_clip);
+        let ps_text = PrimitiveShader::new("ps_text",
+                                           &mut device,
+                                           max_prim_tiles,
+                                           max_prim_layers,
+                                           max_prim_texts);
+        let ps_image = PrimitiveShader::new("ps_image",
+                                            &mut device,
+                                            max_prim_tiles,
+                                            max_prim_layers,
+                                            max_prim_images);
+        let ps_image_clip = PrimitiveShader::new("ps_image_clip",
+                                                 &mut device,
+                                                 max_prim_tiles,
+                                                 max_prim_layers,
+                                                 max_prim_images_clip);
 
-        let ps_rectangle_transform = create_prim_shader("ps_rectangle_transform",
-                                                        &mut device,
-                                                        max_prim_tiles,
-                                                        max_prim_layers,
-                                                        max_prim_rectangles);
-        let ps_image_transform = create_prim_shader("ps_image_transform",
-                                                    &mut device,
-                                                    max_prim_tiles,
-                                                    max_prim_layers,
-                                                    max_prim_images);
+        let ps_border = PrimitiveShader::new("ps_border",
+                                             &mut device,
+                                             max_prim_tiles,
+                                             max_prim_layers,
+                                             max_prim_borders);
+        let ps_box_shadow = PrimitiveShader::new("ps_box_shadow",
+                                                 &mut device,
+                                                 max_prim_tiles,
+                                                 max_prim_layers,
+                                                 max_prim_box_shadows);
+        let ps_aligned_gradient = PrimitiveShader::new("ps_gradient",
+                                                       &mut device,
+                                                       max_prim_tiles,
+                                                       max_prim_layers,
+                                                       max_prim_aligned_gradients);
+        let ps_angle_gradient = PrimitiveShader::new("ps_angle_gradient",
+                                                     &mut device,
+                                                     max_prim_tiles,
+                                                     max_prim_layers,
+                                                     max_prim_angle_gradients);
+
         let ps_blend = create_prim_shader("ps_blend",
                                           &mut device,
                                           max_prim_tiles,
                                           max_prim_layers,
-                                          max_prim_blends);
+                                          max_prim_blends,
+                                          &[]);
         let ps_composite = create_prim_shader("ps_composite",
                                               &mut device,
                                               max_prim_tiles,
                                               max_prim_layers,
-                                              max_prim_composites);
+                                              max_prim_composites,
+                                              &[]);
 
         let max_clear_tiles = get_ubo_max_len::<ClearTile>(max_ubo_size);
         let tile_clear_shader = create_clear_shader("ps_clear", &mut device, max_clear_tiles);
@@ -482,20 +505,9 @@ impl Renderer {
             ps_composite: ps_composite,
             ps_aligned_gradient: ps_aligned_gradient,
             ps_angle_gradient: ps_angle_gradient,
-            ps_rectangle_transform: ps_rectangle_transform,
-            ps_image_transform: ps_image_transform,
             max_clear_tiles: max_clear_tiles,
-            max_prim_rectangles: max_prim_rectangles,
-            max_prim_rectangles_clip: max_prim_rectangles_clip,
-            max_prim_texts: max_prim_texts,
-            max_prim_images: max_prim_images,
-            max_prim_images_clip: max_prim_images_clip,
-            max_prim_borders: max_prim_borders,
-            max_prim_box_shadows: max_prim_box_shadows,
             max_prim_blends: max_prim_blends,
             max_prim_composites: max_prim_composites,
-            max_prim_aligned_gradients: max_prim_aligned_gradients,
-            max_prim_angle_gradients: max_prim_angle_gradients,
             u_direction: UniformLocation::invalid(),
             notifier: notifier,
             debug: debug_renderer,
@@ -1223,6 +1235,36 @@ impl Renderer {
         }
     }
 
+    fn draw_ubo_batch<T>(&mut self,
+                         ubo_data: &[T],
+                         prim_shader: PrimitiveShader,
+                         transform_kind: TransformedRectKind,
+                         color_texture_id: TextureId,
+                         projection: &Matrix4D<f32>) {
+        let shader = match transform_kind {
+            TransformedRectKind::AxisAligned => prim_shader.simple,
+            TransformedRectKind::Complex => prim_shader.transform,
+        };
+        self.device.bind_program(shader, &projection);
+        self.device.bind_vao(self.quad_vao_id);
+        self.device.bind_color_texture(color_texture_id);
+
+        for chunk in ubo_data.chunks(prim_shader.max_items) {
+            let ubos = gl::gen_buffers(1);
+            let ubo = ubos[0];
+
+            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
+            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
+            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
+
+            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
+            self.profile_counters.vertices.add(6 * chunk.len());
+            self.profile_counters.draw_calls.inc();
+
+            gl::delete_buffers(&ubos);
+        }
+    }
+
     fn draw_target(&mut self,
                    render_target: Option<TextureId>,
                    target: &RenderTarget,
@@ -1350,186 +1392,82 @@ impl Renderer {
                         }
                     }
                     &PrimitiveBatchData::Rectangles(ref ubo_data) => {
-                        let shader = match batch.transform_kind {
-                            TransformedRectKind::AxisAligned => self.ps_rectangle,
-                            TransformedRectKind::Complex => self.ps_rectangle_transform,
-                        };
-                        self.device.bind_program(shader, &projection);
-                        self.device.bind_vao(self.quad_vao_id);
-
-                        for chunk in ubo_data.chunks(self.max_prim_rectangles) {
-                            let ubos = gl::gen_buffers(1);
-                            let ubo = ubos[0];
-
-                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
-
-                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-                            self.profile_counters.vertices.add(6 * chunk.len());
-                            self.profile_counters.draw_calls.inc();
-
-                            gl::delete_buffers(&ubos);
-                        }
+                        let shader = self.ps_rectangle;
+                        self.draw_ubo_batch(ubo_data,
+                                            shader,
+                                            batch.transform_kind,
+                                            batch.color_texture_id,
+                                            &projection);
                     }
                     &PrimitiveBatchData::RectanglesClip(ref ubo_data) => {
-                        self.device.bind_program(self.ps_rectangle_clip, &projection);
-                        self.device.bind_vao(self.quad_vao_id);
+                        let shader = self.ps_rectangle_clip;
+                        self.draw_ubo_batch(ubo_data,
+                                            shader,
+                                            batch.transform_kind,
+                                            batch.color_texture_id,
+                                            &projection);
 
-                        for chunk in ubo_data.chunks(self.max_prim_rectangles_clip) {
-                            let ubos = gl::gen_buffers(1);
-                            let ubo = ubos[0];
-
-                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
-
-                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-                            self.profile_counters.vertices.add(6 * chunk.len());
-                            self.profile_counters.draw_calls.inc();
-
-                            gl::delete_buffers(&ubos);
-                        }
                     }
                     &PrimitiveBatchData::Image(ref ubo_data) => {
-                        let shader = match batch.transform_kind {
-                            TransformedRectKind::AxisAligned => self.ps_image,
-                            TransformedRectKind::Complex => self.ps_image_transform,
-                        };
-                        self.device.bind_program(shader, &projection);
-                        self.device.bind_vao(self.quad_vao_id);
-                        self.device.bind_color_texture(batch.color_texture_id);
-
-                        for chunk in ubo_data.chunks(self.max_prim_images) {
-                            let ubos = gl::gen_buffers(1);
-                            let ubo = ubos[0];
-
-                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
-
-                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-                            self.profile_counters.vertices.add(6 * chunk.len());
-                            self.profile_counters.draw_calls.inc();
-
-                            gl::delete_buffers(&ubos);
-                        }
+                        let shader = self.ps_image;
+                        self.draw_ubo_batch(ubo_data,
+                                            shader,
+                                            batch.transform_kind,
+                                            batch.color_texture_id,
+                                            &projection);
                     }
                     &PrimitiveBatchData::ImageClip(ref ubo_data) => {
-                        self.device.bind_program(self.ps_image_clip, &projection);
-                        self.device.bind_vao(self.quad_vao_id);
-                        self.device.bind_color_texture(batch.color_texture_id);
+                        let shader = self.ps_image_clip;
+                        self.draw_ubo_batch(ubo_data,
+                                            shader,
+                                            batch.transform_kind,
+                                            batch.color_texture_id,
+                                            &projection);
 
-                        for chunk in ubo_data.chunks(self.max_prim_images_clip) {
-                            let ubos = gl::gen_buffers(1);
-                            let ubo = ubos[0];
-
-                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
-
-                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-                            self.profile_counters.vertices.add(6 * chunk.len());
-                            self.profile_counters.draw_calls.inc();
-
-                            gl::delete_buffers(&ubos);
-                        }
                     }
                     &PrimitiveBatchData::Borders(ref ubo_data) => {
-                        self.device.bind_program(self.ps_border, &projection);
-                        self.device.bind_vao(self.quad_vao_id);
+                        let shader = self.ps_border;
+                        self.draw_ubo_batch(ubo_data,
+                                            shader,
+                                            batch.transform_kind,
+                                            batch.color_texture_id,
+                                            &projection);
 
-                        for chunk in ubo_data.chunks(self.max_prim_borders) {
-                            let ubos = gl::gen_buffers(1);
-                            let ubo = ubos[0];
-
-                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
-
-                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-                            self.profile_counters.vertices.add(6 * chunk.len());
-                            self.profile_counters.draw_calls.inc();
-
-                            gl::delete_buffers(&ubos);
-                        }
                     }
                     &PrimitiveBatchData::BoxShadows(ref ubo_data) => {
-                        self.device.bind_program(self.ps_box_shadow, &projection);
-                        self.device.bind_vao(self.quad_vao_id);
+                        let shader = self.ps_box_shadow;
+                        self.draw_ubo_batch(ubo_data,
+                                            shader,
+                                            batch.transform_kind,
+                                            batch.color_texture_id,
+                                            &projection);
 
-                        for chunk in ubo_data.chunks(self.max_prim_box_shadows) {
-                            let ubos = gl::gen_buffers(1);
-                            let ubo = ubos[0];
-
-                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
-
-                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-                            self.profile_counters.vertices.add(6 * chunk.len());
-                            self.profile_counters.draw_calls.inc();
-
-                            gl::delete_buffers(&ubos);
-                        }
                     }
                     &PrimitiveBatchData::Text(ref ubo_data) => {
-                        self.device.bind_program(self.ps_text, &projection);
-                        self.device.bind_vao(self.quad_vao_id);
-                        self.device.bind_color_texture(batch.color_texture_id);
-
-                        for chunk in ubo_data.chunks(self.max_prim_texts) {
-                            let ubos = gl::gen_buffers(1);
-                            let ubo = ubos[0];
-
-                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
-
-                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-                            self.profile_counters.vertices.add(6 * chunk.len());
-                            self.profile_counters.draw_calls.inc();
-
-                            gl::delete_buffers(&ubos);
-                        }
+                        let shader = self.ps_text;
+                        self.draw_ubo_batch(ubo_data,
+                                            shader,
+                                            batch.transform_kind,
+                                            batch.color_texture_id,
+                                            &projection);
                     }
                     &PrimitiveBatchData::AlignedGradient(ref ubo_data) => {
-                        self.device.bind_program(self.ps_aligned_gradient, &projection);
-                        self.device.bind_vao(self.quad_vao_id);
+                        let shader = self.ps_aligned_gradient;
+                        self.draw_ubo_batch(ubo_data,
+                                            shader,
+                                            batch.transform_kind,
+                                            batch.color_texture_id,
+                                            &projection);
 
-                        for chunk in ubo_data.chunks(self.max_prim_aligned_gradients) {
-                            let ubos = gl::gen_buffers(1);
-                            let ubo = ubos[0];
-
-                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
-
-                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-                            self.profile_counters.vertices.add(6 * chunk.len());
-                            self.profile_counters.draw_calls.inc();
-
-                            gl::delete_buffers(&ubos);
-                        }
                     }
                     &PrimitiveBatchData::AngleGradient(ref ubo_data) => {
-                        self.device.bind_program(self.ps_angle_gradient, &projection);
-                        self.device.bind_vao(self.quad_vao_id);
+                        let shader = self.ps_angle_gradient;
+                        self.draw_ubo_batch(ubo_data,
+                                            shader,
+                                            batch.transform_kind,
+                                            batch.color_texture_id,
+                                            &projection);
 
-                        for chunk in ubo_data.chunks(self.max_prim_angle_gradients) {
-                            let ubos = gl::gen_buffers(1);
-                            let ubo = ubos[0];
-
-                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
-
-                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-                            self.profile_counters.vertices.add(6 * chunk.len());
-                            self.profile_counters.draw_calls.inc();
-
-                            gl::delete_buffers(&ubos);
-                        }
                     }
                 }
             }
