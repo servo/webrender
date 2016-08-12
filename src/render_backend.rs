@@ -211,7 +211,6 @@ impl RenderBackend {
                         ApiMsg::Scroll(delta, cursor, move_phase) => {
                             let frame = profile_counters.total_time.profile(|| {
                                 if self.frame.scroll(delta, cursor, move_phase) {
-                                    self.build_scene();
                                     Some(self.render())
                                 } else {
                                     None
@@ -229,7 +228,6 @@ impl RenderBackend {
                         ApiMsg::TickScrollingBounce => {
                             let frame = profile_counters.total_time.profile(|| {
                                 self.frame.tick_scrolling_bounce_animations();
-                                self.build_scene();
                                 self.render()
                             });
 
