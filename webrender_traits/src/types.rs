@@ -548,6 +548,7 @@ pub enum WebGLCommand {
     UniformMatrix4fv(i32, bool, Vec<f32>),
     UseProgram(WebGLProgramId),
     VertexAttrib(u32, f32, f32, f32, f32),
+    VertexAttribPointer(u32, i32, u32, bool, i32, u32),
     VertexAttribPointer2f(u32, i32, bool, i32, u32),
     Viewport(i32, i32, i32, i32),
     TexImage2D(u32, i32, i32, i32, i32, u32, u32, Vec<u8>),
