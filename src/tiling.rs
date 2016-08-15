@@ -897,140 +897,135 @@ impl Primitive {
             (&mut PrimitiveBatchData::Composite(..), _) => return false,
             (&mut PrimitiveBatchData::Rectangles(ref mut data),
              &PrimitiveDetails::Rectangle(ref rectangle)) => {
-                match self.complex_clip {
-                    Some(..) => return false,
-                    None => {
-                        data.push(PackedRectanglePrimitive {
-                            common: PackedPrimitiveInfo {
-                                padding: 0,
-                                tile_index: tile_index_in_ubo,
-                                layer_index: layer_index_in_ubo,
-                                part: PrimitivePart::Invalid,
-                                local_clip_rect: self.local_clip_rect,
-                                local_rect: self.rect,
-                            },
-                            color: rectangle.color,
-                        });
-                    }
+                if self.complex_clip.is_some() {
+                    return false;
                 }
+                data.push(PackedRectanglePrimitive {
+                    common: PackedPrimitiveInfo {
+                        padding: 0,
+                        tile_index: tile_index_in_ubo,
+                        layer_index: layer_index_in_ubo,
+                        part: PrimitivePart::Invalid,
+                        local_clip_rect: self.local_clip_rect,
+                        local_rect: self.rect,
+                    },
+                    color: rectangle.color,
+                });
             }
             (&mut PrimitiveBatchData::Rectangles(..), _) => return false,
             (&mut PrimitiveBatchData::RectanglesClip(ref mut data),
              &PrimitiveDetails::Rectangle(ref rectangle)) => {
-                match self.complex_clip {
-                    Some(ref clip) => {
-                        data.push(PackedRectanglePrimitiveClip {
-                            common: PackedPrimitiveInfo {
-                                padding: 0,
-                                tile_index: tile_index_in_ubo,
-                                layer_index: layer_index_in_ubo,
-                                part: PrimitivePart::Invalid,
-                                local_clip_rect: self.local_clip_rect,
-                                local_rect: self.rect,
-                            },
-                            color: rectangle.color,
-                            clip: (**clip).clone(),
-                        });
-                    },
-                    None => return false,
+                if self.complex_clip.is_none() {
+                    return false;
                 }
+
+                data.push(PackedRectanglePrimitiveClip {
+                    common: PackedPrimitiveInfo {
+                        padding: 0,
+                        tile_index: tile_index_in_ubo,
+                        layer_index: layer_index_in_ubo,
+                        part: PrimitivePart::Invalid,
+                        local_clip_rect: self.local_clip_rect,
+                        local_rect: self.rect,
+                    },
+                    color: rectangle.color,
+                    clip: *self.complex_clip.as_ref().unwrap().clone(),
+                });
             }
             (&mut PrimitiveBatchData::RectanglesClip(..), _) => return false,
             (&mut PrimitiveBatchData::Image(ref mut data),
              &PrimitiveDetails::Image(ref image)) => {
-                match self.complex_clip {
-                    Some(..) => return false,
-                    None => {
-                        let (texture_id, uv_rect, stretch_size) = match image.kind {
-                            ImagePrimitiveKind::Image(image_key, image_rendering, stretch_size) => {
-                                let info = ctx.resource_cache.get_image(image_key,
-                                                                        image_rendering,
-                                                                        ctx.frame_id);
-                                (info.texture_id, info.uv_rect(), stretch_size)
-                            }
-                            ImagePrimitiveKind::WebGL(context_id) => {
-                                let texture_id = ctx.resource_cache.get_webgl_texture(&context_id);
-                                let uv = RectUv {
-                                    top_left: Point2D::new(0.0, 1.0),
-                                    top_right: Point2D::new(1.0, 1.0),
-                                    bottom_left: Point2D::zero(),
-                                    bottom_right: Point2D::new(1.0, 0.0),
-                                };
-                                (texture_id, uv, self.rect.size)
-                            }
-                        };
-
-                        if batch.color_texture_id != TextureId(0) &&
-                           texture_id != batch.color_texture_id {
-                            return false;
-                        }
-                        batch.color_texture_id = texture_id;
-
-                        data.push(PackedImagePrimitive {
-                            common: PackedPrimitiveInfo {
-                                padding: 0,
-                                tile_index: tile_index_in_ubo,
-                                layer_index: layer_index_in_ubo,
-                                part: PrimitivePart::Invalid,
-                                local_clip_rect: self.local_clip_rect,
-                                local_rect: self.rect,
-                            },
-                            st0: uv_rect.top_left,
-                            st1: uv_rect.bottom_right,
-                            stretch_size: stretch_size,
-                            padding: [0, 0],
-                        });
-                    }
+                if self.complex_clip.is_some() {
+                    return false;
                 }
+
+                let (texture_id, uv_rect, stretch_size) = match image.kind {
+                    ImagePrimitiveKind::Image(image_key, image_rendering, stretch_size) => {
+                        let info = ctx.resource_cache.get_image(image_key,
+                                                                image_rendering,
+                                                                ctx.frame_id);
+                        (info.texture_id, info.uv_rect(), stretch_size)
+                    }
+                    ImagePrimitiveKind::WebGL(context_id) => {
+                        let texture_id = ctx.resource_cache.get_webgl_texture(&context_id);
+                        let uv = RectUv {
+                            top_left: Point2D::new(0.0, 1.0),
+                            top_right: Point2D::new(1.0, 1.0),
+                            bottom_left: Point2D::zero(),
+                            bottom_right: Point2D::new(1.0, 0.0),
+                        };
+                        (texture_id, uv, self.rect.size)
+                    }
+                };
+
+                if batch.color_texture_id != TextureId(0) &&
+                   texture_id != batch.color_texture_id {
+                    return false;
+                }
+                batch.color_texture_id = texture_id;
+
+                data.push(PackedImagePrimitive {
+                    common: PackedPrimitiveInfo {
+                        padding: 0,
+                        tile_index: tile_index_in_ubo,
+                        layer_index: layer_index_in_ubo,
+                        part: PrimitivePart::Invalid,
+                        local_clip_rect: self.local_clip_rect,
+                        local_rect: self.rect,
+                    },
+                    st0: uv_rect.top_left,
+                    st1: uv_rect.bottom_right,
+                    stretch_size: stretch_size,
+                    padding: [0, 0],
+                });
             }
             (&mut PrimitiveBatchData::Image(..), _) => return false,
             (&mut PrimitiveBatchData::ImageClip(ref mut data),
              &PrimitiveDetails::Image(ref image)) => {
-                match self.complex_clip {
-                    Some(ref clip) => {
-                        let (texture_id, uv_rect, stretch_size) = match image.kind {
-                            ImagePrimitiveKind::Image(image_key, image_rendering, stretch_size) => {
-                                let info = ctx.resource_cache.get_image(image_key,
-                                                                        image_rendering,
-                                                                        ctx.frame_id);
-                                (info.texture_id, info.uv_rect(), stretch_size)
-                            }
-                            ImagePrimitiveKind::WebGL(context_id) => {
-                                let texture_id = ctx.resource_cache.get_webgl_texture(&context_id);
-                                let uv = RectUv {
-                                    top_left: Point2D::new(0.0, 1.0),
-                                    top_right: Point2D::new(1.0, 1.0),
-                                    bottom_left: Point2D::zero(),
-                                    bottom_right: Point2D::new(1.0, 0.0),
-                                };
-                                (texture_id, uv, self.rect.size)
-                            }
-                        };
-
-                        if batch.color_texture_id != TextureId(0) &&
-                           texture_id != batch.color_texture_id {
-                            return false;
-                        }
-                        batch.color_texture_id = texture_id;
-
-                        data.push(PackedImagePrimitiveClip {
-                            common: PackedPrimitiveInfo {
-                                padding: 0,
-                                tile_index: tile_index_in_ubo,
-                                layer_index: layer_index_in_ubo,
-                                part: PrimitivePart::Invalid,
-                                local_clip_rect: self.local_clip_rect,
-                                local_rect: self.rect,
-                            },
-                            st0: uv_rect.top_left,
-                            st1: uv_rect.bottom_right,
-                            stretch_size: stretch_size,
-                            padding: [0, 0],
-                            clip: (**clip).clone(),
-                        });
-                    }
-                    None => return false,
+                if self.complex_clip.is_none() {
+                    return false;
                 }
+
+                let (texture_id, uv_rect, stretch_size) = match image.kind {
+                    ImagePrimitiveKind::Image(image_key, image_rendering, stretch_size) => {
+                        let info = ctx.resource_cache.get_image(image_key,
+                                                                image_rendering,
+                                                                ctx.frame_id);
+                        (info.texture_id, info.uv_rect(), stretch_size)
+                    }
+                    ImagePrimitiveKind::WebGL(context_id) => {
+                        let texture_id = ctx.resource_cache.get_webgl_texture(&context_id);
+                        let uv = RectUv {
+                            top_left: Point2D::new(0.0, 1.0),
+                            top_right: Point2D::new(1.0, 1.0),
+                            bottom_left: Point2D::zero(),
+                            bottom_right: Point2D::new(1.0, 0.0),
+                        };
+                        (texture_id, uv, self.rect.size)
+                    }
+                };
+
+                if batch.color_texture_id != TextureId(0) &&
+                   texture_id != batch.color_texture_id {
+                    return false;
+                }
+                batch.color_texture_id = texture_id;
+
+                data.push(PackedImagePrimitiveClip {
+                    common: PackedPrimitiveInfo {
+                        padding: 0,
+                        tile_index: tile_index_in_ubo,
+                        layer_index: layer_index_in_ubo,
+                        part: PrimitivePart::Invalid,
+                        local_clip_rect: self.local_clip_rect,
+                        local_rect: self.rect,
+                    },
+                    st0: uv_rect.top_left,
+                    st1: uv_rect.bottom_right,
+                    stretch_size: stretch_size,
+                    padding: [0, 0],
+                    clip: *self.complex_clip.as_ref().unwrap().clone(),
+                });
             }
             (&mut PrimitiveBatchData::ImageClip(..), _) => return false,
             (&mut PrimitiveBatchData::Borders(ref mut data),
