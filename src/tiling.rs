@@ -805,7 +805,6 @@ impl Primitive {
                     let height = image_info.requested_rect.size.height as f32 /
                         device_pixel_ratio;
 
-                    let uv_rect = image_info.uv_rect();
                     let local_rect = Rect::new(Point2D::new(x, y), Size2D::new(width, height));
 
                     cache.glyphs.push(PackedGlyphPrimitive {
@@ -818,8 +817,8 @@ impl Primitive {
                             local_rect: local_rect,
                         },
                         color: text.color,
-                        st0: uv_rect.top_left,
-                        st1: uv_rect.bottom_right,
+                        uv0: image_info.pixel_rect.top_left,
+                        uv1: image_info.pixel_rect.bottom_right,
                     });
                 }
 
@@ -1521,8 +1520,8 @@ pub struct PackedRectanglePrimitive {
 pub struct PackedGlyphPrimitive {
     common: PackedPrimitiveInfo,
     color: ColorF,
-    st0: Point2D<f32>,
-    st1: Point2D<f32>,
+    uv0: Point2D<DevicePixel>,
+    uv1: Point2D<DevicePixel>,
 }
 
 #[derive(Debug, Clone)]
@@ -2031,7 +2030,6 @@ pub struct ScreenTileIndex(usize);
 
 #[derive(Debug)]
 enum CompiledScreenTileInfo {
-    Blend(usize),
     SimpleAlpha(usize),
     ComplexAlpha(usize, usize),
 }
@@ -2175,28 +2173,15 @@ impl ScreenTile {
                 let prim_count = simple_cmd_list.primitives.len();
 
                 // See if we can run through a common / fast path tile shader.
-                let mut fast_task = None;
-
-                if prim_count == 1 {
+                let info = CompiledScreenTileInfo::SimpleAlpha(prim_count);
+                let mut alpha_task = AlphaRenderTask::new(self.rect);
+                for (sc_index, prim_index) in simple_cmd_list.primitives {
+                    alpha_task.items.push(AlphaRenderItem::Primitive(sc_index, prim_index));
                 }
-
-                match fast_task {
-                    Some(fast_task) => {
-                        let info = CompiledScreenTileInfo::Blend(prim_count);
-                        (fast_task, info)
-                    }
-                    None => {
-                        let info = CompiledScreenTileInfo::SimpleAlpha(prim_count);
-                        let mut alpha_task = AlphaRenderTask::new(self.rect);
-                        for (sc_index, prim_index) in simple_cmd_list.primitives {
-                            alpha_task.items.push(AlphaRenderItem::Primitive(sc_index, prim_index));
-                        }
-                        let task = RenderTask::from_primitives(alpha_task,
-                                                               RenderTaskLocation::Fixed(self.rect),
-                                                               self.rect.size);
-                        (task, info)
-                    }
-                }
+                let task = RenderTask::from_primitives(alpha_task,
+                                                       RenderTaskLocation::Fixed(self.rect),
+                                                       self.rect.size);
+                (task, info)
             }
             None => {
                 // Fall back to the complex render path.
@@ -2915,9 +2900,6 @@ impl FrameBuilder {
                 Some(compiled_screen_tile) => {
                     if self.debug {
                         let (label, color) = match &compiled_screen_tile.info {
-                            &CompiledScreenTileInfo::Blend(prim_count) => {
-                                (format!("{}", prim_count), ColorF::new(0.0, 1.0, 0.0, 1.0))
-                            }
                             &CompiledScreenTileInfo::SimpleAlpha(prim_count) => {
                                 (format!("{}", prim_count), ColorF::new(1.0, 0.0, 1.0, 1.0))
                             }
