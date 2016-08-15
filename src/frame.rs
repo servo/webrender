@@ -892,13 +892,14 @@ impl Frame {
 
     fn build_frame(&mut self,
                    resource_cache: &mut ResourceCache) -> RendererFrame {
-        let frame_builder = self.frame_builder.take();
-        let frame = frame_builder.map(|mut builder| {
+        let mut frame_builder = self.frame_builder.take();
+        let frame = frame_builder.as_mut().map(|builder| {
             builder.build(resource_cache,
                           self.id,
                           &self.pipeline_auxiliary_lists,
                           &self.layers)
         });
+        self.frame_builder = frame_builder;
 
         let layers_bouncing_back = self.collect_layers_bouncing_back();
         RendererFrame::new(self.pipeline_epoch_map.clone(),
