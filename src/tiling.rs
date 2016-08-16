@@ -2670,6 +2670,7 @@ impl FrameBuilder {
 
                         let auxiliary_lists = pipeline_auxiliary_lists.get(&layer.pipeline_id)
                                                                       .expect("No auxiliary lists?!");
+                        let layer_world_clip_rect = layer.world_clip_rect.unwrap();
 
                         for item in &mut layer.items {
                             match item {
@@ -2688,10 +2689,14 @@ impl FrameBuilder {
                                                                            &layer.transform,
                                                                            self.device_pixel_ratio);
 
-                                        if xf_rect.bounding_rect.intersects(&screen_rect) {
-                                            prim.bounding_rect = Some(xf_rect.bounding_rect);
-                                            if prim.build_resource_list(resource_list, auxiliary_lists) {
-                                                layer.prims_to_prepare.push(prim_index);
+                                        let prim_rect = xf_rect.bounding_rect
+                                                               .intersection(&layer_world_clip_rect);
+                                        if let Some(prim_rect) = prim_rect {
+                                            if prim_rect.intersects(&screen_rect) {
+                                                prim.bounding_rect = Some(prim_rect);
+                                                if prim.build_resource_list(resource_list, auxiliary_lists) {
+                                                    layer.prims_to_prepare.push(prim_index);
+                                                }
                                             }
                                         }
                                     }
@@ -2746,82 +2751,84 @@ impl FrameBuilder {
         }
 
         let xf_rect = &layer.xf_rect.as_ref().unwrap();
-        let l_rect = &xf_rect.bounding_rect;
+        let layer_rect = xf_rect.bounding_rect
+                                .intersection(&layer.world_clip_rect.as_ref().unwrap());
+        if let Some(layer_rect) = layer_rect {
+            let l_tile_x0 = layer_rect.origin.x.0 / SCREEN_TILE_SIZE;
+            let l_tile_y0 = layer_rect.origin.y.0 / SCREEN_TILE_SIZE;
+            let l_tile_x1 = (layer_rect.origin.x.0 + layer_rect.size.width.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+            let l_tile_y1 = (layer_rect.origin.y.0 + layer_rect.size.height.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
 
-        let l_tile_x0 = l_rect.origin.x.0 / SCREEN_TILE_SIZE;
-        let l_tile_y0 = l_rect.origin.y.0 / SCREEN_TILE_SIZE;
-        let l_tile_x1 = (l_rect.origin.x.0 + l_rect.size.width.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
-        let l_tile_y1 = (l_rect.origin.y.0 + l_rect.size.height.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+            let l_tile_x0 = cmp::min(l_tile_x0, x_tile_count);
+            let l_tile_x0 = cmp::max(l_tile_x0, 0);
+            let l_tile_x1 = cmp::min(l_tile_x1, x_tile_count);
+            let l_tile_x1 = cmp::max(l_tile_x1, 0);
 
-        let l_tile_x0 = cmp::min(l_tile_x0, x_tile_count);
-        let l_tile_x0 = cmp::max(l_tile_x0, 0);
-        let l_tile_x1 = cmp::min(l_tile_x1, x_tile_count);
-        let l_tile_x1 = cmp::max(l_tile_x1, 0);
+            let l_tile_y0 = cmp::min(l_tile_y0, y_tile_count);
+            let l_tile_y0 = cmp::max(l_tile_y0, 0);
+            let l_tile_y1 = cmp::min(l_tile_y1, y_tile_count);
+            let l_tile_y1 = cmp::max(l_tile_y1, 0);
 
-        let l_tile_y0 = cmp::min(l_tile_y0, y_tile_count);
-        let l_tile_y0 = cmp::max(l_tile_y0, 0);
-        let l_tile_y1 = cmp::min(l_tile_y1, y_tile_count);
-        let l_tile_y1 = cmp::max(l_tile_y1, 0);
-
-        for ly in l_tile_y0..l_tile_y1 {
-            for lx in l_tile_x0..l_tile_x1 {
-                let tile = &mut screen_tiles[(ly * x_tile_count + lx) as usize];
-                tile.push_layer(stacking_context_index);
-            }
-        }
-
-        for item in &layer.items {
-            match item {
-                &StackingContextItem::StackingContext(sc_index) => {
-                    self.assign_prims_to_screen_tiles(sc_index,
-                                                      x_tile_count,
-                                                      y_tile_count,
-                                                      screen_tiles);
+            for ly in l_tile_y0..l_tile_y1 {
+                for lx in l_tile_x0..l_tile_x1 {
+                    let tile = &mut screen_tiles[(ly * x_tile_count + lx) as usize];
+                    tile.push_layer(stacking_context_index);
                 }
-                &StackingContextItem::Primitive(prim_index) => {
-                    let prim = &self.prim_store[prim_index.0];
+            }
 
-                    if let Some(ref p_rect) = prim.bounding_rect {
-                        // TODO(gw): Ensure that certain primitives (such as background-image) only get
-                        //           assigned to tiles where their containing layer intersects with.
-                        //           Does this cause any problems / demonstrate other bugs?
-                        //           Restrict the tiles by clamping to the layer tile indices...
+            for item in &layer.items {
+                match item {
+                    &StackingContextItem::StackingContext(sc_index) => {
+                        self.assign_prims_to_screen_tiles(sc_index,
+                                                          x_tile_count,
+                                                          y_tile_count,
+                                                          screen_tiles);
+                    }
+                    &StackingContextItem::Primitive(prim_index) => {
+                        let prim = &self.prim_store[prim_index.0];
 
-                        let p_tile_x0 = p_rect.origin.x.0 / SCREEN_TILE_SIZE;
-                        let p_tile_y0 = p_rect.origin.y.0 / SCREEN_TILE_SIZE;
-                        let p_tile_x1 = (p_rect.origin.x.0 + p_rect.size.width.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
-                        let p_tile_y1 = (p_rect.origin.y.0 + p_rect.size.height.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+                        if let Some(ref p_rect) = prim.bounding_rect {
+                            // TODO(gw): Ensure that certain primitives (such as background-image) only get
+                            //           assigned to tiles where their containing layer intersects with.
+                            //           Does this cause any problems / demonstrate other bugs?
+                            //           Restrict the tiles by clamping to the layer tile indices...
 
-                        let p_tile_x0 = cmp::min(p_tile_x0, l_tile_x1);
-                        let p_tile_x0 = cmp::max(p_tile_x0, l_tile_x0);
-                        let p_tile_x1 = cmp::min(p_tile_x1, l_tile_x1);
-                        let p_tile_x1 = cmp::max(p_tile_x1, l_tile_x0);
+                            let p_tile_x0 = p_rect.origin.x.0 / SCREEN_TILE_SIZE;
+                            let p_tile_y0 = p_rect.origin.y.0 / SCREEN_TILE_SIZE;
+                            let p_tile_x1 = (p_rect.origin.x.0 + p_rect.size.width.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+                            let p_tile_y1 = (p_rect.origin.y.0 + p_rect.size.height.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
 
-                        let p_tile_y0 = cmp::min(p_tile_y0, l_tile_y1);
-                        let p_tile_y0 = cmp::max(p_tile_y0, l_tile_y0);
-                        let p_tile_y1 = cmp::min(p_tile_y1, l_tile_y1);
-                        let p_tile_y1 = cmp::max(p_tile_y1, l_tile_y0);
+                            let p_tile_x0 = cmp::min(p_tile_x0, l_tile_x1);
+                            let p_tile_x0 = cmp::max(p_tile_x0, l_tile_x0);
+                            let p_tile_x1 = cmp::min(p_tile_x1, l_tile_x1);
+                            let p_tile_x1 = cmp::max(p_tile_x1, l_tile_x0);
 
-                        for py in p_tile_y0..p_tile_y1 {
-                            for px in p_tile_x0..p_tile_x1 {
-                                let tile = &mut screen_tiles[(py * x_tile_count + px) as usize];
+                            let p_tile_y0 = cmp::min(p_tile_y0, l_tile_y1);
+                            let p_tile_y0 = cmp::max(p_tile_y0, l_tile_y0);
+                            let p_tile_y1 = cmp::min(p_tile_y1, l_tile_y1);
+                            let p_tile_y1 = cmp::max(p_tile_y1, l_tile_y0);
 
-                                // TODO(gw): Support narrow phase for 3d transform elements!
-                                if xf_rect.kind == TransformedRectKind::Complex ||
-                                   prim.affects_tile(&tile.rect, &layer.transform, self.device_pixel_ratio) {
-                                    tile.push_primitive(prim_index);
+                            for py in p_tile_y0..p_tile_y1 {
+                                for px in p_tile_x0..p_tile_x1 {
+                                    let tile = &mut screen_tiles[(py * x_tile_count + px) as usize];
+
+                                    // TODO(gw): Support narrow phase for 3d transform elements!
+                                    if xf_rect.kind == TransformedRectKind::Complex ||
+                                       prim.affects_tile(&tile.rect, &layer.transform, self.device_pixel_ratio) {
+                                        tile.push_primitive(prim_index);
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
 
-        for ly in l_tile_y0..l_tile_y1 {
-            for lx in l_tile_x0..l_tile_x1 {
-                let tile = &mut screen_tiles[(ly * x_tile_count + lx) as usize];
-                tile.pop_layer(stacking_context_index);
+            for ly in l_tile_y0..l_tile_y1 {
+                for lx in l_tile_x0..l_tile_x1 {
+                    let tile = &mut screen_tiles[(ly * x_tile_count + lx) as usize];
+                    tile.pop_layer(stacking_context_index);
+                }
             }
         }
     }
