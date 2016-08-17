@@ -8,6 +8,7 @@ use device::{TextureId, TextureFilter};
 use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeListItem, FreeListItemId};
+use ipc_channel::ipc::IpcSharedMemory;
 use num_traits::Zero;
 use profiler::BackendProfileCounters;
 use std::collections::{HashMap, HashSet};
@@ -88,7 +89,7 @@ pub fn max_rect() -> Rect<f32> {
 }
 
 pub enum FontTemplate {
-    Raw(Arc<Vec<u8>>),
+    Raw(Arc<IpcSharedMemory>),
     Native(NativeFontHandle),
 }
 
