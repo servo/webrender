@@ -11,6 +11,7 @@ use freelist::FreeList;
 use internal_types::{FontTemplate, GlyphKey, RasterItem};
 use internal_types::{TextureUpdateList, DrawListId, DrawList};
 use platform::font::{FontContext, RasterizedGlyph};
+use rayon::prelude::*;
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_list::ResourceList;
 use scoped_threadpool;
@@ -400,9 +401,8 @@ fn run_raster_jobs(pending_raster_jobs: &mut Vec<GlyphRasterJob>,
     if pending_raster_jobs.is_empty() {
         return
     }
-
     // TODO(gw): Run raster jobs in parallel again
-    for job in pending_raster_jobs {
+    pending_raster_jobs.par_iter_mut().weight_max().for_each(|job| {
         let font_template = &font_templates[&job.glyph_key.font_key];
         FONT_CONTEXT.with(move |font_context| {
             let mut font_context = font_context.borrow_mut();
@@ -421,7 +421,7 @@ fn run_raster_jobs(pending_raster_jobs: &mut Vec<GlyphRasterJob>,
                                                 device_pixel_ratio,
                                                 enable_aa);
         });
-    }
+    });
 }
 
 pub trait Resource {
