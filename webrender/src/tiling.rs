@@ -25,6 +25,12 @@ use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, ComplexClipReg
 use webrender_traits::{BorderDisplayItem, BorderStyle, ItemRange, AuxiliaryLists, BorderRadius, BorderSide};
 use webrender_traits::{BoxShadowClipMode, PipelineId, ScrollLayerId, WebGLContextId};
 
+enum PrimitiveRunCmd {
+    PushStackingContext(StackingContextIndex),
+    PrimitiveRun(PrimitiveIndex, usize),
+    PopStackingContext,
+}
+
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum GradientType {
@@ -1819,9 +1825,11 @@ pub struct ScreenTileLayerIndex(usize);
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct StackingContextIndex(usize);
 
-enum StackingContextItem {
-    StackingContext(StackingContextIndex),
-    Primitive(PrimitiveIndex),
+struct TileRange {
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
 }
 
 struct StackingContext {
@@ -1829,15 +1837,14 @@ struct StackingContext {
     local_transform: Matrix4D<f32>,
     local_rect: Rect<f32>,
     local_offset: Point2D<f32>,
-    items: Vec<StackingContextItem>,
     scroll_layer_id: ScrollLayerId,
     transform: Matrix4D<f32>,
     xf_rect: Option<TransformedRect>,
     composition_ops: Vec<CompositionOp>,
     local_clip_rect: Rect<f32>,
     world_clip_rect: Option<Rect<DevicePixel>>,
-    parent: Option<StackingContextIndex>,
     prims_to_prepare: Vec<PrimitiveIndex>,
+    tile_range: Option<TileRange>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1959,7 +1966,7 @@ pub struct FrameBuilder {
     screen_rect: Rect<i32>,
     prim_store: Vec<Primitive>,
     layer_store: Vec<StackingContext>,
-    layer_stack: Vec<StackingContextIndex>,
+    cmds: Vec<PrimitiveRunCmd>,
     device_pixel_ratio: f32,
     debug: bool,
     config: FrameBuilderConfig,
@@ -2262,7 +2269,7 @@ impl FrameBuilder {
             screen_rect: Rect::new(Point2D::zero(), viewport_size),
             layer_store: Vec::new(),
             prim_store: Vec::new(),
-            layer_stack: Vec::new(),
+            cmds: Vec::new(),
             device_pixel_ratio: device_pixel_ratio,
             debug: debug,
             config: config,
@@ -2274,10 +2281,6 @@ impl FrameBuilder {
                      clip_rect: &Rect<f32>,
                      clip: Option<Box<Clip>>,
                      details: PrimitiveDetails) {
-        let current_layer = *self.layer_stack.last().unwrap();
-        let StackingContextIndex(layer_index) = current_layer;
-        let layer = &mut self.layer_store[layer_index as usize];
-
         let prim = Primitive {
             rect: *rect,
             complex_clip: clip,
@@ -2285,10 +2288,20 @@ impl FrameBuilder {
             details: details,
             bounding_rect: None,
         };
-        let prim_index = self.prim_store.len();
+        let prim_index = PrimitiveIndex(self.prim_store.len());
         self.prim_store.push(prim);
 
-        layer.items.push(StackingContextItem::Primitive(PrimitiveIndex(prim_index)));
+        match self.cmds.last_mut().unwrap() {
+            &mut PrimitiveRunCmd::PrimitiveRun(_run_prim_index, ref mut count) => {
+                debug_assert!(_run_prim_index.0 + *count == prim_index.0);
+                *count += 1;
+                return;
+            }
+            &mut PrimitiveRunCmd::PushStackingContext(..) |
+            &mut PrimitiveRunCmd::PopStackingContext => {}
+        }
+
+        self.cmds.push(PrimitiveRunCmd::PrimitiveRun(prim_index, 1));
     }
 
     pub fn push_layer(&mut self,
@@ -2302,7 +2315,6 @@ impl FrameBuilder {
         let sc_index = StackingContextIndex(self.layer_store.len());
 
         let sc = StackingContext {
-            items: Vec::new(),
             local_rect: rect,
             local_transform: transform,
             local_offset: offset,
@@ -2313,23 +2325,16 @@ impl FrameBuilder {
             composition_ops: composition_operations,
             local_clip_rect: clip_rect,
             world_clip_rect: None,
-            parent: self.layer_stack.last().map(|index| *index),
             prims_to_prepare: Vec::new(),
+            tile_range: None,
         };
         self.layer_store.push(sc);
 
-        if !self.layer_stack.is_empty() {
-            let current_layer = *self.layer_stack.last().unwrap();
-            let StackingContextIndex(layer_index) = current_layer;
-            let layer = &mut self.layer_store[layer_index as usize];
-            layer.items.push(StackingContextItem::StackingContext(sc_index));
-        }
-
-        self.layer_stack.push(sc_index);
+        self.cmds.push(PrimitiveRunCmd::PushStackingContext(sc_index));
     }
 
     pub fn pop_layer(&mut self) {
-        self.layer_stack.pop();
+        self.cmds.push(PrimitiveRunCmd::PopStackingContext);
     }
 
     pub fn add_solid_rectangle(&mut self,
@@ -2608,102 +2613,142 @@ impl FrameBuilder {
                    screen_rect: &Rect<DevicePixel>,
                    layer_map: &HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>,
                    pipeline_auxiliary_lists: &HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>,
-                   resource_list: &mut ResourceList) {
-        // Remove layers that are transparent.
-
+                   resource_list: &mut ResourceList,
+                   x_tile_count: i32,
+                   y_tile_count: i32) {
         // Build layer screen rects.
         // TODO(gw): This can be done earlier once update_layer_transforms() is fixed.
-        for layer_index in 0..self.layer_store.len() {
-            let parent_index = self.layer_store[layer_index].parent;
-            let parent_clip_rect = parent_index.map_or(Some(*screen_rect), |parent_index| {
-                self.layer_store[parent_index.0].world_clip_rect
-            });
 
-            let layer = &mut self.layer_store[layer_index];
-            layer.xf_rect = None;
+        // TODO(gw): Remove this stack once the layers refactor is done!
+        let mut layer_stack: Vec<StackingContextIndex> = Vec::new();
 
-            if parent_clip_rect.is_none() {
-                continue;
-            }
+        for cmd in &self.cmds {
+            match cmd {
+                &PrimitiveRunCmd::PushStackingContext(sc_index) => {
+                    let parent_index = layer_stack.last().map(|parent_index| *parent_index);
+                    let parent_clip_rect = parent_index.map_or(Some(*screen_rect), |parent_index| {
+                        self.layer_store[parent_index.0].world_clip_rect
+                    });
 
-            if layer.can_contribute_to_scene() {
-                let scroll_layer = &layer_map[&layer.scroll_layer_id];
-                let offset_transform = Matrix4D::identity().translate(layer.local_offset.x,
-                                                                      layer.local_offset.y,
-                                                                      0.0);
-                let transform = scroll_layer.world_transform
-                                            .as_ref()
-                                            .unwrap()
-                                            .mul(&layer.local_transform)
-                                            .mul(&offset_transform);
-                layer.transform = transform;
-                let layer_xf_rect = TransformedRect::new(&layer.local_rect,
-                                                         &transform,
-                                                         self.device_pixel_ratio);
+                    layer_stack.push(sc_index);
+                    let layer = &mut self.layer_store[sc_index.0];
 
-                let world_clip_rect = TransformedRect::new(&layer.local_clip_rect,
-                                                           &transform,
-                                                           self.device_pixel_ratio);
+                    layer.xf_rect = None;
+                    layer.tile_range = None;
 
-                // TODO(gw): This gets the iframe reftests passing but is questionable.
-                //           Need to refactor the whole layer viewport_rect code once
-                //           WR2 lands since it can be simplified now.
-                let origin = Point2D::new(DevicePixel::new(scroll_layer.viewport_rect.origin.x,
-                                                           self.device_pixel_ratio),
-                                          DevicePixel::new(scroll_layer.viewport_rect.origin.y,
-                                                           self.device_pixel_ratio));
-                let size = Size2D::new(DevicePixel::new(scroll_layer.viewport_rect.size.width,
-                                                        self.device_pixel_ratio),
-                                       DevicePixel::new(scroll_layer.viewport_rect.size.height,
-                                                        self.device_pixel_ratio));
-                let viewport_rect = Rect::new(origin, size);
+                    if parent_clip_rect.is_none() {
+                        continue;
+                    }
 
-                layer.world_clip_rect = world_clip_rect.bounding_rect
-                                                       .intersection(&parent_clip_rect.unwrap())
-                                                       .and_then(|cr| {
-                                                         cr.intersection(&viewport_rect)
-                                                       });
+                    if layer.can_contribute_to_scene() {
+                        let scroll_layer = &layer_map[&layer.scroll_layer_id];
+                        let offset_transform = Matrix4D::identity().translate(layer.local_offset.x,
+                                                                              layer.local_offset.y,
+                                                                              0.0);
+                        let transform = scroll_layer.world_transform
+                                                    .as_ref()
+                                                    .unwrap()
+                                                    .mul(&layer.local_transform)
+                                                    .mul(&offset_transform);
+                        layer.transform = transform;
+                        let layer_xf_rect = TransformedRect::new(&layer.local_rect,
+                                                                 &transform,
+                                                                 self.device_pixel_ratio);
 
-                if layer.world_clip_rect.is_some() {
-                    if layer_xf_rect.bounding_rect.intersects(&screen_rect) {
-                        layer.xf_rect = Some(layer_xf_rect);
+                        let world_clip_rect = TransformedRect::new(&layer.local_clip_rect,
+                                                                   &transform,
+                                                                   self.device_pixel_ratio);
 
+                        // TODO(gw): This gets the iframe reftests passing but is questionable.
+                        //           Need to refactor the whole layer viewport_rect code once
+                        //           WR2 lands since it can be simplified now.
+                        let origin = Point2D::new(DevicePixel::new(scroll_layer.viewport_rect.origin.x,
+                                                                   self.device_pixel_ratio),
+                                                  DevicePixel::new(scroll_layer.viewport_rect.origin.y,
+                                                                   self.device_pixel_ratio));
+                        let size = Size2D::new(DevicePixel::new(scroll_layer.viewport_rect.size.width,
+                                                                self.device_pixel_ratio),
+                                               DevicePixel::new(scroll_layer.viewport_rect.size.height,
+                                                                self.device_pixel_ratio));
+                        let viewport_rect = Rect::new(origin, size);
+
+                        layer.world_clip_rect = world_clip_rect.bounding_rect
+                                                               .intersection(&parent_clip_rect.unwrap())
+                                                               .and_then(|cr| {
+                                                                 cr.intersection(&viewport_rect)
+                                                               });
+
+                        if let Some(world_clip_rect) = layer.world_clip_rect {
+                            if layer_xf_rect.bounding_rect.intersects(&screen_rect) {
+                                let layer_rect = layer_xf_rect.bounding_rect
+                                                              .intersection(&world_clip_rect);
+
+                                if let Some(layer_rect) = layer_rect {
+                                    layer.xf_rect = Some(layer_xf_rect);
+
+                                    let tile_x0 = layer_rect.origin.x.0 / SCREEN_TILE_SIZE;
+                                    let tile_y0 = layer_rect.origin.y.0 / SCREEN_TILE_SIZE;
+                                    let tile_x1 = (layer_rect.origin.x.0 + layer_rect.size.width.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+                                    let tile_y1 = (layer_rect.origin.y.0 + layer_rect.size.height.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+
+                                    let tile_x0 = cmp::min(tile_x0, x_tile_count);
+                                    let tile_x0 = cmp::max(tile_x0, 0);
+                                    let tile_x1 = cmp::min(tile_x1, x_tile_count);
+                                    let tile_x1 = cmp::max(tile_x1, 0);
+
+                                    let tile_y0 = cmp::min(tile_y0, y_tile_count);
+                                    let tile_y0 = cmp::max(tile_y0, 0);
+                                    let tile_y1 = cmp::min(tile_y1, y_tile_count);
+                                    let tile_y1 = cmp::max(tile_y1, 0);
+
+                                    layer.tile_range = Some(TileRange {
+                                        x0: tile_x0,
+                                        y0: tile_y0,
+                                        x1: tile_x1,
+                                        y1: tile_y1,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                &PrimitiveRunCmd::PrimitiveRun(prim_index, prim_count) => {
+                    let sc_index = layer_stack.last().unwrap();
+                    let layer = &mut self.layer_store[sc_index.0];
+                    if layer.is_visible() {
                         let auxiliary_lists = pipeline_auxiliary_lists.get(&layer.pipeline_id)
                                                                       .expect("No auxiliary lists?!");
                         let layer_world_clip_rect = layer.world_clip_rect.unwrap();
 
-                        for item in &mut layer.items {
-                            match item {
-                                &mut StackingContextItem::StackingContext(..) => {
-                                    // TODO(gw): Worth removing these to reduce cmd list size?
-                                }
-                                &mut StackingContextItem::Primitive(prim_index) => {
-                                    let prim = &mut self.prim_store[prim_index.0];
+                        for i in 0..prim_count {
+                            let prim_index = PrimitiveIndex(prim_index.0 + i);
 
-                                    prim.bounding_rect = None;
+                            let prim = &mut self.prim_store[prim_index.0];
+                            prim.bounding_rect = None;
 
-                                    let local_rect = prim.rect.intersection(&prim.local_clip_rect);
+                            let local_rect = prim.rect.intersection(&prim.local_clip_rect);
 
-                                    if let Some(local_rect) = local_rect {
-                                        let xf_rect = TransformedRect::new(&local_rect,
-                                                                           &layer.transform,
-                                                                           self.device_pixel_ratio);
+                            if let Some(local_rect) = local_rect {
+                                let xf_rect = TransformedRect::new(&local_rect,
+                                                                   &layer.transform,
+                                                                   self.device_pixel_ratio);
 
-                                        let prim_rect = xf_rect.bounding_rect
-                                                               .intersection(&layer_world_clip_rect);
-                                        if let Some(prim_rect) = prim_rect {
-                                            if prim_rect.intersects(&screen_rect) {
-                                                prim.bounding_rect = Some(prim_rect);
-                                                if prim.build_resource_list(resource_list, auxiliary_lists) {
-                                                    layer.prims_to_prepare.push(prim_index);
-                                                }
-                                            }
+                                let prim_rect = xf_rect.bounding_rect.intersection(&layer_world_clip_rect);
+
+                                if let Some(prim_rect) = prim_rect {
+                                    if prim_rect.intersects(&screen_rect) {
+                                        prim.bounding_rect = Some(prim_rect);
+                                        if prim.build_resource_list(resource_list, auxiliary_lists) {
+                                            layer.prims_to_prepare.push(prim_index);
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                }
+                &PrimitiveRunCmd::PopStackingContext => {
+                    layer_stack.pop().unwrap();
                 }
             }
         }
@@ -2741,50 +2786,41 @@ impl FrameBuilder {
 
 
     fn assign_prims_to_screen_tiles(&self,
-                                    stacking_context_index: StackingContextIndex,
-                                    x_tile_count: i32,
-                                    y_tile_count: i32,
-                                    screen_tiles: &mut Vec<ScreenTile>) {
-        let layer = &self.layer_store[stacking_context_index.0];
-        if !layer.is_visible() {
-            return;
-        }
+                                    screen_tiles: &mut Vec<ScreenTile>,
+                                    x_tile_count: i32) {
+        let mut layer_stack: Vec<StackingContextIndex> = Vec::new();
 
-        let xf_rect = &layer.xf_rect.as_ref().unwrap();
-        let layer_rect = xf_rect.bounding_rect
-                                .intersection(&layer.world_clip_rect.as_ref().unwrap());
-        if let Some(layer_rect) = layer_rect {
-            let l_tile_x0 = layer_rect.origin.x.0 / SCREEN_TILE_SIZE;
-            let l_tile_y0 = layer_rect.origin.y.0 / SCREEN_TILE_SIZE;
-            let l_tile_x1 = (layer_rect.origin.x.0 + layer_rect.size.width.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
-            let l_tile_y1 = (layer_rect.origin.y.0 + layer_rect.size.height.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+        for cmd in &self.cmds {
+            match cmd {
+                &PrimitiveRunCmd::PushStackingContext(sc_index) => {
+                    layer_stack.push(sc_index);
 
-            let l_tile_x0 = cmp::min(l_tile_x0, x_tile_count);
-            let l_tile_x0 = cmp::max(l_tile_x0, 0);
-            let l_tile_x1 = cmp::min(l_tile_x1, x_tile_count);
-            let l_tile_x1 = cmp::max(l_tile_x1, 0);
-
-            let l_tile_y0 = cmp::min(l_tile_y0, y_tile_count);
-            let l_tile_y0 = cmp::max(l_tile_y0, 0);
-            let l_tile_y1 = cmp::min(l_tile_y1, y_tile_count);
-            let l_tile_y1 = cmp::max(l_tile_y1, 0);
-
-            for ly in l_tile_y0..l_tile_y1 {
-                for lx in l_tile_x0..l_tile_x1 {
-                    let tile = &mut screen_tiles[(ly * x_tile_count + lx) as usize];
-                    tile.push_layer(stacking_context_index);
-                }
-            }
-
-            for item in &layer.items {
-                match item {
-                    &StackingContextItem::StackingContext(sc_index) => {
-                        self.assign_prims_to_screen_tiles(sc_index,
-                                                          x_tile_count,
-                                                          y_tile_count,
-                                                          screen_tiles);
+                    let layer = &self.layer_store[sc_index.0];
+                    if !layer.is_visible() {
+                        continue;
                     }
-                    &StackingContextItem::Primitive(prim_index) => {
+
+                    let tile_range = layer.tile_range.as_ref().unwrap();
+                    for ly in tile_range.y0..tile_range.y1 {
+                        for lx in tile_range.x0..tile_range.x1 {
+                            let tile = &mut screen_tiles[(ly * x_tile_count + lx) as usize];
+                            tile.push_layer(sc_index);
+                        }
+                    }
+                }
+                &PrimitiveRunCmd::PrimitiveRun(first_prim_index, prim_count) => {
+                    let sc_index = layer_stack.last().unwrap();
+
+                    let layer = &self.layer_store[sc_index.0];
+                    if !layer.is_visible() {
+                        continue;
+                    }
+
+                    let tile_range = layer.tile_range.as_ref().unwrap();
+                    let xf_rect = &layer.xf_rect.as_ref().unwrap();
+
+                    for i in 0..prim_count {
+                        let prim_index = PrimitiveIndex(first_prim_index.0 + i);
                         let prim = &self.prim_store[prim_index.0];
 
                         if let Some(ref p_rect) = prim.bounding_rect {
@@ -2798,15 +2834,15 @@ impl FrameBuilder {
                             let p_tile_x1 = (p_rect.origin.x.0 + p_rect.size.width.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
                             let p_tile_y1 = (p_rect.origin.y.0 + p_rect.size.height.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
 
-                            let p_tile_x0 = cmp::min(p_tile_x0, l_tile_x1);
-                            let p_tile_x0 = cmp::max(p_tile_x0, l_tile_x0);
-                            let p_tile_x1 = cmp::min(p_tile_x1, l_tile_x1);
-                            let p_tile_x1 = cmp::max(p_tile_x1, l_tile_x0);
+                            let p_tile_x0 = cmp::min(p_tile_x0, tile_range.x1);
+                            let p_tile_x0 = cmp::max(p_tile_x0, tile_range.x0);
+                            let p_tile_x1 = cmp::min(p_tile_x1, tile_range.x1);
+                            let p_tile_x1 = cmp::max(p_tile_x1, tile_range.x0);
 
-                            let p_tile_y0 = cmp::min(p_tile_y0, l_tile_y1);
-                            let p_tile_y0 = cmp::max(p_tile_y0, l_tile_y0);
-                            let p_tile_y1 = cmp::min(p_tile_y1, l_tile_y1);
-                            let p_tile_y1 = cmp::max(p_tile_y1, l_tile_y0);
+                            let p_tile_y0 = cmp::min(p_tile_y0, tile_range.y1);
+                            let p_tile_y0 = cmp::max(p_tile_y0, tile_range.y0);
+                            let p_tile_y1 = cmp::min(p_tile_y1, tile_range.y1);
+                            let p_tile_y1 = cmp::max(p_tile_y1, tile_range.y0);
 
                             for py in p_tile_y0..p_tile_y1 {
                                 for px in p_tile_x0..p_tile_x1 {
@@ -2822,12 +2858,21 @@ impl FrameBuilder {
                         }
                     }
                 }
-            }
+                &PrimitiveRunCmd::PopStackingContext => {
+                    let sc_index = layer_stack.pop().unwrap();
 
-            for ly in l_tile_y0..l_tile_y1 {
-                for lx in l_tile_x0..l_tile_x1 {
-                    let tile = &mut screen_tiles[(ly * x_tile_count + lx) as usize];
-                    tile.pop_layer(stacking_context_index);
+                    let layer = &self.layer_store[sc_index.0];
+                    if !layer.is_visible() {
+                        continue;
+                    }
+
+                    let tile_range = layer.tile_range.as_ref().unwrap();
+                    for ly in tile_range.y0..tile_range.y1 {
+                        for lx in tile_range.x0..tile_range.x1 {
+                            let tile = &mut screen_tiles[(ly * x_tile_count + lx) as usize];
+                            tile.pop_layer(sc_index);
+                        }
+                    }
                 }
             }
         }
@@ -2865,10 +2910,14 @@ impl FrameBuilder {
         let mut resource_list = ResourceList::new();
         let mut debug_rects = Vec::new();
 
+        let (x_tile_count, y_tile_count, mut screen_tiles) = self.create_screen_tiles();
+
         self.cull_layers(&screen_rect,
                          layer_map,
                          pipeline_auxiliary_lists,
-                         &mut resource_list);
+                         &mut resource_list,
+                         x_tile_count,
+                         y_tile_count);
 
         resource_cache.add_resource_list(&resource_list, frame_id);
         resource_cache.raster_pending_glyphs(frame_id);
@@ -2876,8 +2925,6 @@ impl FrameBuilder {
         self.prepare_primitives(resource_cache,
                                 frame_id,
                                 pipeline_auxiliary_lists);
-
-        let (x_tile_count, y_tile_count, mut screen_tiles) = self.create_screen_tiles();
 
         let ctx = RenderTargetContext {
             layer_store: &self.layer_store,
@@ -2890,11 +2937,7 @@ impl FrameBuilder {
         };
 
         if !self.layer_store.is_empty() {
-            let root_sc_index = StackingContextIndex(0);
-            self.assign_prims_to_screen_tiles(root_sc_index,
-                                              x_tile_count,
-                                              y_tile_count,
-                                              &mut screen_tiles);
+            self.assign_prims_to_screen_tiles(&mut screen_tiles, x_tile_count);
         }
 
         let mut clear_tiles = Vec::new();
