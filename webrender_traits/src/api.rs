@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use app_units::Au;
 use byteorder::{LittleEndian, WriteBytesExt};
 use euclid::{Point2D, Size2D};
 use ipc_channel::ipc::{self, IpcBytesSender, IpcSender};
@@ -11,6 +12,7 @@ use {ApiMsg, AuxiliaryLists, BuiltDisplayList, ColorF, DisplayListId, Epoch};
 use {FontKey, IdNamespace, ImageFormat, ImageKey, NativeFontHandle, PipelineId};
 use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState};
 use {StackingContext, StackingContextId, WebGLContextId, WebGLCommand};
+use {GlyphDimensions};
 
 impl RenderApiSender {
     pub fn new(api_sender: IpcSender<ApiMsg>,
@@ -65,6 +67,15 @@ impl RenderApi {
         let msg = ApiMsg::AddNativeFont(key, native_font_handle);
         self.api_sender.send(msg).unwrap();
         key
+    }
+
+    ///
+    pub fn get_glyph_dimensions(&self, font_key: FontKey, size: Au, blur_radius: Au, index: u32)
+                                -> Option<GlyphDimensions> {
+        let (tx, rx) = ipc::channel().unwrap();
+        let msg = ApiMsg::GetGlyphDimensions(font_key, size, blur_radius, index, tx);
+        self.api_sender.send(msg).unwrap();
+        rx.recv().unwrap()
     }
 
     /// Creates an `ImageKey`.

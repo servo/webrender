@@ -18,6 +18,8 @@ use offscreen_gl_context::{GLContextAttributes, GLLimits};
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>),
     AddNativeFont(FontKey, NativeFontHandle),
+    /// Gets the glyph dimensions
+    GetGlyphDimensions(FontKey, Au, Au, u32, IpcSender<Option<GlyphDimensions>>),
     /// Adds an image from the resource cache.
     AddImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
     /// Updates the the resource cache with the new image data.
@@ -48,6 +50,14 @@ pub enum ApiMsg {
     GetScrollLayerState(IpcSender<Vec<ScrollLayerState>>),
     RequestWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<(WebGLContextId, GLLimits), String>>),
     WebGLCommand(WebGLContextId, WebGLCommand),
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct GlyphDimensions {
+    pub left: i32,
+    pub top: i32,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Clone, Deserialize, Serialize)]

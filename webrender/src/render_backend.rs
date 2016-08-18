@@ -4,7 +4,7 @@
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use frame::Frame;
-use internal_types::{FontTemplate, ResultMsg, RendererFrame};
+use internal_types::{FontTemplate, GlyphKey, ResultMsg, RendererFrame};
 use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
 use profiler::BackendProfileCounters;
 use resource_cache::ResourceCache;
@@ -91,6 +91,15 @@ impl RenderBackend {
                         ApiMsg::AddNativeFont(id, native_font_handle) => {
                             self.resource_cache
                                 .add_font_template(id, FontTemplate::Native(native_font_handle));
+                        }
+                        ApiMsg::GetGlyphDimensions(font_key, size, blur_radius, index, tx) => {
+                            let glyph_key = GlyphKey::new(font_key, size, blur_radius, index);
+                            // Get the next frame id, so it'll remain in the texture cache.
+                            // This assumes that the glyph will be used in the next frame.
+                            let frame_id = self.frame.next_frame_id();
+                            let glyph_dim = self.resource_cache.get_glyph_dimensions(glyph_key,
+                                                                                    frame_id);
+                            tx.send(glyph_dim).unwrap();
                         }
                         ApiMsg::AddImage(id, width, height, format, bytes) => {
                             profile_counters.image_templates.inc(bytes.len());
