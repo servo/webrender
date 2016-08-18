@@ -12,6 +12,7 @@ serde_macros = ["webrender_traits/serde_macros"]
 [dependencies]
 app_units = "0.3"
 bit-set = "0.4"
+bincode = "0.5.9"
 byteorder = "0.5"
 euclid = "0.9"
 fnv="1.0"
@@ -21,7 +22,6 @@ lazy_static = "0.2"
 log = "0.3"
 num-traits = "0.1.32"
 offscreen_gl_context = {version = "0.3", features = ["serde_serialization"]}
-rayon = "0.4.0"
 time = "0.1"
 webrender_traits = {path = "../webrender_traits", default-features = false}
 
