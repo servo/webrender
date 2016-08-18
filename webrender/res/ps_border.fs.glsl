@@ -4,6 +4,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+void discard_pixels_in_rounded_borders(vec2 local_pos) {
+  float distanceFromRef = distance(vRefPoint, local_pos);
+  if (vRadii.x > 0.0 && (distanceFromRef > vRadii.x || distanceFromRef < vRadii.z)) {
+      discard;
+  }
+}
+
 #ifdef WR_FEATURE_TRANSFORM
 
 #else
@@ -225,14 +232,6 @@ void draw_double_border(void) {
     }
   }
 }
-#endif
-
-void discard_pixels_in_rounded_borders(vec2 local_pos) {
-  float distanceFromRef = distance(vRefPoint, local_pos);
-  if (vRadii.x > 0.0 && (distanceFromRef > vRadii.x || distanceFromRef < vRadii.z)) {
-      discard;
-  }
-}
 
 void draw_antialiased_solid_border_corner(vec2 local_pos) {
   if (vRadii.x <= 0.0) {
@@ -262,6 +261,23 @@ void draw_antialiased_solid_border_corner(vec2 local_pos) {
   }
 }
 
+void draw_solid_border(vec2 localPos) {
+  switch (vBorderPart) {
+    case PST_TOP_LEFT:
+    case PST_TOP_RIGHT:
+    case PST_BOTTOM_LEFT:
+    case PST_BOTTOM_RIGHT:
+      oFragColor = mix(vHorizontalColor, vVerticalColor, step(0.0, vF));
+      draw_antialiased_solid_border_corner(localPos);
+      break;
+    default:
+      oFragColor = vHorizontalColor;
+      discard_pixels_in_rounded_borders(localPos);
+  }
+}
+
+#endif
+
 // TODO: Investigate performance of this shader and see
 //       if it's worthwhile splitting it / removing branches etc.
 void main(void) {
@@ -289,25 +305,9 @@ void main(void) {
             break;
         case BORDER_STYLE_OUTSET:
         case BORDER_STYLE_INSET:
-            discard_pixels_in_rounded_borders(local_pos);
-            oFragColor = mix(vVerticalColor, vHorizontalColor, step(0.0, vF));
-            break;
         case BORDER_STYLE_SOLID:
-            oFragColor = mix(vHorizontalColor, vVerticalColor, step(0.0, vF));
-            switch (vBorderPart) {
-              case PST_TOP_LEFT:
-              case PST_TOP_RIGHT:
-              case PST_BOTTOM_LEFT:
-              case PST_BOTTOM_RIGHT:
-                draw_antialiased_solid_border_corner(local_pos);
-                break;
-              default:
-                discard_pixels_in_rounded_borders(local_pos);
-              }
-            break;
         case BORDER_STYLE_NONE:
-            discard_pixels_in_rounded_borders(local_pos);
-            oFragColor = mix(vHorizontalColor, vVerticalColor, step(0.0, vF));
+            draw_solid_border(local_pos);
             break;
         case BORDER_STYLE_DOUBLE:
             discard_pixels_in_rounded_borders(local_pos);
