@@ -544,15 +544,15 @@ pub enum TransformedRectKind {
 }
 
 #[derive(Debug, Clone)]
-struct TransformedRect {
+pub struct TransformedRect {
     local_rect: Rect<f32>,
-    bounding_rect: Rect<DevicePixel>,
+    pub bounding_rect: Rect<DevicePixel>,
     vertices: [Point4D<f32>; 4],
     kind: TransformedRectKind,
 }
 
 impl TransformedRect {
-    fn new(rect: &Rect<f32>,
+    pub fn new(rect: &Rect<f32>,
            transform: &Matrix4D<f32>,
            device_pixel_ratio: f32) -> TransformedRect {
 
@@ -1825,6 +1825,7 @@ pub struct ScreenTileLayerIndex(usize);
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct StackingContextIndex(usize);
 
+#[derive(Debug)]
 struct TileRange {
     x0: i32,
     y0: i32,
@@ -1836,7 +1837,6 @@ struct StackingContext {
     pipeline_id: PipelineId,
     local_transform: Matrix4D<f32>,
     local_rect: Rect<f32>,
-    local_offset: Point2D<f32>,
     scroll_layer_id: ScrollLayerId,
     transform: Matrix4D<f32>,
     xf_rect: Option<TransformedRect>,
@@ -2310,14 +2310,12 @@ impl FrameBuilder {
                       transform: Matrix4D<f32>,
                       pipeline_id: PipelineId,
                       scroll_layer_id: ScrollLayerId,
-                      offset: Point2D<f32>,
                       composition_operations: Vec<CompositionOp>) {
         let sc_index = StackingContextIndex(self.layer_store.len());
 
         let sc = StackingContext {
             local_rect: rect,
             local_transform: transform,
-            local_offset: offset,
             scroll_layer_id: scroll_layer_id,
             pipeline_id: pipeline_id,
             xf_rect: None,
@@ -2625,61 +2623,29 @@ impl FrameBuilder {
         for cmd in &self.cmds {
             match cmd {
                 &PrimitiveRunCmd::PushStackingContext(sc_index) => {
-                    let parent_index = layer_stack.last().map(|parent_index| *parent_index);
-                    let parent_clip_rect = parent_index.map_or(Some(*screen_rect), |parent_index| {
-                        self.layer_store[parent_index.0].world_clip_rect
-                    });
-
                     layer_stack.push(sc_index);
                     let layer = &mut self.layer_store[sc_index.0];
 
                     layer.xf_rect = None;
                     layer.tile_range = None;
 
-                    if parent_clip_rect.is_none() {
-                        continue;
-                    }
-
                     if !layer.can_contribute_to_scene() {
                         continue;
                     }
 
                     let scroll_layer = &layer_map[&layer.scroll_layer_id];
-                    let offset_transform = Matrix4D::identity().translate(layer.local_offset.x,
-                                                                          layer.local_offset.y,
-                                                                          0.0);
-                    let transform = scroll_layer.world_transform
-                                                .as_ref()
-                                                .unwrap()
-                                                .mul(&layer.local_transform)
-                                                .mul(&offset_transform);
-                    layer.transform = transform;
+                    layer.transform = scroll_layer.world_content_transform
+                                                  .mul(&layer.local_transform);
                     let layer_xf_rect = TransformedRect::new(&layer.local_rect,
-                                                             &transform,
+                                                             &layer.transform,
                                                              self.device_pixel_ratio);
 
                     let world_clip_rect = TransformedRect::new(&layer.local_clip_rect,
-                                                               &transform,
+                                                               &layer.transform,
                                                                self.device_pixel_ratio);
 
-                    // TODO(gw): This gets the iframe reftests passing but is questionable.
-                    //           Need to refactor the whole layer viewport_rect code once
-                    //           WR2 lands since it can be simplified now.
-                    let origin = Point2D::new(DevicePixel::new(scroll_layer.viewport_rect.origin.x,
-                                                               self.device_pixel_ratio),
-                                              DevicePixel::new(scroll_layer.viewport_rect.origin.y,
-                                                               self.device_pixel_ratio));
-                    let size = Size2D::new(DevicePixel::new(scroll_layer.viewport_rect.size.width,
-                                                            self.device_pixel_ratio),
-                                           DevicePixel::new(scroll_layer.viewport_rect.size.height,
-                                                            self.device_pixel_ratio));
-                    let viewport_rect = Rect::new(origin, size);
-
                     layer.world_clip_rect = world_clip_rect.bounding_rect
-                                                           .intersection(&parent_clip_rect.unwrap())
-                                                           .and_then(|cr| {
-                                                             cr.intersection(&viewport_rect)
-                                                           });
+                                                           .intersection(&scroll_layer.world_viewport_rect);
 
                     if let Some(world_clip_rect) = layer.world_clip_rect {
                         if layer_xf_rect.bounding_rect.intersects(&screen_rect) {
