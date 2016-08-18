@@ -13,7 +13,6 @@ use internal_types::{RendererFrame};
 use layer::{Layer, ScrollingState};
 use resource_cache::ResourceCache;
 use scene::{SceneStackingContext, ScenePipeline, Scene, SceneItem, SpecificSceneItem};
-use scoped_threadpool;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
 use tiling::{Clip, FrameBuilder, FrameBuilderConfig, InsideTest};
@@ -831,7 +830,6 @@ impl Frame {
 
     pub fn build(&mut self,
                  resource_cache: &mut ResourceCache,
-                 _thread_pool: &mut scoped_threadpool::Pool,
                  _device_pixel_ratio: f32)
                  -> RendererFrame {
         self.update_layer_transforms();
