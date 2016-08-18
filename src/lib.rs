@@ -101,7 +101,6 @@ extern crate gleam;
 extern crate ipc_channel;
 extern crate num_traits;
 //extern crate notify;
-extern crate scoped_threadpool;
 extern crate time;
 extern crate webrender_traits;
 extern crate offscreen_gl_context;

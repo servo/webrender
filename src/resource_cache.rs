@@ -14,23 +14,16 @@ use platform::font::{FontContext, RasterizedGlyph};
 use rayon::prelude::*;
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_list::ResourceList;
-use scoped_threadpool;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::fmt::Debug;
 use std::hash::BuildHasherDefault;
 use std::hash::Hash;
-use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
-use std::sync::atomic::Ordering::SeqCst;
-use std::thread;
-use std::time::Duration;
 use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
 use texture_cache::{BorderType, TextureInsertOp};
 use webrender_traits::{Epoch, FontKey, ImageKey, ImageFormat, DisplayItem, ImageRendering};
 use webrender_traits::{PipelineId, WebGLContextId};
-
-static FONT_CONTEXT_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
@@ -133,25 +126,9 @@ pub struct ResourceCache {
 }
 
 impl ResourceCache {
-    pub fn new(thread_pool: &mut scoped_threadpool::Pool,
-               texture_cache: TextureCache,
+    pub fn new(texture_cache: TextureCache,
                device_pixel_ratio: f32,
                enable_aa: bool) -> ResourceCache {
-
-        let thread_count = thread_pool.thread_count() as usize;
-        thread_pool.scoped(|scope| {
-            for _ in 0..thread_count {
-                scope.execute(|| {
-                    FONT_CONTEXT.with(|_| {
-                        FONT_CONTEXT_COUNT.fetch_add(1, SeqCst);
-                        while FONT_CONTEXT_COUNT.load(SeqCst) != thread_count {
-                            thread::sleep(Duration::from_millis(1));
-                        }
-                    });
-                });
-            }
-        });
-
         ResourceCache {
             cached_glyphs: ResourceClassCache::new(),
             cached_rasters: ResourceClassCache::new(),

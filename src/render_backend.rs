@@ -9,7 +9,6 @@ use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
 use profiler::BackendProfileCounters;
 use resource_cache::ResourceCache;
 use scene::Scene;
-use scoped_threadpool;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
@@ -32,7 +31,6 @@ pub struct RenderBackend {
     device_pixel_ratio: f32,
     next_namespace_id: IdNamespace,
 
-    thread_pool: scoped_threadpool::Pool,
     resource_cache: ResourceCache,
 
     scene: Scene,
@@ -56,15 +54,11 @@ impl RenderBackend {
                webrender_context_handle: Option<NativeGLContextHandle>,
                config: FrameBuilderConfig,
                debug: bool) -> RenderBackend {
-        let mut thread_pool = scoped_threadpool::Pool::new(8);
-
-        let resource_cache = ResourceCache::new(&mut thread_pool,
-                                                texture_cache,
+        let resource_cache = ResourceCache::new(texture_cache,
                                                 device_pixel_ratio,
                                                 enable_aa);
 
         RenderBackend {
-            thread_pool: thread_pool,
             api_rx: api_rx,
             payload_rx: payload_rx,
             payload_tx: payload_tx,
@@ -373,7 +367,6 @@ impl RenderBackend {
 
     fn render(&mut self) -> RendererFrame {
         let frame = self.frame.build(&mut self.resource_cache,
-                                     &mut self.thread_pool,
                                      self.device_pixel_ratio);
 
         let pending_update = self.resource_cache.pending_updates();
