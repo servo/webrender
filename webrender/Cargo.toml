@@ -22,7 +22,6 @@ lazy_static = "0.2"
 log = "0.3"
 num-traits = "0.1.32"
 offscreen_gl_context = {version = "0.3", features = ["serde_serialization"]}
-rayon = "0.4.0"
 time = "0.1"
 webrender_traits = {path = "../webrender_traits", default-features = false}
 
