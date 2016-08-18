@@ -59,6 +59,7 @@ mod geometry;
 mod internal_types;
 mod layer;
 mod profiler;
+mod record;
 mod render_backend;
 mod resource_cache;
 mod resource_list;

@@ -21,6 +21,7 @@ log = "0.3"
 #notify = {git = "https://github.com/glennw/rsnotify.git", branch = "inotify-modify"}
 num-traits = "0.1.32"
 offscreen_gl_context = {version = "0.1.9", features = ["serde_serialization"]}
+rayon = "0.4.0"
 scoped_threadpool = "0.1.6"
 time = "0.1"
 webrender_traits = {git = "https://github.com/servo/webrender_traits", default-features = false}
