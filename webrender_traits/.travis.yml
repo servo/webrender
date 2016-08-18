@@ -1,0 +1,27 @@
+language: rust
+rust:
+  - nightly
+  - nightly-2016-07-11 # Should be kept in sync with Servo.
+
+matrix:
+  allow_failures:
+    - rust: nightly
+
+notifications:
+  webhooks: http://build.servo.org:54856/travis
+
+addons:
+  apt:
+    packages:
+      - libgles2-mesa-dev
+os:
+  - linux
+  - osx
+
+before_script:
+    - export PATH=$HOME/.local/bin:/Users/travis/Library/Python/2.7/bin:$PATH
+    - pip install servo_tidy --user `whoami`
+
+script:
+    - servo-tidy
+    - cargo build --verbose
