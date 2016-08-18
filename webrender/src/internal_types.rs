@@ -13,6 +13,7 @@ use profiler::BackendProfileCounters;
 use std::collections::{HashMap, HashSet};
 use std::f32;
 use std::hash::BuildHasherDefault;
+use std::i32;
 use std::ops::{Add, Sub};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,6 +44,10 @@ impl DevicePixel {
     pub fn as_u32(&self) -> u32 {
         let DevicePixel(value) = *self;
         value as u32
+    }
+
+    pub fn max() -> DevicePixel {
+        DevicePixel(i32::MAX)
     }
 }
 
@@ -81,11 +86,6 @@ pub const ANGLE_FLOAT_TO_FIXED: f32 = 65535.0;
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
 pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
 
-
-#[inline(always)]
-pub fn max_rect() -> Rect<f32> {
-    Rect::new(Point2D::new(f32::MIN, f32::MIN), Size2D::new(f32::INFINITY, f32::INFINITY))
-}
 
 pub enum FontTemplate {
     Raw(Arc<Vec<u8>>),
