@@ -4,10 +4,10 @@
 
 use app_units::Au;
 use fnv::FnvHasher;
-use internal_types::{Glyph, GlyphKey, RasterItem};
+use internal_types::{Glyph, RasterItem};
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
-use webrender_traits::{FontKey, ImageKey, ImageRendering};
+use webrender_traits::{FontKey, GlyphKey, ImageKey, ImageRendering};
 
 type RequiredImageSet = HashSet<(ImageKey, ImageRendering), BuildHasherDefault<FnvHasher>>;
 type RequiredGlyphMap = HashMap<FontKey,

@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use texture_cache::BorderType;
 use tiling;
-use webrender_traits::{FontKey, Epoch, ColorF, PipelineId};
+use webrender_traits::{Epoch, ColorF, PipelineId};
 use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem, ScrollLayerId};
 
 #[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -691,25 +691,6 @@ impl BoxShadowRasterOp {
 pub enum BoxShadowPart {
     _Corner,
     _Edge,
-}
-
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub struct GlyphKey {
-    pub font_key: FontKey,
-    pub size: Au,
-    pub blur_radius: Au,
-    pub index: u32,
-}
-
-impl GlyphKey {
-    pub fn new(font_key: FontKey, size: Au, blur_radius: Au, index: u32) -> GlyphKey {
-        GlyphKey {
-            font_key: font_key,
-            size: size,
-            blur_radius: blur_radius,
-            index: index,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]

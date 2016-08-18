@@ -8,7 +8,7 @@ use euclid::Size2D;
 use fnv::FnvHasher;
 use frame::FrameId;
 use freelist::FreeList;
-use internal_types::{FontTemplate, GlyphKey, RasterItem};
+use internal_types::{FontTemplate, RasterItem};
 use internal_types::{TextureUpdateList, DrawListId, DrawList};
 use platform::font::{FontContext, RasterizedGlyph};
 use rayon::prelude::*;
@@ -22,8 +22,8 @@ use std::hash::BuildHasherDefault;
 use std::hash::Hash;
 use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
 use texture_cache::{BorderType, TextureInsertOp};
-use webrender_traits::{Epoch, FontKey, ImageKey, ImageFormat, DisplayItem, ImageRendering};
-use webrender_traits::{PipelineId, WebGLContextId};
+use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, DisplayItem, ImageRendering};
+use webrender_traits::{GlyphDimensions, PipelineId, WebGLContextId};
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
@@ -267,14 +267,19 @@ impl ResourceCache {
 
         // Update texture cache with any newly rasterized glyphs.
         resource_list.for_each_glyph(|glyph_key| {
-            if !self.cached_glyphs.contains_key(glyph_key) {
-                self.pending_raster_jobs.push(GlyphRasterJob {
-                    glyph_key: glyph_key.clone(),
-                    result: None,
-                });
-            }
-            self.cached_glyphs.mark_as_needed(glyph_key, frame_id);
+            self.create_raster_job(glyph_key, frame_id);
         });
+    }
+
+    #[inline]
+    fn create_raster_job(&mut self, glyph_key: &GlyphKey, frame_id: FrameId) {
+        if !self.cached_glyphs.contains_key(glyph_key) {
+            self.pending_raster_jobs.push(GlyphRasterJob {
+                glyph_key: glyph_key.clone(),
+                result: None,
+            });
+        }
+        self.cached_glyphs.mark_as_needed(glyph_key, frame_id);
     }
 
     pub fn raster_pending_glyphs(&mut self,
@@ -347,6 +352,22 @@ impl ResourceCache {
     pub fn get_glyph(&self, glyph_key: &GlyphKey, frame_id: FrameId) -> Option<&TextureCacheItem> {
         let image_id = self.cached_glyphs.get(glyph_key, frame_id);
         image_id.map(|image_id| self.texture_cache.get(image_id))
+    }
+
+    pub fn get_glyph_dimensions(&mut self,
+                                glyph_key: &GlyphKey,
+                                frame_id: FrameId)
+                                -> Option<GlyphDimensions> {
+        self.create_raster_job(&glyph_key, frame_id);
+        self.raster_pending_glyphs(frame_id);
+        self.get_glyph(&glyph_key, frame_id).map(|cached_glyph| {
+            GlyphDimensions {
+                left:   cached_glyph.user_data.x0,
+                top:    cached_glyph.user_data.y0,
+                width:  cached_glyph.requested_rect.size.width,
+                height: cached_glyph.requested_rect.size.height,
+            }
+        })
     }
 
     #[inline]
