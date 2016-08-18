@@ -59,6 +59,7 @@ mod geometry;
 mod internal_types;
 mod layer;
 mod profiler;
+mod record;
 mod render_backend;
 mod resource_cache;
 mod resource_list;
@@ -95,6 +96,7 @@ extern crate core_text;
 extern crate freetype;
 
 extern crate app_units;
+extern crate bincode;
 extern crate euclid;
 extern crate fnv;
 extern crate gleam;

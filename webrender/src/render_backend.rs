@@ -10,6 +10,7 @@ use profiler::BackendProfileCounters;
 use resource_cache::ResourceCache;
 use scene::Scene;
 use std::collections::HashMap;
+use std::fs;
 use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
@@ -18,6 +19,7 @@ use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
 use webrender_traits::{PipelineId, RenderNotifier, WebGLContextId};
 use batch::new_id;
 use device::TextureId;
+use record;
 use tiling::FrameBuilderConfig;
 use offscreen_gl_context::{ColorAttachmentType, GLContext};
 use offscreen_gl_context::{NativeGLContext, NativeGLContextHandle};
@@ -40,6 +42,7 @@ pub struct RenderBackend {
     webrender_context_handle: Option<NativeGLContextHandle>,
     webgl_contexts: HashMap<WebGLContextId, GLContext<NativeGLContext>>,
     current_bound_webgl_context_id: Option<WebGLContextId>,
+    enable_recording: bool,
 }
 
 impl RenderBackend {
@@ -53,7 +56,8 @@ impl RenderBackend {
                notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
                webrender_context_handle: Option<NativeGLContextHandle>,
                config: FrameBuilderConfig,
-               debug: bool) -> RenderBackend {
+               debug: bool,
+               enable_recording:bool) -> RenderBackend {
         let resource_cache = ResourceCache::new(texture_cache,
                                                 device_pixel_ratio,
                                                 enable_aa);
@@ -72,16 +76,23 @@ impl RenderBackend {
             webrender_context_handle: webrender_context_handle,
             webgl_contexts: HashMap::new(),
             current_bound_webgl_context_id: None,
+            enable_recording:enable_recording,
         }
     }
 
     pub fn run(&mut self) {
         let mut profile_counters = BackendProfileCounters::new();
-
+        let mut frame_counter:u32 = 0;
+        if self.enable_recording{
+                fs::create_dir("record").ok();
+        }
         loop {
             let msg = self.api_rx.recv();
             match msg {
                 Ok(msg) => {
+                    if self.enable_recording{
+                        record::write_msg(frame_counter, &msg);
+                    }
                     match msg {
                         ApiMsg::AddRawFont(id, bytes) => {
                             profile_counters.font_templates.inc(bytes.len());
@@ -153,7 +164,10 @@ impl RenderBackend {
                             for leftover_auxiliary_data in leftover_auxiliary_data {
                                 self.payload_tx.send(&leftover_auxiliary_data[..]).unwrap()
                             }
-
+                            if self.enable_recording{
+                                record::write_data(frame_counter, &auxiliary_data);
+                                frame_counter += 1;
+                            }
                             let mut auxiliary_data = Cursor::new(&mut auxiliary_data[8..]);
                             for (display_list_id,
                                  display_list_descriptor) in display_lists.into_iter() {

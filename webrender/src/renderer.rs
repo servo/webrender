@@ -467,6 +467,7 @@ impl Renderer {
         let debug = options.debug;
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
         let payload_tx_for_backend = payload_tx.clone();
+        let enable_recording = options.enable_recording;
         thread::spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  payload_rx,
@@ -478,7 +479,8 @@ impl Renderer {
                                                  backend_notifier,
                                                  context_handle,
                                                  config,
-                                                 debug);
+                                                 debug,
+                                                 enable_recording);
             backend.run();
         });
 
@@ -1606,4 +1608,5 @@ pub struct RendererOptions {
     pub enable_msaa: bool,
     pub enable_profiler: bool,
     pub debug: bool,
+    pub enable_recording: bool,
 }
