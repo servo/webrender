@@ -11,4 +11,7 @@ install:
 build: false
 
 test_script:
+  - cd webrender_traits
+  - cargo test --verbose
+  - cd ../webrender
   - cargo test --verbose

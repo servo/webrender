@@ -1,0 +1,34 @@
+[package]
+name = "webrender"
+version = "0.4.0"
+authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
+license = "MPL-2.0"
+repository = "https://github.com/servo/webrender"
+
+[features]
+default = ["webrender_traits/serde_codegen"]
+serde_macros = ["webrender_traits/serde_macros"]
+
+[dependencies]
+app_units = "0.3"
+bit-set = "0.4"
+bincode = "0.5.9"
+byteorder = "0.5"
+euclid = "0.9"
+fnv="1.0"
+gleam = "0.2"
+ipc-channel = "0.5"
+lazy_static = "0.2"
+log = "0.3"
+num-traits = "0.1.32"
+offscreen_gl_context = {version = "0.3", features = ["serde_serialization"]}
+rayon = "0.4.0"
+time = "0.1"
+webrender_traits = {path = "../webrender_traits", default-features = false}
+
+[target.'cfg(any(target_os = "android", target_os = "linux", target_os = "windows"))'.dependencies]
+freetype = {git = "https://github.com/servo/rust-freetype"}
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.4"
+core-text = "2.0"
