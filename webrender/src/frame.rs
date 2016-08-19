@@ -250,7 +250,7 @@ impl Frame {
                     None
                 }
                 ScrollLayerInfo::Scrollable(..) => {
-                    let inv = layer.viewport_transform.invert();
+                    let inv = layer.viewport_transform.inverse().unwrap();
                     let z0 = -10000.0;
                     let z1 =  10000.0;
 
@@ -590,8 +590,9 @@ impl Frame {
 
                         let iframe_fixed_layer_id = ScrollLayerId::create_fixed(pipeline.pipeline_id);
 
-                        let viewport_transform = info.world_transform.mul(&info.local_perspective)
-                                                                     .mul(&info.local_transform);
+                        let viewport_transform = info.world_transform
+                            .post_mul(&info.local_perspective)
+                            .post_mul(&info.local_transform);
 
                         // TODO(servo/servo#9983, pcwalton): Support rounded rectangle clipping.
                         // Currently we take the main part of the clip rect only.
@@ -728,18 +729,21 @@ impl Frame {
                 //} else {
                 //    Matrix4D::identity()
                 //};
-                let local_transform = Matrix4D::identity().translate(origin.x, origin.y, 0.0)
-                                                          .mul(&stacking_context.transform)
-                                                          .translate(-origin.x, -origin.y, 0.0);
+                let local_transform = Matrix4D::identity()
+                    .post_translated(origin.x, origin.y, 0.0)
+                    .post_mul(&stacking_context.transform)
+                    .post_translated(-origin.x, -origin.y, 0.0);
 
                 // Build local space perspective transform
-                let local_perspective = Matrix4D::identity().translate(origin.x, origin.y, 0.0)
-                                                            .mul(&stacking_context.perspective)
-                                                            .translate(-origin.x, -origin.y, 0.0);
+                let local_perspective = Matrix4D::identity()
+                    .post_translated(origin.x, origin.y, 0.0)
+                    .post_mul(&stacking_context.perspective)
+                    .post_translated(-origin.x, -origin.y, 0.0);
 
                 // Build world space transform
-                let world_transform = parent_info.world_transform.mul(&local_perspective)
-                                                                 .mul(&local_transform);
+                let world_transform = parent_info.world_transform
+                    .post_mul(&local_perspective)
+                    .post_mul(&local_transform);
 
                 /*
                 let viewport_rect = if composition_operations.is_empty() {
@@ -773,8 +777,8 @@ impl Frame {
                     (ScrollPolicy::Scrollable, Some(scroll_layer_id)) => {
                         debug_assert!(!self.layers.contains_key(&scroll_layer_id));
                         let mut viewport_transform =
-                            world_transform.mul(&parent_info.local_perspective)
-                                           .mul(&parent_info.local_transform);
+                            world_transform.post_mul(&parent_info.local_perspective)
+                                           .post_mul(&parent_info.local_transform);
                         let mut viewport_rect = parent_info.viewport_rect;
 
                         if let ScrollLayerInfo::Scrollable(index) = scroll_layer_id.info {
@@ -847,15 +851,18 @@ impl Frame {
             match self.layers.get_mut(&layer_id) {
                 Some(layer) => {
                     let layer_transform_for_children =
-                        parent_world_transform.mul(&layer.local_transform)
-                                              .translate(layer.scrolling.offset.x,
-                                                         layer.scrolling.offset.y,
-                                                         0.0);
-                    layer.viewport_transform = parent_world_transform.mul(&layer.local_transform);
+                        parent_world_transform
+                            .post_mul(&layer.local_transform)
+                            .post_translated(layer.scrolling.offset.x,
+                                             layer.scrolling.offset.y,
+                                             0.0);
+                    layer.viewport_transform =
+                        parent_world_transform.post_mul(&layer.local_transform);
                     layer.world_transform =
-                        Some(layer_transform_for_children.translate(layer.world_origin.x,
-                                                                    layer.world_origin.y,
-                                                                    0.0));
+                        Some(layer_transform_for_children
+                                .post_translated(layer.world_origin.x,
+                                                 layer.world_origin.y,
+                                                 0.0));
                     (layer_transform_for_children, layer.children.clone())
                 }
                 None => return,

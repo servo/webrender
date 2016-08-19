@@ -1463,7 +1463,9 @@ impl Device {
 
     fn set_uniforms(&self, program: &Program, transform: &Matrix4D<f32>) {
         debug_assert!(self.inside_frame);
-        gl::uniform_matrix_4fv(program.u_transform, false, &transform.to_array());
+        gl::uniform_matrix_4fv(program.u_transform,
+                               false,
+                               &transform.to_row_major_array());
     }
 
     fn update_image_for_2d_texture(&mut self,
