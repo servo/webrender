@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
-use webrender_traits::{GlyphDimensions, RenderNotifier, WebGLContextId};
+use webrender_traits::{RenderNotifier, WebGLContextId};
 use batch::new_id;
 use device::TextureId;
 use record;

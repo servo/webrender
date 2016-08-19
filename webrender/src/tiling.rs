@@ -20,7 +20,7 @@ use std::f32;
 use std::mem;
 use std::hash::{BuildHasherDefault};
 use texture_cache::{TexturePage};
-use util::{self, rect_from_points, rect_from_points_f, MatrixHelpers, subtract_rect, RectHelpers};
+use util::{self, rect_from_points, rect_from_points_f, MatrixHelpers, subtract_rect};
 use webrender_traits::{ColorF, FontKey, GlyphKey, ImageKey, ImageRendering, ComplexClipRegion};
 use webrender_traits::{BorderDisplayItem, BorderStyle, ItemRange, AuxiliaryLists, BorderRadius, BorderSide};
 use webrender_traits::{BoxShadowClipMode, PipelineId, ScrollLayerId, WebGLContextId};
@@ -2635,7 +2635,7 @@ impl FrameBuilder {
 
                     let scroll_layer = &layer_map[&layer.scroll_layer_id];
                     layer.transform = scroll_layer.world_content_transform
-                                                  .mul(&layer.local_transform);
+                                                  .pre_mul(&layer.local_transform);
                     let layer_xf_rect = TransformedRect::new(&layer.local_rect,
                                                              &layer.transform,
                                                              self.device_pixel_ratio);

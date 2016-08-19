@@ -231,7 +231,7 @@ impl Frame {
                     None
                 }
                 ScrollLayerInfo::Scrollable(..) => {
-                    let inv = layer.world_viewport_transform.inverse.unwrap();
+                    let inv = layer.world_viewport_transform.inverse().unwrap();
                     let z0 = -10000.0;
                     let z1 =  10000.0;
 
@@ -468,249 +468,251 @@ impl Frame {
         };
 
         let scene_items = scene_item.collect_scene_items(&context.scene);
-        if !scene_items.is_empty() {
-            let composition_operations = {
-                let auxiliary_lists = self.pipeline_auxiliary_lists
-                                          .get(&pipeline_id)
-                                          .expect("No auxiliary lists?!");
-                stacking_context.composition_operations(auxiliary_lists)
-            };
+        if scene_items.is_empty() {
+            return;
+        }
 
-            // Detect composition operations that will make us invisible.
-            for composition_operation in &composition_operations {
-                match *composition_operation {
-                    CompositionOp::Filter(LowLevelFilterOp::Opacity(Au(0))) => return,
-                    _ => {}
-                }
+        let composition_operations = {
+            let auxiliary_lists = self.pipeline_auxiliary_lists
+                                      .get(&pipeline_id)
+                                      .expect("No auxiliary lists?!");
+            stacking_context.composition_operations(auxiliary_lists)
+        };
+
+        // Detect composition operations that will make us invisible.
+        for composition_operation in &composition_operations {
+            match *composition_operation {
+                CompositionOp::Filter(LowLevelFilterOp::Opacity(Au(0))) => return,
+                _ => {}
             }
+        }
 
-            // Build world space transform
-            let transform = parent_info.layer_relative_transform.translate(stacking_context.bounds.origin.x,
-                                                                           stacking_context.bounds.origin.y,
-                                                                           0.0)
-                                                                .mul(&stacking_context.transform)
-                                                                .mul(&stacking_context.perspective);
+        // Build world space transform
+        let transform = parent_info.layer_relative_transform.pre_translated(stacking_context.bounds.origin.x,
+                                                                            stacking_context.bounds.origin.y,
+                                                                            0.0)
+                                                            .pre_mul(&stacking_context.transform)
+                                                            .pre_mul(&stacking_context.perspective);
 
-            let scroll_layer_id =  match (stacking_context.scroll_policy, stacking_context.scroll_layer_id) {
-                (ScrollPolicy::Fixed, _scroll_layer_id) => {
-                    debug_assert!(_scroll_layer_id.is_none());
-                    parent_info.current_fixed_layer_id
-                }
-                (ScrollPolicy::Scrollable, Some(scroll_layer_id)) => {
-                    debug_assert!(self.layers.contains_key(&scroll_layer_id));
-                    scroll_layer_id
-                }
-                (ScrollPolicy::Scrollable, None) => {
-                    parent_info.current_scroll_layer_id
-                }
-            };
+        let scroll_layer_id =  match (stacking_context.scroll_policy, stacking_context.scroll_layer_id) {
+            (ScrollPolicy::Fixed, _scroll_layer_id) => {
+                debug_assert!(_scroll_layer_id.is_none());
+                parent_info.current_fixed_layer_id
+            }
+            (ScrollPolicy::Scrollable, Some(scroll_layer_id)) => {
+                debug_assert!(self.layers.contains_key(&scroll_layer_id));
+                scroll_layer_id
+            }
+            (ScrollPolicy::Scrollable, None) => {
+                parent_info.current_scroll_layer_id
+            }
+        };
 
-            // TODO(gw): Int with overflow etc
-            context.builder.push_layer(stacking_context.overflow,
-                                       stacking_context.overflow,
-                                       transform,
-                                       pipeline_id,
-                                       scroll_layer_id,
-                                       composition_operations);
+        // TODO(gw): Int with overflow etc
+        context.builder.push_layer(stacking_context.overflow,
+                                   stacking_context.overflow,
+                                   transform,
+                                   pipeline_id,
+                                   scroll_layer_id,
+                                   composition_operations);
 
-            for item in scene_items {
-                match item.specific {
-                    SpecificSceneItem::DrawList(draw_list_id) => {
-                        let draw_list = context.resource_cache.get_draw_list(draw_list_id);
-                        let builder = &mut context.builder;
+        for item in scene_items {
+            match item.specific {
+                SpecificSceneItem::DrawList(draw_list_id) => {
+                    let draw_list = context.resource_cache.get_draw_list(draw_list_id);
+                    let builder = &mut context.builder;
 
-                        let auxiliary_lists = {
-                            self.pipeline_auxiliary_lists
-                                                  .get(&parent_info.pipeline_id)
-                                                  .expect("No auxiliary lists?!")
+                    let auxiliary_lists = {
+                        self.pipeline_auxiliary_lists
+                                              .get(&parent_info.pipeline_id)
+                                              .expect("No auxiliary lists?!")
+                    };
+
+                    for item in &draw_list.items {
+                        let clips = auxiliary_lists.complex_clip_regions(&item.clip.complex);
+                        let clip = match clips.len() {
+                            0 => None,
+                            1 => Some(Box::new(Clip::from_clip_region(&clips[0]))),
+                            _ => {
+                                let internal_clip = clips.last().unwrap();
+                                if clips.iter().all(|current_clip| current_clip.might_contain(internal_clip)) {
+                                    Some(Box::new(Clip::from_clip_region(internal_clip)))
+                                } else {
+                                    Some(Box::new(Clip::from_clip_region(&clips[0])))
+                                }
+                            },
                         };
 
-                        for item in &draw_list.items {
-                            let clips = auxiliary_lists.complex_clip_regions(&item.clip.complex);
-                            let clip = match clips.len() {
-                                0 => None,
-                                1 => Some(Box::new(Clip::from_clip_region(&clips[0]))),
-                                _ => {
-                                    let internal_clip = clips.last().unwrap();
-                                    if clips.iter().all(|current_clip| current_clip.might_contain(internal_clip)) {
-                                        Some(Box::new(Clip::from_clip_region(internal_clip)))
-                                    } else {
-                                        Some(Box::new(Clip::from_clip_region(&clips[0])))
-                                    }
-                                },
-                            };
-
-                            match item.item {
-                                SpecificDisplayItem::WebGL(ref info) => {
-                                    builder.add_webgl_rectangle(item.rect,
-                                                                &item.clip.main,
-                                                                clip,
-                                                                info.context_id);
-                                }
-                                SpecificDisplayItem::Image(ref info) => {
-                                    builder.add_image(item.rect,
-                                                      &item.clip.main,
-                                                      clip,
-                                                      &info.stretch_size,
-                                                      info.image_key,
-                                                      info.image_rendering);
-                                }
-                                SpecificDisplayItem::Text(ref text_info) => {
-                                    builder.add_text(item.rect,
+                        match item.item {
+                            SpecificDisplayItem::WebGL(ref info) => {
+                                builder.add_webgl_rectangle(item.rect,
+                                                            &item.clip.main,
+                                                            clip,
+                                                            info.context_id);
+                            }
+                            SpecificDisplayItem::Image(ref info) => {
+                                builder.add_image(item.rect,
+                                                  &item.clip.main,
+                                                  clip,
+                                                  &info.stretch_size,
+                                                  info.image_key,
+                                                  info.image_rendering);
+                            }
+                            SpecificDisplayItem::Text(ref text_info) => {
+                                builder.add_text(item.rect,
+                                                 &item.clip.main,
+                                                 clip,
+                                                 text_info.font_key,
+                                                 text_info.size,
+                                                 text_info.blur_radius,
+                                                 &text_info.color,
+                                                 text_info.glyphs);
+                            }
+                            SpecificDisplayItem::Rectangle(ref info) => {
+                                builder.add_solid_rectangle(&item.rect,
+                                                            &item.clip.main,
+                                                            clip,
+                                                            &info.color);
+                            }
+                            SpecificDisplayItem::Gradient(ref info) => {
+                                builder.add_gradient(item.rect,
                                                      &item.clip.main,
                                                      clip,
-                                                     text_info.font_key,
-                                                     text_info.size,
-                                                     text_info.blur_radius,
-                                                     &text_info.color,
-                                                     text_info.glyphs);
-                                }
-                                SpecificDisplayItem::Rectangle(ref info) => {
-                                    builder.add_solid_rectangle(&item.rect,
-                                                                &item.clip.main,
-                                                                clip,
-                                                                &info.color);
-                                }
-                                SpecificDisplayItem::Gradient(ref info) => {
-                                    builder.add_gradient(item.rect,
-                                                         &item.clip.main,
-                                                         clip,
-                                                         info.start_point,
-                                                         info.end_point,
-                                                         info.stops);
-                                }
-                                SpecificDisplayItem::BoxShadow(ref box_shadow_info) => {
-                                    builder.add_box_shadow(&box_shadow_info.box_bounds,
-                                                           &item.clip.main,
-                                                           clip,
-                                                           &box_shadow_info.offset,
-                                                           &box_shadow_info.color,
-                                                           box_shadow_info.blur_radius,
-                                                           box_shadow_info.spread_radius,
-                                                           box_shadow_info.border_radius,
-                                                           box_shadow_info.clip_mode);
-                                }
-                                SpecificDisplayItem::Border(ref info) => {
-                                    builder.add_border(item.rect,
+                                                     info.start_point,
+                                                     info.end_point,
+                                                     info.stops);
+                            }
+                            SpecificDisplayItem::BoxShadow(ref box_shadow_info) => {
+                                builder.add_box_shadow(&box_shadow_info.box_bounds,
                                                        &item.clip.main,
                                                        clip,
-                                                       info);
-                                }
+                                                       &box_shadow_info.offset,
+                                                       &box_shadow_info.color,
+                                                       box_shadow_info.blur_radius,
+                                                       box_shadow_info.spread_radius,
+                                                       box_shadow_info.border_radius,
+                                                       box_shadow_info.clip_mode);
+                            }
+                            SpecificDisplayItem::Border(ref info) => {
+                                builder.add_border(item.rect,
+                                                   &item.clip.main,
+                                                   clip,
+                                                   info);
                             }
                         }
                     }
-                    SpecificSceneItem::StackingContext(id, pipeline_id) => {
-                        let child_stacking_context = context.scene
-                                                            .stacking_context_map
-                                                            .get(&id)
-                                                            .unwrap();
+                }
+                SpecificSceneItem::StackingContext(id, pipeline_id) => {
+                    let child_stacking_context = context.scene
+                                                        .stacking_context_map
+                                                        .get(&id)
+                                                        .unwrap();
 
-                        let inner_stacking_context = &child_stacking_context.stacking_context;
+                    let inner_stacking_context = &child_stacking_context.stacking_context;
 
-                        let mut next_scroll_layer_id = parent_info.current_scroll_layer_id;
-                        let mut layer_relative_transform = transform;
+                    let mut next_scroll_layer_id = parent_info.current_scroll_layer_id;
+                    let mut layer_relative_transform = transform;
 
-                        match (inner_stacking_context.scroll_policy, inner_stacking_context.scroll_layer_id) {
-                            (ScrollPolicy::Scrollable, Some(scroll_layer_id)) => {
-                                debug_assert!(!self.layers.contains_key(&scroll_layer_id));
+                    match (inner_stacking_context.scroll_policy, inner_stacking_context.scroll_layer_id) {
+                        (ScrollPolicy::Scrollable, Some(scroll_layer_id)) => {
+                            debug_assert!(!self.layers.contains_key(&scroll_layer_id));
 
-                                let layer = Layer::new(&Rect::new(Point2D::zero(), stacking_context.bounds.size),
-                                                       inner_stacking_context.overflow.size,
-                                                       &transform,
-                                                       parent_info.pipeline_id,
-                                                       inner_stacking_context.servo_id);
-
-                                debug_assert!(parent_info.current_scroll_layer_id != scroll_layer_id);
-                                self.layers
-                                    .get_mut(&parent_info.current_scroll_layer_id)
-                                    .unwrap()
-                                    .add_child(scroll_layer_id);
-
-                                self.layers.insert(scroll_layer_id, layer);
-                                next_scroll_layer_id = scroll_layer_id;
-                                layer_relative_transform = Matrix4D::identity();
-                            }
-                            (ScrollPolicy::Fixed, _) |
-                            (ScrollPolicy::Scrollable, None) => {}
-                        }
-
-                        let child_info = FlattenInfo {
-                            pipeline_id: parent_info.pipeline_id,
-                            current_scroll_layer_id: next_scroll_layer_id,
-                            current_fixed_layer_id: parent_info.current_fixed_layer_id,
-                            layer_relative_transform: layer_relative_transform,
-                        };
-
-                        let child = SceneItemKind::StackingContext(child_stacking_context,
-                                                                   pipeline_id);
-
-                        self.flatten(child,
-                                     &child_info,
-                                     context);
-                    }
-                    SpecificSceneItem::Iframe(ref iframe_info) => {
-                        let pipeline = context.scene
-                                              .pipeline_map
-                                              .get(&iframe_info.id);
-
-                        context.pipeline_sizes.insert(iframe_info.id,
-                                                      iframe_info.bounds.size);
-
-                        if let Some(pipeline) = pipeline {
-                            let iframe = SceneItemKind::Pipeline(pipeline);
-
-                            let transform = transform.translate(iframe_info.bounds.origin.x,
-                                                                iframe_info.bounds.origin.y,
-                                                                0.0);
-
-                            let iframe_stacking_context = context.scene
-                                                                 .stacking_context_map
-                                                                 .get(&pipeline.root_stacking_context_id)
-                                                                 .unwrap();
-                            let iframe_stacking_context = &iframe_stacking_context.stacking_context;
-                            let iframe_fixed_layer_id = ScrollLayerId::create_fixed(pipeline.pipeline_id);
-                            let iframe_rect = &Rect::new(Point2D::zero(), iframe_info.bounds.size);
-
-                            self.layers
-                                .insert(iframe_fixed_layer_id,
-                                        Layer::new(&iframe_rect,
-                                                   iframe_stacking_context.overflow.size,
+                            let layer = Layer::new(&Rect::new(Point2D::zero(), stacking_context.bounds.size),
+                                                   inner_stacking_context.overflow.size,
                                                    &transform,
-                                                   pipeline.pipeline_id,
-                                                   iframe_stacking_context.servo_id));
+                                                   parent_info.pipeline_id,
+                                                   inner_stacking_context.servo_id);
 
-                            let iframe_scroll_layer_id = iframe_stacking_context.scroll_layer_id.unwrap();
-
-                            self.layers
-                                .insert(iframe_scroll_layer_id,
-                                        Layer::new(&iframe_rect,
-                                                   iframe_stacking_context.overflow.size,
-                                                   &transform,
-                                                   pipeline.pipeline_id,
-                                                   iframe_stacking_context.servo_id));
-
+                            debug_assert!(parent_info.current_scroll_layer_id != scroll_layer_id);
                             self.layers
                                 .get_mut(&parent_info.current_scroll_layer_id)
                                 .unwrap()
-                                .add_child(iframe_scroll_layer_id);
+                                .add_child(scroll_layer_id);
 
-                            let child_info = FlattenInfo {
-                                pipeline_id: pipeline.pipeline_id,
-                                current_scroll_layer_id: iframe_scroll_layer_id,
-                                current_fixed_layer_id: iframe_fixed_layer_id,
-                                layer_relative_transform: Matrix4D::identity(),
-                            };
-
-                            self.flatten(iframe,
-                                         &child_info,
-                                         context);
+                            self.layers.insert(scroll_layer_id, layer);
+                            next_scroll_layer_id = scroll_layer_id;
+                            layer_relative_transform = Matrix4D::identity();
                         }
+                        (ScrollPolicy::Fixed, _) |
+                        (ScrollPolicy::Scrollable, None) => {}
+                    }
+
+                    let child_info = FlattenInfo {
+                        pipeline_id: parent_info.pipeline_id,
+                        current_scroll_layer_id: next_scroll_layer_id,
+                        current_fixed_layer_id: parent_info.current_fixed_layer_id,
+                        layer_relative_transform: layer_relative_transform,
+                    };
+
+                    let child = SceneItemKind::StackingContext(child_stacking_context,
+                                                               pipeline_id);
+
+                    self.flatten(child,
+                                 &child_info,
+                                 context);
+                }
+                SpecificSceneItem::Iframe(ref iframe_info) => {
+                    let pipeline = context.scene
+                                          .pipeline_map
+                                          .get(&iframe_info.id);
+
+                    context.pipeline_sizes.insert(iframe_info.id,
+                                                  iframe_info.bounds.size);
+
+                    if let Some(pipeline) = pipeline {
+                        let iframe = SceneItemKind::Pipeline(pipeline);
+
+                        let transform = transform.pre_translated(iframe_info.bounds.origin.x,
+                                                                 iframe_info.bounds.origin.y,
+                                                                 0.0);
+
+                        let iframe_stacking_context = context.scene
+                                                             .stacking_context_map
+                                                             .get(&pipeline.root_stacking_context_id)
+                                                             .unwrap();
+                        let iframe_stacking_context = &iframe_stacking_context.stacking_context;
+                        let iframe_fixed_layer_id = ScrollLayerId::create_fixed(pipeline.pipeline_id);
+                        let iframe_rect = &Rect::new(Point2D::zero(), iframe_info.bounds.size);
+
+                        self.layers
+                            .insert(iframe_fixed_layer_id,
+                                    Layer::new(&iframe_rect,
+                                               iframe_stacking_context.overflow.size,
+                                               &transform,
+                                               pipeline.pipeline_id,
+                                               iframe_stacking_context.servo_id));
+
+                        let iframe_scroll_layer_id = iframe_stacking_context.scroll_layer_id.unwrap();
+
+                        self.layers
+                            .insert(iframe_scroll_layer_id,
+                                    Layer::new(&iframe_rect,
+                                               iframe_stacking_context.overflow.size,
+                                               &transform,
+                                               pipeline.pipeline_id,
+                                               iframe_stacking_context.servo_id));
+
+                        self.layers
+                            .get_mut(&parent_info.current_scroll_layer_id)
+                            .unwrap()
+                            .add_child(iframe_scroll_layer_id);
+
+                        let child_info = FlattenInfo {
+                            pipeline_id: pipeline.pipeline_id,
+                            current_scroll_layer_id: iframe_scroll_layer_id,
+                            current_fixed_layer_id: iframe_fixed_layer_id,
+                            layer_relative_transform: Matrix4D::identity(),
+                        };
+
+                        self.flatten(iframe,
+                                     &child_info,
+                                     context);
                     }
                 }
             }
-
-            context.builder.pop_layer();
         }
+
+        context.builder.pop_layer();
     }
 
     pub fn build(&mut self,
@@ -733,11 +735,11 @@ impl Frame {
         let (layer_transform_for_children, world_viewport_rect, layer_children) = {
             match self.layers.get_mut(&layer_id) {
                 Some(layer) => {
-                    layer.world_viewport_transform = parent_world_transform.mul(&layer.local_transform);
+                    layer.world_viewport_transform = parent_world_transform.pre_mul(&layer.local_transform);
                     layer.world_content_transform = layer.world_viewport_transform
-                                                         .translate(layer.scrolling.offset.x,
-                                                                    layer.scrolling.offset.y,
-                                                                    0.0);
+                                                         .pre_translated(layer.scrolling.offset.x,
+                                                                         layer.scrolling.offset.y,
+                                                                         0.0);
 
                     let world_viewport_rect = TransformedRect::new(&layer.local_viewport_rect,
                                                                    &layer.world_viewport_transform,
