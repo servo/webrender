@@ -8,7 +8,7 @@ use device::{TextureId};
 use euclid::{Point2D, Rect, Matrix4D, Size2D, Point4D};
 use fnv::FnvHasher;
 use frame::FrameId;
-use internal_types::{Glyph, GlyphKey, DevicePixel, CompositionOp};
+use internal_types::{Glyph, DevicePixel, CompositionOp};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp, RectUv};
 use layer::Layer;
 use renderer::{BLUR_INFLATION_FACTOR};
@@ -21,7 +21,7 @@ use std::mem;
 use std::hash::{BuildHasherDefault};
 use texture_cache::{TexturePage};
 use util::{self, rect_from_points, rect_from_points_f, MatrixHelpers, subtract_rect, RectHelpers};
-use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, ComplexClipRegion};
+use webrender_traits::{ColorF, FontKey, GlyphKey, ImageKey, ImageRendering, ComplexClipRegion};
 use webrender_traits::{BorderDisplayItem, BorderStyle, ItemRange, AuxiliaryLists, BorderRadius, BorderSide};
 use webrender_traits::{BoxShadowClipMode, PipelineId, ScrollLayerId, WebGLContextId};
 

@@ -11,6 +11,7 @@ use {ApiMsg, AuxiliaryLists, BuiltDisplayList, ColorF, DisplayListId, Epoch};
 use {FontKey, IdNamespace, ImageFormat, ImageKey, NativeFontHandle, PipelineId};
 use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState};
 use {StackingContext, StackingContextId, WebGLContextId, WebGLCommand};
+use {GlyphKey, GlyphDimensions};
 
 impl RenderApiSender {
     pub fn new(api_sender: IpcSender<ApiMsg>,
@@ -65,6 +66,19 @@ impl RenderApi {
         let msg = ApiMsg::AddNativeFont(key, native_font_handle);
         self.api_sender.send(msg).unwrap();
         key
+    }
+
+    /// Gets the dimensions for the supplied glyph keys
+    ///
+    /// Note: Internally, the internal texture cache doesn't store
+    /// 'empty' textures (height or width = 0)
+    /// This means that glyph dimensions e.g. for spaces (' ') will mostly be None.
+    pub fn get_glyph_dimensions(&self, glyph_keys: Vec<GlyphKey>)
+                                -> Vec<Option<GlyphDimensions>> {
+        let (tx, rx) = ipc::channel().unwrap();
+        let msg = ApiMsg::GetGlyphDimensions(glyph_keys, tx);
+        self.api_sender.send(msg).unwrap();
+        rx.recv().unwrap()
     }
 
     /// Creates an `ImageKey`.

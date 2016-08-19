@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
-use webrender_traits::{PipelineId, RenderNotifier, WebGLContextId};
+use webrender_traits::{GlyphDimensions, PipelineId, RenderNotifier, WebGLContextId};
 use batch::new_id;
 use device::TextureId;
 use record;
@@ -102,6 +102,18 @@ impl RenderBackend {
                         ApiMsg::AddNativeFont(id, native_font_handle) => {
                             self.resource_cache
                                 .add_font_template(id, FontTemplate::Native(native_font_handle));
+                        }
+                        ApiMsg::GetGlyphDimensions(glyph_keys, tx) => {
+                            let mut glyph_dimensions = Vec::with_capacity(glyph_keys.len());
+                            for glyph_key in &glyph_keys {
+                                // Get the next frame id, so it'll remain in the texture cache.
+                                // This assumes that the glyph will be used in the next frame.
+                                let frame_id = self.frame.next_frame_id();
+                                let glyph_dim = self.resource_cache
+                                                    .get_glyph_dimensions(&glyph_key, frame_id);
+                                glyph_dimensions.push(glyph_dim);
+                            };
+                            tx.send(glyph_dimensions).unwrap();
                         }
                         ApiMsg::AddImage(id, width, height, format, bytes) => {
                             profile_counters.image_templates.inc(bytes.len());

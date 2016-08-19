@@ -18,6 +18,8 @@ use offscreen_gl_context::{GLContextAttributes, GLLimits};
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>),
     AddNativeFont(FontKey, NativeFontHandle),
+    /// Gets the glyph dimensions
+    GetGlyphDimensions(Vec<GlyphKey>, IpcSender<Vec<Option<GlyphDimensions>>>),
     /// Adds an image from the resource cache.
     AddImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
     /// Updates the the resource cache with the new image data.
@@ -48,6 +50,14 @@ pub enum ApiMsg {
     GetScrollLayerState(IpcSender<Vec<ScrollLayerState>>),
     RequestWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<(WebGLContextId, GLLimits), String>>),
     WebGLCommand(WebGLContextId, WebGLCommand),
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct GlyphDimensions {
+    pub left: i32,
+    pub top: i32,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -215,6 +225,25 @@ pub enum FilterOp {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct FontKey(u32, u32);
+
+#[derive(Clone, Hash, PartialEq, Eq, Debug, Deserialize, Serialize)]
+pub struct GlyphKey {
+    pub font_key: FontKey,
+    pub size: Au,
+    pub blur_radius: Au,
+    pub index: u32,
+}
+
+impl GlyphKey {
+    pub fn new(font_key: FontKey, size: Au, blur_radius: Au, index: u32) -> GlyphKey {
+        GlyphKey {
+            font_key: font_key,
+            size: size,
+            blur_radius: blur_radius,
+            index: index,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum FragmentType {
