@@ -75,7 +75,7 @@ impl MatrixHelpers for Matrix4D<f32> {
     }
 
     fn reset_after_transforming_rect(&self) -> Matrix4D<f32> {
-        Matrix4D::new(
+        Matrix4D::row_major(
             1.0,      0.0,      self.m13, 0.0,
             0.0,      1.0,      self.m23, 0.0,
             self.m31, self.m32, self.m33, self.m34,

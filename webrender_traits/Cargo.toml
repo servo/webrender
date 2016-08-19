@@ -1,6 +1,6 @@
 [package]
 name = "webrender_traits"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 repository = "https://github.com/servo/webrender"
@@ -13,10 +13,10 @@ nightly = ["euclid/unstable", "serde/unstable"]
 [dependencies]
 app_units = "0.3.0"
 byteorder = "0.5"
-euclid = "0.9"
+euclid = "0.10"
 gleam = "0.2.19"
 heapsize = "0.3.6"
-offscreen_gl_context = {version = "0.3.0", features = ["serde_serialization"]}
+offscreen_gl_context = {version = "0.4.0", features = ["serde_serialization"]}
 serde = "0.8"
 serde_macros = {version = "0.8", optional = true}
 ipc-channel = "0.5.0"
