@@ -2629,12 +2629,12 @@ impl FrameBuilder {
             if layer.can_contribute_to_scene() {
                 let scroll_layer = &layer_map[&layer.scroll_layer_id];
                 let offset_transform = Matrix4D::identity()
-                    .post_translated(layer.local_offset.x, layer.local_offset.y, 0.0);
+                    .pre_translated(layer.local_offset.x, layer.local_offset.y, 0.0);
                 let transform = scroll_layer.world_transform
                                             .as_ref()
                                             .unwrap()
-                                            .post_mul(&layer.local_transform)
-                                            .post_mul(&offset_transform);
+                                            .pre_mul(&layer.local_transform)
+                                            .pre_mul(&offset_transform);
                 layer.transform = transform;
                 let layer_xf_rect = TransformedRect::new(&layer.local_rect,
                                                          &transform,
