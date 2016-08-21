@@ -3,49 +3,59 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::{Matrix4D, Point2D, Rect, Size2D};
+use internal_types::DevicePixel;
 use spring::{DAMPING, STIFFNESS, Spring};
 use webrender_traits::{PipelineId, ScrollLayerId, ServoStackingContextId};
 
 pub struct Layer {
+    // Manages scrolling offset, overscroll state etc.
     pub scrolling: ScrollingState,
 
-    /// The viewable region, in world coordinates.
-    pub viewport_rect: Rect<f32>,
+    // Size of the content inside the scroll region (in logical pixels)
+    pub content_size: Size2D<f32>,
 
-    /// The transform to apply to the viewable region, in world coordinates.
-    ///
-    /// TODO(pcwalton): These should really be a stack of clip regions and transforms.
-    pub viewport_transform: Matrix4D<f32>,
+    // Viewing rectangle
+    pub local_viewport_rect: Rect<f32>,
 
-    pub layer_size: Size2D<f32>,
-    pub world_origin: Point2D<f32>,
+    // World transform for the viewport rect itself.
+    pub world_viewport_transform: Matrix4D<f32>,
+
+    // World transform for content within this layer
+    pub world_content_transform: Matrix4D<f32>,
+
+    // World space rectangle for the viewport.
+    // TODO(gw): Support non-rectangular viewports.
+    pub world_viewport_rect: Rect<DevicePixel>,
+
+    // Transform for this layer, relative to parent layer.
     pub local_transform: Matrix4D<f32>,
-    pub local_perspective: Matrix4D<f32>,
-    pub world_transform: Option<Matrix4D<f32>>,
+
+    // Pipeline that this layer belongs to
     pub pipeline_id: PipelineId,
+
+    // Accounting information for mapping to servo stacking contexts.
+    // TODO(gw): Can we remove this somehow?
     pub stacking_context_id: ServoStackingContextId,
+
+    // Child layers
     pub children: Vec<ScrollLayerId>,
 }
 
 impl Layer {
-    pub fn new(world_origin: Point2D<f32>,
-               layer_size: Size2D<f32>,
-               viewport_rect: &Rect<f32>,
-               viewport_transform: &Matrix4D<f32>,
+    pub fn new(local_viewport_rect: &Rect<f32>,
+               content_size: Size2D<f32>,
                local_transform: &Matrix4D<f32>,
-               local_perspective: &Matrix4D<f32>,
                pipeline_id: PipelineId,
                stacking_context_id: ServoStackingContextId)
                -> Layer {
         Layer {
             scrolling: ScrollingState::new(),
-            viewport_rect: *viewport_rect,
-            viewport_transform: *viewport_transform,
-            world_origin: world_origin,
-            layer_size: layer_size,
+            content_size: content_size,
+            local_viewport_rect: *local_viewport_rect,
+            world_viewport_transform: Matrix4D::identity(),
+            world_content_transform: Matrix4D::identity(),
+            world_viewport_rect: Rect::new(Point2D::zero(), Size2D::zero()),
             local_transform: *local_transform,
-            local_perspective: *local_perspective,
-            world_transform: None,
             children: Vec::new(),
             pipeline_id: pipeline_id,
             stacking_context_id: stacking_context_id,
@@ -63,17 +73,17 @@ impl Layer {
     pub fn overscroll_amount(&self) -> Size2D<f32> {
         let overscroll_x = if self.scrolling.offset.x > 0.0 {
             -self.scrolling.offset.x
-        } else if self.scrolling.offset.x < self.viewport_rect.size.width - self.layer_size.width {
-            self.viewport_rect.size.width - self.layer_size.width - self.scrolling.offset.x
+        } else if self.scrolling.offset.x < self.local_viewport_rect.size.width - self.content_size.width {
+            self.local_viewport_rect.size.width - self.content_size.width - self.scrolling.offset.x
         } else {
             0.0
         };
 
         let overscroll_y = if self.scrolling.offset.y > 0.0 {
             -self.scrolling.offset.y
-        } else if self.scrolling.offset.y < self.viewport_rect.size.height -
-                self.layer_size.height {
-            self.viewport_rect.size.height - self.layer_size.height - self.scrolling.offset.y
+        } else if self.scrolling.offset.y < self.local_viewport_rect.size.height -
+                self.content_size.height {
+            self.local_viewport_rect.size.height - self.content_size.height - self.scrolling.offset.y
         } else {
             0.0
         };
