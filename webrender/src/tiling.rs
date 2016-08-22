@@ -130,7 +130,7 @@ impl AlphaBatcher {
                     transform: sc.transform,
                     inv_transform: sc.transform.inverse().unwrap(),
                     screen_vertices: sc.xf_rect.as_ref().unwrap().vertices,
-                    world_clip_rect: sc.world_clip_rect.unwrap(),
+                    local_clip_rect: sc.combined_local_clip_rect,
                 });
                 layer_to_ubo_map[layer_index.0] = Some(index);
                 index
@@ -1495,7 +1495,7 @@ pub struct PackedTile {
 pub struct PackedLayer {
     transform: Matrix4D<f32>,
     inv_transform: Matrix4D<f32>,
-    world_clip_rect: Rect<DevicePixel>,
+    local_clip_rect: Rect<f32>,
     screen_vertices: [Point4D<f32>; 4],
 }
 
@@ -1842,7 +1842,7 @@ struct StackingContext {
     xf_rect: Option<TransformedRect>,
     composition_ops: Vec<CompositionOp>,
     local_clip_rect: Rect<f32>,
-    world_clip_rect: Option<Rect<DevicePixel>>,
+    combined_local_clip_rect: Rect<f32>,
     prims_to_prepare: Vec<PrimitiveIndex>,
     tile_range: Option<TileRange>,
 }
@@ -2322,7 +2322,7 @@ impl FrameBuilder {
             transform: Matrix4D::identity(),
             composition_ops: composition_operations,
             local_clip_rect: clip_rect,
-            world_clip_rect: None,
+            combined_local_clip_rect: clip_rect,
             prims_to_prepare: Vec::new(),
             tile_range: None,
         };
@@ -2636,47 +2636,45 @@ impl FrameBuilder {
                     let scroll_layer = &layer_map[&layer.scroll_layer_id];
                     layer.transform = scroll_layer.world_content_transform
                                                   .pre_mul(&layer.local_transform);
-                    let layer_xf_rect = TransformedRect::new(&layer.local_rect,
-                                                             &layer.transform,
-                                                             self.device_pixel_ratio);
 
-                    let world_clip_rect = TransformedRect::new(&layer.local_clip_rect,
-                                                               &layer.transform,
-                                                               self.device_pixel_ratio);
+                    let inv_layer_transform = layer.local_transform.inverse().unwrap();
+                    let local_viewport_rect = scroll_layer.combined_local_viewport_rect;
+                    let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
+                    let layer_local_rect = layer.local_rect
+                                                .intersection(&viewport_rect)
+                                                .and_then(|rect| rect.intersection(&layer.local_clip_rect));
 
-                    layer.world_clip_rect = world_clip_rect.bounding_rect
-                                                           .intersection(&scroll_layer.world_viewport_rect);
+                    if let Some(layer_local_rect) = layer_local_rect {
+                        let layer_xf_rect = TransformedRect::new(&layer_local_rect,
+                                                                 &layer.transform,
+                                                                 self.device_pixel_ratio);
 
-                    if let Some(world_clip_rect) = layer.world_clip_rect {
                         if layer_xf_rect.bounding_rect.intersects(&screen_rect) {
-                            let layer_rect = layer_xf_rect.bounding_rect
-                                                          .intersection(&world_clip_rect);
+                            layer.combined_local_clip_rect = layer_local_rect;
+                            let layer_rect = layer_xf_rect.bounding_rect;
+                            layer.xf_rect = Some(layer_xf_rect);
 
-                            if let Some(layer_rect) = layer_rect {
-                                layer.xf_rect = Some(layer_xf_rect);
+                            let tile_x0 = layer_rect.origin.x.0 / SCREEN_TILE_SIZE;
+                            let tile_y0 = layer_rect.origin.y.0 / SCREEN_TILE_SIZE;
+                            let tile_x1 = (layer_rect.origin.x.0 + layer_rect.size.width.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+                            let tile_y1 = (layer_rect.origin.y.0 + layer_rect.size.height.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
 
-                                let tile_x0 = layer_rect.origin.x.0 / SCREEN_TILE_SIZE;
-                                let tile_y0 = layer_rect.origin.y.0 / SCREEN_TILE_SIZE;
-                                let tile_x1 = (layer_rect.origin.x.0 + layer_rect.size.width.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
-                                let tile_y1 = (layer_rect.origin.y.0 + layer_rect.size.height.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+                            let tile_x0 = cmp::min(tile_x0, x_tile_count);
+                            let tile_x0 = cmp::max(tile_x0, 0);
+                            let tile_x1 = cmp::min(tile_x1, x_tile_count);
+                            let tile_x1 = cmp::max(tile_x1, 0);
 
-                                let tile_x0 = cmp::min(tile_x0, x_tile_count);
-                                let tile_x0 = cmp::max(tile_x0, 0);
-                                let tile_x1 = cmp::min(tile_x1, x_tile_count);
-                                let tile_x1 = cmp::max(tile_x1, 0);
+                            let tile_y0 = cmp::min(tile_y0, y_tile_count);
+                            let tile_y0 = cmp::max(tile_y0, 0);
+                            let tile_y1 = cmp::min(tile_y1, y_tile_count);
+                            let tile_y1 = cmp::max(tile_y1, 0);
 
-                                let tile_y0 = cmp::min(tile_y0, y_tile_count);
-                                let tile_y0 = cmp::max(tile_y0, 0);
-                                let tile_y1 = cmp::min(tile_y1, y_tile_count);
-                                let tile_y1 = cmp::max(tile_y1, 0);
-
-                                layer.tile_range = Some(TileRange {
-                                    x0: tile_x0,
-                                    y0: tile_y0,
-                                    x1: tile_x1,
-                                    y1: tile_y1,
-                                });
-                            }
+                            layer.tile_range = Some(TileRange {
+                                x0: tile_x0,
+                                y0: tile_y0,
+                                x1: tile_x1,
+                                y1: tile_y1,
+                            });
                         }
                     }
                 }
@@ -2689,7 +2687,6 @@ impl FrameBuilder {
 
                     let auxiliary_lists = pipeline_auxiliary_lists.get(&layer.pipeline_id)
                                                                   .expect("No auxiliary lists?!");
-                    let layer_world_clip_rect = layer.world_clip_rect.unwrap();
 
                     for i in 0..prim_count {
                         let prim_index = PrimitiveIndex(prim_index.0 + i);
@@ -2697,21 +2694,21 @@ impl FrameBuilder {
                         let prim = &mut self.prim_store[prim_index.0];
                         prim.bounding_rect = None;
 
-                        let local_rect = prim.rect.intersection(&prim.local_clip_rect);
+                        let local_rect = prim.rect
+                                             .intersection(&prim.local_clip_rect)
+                                             .and_then(|rect| {
+                                                rect.intersection(&layer.combined_local_clip_rect)
+                                             });
 
                         if let Some(local_rect) = local_rect {
                             let xf_rect = TransformedRect::new(&local_rect,
                                                                &layer.transform,
                                                                self.device_pixel_ratio);
 
-                            let prim_rect = xf_rect.bounding_rect.intersection(&layer_world_clip_rect);
-
-                            if let Some(prim_rect) = prim_rect {
-                                if prim_rect.intersects(&screen_rect) {
-                                    prim.bounding_rect = Some(prim_rect);
-                                    if prim.build_resource_list(resource_list, auxiliary_lists) {
-                                        layer.prims_to_prepare.push(prim_index);
-                                    }
+                            if xf_rect.bounding_rect.intersects(&screen_rect) {
+                                prim.bounding_rect = Some(xf_rect.bounding_rect);
+                                if prim.build_resource_list(resource_list, auxiliary_lists) {
+                                    layer.prims_to_prepare.push(prim_index);
                                 }
                             }
                         }

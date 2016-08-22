@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::{Matrix4D, Point2D, Rect, Size2D};
-use internal_types::DevicePixel;
 use spring::{DAMPING, STIFFNESS, Spring};
 use webrender_traits::{PipelineId, ScrollLayerId, ServoStackingContextId};
 
@@ -17,15 +16,14 @@ pub struct Layer {
     // Viewing rectangle
     pub local_viewport_rect: Rect<f32>,
 
+    // Viewing rectangle clipped against parent layer(s)
+    pub combined_local_viewport_rect: Rect<f32>,
+
     // World transform for the viewport rect itself.
     pub world_viewport_transform: Matrix4D<f32>,
 
     // World transform for content within this layer
     pub world_content_transform: Matrix4D<f32>,
-
-    // World space rectangle for the viewport.
-    // TODO(gw): Support non-rectangular viewports.
-    pub world_viewport_rect: Rect<DevicePixel>,
 
     // Transform for this layer, relative to parent layer.
     pub local_transform: Matrix4D<f32>,
@@ -52,9 +50,9 @@ impl Layer {
             scrolling: ScrollingState::new(),
             content_size: content_size,
             local_viewport_rect: *local_viewport_rect,
+            combined_local_viewport_rect: *local_viewport_rect,
             world_viewport_transform: Matrix4D::identity(),
             world_content_transform: Matrix4D::identity(),
-            world_viewport_rect: Rect::new(Point2D::zero(), Size2D::zero()),
             local_transform: *local_transform,
             children: Vec::new(),
             pipeline_id: pipeline_id,

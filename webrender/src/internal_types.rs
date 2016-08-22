@@ -45,10 +45,6 @@ impl DevicePixel {
         let DevicePixel(value) = *self;
         value as u32
     }
-
-    pub fn max() -> DevicePixel {
-        DevicePixel(i32::MAX)
-    }
 }
 
 impl Add for DevicePixel {
