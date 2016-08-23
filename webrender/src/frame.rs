@@ -7,7 +7,7 @@ use euclid::{Matrix4D, Point2D, Point3D, Point4D, Rect, Size2D};
 use fnv::FnvHasher;
 use geometry::ray_intersects_rect;
 use internal_types::{ANGLE_FLOAT_TO_FIXED, AxisDirection};
-use internal_types::{CompositionOp, DevicePixel};
+use internal_types::{CompositionOp};
 use internal_types::{LowLevelFilterOp};
 use internal_types::{RendererFrame};
 use layer::{Layer, ScrollingState};
@@ -15,7 +15,8 @@ use resource_cache::ResourceCache;
 use scene::{SceneStackingContext, ScenePipeline, Scene, SceneItem, SpecificSceneItem};
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
-use tiling::{Clip, FrameBuilder, FrameBuilderConfig, InsideTest, TransformedRect};
+use tiling::{Clip, FrameBuilder, FrameBuilderConfig, InsideTest};
+use util::MatrixHelpers;
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
 use webrender_traits::{StackingContext, FilterOp, MixBlendMode};
 use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, SpecificDisplayItem, ScrollLayerState};
@@ -728,31 +729,30 @@ impl Frame {
     fn update_layer_transform(&mut self,
                               layer_id: ScrollLayerId,
                               parent_world_transform: &Matrix4D<f32>,
-                              parent_world_viewport_rect: &Rect<DevicePixel>,
+                              parent_viewport_rect: &Rect<f32>,
                               device_pixel_ratio: f32) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
         //           Restructure this to avoid the clones!
-        let (layer_transform_for_children, world_viewport_rect, layer_children) = {
+        let (layer_transform_for_children, viewport_rect, layer_children) = {
             match self.layers.get_mut(&layer_id) {
                 Some(layer) => {
+                    let inv_transform = layer.local_transform.inverse().unwrap();
+                    let parent_viewport_rect_in_local_space = inv_transform.transform_rect(parent_viewport_rect)
+                                                                           .translate(&-layer.scrolling.offset);
+                    let local_viewport_rect = layer.local_viewport_rect
+                                                   .translate(&-layer.scrolling.offset);
+                    let viewport_rect = parent_viewport_rect_in_local_space.intersection(&local_viewport_rect)
+                                                                           .unwrap_or(Rect::new(Point2D::zero(), Size2D::zero()));
+
+                    layer.combined_local_viewport_rect = viewport_rect;
                     layer.world_viewport_transform = parent_world_transform.pre_mul(&layer.local_transform);
                     layer.world_content_transform = layer.world_viewport_transform
                                                          .pre_translated(layer.scrolling.offset.x,
                                                                          layer.scrolling.offset.y,
                                                                          0.0);
 
-                    let world_viewport_rect = TransformedRect::new(&layer.local_viewport_rect,
-                                                                   &layer.world_viewport_transform,
-                                                                   device_pixel_ratio);
-
-                    // TODO(gw): Support non-rectangular nested viewports!
-                    let world_viewport_rect = world_viewport_rect.bounding_rect;
-
-                    layer.world_viewport_rect = world_viewport_rect.intersection(parent_world_viewport_rect)
-                                                                   .unwrap_or(Rect::new(Point2D::zero(), Size2D::zero()));
-
                     (layer.world_content_transform,
-                     layer.world_viewport_rect,
+                     viewport_rect,
                      layer.children.clone())
                 }
                 None => return,
@@ -762,38 +762,37 @@ impl Frame {
         for child_layer_id in layer_children {
             self.update_layer_transform(child_layer_id,
                                         &layer_transform_for_children,
-                                        &world_viewport_rect,
+                                        &viewport_rect,
                                         device_pixel_ratio);
         }
     }
 
     fn update_layer_transforms(&mut self, device_pixel_ratio: f32) {
-        let max_rect = Rect::new(Point2D::zero(),
-                                 Size2D::new(DevicePixel::max(), DevicePixel::max()));
-
         if let Some(root_scroll_layer_id) = self.root_scroll_layer_id {
+            let root_viewport = self.layers[&root_scroll_layer_id].local_viewport_rect;
+
             self.update_layer_transform(root_scroll_layer_id,
                                         &Matrix4D::identity(),
-                                        &max_rect,
+                                        &root_viewport,
                                         device_pixel_ratio);
-        }
 
-        // Update any fixed layers
-        let mut fixed_layers = Vec::new();
-        for (layer_id, _) in &self.layers {
-            match layer_id.info {
-                ScrollLayerInfo::Scrollable(..) => {}
-                ScrollLayerInfo::Fixed => {
-                    fixed_layers.push(*layer_id);
+            // Update any fixed layers
+            let mut fixed_layers = Vec::new();
+            for (layer_id, _) in &self.layers {
+                match layer_id.info {
+                    ScrollLayerInfo::Scrollable(..) => {}
+                    ScrollLayerInfo::Fixed => {
+                        fixed_layers.push(*layer_id);
+                    }
                 }
             }
-        }
 
-        for layer_id in fixed_layers {
-            self.update_layer_transform(layer_id,
-                                        &Matrix4D::identity(),
-                                        &max_rect,
-                                        device_pixel_ratio);
+            for layer_id in fixed_layers {
+                self.update_layer_transform(layer_id,
+                                            &Matrix4D::identity(),
+                                            &root_viewport,
+                                            device_pixel_ratio);
+            }
         }
     }
 
