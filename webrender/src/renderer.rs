@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::{BorderType, TextureCache, TextureInsertOp};
-use tiling::{self, Frame, FrameBuilderConfig, PrimitiveBatchData, PackedTile};
+use tiling::{self, Frame, FrameBuilderConfig, GLYPHS_PER_TEXT_RUN, PrimitiveBatchData, PackedTile};
 use tiling::{TransformedRectKind, RenderTarget, ClearTile, PackedLayer};
 use time::precise_time_ns;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
@@ -148,10 +148,12 @@ fn create_prim_shader(name: &'static str,
                       features: &[&'static str]) -> ProgramId {
     let mut prefix = format!("#define WR_MAX_PRIM_TILES {}\n\
                               #define WR_MAX_PRIM_LAYERS {}\n\
-                              #define WR_MAX_PRIM_ITEMS {}\n",
+                              #define WR_MAX_PRIM_ITEMS {}\n\
+                              #define WR_GLYPHS_PER_TEXT_RUN {}\n",
                               max_prim_tiles,
                               max_prim_layers,
-                              max_prim_items);
+                              max_prim_items,
+                              GLYPHS_PER_TEXT_RUN);
 
     for feature in features {
         prefix.push_str(&format!("#define WR_FEATURE_{}\n", feature));
@@ -170,13 +172,11 @@ fn create_prim_shader(name: &'static str,
     let item_index = gl::get_uniform_block_index(program_id.0, "Items");
     gl::uniform_block_binding(program_id.0, item_index, UBO_BIND_CACHE_ITEMS);
 
-    debug!("PrimShader {}: items={}/{} tiles={}/{} layers={}/{}", name,
-                                                                  item_index,
-                                                                  max_prim_items,
-                                                                  tiles_index,
-                                                                  max_prim_tiles,
-                                                                  layer_index,
-                                                                  max_prim_layers);
+    debug!("PrimShader {}: items={}/{} tiles={}/{} layers={}/{}",
+           name,
+           item_index, max_prim_items,
+           tiles_index, max_prim_tiles,
+           layer_index, max_prim_layers);
     program_id
 }
 
@@ -214,6 +214,7 @@ pub struct Renderer {
 
     ps_rectangle: PrimitiveShader,
     ps_text: PrimitiveShader,
+    ps_text_run: PrimitiveShader,
     ps_image: PrimitiveShader,
     ps_border: PrimitiveShader,
     ps_box_shadow: PrimitiveShader,
@@ -299,6 +300,7 @@ impl Renderer {
         let max_prim_rectangles = get_ubo_max_len::<tiling::PackedRectanglePrimitive>(max_ubo_size);
         let max_prim_rectangles_clip = get_ubo_max_len::<tiling::PackedRectanglePrimitiveClip>(max_ubo_size);
         let max_prim_texts = get_ubo_max_len::<tiling::PackedGlyphPrimitive>(max_ubo_size);
+        let max_prim_text_runs = get_ubo_max_len::<tiling::PackedTextRunPrimitive>(max_ubo_size);
         let max_prim_images = get_ubo_max_len::<tiling::PackedImagePrimitive>(max_ubo_size);
         let max_prim_images_clip = get_ubo_max_len::<tiling::PackedImagePrimitiveClip>(max_ubo_size);
         let max_prim_borders = get_ubo_max_len::<tiling::PackedBorderPrimitive>(max_ubo_size);
@@ -323,6 +325,11 @@ impl Renderer {
                                            max_prim_tiles,
                                            max_prim_layers,
                                            max_prim_texts);
+        let ps_text_run = PrimitiveShader::new("ps_text_run",
+                                               &mut device,
+                                               max_prim_tiles,
+                                               max_prim_layers,
+                                               max_prim_text_runs);
         let ps_image = PrimitiveShader::new("ps_image",
                                             &mut device,
                                             max_prim_tiles,
@@ -500,6 +507,7 @@ impl Renderer {
             ps_rectangle_clip: ps_rectangle_clip,
             ps_image_clip: ps_image_clip,
             ps_text: ps_text,
+            ps_text_run: ps_text_run,
             ps_image: ps_image,
             ps_border: ps_border,
             ps_box_shadow: ps_box_shadow,
@@ -1240,6 +1248,7 @@ impl Renderer {
     fn draw_ubo_batch<T>(&mut self,
                          ubo_data: &[T],
                          prim_shader: PrimitiveShader,
+                         quads_per_item: u32,
                          transform_kind: TransformedRectKind,
                          color_texture_id: TextureId,
                          projection: &Matrix4D<f32>) {
@@ -1259,8 +1268,9 @@ impl Renderer {
             gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
             gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
 
-            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-            self.profile_counters.vertices.add(6 * chunk.len());
+            let quad_count = (chunk.len() as u32) * quads_per_item;
+            self.device.draw_indexed_triangles_instanced_u16(6, quad_count as gl::GLint);
+            self.profile_counters.vertices.add(6 * (quad_count as usize));
             self.profile_counters.draw_calls.inc();
 
             gl::delete_buffers(&ubos);
@@ -1397,6 +1407,7 @@ impl Renderer {
                         let shader = self.ps_rectangle;
                         self.draw_ubo_batch(ubo_data,
                                             shader,
+                                            1,
                                             batch.transform_kind,
                                             batch.color_texture_id,
                                             &projection);
@@ -1405,6 +1416,7 @@ impl Renderer {
                         let shader = self.ps_rectangle_clip;
                         self.draw_ubo_batch(ubo_data,
                                             shader,
+                                            1,
                                             batch.transform_kind,
                                             batch.color_texture_id,
                                             &projection);
@@ -1414,6 +1426,7 @@ impl Renderer {
                         let shader = self.ps_image;
                         self.draw_ubo_batch(ubo_data,
                                             shader,
+                                            1,
                                             batch.transform_kind,
                                             batch.color_texture_id,
                                             &projection);
@@ -1422,6 +1435,7 @@ impl Renderer {
                         let shader = self.ps_image_clip;
                         self.draw_ubo_batch(ubo_data,
                                             shader,
+                                            1,
                                             batch.transform_kind,
                                             batch.color_texture_id,
                                             &projection);
@@ -1431,6 +1445,7 @@ impl Renderer {
                         let shader = self.ps_border;
                         self.draw_ubo_batch(ubo_data,
                                             shader,
+                                            1,
                                             batch.transform_kind,
                                             batch.color_texture_id,
                                             &projection);
@@ -1440,6 +1455,7 @@ impl Renderer {
                         let shader = self.ps_box_shadow;
                         self.draw_ubo_batch(ubo_data,
                                             shader,
+                                            1,
                                             batch.transform_kind,
                                             batch.color_texture_id,
                                             &projection);
@@ -1449,6 +1465,16 @@ impl Renderer {
                         let shader = self.ps_text;
                         self.draw_ubo_batch(ubo_data,
                                             shader,
+                                            1,
+                                            batch.transform_kind,
+                                            batch.color_texture_id,
+                                            &projection);
+                    }
+                    &PrimitiveBatchData::TextRun(ref ubo_data) => {
+                        let shader = self.ps_text_run;
+                        self.draw_ubo_batch(ubo_data,
+                                            shader,
+                                            GLYPHS_PER_TEXT_RUN,
                                             batch.transform_kind,
                                             batch.color_texture_id,
                                             &projection);
@@ -1457,6 +1483,7 @@ impl Renderer {
                         let shader = self.ps_aligned_gradient;
                         self.draw_ubo_batch(ubo_data,
                                             shader,
+                                            1,
                                             batch.transform_kind,
                                             batch.color_texture_id,
                                             &projection);
@@ -1466,6 +1493,7 @@ impl Renderer {
                         let shader = self.ps_angle_gradient;
                         self.draw_ubo_batch(ubo_data,
                                             shader,
+                                            1,
                                             batch.transform_kind,
                                             batch.color_texture_id,
                                             &projection);
