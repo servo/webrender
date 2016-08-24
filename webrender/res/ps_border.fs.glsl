@@ -11,6 +11,15 @@ void discard_pixels_in_rounded_borders(vec2 local_pos) {
   }
 }
 
+vec4 get_fragment_color(float distanceFromMixLine, float pixelsPerFragment) {
+  // Here we are mixing between the two border colors. vF is already a distance
+  // measure from the line that separates the two colors, but we need to convert
+  // it to pixel space to properly antialias and them push it between the limits
+  // accepted by `mix`.
+  float colorMix = min(max(distanceFromMixLine / pixelsPerFragment, -0.5), 0.5) + 0.5;
+  return mix(vHorizontalColor, vVerticalColor, colorMix);
+}
+
 #ifdef WR_FEATURE_TRANSFORM
 
 #else
@@ -80,11 +89,10 @@ vec4 draw_double_edge(float pos, float len) {
   // And 0.0 for the blank part.
   float should_fill = in_first_part + in_third_part;
 
-  float color_weight = step(0.0, vF);
-  vec4 color = mix(vHorizontalColor, vVerticalColor, color_weight);
-
+  // This is the conversion factor for transformations and device pixel scaling.
+  float pixels_per_fragment = length(fwidth(vLocalPos.xy));
   vec4 white = vec4(1.0, 1.0, 1.0, 1.0);
-  return mix(white, color, should_fill);
+  return mix(white, get_fragment_color(vF, pixels_per_fragment), should_fill);
 }
 
 vec4 draw_double_edge_vertical() {
@@ -233,13 +241,10 @@ void draw_double_border(void) {
   }
 }
 
-void draw_antialiased_solid_border_corner(vec2 local_pos) {
+void draw_antialiased_solid_border_corner(vec2 local_pos, float pixelsPerFragment) {
   if (vRadii.x <= 0.0) {
     return;
   }
-
-  // This is the conversion factor for transformations and device pixel scaling.
-  float pixelsPerFragment = length(fwidth(local_pos.xy));
 
   float distanceFromRef = distance(vRefPoint, local_pos);
 
@@ -266,10 +271,13 @@ void draw_solid_border(vec2 localPos) {
     case PST_TOP_LEFT:
     case PST_TOP_RIGHT:
     case PST_BOTTOM_LEFT:
-    case PST_BOTTOM_RIGHT:
-      oFragColor = mix(vHorizontalColor, vVerticalColor, step(0.0, vF));
-      draw_antialiased_solid_border_corner(localPos);
+    case PST_BOTTOM_RIGHT: {
+      // This is the conversion factor for transformations and device pixel scaling.
+      float pixelsPerFragment = length(fwidth(localPos.xy));
+      oFragColor = get_fragment_color(vF, pixelsPerFragment);
+      draw_antialiased_solid_border_corner(localPos, pixelsPerFragment);
       break;
+    }
     default:
       oFragColor = vHorizontalColor;
       discard_pixels_in_rounded_borders(localPos);
