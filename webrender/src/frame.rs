@@ -615,8 +615,8 @@ impl Frame {
                     let mut layer_relative_transform = transform;
 
                     match (inner_stacking_context.scroll_policy, inner_stacking_context.scroll_layer_id) {
-                        (ScrollPolicy::Scrollable, Some(scroll_layer_id)) => {
-                            debug_assert!(!self.layers.contains_key(&scroll_layer_id));
+                        (ScrollPolicy::Scrollable, Some(inner_scroll_layer_id)) => {
+                            debug_assert!(!self.layers.contains_key(&inner_scroll_layer_id));
 
                             let layer = Layer::new(&Rect::new(Point2D::zero(), stacking_context.bounds.size),
                                                    inner_stacking_context.overflow.size,
@@ -624,14 +624,14 @@ impl Frame {
                                                    parent_info.pipeline_id,
                                                    inner_stacking_context.servo_id);
 
-                            debug_assert!(parent_info.current_scroll_layer_id != scroll_layer_id);
+                            debug_assert!(parent_info.current_scroll_layer_id != inner_scroll_layer_id);
                             self.layers
-                                .get_mut(&parent_info.current_scroll_layer_id)
+                                .get_mut(&scroll_layer_id)
                                 .unwrap()
-                                .add_child(scroll_layer_id);
+                                .add_child(inner_scroll_layer_id);
 
-                            self.layers.insert(scroll_layer_id, layer);
-                            next_scroll_layer_id = scroll_layer_id;
+                            self.layers.insert(inner_scroll_layer_id, layer);
+                            next_scroll_layer_id = inner_scroll_layer_id;
                             layer_relative_transform = Matrix4D::identity();
                         }
                         (ScrollPolicy::Fixed, _) |
@@ -694,7 +694,7 @@ impl Frame {
                                                iframe_stacking_context.servo_id));
 
                         self.layers
-                            .get_mut(&parent_info.current_scroll_layer_id)
+                            .get_mut(&scroll_layer_id)
                             .unwrap()
                             .add_child(iframe_scroll_layer_id);
 
