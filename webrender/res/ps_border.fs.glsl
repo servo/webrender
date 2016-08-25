@@ -12,10 +12,9 @@ void discard_pixels_in_rounded_borders(vec2 local_pos) {
 }
 
 vec4 get_fragment_color(float distanceFromMixLine, float pixelsPerFragment) {
-  // Here we are mixing between the two border colors. vF is already a distance
-  // measure from the line that separates the two colors, but we need to convert
-  // it to pixel space to properly antialias and them push it between the limits
-  // accepted by `mix`.
+  // Here we are mixing between the two border colors. We need to convert
+  // distanceFromMixLine it to pixel space to properly anti-alias and then push
+  // it between the limits accepted by `mix`.
   float colorMix = min(max(distanceFromMixLine / pixelsPerFragment, -0.5), 0.5) + 0.5;
   return mix(vHorizontalColor, vVerticalColor, colorMix);
 }
@@ -92,7 +91,7 @@ vec4 draw_double_edge(float pos, float len) {
   // This is the conversion factor for transformations and device pixel scaling.
   float pixels_per_fragment = length(fwidth(vLocalPos.xy));
   vec4 white = vec4(1.0, 1.0, 1.0, 1.0);
-  return mix(white, get_fragment_color(vF, pixels_per_fragment), should_fill);
+  return mix(white, get_fragment_color(vDistanceFromMixLine, pixels_per_fragment), should_fill);
 }
 
 vec4 draw_double_edge_vertical() {
@@ -119,7 +118,8 @@ vec4 draw_double_edge_corner() {
     return draw_double_edge_with_radius();
   }
 
-  bool is_vertical = (vBorderPart == PST_TOP_LEFT) ? vF < 0 : vF >= 0;
+  bool is_vertical = (vBorderPart == PST_TOP_LEFT) ? vDistanceFromMixLine < 0 :
+                                                     vDistanceFromMixLine >= 0;
   if (is_vertical) {
     return draw_double_edge_vertical();
   } else {
@@ -241,6 +241,8 @@ void draw_double_border(void) {
   }
 }
 
+#endif
+
 void draw_antialiased_solid_border_corner(vec2 local_pos, float pixelsPerFragment) {
   if (vRadii.x <= 0.0) {
     return;
@@ -266,7 +268,7 @@ void draw_antialiased_solid_border_corner(vec2 local_pos, float pixelsPerFragmen
   }
 }
 
-void draw_solid_border(vec2 localPos) {
+void draw_solid_border(float distanceFromMixLine, vec2 localPos) {
   switch (vBorderPart) {
     case PST_TOP_LEFT:
     case PST_TOP_RIGHT:
@@ -274,7 +276,7 @@ void draw_solid_border(vec2 localPos) {
     case PST_BOTTOM_RIGHT: {
       // This is the conversion factor for transformations and device pixel scaling.
       float pixelsPerFragment = length(fwidth(localPos.xy));
-      oFragColor = get_fragment_color(vF, pixelsPerFragment);
+      oFragColor = get_fragment_color(distanceFromMixLine, pixelsPerFragment);
       draw_antialiased_solid_border_corner(localPos, pixelsPerFragment);
       break;
     }
@@ -284,7 +286,6 @@ void draw_solid_border(vec2 localPos) {
   }
 }
 
-#endif
 
 // TODO: Investigate performance of this shader and see
 //       if it's worthwhile splitting it / removing branches etc.
@@ -298,9 +299,12 @@ void main(void) {
 
 #ifdef WR_FEATURE_TRANSFORM
     // TODO(gw): Support other border styles for transformed elements.
-    discard_pixels_in_rounded_borders(local_pos);
-    float f = (local_pos.x - vSizeInfo.x) * vSizeInfo.w - (local_pos.y - vSizeInfo.y) * vSizeInfo.z;
-    oFragColor = vec4(1, 1, 1, alpha) * mix(vHorizontalColor, vVerticalColor, step(0.0, f));
+    float distance_from_mix_line = (local_pos.x - vPieceRect.x) * vPieceRect.w -
+                                   (local_pos.y - vPieceRect.y) * vPieceRect.z;
+    distance_from_mix_line /= vPieceRectHypotenuseLength;
+    draw_solid_border(distance_from_mix_line, local_pos);
+    oFragColor *= vec4(1, 1, 1, alpha);
+
 #else
     switch (vBorderStyle) {
         case BORDER_STYLE_DASHED:
@@ -315,7 +319,7 @@ void main(void) {
         case BORDER_STYLE_INSET:
         case BORDER_STYLE_SOLID:
         case BORDER_STYLE_NONE:
-            draw_solid_border(local_pos);
+            draw_solid_border(vDistanceFromMixLine, local_pos);
             break;
         case BORDER_STYLE_DOUBLE:
             discard_pixels_in_rounded_borders(local_pos);
