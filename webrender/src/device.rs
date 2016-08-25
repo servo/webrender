@@ -560,7 +560,7 @@ impl Drop for VAO {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Debug, Copy, Clone)]
 pub struct TextureId(pub gl::GLuint);       // TODO: HACK: Should not be public!
 
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
