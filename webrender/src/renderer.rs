@@ -1519,6 +1519,14 @@ impl Renderer {
     fn draw_tile_frame(&mut self,
                        frame: &Frame,
                        framebuffer_size: &Size2D<u32>) {
+        // Some tests use a restricted viewport smaller than the main screen size.
+        // Ensure we clear the framebuffer in these tests.
+        // TODO(gw): Find a better solution for this?
+        let viewport_size = Size2D::new(frame.viewport_size.width * self.device_pixel_ratio as i32,
+                                        frame.viewport_size.height * self.device_pixel_ratio as i32);
+        let needs_clear = viewport_size.width < framebuffer_size.width as i32 ||
+                          viewport_size.height < framebuffer_size.height as i32;
+
         //println!("render {} debug rects", frame.debug_rects.len());
         self.gpu_profile_paint.begin();
         self.gpu_profile_paint.end();
@@ -1567,7 +1575,7 @@ impl Renderer {
                                          None);
             }
 
-            for phase in &frame.phases {
+            for (phase_index, phase) in frame.phases.iter().enumerate() {
                 let mut render_target_index = 0;
 
                 for target in &phase.targets {
@@ -1577,7 +1585,7 @@ impl Renderer {
                                          target,
                                          &Size2D::new(framebuffer_size.width as f32, framebuffer_size.height as f32),
                                          ct_index,
-                                         false);
+                                         needs_clear && phase_index == 0);
                     } else {
                         let rt_index = self.render_targets[render_target_index];
                         let ct_index = self.render_targets[1 - render_target_index];

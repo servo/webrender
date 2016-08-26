@@ -2234,6 +2234,7 @@ pub struct FrameBuilder {
 }
 
 pub struct Frame {
+    pub viewport_size: Size2D<i32>,
     pub debug_rects: Vec<DebugRect>,
     pub cache_size: Size2D<f32>,
     pub phases: Vec<RenderPhase>,
@@ -3259,6 +3260,7 @@ impl FrameBuilder {
         }
 
         Frame {
+            viewport_size: self.screen_rect.size,
             debug_rects: debug_rects,
             profile_counters: profile_counters,
             phases: phases,
