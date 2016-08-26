@@ -216,16 +216,11 @@ impl AlphaBatcher {
 
                 if existing_batch_index == batches.len() {
                     let new_batch = match item {
-                        AlphaRenderItem::Composite(info) => {
-                            PrimitiveBatch::composite(task.child_rects[0],
-                                                      task.child_rects[1],
-                                                      task.target_rect,
-                                                      info)
+                        AlphaRenderItem::Composite(..) => {
+                            PrimitiveBatch::composite()
                         }
-                        AlphaRenderItem::Blend(child_index, opacity) => {
-                            PrimitiveBatch::blend(task.child_rects[child_index],
-                                                  task.target_rect,
-                                                  opacity)
+                        AlphaRenderItem::Blend(..) => {
+                            PrimitiveBatch::blend()
                         }
                         AlphaRenderItem::Primitive(_, prim_index) => {
                             // See if this task fits into the tile UBO
@@ -836,10 +831,10 @@ impl Primitive {
                     length: 1,
                 };
                 let glyph = auxiliary_lists.glyph_instances(&glyph_range)[0];
-                let mut glyph_key = GlyphKey::new(text.font_key,
-                                                  text.size,
-                                                  text.blur_radius,
-                                                  glyph.index);
+                let glyph_key = GlyphKey::new(text.font_key,
+                                              text.size,
+                                              text.blur_radius,
+                                              glyph.index);
                 let blur_offset = text.blur_radius.to_f32_px() *
                     (BLUR_INFLATION_FACTOR as f32) / 2.0;
 
@@ -1971,44 +1966,25 @@ pub struct PrimitiveBatch {
 }
 
 impl PrimitiveBatch {
-    fn blend(src_rect: Rect<DevicePixel>,
-             target_rect: Rect<DevicePixel>,
-             opacity: f32) -> PrimitiveBatch {
-        let blend = PackedBlendPrimitive {
-            src_rect: src_rect,
-            target_rect: target_rect,
-            opacity: opacity,
-            padding: [0, 0, 0],
-        };
-
+    fn blend() -> PrimitiveBatch {
         PrimitiveBatch {
             color_texture_id: TextureId(0),
             transform_kind: TransformedRectKind::AxisAligned,
             layer_ubo_index: 0,
             tile_ubo_index: 0,
             blending_enabled: true,
-            data: PrimitiveBatchData::Blend(vec![blend]),
+            data: PrimitiveBatchData::Blend(Vec::new()),
         }
     }
 
-    fn composite(first_src_rect: Rect<DevicePixel>,
-                 second_src_rect: Rect<DevicePixel>,
-                 target_rect: Rect<DevicePixel>,
-                 info: PackedCompositeInfo) -> PrimitiveBatch {
-        let composite = PackedCompositePrimitive {
-            rect0: first_src_rect,
-            rect1: second_src_rect,
-            target_rect: target_rect,
-            info: info,
-        };
-
+    fn composite() -> PrimitiveBatch {
         PrimitiveBatch {
             color_texture_id: TextureId(0),
             transform_kind: TransformedRectKind::AxisAligned,
             layer_ubo_index: 0,
             tile_ubo_index: 0,
             blending_enabled: true,
-            data: PrimitiveBatchData::Composite(vec![composite]),
+            data: PrimitiveBatchData::Composite(Vec::new()),
         }
     }
 
