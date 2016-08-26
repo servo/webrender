@@ -11,6 +11,7 @@ use frame::FrameId;
 use internal_types::{Glyph, DevicePixel, CompositionOp};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp, RectUv};
 use layer::Layer;
+use profiler::FrameProfileCounters;
 use renderer::{BLUR_INFLATION_FACTOR};
 use resource_cache::ResourceCache;
 use resource_list::ResourceList;
@@ -2261,6 +2262,7 @@ pub struct Frame {
     pub cache_size: Size2D<f32>,
     pub phases: Vec<RenderPhase>,
     pub clear_tiles: Vec<ClearTile>,
+    pub profile_counters: FrameProfileCounters,
 }
 
 impl Clip {
@@ -2916,7 +2918,8 @@ impl FrameBuilder {
                    pipeline_auxiliary_lists: &HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>,
                    resource_list: &mut ResourceList,
                    x_tile_count: i32,
-                   y_tile_count: i32) {
+                   y_tile_count: i32,
+                   profile_counters: &mut FrameProfileCounters) {
         // Build layer screen rects.
         // TODO(gw): This can be done earlier once update_layer_transforms() is fixed.
 
@@ -2998,9 +3001,12 @@ impl FrameBuilder {
                                                    &layer.transform,
                                                    &layer.combined_local_clip_rect,
                                                    self.device_pixel_ratio);
-                        if prim.bounding_rect.is_some() &&
-                                prim.build_resource_list(resource_list, auxiliary_lists) {
-                            layer.prims_to_prepare.push(prim_index)
+                        if prim.bounding_rect.is_some() {
+                            profile_counters.visible_primitives.inc();
+
+                            if prim.build_resource_list(resource_list, auxiliary_lists) {
+                                layer.prims_to_prepare.push(prim_index)
+                            }
                         }
                     }
                 }
@@ -3167,6 +3173,9 @@ impl FrameBuilder {
                  frame_id: FrameId,
                  pipeline_auxiliary_lists: &HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>,
                  layer_map: &HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>) -> Frame {
+        let mut profile_counters = FrameProfileCounters::new();
+        profile_counters.total_primitives.set(self.prim_store.len());
+
         let screen_rect = Rect::new(Point2D::zero(),
                                     Size2D::new(DevicePixel::new(self.screen_rect.size.width as f32, self.device_pixel_ratio),
                                                 DevicePixel::new(self.screen_rect.size.height as f32, self.device_pixel_ratio)));
@@ -3181,7 +3190,8 @@ impl FrameBuilder {
                          pipeline_auxiliary_lists,
                          &mut resource_list,
                          x_tile_count,
-                         y_tile_count);
+                         y_tile_count,
+                         &mut profile_counters);
 
         resource_cache.add_resource_list(&resource_list, frame_id);
         resource_cache.raster_pending_glyphs(frame_id);
@@ -3274,6 +3284,7 @@ impl FrameBuilder {
 
         Frame {
             debug_rects: debug_rects,
+            profile_counters: profile_counters,
             phases: phases,
             clear_tiles: clear_tiles,
             cache_size: Size2D::new(RENDERABLE_CACHE_SIZE.0 as f32,

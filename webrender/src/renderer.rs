@@ -603,50 +603,58 @@ impl Renderer {
     /// A Frame is supplied by calling [set_root_stacking_context()][newframe].
     /// [newframe]: ../../webrender_traits/struct.RenderApi.html#method.set_root_stacking_context
     pub fn render(&mut self, framebuffer_size: Size2D<u32>) {
-        let mut profile_timers = RendererProfileTimers::new();
+        if let Some(frame) = self.current_frame.take() {
+            if let Some(ref frame) = frame.frame {
+                let mut profile_timers = RendererProfileTimers::new();
 
-        // Block CPU waiting for last frame's GPU profiles to arrive.
-        // In general this shouldn't block unless heavily GPU limited.
-        let paint_ns = self.gpu_profile_paint.get();
-        let composite_ns = self.gpu_profile_composite.get();
+                // Block CPU waiting for last frame's GPU profiles to arrive.
+                // In general this shouldn't block unless heavily GPU limited.
+                let paint_ns = self.gpu_profile_paint.get();
+                let composite_ns = self.gpu_profile_composite.get();
 
-        profile_timers.cpu_time.profile(|| {
-            self.device.begin_frame();
+                profile_timers.cpu_time.profile(|| {
+                    self.device.begin_frame();
 
-            gl::disable(gl::SCISSOR_TEST);
-            //gl::clear_color(1.0, 1.0, 1.0, 0.0);
-            //gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
+                    gl::disable(gl::SCISSOR_TEST);
+                    gl::disable(gl::DEPTH_TEST);
+                    gl::disable(gl::BLEND);
 
-            //self.update_shaders();
-            self.update_texture_cache();
-            self.draw_frame(framebuffer_size);
-        });
+                    //self.update_shaders();
+                    self.update_texture_cache();
+                    self.draw_tile_frame(frame, &framebuffer_size);
+                });
 
-        let current_time = precise_time_ns();
-        let ns = current_time - self.last_time;
-        self.profile_counters.frame_time.set(ns);
+                let current_time = precise_time_ns();
+                let ns = current_time - self.last_time;
+                self.profile_counters.frame_time.set(ns);
 
-        profile_timers.gpu_time_paint.set(paint_ns);
-        profile_timers.gpu_time_composite.set(composite_ns);
+                profile_timers.gpu_time_paint.set(paint_ns);
+                profile_timers.gpu_time_composite.set(composite_ns);
 
-        let gpu_ns = paint_ns + composite_ns;
-        profile_timers.gpu_time_total.set(gpu_ns);
+                let gpu_ns = paint_ns + composite_ns;
+                profile_timers.gpu_time_total.set(gpu_ns);
 
-        if self.enable_profiler {
-            self.profiler.draw_profile(&self.backend_profile_counters,
-                                       &self.profile_counters,
-                                       &profile_timers,
-                                       &mut self.debug);
+                if self.enable_profiler {
+                    self.profiler.draw_profile(&frame.profile_counters,
+                                               &self.backend_profile_counters,
+                                               &self.profile_counters,
+                                               &profile_timers,
+                                               &mut self.debug);
+                }
+
+                self.profile_counters.reset();
+                self.profile_counters.frame_counter.inc();
+
+                let debug_size = Size2D::new(framebuffer_size.width as u32,
+                                             framebuffer_size.height as u32);
+                self.debug.render(&mut self.device, &debug_size);
+                self.device.end_frame();
+                self.last_time = current_time;
+            }
+
+            // Restore frame - avoid borrow checker!
+            self.current_frame = Some(frame);
         }
-
-        self.profile_counters.reset();
-        self.profile_counters.frame_counter.inc();
-
-        let debug_size = Size2D::new(framebuffer_size.width as u32,
-                                     framebuffer_size.height as u32);
-        self.debug.render(&mut self.device, &debug_size);
-        self.device.end_frame();
-        self.last_time = current_time;
     }
 
     pub fn layers_are_bouncing_back(&self) -> bool {
@@ -1606,25 +1614,6 @@ impl Renderer {
         }
 
         self.gpu_profile_composite.end();
-    }
-
-    fn draw_frame(&mut self, framebuffer_size: Size2D<u32>) {
-        if let Some(frame) = self.current_frame.take() {
-            // TODO: cache render targets!
-
-            // TODO(gw): Doesn't work well with transforms.
-            //           Look into this...
-            gl::disable(gl::DEPTH_TEST);
-            gl::disable(gl::SCISSOR_TEST);
-            gl::disable(gl::BLEND);
-
-            if let Some(ref frame) = frame.frame {
-                self.draw_tile_frame(frame, &framebuffer_size);
-            }
-
-            // Restore frame - avoid borrow checker!
-            self.current_frame = Some(frame);
-        }
     }
 }
 

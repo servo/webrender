@@ -41,6 +41,11 @@ impl IntProfileCounter {
     pub fn add(&mut self, amount: usize) {
         self.value += amount;
     }
+
+    #[inline(always)]
+    pub fn set(&mut self, amount: usize) {
+        self.value = amount;
+    }
 }
 
 impl ProfileCounter for IntProfileCounter {
@@ -137,6 +142,20 @@ impl ProfileCounter for TimeProfileCounter {
             format!("{:.2} fps", 1000000000.0 / self.nanoseconds as f64)
         } else {
             format!("{:.2} ms", self.nanoseconds as f64 / 1000000.0)
+        }
+    }
+}
+
+pub struct FrameProfileCounters {
+    pub total_primitives: IntProfileCounter,
+    pub visible_primitives: IntProfileCounter,
+}
+
+impl FrameProfileCounters {
+    pub fn new() -> FrameProfileCounters {
+        FrameProfileCounters {
+            total_primitives: IntProfileCounter::new("Total Primitives"),
+            visible_primitives: IntProfileCounter::new("Visible Primitives"),
         }
     }
 }
@@ -417,6 +436,7 @@ impl Profiler {
     }
 
     pub fn draw_profile(&mut self,
+                        frame_profile: &FrameProfileCounters,
                         backend_profile: &BackendProfileCounters,
                         renderer_profile: &RendererProfileCounters,
                         renderer_timers: &RendererProfileTimers,
@@ -429,6 +449,11 @@ impl Profiler {
         self.draw_counters(&[
             &renderer_profile.frame_counter,
             &renderer_profile.frame_time,
+        ], debug_renderer, true);
+
+        self.draw_counters(&[
+            &frame_profile.total_primitives,
+            &frame_profile.visible_primitives,
         ], debug_renderer, true);
 
         self.draw_counters(&[
