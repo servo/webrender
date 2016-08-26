@@ -1567,7 +1567,7 @@ impl Renderer {
                                          None);
             }
 
-            for (phase_index, phase) in frame.phases.iter().enumerate() {
+            for phase in &frame.phases {
                 let mut render_target_index = 0;
 
                 for target in &phase.targets {
@@ -1577,7 +1577,7 @@ impl Renderer {
                                          target,
                                          &Size2D::new(framebuffer_size.width as f32, framebuffer_size.height as f32),
                                          ct_index,
-                                         phase_index == 0);
+                                         false);
                     } else {
                         let rt_index = self.render_targets[render_target_index];
                         let ct_index = self.render_targets[1 - render_target_index];

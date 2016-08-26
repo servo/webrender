@@ -18,7 +18,7 @@ use std::hash::BuildHasherDefault;
 use tiling::{Clip, FrameBuilder, FrameBuilderConfig, InsideTest};
 use util::MatrixHelpers;
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
-use webrender_traits::{StackingContext, FilterOp, MixBlendMode};
+use webrender_traits::{ColorF, StackingContext, FilterOp, MixBlendMode};
 use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, SpecificDisplayItem, ScrollLayerState};
 
 #[cfg(target_os = "macos")]
@@ -427,7 +427,8 @@ impl Frame {
                         let root_pipeline = SceneItemKind::Pipeline(root_pipeline);
                         self.flatten(root_pipeline,
                                      &parent_info,
-                                     &mut context);
+                                     &mut context,
+                                     0);
                     }
 
                     self.frame_builder = Some(frame_builder);
@@ -449,7 +450,8 @@ impl Frame {
     fn flatten(&mut self,
                scene_item: SceneItemKind,
                parent_info: &FlattenInfo,
-               context: &mut FlattenContext) {
+               context: &mut FlattenContext,
+               level: i32) {
         //let _pf = util::ProfileScope::new("  flatten");
 
         let (stacking_context, pipeline_id) = match scene_item {
@@ -516,6 +518,13 @@ impl Frame {
                                    pipeline_id,
                                    scroll_layer_id,
                                    composition_operations);
+
+        if level == 0 {
+            context.builder.add_solid_rectangle(&stacking_context.bounds,
+                                                &stacking_context.bounds,
+                                                None,
+                                                &ColorF::new(1.0, 1.0, 1.0, 1.0));
+        }
 
         for item in scene_items {
             match item.specific {
@@ -650,7 +659,8 @@ impl Frame {
 
                     self.flatten(child,
                                  &child_info,
-                                 context);
+                                 context,
+                                 level+1);
                 }
                 SpecificSceneItem::Iframe(ref iframe_info) => {
                     let pipeline = context.scene
@@ -707,7 +717,8 @@ impl Frame {
 
                         self.flatten(iframe,
                                      &child_info,
-                                     context);
+                                     context,
+                                     level+1);
                     }
                 }
             }
