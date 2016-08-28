@@ -500,6 +500,7 @@ pub enum WebGLCommand {
     BindFramebuffer(u32, WebGLFramebufferBindingRequest),
     BindRenderbuffer(u32, Option<WebGLRenderbufferId>),
     BindTexture(u32, Option<WebGLTextureId>),
+    DisableVertexAttribArray(u32),
     DrawArrays(u32, i32, i32),
     DrawElements(u32, i32, u32, i64),
     EnableVertexAttribArray(u32),

@@ -57,6 +57,7 @@ impl fmt::Debug for WebGLCommand {
             BindFramebuffer(..) => "BindFramebuffer",
             BindRenderbuffer(..) => "BindRenderbuffer",
             BindTexture(..) => "BindTexture",
+            DisableVertexAttribArray(..) => "DisableVertexAttribArray",
             DrawArrays(..) => "DrawArrays",
             DrawElements(..) => "DrawElements",
             EnableVertexAttribArray(..) => "EnableVertexAttribArray",
@@ -177,6 +178,8 @@ impl WebGLCommand {
                 gl::enable(cap),
             WebGLCommand::FrontFace(mode) =>
                 gl::front_face(mode),
+            WebGLCommand::DisableVertexAttribArray(attrib_id) =>
+                gl::disable_vertex_attrib_array(attrib_id),
             WebGLCommand::DrawArrays(mode, first, count) =>
                 gl::draw_arrays(mode, first, count),
             WebGLCommand::DrawElements(mode, count, type_, offset) =>
