@@ -57,6 +57,7 @@ impl fmt::Debug for WebGLCommand {
             BindFramebuffer(..) => "BindFramebuffer",
             BindRenderbuffer(..) => "BindRenderbuffer",
             BindTexture(..) => "BindTexture",
+            DisableVertexAttribArray(..) => "DisableVertexAttribArray",
             DrawArrays(..) => "DrawArrays",
             DrawElements(..) => "DrawElements",
             EnableVertexAttribArray(..) => "EnableVertexAttribArray",
@@ -105,6 +106,7 @@ impl fmt::Debug for WebGLCommand {
             UseProgram(..) => "UseProgram",
             VertexAttrib(..) => "VertexAttrib",
             VertexAttribPointer2f(..) => "VertexAttribPointer2f",
+            VertexAttribPointer(..) => "VertexAttribPointer",
             Viewport(..) => "Viewport",
             TexImage2D(..) => "TexImage2D",
             TexParameteri(..) => "TexParameteri",
@@ -177,6 +179,8 @@ impl WebGLCommand {
                 gl::enable(cap),
             WebGLCommand::FrontFace(mode) =>
                 gl::front_face(mode),
+            WebGLCommand::DisableVertexAttribArray(attrib_id) =>
+                gl::disable_vertex_attrib_array(attrib_id),
             WebGLCommand::DrawArrays(mode, first, count) =>
                 gl::draw_arrays(mode, first, count),
             WebGLCommand::DrawElements(mode, count, type_, offset) =>
@@ -307,6 +311,8 @@ impl WebGLCommand {
                 gl::vertex_attrib_4f(attrib_id, x, y, z, w),
             WebGLCommand::VertexAttribPointer2f(attrib_id, size, normalized, stride, offset) =>
                 gl::vertex_attrib_pointer_f32(attrib_id, size, normalized, stride, offset),
+            WebGLCommand::VertexAttribPointer(attrib_id, size, data_type, normalized, stride, offset) =>
+                gl::vertex_attrib_pointer(attrib_id, size, data_type, normalized, stride, offset),
             WebGLCommand::Viewport(x, y, width, height) =>
                 gl::viewport(x, y, width, height),
             WebGLCommand::TexImage2D(target, level, internal, width, height, format, data_type, data) =>
