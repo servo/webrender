@@ -38,8 +38,8 @@ layout(std140) uniform Layers {
 };
 
 struct Tile {
-    uvec4 actual_rect;
-    uvec4 target_rect;
+    vec4 actual_rect;
+    vec4 target_rect;
 };
 
 layout(std140) uniform Tiles {

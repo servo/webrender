@@ -98,9 +98,17 @@ impl AlphaBatcher {
 
                 let tile_ubo = tile_ubos.last_mut().unwrap();
                 let index = tile_ubo.len();
+                let actual_rect = Rect::new(Point2D::new(task.actual_rect.origin.x.0 as f32,
+                                                         task.actual_rect.origin.y.0 as f32),
+                                            Size2D::new(task.actual_rect.size.width.0 as f32,
+                                                        task.actual_rect.size.height.0 as f32));
+                let target_rect = Rect::new(Point2D::new(task.target_rect.origin.x.0 as f32,
+                                                         task.target_rect.origin.y.0 as f32),
+                                            Size2D::new(task.target_rect.size.width.0 as f32,
+                                                        task.target_rect.size.height.0 as f32));
                 tile_ubo.push(PackedTile {
-                    actual_rect: task.actual_rect,
-                    target_rect: task.target_rect,
+                    actual_rect_dp: actual_rect,
+                    target_rect_dp: target_rect,
                 });
                 tile_to_ubo_map[task_index.0] = Some(index);
                 index
@@ -1747,8 +1755,8 @@ enum PrimitivePart {
 // All Packed Primitives below must be 16 byte aligned.
 #[derive(Debug)]
 pub struct PackedTile {
-    actual_rect: Rect<DevicePixel>,
-    target_rect: Rect<DevicePixel>,
+    actual_rect_dp: Rect<f32>,
+    target_rect_dp: Rect<f32>,
 }
 
 #[derive(Debug)]
