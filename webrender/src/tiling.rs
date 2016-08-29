@@ -31,6 +31,11 @@ pub const GLYPHS_PER_TEXT_RUN: u32 = 8;
 const ALPHA_BATCHERS_PER_RENDER_TARGET: usize = 4;
 const MIN_TASKS_PER_ALPHA_BATCHER: usize = 64;
 
+#[inline(always)]
+fn pack_as_float(value: u32) -> f32 {
+    value as f32 + 0.5
+}
+
 enum PrimitiveRunCmd {
     PushStackingContext(StackingContextIndex),
     PrimitiveRun(PrimitiveIndex, usize),
@@ -750,10 +755,10 @@ struct BorderPrimitive {
 impl BorderPrimitive {
     fn pack_style(&self) -> [f32; 4] {
         [
-            self.top_style as u32 as f32 + 0.5,
-            self.right_style as u32 as f32 + 0.5,
-            self.bottom_style as u32 as f32 + 0.5,
-            self.left_style as u32 as f32 + 0.5,
+            pack_as_float(self.top_style as u32),
+            pack_as_float(self.right_style as u32),
+            pack_as_float(self.bottom_style as u32),
+            pack_as_float(self.left_style as u32),
         ]
     }
 }
@@ -1177,7 +1182,7 @@ impl Primitive {
                     inner_radius_x: inner_radius.top_left.width,
                     inner_radius_y: inner_radius.top_left.height,
                     style: border.pack_style(),
-                    part: [PrimitivePart::TopLeft.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::TopLeft as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1198,7 +1203,7 @@ impl Primitive {
                     inner_radius_x: inner_radius.top_right.width,
                     inner_radius_y: inner_radius.top_right.height,
                     style: border.pack_style(),
-                    part: [PrimitivePart::TopRight.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::TopRight as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1219,7 +1224,7 @@ impl Primitive {
                     inner_radius_x: inner_radius.bottom_left.width,
                     inner_radius_y: inner_radius.bottom_left.height,
                     style: border.pack_style(),
-                    part: [PrimitivePart::BottomLeft.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::BottomLeft as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1240,7 +1245,7 @@ impl Primitive {
                     inner_radius_x: inner_radius.bottom_right.width,
                     inner_radius_y: inner_radius.bottom_right.height,
                     style: border.pack_style(),
-                    part: [PrimitivePart::BottomRight.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::BottomRight as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1261,7 +1266,7 @@ impl Primitive {
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
                     style: border.pack_style(),
-                    part: [PrimitivePart::Left.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::Left as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1282,7 +1287,7 @@ impl Primitive {
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
                     style: border.pack_style(),
-                    part: [PrimitivePart::Right.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::Right as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1303,7 +1308,7 @@ impl Primitive {
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
                     style: border.pack_style(),
-                    part: [PrimitivePart::Top.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::Top as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1324,7 +1329,7 @@ impl Primitive {
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
                     style: border.pack_style(),
-                    part: [PrimitivePart::Bottom.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::Bottom as u32), 0.0, 0.0, 0.0],
                 });
             }
             (&mut PrimitiveBatchData::Borders(..), _) => return false,
@@ -1731,13 +1736,6 @@ enum PrimitivePart {
     Left,
     Bottom,
     Right,
-}
-
-impl PrimitivePart {
-    #[inline(always)]
-    fn pack(&self) -> f32 {
-        (*self) as u32 as f32 + 0.5
-    }
 }
 
 // All Packed Primitives below must be 16 byte aligned.
