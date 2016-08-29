@@ -866,10 +866,9 @@ impl Primitive {
                 self.rect = Rect::new(Point2D::new(x, y), Size2D::new(width, height));
                 cache.glyph = Some(PackedGlyphPrimitive {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: 0,
                         layer_index: 0,
-                        part: PrimitivePart::Invalid,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: self.rect,
                     },
@@ -936,10 +935,9 @@ impl Primitive {
 
                 cache.glyphs = Some(PackedTextRunPrimitive {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: 0,
                         layer_index: 0,
-                        part: PrimitivePart::Invalid,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: self.rect,
                     },
@@ -1043,10 +1041,9 @@ impl Primitive {
                 }
                 data.push(PackedRectanglePrimitive {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: tile_index_in_ubo,
                         layer_index: layer_index_in_ubo,
-                        part: PrimitivePart::Invalid,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: self.rect,
                     },
@@ -1062,10 +1059,9 @@ impl Primitive {
 
                 data.push(PackedRectanglePrimitiveClip {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: tile_index_in_ubo,
                         layer_index: layer_index_in_ubo,
-                        part: PrimitivePart::Invalid,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: self.rect,
                     },
@@ -1092,10 +1088,9 @@ impl Primitive {
 
                 data.push(PackedImagePrimitive {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: tile_index_in_ubo,
                         layer_index: layer_index_in_ubo,
-                        part: PrimitivePart::Invalid,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: self.rect,
                     },
@@ -1124,10 +1119,9 @@ impl Primitive {
 
                 data.push(PackedImagePrimitiveClip {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: tile_index_in_ubo,
                         layer_index: layer_index_in_ubo,
-                        part: PrimitivePart::Invalid,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: self.rect,
                     },
@@ -1156,10 +1150,9 @@ impl Primitive {
 
                 data.push(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: tile_index_in_ubo,
                         layer_index: layer_index_in_ubo,
-                        part: PrimitivePart::TopLeft,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(border.tl_outer.x,
                                                        border.tl_outer.y,
@@ -1176,14 +1169,14 @@ impl Primitive {
                     right_style: border.right_style as u32,
                     bottom_style: border.bottom_style as u32,
                     left_style: border.bottom_style as u32,
+                    part: [PrimitivePart::TopLeft.pack(), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: tile_index_in_ubo,
                         layer_index: layer_index_in_ubo,
-                        part: PrimitivePart::TopRight,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(border.tr_inner.x,
                                                        border.tr_outer.y,
@@ -1200,14 +1193,14 @@ impl Primitive {
                     right_style: border.right_style as u32,
                     bottom_style: border.bottom_style as u32,
                     left_style: border.bottom_style as u32,
+                    part: [PrimitivePart::TopRight.pack(), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: tile_index_in_ubo,
                         layer_index: layer_index_in_ubo,
-                        part: PrimitivePart::BottomLeft,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(border.bl_outer.x,
                                                        border.bl_inner.y,
@@ -1224,14 +1217,14 @@ impl Primitive {
                     right_style: border.right_style as u32,
                     bottom_style: border.bottom_style as u32,
                     left_style: border.bottom_style as u32,
+                    part: [PrimitivePart::BottomLeft.pack(), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: tile_index_in_ubo,
                         layer_index: layer_index_in_ubo,
-                        part: PrimitivePart::BottomRight,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(border.br_inner.x,
                                                        border.br_inner.y,
@@ -1248,14 +1241,14 @@ impl Primitive {
                     right_style: border.right_style as u32,
                     bottom_style: border.bottom_style as u32,
                     left_style: border.bottom_style as u32,
+                    part: [PrimitivePart::BottomRight.pack(), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: tile_index_in_ubo,
                         layer_index: layer_index_in_ubo,
-                        part: PrimitivePart::Left,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(border.tl_outer.x,
                                                        border.tl_inner.y,
@@ -1272,14 +1265,14 @@ impl Primitive {
                     right_style: border.right_style as u32,
                     bottom_style: border.bottom_style as u32,
                     left_style: border.bottom_style as u32,
+                    part: [PrimitivePart::Left.pack(), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: tile_index_in_ubo,
                         layer_index: layer_index_in_ubo,
-                        part: PrimitivePart::Right,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(border.tr_outer.x - border.right_width,
                                                        border.tr_inner.y,
@@ -1296,14 +1289,14 @@ impl Primitive {
                     right_style: border.right_style as u32,
                     bottom_style: border.bottom_style as u32,
                     left_style: border.bottom_style as u32,
+                    part: [PrimitivePart::Right.pack(), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: tile_index_in_ubo,
                         layer_index: layer_index_in_ubo,
-                        part: PrimitivePart::Top,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(border.tl_inner.x,
                                                        border.tl_outer.y,
@@ -1320,14 +1313,14 @@ impl Primitive {
                     right_style: border.right_style as u32,
                     bottom_style: border.bottom_style as u32,
                     left_style: border.bottom_style as u32,
+                    part: [PrimitivePart::Top.pack(), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
                     common: PackedPrimitiveInfo {
-                        padding: 0,
+                        padding: [0, 0],
                         tile_index: tile_index_in_ubo,
                         layer_index: layer_index_in_ubo,
-                        part: PrimitivePart::Bottom,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: rect_from_points_f(border.bl_inner.x,
                                                        border.bl_outer.y - border.bottom_width,
@@ -1344,6 +1337,7 @@ impl Primitive {
                     right_style: border.right_style as u32,
                     bottom_style: border.bottom_style as u32,
                     left_style: border.bottom_style as u32,
+                    part: [PrimitivePart::Bottom.pack(), 0.0, 0.0, 0.0],
                 });
             }
             (&mut PrimitiveBatchData::Borders(..), _) => return false,
@@ -1437,10 +1431,9 @@ impl Primitive {
 
                             data.push(PackedAlignedGradientPrimitive {
                                 common: PackedPrimitiveInfo {
-                                    padding: 0,
+                                    padding: [0, 0],
                                     tile_index: tile_index_in_ubo,
                                     layer_index: layer_index_in_ubo,
-                                    part: PrimitivePart::Bottom,
                                     local_clip_rect: self.local_clip_rect,
                                     local_rect: piece_rect,
                                 },
@@ -1499,10 +1492,9 @@ impl Primitive {
 
                         data.push(PackedAngleGradientPrimitive {
                             common: PackedPrimitiveInfo {
-                                padding: 0,
+                                padding: [0, 0],
                                 tile_index: tile_index_in_ubo,
                                 layer_index: layer_index_in_ubo,
-                                part: PrimitivePart::Invalid,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: self.rect,
                             },
@@ -1534,10 +1526,9 @@ impl Primitive {
                 for rect in rects {
                     data.push(PackedBoxShadowPrimitive {
                         common: PackedPrimitiveInfo {
-                            padding: 0,
+                            padding: [0, 0],
                             tile_index: tile_index_in_ubo,
                             layer_index: layer_index_in_ubo,
-                            part: PrimitivePart::Invalid,
                             local_clip_rect: self.local_clip_rect,
                             local_rect: rect,
                         },
@@ -1745,7 +1736,6 @@ impl AlphaBatchKeyFlags {
 #[repr(u32)]
 #[derive(Debug, Copy, Clone)]
 enum PrimitivePart {
-    Invalid = 0,
     TopLeft,
     TopRight,
     BottomLeft,
@@ -1754,6 +1744,13 @@ enum PrimitivePart {
     Left,
     Bottom,
     Right,
+}
+
+impl PrimitivePart {
+    #[inline(always)]
+    fn pack(&self) -> f32 {
+        (*self) as u32 as f32 + 0.5
+    }
 }
 
 // All Packed Primitives below must be 16 byte aligned.
@@ -1775,8 +1772,7 @@ pub struct PackedLayer {
 pub struct PackedPrimitiveInfo {
     layer_index: u32,
     tile_index: u32,
-    part: PrimitivePart,
-    padding: u32,
+    padding: [u32; 2],
     local_clip_rect: Rect<f32>,
     local_rect: Rect<f32>,
 }
@@ -1863,8 +1859,8 @@ pub struct PackedAngleGradientPrimitive {
 #[derive(Debug, Clone)]
 pub struct PackedBorderPrimitive {
     common: PackedPrimitiveInfo,
-    vertical_color:     ColorF,
-    horizontal_color:   ColorF,
+    vertical_color: ColorF,
+    horizontal_color: ColorF,
     outer_radius_x: f32,
     outer_radius_y: f32,
     inner_radius_x: f32,
@@ -1873,6 +1869,7 @@ pub struct PackedBorderPrimitive {
     right_style: u32,
     bottom_style: u32,
     left_style: u32,
+    part: [f32; 4],
 }
 
 #[derive(Debug, Clone)]

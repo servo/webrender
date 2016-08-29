@@ -9,6 +9,7 @@ struct Border {
     vec4 horizontalColor;
     vec4 radii;
     uvec4 border_style_trbl;
+    vec4 part;
 };
 
 layout(std140) uniform Items {
@@ -56,7 +57,7 @@ void main(void) {
     vRadii = border.radii;
 
     float x0, y0, x1, y1;
-    vBorderPart = border.info.layer_tile_part.z;
+    vBorderPart = uint(border.part.x);
     switch (vBorderPart) {
         // These are the layer tile part PrimitivePart as uploaded by the tiling.rs
         case PST_TOP_LEFT:
