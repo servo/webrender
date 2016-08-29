@@ -36,6 +36,19 @@ fn pack_as_float(value: u32) -> f32 {
     value as f32 + 0.5
 }
 
+trait PackRectAsFloat {
+    fn pack_as_float(&self) -> Rect<f32>;
+}
+
+impl PackRectAsFloat for Rect<DevicePixel> {
+    fn pack_as_float(&self) -> Rect<f32> {
+        Rect::new(Point2D::new(self.origin.x.0 as f32,
+                               self.origin.y.0 as f32),
+                  Size2D::new(self.size.width.0 as f32,
+                              self.size.height.0 as f32))
+    }
+}
+
 enum PrimitiveRunCmd {
     PushStackingContext(StackingContextIndex),
     PrimitiveRun(PrimitiveIndex, usize),
@@ -103,14 +116,8 @@ impl AlphaBatcher {
 
                 let tile_ubo = tile_ubos.last_mut().unwrap();
                 let index = tile_ubo.len();
-                let actual_rect = Rect::new(Point2D::new(task.actual_rect.origin.x.0 as f32,
-                                                         task.actual_rect.origin.y.0 as f32),
-                                            Size2D::new(task.actual_rect.size.width.0 as f32,
-                                                        task.actual_rect.size.height.0 as f32));
-                let target_rect = Rect::new(Point2D::new(task.target_rect.origin.x.0 as f32,
-                                                         task.target_rect.origin.y.0 as f32),
-                                            Size2D::new(task.target_rect.size.width.0 as f32,
-                                                        task.target_rect.size.height.0 as f32));
+                let actual_rect = task.actual_rect.pack_as_float();
+                let target_rect = task.target_rect.pack_as_float();
                 tile_ubo.push(PackedTile {
                     actual_rect_dp: actual_rect,
                     target_rect_dp: target_rect,
@@ -250,9 +257,9 @@ impl AlphaBatcher {
                 let batch = &mut batches[existing_batch_index].1;
                 match item {
                     AlphaRenderItem::Composite(info) => {
-                        let ok = batch.pack_composite(task.child_rects[0],
-                                                      task.child_rects[1],
-                                                      task.target_rect,
+                        let ok = batch.pack_composite(&task.child_rects[0],
+                                                      &task.child_rects[1],
+                                                      &task.target_rect,
                                                       info);
                         debug_assert!(ok)
                     }
@@ -1873,19 +1880,18 @@ pub struct PackedBoxShadowPrimitive {
 
 #[derive(Debug, Clone)]
 pub struct PackedBlendPrimitive {
-    target_rect: Rect<DevicePixel>,
-    src_rect: Rect<DevicePixel>,
+    target_rect_dp: Rect<f32>,
+    src_rect_dp: Rect<f32>,
     opacity: f32,
     padding: [u32; 3],
 }
 
 #[derive(Debug, Copy, Clone)]
 struct PackedCompositeInfo {
-    kind: u32,
-    op: u32,
-    padding: [u32; 2],
+    kind: f32,
+    op: f32,
     amount: f32,
-    padding1: [u32; 3],
+    padding: f32,
 }
 
 impl PackedCompositeInfo {
@@ -1919,20 +1925,19 @@ impl PackedCompositeInfo {
         };
 
         PackedCompositeInfo {
-            kind: kind,
-            op: op,
-            padding: [0, 0],
+            kind: pack_as_float(kind),
+            op: pack_as_float(op),
             amount: amount,
-            padding1: [0, 0, 0],
+            padding: 0.0,
         }
     }
 }
 
 #[derive(Debug)]
 pub struct PackedCompositePrimitive {
-    rect0: Rect<DevicePixel>,
-    rect1: Rect<DevicePixel>,
-    target_rect: Rect<DevicePixel>,
+    rect0_dp: Rect<f32>,
+    rect1_dp: Rect<f32>,
+    target_rect_dp: Rect<f32>,
     info: PackedCompositeInfo,
 }
 
@@ -1994,8 +1999,8 @@ impl PrimitiveBatch {
                 ubo_data.push(PackedBlendPrimitive {
                     opacity: opacity,
                     padding: [0, 0, 0],
-                    src_rect: src_rect,
-                    target_rect: target_rect,
+                    src_rect_dp: src_rect.pack_as_float(),
+                    target_rect_dp: target_rect.pack_as_float(),
                 });
 
                 true
@@ -2005,16 +2010,16 @@ impl PrimitiveBatch {
     }
 
     fn pack_composite(&mut self,
-                      rect0: Rect<DevicePixel>,
-                      rect1: Rect<DevicePixel>,
-                      target_rect: Rect<DevicePixel>,
+                      rect0: &Rect<DevicePixel>,
+                      rect1: &Rect<DevicePixel>,
+                      target_rect: &Rect<DevicePixel>,
                       info: PackedCompositeInfo) -> bool {
         match &mut self.data {
             &mut PrimitiveBatchData::Composite(ref mut ubo_data) => {
                 ubo_data.push(PackedCompositePrimitive {
-                    rect0: rect0,
-                    rect1: rect1,
-                    target_rect: target_rect,
+                    rect0_dp: rect0.pack_as_float(),
+                    rect1_dp: rect1.pack_as_float(),
+                    target_rect_dp: target_rect.pack_as_float(),
                     info: info,
                 });
 
