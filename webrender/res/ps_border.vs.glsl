@@ -8,7 +8,7 @@ struct Border {
     vec4 verticalColor;
     vec4 horizontalColor;
     vec4 radii;
-    uvec4 border_style_trbl;
+    vec4 border_style_trbl;
     vec4 part;
 };
 
@@ -16,7 +16,7 @@ layout(std140) uniform Items {
     Border borders[WR_MAX_PRIM_ITEMS];
 };
 
-uint get_border_style(Border a_border, uint a_edge) {
+float get_border_style(Border a_border, uint a_edge) {
   switch (a_edge) {
     case PST_TOP:
     case PST_TOP_LEFT:
@@ -104,7 +104,7 @@ void main(void) {
             break;
     }
 
-    vBorderStyle = get_border_style(border, vBorderPart);
+    vBorderStyle = uint(get_border_style(border, vBorderPart));
 
     // y1 - y0 is the height of the corner / line
     // x1 - x0 is the width of the corner / line.

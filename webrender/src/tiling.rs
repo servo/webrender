@@ -747,6 +747,17 @@ struct BorderPrimitive {
     bottom_style: BorderStyle,
 }
 
+impl BorderPrimitive {
+    fn pack_style(&self) -> [f32; 4] {
+        [
+            self.top_style as u32 as f32 + 0.5,
+            self.right_style as u32 as f32 + 0.5,
+            self.bottom_style as u32 as f32 + 0.5,
+            self.left_style as u32 as f32 + 0.5,
+        ]
+    }
+}
+
 #[derive(Debug)]
 enum ImagePrimitiveKind {
     Image(ImageKey, ImageRendering, Size2D<f32>),
@@ -1165,10 +1176,7 @@ impl Primitive {
                     outer_radius_y: border.radius.top_left.height,
                     inner_radius_x: inner_radius.top_left.width,
                     inner_radius_y: inner_radius.top_left.height,
-                    top_style: border.top_style as u32,
-                    right_style: border.right_style as u32,
-                    bottom_style: border.bottom_style as u32,
-                    left_style: border.bottom_style as u32,
+                    style: border.pack_style(),
                     part: [PrimitivePart::TopLeft.pack(), 0.0, 0.0, 0.0],
                 });
 
@@ -1189,10 +1197,7 @@ impl Primitive {
                     outer_radius_y: border.radius.top_right.height,
                     inner_radius_x: inner_radius.top_right.width,
                     inner_radius_y: inner_radius.top_right.height,
-                    top_style: border.top_style as u32,
-                    right_style: border.right_style as u32,
-                    bottom_style: border.bottom_style as u32,
-                    left_style: border.bottom_style as u32,
+                    style: border.pack_style(),
                     part: [PrimitivePart::TopRight.pack(), 0.0, 0.0, 0.0],
                 });
 
@@ -1213,10 +1218,7 @@ impl Primitive {
                     outer_radius_y: border.radius.bottom_left.height,
                     inner_radius_x: inner_radius.bottom_left.width,
                     inner_radius_y: inner_radius.bottom_left.height,
-                    top_style: border.top_style as u32,
-                    right_style: border.right_style as u32,
-                    bottom_style: border.bottom_style as u32,
-                    left_style: border.bottom_style as u32,
+                    style: border.pack_style(),
                     part: [PrimitivePart::BottomLeft.pack(), 0.0, 0.0, 0.0],
                 });
 
@@ -1237,10 +1239,7 @@ impl Primitive {
                     outer_radius_y: border.radius.bottom_right.height,
                     inner_radius_x: inner_radius.bottom_right.width,
                     inner_radius_y: inner_radius.bottom_right.height,
-                    top_style: border.top_style as u32,
-                    right_style: border.right_style as u32,
-                    bottom_style: border.bottom_style as u32,
-                    left_style: border.bottom_style as u32,
+                    style: border.pack_style(),
                     part: [PrimitivePart::BottomRight.pack(), 0.0, 0.0, 0.0],
                 });
 
@@ -1261,10 +1260,7 @@ impl Primitive {
                     outer_radius_y: 0.0,
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
-                    top_style: border.top_style as u32,
-                    right_style: border.right_style as u32,
-                    bottom_style: border.bottom_style as u32,
-                    left_style: border.bottom_style as u32,
+                    style: border.pack_style(),
                     part: [PrimitivePart::Left.pack(), 0.0, 0.0, 0.0],
                 });
 
@@ -1285,10 +1281,7 @@ impl Primitive {
                     outer_radius_y: 0.0,
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
-                    top_style: border.top_style as u32,
-                    right_style: border.right_style as u32,
-                    bottom_style: border.bottom_style as u32,
-                    left_style: border.bottom_style as u32,
+                    style: border.pack_style(),
                     part: [PrimitivePart::Right.pack(), 0.0, 0.0, 0.0],
                 });
 
@@ -1309,10 +1302,7 @@ impl Primitive {
                     outer_radius_y: 0.0,
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
-                    top_style: border.top_style as u32,
-                    right_style: border.right_style as u32,
-                    bottom_style: border.bottom_style as u32,
-                    left_style: border.bottom_style as u32,
+                    style: border.pack_style(),
                     part: [PrimitivePart::Top.pack(), 0.0, 0.0, 0.0],
                 });
 
@@ -1333,10 +1323,7 @@ impl Primitive {
                     outer_radius_y: 0.0,
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
-                    top_style: border.top_style as u32,
-                    right_style: border.right_style as u32,
-                    bottom_style: border.bottom_style as u32,
-                    left_style: border.bottom_style as u32,
+                    style: border.pack_style(),
                     part: [PrimitivePart::Bottom.pack(), 0.0, 0.0, 0.0],
                 });
             }
@@ -1865,10 +1852,7 @@ pub struct PackedBorderPrimitive {
     outer_radius_y: f32,
     inner_radius_x: f32,
     inner_radius_y: f32,
-    top_style: u32,
-    right_style: u32,
-    bottom_style: u32,
-    left_style: u32,
+    style: [f32; 4],
     part: [f32; 4],
 }
 
