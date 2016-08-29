@@ -61,6 +61,8 @@ impl fmt::Debug for WebGLCommand {
             DrawArrays(..) => "DrawArrays",
             DrawElements(..) => "DrawElements",
             EnableVertexAttribArray(..) => "EnableVertexAttribArray",
+            FramebufferRenderbuffer(..) => "FramebufferRenderbuffer",
+            FramebufferTexture2D(..) => "FramebufferTexture2D",
             GetBufferParameter(..) => "GetBufferParameter",
             GetParameter(..) => "GetParameter",
             GetProgramParameter(..) => "GetProgramParameter",
@@ -74,6 +76,7 @@ impl fmt::Debug for WebGLCommand {
             GetVertexAttrib(..) => "GetVertexAttrib",
             PolygonOffset(..) => "PolygonOffset",
             ReadPixels(..) => "ReadPixels",
+            RenderbufferStorage(..) => "RenderbufferStorage",
             SampleCoverage(..) => "SampleCoverage",
             Scissor(..) => "Scissor",
             StencilFunc(..) => "StencilFunc",
@@ -181,6 +184,10 @@ impl WebGLCommand {
                 gl::disable(cap),
             WebGLCommand::Enable(cap) =>
                 gl::enable(cap),
+            WebGLCommand::FramebufferRenderbuffer(target, attachment, renderbuffertarget, rb) =>
+                gl::framebuffer_renderbuffer(target, attachment, renderbuffertarget, rb.map_or(0, WebGLRenderbufferId::get)),
+            WebGLCommand::FramebufferTexture2D(target, attachment, textarget, texture, level) =>
+                gl::framebuffer_texture_2d(target, attachment, textarget, texture.map_or(0, WebGLTextureId::get), level),
             WebGLCommand::FrontFace(mode) =>
                 gl::front_face(mode),
             WebGLCommand::DisableVertexAttribArray(attrib_id) =>
@@ -203,6 +210,8 @@ impl WebGLCommand {
                 gl::polygon_offset(factor, units),
             WebGLCommand::ReadPixels(x, y, width, height, format, pixel_type, chan) =>
                 Self::read_pixels(x, y, width, height, format, pixel_type, chan),
+            WebGLCommand::RenderbufferStorage(target, format, width, height) =>
+                gl::renderbuffer_storage(target, format, width, height),
             WebGLCommand::SampleCoverage(value, invert) =>
                 gl::sample_coverage(value, invert),
             WebGLCommand::Scissor(x, y, width, height) =>
