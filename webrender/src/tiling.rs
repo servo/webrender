@@ -31,6 +31,11 @@ pub const GLYPHS_PER_TEXT_RUN: u32 = 8;
 const ALPHA_BATCHERS_PER_RENDER_TARGET: usize = 4;
 const MIN_TASKS_PER_ALPHA_BATCHER: usize = 64;
 
+#[inline(always)]
+fn pack_as_float(value: u32) -> f32 {
+    value as f32 + 0.5
+}
+
 enum PrimitiveRunCmd {
     PushStackingContext(StackingContextIndex),
     PrimitiveRun(PrimitiveIndex, usize),
@@ -750,10 +755,10 @@ struct BorderPrimitive {
 impl BorderPrimitive {
     fn pack_style(&self) -> [f32; 4] {
         [
-            self.top_style as u32 as f32 + 0.5,
-            self.right_style as u32 as f32 + 0.5,
-            self.bottom_style as u32 as f32 + 0.5,
-            self.left_style as u32 as f32 + 0.5,
+            pack_as_float(self.top_style as u32),
+            pack_as_float(self.right_style as u32),
+            pack_as_float(self.bottom_style as u32),
+            pack_as_float(self.left_style as u32),
         ]
     }
 }
@@ -800,8 +805,9 @@ enum AlphaBatchKind {
     Image = 6,
     ImageClip = 7,
     Border = 8,
-    Gradient = 9,
-    BoxShadow = 10,
+    AlignedGradient = 9,
+    AngleGradient = 10,
+    BoxShadow = 11,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -1177,7 +1183,7 @@ impl Primitive {
                     inner_radius_x: inner_radius.top_left.width,
                     inner_radius_y: inner_radius.top_left.height,
                     style: border.pack_style(),
-                    part: [PrimitivePart::TopLeft.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::TopLeft as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1198,7 +1204,7 @@ impl Primitive {
                     inner_radius_x: inner_radius.top_right.width,
                     inner_radius_y: inner_radius.top_right.height,
                     style: border.pack_style(),
-                    part: [PrimitivePart::TopRight.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::TopRight as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1219,7 +1225,7 @@ impl Primitive {
                     inner_radius_x: inner_radius.bottom_left.width,
                     inner_radius_y: inner_radius.bottom_left.height,
                     style: border.pack_style(),
-                    part: [PrimitivePart::BottomLeft.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::BottomLeft as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1240,7 +1246,7 @@ impl Primitive {
                     inner_radius_x: inner_radius.bottom_right.width,
                     inner_radius_y: inner_radius.bottom_right.height,
                     style: border.pack_style(),
-                    part: [PrimitivePart::BottomRight.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::BottomRight as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1261,7 +1267,7 @@ impl Primitive {
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
                     style: border.pack_style(),
-                    part: [PrimitivePart::Left.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::Left as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1282,7 +1288,7 @@ impl Primitive {
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
                     style: border.pack_style(),
-                    part: [PrimitivePart::Right.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::Right as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1303,7 +1309,7 @@ impl Primitive {
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
                     style: border.pack_style(),
-                    part: [PrimitivePart::Top.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::Top as u32), 0.0, 0.0, 0.0],
                 });
 
                 data.push(PackedBorderPrimitive {
@@ -1324,7 +1330,7 @@ impl Primitive {
                     inner_radius_x: 0.0,
                     inner_radius_y: 0.0,
                     style: border.pack_style(),
-                    part: [PrimitivePart::Bottom.pack(), 0.0, 0.0, 0.0],
+                    part: [pack_as_float(PrimitivePart::Bottom as u32), 0.0, 0.0, 0.0],
                 });
             }
             (&mut PrimitiveBatchData::Borders(..), _) => return false,
@@ -1427,7 +1433,7 @@ impl Primitive {
                                 color0: prev_stop.color,
                                 color1: next_stop.color,
                                 padding: [0, 0, 0],
-                                kind: gradient.kind,
+                                kind: pack_as_float(gradient.kind as u32),
                                 clip: clip,
                             });
                         }
@@ -1488,7 +1494,7 @@ impl Primitive {
                             padding: [0, 0, 0],
                             start_point: sp,
                             end_point: ep,
-                            stop_count: src_stops.len() as u32,
+                            stop_count: pack_as_float(src_stops.len() as u32),
                             stops: stops,
                             colors: colors,
                         });
@@ -1612,7 +1618,12 @@ impl Primitive {
             (&PrimitiveDetails::Image(_), &None) => AlphaBatchKind::Image,
             (&PrimitiveDetails::Image(_), &Some(_)) => AlphaBatchKind::ImageClip,
             (&PrimitiveDetails::Border(_), _) => AlphaBatchKind::Border,
-            (&PrimitiveDetails::Gradient(_), _) => AlphaBatchKind::Gradient,
+            (&PrimitiveDetails::Gradient(ref gradient), _) => {
+                match gradient.kind {
+                    GradientType::Horizontal | GradientType::Vertical => AlphaBatchKind::AlignedGradient,
+                    GradientType::Rotated => AlphaBatchKind::AngleGradient,
+                }
+            }
             (&PrimitiveDetails::BoxShadow(_), _) => AlphaBatchKind::BoxShadow,
         }
     }
@@ -1733,13 +1744,6 @@ enum PrimitivePart {
     Right,
 }
 
-impl PrimitivePart {
-    #[inline(always)]
-    fn pack(&self) -> f32 {
-        (*self) as u32 as f32 + 0.5
-    }
-}
-
 // All Packed Primitives below must be 16 byte aligned.
 #[derive(Debug)]
 pub struct PackedTile {
@@ -1825,7 +1829,7 @@ pub struct PackedAlignedGradientPrimitive {
     common: PackedPrimitiveInfo,
     color0: ColorF,
     color1: ColorF,
-    kind: GradientType,
+    kind: f32,
     padding: [u32; 3],
     clip: Clip,
 }
@@ -1837,7 +1841,7 @@ pub struct PackedAngleGradientPrimitive {
     common: PackedPrimitiveInfo,
     start_point: Point2D<f32>,
     end_point: Point2D<f32>,
-    stop_count: u32,
+    stop_count: f32,
     padding: [u32; 3],
     colors: [ColorF; MAX_STOPS_PER_ANGLE_GRADIENT],
     stops: [f32; MAX_STOPS_PER_ANGLE_GRADIENT],
