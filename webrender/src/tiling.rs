@@ -1432,7 +1432,7 @@ impl Primitive {
                                 color0: prev_stop.color,
                                 color1: next_stop.color,
                                 padding: [0, 0, 0],
-                                kind: gradient.kind,
+                                kind: pack_as_float(gradient.kind as u32),
                                 clip: clip,
                             });
                         }
@@ -1823,7 +1823,7 @@ pub struct PackedAlignedGradientPrimitive {
     common: PackedPrimitiveInfo,
     color0: ColorF,
     color1: ColorF,
-    kind: GradientType,
+    kind: f32,
     padding: [u32; 3],
     clip: Clip,
 }
