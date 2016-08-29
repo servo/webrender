@@ -805,8 +805,9 @@ enum AlphaBatchKind {
     Image = 6,
     ImageClip = 7,
     Border = 8,
-    Gradient = 9,
-    BoxShadow = 10,
+    AlignedGradient = 9,
+    AngleGradient = 10,
+    BoxShadow = 11,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -1493,7 +1494,7 @@ impl Primitive {
                             padding: [0, 0, 0],
                             start_point: sp,
                             end_point: ep,
-                            stop_count: src_stops.len() as u32,
+                            stop_count: pack_as_float(src_stops.len() as u32),
                             stops: stops,
                             colors: colors,
                         });
@@ -1617,7 +1618,12 @@ impl Primitive {
             (&PrimitiveDetails::Image(_), &None) => AlphaBatchKind::Image,
             (&PrimitiveDetails::Image(_), &Some(_)) => AlphaBatchKind::ImageClip,
             (&PrimitiveDetails::Border(_), _) => AlphaBatchKind::Border,
-            (&PrimitiveDetails::Gradient(_), _) => AlphaBatchKind::Gradient,
+            (&PrimitiveDetails::Gradient(ref gradient), _) => {
+                match gradient.kind {
+                    GradientType::Horizontal | GradientType::Vertical => AlphaBatchKind::AlignedGradient,
+                    GradientType::Rotated => AlphaBatchKind::AngleGradient,
+                }
+            }
             (&PrimitiveDetails::BoxShadow(_), _) => AlphaBatchKind::BoxShadow,
         }
     }
@@ -1835,7 +1841,7 @@ pub struct PackedAngleGradientPrimitive {
     common: PackedPrimitiveInfo,
     start_point: Point2D<f32>,
     end_point: Point2D<f32>,
-    stop_count: u32,
+    stop_count: f32,
     padding: [u32; 3],
     colors: [ColorF; MAX_STOPS_PER_ANGLE_GRADIENT],
     stops: [f32; MAX_STOPS_PER_ANGLE_GRADIENT],
