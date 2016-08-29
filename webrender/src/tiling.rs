@@ -874,8 +874,10 @@ impl Primitive {
                         local_rect: self.rect,
                     },
                     color: text.color,
-                    uv0: image_info.pixel_rect.top_left,
-                    uv1: image_info.pixel_rect.bottom_right,
+                    uv0: Point2D::new(image_info.pixel_rect.top_left.x.0 as f32,
+                                      image_info.pixel_rect.top_left.y.0 as f32),
+                    uv1: Point2D::new(image_info.pixel_rect.bottom_right.x.0 as f32,
+                                      image_info.pixel_rect.bottom_right.y.0 as f32),
                 });
 
                 text.cache = Some(cache);
@@ -925,8 +927,10 @@ impl Primitive {
 
                     glyphs[glyph_index] = PackedTextRunGlyph {
                         local_rect: local_glyph_rect,
-                        st0: image_info.pixel_rect.top_left,
-                        st1: image_info.pixel_rect.bottom_right,
+                        uv0: Point2D::new(image_info.pixel_rect.top_left.x.0 as f32,
+                                          image_info.pixel_rect.top_left.y.0 as f32),
+                        uv1: Point2D::new(image_info.pixel_rect.bottom_right.x.0 as f32,
+                                          image_info.pixel_rect.bottom_right.y.0 as f32),
                     }
                 }
 
@@ -1794,8 +1798,8 @@ pub struct PackedRectanglePrimitive {
 pub struct PackedGlyphPrimitive {
     common: PackedPrimitiveInfo,
     color: ColorF,
-    uv0: Point2D<DevicePixel>,
-    uv1: Point2D<DevicePixel>,
+    uv0: Point2D<f32>,
+    uv1: Point2D<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -1810,8 +1814,8 @@ pub struct PackedTextRunPrimitive {
 #[repr(C)]
 pub struct PackedTextRunGlyph {
     local_rect: Rect<f32>,
-    st0: Point2D<DevicePixel>,
-    st1: Point2D<DevicePixel>,
+    uv0: Point2D<f32>,
+    uv1: Point2D<f32>,
 }
 
 #[derive(Debug, Clone)]
