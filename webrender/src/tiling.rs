@@ -9,7 +9,7 @@ use euclid::{Point2D, Point4D, Rect, Matrix4D, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
 use internal_types::{Glyph, DevicePixel, CompositionOp};
-use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp, RectUv};
+use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
 use layer::Layer;
 use profiler::FrameProfileCounters;
 use renderer::{BLUR_INFLATION_FACTOR};
@@ -276,8 +276,7 @@ impl AlphaBatcher {
                                                    index_in_layer_ubo.unwrap(),
                                                    index_in_tile_ubo.unwrap(),
                                                    batch_key.flags.transform_kind(),
-                                                   batch_key.flags.needs_blending(),
-                                                   ctx);
+                                                   batch_key.flags.needs_blending());
                         debug_assert!(ok);
 
                         let color_texture_id = prim.color_texture_id(ctx.resource_cache,
@@ -781,8 +780,15 @@ enum ImagePrimitiveKind {
 }
 
 #[derive(Debug)]
+enum ImagePrimitiveCache {
+    Normal(PackedImagePrimitive),
+    Clip(PackedImagePrimitiveClip),
+}
+
+#[derive(Debug)]
 struct ImagePrimitive {
     kind: ImagePrimitiveKind,
+    cache: Option<ImagePrimitiveCache>,
 }
 
 #[derive(Debug)]
@@ -846,6 +852,7 @@ impl Primitive {
             PrimitiveDetails::Rectangle(ref primitive) => primitive.color.a == 1.0,
             PrimitiveDetails::Image(ImagePrimitive {
                 kind: ImagePrimitiveKind::Image(image_key, image_rendering, _),
+                ..
             }) => resource_cache.get_image(image_key, image_rendering, frame_id).is_opaque,
             _ => false,
         }
@@ -861,9 +868,57 @@ impl Primitive {
                           auxiliary_lists: &AuxiliaryLists) {
         match self.details {
             PrimitiveDetails::Rectangle(..) |
-            PrimitiveDetails::BoxShadow(..) |
-            PrimitiveDetails::Image(..) => {
+            PrimitiveDetails::BoxShadow(..) => {
                 unreachable!();     // not currently supported from build_resource_list
+            }
+            PrimitiveDetails::Image(ref mut image) => {
+                let ImageInfo {
+                    color_texture_id: texture_id,
+                    uv0,
+                    uv1,
+                    stretch_size,
+                    uv_kind,
+                } = image.image_info(resource_cache, frame_id);
+
+                match self.complex_clip {
+                    Some(ref complex_clip) => {
+                        let element = PackedImagePrimitiveClip {
+                            common: PackedPrimitiveInfo {
+                                padding: [0, 0],
+                                tile_index: 0,
+                                layer_index: 0,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: self.rect,
+                            },
+                            uv0: uv0,
+                            uv1: uv1,
+                            stretch_size: stretch_size.unwrap_or(self.rect.size),
+                            uv_kind: pack_as_float(uv_kind as u32),
+                            clip: complex_clip.as_ref().clone(),
+                            texture_id: texture_id,
+                        };
+
+                        image.cache = Some(ImagePrimitiveCache::Clip(element));
+                    }
+                    None => {
+                        let element = PackedImagePrimitive {
+                            common: PackedPrimitiveInfo {
+                                padding: [0, 0],
+                                tile_index: 0,
+                                layer_index: 0,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: self.rect,
+                            },
+                            uv0: uv0,
+                            uv1: uv1,
+                            stretch_size: stretch_size.unwrap_or(self.rect.size),
+                            uv_kind: pack_as_float(uv_kind as u32),
+                            texture_id: texture_id,
+                        };
+
+                        image.cache = Some(ImagePrimitiveCache::Normal(element));
+                    }
+                }
             }
             PrimitiveDetails::Gradient(ref mut gradient) => {
                 match gradient.kind {
@@ -1343,7 +1398,7 @@ impl Primitive {
                     }
                     ImagePrimitiveKind::WebGL(..) => {}
                 }
-                false
+                details.cache.is_none()
             }
             PrimitiveDetails::Text(ref details) => {
                 let glyphs = auxiliary_lists.glyph_instances(&ItemRange {
@@ -1396,8 +1451,7 @@ impl Primitive {
                     layer_index_in_ubo: u32,
                     tile_index_in_ubo: u32,
                     transform_kind: TransformedRectKind,
-                    needs_blending: bool,
-                    ctx: &RenderTargetContext) -> bool {
+                    needs_blending: bool) -> bool {
         if transform_kind != batch.transform_kind ||
            needs_blending != batch.blending_enabled {
             return false
@@ -1428,7 +1482,6 @@ impl Primitive {
                 if self.complex_clip.is_none() {
                     return false;
                 }
-
                 data.push(PackedRectanglePrimitiveClip {
                     common: PackedPrimitiveInfo {
                         padding: [0, 0],
@@ -1444,65 +1497,41 @@ impl Primitive {
             (&mut PrimitiveBatchData::RectanglesClip(..), _) => return false,
             (&mut PrimitiveBatchData::Image(ref mut data),
              &PrimitiveDetails::Image(ref image)) => {
-                if self.complex_clip.is_some() {
-                    return false;
+                let cache = image.cache.as_ref().expect("No image cache!");
+
+                match cache {
+                    &ImagePrimitiveCache::Normal(ref element) => {
+                        if batch.color_texture_id != TextureId(0) && element.texture_id != batch.color_texture_id {
+                            return false
+                        }
+
+                        let mut element = element.clone();
+                        element.common.tile_index = tile_index_in_ubo;
+                        element.common.layer_index = layer_index_in_ubo;
+                        data.push(element);
+                    }
+                    &ImagePrimitiveCache::Clip(..) => return false,
                 }
 
-                let ImageInfo {
-                    color_texture_id: texture_id,
-                    uv_rect,
-                    stretch_size
-                } = image.image_info(&ctx.resource_cache, ctx.frame_id);
-
-                if batch.color_texture_id != TextureId(0) && texture_id != batch.color_texture_id {
-                    return false
-                }
-
-                data.push(PackedImagePrimitive {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: self.rect,
-                    },
-                    st0: uv_rect.top_left,
-                    st1: uv_rect.bottom_right,
-                    stretch_size: stretch_size.unwrap_or(self.rect.size),
-                    padding: [0, 0],
-                });
             }
             (&mut PrimitiveBatchData::Image(..), _) => return false,
             (&mut PrimitiveBatchData::ImageClip(ref mut data),
              &PrimitiveDetails::Image(ref image)) => {
-                if self.complex_clip.is_none() {
-                    return false;
+                let cache = image.cache.as_ref().expect("No image cache!");
+
+                match cache {
+                    &ImagePrimitiveCache::Normal(..) => return false,
+                    &ImagePrimitiveCache::Clip(ref element) => {
+                        if batch.color_texture_id != TextureId(0) && element.texture_id != batch.color_texture_id {
+                            return false
+                        }
+
+                        let mut element = element.clone();
+                        element.common.tile_index = tile_index_in_ubo;
+                        element.common.layer_index = layer_index_in_ubo;
+                        data.push(element);
+                    }
                 }
-
-                let ImageInfo {
-                    color_texture_id: texture_id,
-                    uv_rect,
-                    stretch_size
-                } = image.image_info(&ctx.resource_cache, ctx.frame_id);
-
-                if batch.color_texture_id != TextureId(0) && texture_id != batch.color_texture_id {
-                    return false
-                }
-
-                data.push(PackedImagePrimitiveClip {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: self.rect,
-                    },
-                    st0: uv_rect.top_left,
-                    st1: uv_rect.bottom_right,
-                    stretch_size: stretch_size.unwrap_or(self.rect.size),
-                    padding: [0, 0],
-                    clip: *self.complex_clip.as_ref().unwrap().clone(),
-                });
             }
             (&mut PrimitiveBatchData::ImageClip(..), _) => return false,
             (&mut PrimitiveBatchData::Borders(ref mut data),
@@ -1848,22 +1877,30 @@ pub struct PackedTextRunGlyph {
     uv1: Point2D<f32>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum TextureCoordKind {
+    Normalized = 0,
+    Pixel,
+}
+
 #[derive(Debug, Clone)]
 pub struct PackedImagePrimitive {
     common: PackedPrimitiveInfo,
-    st0: Point2D<f32>,
-    st1: Point2D<f32>,
+    uv0: Point2D<f32>,
+    uv1: Point2D<f32>,
     stretch_size: Size2D<f32>,
-    padding: [u32; 2],
+    uv_kind: f32,
+    texture_id: TextureId,
 }
 
 #[derive(Debug, Clone)]
 pub struct PackedImagePrimitiveClip {
     common: PackedPrimitiveInfo,
-    st0: Point2D<f32>,
-    st1: Point2D<f32>,
+    uv0: Point2D<f32>,
+    uv1: Point2D<f32>,
     stretch_size: Size2D<f32>,
-    padding: [u32; 2],
+    uv_kind: f32,
+    texture_id: TextureId,
     clip: Clip,
 }
 
@@ -2909,6 +2946,7 @@ impl FrameBuilder {
                                context_id: WebGLContextId) {
         let prim = ImagePrimitive {
             kind: ImagePrimitiveKind::WebGL(context_id),
+            cache: None,
         };
 
         self.add_primitive(&rect,
@@ -2928,6 +2966,7 @@ impl FrameBuilder {
             kind: ImagePrimitiveKind::Image(image_key,
                                             image_rendering,
                                             stretch_size.clone()),
+            cache: None,
         };
 
         self.add_primitive(&rect,
@@ -3358,8 +3397,10 @@ impl InsideTest<ComplexClipRegion> for ComplexClipRegion {
 
 struct ImageInfo {
     color_texture_id: TextureId,
-    uv_rect: RectUv<f32>,
+    uv0: Point2D<f32>,
+    uv1: Point2D<f32>,
     stretch_size: Option<Size2D<f32>>,
+    uv_kind: TextureCoordKind,
 }
 
 impl ImagePrimitive {
@@ -3369,20 +3410,21 @@ impl ImagePrimitive {
                 let info = resource_cache.get_image(image_key, image_rendering, frame_id);
                 ImageInfo {
                     color_texture_id: info.texture_id,
-                    uv_rect: info.uv_rect(),
+                    uv0: Point2D::new(info.pixel_rect.top_left.x.0 as f32,
+                                      info.pixel_rect.top_left.y.0 as f32),
+                    uv1: Point2D::new(info.pixel_rect.bottom_right.x.0 as f32,
+                                      info.pixel_rect.bottom_right.y.0 as f32),
                     stretch_size: Some(stretch_size),
+                    uv_kind: TextureCoordKind::Pixel,
                 }
             }
             ImagePrimitiveKind::WebGL(context_id) => {
                 ImageInfo {
                     color_texture_id: resource_cache.get_webgl_texture(&context_id),
-                    uv_rect: RectUv {
-                        top_left: Point2D::new(0.0, 1.0),
-                        top_right: Point2D::new(1.0, 1.0),
-                        bottom_left: Point2D::zero(),
-                        bottom_right: Point2D::new(1.0, 0.0),
-                    },
+                    uv0: Point2D::zero(),
+                    uv1: Point2D::new(1.0, 1.0),
                     stretch_size: None,
+                    uv_kind: TextureCoordKind::Normalized,
                 }
             }
         }
