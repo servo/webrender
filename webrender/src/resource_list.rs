@@ -37,6 +37,7 @@ impl ResourceList {
     }
 
     pub fn add_glyph(&mut self, font_key: FontKey, glyph: Glyph) {
+        debug_assert!(glyph.size.0 > 0);
         self.required_glyphs.entry(font_key)
                             .or_insert_with(|| HashSet::with_hasher(Default::default()))
                             .insert(glyph);

@@ -2764,6 +2764,10 @@ impl FrameBuilder {
             return
         }
 
+        if size.0 <= 0 {
+            return
+        }
+
         let text_run_count = (glyph_range.length as u32) / GLYPHS_PER_TEXT_RUN;
         let text_count = (glyph_range.length as u32) % GLYPHS_PER_TEXT_RUN;
 
