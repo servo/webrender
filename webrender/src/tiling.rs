@@ -26,7 +26,8 @@ use webrender_traits::{ColorF, FontKey, GlyphKey, ImageKey, ImageRendering, Comp
 use webrender_traits::{BorderDisplayItem, BorderStyle, ItemRange, AuxiliaryLists, BorderRadius, BorderSide};
 use webrender_traits::{BoxShadowClipMode, PipelineId, ScrollLayerId, WebGLContextId};
 
-pub const GLYPHS_PER_TEXT_RUN: u32 = 8;
+pub const GLYPHS_PER_TEXT_RUN: usize = 8;
+pub const ELEMENTS_PER_BORDER: usize = 8;
 
 const ALPHA_BATCHERS_PER_RENDER_TARGET: usize = 4;
 const MIN_TASKS_PER_ALPHA_BATCHER: usize = 64;
@@ -735,6 +736,11 @@ struct BoxShadowPrimitive {
 }
 
 #[derive(Debug)]
+struct BorderPrimitiveCache {
+    elements: [PackedBorderPrimitive; ELEMENTS_PER_BORDER],
+}
+
+#[derive(Debug)]
 struct BorderPrimitive {
     tl_outer: Point2D<f32>,
     tl_inner: Point2D<f32>,
@@ -757,6 +763,7 @@ struct BorderPrimitive {
     top_style: BorderStyle,
     right_style: BorderStyle,
     bottom_style: BorderStyle,
+    cache: Option<Box<BorderPrimitiveCache>>,
 }
 
 impl BorderPrimitive {
@@ -917,7 +924,7 @@ impl Primitive {
                 let blur_offset = text_run.blur_radius.to_f32_px() *
                     (BLUR_INFLATION_FACTOR as f32) / 2.0;
 
-                let mut glyphs: [PackedTextRunGlyph; GLYPHS_PER_TEXT_RUN as usize] = unsafe {
+                let mut glyphs: [PackedTextRunGlyph; GLYPHS_PER_TEXT_RUN] = unsafe {
                     mem::zeroed()
                 };
 
@@ -1800,7 +1807,7 @@ pub struct PackedGlyphPrimitive {
 #[repr(C)]
 pub struct PackedTextRunPrimitive {
     common: PackedPrimitiveInfo,
-    glyphs: [PackedTextRunGlyph; GLYPHS_PER_TEXT_RUN as usize],
+    glyphs: [PackedTextRunGlyph; GLYPHS_PER_TEXT_RUN],
     color: ColorF,
 }
 
@@ -2699,6 +2706,7 @@ impl FrameBuilder {
             top_style: top.style,
             right_style: right.style,
             bottom_style: bottom.style,
+            cache: None,
         };
 
         self.add_primitive(&rect,
@@ -2768,8 +2776,8 @@ impl FrameBuilder {
             return
         }
 
-        let text_run_count = (glyph_range.length as u32) / GLYPHS_PER_TEXT_RUN;
-        let text_count = (glyph_range.length as u32) % GLYPHS_PER_TEXT_RUN;
+        let text_run_count = glyph_range.length / GLYPHS_PER_TEXT_RUN;
+        let text_count = glyph_range.length % GLYPHS_PER_TEXT_RUN;
 
         for text_run_index in 0..text_run_count {
             let prim = TextRunPrimitive {
@@ -2778,8 +2786,8 @@ impl FrameBuilder {
                 size: size,
                 blur_radius: blur_radius,
                 glyph_range: ItemRange {
-                    start: glyph_range.start + (text_run_index * GLYPHS_PER_TEXT_RUN) as usize,
-                    length: GLYPHS_PER_TEXT_RUN as usize,
+                    start: glyph_range.start + (text_run_index * GLYPHS_PER_TEXT_RUN),
+                    length: GLYPHS_PER_TEXT_RUN,
                 },
                 cache: None,
             };
@@ -2793,8 +2801,9 @@ impl FrameBuilder {
                 font_key: font_key,
                 size: size,
                 blur_radius: blur_radius,
-                glyph_index: (glyph_range.start as u32) + text_run_count * GLYPHS_PER_TEXT_RUN +
-                    text_index,
+                glyph_index: (glyph_range.start +
+                              text_run_count * GLYPHS_PER_TEXT_RUN +
+                              text_index) as u32,
                 cache: None,
             };
 

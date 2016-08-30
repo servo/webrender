@@ -1256,7 +1256,7 @@ impl Renderer {
     fn draw_ubo_batch<T>(&mut self,
                          ubo_data: &[T],
                          prim_shader: PrimitiveShader,
-                         quads_per_item: u32,
+                         quads_per_item: usize,
                          transform_kind: TransformedRectKind,
                          color_texture_id: TextureId,
                          projection: &Matrix4D<f32>) {
@@ -1276,7 +1276,7 @@ impl Renderer {
             gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
             gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
 
-            let quad_count = (chunk.len() as u32) * quads_per_item;
+            let quad_count = chunk.len() * quads_per_item;
             self.device.draw_indexed_triangles_instanced_u16(6, quad_count as gl::GLint);
             self.profile_counters.vertices.add(6 * (quad_count as usize));
             self.profile_counters.draw_calls.inc();
