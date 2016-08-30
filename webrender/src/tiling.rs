@@ -720,6 +720,11 @@ struct TextRunPrimitive {
 }
 
 #[derive(Debug)]
+struct BoxShadowPrimitiveCache {
+    elements: Vec<PackedBoxShadowPrimitive>,
+}
+
+#[derive(Debug)]
 struct BoxShadowPrimitive {
     src_rect: Rect<f32>,
     bs_rect: Rect<f32>,
@@ -729,6 +734,7 @@ struct BoxShadowPrimitive {
     border_radius: f32,
     clip_mode: BoxShadowClipMode,
     metrics: BoxShadowMetrics,
+    cache: Option<BoxShadowPrimitiveCache>,
 }
 
 #[derive(Debug)]
@@ -867,9 +873,47 @@ impl Primitive {
                           device_pixel_ratio: f32,
                           auxiliary_lists: &AuxiliaryLists) {
         match self.details {
-            PrimitiveDetails::Rectangle(..) |
-            PrimitiveDetails::BoxShadow(..) => {
-                unreachable!();     // not currently supported from build_resource_list
+            PrimitiveDetails::Rectangle(..) => {
+                // not cached by build_resource_list
+                unreachable!()
+            }
+            PrimitiveDetails::BoxShadow(ref mut shadow) => {
+                let mut rects = Vec::new();
+                let inverted = match shadow.clip_mode {
+                    BoxShadowClipMode::None | BoxShadowClipMode::Outset => {
+                        subtract_rect(&self.rect, &shadow.src_rect, &mut rects);
+                        0.0
+                    }
+                    BoxShadowClipMode::Inset => {
+                        subtract_rect(&self.rect, &shadow.bs_rect, &mut rects);
+                        1.0
+                    }
+                };
+
+                let mut elements = Vec::new();
+                for rect in rects {
+                    elements.push(PackedBoxShadowPrimitive {
+                        common: PackedPrimitiveInfo {
+                            padding: [0, 0],
+                            tile_index: 0,
+                            layer_index: 0,
+                            local_clip_rect: self.local_clip_rect,
+                            local_rect: rect,
+                        },
+                        color: shadow.color,
+
+                        border_radii: Point2D::new(shadow.border_radius,
+                                                   shadow.border_radius),
+                        blur_radius: shadow.blur_radius,
+                        inverted: inverted,
+                        bs_rect: shadow.bs_rect,
+                        src_rect: shadow.src_rect,
+                    });
+                }
+
+                shadow.cache = Some(BoxShadowPrimitiveCache {
+                    elements: elements,
+                });
             }
             PrimitiveDetails::Image(ref mut image) => {
                 let ImageInfo {
@@ -1384,7 +1428,9 @@ impl Primitive {
                            auxiliary_lists: &AuxiliaryLists) -> bool {
         match self.details {
             PrimitiveDetails::Rectangle(..) => false,
-            PrimitiveDetails::BoxShadow(..) => false,
+            PrimitiveDetails::BoxShadow(ref details) => {
+                details.cache.is_none()
+            }
             PrimitiveDetails::Gradient(ref details) => {
                 details.cache.is_none()
             }
@@ -1576,36 +1622,13 @@ impl Primitive {
             (&mut PrimitiveBatchData::AngleGradient(..), _) => return false,
             (&mut PrimitiveBatchData::BoxShadows(ref mut data),
              &PrimitiveDetails::BoxShadow(ref shadow)) => {
-                let mut rects = Vec::new();
-                let inverted = match shadow.clip_mode {
-                    BoxShadowClipMode::None | BoxShadowClipMode::Outset => {
-                        subtract_rect(&self.rect, &shadow.src_rect, &mut rects);
-                        0.0
-                    }
-                    BoxShadowClipMode::Inset => {
-                        subtract_rect(&self.rect, &shadow.bs_rect, &mut rects);
-                        1.0
-                    }
-                };
+                let cache = shadow.cache.as_ref().expect("No cache for box shadow present!");
 
-                for rect in rects {
-                    data.push(PackedBoxShadowPrimitive {
-                        common: PackedPrimitiveInfo {
-                            padding: [0, 0],
-                            tile_index: tile_index_in_ubo,
-                            layer_index: layer_index_in_ubo,
-                            local_clip_rect: self.local_clip_rect,
-                            local_rect: rect,
-                        },
-                        color: shadow.color,
-
-                        border_radii: Point2D::new(shadow.border_radius,
-                                                   shadow.border_radius),
-                        blur_radius: shadow.blur_radius,
-                        inverted: inverted,
-                        bs_rect: shadow.bs_rect,
-                        src_rect: shadow.src_rect,
-                    });
+                for element in &cache.elements {
+                    let mut element = element.clone();
+                    element.common.tile_index = tile_index_in_ubo;
+                    element.common.layer_index = layer_index_in_ubo;
+                    data.push(element);
                 }
             }
             (&mut PrimitiveBatchData::BoxShadows(..), _) => return false,
@@ -2931,6 +2954,7 @@ impl FrameBuilder {
             spread_radius: spread_radius,
             border_radius: border_radius,
             clip_mode: clip_mode,
+            cache: None,
         };
 
         self.add_primitive(&prim_rect,
