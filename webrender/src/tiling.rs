@@ -270,15 +270,13 @@ impl AlphaBatcher {
                                                   opacity);
                         debug_assert!(ok)
                     }
-                    AlphaRenderItem::Primitive(sc_index, prim_index) => {
-                        let layer = &ctx.layer_store[sc_index.0];
+                    AlphaRenderItem::Primitive(_, prim_index) => {
                         let prim = &ctx.prim_store[prim_index.0];
                         let ok = prim.add_to_batch(batch,
                                                    index_in_layer_ubo.unwrap(),
                                                    index_in_tile_ubo.unwrap(),
                                                    batch_key.flags.transform_kind(),
                                                    batch_key.flags.needs_blending(),
-                                                   layer.pipeline_id,
                                                    ctx);
                         debug_assert!(ok);
 
@@ -305,7 +303,6 @@ struct RenderTargetContext<'a> {
     frame_id: FrameId,
     alpha_batch_max_tiles: usize,
     alpha_batch_max_layers: usize,
-    pipeline_auxiliary_lists: &'a HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>,
 }
 
 pub struct RenderTarget {
@@ -789,11 +786,18 @@ struct ImagePrimitive {
 }
 
 #[derive(Debug)]
+enum GradientPrimitiveCache {
+    Aligned(Vec<PackedAlignedGradientPrimitive>),
+    Angle(PackedAngleGradientPrimitive),
+}
+
+#[derive(Debug)]
 struct GradientPrimitive {
     stops_range: ItemRange,
     kind: GradientType,
     start_point: Point2D<f32>,
     end_point: Point2D<f32>,
+    cache: Option<GradientPrimitiveCache>,
 }
 
 #[derive(Debug)]
@@ -857,10 +861,166 @@ impl Primitive {
                           auxiliary_lists: &AuxiliaryLists) {
         match self.details {
             PrimitiveDetails::Rectangle(..) |
-            PrimitiveDetails::Gradient(..) |
             PrimitiveDetails::BoxShadow(..) |
             PrimitiveDetails::Image(..) => {
                 unreachable!();     // not currently supported from build_resource_list
+            }
+            PrimitiveDetails::Gradient(ref mut gradient) => {
+                match gradient.kind {
+                    GradientType::Horizontal | GradientType::Vertical => {
+                        let stops = auxiliary_lists.gradient_stops(&gradient.stops_range);
+                        let mut pieces = Vec::new();
+                        for i in 0..(stops.len() - 1) {
+                            let (prev_stop, next_stop) = (&stops[i], &stops[i + 1]);
+                            let piece_origin;
+                            let piece_size;
+                            match gradient.kind {
+                                GradientType::Horizontal => {
+                                    let prev_x = util::lerp(gradient.start_point.x,
+                                                            gradient.end_point.x,
+                                                            prev_stop.offset);
+                                    let next_x = util::lerp(gradient.start_point.x,
+                                                            gradient.end_point.x,
+                                                            next_stop.offset);
+                                    piece_origin = Point2D::new(prev_x, self.rect.origin.y);
+                                    piece_size = Size2D::new(next_x - prev_x,
+                                                             self.rect.size.height);
+                                }
+                                GradientType::Vertical => {
+                                    let prev_y = util::lerp(gradient.start_point.y,
+                                                            gradient.end_point.y,
+                                                            prev_stop.offset);
+                                    let next_y = util::lerp(gradient.start_point.y,
+                                                            gradient.end_point.y,
+                                                            next_stop.offset);
+                                    piece_origin = Point2D::new(self.rect.origin.x, prev_y);
+                                    piece_size = Size2D::new(self.rect.size.width, next_y - prev_y);
+                                }
+                                GradientType::Rotated => unreachable!(),
+                            }
+
+                            let piece_rect = Rect::new(piece_origin, piece_size);
+                            let mut clip = Clip::invalid(piece_rect);
+
+                            if let Some(ref prim_clip) = self.complex_clip {
+                                if i == 0 {
+                                    clip.top_left.outer_radius_x = prim_clip.top_left
+                                                                            .outer_radius_x;
+                                    clip.top_left.outer_radius_y = prim_clip.top_left
+                                                                            .outer_radius_y;
+
+                                    match gradient.kind {
+                                        GradientType::Horizontal => {
+                                            clip.bottom_left.outer_radius_x =
+                                                prim_clip.bottom_left.outer_radius_x;
+                                            clip.bottom_left.outer_radius_y =
+                                                prim_clip.bottom_left.outer_radius_y;
+                                        }
+                                        GradientType::Vertical => {
+                                            clip.top_right.outer_radius_x =
+                                                prim_clip.top_right.outer_radius_x;
+                                            clip.top_right.outer_radius_y =
+                                                prim_clip.top_right.outer_radius_y;
+                                        }
+                                        GradientType::Rotated => unreachable!(),
+                                    }
+                                }
+
+                                if i == stops.len() - 2 {
+                                    clip.bottom_right.outer_radius_x = prim_clip.bottom_right
+                                                                                .outer_radius_x;
+                                    clip.bottom_right.outer_radius_y = prim_clip.bottom_right
+                                                                                .outer_radius_y;
+
+                                    match gradient.kind {
+                                        GradientType::Horizontal => {
+                                            clip.top_right.outer_radius_x =
+                                                prim_clip.top_right.outer_radius_x;
+                                            clip.top_right.outer_radius_y =
+                                                prim_clip.top_right.outer_radius_y;
+                                        }
+                                        GradientType::Vertical => {
+                                            clip.bottom_left.outer_radius_x =
+                                                prim_clip.bottom_left.outer_radius_x;
+                                            clip.bottom_left.outer_radius_y =
+                                                prim_clip.bottom_left.outer_radius_y;
+                                        }
+                                        GradientType::Rotated => unreachable!(),
+                                    }
+                                }
+                            }
+
+                            pieces.push(PackedAlignedGradientPrimitive {
+                                common: PackedPrimitiveInfo {
+                                    padding: [0, 0],
+                                    tile_index: 0,
+                                    layer_index: 0,
+                                    local_clip_rect: self.local_clip_rect,
+                                    local_rect: piece_rect,
+                                },
+                                color0: prev_stop.color,
+                                color1: next_stop.color,
+                                padding: [0, 0, 0],
+                                kind: pack_as_float(gradient.kind as u32),
+                                clip: clip,
+                            });
+                        }
+
+                        gradient.cache = Some(GradientPrimitiveCache::Aligned(pieces));
+                    }
+                    GradientType::Rotated => {
+                        let src_stops = auxiliary_lists.gradient_stops(&gradient.stops_range);
+                        if src_stops.len() > MAX_STOPS_PER_ANGLE_GRADIENT {
+                            println!("TODO: Angle gradients with > {} stops",
+                                     MAX_STOPS_PER_ANGLE_GRADIENT);
+                            return;
+                        }
+
+                        let mut stops: [f32; MAX_STOPS_PER_ANGLE_GRADIENT] = unsafe {
+                            mem::uninitialized()
+                        };
+                        let mut colors: [ColorF; MAX_STOPS_PER_ANGLE_GRADIENT] = unsafe {
+                            mem::uninitialized()
+                        };
+
+                        let sx = gradient.start_point.x;
+                        let ex = gradient.end_point.x;
+
+                        let (sp, ep) = if sx > ex {
+                            for (stop_index, stop) in src_stops.iter().rev().enumerate() {
+                                stops[stop_index] = 1.0 - stop.offset;
+                                colors[stop_index] = stop.color;
+                            }
+
+                            (gradient.end_point, gradient.start_point)
+                        } else {
+                            for (stop_index, stop) in src_stops.iter().enumerate() {
+                                stops[stop_index] = stop.offset;
+                                colors[stop_index] = stop.color;
+                            }
+
+                            (gradient.start_point, gradient.end_point)
+                        };
+
+                        let packed_prim = PackedAngleGradientPrimitive {
+                            common: PackedPrimitiveInfo {
+                                padding: [0, 0],
+                                tile_index: 0,
+                                layer_index: 0,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: self.rect,
+                            },
+                            padding: [0, 0, 0],
+                            start_point: sp,
+                            end_point: ep,
+                            stop_count: pack_as_float(src_stops.len() as u32),
+                            stops: stops,
+                            colors: colors,
+                        };
+
+                        gradient.cache = Some(GradientPrimitiveCache::Angle(packed_prim));
+                    }
+                }
             }
             PrimitiveDetails::Border(ref mut border) => {
                 let inner_radius = BorderRadius {
@@ -1169,8 +1329,10 @@ impl Primitive {
                            auxiliary_lists: &AuxiliaryLists) -> bool {
         match self.details {
             PrimitiveDetails::Rectangle(..) => false,
-            PrimitiveDetails::Gradient(..) => false,
             PrimitiveDetails::BoxShadow(..) => false,
+            PrimitiveDetails::Gradient(ref details) => {
+                details.cache.is_none()
+            }
             PrimitiveDetails::Border(ref details) => {
                 details.cache.is_none()
             }
@@ -1235,7 +1397,6 @@ impl Primitive {
                     tile_index_in_ubo: u32,
                     transform_kind: TransformedRectKind,
                     needs_blending: bool,
-                    pipeline_id: PipelineId,
                     ctx: &RenderTargetContext) -> bool {
         if transform_kind != batch.transform_kind ||
            needs_blending != batch.blending_enabled {
@@ -1358,169 +1519,29 @@ impl Primitive {
             (&mut PrimitiveBatchData::Borders(..), _) => return false,
             (&mut PrimitiveBatchData::AlignedGradient(ref mut data),
              &PrimitiveDetails::Gradient(ref gradient)) => {
-                match gradient.kind {
-                    GradientType::Horizontal | GradientType::Vertical => {
-                        let auxiliary_lists = ctx.pipeline_auxiliary_lists.get(&pipeline_id)
-                                                                          .expect("No auxiliary lists?!");
-
-                        let stops = auxiliary_lists.gradient_stops(&gradient.stops_range);
-                        for i in 0..(stops.len() - 1) {
-                            let (prev_stop, next_stop) = (&stops[i], &stops[i + 1]);
-                            let piece_origin;
-                            let piece_size;
-                            match gradient.kind {
-                                GradientType::Horizontal => {
-                                    let prev_x = util::lerp(gradient.start_point.x,
-                                                            gradient.end_point.x,
-                                                            prev_stop.offset);
-                                    let next_x = util::lerp(gradient.start_point.x,
-                                                            gradient.end_point.x,
-                                                            next_stop.offset);
-                                    piece_origin = Point2D::new(prev_x, self.rect.origin.y);
-                                    piece_size = Size2D::new(next_x - prev_x,
-                                                             self.rect.size.height);
-                                }
-                                GradientType::Vertical => {
-                                    let prev_y = util::lerp(gradient.start_point.y,
-                                                            gradient.end_point.y,
-                                                            prev_stop.offset);
-                                    let next_y = util::lerp(gradient.start_point.y,
-                                                            gradient.end_point.y,
-                                                            next_stop.offset);
-                                    piece_origin = Point2D::new(self.rect.origin.x, prev_y);
-                                    piece_size = Size2D::new(self.rect.size.width, next_y - prev_y);
-                                }
-                                GradientType::Rotated => unreachable!(),
-                            }
-
-                            let piece_rect = Rect::new(piece_origin, piece_size);
-                            let mut clip = Clip::invalid(piece_rect);
-
-                            if let Some(ref prim_clip) = self.complex_clip {
-                                if i == 0 {
-                                    clip.top_left.outer_radius_x = prim_clip.top_left
-                                                                            .outer_radius_x;
-                                    clip.top_left.outer_radius_y = prim_clip.top_left
-                                                                            .outer_radius_y;
-
-                                    match gradient.kind {
-                                        GradientType::Horizontal => {
-                                            clip.bottom_left.outer_radius_x =
-                                                prim_clip.bottom_left.outer_radius_x;
-                                            clip.bottom_left.outer_radius_y =
-                                                prim_clip.bottom_left.outer_radius_y;
-                                        }
-                                        GradientType::Vertical => {
-                                            clip.top_right.outer_radius_x =
-                                                prim_clip.top_right.outer_radius_x;
-                                            clip.top_right.outer_radius_y =
-                                                prim_clip.top_right.outer_radius_y;
-                                        }
-                                        GradientType::Rotated => unreachable!(),
-                                    }
-                                }
-
-                                if i == stops.len() - 2 {
-                                    clip.bottom_right.outer_radius_x = prim_clip.bottom_right
-                                                                                .outer_radius_x;
-                                    clip.bottom_right.outer_radius_y = prim_clip.bottom_right
-                                                                                .outer_radius_y;
-
-                                    match gradient.kind {
-                                        GradientType::Horizontal => {
-                                            clip.top_right.outer_radius_x =
-                                                prim_clip.top_right.outer_radius_x;
-                                            clip.top_right.outer_radius_y =
-                                                prim_clip.top_right.outer_radius_y;
-                                        }
-                                        GradientType::Vertical => {
-                                            clip.bottom_left.outer_radius_x =
-                                                prim_clip.bottom_left.outer_radius_x;
-                                            clip.bottom_left.outer_radius_y =
-                                                prim_clip.bottom_left.outer_radius_y;
-                                        }
-                                        GradientType::Rotated => unreachable!(),
-                                    }
-                                }
-                            }
-
-                            data.push(PackedAlignedGradientPrimitive {
-                                common: PackedPrimitiveInfo {
-                                    padding: [0, 0],
-                                    tile_index: tile_index_in_ubo,
-                                    layer_index: layer_index_in_ubo,
-                                    local_clip_rect: self.local_clip_rect,
-                                    local_rect: piece_rect,
-                                },
-                                color0: prev_stop.color,
-                                color1: next_stop.color,
-                                padding: [0, 0, 0],
-                                kind: pack_as_float(gradient.kind as u32),
-                                clip: clip,
-                            });
+                match gradient.cache {
+                    Some(GradientPrimitiveCache::Aligned(ref pieces)) => {
+                        for piece in pieces {
+                            let mut piece = piece.clone();
+                            piece.common.tile_index = tile_index_in_ubo;
+                            piece.common.layer_index = layer_index_in_ubo;
+                            data.push(piece);
                         }
                     }
-                    GradientType::Rotated => return false,
+                    Some(GradientPrimitiveCache::Angle(..)) | None => return false,
                 }
             }
             (&mut PrimitiveBatchData::AlignedGradient(..), _) => return false,
             (&mut PrimitiveBatchData::AngleGradient(ref mut data),
              &PrimitiveDetails::Gradient(ref gradient)) => {
-                match gradient.kind {
-                    GradientType::Horizontal | GradientType::Vertical => return false,
-                    GradientType::Rotated => {
-                        let auxiliary_lists = ctx.pipeline_auxiliary_lists.get(&pipeline_id)
-                                                                          .expect("No auxiliary lists?!");
-
-                        let src_stops = auxiliary_lists.gradient_stops(&gradient.stops_range);
-                        if src_stops.len() > MAX_STOPS_PER_ANGLE_GRADIENT {
-                            println!("TODO: Angle gradients with > {} stops",
-                                     MAX_STOPS_PER_ANGLE_GRADIENT);
-                            return true;
-                        }
-
-                        let mut stops: [f32; MAX_STOPS_PER_ANGLE_GRADIENT] = unsafe {
-                            mem::uninitialized()
-                        };
-                        let mut colors: [ColorF; MAX_STOPS_PER_ANGLE_GRADIENT] = unsafe {
-                            mem::uninitialized()
-                        };
-
-                        let sx = gradient.start_point.x;
-                        let ex = gradient.end_point.x;
-
-                        let (sp, ep) = if sx > ex {
-                            for (stop_index, stop) in src_stops.iter().rev().enumerate() {
-                                stops[stop_index] = 1.0 - stop.offset;
-                                colors[stop_index] = stop.color;
-                            }
-
-                            (gradient.end_point, gradient.start_point)
-                        } else {
-                            for (stop_index, stop) in src_stops.iter().enumerate() {
-                                stops[stop_index] = stop.offset;
-                                colors[stop_index] = stop.color;
-                            }
-
-                            (gradient.start_point, gradient.end_point)
-                        };
-
-                        data.push(PackedAngleGradientPrimitive {
-                            common: PackedPrimitiveInfo {
-                                padding: [0, 0],
-                                tile_index: tile_index_in_ubo,
-                                layer_index: layer_index_in_ubo,
-                                local_clip_rect: self.local_clip_rect,
-                                local_rect: self.rect,
-                            },
-                            padding: [0, 0, 0],
-                            start_point: sp,
-                            end_point: ep,
-                            stop_count: pack_as_float(src_stops.len() as u32),
-                            stops: stops,
-                            colors: colors,
-                        });
+                match gradient.cache {
+                    Some(GradientPrimitiveCache::Angle(ref piece)) => {
+                        let mut piece = piece.clone();
+                        piece.common.tile_index = tile_index_in_ubo;
+                        piece.common.layer_index = layer_index_in_ubo;
+                        data.push(piece);
                     }
+                    Some(GradientPrimitiveCache::Aligned(..)) | None => return false,
                 }
             }
             (&mut PrimitiveBatchData::AngleGradient(..), _) => return false,
@@ -2737,6 +2758,7 @@ impl FrameBuilder {
                 kind: GradientType::Vertical,
                 start_point: start_point,
                 end_point: end_point,
+                cache: None,
             };
             self.add_primitive(&rect,
                                clip_rect,
@@ -2748,6 +2770,7 @@ impl FrameBuilder {
                 kind: GradientType::Horizontal,
                 start_point: start_point,
                 end_point: end_point,
+                cache: None,
             };
             self.add_primitive(&rect,
                                clip_rect,
@@ -2759,6 +2782,7 @@ impl FrameBuilder {
                 kind: GradientType::Rotated,
                 start_point: start_point,
                 end_point: end_point,
+                cache: None,
             };
             self.add_primitive(&rect,
                                clip_rect,
@@ -3208,7 +3232,6 @@ impl FrameBuilder {
             frame_id: frame_id,
             alpha_batch_max_layers: self.config.max_prim_layers,
             alpha_batch_max_tiles: self.config.max_prim_tiles,
-            pipeline_auxiliary_lists: pipeline_auxiliary_lists,
         };
 
         if !self.layer_store.is_empty() {
