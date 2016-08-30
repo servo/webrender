@@ -9,7 +9,7 @@ use euclid::{Point2D, Point4D, Rect, Matrix4D, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
 use internal_types::{Glyph, DevicePixel, CompositionOp};
-use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp, RectUv};
+use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
 use layer::Layer;
 use profiler::FrameProfileCounters;
 use renderer::{BLUR_INFLATION_FACTOR};
@@ -26,7 +26,8 @@ use webrender_traits::{ColorF, FontKey, GlyphKey, ImageKey, ImageRendering, Comp
 use webrender_traits::{BorderDisplayItem, BorderStyle, ItemRange, AuxiliaryLists, BorderRadius, BorderSide};
 use webrender_traits::{BoxShadowClipMode, PipelineId, ScrollLayerId, WebGLContextId};
 
-pub const GLYPHS_PER_TEXT_RUN: u32 = 8;
+pub const GLYPHS_PER_TEXT_RUN: usize = 8;
+pub const ELEMENTS_PER_BORDER: usize = 8;
 
 const ALPHA_BATCHERS_PER_RENDER_TARGET: usize = 4;
 const MIN_TASKS_PER_ALPHA_BATCHER: usize = 64;
@@ -269,16 +270,13 @@ impl AlphaBatcher {
                                                   opacity);
                         debug_assert!(ok)
                     }
-                    AlphaRenderItem::Primitive(sc_index, prim_index) => {
-                        let layer = &ctx.layer_store[sc_index.0];
+                    AlphaRenderItem::Primitive(_, prim_index) => {
                         let prim = &ctx.prim_store[prim_index.0];
                         let ok = prim.add_to_batch(batch,
                                                    index_in_layer_ubo.unwrap(),
                                                    index_in_tile_ubo.unwrap(),
                                                    batch_key.flags.transform_kind(),
-                                                   batch_key.flags.needs_blending(),
-                                                   layer.pipeline_id,
-                                                   ctx);
+                                                   batch_key.flags.needs_blending());
                         debug_assert!(ok);
 
                         let color_texture_id = prim.color_texture_id(ctx.resource_cache,
@@ -304,7 +302,6 @@ struct RenderTargetContext<'a> {
     frame_id: FrameId,
     alpha_batch_max_tiles: usize,
     alpha_batch_max_layers: usize,
-    pipeline_auxiliary_lists: &'a HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>,
 }
 
 pub struct RenderTarget {
@@ -723,6 +720,11 @@ struct TextRunPrimitive {
 }
 
 #[derive(Debug)]
+struct BoxShadowPrimitiveCache {
+    elements: Vec<PackedBoxShadowPrimitive>,
+}
+
+#[derive(Debug)]
 struct BoxShadowPrimitive {
     src_rect: Rect<f32>,
     bs_rect: Rect<f32>,
@@ -732,6 +734,12 @@ struct BoxShadowPrimitive {
     border_radius: f32,
     clip_mode: BoxShadowClipMode,
     metrics: BoxShadowMetrics,
+    cache: Option<BoxShadowPrimitiveCache>,
+}
+
+#[derive(Debug)]
+struct BorderPrimitiveCache {
+    elements: [PackedBorderPrimitive; ELEMENTS_PER_BORDER],
 }
 
 #[derive(Debug)]
@@ -757,6 +765,7 @@ struct BorderPrimitive {
     top_style: BorderStyle,
     right_style: BorderStyle,
     bottom_style: BorderStyle,
+    cache: Option<Box<BorderPrimitiveCache>>,
 }
 
 impl BorderPrimitive {
@@ -777,8 +786,21 @@ enum ImagePrimitiveKind {
 }
 
 #[derive(Debug)]
+enum ImagePrimitiveCache {
+    Normal(PackedImagePrimitive),
+    Clip(PackedImagePrimitiveClip),
+}
+
+#[derive(Debug)]
 struct ImagePrimitive {
     kind: ImagePrimitiveKind,
+    cache: Option<ImagePrimitiveCache>,
+}
+
+#[derive(Debug)]
+enum GradientPrimitiveCache {
+    Aligned(Vec<PackedAlignedGradientPrimitive>),
+    Angle(PackedAngleGradientPrimitive),
 }
 
 #[derive(Debug)]
@@ -787,6 +809,7 @@ struct GradientPrimitive {
     kind: GradientType,
     start_point: Point2D<f32>,
     end_point: Point2D<f32>,
+    cache: Option<GradientPrimitiveCache>,
 }
 
 #[derive(Debug)]
@@ -835,6 +858,7 @@ impl Primitive {
             PrimitiveDetails::Rectangle(ref primitive) => primitive.color.a == 1.0,
             PrimitiveDetails::Image(ImagePrimitive {
                 kind: ImagePrimitiveKind::Image(image_key, image_rendering, _),
+                ..
             }) => resource_cache.get_image(image_key, image_rendering, frame_id).is_opaque,
             _ => false,
         }
@@ -849,506 +873,102 @@ impl Primitive {
                           device_pixel_ratio: f32,
                           auxiliary_lists: &AuxiliaryLists) {
         match self.details {
-            PrimitiveDetails::Rectangle(..) |
-            PrimitiveDetails::Gradient(..) |
-            PrimitiveDetails::Border(..) |
-            PrimitiveDetails::BoxShadow(..) |
-            PrimitiveDetails::Image(..) => {
-                unreachable!();     // not currently supported from build_resource_list
+            PrimitiveDetails::Rectangle(..) => {
+                // not cached by build_resource_list
+                unreachable!()
             }
-            PrimitiveDetails::Text(ref mut text) => {
-                let mut cache = TextPrimitiveCache::new();
-                let glyph_range = ItemRange {
-                    start: text.glyph_index as usize,
-                    length: 1,
-                };
-                let glyph = auxiliary_lists.glyph_instances(&glyph_range)[0];
-                let glyph_key = GlyphKey::new(text.font_key,
-                                              text.size,
-                                              text.blur_radius,
-                                              glyph.index);
-                let blur_offset = text.blur_radius.to_f32_px() *
-                    (BLUR_INFLATION_FACTOR as f32) / 2.0;
-
-                let image_info = match resource_cache.get_glyph(&glyph_key, frame_id) {
-                    None => return,
-                    Some(image_info) => image_info,
-                };
-
-                debug_assert!(cache.color_texture_id == TextureId(0) ||
-                              cache.color_texture_id == image_info.texture_id);
-                cache.color_texture_id = image_info.texture_id;
-
-                let x = glyph.x + image_info.user_data.x0 as f32 / device_pixel_ratio -
-                    blur_offset;
-                let y = glyph.y - image_info.user_data.y0 as f32 / device_pixel_ratio -
-                    blur_offset;
-
-                let width = image_info.requested_rect.size.width as f32 / device_pixel_ratio;
-                let height = image_info.requested_rect.size.height as f32 / device_pixel_ratio;
-
-                self.rect = Rect::new(Point2D::new(x, y), Size2D::new(width, height));
-                cache.glyph = Some(PackedGlyphPrimitive {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: 0,
-                        layer_index: 0,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: self.rect,
-                    },
-                    color: text.color,
-                    uv0: Point2D::new(image_info.pixel_rect.top_left.x.0 as f32,
-                                      image_info.pixel_rect.top_left.y.0 as f32),
-                    uv1: Point2D::new(image_info.pixel_rect.bottom_right.x.0 as f32,
-                                      image_info.pixel_rect.bottom_right.y.0 as f32),
-                });
-
-                text.cache = Some(cache);
-            }
-            PrimitiveDetails::TextRun(ref mut text_run) => {
-                debug_assert!(text_run.cache.is_none());
-                let mut cache = TextRunPrimitiveCache::new();
-
-                let src_glyphs = auxiliary_lists.glyph_instances(&text_run.glyph_range);
-                let mut glyph_key = GlyphKey::new(text_run.font_key,
-                                                  text_run.size,
-                                                  text_run.blur_radius,
-                                                  src_glyphs[0].index);
-                let blur_offset = text_run.blur_radius.to_f32_px() *
-                    (BLUR_INFLATION_FACTOR as f32) / 2.0;
-
-                let mut glyphs: [PackedTextRunGlyph; GLYPHS_PER_TEXT_RUN as usize] = unsafe {
-                    mem::zeroed()
-                };
-
-                self.rect = Rect::zero();
-                for (glyph_index, glyph) in src_glyphs.iter().enumerate() {
-                    glyph_key.index = glyph.index;
-
-                    let image_info = match resource_cache.get_glyph(&glyph_key, frame_id) {
-                        None => continue,
-                        Some(image_info) => image_info,
-                    };
-
-                    debug_assert!(cache.color_texture_id == TextureId(0) ||
-                                  cache.color_texture_id == image_info.texture_id);
-                    cache.color_texture_id = image_info.texture_id;
-
-                    let x = glyph.x + image_info.user_data.x0 as f32 / device_pixel_ratio -
-                        blur_offset;
-                    let y = glyph.y - image_info.user_data.y0 as f32 / device_pixel_ratio -
-                        blur_offset;
-
-                    let width = image_info.requested_rect.size.width as f32 /
-                        device_pixel_ratio;
-                    let height = image_info.requested_rect.size.height as f32 /
-                        device_pixel_ratio;
-
-                    let local_glyph_rect = Rect::new(Point2D::new(x, y),
-                                                     Size2D::new(width, height));
-                    self.rect = self.rect.union(&local_glyph_rect);
-
-                    glyphs[glyph_index] = PackedTextRunGlyph {
-                        local_rect: local_glyph_rect,
-                        uv0: Point2D::new(image_info.pixel_rect.top_left.x.0 as f32,
-                                          image_info.pixel_rect.top_left.y.0 as f32),
-                        uv1: Point2D::new(image_info.pixel_rect.bottom_right.x.0 as f32,
-                                          image_info.pixel_rect.bottom_right.y.0 as f32),
+            PrimitiveDetails::BoxShadow(ref mut shadow) => {
+                let mut rects = Vec::new();
+                let inverted = match shadow.clip_mode {
+                    BoxShadowClipMode::None | BoxShadowClipMode::Outset => {
+                        subtract_rect(&self.rect, &shadow.src_rect, &mut rects);
+                        0.0
                     }
-                }
-
-                cache.glyphs = Some(PackedTextRunPrimitive {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: 0,
-                        layer_index: 0,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: self.rect,
-                    },
-                    color: text_run.color,
-                    glyphs: glyphs,
-                });
-
-                text_run.cache = Some(cache);
-            }
-        }
-
-        self.rebuild_bounding_rect(screen_rect,
-                                   layer_transform,
-                                   layer_combined_local_clip_rect,
-                                   device_pixel_ratio);
-    }
-
-    fn build_resource_list(&mut self,
-                           resource_list: &mut ResourceList,
-                           auxiliary_lists: &AuxiliaryLists) -> bool {
-        match self.details {
-            PrimitiveDetails::Rectangle(..) => false,
-            PrimitiveDetails::Gradient(..) => false,
-            PrimitiveDetails::Border(..) => false,
-            PrimitiveDetails::BoxShadow(..) => false,
-            PrimitiveDetails::Image(ref details) => {
-                match details.kind {
-                    ImagePrimitiveKind::Image(image_key, image_rendering, _) => {
-                        resource_list.add_image(image_key, image_rendering);
+                    BoxShadowClipMode::Inset => {
+                        subtract_rect(&self.rect, &shadow.bs_rect, &mut rects);
+                        1.0
                     }
-                    ImagePrimitiveKind::WebGL(..) => {}
-                }
-                false
-            }
-            PrimitiveDetails::Text(ref details) => {
-                let glyphs = auxiliary_lists.glyph_instances(&ItemRange {
-                    start: details.glyph_index as usize,
-                    length: 1,
-                });
-                for glyph in glyphs {
-                    let glyph = Glyph::new(details.size, details.blur_radius, glyph.index);
-                    resource_list.add_glyph(details.font_key, glyph);
-                }
-                details.cache.is_none()
-            }
-            PrimitiveDetails::TextRun(ref details) => {
-                let glyphs = auxiliary_lists.glyph_instances(&details.glyph_range);
-                for glyph in glyphs {
-                    let glyph = Glyph::new(details.size, details.blur_radius, glyph.index);
-                    resource_list.add_glyph(details.font_key, glyph);
-                }
-                details.cache.is_none()
-            }
-        }
-    }
+                };
 
-    // Optional narrow phase intersection test, depending on primitive type.
-    fn affects_tile(&self,
-                    tile_rect: &Rect<DevicePixel>,
-                    transform: &Matrix4D<f32>,
-                    device_pixel_ratio: f32) -> bool {
-        match self.details {
-            PrimitiveDetails::Rectangle(..) => true,
-            PrimitiveDetails::Text(..) => true,
-            PrimitiveDetails::TextRun(..) => true,
-            PrimitiveDetails::Image(..) => true,
-            PrimitiveDetails::Gradient(..) => true,
-            PrimitiveDetails::BoxShadow(..) => true,
-            PrimitiveDetails::Border(ref border) => {
-                let inner_rect = rect_from_points_f(border.tl_inner.x.max(border.bl_inner.x),
-                                                    border.tl_inner.y.max(border.tr_inner.y),
-                                                    border.tr_inner.x.min(border.br_inner.x),
-                                                    border.bl_inner.y.min(border.br_inner.y));
-                let inner_rect = TransformedRect::new(&inner_rect, transform, device_pixel_ratio);
+                let mut elements = Vec::new();
+                for rect in rects {
+                    elements.push(PackedBoxShadowPrimitive {
+                        common: PackedPrimitiveInfo {
+                            padding: [0, 0],
+                            tile_index: 0,
+                            layer_index: 0,
+                            local_clip_rect: self.local_clip_rect,
+                            local_rect: rect,
+                        },
+                        color: shadow.color,
 
-                !inner_rect.bounding_rect.contains_rect(tile_rect)
-            }
-        }
-    }
-
-    fn add_to_batch(&self,
-                    batch: &mut PrimitiveBatch,
-                    layer_index_in_ubo: u32,
-                    tile_index_in_ubo: u32,
-                    transform_kind: TransformedRectKind,
-                    needs_blending: bool,
-                    pipeline_id: PipelineId,
-                    ctx: &RenderTargetContext) -> bool {
-        if transform_kind != batch.transform_kind ||
-           needs_blending != batch.blending_enabled {
-            return false
-        }
-
-        match (&mut batch.data, &self.details) {
-            (&mut PrimitiveBatchData::Blend(..), _) => return false,
-            (&mut PrimitiveBatchData::Composite(..), _) => return false,
-            (&mut PrimitiveBatchData::Rectangles(ref mut data),
-             &PrimitiveDetails::Rectangle(ref rectangle)) => {
-                if self.complex_clip.is_some() {
-                    return false;
+                        border_radii: Point2D::new(shadow.border_radius,
+                                                   shadow.border_radius),
+                        blur_radius: shadow.blur_radius,
+                        inverted: inverted,
+                        bs_rect: shadow.bs_rect,
+                        src_rect: shadow.src_rect,
+                    });
                 }
-                data.push(PackedRectanglePrimitive {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: self.rect,
-                    },
-                    color: rectangle.color,
+
+                shadow.cache = Some(BoxShadowPrimitiveCache {
+                    elements: elements,
                 });
             }
-            (&mut PrimitiveBatchData::Rectangles(..), _) => return false,
-            (&mut PrimitiveBatchData::RectanglesClip(ref mut data),
-             &PrimitiveDetails::Rectangle(ref rectangle)) => {
-                if self.complex_clip.is_none() {
-                    return false;
-                }
-
-                data.push(PackedRectanglePrimitiveClip {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: self.rect,
-                    },
-                    color: rectangle.color,
-                    clip: *self.complex_clip.as_ref().unwrap().clone(),
-                });
-            }
-            (&mut PrimitiveBatchData::RectanglesClip(..), _) => return false,
-            (&mut PrimitiveBatchData::Image(ref mut data),
-             &PrimitiveDetails::Image(ref image)) => {
-                if self.complex_clip.is_some() {
-                    return false;
-                }
-
+            PrimitiveDetails::Image(ref mut image) => {
                 let ImageInfo {
                     color_texture_id: texture_id,
-                    uv_rect,
-                    stretch_size
-                } = image.image_info(&ctx.resource_cache, ctx.frame_id);
+                    uv0,
+                    uv1,
+                    stretch_size,
+                    uv_kind,
+                } = image.image_info(resource_cache, frame_id);
 
-                if batch.color_texture_id != TextureId(0) && texture_id != batch.color_texture_id {
-                    return false
+                match self.complex_clip {
+                    Some(ref complex_clip) => {
+                        let element = PackedImagePrimitiveClip {
+                            common: PackedPrimitiveInfo {
+                                padding: [0, 0],
+                                tile_index: 0,
+                                layer_index: 0,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: self.rect,
+                            },
+                            uv0: uv0,
+                            uv1: uv1,
+                            stretch_size: stretch_size.unwrap_or(self.rect.size),
+                            uv_kind: pack_as_float(uv_kind as u32),
+                            clip: complex_clip.as_ref().clone(),
+                            texture_id: texture_id,
+                        };
+
+                        image.cache = Some(ImagePrimitiveCache::Clip(element));
+                    }
+                    None => {
+                        let element = PackedImagePrimitive {
+                            common: PackedPrimitiveInfo {
+                                padding: [0, 0],
+                                tile_index: 0,
+                                layer_index: 0,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: self.rect,
+                            },
+                            uv0: uv0,
+                            uv1: uv1,
+                            stretch_size: stretch_size.unwrap_or(self.rect.size),
+                            uv_kind: pack_as_float(uv_kind as u32),
+                            texture_id: texture_id,
+                        };
+
+                        image.cache = Some(ImagePrimitiveCache::Normal(element));
+                    }
                 }
-
-                data.push(PackedImagePrimitive {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: self.rect,
-                    },
-                    st0: uv_rect.top_left,
-                    st1: uv_rect.bottom_right,
-                    stretch_size: stretch_size.unwrap_or(self.rect.size),
-                    padding: [0, 0],
-                });
             }
-            (&mut PrimitiveBatchData::Image(..), _) => return false,
-            (&mut PrimitiveBatchData::ImageClip(ref mut data),
-             &PrimitiveDetails::Image(ref image)) => {
-                if self.complex_clip.is_none() {
-                    return false;
-                }
-
-                let ImageInfo {
-                    color_texture_id: texture_id,
-                    uv_rect,
-                    stretch_size
-                } = image.image_info(&ctx.resource_cache, ctx.frame_id);
-
-                if batch.color_texture_id != TextureId(0) && texture_id != batch.color_texture_id {
-                    return false
-                }
-
-                data.push(PackedImagePrimitiveClip {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: self.rect,
-                    },
-                    st0: uv_rect.top_left,
-                    st1: uv_rect.bottom_right,
-                    stretch_size: stretch_size.unwrap_or(self.rect.size),
-                    padding: [0, 0],
-                    clip: *self.complex_clip.as_ref().unwrap().clone(),
-                });
-            }
-            (&mut PrimitiveBatchData::ImageClip(..), _) => return false,
-            (&mut PrimitiveBatchData::Borders(ref mut data),
-             &PrimitiveDetails::Border(ref border)) => {
-                let inner_radius = BorderRadius {
-                    top_left: Size2D::new(border.radius.top_left.width - border.left_width,
-                                          border.radius.top_left.height - border.top_width),
-                    top_right: Size2D::new(border.radius.top_right.width - border.right_width,
-                                           border.radius.top_right.height - border.top_width),
-                    bottom_left:
-                        Size2D::new(border.radius.bottom_left.width - border.left_width,
-                                    border.radius.bottom_left.height - border.bottom_width),
-                    bottom_right:
-                        Size2D::new(border.radius.bottom_right.width - border.right_width,
-                                    border.radius.bottom_right.height - border.bottom_width),
-                };
-
-                data.push(PackedBorderPrimitive {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: rect_from_points_f(border.tl_outer.x,
-                                                       border.tl_outer.y,
-                                                       border.tl_inner.x,
-                                                       border.tl_inner.y),
-                    },
-                    vertical_color: border.top_color,
-                    horizontal_color: border.left_color,
-                    outer_radius_x: border.radius.top_left.width,
-                    outer_radius_y: border.radius.top_left.height,
-                    inner_radius_x: inner_radius.top_left.width,
-                    inner_radius_y: inner_radius.top_left.height,
-                    style: border.pack_style(),
-                    part: [pack_as_float(PrimitivePart::TopLeft as u32), 0.0, 0.0, 0.0],
-                });
-
-                data.push(PackedBorderPrimitive {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: rect_from_points_f(border.tr_inner.x,
-                                                       border.tr_outer.y,
-                                                       border.tr_outer.x,
-                                                       border.tr_inner.y),
-                    },
-                    vertical_color: border.right_color,
-                    horizontal_color: border.top_color,
-                    outer_radius_x: border.radius.top_right.width,
-                    outer_radius_y: border.radius.top_right.height,
-                    inner_radius_x: inner_radius.top_right.width,
-                    inner_radius_y: inner_radius.top_right.height,
-                    style: border.pack_style(),
-                    part: [pack_as_float(PrimitivePart::TopRight as u32), 0.0, 0.0, 0.0],
-                });
-
-                data.push(PackedBorderPrimitive {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: rect_from_points_f(border.bl_outer.x,
-                                                       border.bl_inner.y,
-                                                       border.bl_inner.x,
-                                                       border.bl_outer.y),
-                    },
-                    vertical_color: border.left_color,
-                    horizontal_color: border.bottom_color,
-                    outer_radius_x: border.radius.bottom_left.width,
-                    outer_radius_y: border.radius.bottom_left.height,
-                    inner_radius_x: inner_radius.bottom_left.width,
-                    inner_radius_y: inner_radius.bottom_left.height,
-                    style: border.pack_style(),
-                    part: [pack_as_float(PrimitivePart::BottomLeft as u32), 0.0, 0.0, 0.0],
-                });
-
-                data.push(PackedBorderPrimitive {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: rect_from_points_f(border.br_inner.x,
-                                                       border.br_inner.y,
-                                                       border.br_outer.x,
-                                                       border.br_outer.y),
-                    },
-                    vertical_color: border.right_color,
-                    horizontal_color: border.bottom_color,
-                    outer_radius_x: border.radius.bottom_right.width,
-                    outer_radius_y: border.radius.bottom_right.height,
-                    inner_radius_x: inner_radius.bottom_right.width,
-                    inner_radius_y: inner_radius.bottom_right.height,
-                    style: border.pack_style(),
-                    part: [pack_as_float(PrimitivePart::BottomRight as u32), 0.0, 0.0, 0.0],
-                });
-
-                data.push(PackedBorderPrimitive {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: rect_from_points_f(border.tl_outer.x,
-                                                       border.tl_inner.y,
-                                                       border.tl_outer.x + border.left_width,
-                                                       border.bl_inner.y),
-                    },
-                    vertical_color: border.left_color,
-                    horizontal_color: border.left_color,
-                    outer_radius_x: 0.0,
-                    outer_radius_y: 0.0,
-                    inner_radius_x: 0.0,
-                    inner_radius_y: 0.0,
-                    style: border.pack_style(),
-                    part: [pack_as_float(PrimitivePart::Left as u32), 0.0, 0.0, 0.0],
-                });
-
-                data.push(PackedBorderPrimitive {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: rect_from_points_f(border.tr_outer.x - border.right_width,
-                                                       border.tr_inner.y,
-                                                       border.br_outer.x,
-                                                       border.br_inner.y),
-                    },
-                    vertical_color: border.right_color,
-                    horizontal_color: border.right_color,
-                    outer_radius_x: 0.0,
-                    outer_radius_y: 0.0,
-                    inner_radius_x: 0.0,
-                    inner_radius_y: 0.0,
-                    style: border.pack_style(),
-                    part: [pack_as_float(PrimitivePart::Right as u32), 0.0, 0.0, 0.0],
-                });
-
-                data.push(PackedBorderPrimitive {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: rect_from_points_f(border.tl_inner.x,
-                                                       border.tl_outer.y,
-                                                       border.tr_inner.x,
-                                                       border.tr_outer.y + border.top_width),
-                    },
-                    vertical_color: border.top_color,
-                    horizontal_color: border.top_color,
-                    outer_radius_x: 0.0,
-                    outer_radius_y: 0.0,
-                    inner_radius_x: 0.0,
-                    inner_radius_y: 0.0,
-                    style: border.pack_style(),
-                    part: [pack_as_float(PrimitivePart::Top as u32), 0.0, 0.0, 0.0],
-                });
-
-                data.push(PackedBorderPrimitive {
-                    common: PackedPrimitiveInfo {
-                        padding: [0, 0],
-                        tile_index: tile_index_in_ubo,
-                        layer_index: layer_index_in_ubo,
-                        local_clip_rect: self.local_clip_rect,
-                        local_rect: rect_from_points_f(border.bl_inner.x,
-                                                       border.bl_outer.y - border.bottom_width,
-                                                       border.br_inner.x,
-                                                       border.br_outer.y),
-                    },
-                    vertical_color: border.bottom_color,
-                    horizontal_color: border.bottom_color,
-                    outer_radius_x: 0.0,
-                    outer_radius_y: 0.0,
-                    inner_radius_x: 0.0,
-                    inner_radius_y: 0.0,
-                    style: border.pack_style(),
-                    part: [pack_as_float(PrimitivePart::Bottom as u32), 0.0, 0.0, 0.0],
-                });
-            }
-            (&mut PrimitiveBatchData::Borders(..), _) => return false,
-            (&mut PrimitiveBatchData::AlignedGradient(ref mut data),
-             &PrimitiveDetails::Gradient(ref gradient)) => {
+            PrimitiveDetails::Gradient(ref mut gradient) => {
                 match gradient.kind {
                     GradientType::Horizontal | GradientType::Vertical => {
-                        let auxiliary_lists = ctx.pipeline_auxiliary_lists.get(&pipeline_id)
-                                                                          .expect("No auxiliary lists?!");
-
                         let stops = auxiliary_lists.gradient_stops(&gradient.stops_range);
+                        let mut pieces = Vec::new();
                         for i in 0..(stops.len() - 1) {
                             let (prev_stop, next_stop) = (&stops[i], &stops[i + 1]);
                             let piece_origin;
@@ -1429,11 +1049,11 @@ impl Primitive {
                                 }
                             }
 
-                            data.push(PackedAlignedGradientPrimitive {
+                            pieces.push(PackedAlignedGradientPrimitive {
                                 common: PackedPrimitiveInfo {
                                     padding: [0, 0],
-                                    tile_index: tile_index_in_ubo,
-                                    layer_index: layer_index_in_ubo,
+                                    tile_index: 0,
+                                    layer_index: 0,
                                     local_clip_rect: self.local_clip_rect,
                                     local_rect: piece_rect,
                                 },
@@ -1444,24 +1064,15 @@ impl Primitive {
                                 clip: clip,
                             });
                         }
-                    }
-                    GradientType::Rotated => return false,
-                }
-            }
-            (&mut PrimitiveBatchData::AlignedGradient(..), _) => return false,
-            (&mut PrimitiveBatchData::AngleGradient(ref mut data),
-             &PrimitiveDetails::Gradient(ref gradient)) => {
-                match gradient.kind {
-                    GradientType::Horizontal | GradientType::Vertical => return false,
-                    GradientType::Rotated => {
-                        let auxiliary_lists = ctx.pipeline_auxiliary_lists.get(&pipeline_id)
-                                                                          .expect("No auxiliary lists?!");
 
+                        gradient.cache = Some(GradientPrimitiveCache::Aligned(pieces));
+                    }
+                    GradientType::Rotated => {
                         let src_stops = auxiliary_lists.gradient_stops(&gradient.stops_range);
                         if src_stops.len() > MAX_STOPS_PER_ANGLE_GRADIENT {
                             println!("TODO: Angle gradients with > {} stops",
                                      MAX_STOPS_PER_ANGLE_GRADIENT);
-                            return true;
+                            return;
                         }
 
                         let mut stops: [f32; MAX_STOPS_PER_ANGLE_GRADIENT] = unsafe {
@@ -1490,11 +1101,11 @@ impl Primitive {
                             (gradient.start_point, gradient.end_point)
                         };
 
-                        data.push(PackedAngleGradientPrimitive {
+                        let packed_prim = PackedAngleGradientPrimitive {
                             common: PackedPrimitiveInfo {
                                 padding: [0, 0],
-                                tile_index: tile_index_in_ubo,
-                                layer_index: layer_index_in_ubo,
+                                tile_index: 0,
+                                layer_index: 0,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: self.rect,
                             },
@@ -1504,43 +1115,520 @@ impl Primitive {
                             stop_count: pack_as_float(src_stops.len() as u32),
                             stops: stops,
                             colors: colors,
-                        });
+                        };
+
+                        gradient.cache = Some(GradientPrimitiveCache::Angle(packed_prim));
                     }
+                }
+            }
+            PrimitiveDetails::Border(ref mut border) => {
+                let inner_radius = BorderRadius {
+                    top_left: Size2D::new(border.radius.top_left.width - border.left_width,
+                                          border.radius.top_left.height - border.top_width),
+                    top_right: Size2D::new(border.radius.top_right.width - border.right_width,
+                                           border.radius.top_right.height - border.top_width),
+                    bottom_left:
+                        Size2D::new(border.radius.bottom_left.width - border.left_width,
+                                    border.radius.bottom_left.height - border.bottom_width),
+                    bottom_right:
+                        Size2D::new(border.radius.bottom_right.width - border.right_width,
+                                    border.radius.bottom_right.height - border.bottom_width),
+                };
+
+                border.cache = Some(Box::new(BorderPrimitiveCache {
+                    elements: [
+                        PackedBorderPrimitive {
+                            common: PackedPrimitiveInfo {
+                                padding: [0, 0],
+                                tile_index: 0,
+                                layer_index: 0,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: rect_from_points_f(border.tl_outer.x,
+                                                               border.tl_outer.y,
+                                                               border.tl_inner.x,
+                                                               border.tl_inner.y),
+                            },
+                            vertical_color: border.top_color,
+                            horizontal_color: border.left_color,
+                            outer_radius_x: border.radius.top_left.width,
+                            outer_radius_y: border.radius.top_left.height,
+                            inner_radius_x: inner_radius.top_left.width,
+                            inner_radius_y: inner_radius.top_left.height,
+                            style: border.pack_style(),
+                            part: [pack_as_float(PrimitivePart::TopLeft as u32), 0.0, 0.0, 0.0],
+                        },
+                        PackedBorderPrimitive {
+                            common: PackedPrimitiveInfo {
+                                padding: [0, 0],
+                                tile_index: 0,
+                                layer_index: 0,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: rect_from_points_f(border.tr_inner.x,
+                                                               border.tr_outer.y,
+                                                               border.tr_outer.x,
+                                                               border.tr_inner.y),
+                            },
+                            vertical_color: border.right_color,
+                            horizontal_color: border.top_color,
+                            outer_radius_x: border.radius.top_right.width,
+                            outer_radius_y: border.radius.top_right.height,
+                            inner_radius_x: inner_radius.top_right.width,
+                            inner_radius_y: inner_radius.top_right.height,
+                            style: border.pack_style(),
+                            part: [pack_as_float(PrimitivePart::TopRight as u32), 0.0, 0.0, 0.0],
+                        },
+                        PackedBorderPrimitive {
+                            common: PackedPrimitiveInfo {
+                                padding: [0, 0],
+                                tile_index: 0,
+                                layer_index: 0,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: rect_from_points_f(border.bl_outer.x,
+                                                               border.bl_inner.y,
+                                                               border.bl_inner.x,
+                                                               border.bl_outer.y),
+                            },
+                            vertical_color: border.left_color,
+                            horizontal_color: border.bottom_color,
+                            outer_radius_x: border.radius.bottom_left.width,
+                            outer_radius_y: border.radius.bottom_left.height,
+                            inner_radius_x: inner_radius.bottom_left.width,
+                            inner_radius_y: inner_radius.bottom_left.height,
+                            style: border.pack_style(),
+                            part: [pack_as_float(PrimitivePart::BottomLeft as u32), 0.0, 0.0, 0.0],
+                        },
+                        PackedBorderPrimitive {
+                            common: PackedPrimitiveInfo {
+                                padding: [0, 0],
+                                tile_index: 0,
+                                layer_index: 0,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: rect_from_points_f(border.br_inner.x,
+                                                               border.br_inner.y,
+                                                               border.br_outer.x,
+                                                               border.br_outer.y),
+                            },
+                            vertical_color: border.right_color,
+                            horizontal_color: border.bottom_color,
+                            outer_radius_x: border.radius.bottom_right.width,
+                            outer_radius_y: border.radius.bottom_right.height,
+                            inner_radius_x: inner_radius.bottom_right.width,
+                            inner_radius_y: inner_radius.bottom_right.height,
+                            style: border.pack_style(),
+                            part: [pack_as_float(PrimitivePart::BottomRight as u32), 0.0, 0.0, 0.0],
+                        },
+                        PackedBorderPrimitive {
+                            common: PackedPrimitiveInfo {
+                                padding: [0, 0],
+                                tile_index: 0,
+                                layer_index: 0,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: rect_from_points_f(border.tl_outer.x,
+                                                               border.tl_inner.y,
+                                                               border.tl_outer.x + border.left_width,
+                                                               border.bl_inner.y),
+                            },
+                            vertical_color: border.left_color,
+                            horizontal_color: border.left_color,
+                            outer_radius_x: 0.0,
+                            outer_radius_y: 0.0,
+                            inner_radius_x: 0.0,
+                            inner_radius_y: 0.0,
+                            style: border.pack_style(),
+                            part: [pack_as_float(PrimitivePart::Left as u32), 0.0, 0.0, 0.0],
+                        },
+                        PackedBorderPrimitive {
+                            common: PackedPrimitiveInfo {
+                                padding: [0, 0],
+                                tile_index: 0,
+                                layer_index: 0,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: rect_from_points_f(border.tr_outer.x - border.right_width,
+                                                               border.tr_inner.y,
+                                                               border.br_outer.x,
+                                                               border.br_inner.y),
+                            },
+                            vertical_color: border.right_color,
+                            horizontal_color: border.right_color,
+                            outer_radius_x: 0.0,
+                            outer_radius_y: 0.0,
+                            inner_radius_x: 0.0,
+                            inner_radius_y: 0.0,
+                            style: border.pack_style(),
+                            part: [pack_as_float(PrimitivePart::Right as u32), 0.0, 0.0, 0.0],
+                        },
+                        PackedBorderPrimitive {
+                            common: PackedPrimitiveInfo {
+                                padding: [0, 0],
+                                tile_index: 0,
+                                layer_index: 0,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: rect_from_points_f(border.tl_inner.x,
+                                                               border.tl_outer.y,
+                                                               border.tr_inner.x,
+                                                               border.tr_outer.y + border.top_width),
+                            },
+                            vertical_color: border.top_color,
+                            horizontal_color: border.top_color,
+                            outer_radius_x: 0.0,
+                            outer_radius_y: 0.0,
+                            inner_radius_x: 0.0,
+                            inner_radius_y: 0.0,
+                            style: border.pack_style(),
+                            part: [pack_as_float(PrimitivePart::Top as u32), 0.0, 0.0, 0.0],
+                        },
+                        PackedBorderPrimitive {
+                            common: PackedPrimitiveInfo {
+                                padding: [0, 0],
+                                tile_index: 0,
+                                layer_index: 0,
+                                local_clip_rect: self.local_clip_rect,
+                                local_rect: rect_from_points_f(border.bl_inner.x,
+                                                               border.bl_outer.y - border.bottom_width,
+                                                               border.br_inner.x,
+                                                               border.br_outer.y),
+                            },
+                            vertical_color: border.bottom_color,
+                            horizontal_color: border.bottom_color,
+                            outer_radius_x: 0.0,
+                            outer_radius_y: 0.0,
+                            inner_radius_x: 0.0,
+                            inner_radius_y: 0.0,
+                            style: border.pack_style(),
+                            part: [pack_as_float(PrimitivePart::Bottom as u32), 0.0, 0.0, 0.0],
+                        },
+                    ],
+                }));
+            }
+            PrimitiveDetails::Text(ref mut text) => {
+                let mut cache = TextPrimitiveCache::new();
+                let glyph_range = ItemRange {
+                    start: text.glyph_index as usize,
+                    length: 1,
+                };
+                let glyph = auxiliary_lists.glyph_instances(&glyph_range)[0];
+                let glyph_key = GlyphKey::new(text.font_key,
+                                              text.size,
+                                              text.blur_radius,
+                                              glyph.index);
+                let blur_offset = text.blur_radius.to_f32_px() *
+                    (BLUR_INFLATION_FACTOR as f32) / 2.0;
+
+                let image_info = match resource_cache.get_glyph(&glyph_key, frame_id) {
+                    None => return,
+                    Some(image_info) => image_info,
+                };
+
+                debug_assert!(cache.color_texture_id == TextureId(0) ||
+                              cache.color_texture_id == image_info.texture_id);
+                cache.color_texture_id = image_info.texture_id;
+
+                let x = glyph.x + image_info.user_data.x0 as f32 / device_pixel_ratio -
+                    blur_offset;
+                let y = glyph.y - image_info.user_data.y0 as f32 / device_pixel_ratio -
+                    blur_offset;
+
+                let width = image_info.requested_rect.size.width as f32 / device_pixel_ratio;
+                let height = image_info.requested_rect.size.height as f32 / device_pixel_ratio;
+
+                self.rect = Rect::new(Point2D::new(x, y), Size2D::new(width, height));
+                cache.glyph = Some(PackedGlyphPrimitive {
+                    common: PackedPrimitiveInfo {
+                        padding: [0, 0],
+                        tile_index: 0,
+                        layer_index: 0,
+                        local_clip_rect: self.local_clip_rect,
+                        local_rect: self.rect,
+                    },
+                    color: text.color,
+                    uv0: Point2D::new(image_info.pixel_rect.top_left.x.0 as f32,
+                                      image_info.pixel_rect.top_left.y.0 as f32),
+                    uv1: Point2D::new(image_info.pixel_rect.bottom_right.x.0 as f32,
+                                      image_info.pixel_rect.bottom_right.y.0 as f32),
+                });
+
+                text.cache = Some(cache);
+            }
+            PrimitiveDetails::TextRun(ref mut text_run) => {
+                debug_assert!(text_run.cache.is_none());
+                let mut cache = TextRunPrimitiveCache::new();
+
+                let src_glyphs = auxiliary_lists.glyph_instances(&text_run.glyph_range);
+                let mut glyph_key = GlyphKey::new(text_run.font_key,
+                                                  text_run.size,
+                                                  text_run.blur_radius,
+                                                  src_glyphs[0].index);
+                let blur_offset = text_run.blur_radius.to_f32_px() *
+                    (BLUR_INFLATION_FACTOR as f32) / 2.0;
+
+                let mut glyphs: [PackedTextRunGlyph; GLYPHS_PER_TEXT_RUN] = unsafe {
+                    mem::zeroed()
+                };
+
+                self.rect = Rect::zero();
+                for (glyph_index, glyph) in src_glyphs.iter().enumerate() {
+                    glyph_key.index = glyph.index;
+
+                    let image_info = match resource_cache.get_glyph(&glyph_key, frame_id) {
+                        None => continue,
+                        Some(image_info) => image_info,
+                    };
+
+                    debug_assert!(cache.color_texture_id == TextureId(0) ||
+                                  cache.color_texture_id == image_info.texture_id);
+                    cache.color_texture_id = image_info.texture_id;
+
+                    let x = glyph.x + image_info.user_data.x0 as f32 / device_pixel_ratio -
+                        blur_offset;
+                    let y = glyph.y - image_info.user_data.y0 as f32 / device_pixel_ratio -
+                        blur_offset;
+
+                    let width = image_info.requested_rect.size.width as f32 /
+                        device_pixel_ratio;
+                    let height = image_info.requested_rect.size.height as f32 /
+                        device_pixel_ratio;
+
+                    let local_glyph_rect = Rect::new(Point2D::new(x, y),
+                                                     Size2D::new(width, height));
+                    self.rect = self.rect.union(&local_glyph_rect);
+
+                    glyphs[glyph_index] = PackedTextRunGlyph {
+                        local_rect: local_glyph_rect,
+                        uv0: Point2D::new(image_info.pixel_rect.top_left.x.0 as f32,
+                                          image_info.pixel_rect.top_left.y.0 as f32),
+                        uv1: Point2D::new(image_info.pixel_rect.bottom_right.x.0 as f32,
+                                          image_info.pixel_rect.bottom_right.y.0 as f32),
+                    }
+                }
+
+                cache.glyphs = Some(PackedTextRunPrimitive {
+                    common: PackedPrimitiveInfo {
+                        padding: [0, 0],
+                        tile_index: 0,
+                        layer_index: 0,
+                        local_clip_rect: self.local_clip_rect,
+                        local_rect: self.rect,
+                    },
+                    color: text_run.color,
+                    glyphs: glyphs,
+                });
+
+                text_run.cache = Some(cache);
+            }
+        }
+
+        self.rebuild_bounding_rect(screen_rect,
+                                   layer_transform,
+                                   layer_combined_local_clip_rect,
+                                   device_pixel_ratio);
+    }
+
+    fn build_resource_list(&mut self,
+                           resource_list: &mut ResourceList,
+                           auxiliary_lists: &AuxiliaryLists) -> bool {
+        match self.details {
+            PrimitiveDetails::Rectangle(..) => false,
+            PrimitiveDetails::BoxShadow(ref details) => {
+                details.cache.is_none()
+            }
+            PrimitiveDetails::Gradient(ref details) => {
+                details.cache.is_none()
+            }
+            PrimitiveDetails::Border(ref details) => {
+                details.cache.is_none()
+            }
+            PrimitiveDetails::Image(ref details) => {
+                match details.kind {
+                    ImagePrimitiveKind::Image(image_key, image_rendering, _) => {
+                        resource_list.add_image(image_key, image_rendering);
+                    }
+                    ImagePrimitiveKind::WebGL(..) => {}
+                }
+                details.cache.is_none()
+            }
+            PrimitiveDetails::Text(ref details) => {
+                let glyphs = auxiliary_lists.glyph_instances(&ItemRange {
+                    start: details.glyph_index as usize,
+                    length: 1,
+                });
+                for glyph in glyphs {
+                    let glyph = Glyph::new(details.size, details.blur_radius, glyph.index);
+                    resource_list.add_glyph(details.font_key, glyph);
+                }
+                details.cache.is_none()
+            }
+            PrimitiveDetails::TextRun(ref details) => {
+                let glyphs = auxiliary_lists.glyph_instances(&details.glyph_range);
+                for glyph in glyphs {
+                    let glyph = Glyph::new(details.size, details.blur_radius, glyph.index);
+                    resource_list.add_glyph(details.font_key, glyph);
+                }
+                details.cache.is_none()
+            }
+        }
+    }
+
+    // Optional narrow phase intersection test, depending on primitive type.
+    fn affects_tile(&self,
+                    tile_rect: &Rect<DevicePixel>,
+                    transform: &Matrix4D<f32>,
+                    device_pixel_ratio: f32) -> bool {
+        match self.details {
+            PrimitiveDetails::Rectangle(..) => true,
+            PrimitiveDetails::Text(..) => true,
+            PrimitiveDetails::TextRun(..) => true,
+            PrimitiveDetails::Image(..) => true,
+            PrimitiveDetails::Gradient(..) => true,
+            PrimitiveDetails::BoxShadow(..) => true,
+            PrimitiveDetails::Border(ref border) => {
+                let inner_rect = rect_from_points_f(border.tl_inner.x.max(border.bl_inner.x),
+                                                    border.tl_inner.y.max(border.tr_inner.y),
+                                                    border.tr_inner.x.min(border.br_inner.x),
+                                                    border.bl_inner.y.min(border.br_inner.y));
+                let inner_rect = TransformedRect::new(&inner_rect, transform, device_pixel_ratio);
+
+                !inner_rect.bounding_rect.contains_rect(tile_rect)
+            }
+        }
+    }
+
+    fn add_to_batch(&self,
+                    batch: &mut PrimitiveBatch,
+                    layer_index_in_ubo: u32,
+                    tile_index_in_ubo: u32,
+                    transform_kind: TransformedRectKind,
+                    needs_blending: bool) -> bool {
+        if transform_kind != batch.transform_kind ||
+           needs_blending != batch.blending_enabled {
+            return false
+        }
+
+        match (&mut batch.data, &self.details) {
+            (&mut PrimitiveBatchData::Blend(..), _) => return false,
+            (&mut PrimitiveBatchData::Composite(..), _) => return false,
+            (&mut PrimitiveBatchData::Rectangles(ref mut data),
+             &PrimitiveDetails::Rectangle(ref rectangle)) => {
+                if self.complex_clip.is_some() {
+                    return false;
+                }
+                data.push(PackedRectanglePrimitive {
+                    common: PackedPrimitiveInfo {
+                        padding: [0, 0],
+                        tile_index: tile_index_in_ubo,
+                        layer_index: layer_index_in_ubo,
+                        local_clip_rect: self.local_clip_rect,
+                        local_rect: self.rect,
+                    },
+                    color: rectangle.color,
+                });
+            }
+            (&mut PrimitiveBatchData::Rectangles(..), _) => return false,
+            (&mut PrimitiveBatchData::RectanglesClip(ref mut data),
+             &PrimitiveDetails::Rectangle(ref rectangle)) => {
+                if self.complex_clip.is_none() {
+                    return false;
+                }
+                data.push(PackedRectanglePrimitiveClip {
+                    common: PackedPrimitiveInfo {
+                        padding: [0, 0],
+                        tile_index: tile_index_in_ubo,
+                        layer_index: layer_index_in_ubo,
+                        local_clip_rect: self.local_clip_rect,
+                        local_rect: self.rect,
+                    },
+                    color: rectangle.color,
+                    clip: *self.complex_clip.as_ref().unwrap().clone(),
+                });
+            }
+            (&mut PrimitiveBatchData::RectanglesClip(..), _) => return false,
+            (&mut PrimitiveBatchData::Image(ref mut data),
+             &PrimitiveDetails::Image(ref image)) => {
+                let cache = image.cache.as_ref().expect("No image cache!");
+
+                match cache {
+                    &ImagePrimitiveCache::Normal(ref element) => {
+                        if batch.color_texture_id != TextureId(0) && element.texture_id != batch.color_texture_id {
+                            return false
+                        }
+
+                        let mut element = element.clone();
+                        element.common.tile_index = tile_index_in_ubo;
+                        element.common.layer_index = layer_index_in_ubo;
+                        data.push(element);
+                    }
+                    &ImagePrimitiveCache::Clip(..) => return false,
+                }
+
+            }
+            (&mut PrimitiveBatchData::Image(..), _) => return false,
+            (&mut PrimitiveBatchData::ImageClip(ref mut data),
+             &PrimitiveDetails::Image(ref image)) => {
+                let cache = image.cache.as_ref().expect("No image cache!");
+
+                match cache {
+                    &ImagePrimitiveCache::Normal(..) => return false,
+                    &ImagePrimitiveCache::Clip(ref element) => {
+                        if batch.color_texture_id != TextureId(0) && element.texture_id != batch.color_texture_id {
+                            return false
+                        }
+
+                        let mut element = element.clone();
+                        element.common.tile_index = tile_index_in_ubo;
+                        element.common.layer_index = layer_index_in_ubo;
+                        data.push(element);
+                    }
+                }
+            }
+            (&mut PrimitiveBatchData::ImageClip(..), _) => return false,
+            (&mut PrimitiveBatchData::Borders(ref mut data),
+             &PrimitiveDetails::Border(ref border)) => {
+                let cache = border.cache.as_ref().expect("No cache for border present!");
+
+                for element in &cache.elements {
+                    let mut element = element.clone();
+                    element.common.tile_index = tile_index_in_ubo;
+                    element.common.layer_index = layer_index_in_ubo;
+                    data.push(element);
+                }
+            }
+            (&mut PrimitiveBatchData::Borders(..), _) => return false,
+            (&mut PrimitiveBatchData::AlignedGradient(ref mut data),
+             &PrimitiveDetails::Gradient(ref gradient)) => {
+                match gradient.cache {
+                    Some(GradientPrimitiveCache::Aligned(ref pieces)) => {
+                        for piece in pieces {
+                            let mut piece = piece.clone();
+                            piece.common.tile_index = tile_index_in_ubo;
+                            piece.common.layer_index = layer_index_in_ubo;
+                            data.push(piece);
+                        }
+                    }
+                    Some(GradientPrimitiveCache::Angle(..)) | None => return false,
+                }
+            }
+            (&mut PrimitiveBatchData::AlignedGradient(..), _) => return false,
+            (&mut PrimitiveBatchData::AngleGradient(ref mut data),
+             &PrimitiveDetails::Gradient(ref gradient)) => {
+                match gradient.cache {
+                    Some(GradientPrimitiveCache::Angle(ref piece)) => {
+                        let mut piece = piece.clone();
+                        piece.common.tile_index = tile_index_in_ubo;
+                        piece.common.layer_index = layer_index_in_ubo;
+                        data.push(piece);
+                    }
+                    Some(GradientPrimitiveCache::Aligned(..)) | None => return false,
                 }
             }
             (&mut PrimitiveBatchData::AngleGradient(..), _) => return false,
             (&mut PrimitiveBatchData::BoxShadows(ref mut data),
              &PrimitiveDetails::BoxShadow(ref shadow)) => {
-                let mut rects = Vec::new();
-                let inverted = match shadow.clip_mode {
-                    BoxShadowClipMode::None | BoxShadowClipMode::Outset => {
-                        subtract_rect(&self.rect, &shadow.src_rect, &mut rects);
-                        0.0
-                    }
-                    BoxShadowClipMode::Inset => {
-                        subtract_rect(&self.rect, &shadow.bs_rect, &mut rects);
-                        1.0
-                    }
-                };
+                let cache = shadow.cache.as_ref().expect("No cache for box shadow present!");
 
-                for rect in rects {
-                    data.push(PackedBoxShadowPrimitive {
-                        common: PackedPrimitiveInfo {
-                            padding: [0, 0],
-                            tile_index: tile_index_in_ubo,
-                            layer_index: layer_index_in_ubo,
-                            local_clip_rect: self.local_clip_rect,
-                            local_rect: rect,
-                        },
-                        color: shadow.color,
-
-                        border_radii: Point2D::new(shadow.border_radius,
-                                                   shadow.border_radius),
-                        blur_radius: shadow.blur_radius,
-                        inverted: inverted,
-                        bs_rect: shadow.bs_rect,
-                        src_rect: shadow.src_rect,
-                    });
+                for element in &cache.elements {
+                    let mut element = element.clone();
+                    element.common.tile_index = tile_index_in_ubo;
+                    element.common.layer_index = layer_index_in_ubo;
+                    data.push(element);
                 }
             }
             (&mut PrimitiveBatchData::BoxShadows(..), _) => return false,
@@ -1800,7 +1888,7 @@ pub struct PackedGlyphPrimitive {
 #[repr(C)]
 pub struct PackedTextRunPrimitive {
     common: PackedPrimitiveInfo,
-    glyphs: [PackedTextRunGlyph; GLYPHS_PER_TEXT_RUN as usize],
+    glyphs: [PackedTextRunGlyph; GLYPHS_PER_TEXT_RUN],
     color: ColorF,
 }
 
@@ -1812,22 +1900,30 @@ pub struct PackedTextRunGlyph {
     uv1: Point2D<f32>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum TextureCoordKind {
+    Normalized = 0,
+    Pixel,
+}
+
 #[derive(Debug, Clone)]
 pub struct PackedImagePrimitive {
     common: PackedPrimitiveInfo,
-    st0: Point2D<f32>,
-    st1: Point2D<f32>,
+    uv0: Point2D<f32>,
+    uv1: Point2D<f32>,
     stretch_size: Size2D<f32>,
-    padding: [u32; 2],
+    uv_kind: f32,
+    texture_id: TextureId,
 }
 
 #[derive(Debug, Clone)]
 pub struct PackedImagePrimitiveClip {
     common: PackedPrimitiveInfo,
-    st0: Point2D<f32>,
-    st1: Point2D<f32>,
+    uv0: Point2D<f32>,
+    uv1: Point2D<f32>,
     stretch_size: Size2D<f32>,
-    padding: [u32; 2],
+    uv_kind: f32,
+    texture_id: TextureId,
     clip: Clip,
 }
 
@@ -2699,6 +2795,7 @@ impl FrameBuilder {
             top_style: top.style,
             right_style: right.style,
             bottom_style: bottom.style,
+            cache: None,
         };
 
         self.add_primitive(&rect,
@@ -2721,6 +2818,7 @@ impl FrameBuilder {
                 kind: GradientType::Vertical,
                 start_point: start_point,
                 end_point: end_point,
+                cache: None,
             };
             self.add_primitive(&rect,
                                clip_rect,
@@ -2732,6 +2830,7 @@ impl FrameBuilder {
                 kind: GradientType::Horizontal,
                 start_point: start_point,
                 end_point: end_point,
+                cache: None,
             };
             self.add_primitive(&rect,
                                clip_rect,
@@ -2743,6 +2842,7 @@ impl FrameBuilder {
                 kind: GradientType::Rotated,
                 start_point: start_point,
                 end_point: end_point,
+                cache: None,
             };
             self.add_primitive(&rect,
                                clip_rect,
@@ -2768,8 +2868,8 @@ impl FrameBuilder {
             return
         }
 
-        let text_run_count = (glyph_range.length as u32) / GLYPHS_PER_TEXT_RUN;
-        let text_count = (glyph_range.length as u32) % GLYPHS_PER_TEXT_RUN;
+        let text_run_count = glyph_range.length / GLYPHS_PER_TEXT_RUN;
+        let text_count = glyph_range.length % GLYPHS_PER_TEXT_RUN;
 
         for text_run_index in 0..text_run_count {
             let prim = TextRunPrimitive {
@@ -2778,8 +2878,8 @@ impl FrameBuilder {
                 size: size,
                 blur_radius: blur_radius,
                 glyph_range: ItemRange {
-                    start: glyph_range.start + (text_run_index * GLYPHS_PER_TEXT_RUN) as usize,
-                    length: GLYPHS_PER_TEXT_RUN as usize,
+                    start: glyph_range.start + (text_run_index * GLYPHS_PER_TEXT_RUN),
+                    length: GLYPHS_PER_TEXT_RUN,
                 },
                 cache: None,
             };
@@ -2793,8 +2893,9 @@ impl FrameBuilder {
                 font_key: font_key,
                 size: size,
                 blur_radius: blur_radius,
-                glyph_index: (glyph_range.start as u32) + text_run_count * GLYPHS_PER_TEXT_RUN +
-                    text_index,
+                glyph_index: (glyph_range.start +
+                              text_run_count * GLYPHS_PER_TEXT_RUN +
+                              text_index) as u32,
                 cache: None,
             };
 
@@ -2853,6 +2954,7 @@ impl FrameBuilder {
             spread_radius: spread_radius,
             border_radius: border_radius,
             clip_mode: clip_mode,
+            cache: None,
         };
 
         self.add_primitive(&prim_rect,
@@ -2868,6 +2970,7 @@ impl FrameBuilder {
                                context_id: WebGLContextId) {
         let prim = ImagePrimitive {
             kind: ImagePrimitiveKind::WebGL(context_id),
+            cache: None,
         };
 
         self.add_primitive(&rect,
@@ -2887,6 +2990,7 @@ impl FrameBuilder {
             kind: ImagePrimitiveKind::Image(image_key,
                                             image_rendering,
                                             stretch_size.clone()),
+            cache: None,
         };
 
         self.add_primitive(&rect,
@@ -3191,7 +3295,6 @@ impl FrameBuilder {
             frame_id: frame_id,
             alpha_batch_max_layers: self.config.max_prim_layers,
             alpha_batch_max_tiles: self.config.max_prim_tiles,
-            pipeline_auxiliary_lists: pipeline_auxiliary_lists,
         };
 
         if !self.layer_store.is_empty() {
@@ -3318,8 +3421,10 @@ impl InsideTest<ComplexClipRegion> for ComplexClipRegion {
 
 struct ImageInfo {
     color_texture_id: TextureId,
-    uv_rect: RectUv<f32>,
+    uv0: Point2D<f32>,
+    uv1: Point2D<f32>,
     stretch_size: Option<Size2D<f32>>,
+    uv_kind: TextureCoordKind,
 }
 
 impl ImagePrimitive {
@@ -3329,20 +3434,21 @@ impl ImagePrimitive {
                 let info = resource_cache.get_image(image_key, image_rendering, frame_id);
                 ImageInfo {
                     color_texture_id: info.texture_id,
-                    uv_rect: info.uv_rect(),
+                    uv0: Point2D::new(info.pixel_rect.top_left.x.0 as f32,
+                                      info.pixel_rect.top_left.y.0 as f32),
+                    uv1: Point2D::new(info.pixel_rect.bottom_right.x.0 as f32,
+                                      info.pixel_rect.bottom_right.y.0 as f32),
                     stretch_size: Some(stretch_size),
+                    uv_kind: TextureCoordKind::Pixel,
                 }
             }
             ImagePrimitiveKind::WebGL(context_id) => {
                 ImageInfo {
                     color_texture_id: resource_cache.get_webgl_texture(&context_id),
-                    uv_rect: RectUv {
-                        top_left: Point2D::new(0.0, 1.0),
-                        top_right: Point2D::new(1.0, 1.0),
-                        bottom_left: Point2D::zero(),
-                        bottom_right: Point2D::new(1.0, 0.0),
-                    },
+                    uv0: Point2D::zero(),
+                    uv1: Point2D::new(1.0, 1.0),
                     stretch_size: None,
+                    uv_kind: TextureCoordKind::Normalized,
                 }
             }
         }
