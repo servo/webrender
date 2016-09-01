@@ -895,8 +895,8 @@ impl Primitive {
                     elements.push(PackedBoxShadowPrimitive {
                         common: PackedPrimitiveInfo {
                             padding: [0, 0],
-                            tile_index: 0,
-                            layer_index: 0,
+                            tile_index: 0.0,
+                            layer_index: 0.0,
                             local_clip_rect: self.local_clip_rect,
                             local_rect: rect,
                         },
@@ -929,8 +929,8 @@ impl Primitive {
                         let element = PackedImagePrimitiveClip {
                             common: PackedPrimitiveInfo {
                                 padding: [0, 0],
-                                tile_index: 0,
-                                layer_index: 0,
+                                tile_index: 0.0,
+                                layer_index: 0.0,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: self.rect,
                             },
@@ -948,8 +948,8 @@ impl Primitive {
                         let element = PackedImagePrimitive {
                             common: PackedPrimitiveInfo {
                                 padding: [0, 0],
-                                tile_index: 0,
-                                layer_index: 0,
+                                tile_index: 0.0,
+                                layer_index: 0.0,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: self.rect,
                             },
@@ -1052,8 +1052,8 @@ impl Primitive {
                             pieces.push(PackedAlignedGradientPrimitive {
                                 common: PackedPrimitiveInfo {
                                     padding: [0, 0],
-                                    tile_index: 0,
-                                    layer_index: 0,
+                                    tile_index: 0.0,
+                                    layer_index: 0.0,
                                     local_clip_rect: self.local_clip_rect,
                                     local_rect: piece_rect,
                                 },
@@ -1104,8 +1104,8 @@ impl Primitive {
                         let packed_prim = PackedAngleGradientPrimitive {
                             common: PackedPrimitiveInfo {
                                 padding: [0, 0],
-                                tile_index: 0,
-                                layer_index: 0,
+                                tile_index: 0.0,
+                                layer_index: 0.0,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: self.rect,
                             },
@@ -1140,8 +1140,8 @@ impl Primitive {
                         PackedBorderPrimitive {
                             common: PackedPrimitiveInfo {
                                 padding: [0, 0],
-                                tile_index: 0,
-                                layer_index: 0,
+                                tile_index: 0.0,
+                                layer_index: 0.0,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: rect_from_points_f(border.tl_outer.x,
                                                                border.tl_outer.y,
@@ -1160,8 +1160,8 @@ impl Primitive {
                         PackedBorderPrimitive {
                             common: PackedPrimitiveInfo {
                                 padding: [0, 0],
-                                tile_index: 0,
-                                layer_index: 0,
+                                tile_index: 0.0,
+                                layer_index: 0.0,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: rect_from_points_f(border.tr_inner.x,
                                                                border.tr_outer.y,
@@ -1180,8 +1180,8 @@ impl Primitive {
                         PackedBorderPrimitive {
                             common: PackedPrimitiveInfo {
                                 padding: [0, 0],
-                                tile_index: 0,
-                                layer_index: 0,
+                                tile_index: 0.0,
+                                layer_index: 0.0,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: rect_from_points_f(border.bl_outer.x,
                                                                border.bl_inner.y,
@@ -1200,8 +1200,8 @@ impl Primitive {
                         PackedBorderPrimitive {
                             common: PackedPrimitiveInfo {
                                 padding: [0, 0],
-                                tile_index: 0,
-                                layer_index: 0,
+                                tile_index: 0.0,
+                                layer_index: 0.0,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: rect_from_points_f(border.br_inner.x,
                                                                border.br_inner.y,
@@ -1220,8 +1220,8 @@ impl Primitive {
                         PackedBorderPrimitive {
                             common: PackedPrimitiveInfo {
                                 padding: [0, 0],
-                                tile_index: 0,
-                                layer_index: 0,
+                                tile_index: 0.0,
+                                layer_index: 0.0,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: rect_from_points_f(border.tl_outer.x,
                                                                border.tl_inner.y,
@@ -1240,8 +1240,8 @@ impl Primitive {
                         PackedBorderPrimitive {
                             common: PackedPrimitiveInfo {
                                 padding: [0, 0],
-                                tile_index: 0,
-                                layer_index: 0,
+                                tile_index: 0.0,
+                                layer_index: 0.0,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: rect_from_points_f(border.tr_outer.x - border.right_width,
                                                                border.tr_inner.y,
@@ -1260,8 +1260,8 @@ impl Primitive {
                         PackedBorderPrimitive {
                             common: PackedPrimitiveInfo {
                                 padding: [0, 0],
-                                tile_index: 0,
-                                layer_index: 0,
+                                tile_index: 0.0,
+                                layer_index: 0.0,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: rect_from_points_f(border.tl_inner.x,
                                                                border.tl_outer.y,
@@ -1280,8 +1280,8 @@ impl Primitive {
                         PackedBorderPrimitive {
                             common: PackedPrimitiveInfo {
                                 padding: [0, 0],
-                                tile_index: 0,
-                                layer_index: 0,
+                                tile_index: 0.0,
+                                layer_index: 0.0,
                                 local_clip_rect: self.local_clip_rect,
                                 local_rect: rect_from_points_f(border.bl_inner.x,
                                                                border.bl_outer.y - border.bottom_width,
@@ -1335,8 +1335,8 @@ impl Primitive {
                 cache.glyph = Some(PackedGlyphPrimitive {
                     common: PackedPrimitiveInfo {
                         padding: [0, 0],
-                        tile_index: 0,
-                        layer_index: 0,
+                        tile_index: 0.0,
+                        layer_index: 0.0,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: self.rect,
                     },
@@ -1404,8 +1404,8 @@ impl Primitive {
                 cache.glyphs = Some(PackedTextRunPrimitive {
                     common: PackedPrimitiveInfo {
                         padding: [0, 0],
-                        tile_index: 0,
-                        layer_index: 0,
+                        tile_index: 0.0,
+                        layer_index: 0.0,
                         local_clip_rect: self.local_clip_rect,
                         local_rect: self.rect,
                     },
@@ -1502,6 +1502,9 @@ impl Primitive {
            needs_blending != batch.blending_enabled {
             return false
         }
+
+        let layer_index_in_ubo = pack_as_float(layer_index_in_ubo);
+        let tile_index_in_ubo = pack_as_float(tile_index_in_ubo);
 
         match (&mut batch.data, &self.details) {
             (&mut PrimitiveBatchData::Blend(..), _) => return false,
@@ -1856,8 +1859,8 @@ pub struct PackedLayer {
 
 #[derive(Debug, Clone)]
 pub struct PackedPrimitiveInfo {
-    layer_index: u32,
-    tile_index: u32,
+    layer_index: f32,
+    tile_index: f32,
     padding: [u32; 2],
     local_clip_rect: Rect<f32>,
     local_rect: Rect<f32>,
@@ -1888,8 +1891,8 @@ pub struct PackedGlyphPrimitive {
 #[repr(C)]
 pub struct PackedTextRunPrimitive {
     common: PackedPrimitiveInfo,
-    glyphs: [PackedTextRunGlyph; GLYPHS_PER_TEXT_RUN],
     color: ColorF,
+    glyphs: [PackedTextRunGlyph; GLYPHS_PER_TEXT_RUN],
 }
 
 #[derive(Debug, Copy, Clone)]

@@ -42,10 +42,9 @@ use offscreen_gl_context::{NativeGLContext, NativeGLContextMethods};
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
 pub const MAX_RASTER_OP_SIZE: u32 = 2048;
 
-const UBO_BIND_LAYERS: u32 = 1;
-const UBO_BIND_CLEAR_TILES: u32 = 2;
-const UBO_BIND_PRIM_TILES: u32 = 3;
-const UBO_BIND_CACHE_ITEMS: u32 = 4;
+const UBO_BIND_LAYERS: u32 = 0;
+const UBO_BIND_TILES: u32 = 1;
+const UBO_BIND_DATA: u32 = 2;
 
 #[derive(Copy, Clone)]
 struct PrimitiveShader {
@@ -115,21 +114,16 @@ fn get_ubo_max_len<T>(max_ubo_size: usize) -> usize {
 impl PrimitiveShader {
     fn new(name: &'static str,
            device: &mut Device,
-           max_prim_tiles: usize,
-           max_prim_layers: usize,
+           max_ubo_vectors: usize,
            max_prim_items: usize) -> PrimitiveShader {
         let simple = create_prim_shader(name,
                                         device,
-                                        max_prim_tiles,
-                                        max_prim_layers,
-                                        max_prim_items,
+                                        max_ubo_vectors,
                                         &[]);
 
         let transform = create_prim_shader(name,
                                            device,
-                                           max_prim_tiles,
-                                           max_prim_layers,
-                                           max_prim_items,
+                                           max_ubo_vectors,
                                            &["TRANSFORM"]);
 
         PrimitiveShader {
@@ -142,17 +136,11 @@ impl PrimitiveShader {
 
 fn create_prim_shader(name: &'static str,
                       device: &mut Device,
-                      max_prim_tiles: usize,
-                      max_prim_layers: usize,
-                      max_prim_items: usize,
+                      max_ubo_vectors: usize,
                       features: &[&'static str]) -> ProgramId {
-    let mut prefix = format!("#define WR_MAX_PRIM_TILES {}\n\
-                              #define WR_MAX_PRIM_LAYERS {}\n\
-                              #define WR_MAX_PRIM_ITEMS {}\n\
+    let mut prefix = format!("#define WR_MAX_UBO_VECTORS {}\n\
                               #define WR_GLYPHS_PER_TEXT_RUN {}\n",
-                              max_prim_tiles,
-                              max_prim_layers,
-                              max_prim_items,
+                              max_ubo_vectors,
                               GLYPHS_PER_TEXT_RUN);
 
     for feature in features {
@@ -164,35 +152,36 @@ fn create_prim_shader(name: &'static str,
                                                        Some(prefix));
 
     let tiles_index = gl::get_uniform_block_index(program_id.0, "Tiles");
-    gl::uniform_block_binding(program_id.0, tiles_index, UBO_BIND_PRIM_TILES);
+    gl::uniform_block_binding(program_id.0, tiles_index, UBO_BIND_TILES);
 
     let layer_index = gl::get_uniform_block_index(program_id.0, "Layers");
     gl::uniform_block_binding(program_id.0, layer_index, UBO_BIND_LAYERS);
 
-    let item_index = gl::get_uniform_block_index(program_id.0, "Items");
-    gl::uniform_block_binding(program_id.0, item_index, UBO_BIND_CACHE_ITEMS);
+    let data_index = gl::get_uniform_block_index(program_id.0, "Data");
+    gl::uniform_block_binding(program_id.0, data_index, UBO_BIND_DATA);
 
-    debug!("PrimShader {}: items={}/{} tiles={}/{} layers={}/{}",
+    debug!("PrimShader {}: data={} tiles={} layers={} max={}",
            name,
-           item_index, max_prim_items,
-           tiles_index, max_prim_tiles,
-           layer_index, max_prim_layers);
+           data_index,
+           tiles_index,
+           layer_index,
+           max_ubo_vectors);
     program_id
 }
 
 fn create_clear_shader(name: &'static str,
                        device: &mut Device,
-                       max_clear_tiles: usize) -> ProgramId {
-    let prefix = format!("#define WR_MAX_CLEAR_TILES {}", max_clear_tiles);
+                       max_ubo_vectors: usize) -> ProgramId {
+    let prefix = format!("#define WR_MAX_UBO_VECTORS {}", max_ubo_vectors);
 
     let program_id = device.create_program_with_prefix(name,
                                                        "shared_other",
                                                        Some(prefix));
 
-    let tile_index = gl::get_uniform_block_index(program_id.0, "Tiles");
-    gl::uniform_block_binding(program_id.0, tile_index, UBO_BIND_CLEAR_TILES);
+    let data_index = gl::get_uniform_block_index(program_id.0, "Data");
+    gl::uniform_block_binding(program_id.0, data_index, UBO_BIND_DATA);
 
-    debug!("ClearShader {}: tiles={}/{}", name, tile_index, max_clear_tiles);
+    debug!("ClearShader {}: data={} max={}", name, data_index, max_ubo_vectors);
 
     program_id
 }
@@ -294,6 +283,7 @@ impl Renderer {
         let max_raster_op_size = MAX_RASTER_OP_SIZE * options.device_pixel_ratio as u32;
 
         let max_ubo_size = gl::get_integer_v(gl::MAX_UNIFORM_BLOCK_SIZE) as usize;
+        let max_ubo_vectors = max_ubo_size / 16;
         let max_prim_tiles = get_ubo_max_len::<PackedTile>(max_ubo_size);
         let max_prim_layers = get_ubo_max_len::<PackedLayer>(max_ubo_size);
 
@@ -312,71 +302,57 @@ impl Renderer {
 
         let ps_rectangle = PrimitiveShader::new("ps_rectangle",
                                                 &mut device,
-                                                max_prim_tiles,
-                                                max_prim_layers,
+                                                max_ubo_vectors,
                                                 max_prim_rectangles);
         let ps_rectangle_clip = PrimitiveShader::new("ps_rectangle_clip",
                                                      &mut device,
-                                                     max_prim_tiles,
-                                                     max_prim_layers,
+                                                     max_ubo_vectors,
                                                      max_prim_rectangles_clip);
         let ps_text = PrimitiveShader::new("ps_text",
                                            &mut device,
-                                           max_prim_tiles,
-                                           max_prim_layers,
+                                           max_ubo_vectors,
                                            max_prim_texts);
         let ps_text_run = PrimitiveShader::new("ps_text_run",
                                                &mut device,
-                                               max_prim_tiles,
-                                               max_prim_layers,
+                                               max_ubo_vectors,
                                                max_prim_text_runs);
         let ps_image = PrimitiveShader::new("ps_image",
                                             &mut device,
-                                            max_prim_tiles,
-                                            max_prim_layers,
+                                            max_ubo_vectors,
                                             max_prim_images);
         let ps_image_clip = PrimitiveShader::new("ps_image_clip",
                                                  &mut device,
-                                                 max_prim_tiles,
-                                                 max_prim_layers,
+                                                 max_ubo_vectors,
                                                  max_prim_images_clip);
 
         let ps_border = PrimitiveShader::new("ps_border",
                                              &mut device,
-                                             max_prim_tiles,
-                                             max_prim_layers,
+                                             max_ubo_vectors,
                                              max_prim_borders);
         let ps_box_shadow = PrimitiveShader::new("ps_box_shadow",
                                                  &mut device,
-                                                 max_prim_tiles,
-                                                 max_prim_layers,
+                                                 max_ubo_vectors,
                                                  max_prim_box_shadows);
         let ps_aligned_gradient = PrimitiveShader::new("ps_gradient",
                                                        &mut device,
-                                                       max_prim_tiles,
-                                                       max_prim_layers,
+                                                       max_ubo_vectors,
                                                        max_prim_aligned_gradients);
         let ps_angle_gradient = PrimitiveShader::new("ps_angle_gradient",
                                                      &mut device,
-                                                     max_prim_tiles,
-                                                     max_prim_layers,
+                                                     max_ubo_vectors,
                                                      max_prim_angle_gradients);
 
         let ps_blend = create_prim_shader("ps_blend",
                                           &mut device,
-                                          max_prim_tiles,
-                                          max_prim_layers,
-                                          max_prim_blends,
+                                          max_ubo_vectors,
                                           &[]);
         let ps_composite = create_prim_shader("ps_composite",
                                               &mut device,
-                                              max_prim_tiles,
-                                              max_prim_layers,
-                                              max_prim_composites,
+                                              max_ubo_vectors,
                                               &[]);
 
         let max_clear_tiles = get_ubo_max_len::<ClearTile>(max_ubo_size);
-        let tile_clear_shader = create_clear_shader("ps_clear", &mut device, max_clear_tiles);
+        let tile_clear_shader = create_clear_shader("ps_clear", &mut device, max_ubo_vectors);
 
         let texture_ids = device.create_texture_ids(1024);
         let mut texture_cache = TextureCache::new(texture_ids);
@@ -1274,7 +1250,7 @@ impl Renderer {
 
             gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
             gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
+            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
 
             let quad_count = chunk.len() * quads_per_item;
             self.device.draw_indexed_triangles_instanced_u16(6, quad_count as gl::GLint);
@@ -1368,7 +1344,7 @@ impl Renderer {
                     &PrimitiveBatchData::Composite(..) => {}
                     _ => {
                         gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_LAYERS, layer_ubos[batch.layer_ubo_index]);
-                        gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_PRIM_TILES, tile_ubos[batch.tile_ubo_index]);
+                        gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_TILES, tile_ubos[batch.tile_ubo_index]);
                     }
                 }
 
@@ -1383,7 +1359,7 @@ impl Renderer {
 
                             gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
                             gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
+                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
 
                             self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
                             self.profile_counters.vertices.add(6 * chunk.len());
@@ -1402,7 +1378,7 @@ impl Renderer {
 
                             gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
                             gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CACHE_ITEMS, ubo);
+                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
 
                             self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
                             self.profile_counters.vertices.add(6 * chunk.len());
@@ -1611,7 +1587,7 @@ impl Renderer {
 
                 gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
                 gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_CLEAR_TILES, ubo);
+                gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
 
                 self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
                 self.profile_counters.vertices.add(6 * chunk.len());
