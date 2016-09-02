@@ -30,5 +30,5 @@ webrender_traits = {path = "../webrender_traits", default-features = false}
 freetype = {git = "https://github.com/servo/rust-freetype"}
 
 [target.'cfg(target_os = "macos")'.dependencies]
-core-graphics = "0.4"
+core-graphics = "0.4.1"
 core-text = "2.0"

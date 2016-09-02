@@ -77,7 +77,7 @@ impl FontContext {
                      size: Au,
                      character: u32,
                      device_pixel_ratio: f32,
-                     _enable_aa: bool)
+                     enable_aa: bool)
                      -> Option<RasterizedGlyph> {
         let ct_font = match self.ct_fonts.entry(((font_key).clone(), size)) {
             Entry::Occupied(entry) => (*entry.get()).clone(),
@@ -113,8 +113,10 @@ impl FontContext {
                                                               rasterized_width as usize * 4,
                                                               &CGColorSpace::create_device_rgb(),
                                                               kCGImageAlphaPremultipliedLast);
-        cg_context.set_allows_font_smoothing(true);
-        cg_context.set_should_smooth_fonts(true);
+        cg_context.set_allows_font_smoothing(enable_aa);
+        cg_context.set_should_smooth_fonts(enable_aa);
+        cg_context.set_allows_antialiasing(enable_aa);
+        cg_context.set_should_antialias(enable_aa);
         cg_context.set_rgb_fill_color(1.0, 1.0, 1.0, 1.0);
 
         let rasterization_origin = CGPoint {
