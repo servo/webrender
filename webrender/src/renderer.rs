@@ -14,6 +14,7 @@ use debug_render::DebugRenderer;
 use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat, GpuProfile};
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler};
 use euclid::{Matrix4D, Point2D, Rect, Size2D};
+use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
@@ -25,7 +26,9 @@ use profiler::{Profiler, BackendProfileCounters};
 use profiler::{RendererProfileTimers, RendererProfileCounters};
 use render_backend::RenderBackend;
 use std::cmp;
+use std::collections::HashMap;
 use std::f32;
+use std::hash::BuildHasherDefault;
 use std::mem;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -236,6 +239,7 @@ pub struct Renderer {
     quad_vao_id: VAOId,
 
     layer_texture: TextureId,
+    pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
 }
 
 impl Renderer {
@@ -506,6 +510,7 @@ impl Renderer {
             gpu_profile_composite: GpuProfile::new(),
             quad_vao_id: quad_vao_id,
             layer_texture: TextureId(0),
+            pipeline_epoch_map: HashMap::with_hasher(Default::default()),
         };
 
         renderer.update_uniform_locations();
@@ -544,9 +549,7 @@ impl Renderer {
 
     /// Returns the Epoch of the current frame in a pipeline.
     pub fn current_epoch(&self, pipeline_id: PipelineId) -> Option<Epoch> {
-        self.current_frame.as_ref().and_then(|frame| {
-            frame.pipeline_epoch_map.get(&pipeline_id).map(|epoch| *epoch)
-        })
+        self.pipeline_epoch_map.get(&pipeline_id).map(|epoch| *epoch)
     }
 
     /// Processes the result queue.
@@ -561,6 +564,13 @@ impl Renderer {
                 }
                 ResultMsg::NewFrame(frame, profile_counters) => {
                     self.backend_profile_counters = profile_counters;
+
+                    // Update the list of available epochs for use during reftests.
+                    // This is a workaround for https://github.com/servo/servo/issues/13149.
+                    for (pipeline_id, epoch) in &frame.pipeline_epoch_map {
+                        self.pipeline_epoch_map.insert(*pipeline_id, *epoch);
+                    }
+
                     self.current_frame = Some(frame);
                 }
                 ResultMsg::RefreshShader(path) => {
