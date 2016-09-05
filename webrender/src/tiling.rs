@@ -3368,6 +3368,9 @@ impl FrameBuilder {
             //println!("rendering: phase count={}", phases.len());
             for phase in &mut phases {
                 phase.build(&ctx);
+
+                profile_counters.phases.inc();
+                profile_counters.targets.add(phase.targets.len());
             }
         }
 
