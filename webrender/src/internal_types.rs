@@ -94,17 +94,8 @@ pub type DrawListId = FreeListItemId;
 pub enum TextureSampler {
     Color,
     Mask,
-
     Cache,
-
-    CompositeLayer0,
-    CompositeLayer1,
-    CompositeLayer2,
-    CompositeLayer3,
-    CompositeLayer4,
-    CompositeLayer5,
-    CompositeLayer6,
-    CompositeLayer7,
+    Layers,
 }
 
 pub enum VertexAttribute {
