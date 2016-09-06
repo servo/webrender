@@ -705,6 +705,7 @@ impl TextureCache {
                 (&mut self.arena.pages_rgb8, RenderTargetMode::None)
             }
             (ImageFormat::Invalid, TextureCacheItemKind::Standard) |
+            (ImageFormat::RGBAF32, TextureCacheItemKind::Standard) |
             (_, TextureCacheItemKind::Alternate) => unreachable!(),
         };
 
@@ -902,7 +903,8 @@ impl TextureCache {
             }
             (&TextureInsertOp::Blit(..), ImageFormat::RGB8) => true,
             (&TextureInsertOp::Blit(..), ImageFormat::A8) => false,
-            (&TextureInsertOp::Blit(..), ImageFormat::Invalid) => unreachable!(),
+            (&TextureInsertOp::Blit(..), ImageFormat::Invalid) |
+            (&TextureInsertOp::Blit(..), ImageFormat::RGBAF32) => unreachable!(),
             (&TextureInsertOp::Blur(..), _) => false,
         };
 
@@ -927,7 +929,7 @@ impl TextureCache {
                             ImageFormat::A8 => 1,
                             ImageFormat::RGB8 => 3,
                             ImageFormat::RGBA8 => 4,
-                            ImageFormat::Invalid => unreachable!(),
+                            ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
                         };
 
                         let mut top_row_bytes = Vec::new();

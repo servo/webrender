@@ -19,7 +19,7 @@ use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePixel};
 use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp};
-use internal_types::{AxisDirection};
+use internal_types::{AxisDirection, TextureSampler};
 use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{RendererProfileTimers, RendererProfileCounters};
@@ -33,7 +33,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::{BorderType, TextureCache, TextureInsertOp};
 use tiling::{self, Frame, FrameBuilderConfig, GLYPHS_PER_TEXT_RUN, PrimitiveBatchData, PackedTile};
-use tiling::{TransformedRectKind, RenderTarget, ClearTile, PackedLayer};
+use tiling::{TransformedRectKind, RenderTarget, ClearTile, PackedStackingContext};
 use time::precise_time_ns;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
 use webrender_traits::{ImageFormat, MixBlendMode, RenderApiSender};
@@ -42,9 +42,8 @@ use offscreen_gl_context::{NativeGLContext, NativeGLContextMethods};
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
 pub const MAX_RASTER_OP_SIZE: u32 = 2048;
 
-const UBO_BIND_LAYERS: u32 = 0;
-const UBO_BIND_TILES: u32 = 1;
-const UBO_BIND_DATA: u32 = 2;
+const UBO_BIND_TILES: u32 = 0;
+const UBO_BIND_DATA: u32 = 1;
 
 #[derive(Copy, Clone)]
 struct PrimitiveShader {
@@ -154,17 +153,13 @@ fn create_prim_shader(name: &'static str,
     let tiles_index = gl::get_uniform_block_index(program_id.0, "Tiles");
     gl::uniform_block_binding(program_id.0, tiles_index, UBO_BIND_TILES);
 
-    let layer_index = gl::get_uniform_block_index(program_id.0, "Layers");
-    gl::uniform_block_binding(program_id.0, layer_index, UBO_BIND_LAYERS);
-
     let data_index = gl::get_uniform_block_index(program_id.0, "Data");
     gl::uniform_block_binding(program_id.0, data_index, UBO_BIND_DATA);
 
-    debug!("PrimShader {}: data={} tiles={} layers={} max={}",
+    debug!("PrimShader {}: data={} tiles={} max={}",
            name,
            data_index,
            tiles_index,
-           layer_index,
            max_ubo_vectors);
     program_id
 }
@@ -239,6 +234,8 @@ pub struct Renderer {
     gpu_profile_paint: GpuProfile,
     gpu_profile_composite: GpuProfile,
     quad_vao_id: VAOId,
+
+    layer_texture: TextureId,
 }
 
 impl Renderer {
@@ -285,7 +282,6 @@ impl Renderer {
         let max_ubo_size = gl::get_integer_v(gl::MAX_UNIFORM_BLOCK_SIZE) as usize;
         let max_ubo_vectors = max_ubo_size / 16;
         let max_prim_tiles = get_ubo_max_len::<PackedTile>(max_ubo_size);
-        let max_prim_layers = get_ubo_max_len::<PackedLayer>(max_ubo_size);
 
         let max_prim_rectangles = get_ubo_max_len::<tiling::PackedRectanglePrimitive>(max_ubo_size);
         let max_prim_rectangles_clip = get_ubo_max_len::<tiling::PackedRectanglePrimitiveClip>(max_ubo_size);
@@ -444,8 +440,7 @@ impl Renderer {
         // texture ids
         let context_handle = NativeGLContext::current_handle();
 
-        let config = FrameBuilderConfig::new(max_prim_layers,
-                                             max_prim_tiles);
+        let config = FrameBuilderConfig::new(max_prim_tiles);
 
         let debug = options.debug;
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
@@ -510,6 +505,7 @@ impl Renderer {
             gpu_profile_paint: GpuProfile::new(),
             gpu_profile_composite: GpuProfile::new(),
             quad_vao_id: quad_vao_id,
+            layer_texture: TextureId(0),
         };
 
         renderer.update_uniform_locations();
@@ -1067,8 +1063,8 @@ impl Renderer {
 
         self.device.bind_program(program_id, &projection);
 
-        self.device.bind_color_texture(color_texture_id);
-        self.device.bind_mask_texture(TextureId(0));
+        self.device.bind_texture(TextureSampler::Color, color_texture_id);
+        self.device.bind_texture(TextureSampler::Mask, TextureId(0));
 
         match blur_direction {
             Some(AxisDirection::Horizontal) => {
@@ -1242,7 +1238,7 @@ impl Renderer {
         };
         self.device.bind_program(shader, &projection);
         self.device.bind_vao(self.quad_vao_id);
-        self.device.bind_color_texture(color_texture_id);
+        self.device.bind_texture(TextureSampler::Color, color_texture_id);
 
         for chunk in ubo_data.chunks(prim_shader.max_items) {
             let ubos = gl::gen_buffers(1);
@@ -1275,11 +1271,7 @@ impl Renderer {
 
         gl::disable(gl::BLEND);
 
-        // TODO(gw): oops!
-        self.device.bind_cache_texture(cache_texture);
-        for i in 0..8 {
-            self.device.bind_layer_texture(i, cache_texture);
-        }
+        self.device.bind_texture(TextureSampler::Cache, cache_texture);
 
         let projection = match render_target {
             Some(..) => {
@@ -1312,15 +1304,7 @@ impl Renderer {
         }
 
         for batcher in &target.alpha_batchers {
-            let layer_ubos = gl::gen_buffers(batcher.layer_ubos.len() as i32);
             let tile_ubos = gl::gen_buffers(batcher.tile_ubos.len() as i32);
-
-            for (ubo_data, ubo_id) in batcher.layer_ubos
-                                             .iter()
-                                             .zip(layer_ubos.iter()) {
-                gl::bind_buffer(gl::UNIFORM_BUFFER, *ubo_id);
-                gl::buffer_data(gl::UNIFORM_BUFFER, ubo_data, gl::STATIC_DRAW);
-            }
 
             for (ubo_data, ubo_id) in batcher.tile_ubos
                                              .iter()
@@ -1343,7 +1327,6 @@ impl Renderer {
                     &PrimitiveBatchData::Blend(..) => {}
                     &PrimitiveBatchData::Composite(..) => {}
                     _ => {
-                        gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_LAYERS, layer_ubos[batch.layer_ubo_index]);
                         gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_TILES, tile_ubos[batch.tile_ubo_index]);
                     }
                 }
@@ -1488,7 +1471,6 @@ impl Renderer {
 
             gl::disable(gl::BLEND);
             gl::delete_buffers(&tile_ubos);
-            gl::delete_buffers(&layer_ubos);
         }
     }
 
@@ -1549,7 +1531,21 @@ impl Renderer {
                                          TextureFilter::Linear,
                                          RenderTargetMode::RenderTarget,
                                          None);
+
+                self.layer_texture = self.device.create_texture_ids(1)[0];
             }
+
+            let packed_layer_size = mem::size_of::<PackedStackingContext>();
+            debug_assert!(packed_layer_size % 16 == 0);
+            let vecs_per_layer = packed_layer_size / 16;
+            self.device.init_texture(self.layer_texture,
+                                     vecs_per_layer as u32,
+                                     frame.layer_texture_data.len() as u32,
+                                     ImageFormat::RGBAF32,
+                                     TextureFilter::Nearest,
+                                     RenderTargetMode::None,
+                                     Some(unsafe { mem::transmute(frame.layer_texture_data.as_slice()) } ));
+            self.device.bind_texture(TextureSampler::Layers, self.layer_texture);
 
             for (phase_index, phase) in frame.phases.iter().enumerate() {
                 let mut render_target_index = 0;
@@ -1574,6 +1570,8 @@ impl Renderer {
                     }
                 }
             }
+
+            self.device.deinit_texture(self.layer_texture);
         }
 
         // Clear tiles with no items

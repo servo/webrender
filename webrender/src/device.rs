@@ -741,10 +741,7 @@ impl FileWatcherThread {
 
 pub struct Device {
     // device state
-    bound_color_texture: TextureId,
-    bound_mask_texture: TextureId,
-    bound_layer_textures: [TextureId; 8],
-    bound_cache_texture: TextureId,
+    bound_textures: [TextureId; 4],
     bound_program: ProgramId,
     bound_vao: VAOId,
     bound_fbo: FBOId,
@@ -788,18 +785,12 @@ impl Device {
             device_pixel_ratio: device_pixel_ratio,
             inside_frame: false,
 
-            bound_color_texture: TextureId(0),
-            bound_mask_texture: TextureId(0),
-            bound_cache_texture: TextureId(0),
-            bound_layer_textures: [ TextureId(0),
-                                    TextureId(0),
-                                    TextureId(0),
-                                    TextureId(0),
-                                    TextureId(0),
-                                    TextureId(0),
-                                    TextureId(0),
-                                    TextureId(0),
-                                  ],
+            bound_textures: [
+                                TextureId(0),
+                                TextureId(0),
+                                TextureId(0),
+                                TextureId(0),
+                            ],
             bound_program: ProgramId(0),
             bound_vao: VAOId(0),
             bound_fbo: FBOId(0),
@@ -859,21 +850,9 @@ impl Device {
         self.default_fbo = default_fbo as gl::GLuint;
 
         // Texture state
-        self.bound_color_texture = TextureId(0);
-        gl::active_texture(gl::TEXTURE0);
-        gl::bind_texture(gl::TEXTURE_2D, 0);
-
-        self.bound_mask_texture = TextureId(0);
-        gl::active_texture(gl::TEXTURE1);
-        gl::bind_texture(gl::TEXTURE_2D, 0);
-
-        self.bound_cache_texture = TextureId(0);
-        gl::active_texture(gl::TEXTURE2);
-        gl::bind_texture(gl::TEXTURE_2D, 0);
-
-        for i in 0..self.bound_layer_textures.len() {
-            self.bound_layer_textures[i] = TextureId(0);
-            gl::active_texture(gl::TEXTURE3 + i as u32);
+        for i in 0..self.bound_textures.len() {
+            self.bound_textures[i] = TextureId(0);
+            gl::active_texture(gl::TEXTURE0 + i as gl::GLuint);
             gl::bind_texture(gl::TEXTURE_2D, 0);
         }
 
@@ -895,43 +874,13 @@ impl Device {
         gl::active_texture(gl::TEXTURE0);
     }
 
-    pub fn bind_color_texture(&mut self, texture_id: TextureId) {
+    pub fn bind_texture(&mut self, sampler: TextureSampler, texture_id: TextureId) {
         debug_assert!(self.inside_frame);
 
-        if self.bound_color_texture != texture_id {
-            self.bound_color_texture = texture_id;
-            texture_id.bind();
-        }
-    }
-
-    pub fn bind_mask_texture(&mut self, texture_id: TextureId) {
-        debug_assert!(self.inside_frame);
-
-        if self.bound_mask_texture != texture_id {
-            self.bound_mask_texture = texture_id;
-            gl::active_texture(gl::TEXTURE1);
-            texture_id.bind();
-            gl::active_texture(gl::TEXTURE0);
-        }
-    }
-
-    pub fn bind_cache_texture(&mut self, texture_id: TextureId) {
-        debug_assert!(self.inside_frame);
-
-        if self.bound_cache_texture != texture_id {
-            self.bound_cache_texture = texture_id;
-            gl::active_texture(gl::TEXTURE2);
-            texture_id.bind();
-            gl::active_texture(gl::TEXTURE0);
-        }
-    }
-
-    pub fn bind_layer_texture(&mut self, layer: usize, texture_id: TextureId) {
-        debug_assert!(self.inside_frame);
-
-        if self.bound_layer_textures[layer] != texture_id {
-            self.bound_layer_textures[layer] = texture_id;
-            gl::active_texture(gl::TEXTURE3 + layer as u32);
+        let sampler_index = sampler as usize;
+        if self.bound_textures[sampler_index] != texture_id {
+            self.bound_textures[sampler_index] = texture_id;
+            gl::active_texture(gl::TEXTURE0 + sampler_index as gl::GLuint);
             texture_id.bind();
             gl::active_texture(gl::TEXTURE0);
         }
@@ -1038,6 +987,7 @@ impl Device {
                                height: u32,
                                internal_format: u32,
                                format: u32,
+                               type_: u32,
                                pixels: Option<&[u8]>) {
         gl::tex_image_2d(gl::TEXTURE_2D,
                          0,
@@ -1045,7 +995,7 @@ impl Device {
                          width as gl::GLint, height as gl::GLint,
                          0,
                          format,
-                         gl::UNSIGNED_BYTE,
+                         type_,
                          pixels);
     }
 
@@ -1096,14 +1046,20 @@ impl Device {
                     (gl::RGBA, GL_FORMAT_BGRA)
                 }
             }
+            ImageFormat::RGBAF32 => (gl::RGBA32F, gl::RGBA),
             ImageFormat::Invalid => unreachable!(),
+        };
+
+        let type_ = match format {
+            ImageFormat::RGBAF32 => gl::FLOAT,
+            _ => gl::UNSIGNED_BYTE,
         };
 
         match mode {
             RenderTargetMode::RenderTarget => {
-                self.bind_color_texture(texture_id);
+                self.bind_texture(TextureSampler::Color, texture_id);
                 self.set_texture_parameters(filter);
-                self.upload_texture_image(width, height, internal_format, gl_format, None);
+                self.upload_texture_image(width, height, internal_format, gl_format, type_, None);
                 self.create_fbo_for_texture_if_necessary(texture_id);
             }
             RenderTargetMode::None => {
@@ -1113,6 +1069,7 @@ impl Device {
                 self.upload_texture_image(width, height,
                                           internal_format,
                                           gl_format,
+                                          type_,
                                           pixels);
             }
         }
@@ -1156,7 +1113,7 @@ impl Device {
         self.create_fbo_for_texture_if_necessary(temp_texture_id);
 
         self.bind_render_target(Some(texture_id));
-        self.bind_color_texture(temp_texture_id);
+        self.bind_texture(TextureSampler::Color, temp_texture_id);
 
         gl::copy_tex_sub_image_2d(gl::TEXTURE_2D,
                                   0,
@@ -1171,7 +1128,7 @@ impl Device {
         self.init_texture(texture_id, new_width, new_height, format, filter, mode, None);
         self.create_fbo_for_texture_if_necessary(texture_id);
         self.bind_render_target(Some(temp_texture_id));
-        self.bind_color_texture(texture_id);
+        self.bind_texture(TextureSampler::Color, texture_id);
 
         gl::copy_tex_sub_image_2d(gl::TEXTURE_2D,
                                   0,
@@ -1189,7 +1146,7 @@ impl Device {
     pub fn deinit_texture(&mut self, texture_id: TextureId) {
         debug_assert!(self.inside_frame);
 
-        self.bind_color_texture(texture_id);
+        self.bind_texture(TextureSampler::Color, texture_id);
         self.deinit_texture_image();
 
         let texture = self.textures.get_mut(&texture_id).unwrap();
@@ -1344,54 +1301,19 @@ impl Device {
                 if u_mask != -1 {
                     gl::uniform_1i(u_mask, TextureSampler::Mask as i32);
                 }
-                let u_diffuse2d = gl::get_uniform_location(program.id, "sDiffuse2D");
-                if u_diffuse2d != -1 {
-                    gl::uniform_1i(u_diffuse2d, TextureSampler::Color as i32);
-                }
-                let u_mask2d = gl::get_uniform_location(program.id, "sMask2D");
-                if u_mask2d != -1 {
-                    gl::uniform_1i(u_mask2d, TextureSampler::Mask as i32);
-                }
                 let u_device_pixel_ratio = gl::get_uniform_location(program.id, "uDevicePixelRatio");
                 if u_device_pixel_ratio != -1 {
                     gl::uniform_1f(u_device_pixel_ratio, self.device_pixel_ratio);
                 }
 
-                let u_layer0 = gl::get_uniform_location(program.id, "sLayer0");
-                if u_layer0 != -1 {
-                    gl::uniform_1i(u_layer0, TextureSampler::CompositeLayer0 as i32);
-                }
-                let u_layer1 = gl::get_uniform_location(program.id, "sLayer1");
-                if u_layer1 != -1 {
-                    gl::uniform_1i(u_layer1, TextureSampler::CompositeLayer1 as i32);
-                }
-                let u_layer2 = gl::get_uniform_location(program.id, "sLayer2");
-                if u_layer2 != -1 {
-                    gl::uniform_1i(u_layer2, TextureSampler::CompositeLayer2 as i32);
-                }
-                let u_layer3 = gl::get_uniform_location(program.id, "sLayer3");
-                if u_layer3 != -1 {
-                    gl::uniform_1i(u_layer3, TextureSampler::CompositeLayer3 as i32);
-                }
-                let u_layer4 = gl::get_uniform_location(program.id, "sLayer4");
-                if u_layer4 != -1 {
-                    gl::uniform_1i(u_layer4, TextureSampler::CompositeLayer4 as i32);
-                }
-                let u_layer5 = gl::get_uniform_location(program.id, "sLayer5");
-                if u_layer5 != -1 {
-                    gl::uniform_1i(u_layer5, TextureSampler::CompositeLayer5 as i32);
-                }
-                let u_layer6 = gl::get_uniform_location(program.id, "sLayer6");
-                if u_layer6 != -1 {
-                    gl::uniform_1i(u_layer6, TextureSampler::CompositeLayer6 as i32);
-                }
-                let u_layer7 = gl::get_uniform_location(program.id, "sLayer7");
-                if u_layer7 != -1 {
-                    gl::uniform_1i(u_layer7, TextureSampler::CompositeLayer7 as i32);
-                }
                 let u_cache = gl::get_uniform_location(program.id, "sCache");
                 if u_cache != -1 {
                     gl::uniform_1i(u_cache, TextureSampler::Cache as i32);
+                }
+
+                let u_layers = gl::get_uniform_location(program.id, "sLayers");
+                if u_layers != -1 {
+                    gl::uniform_1i(u_layers, TextureSampler::Layers as i32);
                 }
             }
         }
@@ -1511,12 +1433,12 @@ impl Device {
             }
             ImageFormat::RGB8 => (gl::RGB, 3, data),
             ImageFormat::RGBA8 => (GL_FORMAT_BGRA, 4, data),
-            ImageFormat::Invalid => unreachable!(),
+            ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
         };
 
         assert!(data.len() as u32 == bpp * width * height);
 
-        self.bind_color_texture(texture_id);
+        self.bind_texture(TextureSampler::Color, texture_id);
         self.update_image_for_2d_texture(x0 as gl::GLint,
                                          y0 as gl::GLint,
                                          width as gl::GLint,
@@ -1533,7 +1455,7 @@ impl Device {
                                  src_y: i32,
                                  width: i32,
                                  height: i32) {
-        self.bind_color_texture(texture_id);
+        self.bind_texture(TextureSampler::Color, texture_id);
         gl::copy_tex_sub_image_2d(gl::TEXTURE_2D,
                                   0,
                                   dest_x,
