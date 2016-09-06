@@ -1527,7 +1527,7 @@ impl Renderer {
                                          ORTHO_FAR_PLANE);
 
         if frame.phases.is_empty() {
-            gl::clear_color(0.3, 0.3, 0.3, 1.0);
+            gl::clear_color(1.0, 1.0, 1.0, 1.0);
             gl::clear(gl::COLOR_BUFFER_BIT);
         } else {
             if self.render_targets[0] == TextureId(0) {
