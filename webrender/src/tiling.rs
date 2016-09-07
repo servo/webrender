@@ -799,6 +799,10 @@ struct Primitive {
 
 impl Primitive {
     fn is_opaque(&self, resource_cache: &ResourceCache, frame_id: FrameId) -> bool {
+        if self.complex_clip.is_some() {
+            return false;
+        }
+
         match self.details {
             PrimitiveDetails::Rectangle(ref primitive) => primitive.color.a == 1.0,
             PrimitiveDetails::Image(ImagePrimitive {
