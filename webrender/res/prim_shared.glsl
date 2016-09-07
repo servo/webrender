@@ -50,24 +50,29 @@ layout(std140) uniform Tiles {
 Layer fetch_layer(int index) {
     Layer layer;
 
-    ivec2 uv = ivec2(0, index);
+    // Create a UV base coord for each 8 texels.
+    // This is required because trying to use an offset
+    // of more than 8 texels doesn't work on some versions
+    // of OSX.
+    ivec2 uv0 = ivec2(0, index);
+    ivec2 uv1 = ivec2(8, index);
 
-    layer.transform[0] = texelFetchOffset(sLayers, uv, 0, ivec2(0, 0));
-    layer.transform[1] = texelFetchOffset(sLayers, uv, 0, ivec2(1, 0));
-    layer.transform[2] = texelFetchOffset(sLayers, uv, 0, ivec2(2, 0));
-    layer.transform[3] = texelFetchOffset(sLayers, uv, 0, ivec2(3, 0));
+    layer.transform[0] = texelFetchOffset(sLayers, uv0, 0, ivec2(0, 0));
+    layer.transform[1] = texelFetchOffset(sLayers, uv0, 0, ivec2(1, 0));
+    layer.transform[2] = texelFetchOffset(sLayers, uv0, 0, ivec2(2, 0));
+    layer.transform[3] = texelFetchOffset(sLayers, uv0, 0, ivec2(3, 0));
 
-    layer.inv_transform[0] = texelFetchOffset(sLayers, uv, 0, ivec2(4, 0));
-    layer.inv_transform[1] = texelFetchOffset(sLayers, uv, 0, ivec2(5, 0));
-    layer.inv_transform[2] = texelFetchOffset(sLayers, uv, 0, ivec2(6, 0));
-    layer.inv_transform[3] = texelFetchOffset(sLayers, uv, 0, ivec2(7, 0));
+    layer.inv_transform[0] = texelFetchOffset(sLayers, uv0, 0, ivec2(4, 0));
+    layer.inv_transform[1] = texelFetchOffset(sLayers, uv0, 0, ivec2(5, 0));
+    layer.inv_transform[2] = texelFetchOffset(sLayers, uv0, 0, ivec2(6, 0));
+    layer.inv_transform[3] = texelFetchOffset(sLayers, uv0, 0, ivec2(7, 0));
 
-    layer.local_clip_rect = texelFetchOffset(sLayers, uv, 0, ivec2(8, 0));
+    layer.local_clip_rect = texelFetchOffset(sLayers, uv1, 0, ivec2(0, 0));
 
-    layer.screen_vertices[0] = texelFetchOffset(sLayers, uv, 0, ivec2(9, 0));
-    layer.screen_vertices[1] = texelFetchOffset(sLayers, uv, 0, ivec2(10, 0));
-    layer.screen_vertices[2] = texelFetchOffset(sLayers, uv, 0, ivec2(11, 0));
-    layer.screen_vertices[3] = texelFetchOffset(sLayers, uv, 0, ivec2(12, 0));
+    layer.screen_vertices[0] = texelFetchOffset(sLayers, uv1, 0, ivec2(1, 0));
+    layer.screen_vertices[1] = texelFetchOffset(sLayers, uv1, 0, ivec2(2, 0));
+    layer.screen_vertices[2] = texelFetchOffset(sLayers, uv1, 0, ivec2(2, 0));
+    layer.screen_vertices[3] = texelFetchOffset(sLayers, uv1, 0, ivec2(3, 0));
 
     return layer;
 }
