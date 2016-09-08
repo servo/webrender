@@ -32,6 +32,13 @@ pub const ELEMENTS_PER_BORDER: usize = 8;
 const ALPHA_BATCHERS_PER_RENDER_TARGET: usize = 4;
 const MIN_TASKS_PER_ALPHA_BATCHER: usize = 64;
 
+#[derive(Debug)]
+struct ScrollbarPrimitive {
+    scroll_layer_id: ScrollLayerId,
+    prim_index: PrimitiveIndex,
+    border_radius: f32,
+}
+
 #[inline(always)]
 fn pack_as_float(value: u32) -> f32 {
     value as f32 + 0.5
@@ -54,6 +61,12 @@ enum PrimitiveRunCmd {
     PushStackingContext(StackingContextIndex),
     PrimitiveRun(PrimitiveIndex, usize),
     PopStackingContext,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum PrimitiveFlags {
+    None,
+    Scrollbar(ScrollLayerId, f32)
 }
 
 #[repr(u32)]
@@ -2223,6 +2236,16 @@ impl ClipCorner {
             inner_radius_y: 0.0,
         }
     }
+
+    fn uniform(rect: Rect<f32>, outer_radius: f32, inner_radius: f32) -> ClipCorner {
+        ClipCorner {
+            rect: rect,
+            outer_radius_x: outer_radius,
+            outer_radius_y: outer_radius,
+            inner_radius_x: inner_radius,
+            inner_radius_y: inner_radius,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2242,12 +2265,15 @@ pub struct ClearTile {
 #[derive(Clone, Copy)]
 pub struct FrameBuilderConfig {
     max_prim_tiles: usize,
+    pub enable_scrollbars: bool,
 }
 
 impl FrameBuilderConfig {
-    pub fn new(max_prim_tiles: usize) -> FrameBuilderConfig {
+    pub fn new(max_prim_tiles: usize,
+               enable_scrollbars: bool) -> FrameBuilderConfig {
         FrameBuilderConfig {
             max_prim_tiles: max_prim_tiles,
+            enable_scrollbars: enable_scrollbars,
         }
     }
 }
@@ -2262,6 +2288,8 @@ pub struct FrameBuilder {
 
     layer_store: Vec<StackingContext>,
     packed_layers: Vec<PackedStackingContext>,
+
+    scrollbar_prims: Vec<ScrollbarPrimitive>,
 }
 
 pub struct Frame {
@@ -2323,6 +2351,32 @@ impl Clip {
             top_right: ClipCorner::invalid(rect),
             bottom_left: ClipCorner::invalid(rect),
             bottom_right: ClipCorner::invalid(rect),
+        }
+    }
+
+    pub fn uniform(rect: Rect<f32>, radius: f32) -> Clip {
+        Clip {
+            rect: rect,
+            top_left: ClipCorner::uniform(Rect::new(Point2D::new(rect.origin.x,
+                                                                 rect.origin.y),
+                                                    Size2D::new(radius, radius)),
+                                          radius,
+                                          0.0),
+            top_right: ClipCorner::uniform(Rect::new(Point2D::new(rect.origin.x + rect.size.width - radius,
+                                                                  rect.origin.y),
+                                                    Size2D::new(radius, radius)),
+                                           radius,
+                                           0.0),
+            bottom_left: ClipCorner::uniform(Rect::new(Point2D::new(rect.origin.x,
+                                                                    rect.origin.y + rect.size.height - radius),
+                                                       Size2D::new(radius, radius)),
+                                             radius,
+                                             0.0),
+            bottom_right: ClipCorner::uniform(Rect::new(Point2D::new(rect.origin.x + rect.size.width - radius,
+                                                                     rect.origin.y + rect.size.height - radius),
+                                                        Size2D::new(radius, radius)),
+                                              radius,
+                                              0.0),
         }
     }
 }
@@ -2569,6 +2623,7 @@ impl FrameBuilder {
             debug: debug,
             config: config,
             packed_layers: Vec::new(),
+            scrollbar_prims: Vec::new(),
         }
     }
 
@@ -2576,7 +2631,7 @@ impl FrameBuilder {
                      rect: &Rect<f32>,
                      clip_rect: &Rect<f32>,
                      clip: Option<Box<Clip>>,
-                     details: PrimitiveDetails) {
+                     details: PrimitiveDetails) -> PrimitiveIndex {
         let prim = Primitive {
             rect: *rect,
             complex_clip: clip,
@@ -2591,13 +2646,15 @@ impl FrameBuilder {
             &mut PrimitiveRunCmd::PrimitiveRun(_run_prim_index, ref mut count) => {
                 debug_assert!(_run_prim_index.0 + *count == prim_index.0);
                 *count += 1;
-                return;
+                return prim_index;
             }
             &mut PrimitiveRunCmd::PushStackingContext(..) |
             &mut PrimitiveRunCmd::PopStackingContext => {}
         }
 
         self.cmds.push(PrimitiveRunCmd::PrimitiveRun(prim_index, 1));
+
+        prim_index
     }
 
     pub fn push_layer(&mut self,
@@ -2641,7 +2698,8 @@ impl FrameBuilder {
                                rect: &Rect<f32>,
                                clip_rect: &Rect<f32>,
                                clip: Option<Box<Clip>>,
-                               color: &ColorF) {
+                               color: &ColorF,
+                               flags: PrimitiveFlags) {
         if color.a == 0.0 {
             return;
         }
@@ -2650,10 +2708,21 @@ impl FrameBuilder {
             color: *color,
         };
 
-        self.add_primitive(rect,
-                           clip_rect,
-                           clip,
-                           PrimitiveDetails::Rectangle(prim));
+        let prim_index = self.add_primitive(rect,
+                                            clip_rect,
+                                            clip,
+                                            PrimitiveDetails::Rectangle(prim));
+
+        match flags {
+            PrimitiveFlags::None => {}
+            PrimitiveFlags::Scrollbar(scroll_layer_id, border_radius) => {
+                self.scrollbar_prims.push(ScrollbarPrimitive {
+                    prim_index: prim_index,
+                    scroll_layer_id: scroll_layer_id,
+                    border_radius: border_radius,
+                });
+            }
+        }
     }
 
     pub fn supported_style(&mut self, border: &BorderSide) -> bool {
@@ -2863,7 +2932,8 @@ impl FrameBuilder {
             self.add_solid_rectangle(&box_bounds,
                                      clip_rect,
                                      None,
-                                     color);
+                                     color,
+                                     PrimitiveFlags::None);
             return;
         }
 
@@ -3206,6 +3276,50 @@ impl FrameBuilder {
         }
     }
 
+    fn update_scroll_bars(&mut self,
+                          layer_map: &HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>) {
+        let distance_from_edge = 8.0;
+
+        for scrollbar_prim in &self.scrollbar_prims {
+            let prim = &mut self.prim_store[scrollbar_prim.prim_index.0];
+            let scroll_layer = &layer_map[&scrollbar_prim.scroll_layer_id];
+
+            let scrollable_distance = scroll_layer.content_size.height - scroll_layer.local_viewport_rect.size.height;
+
+            if scrollable_distance <= 0.0 {
+                prim.local_clip_rect.size = Size2D::zero();
+            } else {
+                let f = -scroll_layer.scrolling.offset.y / scrollable_distance;
+
+                let min_y = scroll_layer.local_viewport_rect.origin.y -
+                            scroll_layer.scrolling.offset.y +
+                            distance_from_edge;
+
+                let max_y = scroll_layer.local_viewport_rect.origin.y +
+                            scroll_layer.local_viewport_rect.size.height -
+                            scroll_layer.scrolling.offset.y -
+                            prim.rect.size.height -
+                            distance_from_edge;
+
+                prim.rect.origin.x = scroll_layer.local_viewport_rect.origin.x +
+                                     scroll_layer.local_viewport_rect.size.width -
+                                     prim.rect.size.width -
+                                     distance_from_edge;
+
+                prim.rect.origin.y = min_y + f * (max_y - min_y);
+                prim.local_clip_rect.origin = prim.rect.origin;
+                prim.local_clip_rect.size = prim.rect.size;
+
+                if scrollbar_prim.border_radius == 0.0 {
+                    prim.complex_clip = None;
+                } else {
+                    prim.complex_clip = Some(Box::new(Clip::uniform(prim.rect,
+                                                                    scrollbar_prim.border_radius)));
+                }
+            }
+        }
+    }
+
     pub fn build(&mut self,
                  resource_cache: &mut ResourceCache,
                  frame_id: FrameId,
@@ -3222,6 +3336,8 @@ impl FrameBuilder {
         let mut debug_rects = Vec::new();
 
         let (x_tile_count, y_tile_count, mut screen_tiles) = self.create_screen_tiles();
+
+        self.update_scroll_bars(layer_map);
 
         self.cull_layers(&screen_rect,
                          layer_map,

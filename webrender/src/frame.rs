@@ -15,7 +15,7 @@ use resource_cache::ResourceCache;
 use scene::{SceneStackingContext, ScenePipeline, Scene, SceneItem, SpecificSceneItem};
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
-use tiling::{Clip, FrameBuilder, FrameBuilderConfig, InsideTest};
+use tiling::{Clip, FrameBuilder, FrameBuilderConfig, InsideTest, PrimitiveFlags};
 use util::MatrixHelpers;
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
 use webrender_traits::{ColorF, StackingContext, FilterOp, MixBlendMode};
@@ -523,7 +523,8 @@ impl Frame {
             context.builder.add_solid_rectangle(&stacking_context.bounds,
                                                 &stacking_context.bounds,
                                                 None,
-                                                &ColorF::new(1.0, 1.0, 1.0, 1.0));
+                                                &ColorF::new(1.0, 1.0, 1.0, 1.0),
+                                                PrimitiveFlags::None);
         }
 
         for item in scene_items {
@@ -582,7 +583,8 @@ impl Frame {
                                 builder.add_solid_rectangle(&item.rect,
                                                             &item.clip.main,
                                                             clip,
-                                                            &info.color);
+                                                            &info.color,
+                                                            PrimitiveFlags::None);
                             }
                             SpecificDisplayItem::Gradient(ref info) => {
                                 builder.add_gradient(item.rect,
@@ -722,6 +724,17 @@ impl Frame {
                     }
                 }
             }
+        }
+
+        if level == 0 && self.frame_builder_config.enable_scrollbars {
+            let scrollbar_rect = Rect::new(Point2D::zero(),
+                                           Size2D::new(10.0, 70.0));
+            context.builder.add_solid_rectangle(&scrollbar_rect,
+                                                &scrollbar_rect,
+                                                None,
+                                                &ColorF::new(0.3, 0.3, 0.3, 0.6),
+                                                PrimitiveFlags::Scrollbar(self.root_scroll_layer_id.unwrap(),
+                                                                          4.0));
         }
 
         context.builder.pop_layer();
