@@ -96,6 +96,7 @@ pub enum TextureSampler {
     Mask,
     Cache,
     Layers,
+    RenderTasks,
 }
 
 pub enum VertexAttribute {
