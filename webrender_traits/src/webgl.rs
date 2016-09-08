@@ -69,6 +69,8 @@ impl fmt::Debug for WebGLCommand {
             GetActiveUniform(..) => "GetActiveUniform",
             GetAttribLocation(..) => "GetAttribLocation",
             GetUniformLocation(..) => "GetUniformLocation",
+            GetShaderInfoLog(..) => "GetShaderInfoLog",
+            GetProgramInfoLog(..) => "GetProgramInfoLog",
             GetVertexAttrib(..) => "GetVertexAttrib",
             PolygonOffset(..) => "PolygonOffset",
             ReadPixels(..) => "ReadPixels",
@@ -104,6 +106,7 @@ impl fmt::Debug for WebGLCommand {
             UniformMatrix3fv(..) => "UniformMatrix3fv",
             UniformMatrix4fv(..) => "UniformMatrix4fv",
             UseProgram(..) => "UseProgram",
+            ValidateProgram(..) => "ValidateProgram",
             VertexAttrib(..) => "VertexAttrib",
             VertexAttribPointer2f(..) => "VertexAttribPointer2f",
             VertexAttribPointer(..) => "VertexAttribPointer",
@@ -231,6 +234,10 @@ impl WebGLCommand {
                 Self::shader_parameter(shader_id, param_id, chan),
             WebGLCommand::GetUniformLocation(program_id, name, chan) =>
                 Self::uniform_location(program_id, name, chan),
+            WebGLCommand::GetShaderInfoLog(shader_id, chan) =>
+                Self::shader_info_log(shader_id, chan),
+            WebGLCommand::GetProgramInfoLog(program_id, chan) =>
+                Self::program_info_log(program_id, chan),
             WebGLCommand::CompileShader(shader_id, source) =>
                 Self::compile_shader(shader_id, source),
             WebGLCommand::CreateBuffer(chan) =>
@@ -307,6 +314,8 @@ impl WebGLCommand {
                 gl::uniform_matrix_4fv(uniform_id, transpose, &v),
             WebGLCommand::UseProgram(program_id) =>
                 gl::use_program(program_id.get()),
+            WebGLCommand::ValidateProgram(program_id) =>
+                gl::validate_program(program_id.get()),
             WebGLCommand::VertexAttrib(attrib_id, x, y, z, w) =>
                 gl::vertex_attrib_4f(attrib_id, x, y, z, w),
             WebGLCommand::VertexAttribPointer2f(attrib_id, size, normalized, stride, offset) =>
@@ -590,6 +599,17 @@ impl WebGLCommand {
         };
 
         chan.send(location).unwrap();
+    }
+
+
+    fn shader_info_log(shader_id: WebGLShaderId, chan: IpcSender<String>) {
+        let log = gl::get_shader_info_log(shader_id.get());
+        chan.send(log).unwrap();
+    }
+
+    fn program_info_log(program_id: WebGLProgramId, chan: IpcSender<String>) {
+        let log = gl::get_program_info_log(program_id.get());
+        chan.send(log).unwrap();
     }
 
     fn create_buffer(chan: IpcSender<Option<WebGLBufferId>>) {
