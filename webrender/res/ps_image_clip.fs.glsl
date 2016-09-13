@@ -8,7 +8,12 @@ void main(void) {
 #ifdef WR_FEATURE_TRANSFORM
     float alpha = 1;
     vec2 local_pos = init_transform_fs(vLocalPos, vLocalRect, alpha);
-    vec2 uv = (local_pos - vLocalRect.xy) / vStretchSize;
+
+    // We clamp the texture coordinate calculation here to the local rectangle boundaries,
+    // which makes the edge of the texture stretch instead of repeat.
+    vec2 uv = clamp(local_pos.xy, vLocalRect.xy, vLocalRect.xy + vLocalRect.zw);
+
+    uv = (uv - vLocalRect.xy) / vStretchSize;
 #else
     float alpha = 1;
     vec2 local_pos = vLocalPos;
