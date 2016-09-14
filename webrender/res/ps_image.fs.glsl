@@ -6,7 +6,7 @@
 
 void main(void) {
 #ifdef WR_FEATURE_TRANSFORM
-    float alpha = 0;
+    float alpha = 0.0;
     vec2 pos = init_transform_fs(vLocalPos, vLocalRect, alpha);
 
     // We clamp the texture coordinate calculation here to the local rectangle boundaries,
