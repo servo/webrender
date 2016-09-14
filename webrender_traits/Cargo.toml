@@ -14,7 +14,7 @@ nightly = ["euclid/unstable", "serde/unstable"]
 app_units = "0.3.0"
 byteorder = "0.5"
 euclid = "0.10"
-gleam = "0.2.21"
+gleam = "0.2.22"
 heapsize = "0.3.6"
 offscreen_gl_context = {version = "0.4.0", features = ["serde_serialization"]}
 serde = "0.8"

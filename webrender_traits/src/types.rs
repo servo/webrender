@@ -527,6 +527,7 @@ pub enum WebGLCommand {
     StencilOp(u32, u32, u32),
     StencilOpSeparate(u32, u32, u32, u32),
     Hint(u32, u32),
+    IsEnabled(u32, IpcSender<bool>),
     LineWidth(f32),
     PixelStorei(u32, i32),
     LinkProgram(WebGLProgramId),

@@ -83,6 +83,7 @@ impl fmt::Debug for WebGLCommand {
             StencilOp(..) => "StencilOp",
             StencilOpSeparate(..) => "StencilOpSeparate",
             Hint(..) => "Hint",
+            IsEnabled(..) => "IsEnabled",
             LineWidth(..) => "LineWidth",
             PixelStorei(..) => "PixelStorei",
             LinkProgram(..) => "LinkProgram",
@@ -192,6 +193,8 @@ impl WebGLCommand {
                 gl::enable_vertex_attrib_array(attrib_id),
             WebGLCommand::Hint(name, val) =>
                 gl::hint(name, val),
+            WebGLCommand::IsEnabled(cap, chan) =>
+                chan.send(gl::is_enabled(cap) != 0).unwrap(),
             WebGLCommand::LineWidth(width) =>
                 gl::line_width(width),
             WebGLCommand::PixelStorei(name, val) =>
