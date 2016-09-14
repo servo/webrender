@@ -1608,6 +1608,13 @@ impl Device {
 
         gl::bind_texture(gl::TEXTURE_2D, 0);
         gl::use_program(0);
+
+        for i in 0..self.bound_textures.len() {
+            gl::active_texture(gl::TEXTURE0 + i as gl::GLuint);
+            gl::bind_texture(gl::TEXTURE_2D, 0);
+        }
+
+        gl::active_texture(gl::TEXTURE0);
     }
 }
 

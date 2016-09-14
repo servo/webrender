@@ -604,6 +604,10 @@ impl Renderer {
                     //self.update_shaders();
                     self.update_texture_cache();
                     self.draw_tile_frame(frame, &framebuffer_size);
+
+                    gl::bind_buffer(gl::UNIFORM_BUFFER, 0);
+                    gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, 0);
+                    gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_TILES, 0);
                 });
 
                 let current_time = precise_time_ns();
