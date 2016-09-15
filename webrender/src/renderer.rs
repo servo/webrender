@@ -1604,9 +1604,6 @@ impl Renderer {
                     }
                 }
             }
-
-            self.layer_texture.deinit(&mut self.device);
-            self.render_task_texture.deinit(&mut self.device);
         }
 
         // Clear tiles with no items

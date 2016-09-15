@@ -1001,15 +1001,17 @@ impl Device {
                          pixels);
     }
 
-    fn deinit_texture_image(&mut self) {
+    fn deinit_texture_image(&mut self, format: ImageFormat) {
+        let (internal_format, gl_format) = gl_texture_formats_for_image_format(format);
+        let type_ = gl_type_for_texture_format(format);
         gl::tex_image_2d(gl::TEXTURE_2D,
                          0,
-                         gl::RGB as gl::GLint,
+                         internal_format,
                          0,
                          0,
                          0,
-                         gl::RGB,
-                         gl::UNSIGNED_BYTE,
+                         gl_format,
+                         type_,
                          None);
     }
 
@@ -1032,36 +1034,19 @@ impl Device {
             texture.mode = mode
         }
 
-        let (internal_format, gl_format) = match format {
-            ImageFormat::A8 => {
-                if cfg!(target_os="android") {
-                    (GL_FORMAT_BGRA, GL_FORMAT_BGRA)
-                } else {
-                    (GL_FORMAT_A, GL_FORMAT_A)
-                }
-            },
-            ImageFormat::RGB8 => (gl::RGB, gl::RGB),
-            ImageFormat::RGBA8 => {
-                if cfg!(target_os="android") {
-                    (GL_FORMAT_BGRA, GL_FORMAT_BGRA)
-                } else {
-                    (gl::RGBA, GL_FORMAT_BGRA)
-                }
-            }
-            ImageFormat::RGBAF32 => (gl::RGBA32F, gl::RGBA),
-            ImageFormat::Invalid => unreachable!(),
-        };
-
-        let type_ = match format {
-            ImageFormat::RGBAF32 => gl::FLOAT,
-            _ => gl::UNSIGNED_BYTE,
-        };
+        let (internal_format, gl_format) = gl_texture_formats_for_image_format(format);
+        let type_ = gl_type_for_texture_format(format);
 
         match mode {
             RenderTargetMode::RenderTarget => {
                 self.bind_texture(TextureSampler::Color, texture_id);
                 self.set_texture_parameters(filter);
-                self.upload_texture_image(width, height, internal_format, gl_format, type_, None);
+                self.upload_texture_image(width,
+                                          height,
+                                          internal_format as u32,
+                                          gl_format,
+                                          type_,
+                                          None);
                 self.create_fbo_for_texture_if_necessary(texture_id);
             }
             RenderTargetMode::None => {
@@ -1069,7 +1054,7 @@ impl Device {
                 self.set_texture_parameters(filter);
 
                 self.upload_texture_image(width, height,
-                                          internal_format,
+                                          internal_format as u32,
                                           gl_format,
                                           type_,
                                           pixels);
@@ -1148,8 +1133,9 @@ impl Device {
     pub fn deinit_texture(&mut self, texture_id: TextureId) {
         debug_assert!(self.inside_frame);
 
+        let texture_format = self.textures[&texture_id].format;
         self.bind_texture(TextureSampler::Color, texture_id);
-        self.deinit_texture_image();
+        self.deinit_texture_image(texture_format);
 
         let texture = self.textures.get_mut(&texture_id).unwrap();
         if !texture.fbo_ids.is_empty() {
@@ -1630,3 +1616,33 @@ impl Drop for Device {
         //self.file_watcher.exit();
     }
 }
+
+fn gl_texture_formats_for_image_format(format: ImageFormat) -> (gl::GLint, gl::GLuint) {
+    match format {
+        ImageFormat::A8 => {
+            if cfg!(target_os="android") {
+                (GL_FORMAT_BGRA as gl::GLint, GL_FORMAT_BGRA)
+            } else {
+                (GL_FORMAT_A as gl::GLint, GL_FORMAT_A)
+            }
+        },
+        ImageFormat::RGB8 => (gl::RGB as gl::GLint, gl::RGB),
+        ImageFormat::RGBA8 => {
+            if cfg!(target_os="android") {
+                (GL_FORMAT_BGRA as gl::GLint, GL_FORMAT_BGRA)
+            } else {
+                (gl::RGBA as gl::GLint, GL_FORMAT_BGRA)
+            }
+        }
+        ImageFormat::RGBAF32 => (gl::RGBA32F as gl::GLint, gl::RGBA),
+        ImageFormat::Invalid => unreachable!(),
+    }
+}
+
+fn gl_type_for_texture_format(format: ImageFormat) -> gl::GLuint {
+    match format {
+        ImageFormat::RGBAF32 => gl::FLOAT,
+        _ => gl::UNSIGNED_BYTE,
+    }
+}
+
