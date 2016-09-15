@@ -491,7 +491,7 @@ impl Renderer {
         // texture ids
         let context_handle = NativeGLContext::current_handle();
 
-        let config = FrameBuilderConfig::new();
+        let config = FrameBuilderConfig::new(options.enable_scrollbars);
 
         let debug = options.debug;
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
@@ -1643,4 +1643,5 @@ pub struct RendererOptions {
     pub enable_profiler: bool,
     pub debug: bool,
     pub enable_recording: bool,
+    pub enable_scrollbars: bool,
 }
