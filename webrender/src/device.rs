@@ -829,7 +829,8 @@ impl Device {
         gl::shader_source(id, &[&source[..]]);
         gl::compile_shader(id);
         if gl::get_shader_iv(id, gl::COMPILE_STATUS) == (0 as gl::GLint) {
-            println!("Failed to compile shader: {}", gl::get_shader_info_log(id));
+            println!("Failed to compile shader: {:?}", path);
+            println!("{}", gl::get_shader_info_log(id));
             if panic_on_fail {
                 panic!("-- Shader compile failed - exiting --");
             }
