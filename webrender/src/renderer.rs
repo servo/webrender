@@ -35,8 +35,8 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::{BorderType, TextureCache, TextureInsertOp};
-use tiling::{self, Frame, FrameBuilderConfig, GLYPHS_PER_TEXT_RUN, PrimitiveBatchData, PackedTile};
-use tiling::{TransformedRectKind, RenderTarget, ClearTile, PackedStackingContext};
+use tiling::{self, Frame, FrameBuilderConfig, GLYPHS_PER_TEXT_RUN, PrimitiveBatchData};
+use tiling::{TransformedRectKind, RenderTarget, ClearTile};
 use time::precise_time_ns;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
 use webrender_traits::{ImageFormat, MixBlendMode, RenderApiSender};
@@ -44,9 +44,55 @@ use offscreen_gl_context::{NativeGLContext, NativeGLContextMethods};
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
 pub const MAX_RASTER_OP_SIZE: u32 = 2048;
+pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
-const UBO_BIND_TILES: u32 = 0;
 const UBO_BIND_DATA: u32 = 1;
+
+struct VertexDataTexture {
+    id: TextureId,
+}
+
+impl VertexDataTexture {
+    fn new(device: &mut Device) -> VertexDataTexture {
+        let id = device.create_texture_ids(1)[0];
+
+        VertexDataTexture {
+            id: id,
+        }
+    }
+
+    fn init<T: Default>(&mut self,
+                        device: &mut Device,
+                        data: &mut Vec<T>) {
+        let item_size = mem::size_of::<T>();
+        debug_assert!(item_size % 16 == 0);
+        let vecs_per_item = item_size / 16;
+
+        let items_per_row = MAX_VERTEX_TEXTURE_WIDTH / vecs_per_item;
+
+        // Extend the data array to be a multiple of the row size.
+        // This ensures memory safety when the array is passed to
+        // OpenGL to upload to the GPU.
+        while data.len() % items_per_row != 0 {
+            data.push(T::default());
+        }
+
+        let width = items_per_row * vecs_per_item;
+        let height = data.len() / items_per_row;
+
+        device.init_texture(self.id,
+                            width as u32,
+                            height as u32,
+                            ImageFormat::RGBAF32,
+                            TextureFilter::Nearest,
+                            RenderTargetMode::None,
+                            Some(unsafe { mem::transmute(data.as_slice()) } ));
+    }
+
+    fn deinit(&mut self, device: &mut Device) {
+        device.deinit_texture(self.id);
+    }
+}
 
 #[derive(Copy, Clone)]
 struct PrimitiveShader {
@@ -141,9 +187,11 @@ fn create_prim_shader(name: &'static str,
                       max_ubo_vectors: usize,
                       features: &[&'static str]) -> ProgramId {
     let mut prefix = format!("#define WR_MAX_UBO_VECTORS {}\n\
-                              #define WR_GLYPHS_PER_TEXT_RUN {}\n",
+                              #define WR_GLYPHS_PER_TEXT_RUN {}\n
+                              #define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n",
                               max_ubo_vectors,
-                              GLYPHS_PER_TEXT_RUN);
+                              GLYPHS_PER_TEXT_RUN,
+                              MAX_VERTEX_TEXTURE_WIDTH);
 
     for feature in features {
         prefix.push_str(&format!("#define WR_FEATURE_{}\n", feature));
@@ -153,16 +201,12 @@ fn create_prim_shader(name: &'static str,
                                                        "prim_shared",
                                                        Some(prefix));
 
-    let tiles_index = gl::get_uniform_block_index(program_id.0, "Tiles");
-    gl::uniform_block_binding(program_id.0, tiles_index, UBO_BIND_TILES);
-
     let data_index = gl::get_uniform_block_index(program_id.0, "Data");
     gl::uniform_block_binding(program_id.0, data_index, UBO_BIND_DATA);
 
-    debug!("PrimShader {}: data={} tiles={} max={}",
+    debug!("PrimShader {}: data={} max={}",
            name,
            data_index,
-           tiles_index,
            max_ubo_vectors);
     program_id
 }
@@ -238,7 +282,8 @@ pub struct Renderer {
     gpu_profile_composite: GpuProfile,
     quad_vao_id: VAOId,
 
-    layer_texture: TextureId,
+    layer_texture: VertexDataTexture,
+    render_task_texture: VertexDataTexture,
     pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
 }
 
@@ -285,7 +330,6 @@ impl Renderer {
 
         let max_ubo_size = gl::get_integer_v(gl::MAX_UNIFORM_BLOCK_SIZE) as usize;
         let max_ubo_vectors = max_ubo_size / 16;
-        let max_prim_tiles = get_ubo_max_len::<PackedTile>(max_ubo_size);
 
         let max_prim_rectangles = get_ubo_max_len::<tiling::PackedRectanglePrimitive>(max_ubo_size);
         let max_prim_rectangles_clip = get_ubo_max_len::<tiling::PackedRectanglePrimitiveClip>(max_ubo_size);
@@ -409,6 +453,9 @@ impl Renderer {
                             RenderTargetMode::RenderTarget,
                             None);
 
+        let layer_texture = VertexDataTexture::new(&mut device);
+        let render_task_texture = VertexDataTexture::new(&mut device);
+
         let x0 = 0.0;
         let y0 = 0.0;
         let x1 = 1.0;
@@ -444,7 +491,7 @@ impl Renderer {
         // texture ids
         let context_handle = NativeGLContext::current_handle();
 
-        let config = FrameBuilderConfig::new(max_prim_tiles);
+        let config = FrameBuilderConfig::new();
 
         let debug = options.debug;
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
@@ -509,7 +556,8 @@ impl Renderer {
             gpu_profile_paint: GpuProfile::new(),
             gpu_profile_composite: GpuProfile::new(),
             quad_vao_id: quad_vao_id,
-            layer_texture: TextureId(0),
+            layer_texture: layer_texture,
+            render_task_texture: render_task_texture,
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
         };
 
@@ -585,8 +633,8 @@ impl Renderer {
     /// A Frame is supplied by calling [set_root_stacking_context()][newframe].
     /// [newframe]: ../../webrender_traits/struct.RenderApi.html#method.set_root_stacking_context
     pub fn render(&mut self, framebuffer_size: Size2D<u32>) {
-        if let Some(frame) = self.current_frame.take() {
-            if let Some(ref frame) = frame.frame {
+        if let Some(mut frame) = self.current_frame.take() {
+            if let Some(ref mut frame) = frame.frame {
                 let mut profile_timers = RendererProfileTimers::new();
 
                 // Block CPU waiting for last frame's GPU profiles to arrive.
@@ -607,7 +655,6 @@ impl Renderer {
 
                     gl::bind_buffer(gl::UNIFORM_BUFFER, 0);
                     gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, 0);
-                    gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_TILES, 0);
                 });
 
                 let current_time = precise_time_ns();
@@ -1284,6 +1331,8 @@ impl Renderer {
                      target_size.height as i32);
 
         gl::disable(gl::BLEND);
+        gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        gl::blend_equation(gl::FUNC_ADD);
 
         self.device.bind_texture(TextureSampler::Cache, cache_texture);
 
@@ -1318,31 +1367,11 @@ impl Renderer {
         }
 
         for batcher in &target.alpha_batchers {
-            let tile_ubos = gl::gen_buffers(batcher.tile_ubos.len() as i32);
-
-            for (ubo_data, ubo_id) in batcher.tile_ubos
-                                             .iter()
-                                             .zip(tile_ubos.iter()) {
-                gl::bind_buffer(gl::UNIFORM_BUFFER, *ubo_id);
-                gl::buffer_data(gl::UNIFORM_BUFFER, ubo_data, gl::STATIC_DRAW);
-            }
-
-            gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-            gl::blend_equation(gl::FUNC_ADD);
-
             for batch in &batcher.batches {
                 if batch.blending_enabled {
                     gl::enable(gl::BLEND);
                 } else {
                     gl::disable(gl::BLEND);
-                }
-
-                match &batch.data {
-                    &PrimitiveBatchData::Blend(..) => {}
-                    &PrimitiveBatchData::Composite(..) => {}
-                    _ => {
-                        gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_TILES, tile_ubos[batch.tile_ubo_index]);
-                    }
                 }
 
                 match &batch.data {
@@ -1484,12 +1513,11 @@ impl Renderer {
             }
 
             gl::disable(gl::BLEND);
-            gl::delete_buffers(&tile_ubos);
         }
     }
 
     fn draw_tile_frame(&mut self,
-                       frame: &Frame,
+                       frame: &mut Frame,
                        framebuffer_size: &Size2D<u32>) {
         // Some tests use a restricted viewport smaller than the main screen size.
         // Ensure we clear the framebuffer in these tests.
@@ -1545,21 +1573,13 @@ impl Renderer {
                                          TextureFilter::Linear,
                                          RenderTargetMode::RenderTarget,
                                          None);
-
-                self.layer_texture = self.device.create_texture_ids(1)[0];
             }
 
-            let packed_layer_size = mem::size_of::<PackedStackingContext>();
-            debug_assert!(packed_layer_size % 16 == 0);
-            let vecs_per_layer = packed_layer_size / 16;
-            self.device.init_texture(self.layer_texture,
-                                     vecs_per_layer as u32,
-                                     frame.layer_texture_data.len() as u32,
-                                     ImageFormat::RGBAF32,
-                                     TextureFilter::Nearest,
-                                     RenderTargetMode::None,
-                                     Some(unsafe { mem::transmute(frame.layer_texture_data.as_slice()) } ));
-            self.device.bind_texture(TextureSampler::Layers, self.layer_texture);
+            self.layer_texture.init(&mut self.device, &mut frame.layer_texture_data);
+            self.render_task_texture.init(&mut self.device, &mut frame.render_task_data);
+
+            self.device.bind_texture(TextureSampler::Layers, self.layer_texture.id);
+            self.device.bind_texture(TextureSampler::RenderTasks, self.render_task_texture.id);
 
             for (phase_index, phase) in frame.phases.iter().enumerate() {
                 let mut render_target_index = 0;
@@ -1585,7 +1605,8 @@ impl Renderer {
                 }
             }
 
-            self.device.deinit_texture(self.layer_texture);
+            self.layer_texture.deinit(&mut self.device);
+            self.render_task_texture.deinit(&mut self.device);
         }
 
         // Clear tiles with no items

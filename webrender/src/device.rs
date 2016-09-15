@@ -741,7 +741,7 @@ impl FileWatcherThread {
 
 pub struct Device {
     // device state
-    bound_textures: [TextureId; 4],
+    bound_textures: [TextureId; 5],
     bound_program: ProgramId,
     bound_vao: VAOId,
     bound_fbo: FBOId,
@@ -786,6 +786,7 @@ impl Device {
             inside_frame: false,
 
             bound_textures: [
+                                TextureId(0),
                                 TextureId(0),
                                 TextureId(0),
                                 TextureId(0),
@@ -1315,6 +1316,11 @@ impl Device {
                 let u_layers = gl::get_uniform_location(program.id, "sLayers");
                 if u_layers != -1 {
                     gl::uniform_1i(u_layers, TextureSampler::Layers as i32);
+                }
+
+                let u_tasks = gl::get_uniform_location(program.id, "sRenderTasks");
+                if u_tasks != -1 {
+                    gl::uniform_1i(u_tasks, TextureSampler::RenderTasks as i32);
                 }
             }
         }
