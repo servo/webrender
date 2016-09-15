@@ -19,28 +19,22 @@ use std::mem;
 //use std::thread;
 use webrender_traits::ImageFormat;
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
 const GL_FORMAT_A: gl::GLuint = gl::RED;
 
-#[cfg(target_os = "android")]
+#[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
 const GL_FORMAT_A: gl::GLuint = gl::ALPHA;
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
 const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA;
 
-#[cfg(target_os = "android")]
+#[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
 const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA_EXT;
 
-#[cfg(target_os = "linux")]
+#[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
 const SHADER_VERSION: &'static str = "#version 150\n";
 
-#[cfg(target_os = "macos")]
-const SHADER_VERSION: &'static str = "#version 150\n";
-
-#[cfg(target_os = "windows")]
-const SHADER_VERSION: &'static str = "#version 150\n";
-
-#[cfg(target_os = "android")]
+#[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
 const SHADER_VERSION: &'static str = "#version 300 es\n";
 
 static SHADER_PREAMBLE: &'static str = "shared.glsl";
@@ -578,19 +572,19 @@ pub struct VBOId(gl::GLuint);
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 struct IBOId(gl::GLuint);
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
 pub struct GpuProfile {
     next_query: usize,
     qids: Vec<gl::GLuint>,
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
 pub struct GpuProfile;
 
 const QUERY_COUNT: i32 = 4;
 
 impl GpuProfile {
-    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
     pub fn new() -> GpuProfile {
         let queries = gl::gen_queries(QUERY_COUNT);
 
@@ -605,41 +599,41 @@ impl GpuProfile {
         }
     }
 
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     pub fn new() -> GpuProfile {
         GpuProfile
     }
 
-    #[cfg(any(target_os = "android", target_os = "gonk"))]
+    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     pub fn get(&mut self) -> u64 {
         0
     }
 
-    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
     pub fn get(&mut self) -> u64 {
         let qi = self.next_query;
         gl::get_query_object_ui64v(self.qids[qi], gl::QUERY_RESULT)
     }
 
-    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
     pub fn begin(&mut self) {
         gl::begin_query(gl::TIME_ELAPSED, self.qids[self.next_query]);
     }
 
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     pub fn begin(&mut self) {}
 
-    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
     pub fn end(&mut self) {
         gl::end_query(gl::TIME_ELAPSED);
         self.next_query = (self.next_query + 1) % QUERY_COUNT as usize;
     }
 
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     pub fn end(&mut self) -> u64 { 0 }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
 impl Drop for GpuProfile {
     fn drop(&mut self) {
         gl::delete_queries(&self.qids);
@@ -1033,7 +1027,7 @@ impl Device {
 
         let (internal_format, gl_format) = match format {
             ImageFormat::A8 => {
-                if cfg!(target_os="android") {
+                if cfg!(any(target_arch="arm", target_arch="aarch64")) {
                     (GL_FORMAT_BGRA, GL_FORMAT_BGRA)
                 } else {
                     (GL_FORMAT_A, GL_FORMAT_A)
@@ -1041,7 +1035,7 @@ impl Device {
             },
             ImageFormat::RGB8 => (gl::RGB, gl::RGB),
             ImageFormat::RGBA8 => {
-                if cfg!(target_os="android") {
+                if cfg!(any(target_arch="arm", target_arch="aarch64")) {
                     (GL_FORMAT_BGRA, GL_FORMAT_BGRA)
                 } else {
                     (gl::RGBA, GL_FORMAT_BGRA)
@@ -1420,7 +1414,7 @@ impl Device {
 
         let (gl_format, bpp, data) = match self.textures.get(&texture_id).unwrap().format {
             ImageFormat::A8 => {
-                if cfg!(target_os="android") {
+                if cfg!(any(target_arch="arm", target_arch="aarch64")) {
                     for byte in data {
                         expanded_data.push(*byte);
                         expanded_data.push(*byte);
