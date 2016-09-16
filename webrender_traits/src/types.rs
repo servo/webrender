@@ -286,6 +286,7 @@ pub struct IframeInfo {
 pub struct ImageDisplayItem {
     pub image_key: ImageKey,
     pub stretch_size: Size2D<f32>,
+    pub tile_spacing: Size2D<f32>,
     pub image_rendering: ImageRendering,
 }
 
