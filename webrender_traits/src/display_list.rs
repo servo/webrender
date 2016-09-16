@@ -93,11 +93,13 @@ impl DisplayListBuilder {
                       rect: Rect<f32>,
                       clip: ClipRegion,
                       stretch_size: Size2D<f32>,
+                      tile_spacing: Size2D<f32>,
                       image_rendering: ImageRendering,
                       key: ImageKey) {
         let item = ImageDisplayItem {
             image_key: key,
             stretch_size: stretch_size,
+            tile_spacing: tile_spacing,
             image_rendering: image_rendering,
         };
 

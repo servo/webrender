@@ -376,17 +376,21 @@ PrimitiveInfo fetch_text_run_glyph(int index, out vec4 color, out vec4 uv_rect) 
 struct Image {
     PrimitiveInfo info;
     vec4 st_rect;               // Location of the image texture in the texture atlas.
-    vec4 stretch_size_uvkind;   // Size of the actual image.
+    vec2 stretch_size;          // Size of the actual image.
+    vec2 tile_spacing;          // Amount of space between tiled instances of this image.
+    float uvkind;
 };
 
 Image fetch_image(int index) {
     Image image;
 
-    int offset = index * 5;
+    int offset = index * 6;
 
     image.info = unpack_prim_info(offset);
     image.st_rect = data[offset + 3];
-    image.stretch_size_uvkind = data[offset + 4];
+    image.stretch_size = data[offset + 4].xy;
+    image.tile_spacing = data[offset + 4].zw;
+    image.uvkind = data[offset + 5].x;
 
     return image;
 }
@@ -394,19 +398,23 @@ Image fetch_image(int index) {
 struct ImageClip {
     PrimitiveInfo info;
     vec4 st_rect;               // Location of the image texture in the texture atlas.
-    vec4 stretch_size_uvkind;   // Size of the actual image.
+    vec2 stretch_size;          // Size of the actual image.
+    vec2 tile_spacing;          // Amount of space between tiled instances of this image.
+    float uvkind;
     Clip clip;
 };
 
 ImageClip fetch_image_clip(int index) {
     ImageClip image;
 
-    int offset = index * 14;
+    int offset = index * 15;
 
     image.info = unpack_prim_info(offset);
     image.st_rect = data[offset + 3];
-    image.stretch_size_uvkind = data[offset + 4];
-    image.clip = unpack_clip(offset + 5);
+    image.stretch_size = data[offset + 4].xy;
+    image.tile_spacing  = data[offset + 4].zw;
+    image.uvkind  = data[offset + 5].x;
+    image.clip = unpack_clip(offset + 6);
 
     return image;
 }

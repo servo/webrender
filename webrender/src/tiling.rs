@@ -736,7 +736,7 @@ impl BorderPrimitive {
 
 #[derive(Debug)]
 enum ImagePrimitiveKind {
-    Image(ImageKey, ImageRendering, Size2D<f32>),
+    Image(ImageKey, ImageRendering, Size2D<f32>, Size2D<f32>),
     WebGL(WebGLContextId),
 }
 
@@ -816,9 +816,12 @@ impl Primitive {
         match self.details {
             PrimitiveDetails::Rectangle(ref primitive) => primitive.color.a == 1.0,
             PrimitiveDetails::Image(ImagePrimitive {
-                kind: ImagePrimitiveKind::Image(image_key, image_rendering, _),
+                kind: ImagePrimitiveKind::Image(image_key, image_rendering, _, tile_spacing),
                 ..
-            }) => resource_cache.get_image(image_key, image_rendering, frame_id).is_opaque,
+            }) => {
+                tile_spacing.width == 0.0 && tile_spacing.height == 0.0 &&
+                    resource_cache.get_image(image_key, image_rendering, frame_id).is_opaque
+            }
             _ => false,
         }
     }
@@ -883,6 +886,7 @@ impl Primitive {
                     uv0,
                     uv1,
                     stretch_size,
+                    tile_spacing,
                     uv_kind,
                 } = image.image_info(resource_cache, frame_id);
 
@@ -899,9 +903,11 @@ impl Primitive {
                             uv0: uv0,
                             uv1: uv1,
                             stretch_size: stretch_size.unwrap_or(self.rect.size),
+                            tile_spacing: tile_spacing,
                             uv_kind: pack_as_float(uv_kind as u32),
-                            clip: complex_clip.as_ref().clone(),
                             texture_id: texture_id,
+                            padding: [0, 0],
+                            clip: complex_clip.as_ref().clone(),
                         };
 
                         image.cache = Some(ImagePrimitiveCache::Clip(element));
@@ -918,8 +924,10 @@ impl Primitive {
                             uv0: uv0,
                             uv1: uv1,
                             stretch_size: stretch_size.unwrap_or(self.rect.size),
+                            tile_spacing: tile_spacing,
                             uv_kind: pack_as_float(uv_kind as u32),
                             texture_id: texture_id,
+                            padding: [0, 0],
                         };
 
                         image.cache = Some(ImagePrimitiveCache::Normal(element));
@@ -1401,7 +1409,7 @@ impl Primitive {
             }
             PrimitiveDetails::Image(ref details) => {
                 match details.kind {
-                    ImagePrimitiveKind::Image(image_key, image_rendering, _) => {
+                    ImagePrimitiveKind::Image(image_key, image_rendering, _, _) => {
                         resource_list.add_image(image_key, image_rendering);
                     }
                     ImagePrimitiveKind::WebGL(..) => {}
@@ -1841,8 +1849,10 @@ pub struct PackedImagePrimitive {
     uv0: Point2D<f32>,
     uv1: Point2D<f32>,
     stretch_size: Size2D<f32>,
+    tile_spacing: Size2D<f32>,
     uv_kind: f32,
     texture_id: TextureId,
+    padding: [u32; 2],
 }
 
 #[derive(Debug, Clone)]
@@ -1851,8 +1861,10 @@ pub struct PackedImagePrimitiveClip {
     uv0: Point2D<f32>,
     uv1: Point2D<f32>,
     stretch_size: Size2D<f32>,
+    tile_spacing: Size2D<f32>,
     uv_kind: f32,
     texture_id: TextureId,
+    padding: [u32; 2],
     clip: Clip,
 }
 
@@ -2977,12 +2989,14 @@ impl FrameBuilder {
                      clip_rect: &Rect<f32>,
                      clip: Option<Box<Clip>>,
                      stretch_size: &Size2D<f32>,
+                     tile_spacing: &Size2D<f32>,
                      image_key: ImageKey,
                      image_rendering: ImageRendering) {
         let prim = ImagePrimitive {
             kind: ImagePrimitiveKind::Image(image_key,
                                             image_rendering,
-                                            stretch_size.clone()),
+                                            stretch_size.clone(),
+                                            tile_spacing.clone()),
             cache: None,
         };
 
@@ -3487,12 +3501,13 @@ struct ImageInfo {
     uv1: Point2D<f32>,
     stretch_size: Option<Size2D<f32>>,
     uv_kind: TextureCoordKind,
+    tile_spacing: Size2D<f32>,
 }
 
 impl ImagePrimitive {
     fn image_info(&self, resource_cache: &ResourceCache, frame_id: FrameId) -> ImageInfo {
         match self.kind {
-            ImagePrimitiveKind::Image(image_key, image_rendering, stretch_size) => {
+            ImagePrimitiveKind::Image(image_key, image_rendering, stretch_size, tile_spacing) => {
                 let info = resource_cache.get_image(image_key, image_rendering, frame_id);
                 ImageInfo {
                     color_texture_id: info.texture_id,
@@ -3502,6 +3517,7 @@ impl ImagePrimitive {
                                       info.pixel_rect.bottom_right.y.0 as f32),
                     stretch_size: Some(stretch_size),
                     uv_kind: TextureCoordKind::Pixel,
+                    tile_spacing: tile_spacing,
                 }
             }
             ImagePrimitiveKind::WebGL(context_id) => {
@@ -3511,6 +3527,7 @@ impl ImagePrimitive {
                     uv1: Point2D::new(1.0, 1.0),
                     stretch_size: None,
                     uv_kind: TextureCoordKind::Normalized,
+                    tile_spacing: Size2D::zero(),
                 }
             }
         }
