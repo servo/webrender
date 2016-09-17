@@ -676,6 +676,7 @@ pub struct WebGLDisplayItem {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum WebGLError {
     InvalidEnum,
+    InvalidFramebufferOperation,
     InvalidOperation,
     InvalidValue,
     OutOfMemory,
