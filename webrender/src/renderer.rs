@@ -88,10 +88,6 @@ impl VertexDataTexture {
                             RenderTargetMode::None,
                             Some(unsafe { mem::transmute(data.as_slice()) } ));
     }
-
-    fn deinit(&mut self, device: &mut Device) {
-        device.deinit_texture(self.id);
-    }
 }
 
 const TRANSFORM_FEATURE: &'static [&'static str] = &["TRANSFORM"];
