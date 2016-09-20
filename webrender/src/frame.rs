@@ -519,7 +519,7 @@ impl Frame {
                                    transform,
                                    pipeline_id,
                                    scroll_layer_id,
-                                   composition_operations);
+                                   &composition_operations);
 
         if level == 0 {
             context.builder.add_solid_rectangle(&stacking_context.bounds,
