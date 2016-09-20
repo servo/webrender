@@ -568,6 +568,7 @@ impl Frame {
                                                   &item.clip.main,
                                                   clip,
                                                   &info.stretch_size,
+                                                  &info.tile_spacing,
                                                   info.image_key,
                                                   info.image_rendering);
                             }
