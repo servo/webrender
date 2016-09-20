@@ -506,6 +506,8 @@ pub enum WebGLCommand {
     DrawArrays(u32, i32, i32),
     DrawElements(u32, i32, u32, i64),
     EnableVertexAttribArray(u32),
+    FramebufferRenderbuffer(u32, u32, u32, Option<WebGLRenderbufferId>),
+    FramebufferTexture2D(u32, u32, u32, Option<WebGLTextureId>, i32),
     GetBufferParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
     GetParameter(u32, IpcSender<WebGLResult<WebGLParameter>>),
     GetProgramParameter(WebGLProgramId, u32, IpcSender<WebGLResult<WebGLParameter>>),
@@ -518,6 +520,7 @@ pub enum WebGLCommand {
     GetShaderInfoLog(WebGLShaderId, IpcSender<String>),
     GetProgramInfoLog(WebGLProgramId, IpcSender<String>),
     PolygonOffset(f32, f32),
+    RenderbufferStorage(u32, u32, i32, i32),
     ReadPixels(i32, i32, i32, i32, u32, u32, IpcSender<Vec<u8>>),
     SampleCoverage(f32, bool),
     Scissor(i32, i32, i32, i32),
@@ -674,6 +677,7 @@ pub struct WebGLDisplayItem {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum WebGLError {
     InvalidEnum,
+    InvalidFramebufferOperation,
     InvalidOperation,
     InvalidValue,
     OutOfMemory,
