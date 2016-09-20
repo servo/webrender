@@ -1952,7 +1952,7 @@ struct PackedCompositeInfo {
 }
 
 impl PackedCompositeInfo {
-    fn new(ops: &Vec<CompositionOp>) -> PackedCompositeInfo {
+    fn new(ops: &[CompositionOp]) -> PackedCompositeInfo {
         // TODO(gw): Support chained filters
         let op = &ops[0];
 
@@ -2152,7 +2152,7 @@ struct StackingContext {
     local_rect: Rect<f32>,
     scroll_layer_id: ScrollLayerId,
     xf_rect: Option<TransformedRect>,
-    composition_ops: Vec<CompositionOp>,
+    composite_kind: CompositeKind,
     local_clip_rect: Rect<f32>,
     prims_to_prepare: Vec<PrimitiveIndex>,
     tile_range: Option<TileRange>,
@@ -2184,38 +2184,14 @@ enum CompositeKind {
     Complex(PackedCompositeInfo),
 }
 
-impl StackingContext {
-    fn is_visible(&self) -> bool {
-        self.xf_rect.is_some()
-    }
-
-    fn can_contribute_to_scene(&self) -> bool {
-        for op in &self.composition_ops {
-            match op {
-                &CompositionOp::Filter(filter_op) => {
-                    match filter_op {
-                        LowLevelFilterOp::Opacity(opacity) => {
-                            if opacity == Au(0) {
-                                return false
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        true
-    }
-
-    fn composite_kind(&self) -> CompositeKind {
-        if self.composition_ops.is_empty() {
+impl CompositeKind {
+    fn new(composition_ops: &[CompositionOp]) -> CompositeKind {
+        if composition_ops.is_empty() {
             return CompositeKind::None;
         }
 
-        if self.composition_ops.len() == 1 {
-            match self.composition_ops.first().unwrap() {
+        if composition_ops.len() == 1 {
+            match composition_ops.first().unwrap() {
                 &CompositionOp::Filter(filter_op) => {
                     match filter_op {
                         LowLevelFilterOp::Opacity(opacity) => {
@@ -2233,8 +2209,21 @@ impl StackingContext {
             }
         }
 
-        let info = PackedCompositeInfo::new(&self.composition_ops);
+        let info = PackedCompositeInfo::new(composition_ops);
         CompositeKind::Complex(info)
+    }
+}
+
+impl StackingContext {
+    fn is_visible(&self) -> bool {
+        self.xf_rect.is_some()
+    }
+
+    fn can_contribute_to_scene(&self) -> bool {
+        match self.composite_kind {
+            CompositeKind::None | CompositeKind::Complex(..) => true,
+            CompositeKind::Simple(opacity) => opacity > 0.0,
+        }
     }
 }
 
@@ -2432,27 +2421,6 @@ impl CompiledScreenTile {
     }
 }
 
-#[derive(Debug)]
-struct SimpleCommandList {
-    primitives: Vec<(StackingContextIndex, PrimitiveIndex)>,
-}
-
-impl SimpleCommandList {
-    fn new() -> SimpleCommandList {
-        SimpleCommandList {
-            primitives: Vec::new(),
-        }
-    }
-
-    fn clear(&mut self) {
-        self.primitives.clear();
-    }
-
-    fn push(&mut self, sc_index: StackingContextIndex, prim_index: PrimitiveIndex) {
-        self.primitives.push((sc_index, prim_index));
-    }
-}
-
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 enum TileCommand {
     PushLayer(StackingContextIndex),
@@ -2465,6 +2433,7 @@ struct ScreenTile {
     rect: Rect<DevicePixel>,
     cmds: Vec<TileCommand>,
     prim_count: usize,
+    is_simple: bool,
 }
 
 impl ScreenTile {
@@ -2473,12 +2442,25 @@ impl ScreenTile {
             rect: rect,
             cmds: Vec::new(),
             prim_count: 0,
+            is_simple: true,
         }
     }
 
     #[inline(always)]
-    fn push_layer(&mut self, sc_index: StackingContextIndex) {
+    fn push_layer(&mut self,
+                  sc_index: StackingContextIndex,
+                  layers: &[StackingContext]) {
         self.cmds.push(TileCommand::PushLayer(sc_index));
+
+        let layer = &layers[sc_index.0];
+        match layer.composite_kind {
+            CompositeKind::None => {}
+            CompositeKind::Simple(..) | CompositeKind::Complex(..) => {
+                // Bail out on tiles with composites
+                // for now. This can be handled in the future!
+                self.is_simple = false;
+            }
+        }
     }
 
     #[inline(always)]
@@ -2497,133 +2479,95 @@ impl ScreenTile {
         }
     }
 
-    fn get_simple_cmd_list(&self, ctx: &RenderTargetContext) -> Option<SimpleCommandList> {
-        // Look for really simple occlusion only for now. This can be expanded later
-        // to more complex kinds.
-        let mut cmd_list = SimpleCommandList::new();
-        let mut sc_stack = Vec::new();
-
-        for cmd in &self.cmds {
-            match cmd {
-                &TileCommand::PushLayer(sc_index) => {
-                    sc_stack.push(sc_index);
-
-                    let layer = &ctx.layer_store[sc_index.0];
-                    match layer.composite_kind() {
-                        CompositeKind::None => {}
-                        CompositeKind::Simple(..) | CompositeKind::Complex(..) => {
-                            // Bail out on tiles with composites
-                            // for now. This can be handled in the future!
-                            return None;
-                        }
-                    }
-                }
-                &TileCommand::DrawPrimitive(prim_index) => {
-                    let sc_index = *sc_stack.last().unwrap();
-                    let layer = &ctx.layer_store[sc_index.0];
-                    let prim = &ctx.prim_store[prim_index.0];
-                    if layer.xf_rect.as_ref().unwrap().kind == TransformedRectKind::AxisAligned &&
-                       prim.complex_clip.is_none() &&
-                       prim.is_opaque(ctx.resource_cache, ctx.frame_id) &&
-                       prim.bounding_rect.as_ref().unwrap().contains_rect(&self.rect) {
-                        cmd_list.clear();
-                    }
-                    cmd_list.push(sc_index, prim_index);
-                }
-                &TileCommand::PopLayer => {
-                    sc_stack.pop().unwrap();
-                }
-            }
-        }
-
-        Some(cmd_list)
-    }
-
     fn compile(self, ctx: &RenderTargetContext) -> Option<CompiledScreenTile> {
         if self.prim_count == 0 {
             return None;
         }
 
-        // See if this is a "simple" tile.
-        let (mut primary_task, info) = match self.get_simple_cmd_list(ctx) {
-            Some(simple_cmd_list) => {
-                let prim_count = simple_cmd_list.primitives.len();
+        let cmd_count = self.cmds.len();
+        let mut actual_prim_count = 0;
 
-                // See if we can run through a common / fast path tile shader.
-                let info = CompiledScreenTileInfo::SimpleAlpha(prim_count);
-                let mut alpha_task = RenderTask::new_alpha_batch(self.rect, ctx);
-                for (sc_index, prim_index) in simple_cmd_list.primitives {
-                    alpha_task.as_alpha_batch().items.push(AlphaRenderItem::Primitive(sc_index, prim_index));
-                }
-                (alpha_task, info)
-            }
-            None => {
-                // Fall back to the complex render path.
-                // TODO(gw): Complex tiles don't currently get
-                // any occlusion culling!
-                let mut sc_stack = Vec::new();
-                let mut current_task = RenderTask::new_alpha_batch(self.rect, ctx);
-                let mut alpha_task_stack = Vec::new();
-                let info = CompiledScreenTileInfo::ComplexAlpha(self.cmds.len(), self.prim_count);
+        let mut sc_stack = Vec::new();
+        let mut current_task = RenderTask::new_alpha_batch(self.rect, ctx);
+        let mut alpha_task_stack = Vec::new();
 
-                for cmd in self.cmds {
-                    match cmd {
-                        TileCommand::PushLayer(sc_index) => {
-                            sc_stack.push(sc_index);
+        for cmd in self.cmds {
+            match cmd {
+                TileCommand::PushLayer(sc_index) => {
+                    sc_stack.push(sc_index);
 
-                            let layer = &ctx.layer_store[sc_index.0];
-                            match layer.composite_kind() {
-                                CompositeKind::None => {}
-                                CompositeKind::Simple(..) | CompositeKind::Complex(..) => {
-                                    let prev_task = mem::replace(&mut current_task, RenderTask::new_alpha_batch(self.rect, ctx));
-                                    alpha_task_stack.push(prev_task);
-                                }
-                            }
-                        }
-                        TileCommand::PopLayer => {
-                            let sc_index = sc_stack.pop().unwrap();
-
-                            let layer = &ctx.layer_store[sc_index.0];
-                            match layer.composite_kind() {
-                                CompositeKind::None => {}
-                                CompositeKind::Simple(opacity) => {
-                                    let mut prev_task = alpha_task_stack.pop().unwrap();
-                                    prev_task.as_alpha_batch().items.push(AlphaRenderItem::Blend(current_task.id,
-                                                                                                 opacity));
-                                    prev_task.children.push(current_task);
-                                    current_task = prev_task;
-                                }
-                                CompositeKind::Complex(info) => {
-                                    let backdrop = alpha_task_stack.pop().unwrap();
-
-                                    let mut composite_task = RenderTask::new_alpha_batch(self.rect, ctx);
-
-                                    composite_task.as_alpha_batch().items.push(AlphaRenderItem::Composite(backdrop.id,
-                                                                                                          current_task.id,
-                                                                                                          info));
-
-                                    composite_task.children.push(backdrop);
-                                    composite_task.children.push(current_task);
-
-                                    current_task = composite_task;
-                                }
-                            }
-                        }
-                        TileCommand::DrawPrimitive(prim_index) => {
-                            let sc_index = *sc_stack.last().unwrap();
-                            current_task.as_alpha_batch().items.push(AlphaRenderItem::Primitive(sc_index, prim_index));
+                    let layer = &ctx.layer_store[sc_index.0];
+                    match layer.composite_kind {
+                        CompositeKind::None => {}
+                        CompositeKind::Simple(..) | CompositeKind::Complex(..) => {
+                            let prev_task = mem::replace(&mut current_task, RenderTask::new_alpha_batch(self.rect, ctx));
+                            alpha_task_stack.push(prev_task);
                         }
                     }
                 }
+                TileCommand::PopLayer => {
+                    let sc_index = sc_stack.pop().unwrap();
 
-                debug_assert!(alpha_task_stack.is_empty());
-                (current_task, info)
+                    let layer = &ctx.layer_store[sc_index.0];
+                    match layer.composite_kind {
+                        CompositeKind::None => {}
+                        CompositeKind::Simple(opacity) => {
+                            let mut prev_task = alpha_task_stack.pop().unwrap();
+                            prev_task.as_alpha_batch().items.push(AlphaRenderItem::Blend(current_task.id,
+                                                                                         opacity));
+                            prev_task.children.push(current_task);
+                            current_task = prev_task;
+                        }
+                        CompositeKind::Complex(info) => {
+                            let backdrop = alpha_task_stack.pop().unwrap();
+
+                            let mut composite_task = RenderTask::new_alpha_batch(self.rect, ctx);
+
+                            composite_task.as_alpha_batch().items.push(AlphaRenderItem::Composite(backdrop.id,
+                                                                                                  current_task.id,
+                                                                                                  info));
+
+                            composite_task.children.push(backdrop);
+                            composite_task.children.push(current_task);
+
+                            current_task = composite_task;
+                        }
+                    }
+                }
+                TileCommand::DrawPrimitive(prim_index) => {
+                    let sc_index = *sc_stack.last().unwrap();
+
+                    // TODO(gw): Complex tiles don't currently get
+                    // any occlusion culling!
+                    if self.is_simple {
+                        let layer = &ctx.layer_store[sc_index.0];
+                        let prim = &ctx.prim_store[prim_index.0];
+
+                        if layer.xf_rect.as_ref().unwrap().kind == TransformedRectKind::AxisAligned &&
+                           prim.complex_clip.is_none() &&
+                           prim.is_opaque(ctx.resource_cache, ctx.frame_id) &&
+                           prim.bounding_rect.as_ref().unwrap().contains_rect(&self.rect) {
+                            current_task.as_alpha_batch().items.clear();
+                        }
+                    }
+
+                    actual_prim_count += 1;
+                    current_task.as_alpha_batch().items.push(AlphaRenderItem::Primitive(sc_index, prim_index));
+                }
             }
+        }
+
+        debug_assert!(alpha_task_stack.is_empty());
+
+        let info = if self.is_simple {
+            CompiledScreenTileInfo::SimpleAlpha(actual_prim_count)
+        } else {
+            CompiledScreenTileInfo::ComplexAlpha(cmd_count, actual_prim_count)
         };
 
-        primary_task.location = RenderTaskLocation::Fixed(self.rect);
-        primary_task.finalize();
-        Some(CompiledScreenTile::new(primary_task, info))
+        current_task.location = RenderTaskLocation::Fixed(self.rect);
+        current_task.finalize();
+        Some(CompiledScreenTile::new(current_task, info))
     }
 }
 
@@ -2681,7 +2625,7 @@ impl FrameBuilder {
                       transform: Matrix4D<f32>,
                       pipeline_id: PipelineId,
                       scroll_layer_id: ScrollLayerId,
-                      composition_operations: Vec<CompositionOp>) {
+                      composition_operations: &[CompositionOp]) {
         let sc_index = StackingContextIndex(self.layer_store.len());
 
         let sc = StackingContext {
@@ -2691,7 +2635,7 @@ impl FrameBuilder {
             scroll_layer_id: scroll_layer_id,
             pipeline_id: pipeline_id,
             xf_rect: None,
-            composition_ops: composition_operations,
+            composite_kind: CompositeKind::new(composition_operations),
             local_clip_rect: clip_rect,
             prims_to_prepare: Vec::new(),
             tile_range: None,
@@ -3188,7 +3132,7 @@ impl FrameBuilder {
                     for ly in tile_range.y0..tile_range.y1 {
                         for lx in tile_range.x0..tile_range.x1 {
                             let tile = &mut screen_tiles[(ly * x_tile_count + lx) as usize];
-                            tile.push_layer(sc_index);
+                            tile.push_layer(sc_index, &self.layer_store);
                         }
                     }
                 }
@@ -3552,4 +3496,3 @@ impl ImagePrimitive {
         }
     }
 }
-
