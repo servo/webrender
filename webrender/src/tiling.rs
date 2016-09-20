@@ -138,8 +138,6 @@ impl Default for RenderTaskData {
 struct AlphaBatchTask {
     task_id: RenderTaskId,
     items: Vec<AlphaRenderItem>,
-    target_rect: Rect<DevicePixel>,
-    child_rects: Vec<Rect<DevicePixel>>,
 }
 
 pub struct AlphaBatcher {
@@ -172,10 +170,10 @@ impl AlphaBatcher {
             for item in items.into_iter().rev() {
                 let batch_key;
                 match item {
-                    AlphaRenderItem::Composite(_) => {
+                    AlphaRenderItem::Composite(..) => {
                         batch_key = AlphaBatchKey::composite();
                     }
-                    AlphaRenderItem::Blend(_, _) => {
+                    AlphaRenderItem::Blend(..) => {
                         batch_key = AlphaBatchKey::blend();
                     }
                     AlphaRenderItem::Primitive(sc_index, prim_index) => {
@@ -220,16 +218,16 @@ impl AlphaBatcher {
 
                 let batch = &mut batches[existing_batch_index].1;
                 match item {
-                    AlphaRenderItem::Composite(info) => {
-                        let ok = batch.pack_composite(&task.child_rects[0],
-                                                      &task.child_rects[1],
-                                                      &task.target_rect,
+                    AlphaRenderItem::Composite(src0_id, src1_id, info) => {
+                        let ok = batch.pack_composite(render_tasks.get_task_index(&src0_id),
+                                                      render_tasks.get_task_index(&src1_id),
+                                                      render_tasks.get_task_index(&task.task_id),
                                                       info);
                         debug_assert!(ok)
                     }
-                    AlphaRenderItem::Blend(child_index, opacity) => {
-                        let ok = batch.pack_blend(task.child_rects[child_index],
-                                                  task.target_rect,
+                    AlphaRenderItem::Blend(src_id, opacity) => {
+                        let ok = batch.pack_blend(render_tasks.get_task_index(&src_id),
+                                                  render_tasks.get_task_index(&task.task_id),
                                                   opacity);
                         debug_assert!(ok)
                     }
@@ -298,8 +296,6 @@ impl RenderTarget {
                      ALPHA_BATCHERS_PER_RENDER_TARGET,
                      MIN_TASKS_PER_ALPHA_BATCHER);
         for task in self.tasks.drain(..) {
-            let target_rect = task.get_target_rect();
-
             match task.kind {
                 RenderTaskKind::Alpha(info) => {
                     let need_new_batcher =
@@ -312,9 +308,7 @@ impl RenderTarget {
 
                     self.alpha_batchers.last_mut().unwrap().add_task(AlphaBatchTask {
                         task_id: task.id,
-                        target_rect: target_rect,
                         items: info.items,
-                        child_rects: task.child_locations.clone(),  // TODO(gw): Remove clone somehow!?
                     });
                 }
             }
@@ -380,8 +374,8 @@ enum RenderTaskLocation {
 #[derive(Debug)]
 enum AlphaRenderItem {
     Primitive(StackingContextIndex, PrimitiveIndex),
-    Blend(usize, f32),
-    Composite(PackedCompositeInfo),
+    Blend(RenderTaskId, f32),
+    Composite(RenderTaskId, RenderTaskId, PackedCompositeInfo),
 }
 
 #[derive(Debug)]
@@ -400,7 +394,6 @@ struct RenderTask {
     id: RenderTaskId,
     location: RenderTaskLocation,
     children: Vec<RenderTask>,
-    child_locations: Vec<Rect<DevicePixel>>,
     kind: RenderTaskKind,
 }
 
@@ -411,7 +404,6 @@ impl RenderTask {
         RenderTask {
             id: RenderTaskId::Static(RenderTaskIndex(task_index)),
             children: Vec::new(),
-            child_locations: Vec::new(),
             location: RenderTaskLocation::Dynamic(None, actual_rect.size),
             kind: RenderTaskKind::Alpha(AlphaRenderTask {
                 actual_rect: actual_rect,
@@ -473,7 +465,6 @@ impl RenderTask {
                          targets: &mut Vec<RenderTarget>,
                          render_tasks: &mut RenderTaskCollection) {
         for child in self.children.drain(..) {
-            self.child_locations.push(child.get_target_rect());
             child.assign_to_targets(target_index - 1,
                                     targets,
                                     render_tasks);
@@ -1946,10 +1937,10 @@ pub struct PackedBoxShadowPrimitive {
 
 #[derive(Debug, Clone)]
 pub struct PackedBlendPrimitive {
-    target_rect_dp: Rect<f32>,
-    src_rect_dp: Rect<f32>,
+    src_task_id: f32,
+    target_task_id: f32,
     opacity: f32,
-    padding: [u32; 3],
+    padding: f32,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -2001,9 +1992,10 @@ impl PackedCompositeInfo {
 
 #[derive(Debug)]
 pub struct PackedCompositePrimitive {
-    rect0_dp: Rect<f32>,
-    rect1_dp: Rect<f32>,
-    target_rect_dp: Rect<f32>,
+    src0_task_id: f32,
+    src1_task_id: f32,
+    target_task_id: f32,
+    padding: f32,
     info: PackedCompositeInfo,
 }
 
@@ -2051,16 +2043,16 @@ impl PrimitiveBatch {
     }
 
     fn pack_blend(&mut self,
-                  src_rect: Rect<DevicePixel>,
-                  target_rect: Rect<DevicePixel>,
+                  src_rect_index: RenderTaskIndex,
+                  target_rect_index: RenderTaskIndex,
                   opacity: f32) -> bool {
         match &mut self.data {
             &mut PrimitiveBatchData::Blend(ref mut ubo_data) => {
                 ubo_data.push(PackedBlendPrimitive {
+                    src_task_id: pack_as_float(src_rect_index.0 as u32),
+                    target_task_id: pack_as_float(target_rect_index.0 as u32),
                     opacity: opacity,
-                    padding: [0, 0, 0],
-                    src_rect_dp: src_rect.pack_as_float(),
-                    target_rect_dp: target_rect.pack_as_float(),
+                    padding: 0.0,
                 });
 
                 true
@@ -2070,16 +2062,17 @@ impl PrimitiveBatch {
     }
 
     fn pack_composite(&mut self,
-                      rect0: &Rect<DevicePixel>,
-                      rect1: &Rect<DevicePixel>,
-                      target_rect: &Rect<DevicePixel>,
+                      rect0_index: RenderTaskIndex,
+                      rect1_index: RenderTaskIndex,
+                      target_rect_index: RenderTaskIndex,
                       info: PackedCompositeInfo) -> bool {
         match &mut self.data {
             &mut PrimitiveBatchData::Composite(ref mut ubo_data) => {
                 ubo_data.push(PackedCompositePrimitive {
-                    rect0_dp: rect0.pack_as_float(),
-                    rect1_dp: rect1.pack_as_float(),
-                    target_rect_dp: target_rect.pack_as_float(),
+                    src0_task_id: pack_as_float(rect0_index.0 as u32),
+                    src1_task_id: pack_as_float(rect1_index.0 as u32),
+                    target_task_id: pack_as_float(target_rect_index.0 as u32),
+                    padding: 0.0,
                     info: info,
                 });
 
@@ -2595,8 +2588,7 @@ impl ScreenTile {
                                 CompositeKind::None => {}
                                 CompositeKind::Simple(opacity) => {
                                     let mut prev_task = alpha_task_stack.pop().unwrap();
-                                    let index = prev_task.children.len();
-                                    prev_task.as_alpha_batch().items.push(AlphaRenderItem::Blend(index,
+                                    prev_task.as_alpha_batch().items.push(AlphaRenderItem::Blend(current_task.id,
                                                                                                  opacity));
                                     prev_task.children.push(current_task);
                                     current_task = prev_task;
@@ -2605,10 +2597,13 @@ impl ScreenTile {
                                     let backdrop = alpha_task_stack.pop().unwrap();
 
                                     let mut composite_task = RenderTask::new_alpha_batch(self.rect, ctx);
+
+                                    composite_task.as_alpha_batch().items.push(AlphaRenderItem::Composite(backdrop.id,
+                                                                                                          current_task.id,
+                                                                                                          info));
+
                                     composite_task.children.push(backdrop);
                                     composite_task.children.push(current_task);
-
-                                    composite_task.as_alpha_batch().items.push(AlphaRenderItem::Composite(info));
 
                                     current_task = composite_task;
                                 }
