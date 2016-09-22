@@ -222,7 +222,7 @@ impl RenderApi {
     }
 
     pub fn request_webgl_context(&self, size: &Size2D<i32>, attributes: GLContextAttributes)
-                                 -> Result<(WebGLContextId, GLLimits), String> {
+                                 -> Result<(WebGLContextId, GLLimits, bool), String> {
         let (tx, rx) = ipc::channel().unwrap();
         let msg = ApiMsg::RequestWebGLContext(*size, attributes, tx);
         self.api_sender.send(msg).unwrap();
