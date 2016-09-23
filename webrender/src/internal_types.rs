@@ -34,23 +34,19 @@ pub enum GLContextHandleWrapper {
 
 impl GLContextHandleWrapper {
     pub fn current_native_handle() -> Option<GLContextHandleWrapper> {
-        NativeGLContext::current_handle().map(|handle| {
-            GLContextHandleWrapper::Native(handle)
-        })
+        NativeGLContext::current_handle().map(GLContextHandleWrapper::Native)
     }
 
     pub fn current_osmesa_handle() -> Option<GLContextHandleWrapper> {
-        OSMesaContext::current_handle().map(|handle| {
-            GLContextHandleWrapper::OSMesa(handle)
-        })
+        OSMesaContext::current_handle().map(GLContextHandleWrapper::OSMesa)
     }
 
     pub fn new_context(&self,
                        size: Size2D<i32>,
                        attributes: GLContextAttributes,
                        shared: bool) -> Result<GLContextWrapper, &'static str> {
-        match self {
-            &GLContextHandleWrapper::Native(ref handle) => {
+        match *self {
+            GLContextHandleWrapper::Native(ref handle) => {
                 let shared_handle = if shared {
                     Some(handle)
                 } else {
@@ -61,11 +57,9 @@ impl GLContextHandleWrapper {
                                                             attributes,
                                                             ColorAttachmentType::Texture,
                                                             shared_handle);
-                ctx.map(|ctx| {
-                    GLContextWrapper::Native(ctx)
-                })
+                ctx.map(GLContextWrapper::Native)
             }
-            &GLContextHandleWrapper::OSMesa(ref handle) => {
+            GLContextHandleWrapper::OSMesa(ref handle) => {
                 let shared_handle = if shared {
                     Some(handle)
                 } else {
@@ -76,9 +70,7 @@ impl GLContextHandleWrapper {
                                                           attributes,
                                                           ColorAttachmentType::Texture,
                                                           shared_handle);
-                ctx.map(|ctx| {
-                    GLContextWrapper::OSMesa(ctx)
-                })
+                ctx.map(GLContextWrapper::OSMesa)
             }
         }
     }
@@ -91,41 +83,41 @@ pub enum GLContextWrapper {
 
 impl GLContextWrapper {
     pub fn make_current(&self) {
-        match self {
-            &GLContextWrapper::Native(ref ctx) => {
+        match *self {
+            GLContextWrapper::Native(ref ctx) => {
                 ctx.make_current().unwrap();
             }
-            &GLContextWrapper::OSMesa(ref ctx) => {
+            GLContextWrapper::OSMesa(ref ctx) => {
                 ctx.make_current().unwrap();
             }
         }
     }
 
     pub fn unbind(&self) {
-        match self {
-            &GLContextWrapper::Native(ref ctx) => {
+        match *self {
+            GLContextWrapper::Native(ref ctx) => {
                 ctx.unbind().unwrap();
             }
-            &GLContextWrapper::OSMesa(ref ctx) => {
+            GLContextWrapper::OSMesa(ref ctx) => {
                 ctx.unbind().unwrap();
             }
         }
     }
 
     pub fn apply_command(&self, cmd: WebGLCommand) {
-        match self {
-            &GLContextWrapper::Native(ref ctx) => {
+        match *self {
+            GLContextWrapper::Native(ref ctx) => {
                 cmd.apply(ctx);
             }
-            &GLContextWrapper::OSMesa(ref ctx) => {
+            GLContextWrapper::OSMesa(ref ctx) => {
                 cmd.apply(ctx);
             }
         }
     }
 
     pub fn get_info(&self) -> (Size2D<i32>, u32, GLLimits) {
-        match self {
-            &GLContextWrapper::Native(ref ctx) => {
+        match *self {
+            GLContextWrapper::Native(ref ctx) => {
                 let (real_size, texture_id) = {
                     let draw_buffer = ctx.borrow_draw_buffer().unwrap();
                     (draw_buffer.size(), draw_buffer.get_bound_texture_id().unwrap())
@@ -135,7 +127,7 @@ impl GLContextWrapper {
 
                 (real_size, texture_id, limits)
             }
-            &GLContextWrapper::OSMesa(ref ctx) => {
+            GLContextWrapper::OSMesa(ref ctx) => {
                 let (real_size, texture_id) = {
                     let draw_buffer = ctx.borrow_draw_buffer().unwrap();
                     (draw_buffer.size(), draw_buffer.get_bound_texture_id().unwrap())

@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
-use webrender_traits::{RenderNotifier, WebGLContextId};
+use webrender_traits::{RenderNotifier, WebGLContextId, ContextSharing};
 use batch::new_id;
 use device::TextureId;
 use record;
@@ -262,17 +262,17 @@ impl RenderBackend {
                         ApiMsg::RequestWebGLContext(size, attributes, tx) => {
                             if let Some(ref wrapper) = self.webrender_context_handle {
                                 // Try to create a shared context first.
-                                let mut shared = true;
+                                let mut shared = ContextSharing::Shared;
                                 let mut result = wrapper.new_context(size,
                                                                      attributes,
-                                                                     shared);
+                                                                     true);
 
                                 // Fallback to readback context otherwise
                                 if result.is_err() {
-                                    shared = false;
+                                    shared = ContextSharing::NotShared;
                                     result = wrapper.new_context(size,
                                                                  attributes,
-                                                                 shared);
+                                                                 false);
                                 }
 
                                 match result {
@@ -299,7 +299,7 @@ impl RenderBackend {
                         ApiMsg::WebGLCommand(context_id, command) => {
                             // TODO: Buffer the commands and only apply them here if they need to
                             // be synchronous.
-                            let ctx = self.webgl_contexts.get(&context_id).unwrap();
+                            let ctx = &self.webgl_contexts[&context_id];
                             ctx.make_current();
                             ctx.apply_command(command);
                             self.current_bound_webgl_context_id = Some(context_id);
@@ -318,7 +318,7 @@ impl RenderBackend {
         let mut new_pipeline_sizes = HashMap::new();
 
         if let Some(id) = self.current_bound_webgl_context_id {
-            self.webgl_contexts.get(&id).unwrap().unbind();
+            self.webgl_contexts[&id].unbind();
             self.current_bound_webgl_context_id = None;
         }
 
