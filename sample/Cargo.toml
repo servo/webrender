@@ -7,7 +7,7 @@ authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 git = "https://github.com/servo/webrender"
 
 [dependencies.webrender_traits]
-git = "https://github.com/servo/webrender_traits"
+git = "https://github.com/servo/webrender"
 
 [dependencies]
 glutin = "*"

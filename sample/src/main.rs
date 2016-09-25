@@ -91,6 +91,10 @@ impl webrender_traits::RenderNotifier for Notifier {
         self.window_proxy.wakeup_event_loop();
     }
 
+    fn new_scroll_frame_ready(&mut self, composite_needed: bool) {
+        self.window_proxy.wakeup_event_loop();
+    }
+
     fn pipeline_size_changed(&mut self,
                              _: PipelineId,
                              _: Option<Size2D<f32>>) {
@@ -133,6 +137,10 @@ fn main() {
         enable_aa: false,
         enable_msaa: false,
         enable_profiler: false,
+        enable_recording: false,
+        enable_scrollbars: false,
+        debug: true,
+        precache_shaders: false
     };
 
     let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);
