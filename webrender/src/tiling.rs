@@ -3503,8 +3503,8 @@ impl ImagePrimitive {
             ImagePrimitiveKind::WebGL(context_id) => {
                 ImageInfo {
                     color_texture_id: resource_cache.get_webgl_texture(&context_id),
-                    uv0: Point2D::zero(),
-                    uv1: Point2D::new(1.0, 1.0),
+                    uv0: Point2D::new(0.0, 1.0),
+                    uv1: Point2D::new(1.0, 0.0),
                     stretch_size: None,
                     uv_kind: TextureCoordKind::Normalized,
                     tile_spacing: Size2D::zero(),
