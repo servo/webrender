@@ -9,6 +9,10 @@ use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeListItem, FreeListItemId};
 use num_traits::Zero;
+use offscreen_gl_context::{NativeGLContext, NativeGLContextHandle};
+use offscreen_gl_context::{GLContext, NativeGLContextMethods};
+use offscreen_gl_context::{OSMesaContext, OSMesaContextHandle};
+use offscreen_gl_context::{ColorAttachmentType, GLContextAttributes, GLLimits};
 use profiler::BackendProfileCounters;
 use std::collections::{HashMap, HashSet};
 use std::f32;
@@ -20,7 +24,109 @@ use std::sync::Arc;
 use texture_cache::BorderType;
 use tiling;
 use webrender_traits::{Epoch, ColorF, PipelineId};
-use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem, ScrollLayerId};
+use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem};
+use webrender_traits::{ScrollLayerId, WebGLCommand};
+
+pub enum GLContextHandleWrapper {
+    Native(NativeGLContextHandle),
+    OSMesa(OSMesaContextHandle),
+}
+
+impl GLContextHandleWrapper {
+    pub fn current_native_handle() -> Option<GLContextHandleWrapper> {
+        NativeGLContext::current_handle().map(GLContextHandleWrapper::Native)
+    }
+
+    pub fn current_osmesa_handle() -> Option<GLContextHandleWrapper> {
+        OSMesaContext::current_handle().map(GLContextHandleWrapper::OSMesa)
+    }
+
+    pub fn new_context(&self,
+                       size: Size2D<i32>,
+                       attributes: GLContextAttributes) -> Result<GLContextWrapper, &'static str> {
+        match *self {
+            GLContextHandleWrapper::Native(ref handle) => {
+                let ctx = GLContext::<NativeGLContext>::new(size,
+                                                            attributes,
+                                                            ColorAttachmentType::Texture,
+                                                            Some(handle));
+                ctx.map(GLContextWrapper::Native)
+            }
+            GLContextHandleWrapper::OSMesa(ref handle) => {
+                let ctx = GLContext::<OSMesaContext>::new(size,
+                                                          attributes,
+                                                          ColorAttachmentType::Texture,
+                                                          Some(handle));
+                ctx.map(GLContextWrapper::OSMesa)
+            }
+        }
+    }
+}
+
+pub enum GLContextWrapper {
+    Native(GLContext<NativeGLContext>),
+    OSMesa(GLContext<OSMesaContext>),
+}
+
+impl GLContextWrapper {
+    pub fn make_current(&self) {
+        match *self {
+            GLContextWrapper::Native(ref ctx) => {
+                ctx.make_current().unwrap();
+            }
+            GLContextWrapper::OSMesa(ref ctx) => {
+                ctx.make_current().unwrap();
+            }
+        }
+    }
+
+    pub fn unbind(&self) {
+        match *self {
+            GLContextWrapper::Native(ref ctx) => {
+                ctx.unbind().unwrap();
+            }
+            GLContextWrapper::OSMesa(ref ctx) => {
+                ctx.unbind().unwrap();
+            }
+        }
+    }
+
+    pub fn apply_command(&self, cmd: WebGLCommand) {
+        match *self {
+            GLContextWrapper::Native(ref ctx) => {
+                cmd.apply(ctx);
+            }
+            GLContextWrapper::OSMesa(ref ctx) => {
+                cmd.apply(ctx);
+            }
+        }
+    }
+
+    pub fn get_info(&self) -> (Size2D<i32>, u32, GLLimits) {
+        match *self {
+            GLContextWrapper::Native(ref ctx) => {
+                let (real_size, texture_id) = {
+                    let draw_buffer = ctx.borrow_draw_buffer().unwrap();
+                    (draw_buffer.size(), draw_buffer.get_bound_texture_id().unwrap())
+                };
+
+                let limits = ctx.borrow_limits().clone();
+
+                (real_size, texture_id, limits)
+            }
+            GLContextWrapper::OSMesa(ref ctx) => {
+                let (real_size, texture_id) = {
+                    let draw_buffer = ctx.borrow_draw_buffer().unwrap();
+                    (draw_buffer.size(), draw_buffer.get_bound_texture_id().unwrap())
+                };
+
+                let limits = ctx.borrow_limits().clone();
+
+                (real_size, texture_id, limits)
+            }
+        }
+    }
+}
 
 #[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct DevicePixel(pub i32);

@@ -14,6 +14,12 @@ use offscreen_gl_context::{GLContextAttributes, GLLimits};
 
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
 
+#[derive(Debug, Copy, Clone)]
+pub enum RendererKind {
+    Native,
+    OSMesa,
+}
+
 #[derive(Deserialize, Serialize)]
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>),

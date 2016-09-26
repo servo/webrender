@@ -4,7 +4,7 @@
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use frame::Frame;
-use internal_types::{FontTemplate, ResultMsg, RendererFrame};
+use internal_types::{FontTemplate, GLContextHandleWrapper, GLContextWrapper, ResultMsg, RendererFrame};
 use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
 use profiler::BackendProfileCounters;
 use resource_cache::ResourceCache;
@@ -21,8 +21,7 @@ use batch::new_id;
 use device::TextureId;
 use record;
 use tiling::FrameBuilderConfig;
-use offscreen_gl_context::{ColorAttachmentType, GLContext};
-use offscreen_gl_context::{NativeGLContext, NativeGLContextHandle};
+use gleam::gl;
 
 pub struct RenderBackend {
     api_rx: IpcReceiver<ApiMsg>,
@@ -39,8 +38,8 @@ pub struct RenderBackend {
     frame: Frame,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
-    webrender_context_handle: Option<NativeGLContextHandle>,
-    webgl_contexts: HashMap<WebGLContextId, GLContext<NativeGLContext>>,
+    webrender_context_handle: Option<GLContextHandleWrapper>,
+    webgl_contexts: HashMap<WebGLContextId, GLContextWrapper>,
     current_bound_webgl_context_id: Option<WebGLContextId>,
     enable_recording: bool,
 }
@@ -54,7 +53,7 @@ impl RenderBackend {
                texture_cache: TextureCache,
                enable_aa: bool,
                notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
-               webrender_context_handle: Option<NativeGLContextHandle>,
+               webrender_context_handle: Option<GLContextHandleWrapper>,
                config: FrameBuilderConfig,
                debug: bool,
                enable_recording:bool) -> RenderBackend {
@@ -261,17 +260,14 @@ impl RenderBackend {
                               .unwrap()
                         }
                         ApiMsg::RequestWebGLContext(size, attributes, tx) => {
-                            if let Some(ref handle) = self.webrender_context_handle {
-                                match GLContext::<NativeGLContext>::new(size, attributes, ColorAttachmentType::Texture, Some(handle)) {
+                            if let Some(ref wrapper) = self.webrender_context_handle {
+                                let result = wrapper.new_context(size, attributes);
+
+                                match result {
                                     Ok(ctx) => {
                                         let id = WebGLContextId(new_id());
 
-                                        let (real_size, texture_id) = {
-                                            let draw_buffer = ctx.borrow_draw_buffer().unwrap();
-                                            (draw_buffer.size(), draw_buffer.get_bound_texture_id().unwrap())
-                                        };
-
-                                        let limits = ctx.borrow_limits().clone();
+                                        let (real_size, texture_id, limits) = ctx.get_info();
 
                                         self.webgl_contexts.insert(id, ctx);
 
@@ -291,9 +287,9 @@ impl RenderBackend {
                         ApiMsg::WebGLCommand(context_id, command) => {
                             // TODO: Buffer the commands and only apply them here if they need to
                             // be synchronous.
-                            let ctx = self.webgl_contexts.get(&context_id).unwrap();
-                            ctx.make_current().unwrap();
-                            command.apply(ctx);
+                            let ctx = &self.webgl_contexts[&context_id];
+                            ctx.make_current();
+                            ctx.apply_command(command);
                             self.current_bound_webgl_context_id = Some(context_id);
                         }
                     }
@@ -310,7 +306,21 @@ impl RenderBackend {
         let mut new_pipeline_sizes = HashMap::new();
 
         if let Some(id) = self.current_bound_webgl_context_id {
-            self.webgl_contexts.get(&id).unwrap().unbind().unwrap();
+            self.webgl_contexts[&id].unbind();
+            self.current_bound_webgl_context_id = None;
+        }
+
+        // When running in OSMesa mode with texture sharing,
+        // a flush is required on any GL contexts to ensure
+        // that read-back from the shared texture returns
+        // valid data! This should be fine to have run on all
+        // implementations - a single flush for each webgl
+        // context at the start of a render frame should
+        // incur minimal cost.
+        for (_, webgl_context) in &self.webgl_contexts {
+            webgl_context.make_current();
+            gl::flush();
+            webgl_context.unbind();
         }
 
         self.frame.create(&self.scene,

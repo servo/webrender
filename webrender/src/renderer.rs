@@ -20,7 +20,7 @@ use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePixel};
 use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp};
-use internal_types::{AxisDirection, TextureSampler};
+use internal_types::{AxisDirection, TextureSampler, GLContextHandleWrapper};
 use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{RendererProfileTimers, RendererProfileCounters};
@@ -39,8 +39,7 @@ use tiling::{self, Frame, FrameBuilderConfig, GLYPHS_PER_TEXT_RUN, PrimitiveBatc
 use tiling::{TransformedRectKind, RenderTarget, ClearTile};
 use time::precise_time_ns;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
-use webrender_traits::{ImageFormat, MixBlendMode, RenderApiSender};
-use offscreen_gl_context::{NativeGLContext, NativeGLContextMethods};
+use webrender_traits::{ImageFormat, MixBlendMode, RenderApiSender, RendererKind};
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
 pub const MAX_RASTER_OP_SIZE: u32 = 2048;
@@ -578,7 +577,10 @@ impl Renderer {
 
         // We need a reference to the webrender context from the render backend in order to share
         // texture ids
-        let context_handle = NativeGLContext::current_handle();
+        let context_handle = match options.renderer_kind {
+            RendererKind::Native => GLContextHandleWrapper::current_native_handle(),
+            RendererKind::OSMesa => GLContextHandleWrapper::current_osmesa_handle(),
+        };
 
         let config = FrameBuilderConfig::new(options.enable_scrollbars);
 
@@ -1730,4 +1732,5 @@ pub struct RendererOptions {
     pub enable_recording: bool,
     pub enable_scrollbars: bool,
     pub precache_shaders: bool,
+    pub renderer_kind: RendererKind,
 }
