@@ -11,7 +11,7 @@ use {ApiMsg, AuxiliaryLists, BuiltDisplayList, ColorF, DisplayListId, Epoch};
 use {FontKey, IdNamespace, ImageFormat, ImageKey, NativeFontHandle, PipelineId};
 use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState};
 use {StackingContext, StackingContextId, WebGLContextId, WebGLCommand};
-use {GlyphKey, GlyphDimensions, ContextSharing};
+use {GlyphKey, GlyphDimensions};
 
 impl RenderApiSender {
     pub fn new(api_sender: IpcSender<ApiMsg>,
@@ -222,7 +222,7 @@ impl RenderApi {
     }
 
     pub fn request_webgl_context(&self, size: &Size2D<i32>, attributes: GLContextAttributes)
-                                 -> Result<(WebGLContextId, GLLimits, ContextSharing), String> {
+                                 -> Result<(WebGLContextId, GLLimits), String> {
         let (tx, rx) = ipc::channel().unwrap();
         let msg = ApiMsg::RequestWebGLContext(*size, attributes, tx);
         self.api_sender.send(msg).unwrap();

@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
-use webrender_traits::{RenderNotifier, WebGLContextId, ContextSharing};
+use webrender_traits::{RenderNotifier, WebGLContextId};
 use batch::new_id;
 use device::TextureId;
 use record;
@@ -261,19 +261,7 @@ impl RenderBackend {
                         }
                         ApiMsg::RequestWebGLContext(size, attributes, tx) => {
                             if let Some(ref wrapper) = self.webrender_context_handle {
-                                // Try to create a shared context first.
-                                let mut shared = ContextSharing::Shared;
-                                let mut result = wrapper.new_context(size,
-                                                                     attributes,
-                                                                     true);
-
-                                // Fallback to readback context otherwise
-                                if result.is_err() {
-                                    shared = ContextSharing::NotShared;
-                                    result = wrapper.new_context(size,
-                                                                 attributes,
-                                                                 false);
-                                }
+                                let result = wrapper.new_context(size, attributes);
 
                                 match result {
                                     Ok(ctx) => {
@@ -286,7 +274,7 @@ impl RenderBackend {
                                         self.resource_cache
                                             .add_webgl_texture(id, TextureId(texture_id), real_size);
 
-                                        tx.send(Ok((id, limits, shared))).unwrap();
+                                        tx.send(Ok((id, limits))).unwrap();
                                     },
                                     Err(msg) => {
                                         tx.send(Err(msg.to_owned())).unwrap();

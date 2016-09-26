@@ -43,33 +43,20 @@ impl GLContextHandleWrapper {
 
     pub fn new_context(&self,
                        size: Size2D<i32>,
-                       attributes: GLContextAttributes,
-                       shared: bool) -> Result<GLContextWrapper, &'static str> {
+                       attributes: GLContextAttributes) -> Result<GLContextWrapper, &'static str> {
         match *self {
             GLContextHandleWrapper::Native(ref handle) => {
-                let shared_handle = if shared {
-                    Some(handle)
-                } else {
-                    None
-                };
-
                 let ctx = GLContext::<NativeGLContext>::new(size,
                                                             attributes,
                                                             ColorAttachmentType::Texture,
-                                                            shared_handle);
+                                                            Some(handle));
                 ctx.map(GLContextWrapper::Native)
             }
             GLContextHandleWrapper::OSMesa(ref handle) => {
-                let shared_handle = if shared {
-                    Some(handle)
-                } else {
-                    None
-                };
-
                 let ctx = GLContext::<OSMesaContext>::new(size,
                                                           attributes,
                                                           ColorAttachmentType::Texture,
-                                                          shared_handle);
+                                                          Some(handle));
                 ctx.map(GLContextWrapper::OSMesa)
             }
         }
