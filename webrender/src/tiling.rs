@@ -225,10 +225,15 @@ impl AlphaBatcher {
                                                       info);
                         debug_assert!(ok)
                     }
-                    AlphaRenderItem::Blend(src_id, opacity) => {
+                    AlphaRenderItem::Blend(src_id, info) => {
+                        let (opacity, brightness) = match info {
+                            SimpleCompositeInfo::Opacity(opacity) => (opacity, 1.0),
+                            SimpleCompositeInfo::Brightness(brightness) => (1.0, brightness),
+                        };
                         let ok = batch.pack_blend(render_tasks.get_task_index(&src_id),
                                                   render_tasks.get_task_index(&task.task_id),
-                                                  opacity);
+                                                  opacity,
+                                                  brightness);
                         debug_assert!(ok)
                     }
                     AlphaRenderItem::Primitive(sc_index, prim_index) => {
@@ -374,7 +379,7 @@ enum RenderTaskLocation {
 #[derive(Debug)]
 enum AlphaRenderItem {
     Primitive(StackingContextIndex, PrimitiveIndex),
-    Blend(RenderTaskId, f32),
+    Blend(RenderTaskId, SimpleCompositeInfo),
     Composite(RenderTaskId, RenderTaskId, PackedCompositeInfo),
 }
 
@@ -1951,8 +1956,8 @@ pub struct PackedBoxShadowPrimitive {
 pub struct PackedBlendPrimitive {
     src_task_id: f32,
     target_task_id: f32,
+    brightness: f32,
     opacity: f32,
-    padding: f32,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -2057,14 +2062,15 @@ impl PrimitiveBatch {
     fn pack_blend(&mut self,
                   src_rect_index: RenderTaskIndex,
                   target_rect_index: RenderTaskIndex,
-                  opacity: f32) -> bool {
+                  opacity: f32,
+                  brightness: f32) -> bool {
         match &mut self.data {
             &mut PrimitiveBatchData::Blend(ref mut ubo_data) => {
                 ubo_data.push(PackedBlendPrimitive {
                     src_task_id: pack_as_float(src_rect_index.0 as u32),
                     target_task_id: pack_as_float(target_rect_index.0 as u32),
                     opacity: opacity,
-                    padding: 0.0,
+                    brightness: brightness,
                 });
 
                 true
@@ -2190,9 +2196,15 @@ impl Default for PackedStackingContext {
 }
 
 #[derive(Debug, Copy, Clone)]
+enum SimpleCompositeInfo {
+    Opacity(f32),
+    Brightness(f32),
+}
+
+#[derive(Debug, Copy, Clone)]
 enum CompositeKind {
     None,
-    Simple(f32),
+    Simple(SimpleCompositeInfo),
     Complex(PackedCompositeInfo),
 }
 
@@ -2211,8 +2223,12 @@ impl CompositeKind {
                             if opacity == 1.0 {
                                 return CompositeKind::None;
                             } else {
-                                return CompositeKind::Simple(opacity);
+                                return CompositeKind::Simple(SimpleCompositeInfo::Opacity(opacity));
                             }
+                        }
+                        LowLevelFilterOp::Brightness(amount) => {
+                            let amount = amount.to_f32_px();
+                            return CompositeKind::Simple(SimpleCompositeInfo::Brightness(amount));
                         }
                         _ => {}
                     }
@@ -2234,7 +2250,8 @@ impl StackingContext {
     fn can_contribute_to_scene(&self) -> bool {
         match self.composite_kind {
             CompositeKind::None | CompositeKind::Complex(..) => true,
-            CompositeKind::Simple(opacity) => opacity > 0.0,
+            CompositeKind::Simple(SimpleCompositeInfo::Brightness(..)) => true,
+            CompositeKind::Simple(SimpleCompositeInfo::Opacity(opacity)) => opacity > 0.0,
         }
     }
 }
@@ -2523,10 +2540,10 @@ impl ScreenTile {
                     let layer = &ctx.layer_store[sc_index.0];
                     match layer.composite_kind {
                         CompositeKind::None => {}
-                        CompositeKind::Simple(opacity) => {
+                        CompositeKind::Simple(info) => {
                             let mut prev_task = alpha_task_stack.pop().unwrap();
                             prev_task.as_alpha_batch().items.push(AlphaRenderItem::Blend(current_task.id,
-                                                                                         opacity));
+                                                                                         info));
                             prev_task.children.push(current_task);
                             current_task = prev_task;
                         }
