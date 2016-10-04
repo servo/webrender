@@ -1,13 +1,13 @@
 [package]
 name = "webrender"
-version = "0.5.1"
+version = "0.6.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 repository = "https://github.com/servo/webrender"
 
 [features]
-default = ["webrender_traits/serde_codegen"]
-serde_macros = ["webrender_traits/serde_macros"]
+default = ["webrender_traits/codegen"]
+serde_derive = ["webrender_traits/serde_derive"]
 
 [dependencies]
 app_units = "0.3"
