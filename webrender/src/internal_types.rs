@@ -9,7 +9,7 @@ use fnv::FnvHasher;
 use freelist::{FreeListItem, FreeListItemId};
 use num_traits::Zero;
 use offscreen_gl_context::{NativeGLContext, NativeGLContextHandle};
-use offscreen_gl_context::{GLContext, NativeGLContextMethods};
+use offscreen_gl_context::{GLContext, NativeGLContextMethods, GLContextDispatcher};
 use offscreen_gl_context::{OSMesaContext, OSMesaContextHandle};
 use offscreen_gl_context::{ColorAttachmentType, GLContextAttributes, GLLimits};
 use profiler::BackendProfileCounters;
@@ -42,20 +42,23 @@ impl GLContextHandleWrapper {
 
     pub fn new_context(&self,
                        size: Size2D<i32>,
-                       attributes: GLContextAttributes) -> Result<GLContextWrapper, &'static str> {
+                       attributes: GLContextAttributes,
+                       dispatcher: Option<Box<GLContextDispatcher>>) -> Result<GLContextWrapper, &'static str> {
         match *self {
             GLContextHandleWrapper::Native(ref handle) => {
-                let ctx = GLContext::<NativeGLContext>::new(size,
-                                                            attributes,
-                                                            ColorAttachmentType::Texture,
-                                                            Some(handle));
+                let ctx = GLContext::<NativeGLContext>::new_shared_with_dispatcher(size,
+                                                                                   attributes,
+                                                                                   ColorAttachmentType::Texture,
+                                                                                   Some(handle),
+                                                                                   dispatcher);
                 ctx.map(GLContextWrapper::Native)
             }
             GLContextHandleWrapper::OSMesa(ref handle) => {
-                let ctx = GLContext::<OSMesaContext>::new(size,
-                                                          attributes,
-                                                          ColorAttachmentType::Texture,
-                                                          Some(handle));
+                let ctx = GLContext::<OSMesaContext>::new_shared_with_dispatcher(size,
+                                                                                 attributes,
+                                                                                 ColorAttachmentType::Texture,
+                                                                                 Some(handle),
+                                                                                 dispatcher);
                 ctx.map(GLContextWrapper::OSMesa)
             }
         }

@@ -38,7 +38,7 @@ use texture_cache::{BorderType, TextureCache, TextureInsertOp};
 use tiling::{self, Frame, FrameBuilderConfig, GLYPHS_PER_TEXT_RUN, PrimitiveBatchData};
 use tiling::{TransformedRectKind, RenderTarget, ClearTile};
 use time::precise_time_ns;
-use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
+use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ImageFormat, RenderApiSender, RendererKind};
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
@@ -362,6 +362,9 @@ pub struct Renderer {
     layer_texture: VertexDataTexture,
     render_task_texture: VertexDataTexture,
     pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
+    /// Used to dispatch functions to the main thread's event loop.
+    /// Required to allow GLContext sharing in some implementations like WGL.
+    main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>
 }
 
 impl Renderer {
@@ -580,7 +583,9 @@ impl Renderer {
 
         device.end_frame();
 
+        let main_thread_dispatcher = Arc::new(Mutex::new(None));
         let backend_notifier = notifier.clone();
+        let backend_main_thread_dispatcher = main_thread_dispatcher.clone();
 
         // We need a reference to the webrender context from the render backend in order to share
         // texture ids
@@ -607,7 +612,8 @@ impl Renderer {
                                                  context_handle,
                                                  config,
                                                  debug,
-                                                 enable_recording);
+                                                 enable_recording,
+                                                 backend_main_thread_dispatcher);
             backend.run();
         });
 
@@ -655,6 +661,7 @@ impl Renderer {
             layer_texture: layer_texture,
             render_task_texture: render_task_texture,
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
+            main_thread_dispatcher: main_thread_dispatcher
         };
 
         renderer.update_uniform_locations();
@@ -689,6 +696,14 @@ impl Renderer {
     pub fn set_render_notifier(&self, notifier: Box<RenderNotifier>) {
         let mut notifier_arc = self.notifier.lock().unwrap();
         *notifier_arc = Some(notifier);
+    }
+
+    /// Sets the new MainThreadDispatcher.
+    ///
+    /// Allows to dispatch functions to the main thread's event loop.
+    pub fn set_main_thread_dispatcher(&self, dispatcher: Box<RenderDispatcher>) {
+        let mut dispatcher_arc = self.main_thread_dispatcher.lock().unwrap();
+        *dispatcher_arc = Some(dispatcher);
     }
 
     /// Returns the Epoch of the current frame in a pipeline.
