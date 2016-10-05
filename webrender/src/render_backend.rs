@@ -16,12 +16,13 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
-use webrender_traits::{RenderNotifier, WebGLContextId};
+use webrender_traits::{RenderNotifier, WebGLContextId, RenderDispatcher};
 use batch::new_id;
 use device::TextureId;
 use record;
 use tiling::FrameBuilderConfig;
 use gleam::gl;
+use offscreen_gl_context;
 
 pub struct RenderBackend {
     api_rx: IpcReceiver<ApiMsg>,
@@ -42,6 +43,7 @@ pub struct RenderBackend {
     webgl_contexts: HashMap<WebGLContextId, GLContextWrapper>,
     current_bound_webgl_context_id: Option<WebGLContextId>,
     enable_recording: bool,
+    main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>
 }
 
 impl RenderBackend {
@@ -56,7 +58,8 @@ impl RenderBackend {
                webrender_context_handle: Option<GLContextHandleWrapper>,
                config: FrameBuilderConfig,
                debug: bool,
-               enable_recording:bool) -> RenderBackend {
+               enable_recording:bool,
+               main_thread_dispatcher:  Arc<Mutex<Option<Box<RenderDispatcher>>>>) -> RenderBackend {
         let resource_cache = ResourceCache::new(texture_cache,
                                                 device_pixel_ratio,
                                                 enable_aa);
@@ -76,6 +79,7 @@ impl RenderBackend {
             webgl_contexts: HashMap::new(),
             current_bound_webgl_context_id: None,
             enable_recording:enable_recording,
+            main_thread_dispatcher: main_thread_dispatcher
         }
     }
 
@@ -261,7 +265,10 @@ impl RenderBackend {
                         }
                         ApiMsg::RequestWebGLContext(size, attributes, tx) => {
                             if let Some(ref wrapper) = self.webrender_context_handle {
-                                let result = wrapper.new_context(size, attributes);
+                                let dispatcher = Box::new(WebRenderGLDispatcher {
+                                    dispatcher: self.main_thread_dispatcher.clone()
+                                });
+                                let result = wrapper.new_context(size, attributes, Some(dispatcher));
 
                                 match result {
                                     Ok(ctx) => {
@@ -414,6 +421,17 @@ impl RenderBackend {
         //           cleaner way to do this, or use the OnceMutex on crates.io?
         let mut notifier = self.notifier.lock();
         notifier.as_mut().unwrap().as_mut().unwrap().new_scroll_frame_ready(composite_needed);
+    }
+}
+
+struct WebRenderGLDispatcher {
+    dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>
+}
+
+impl offscreen_gl_context::GLContextDispatcher for WebRenderGLDispatcher {
+    fn dispatch(&self, f: Box<Fn() + Send>) {
+        let mut dispatcher = self.dispatcher.lock();
+        dispatcher.as_mut().unwrap().as_mut().unwrap().dispatch(f);
     }
 }
 

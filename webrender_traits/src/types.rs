@@ -369,6 +369,11 @@ pub trait RenderNotifier: Send {
     fn pipeline_size_changed(&mut self, pipeline_id: PipelineId, size: Option<Size2D<f32>>);
 }
 
+// Trait to allow dispatching functions to a specific thread or event loop.
+pub trait RenderDispatcher: Send {
+    fn dispatch(&self, Box<Fn() + Send>);
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct ResourceId(pub u32);
 
