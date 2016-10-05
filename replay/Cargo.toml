@@ -4,14 +4,14 @@ version = "0.1.0"
 authors = ["lana <alanamramjit@gmail.com>"]
 
 [dependencies.webrender_traits]
-git = "http://github.com/servo/webrender_traits"
+git = "http://github.com/servo/webrender"
 
 [dependencies.webrender]
 git = "http://github.com/servo/webrender"
 
 [dependencies]
-bincode = "0.5.9"
+bincode = "0.6"
 byteorder = "*"
-euclid = "0.7.1"
+euclid = "0.10"
 gleam = "*"
 glutin = "*"
