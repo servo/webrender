@@ -572,71 +572,145 @@ pub struct VBOId(gl::GLuint);
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 struct IBOId(gl::GLuint);
 
-#[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
-pub struct GpuProfile {
-    next_query: usize,
-    qids: Vec<gl::GLuint>,
+const MAX_EVENTS_PER_FRAME: usize = 256;
+const MAX_PROFILE_FRAMES: usize = 4;
+
+#[derive(Debug, Clone)]
+pub struct GpuSample<T> {
+    pub tag: T,
+    pub time_ns: u64,
 }
 
-#[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-pub struct GpuProfile;
+pub struct GpuFrameProfile<T> {
+    queries: Vec<gl::GLuint>,
+    samples: Vec<GpuSample<T>>,
+    next_query: usize,
+    pending_query: gl::GLuint,
+}
 
-const QUERY_COUNT: i32 = 4;
+impl<T> GpuFrameProfile<T> {
+    fn new() -> GpuFrameProfile<T> {
+        let queries = gl::gen_queries(MAX_EVENTS_PER_FRAME as gl::GLint);
 
-impl GpuProfile {
+        GpuFrameProfile {
+            queries: queries,
+            samples: Vec::new(),
+            next_query: 0,
+            pending_query: 0,
+        }
+    }
+
+    fn begin_frame(&mut self) {
+        self.next_query = 0;
+        self.pending_query = 0;
+        self.samples.clear();
+    }
+
     #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
-    pub fn new() -> GpuProfile {
-        let queries = gl::gen_queries(QUERY_COUNT);
+    fn end_frame(&mut self) {
+        if self.pending_query != 0 {
+            gl::end_query(gl::TIME_ELAPSED);
+        }
+    }
 
-        for q in &queries {
-            gl::begin_query(gl::TIME_ELAPSED, *q);
+    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+    fn end_frame(&mut self) {
+    }
+
+    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
+    fn add_marker(&mut self, tag: T) {
+        if self.pending_query != 0 {
             gl::end_query(gl::TIME_ELAPSED);
         }
 
-        GpuProfile {
-            qids: queries,
-            next_query: 0,
+        if self.next_query < MAX_EVENTS_PER_FRAME {
+            self.pending_query = self.queries[self.next_query];
+            gl::begin_query(gl::TIME_ELAPSED, self.pending_query);
+            self.samples.push(GpuSample {
+                tag: tag,
+                time_ns: 0,
+            });
+        } else {
+            self.pending_query = 0;
+        }
+
+        self.next_query += 1;
+    }
+
+    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+    fn add_marker(&mut self, tag: T) {
+        self.samples.push(GpuSample {
+            tag: tag,
+            time_ns: 0,
+        });
+    }
+
+    fn is_valid(&self) -> bool {
+        self.next_query <= MAX_EVENTS_PER_FRAME
+    }
+
+    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
+    fn build_samples(&mut self) -> &Vec<GpuSample<T>> {
+        for (index, sample) in self.samples.iter_mut().enumerate() {
+            sample.time_ns = gl::get_query_object_ui64v(self.queries[index], gl::QUERY_RESULT)
+        }
+
+        &self.samples
+    }
+
+    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+    fn build_samples(&mut self) -> &Vec<GpuSample<T>> {
+        &self.samples
+    }
+}
+
+impl<T> Drop for GpuFrameProfile<T> {
+    fn drop(&mut self) {
+        gl::delete_queries(&self.queries);
+    }
+}
+
+pub struct GpuProfiler<T> {
+    frames: [GpuFrameProfile<T>; MAX_PROFILE_FRAMES],
+    next_frame: usize,
+}
+
+impl<T> GpuProfiler<T> {
+    pub fn new() -> GpuProfiler<T> {
+        GpuProfiler {
+            next_frame: 0,
+            frames: [
+                      GpuFrameProfile::new(),
+                      GpuFrameProfile::new(),
+                      GpuFrameProfile::new(),
+                      GpuFrameProfile::new(),
+                    ],
         }
     }
 
-    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-    pub fn new() -> GpuProfile {
-        GpuProfile
+    pub fn build_samples(&mut self) -> Option<&Vec<GpuSample<T>>> {
+        let frame = &mut self.frames[self.next_frame];
+        if frame.is_valid() {
+            Some(frame.build_samples())
+        } else {
+            None
+        }
     }
 
-    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-    pub fn get(&mut self) -> u64 {
-        0
+    pub fn begin_frame(&mut self) {
+        let frame = &mut self.frames[self.next_frame];
+        frame.begin_frame();
     }
 
-    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
-    pub fn get(&mut self) -> u64 {
-        let qi = self.next_query;
-        gl::get_query_object_ui64v(self.qids[qi], gl::QUERY_RESULT)
+    pub fn end_frame(&mut self) {
+        let frame = &mut self.frames[self.next_frame];
+        frame.end_frame();
+        self.next_frame = (self.next_frame + 1) % MAX_PROFILE_FRAMES;
     }
 
-    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
-    pub fn begin(&mut self) {
-        gl::begin_query(gl::TIME_ELAPSED, self.qids[self.next_query]);
-    }
-
-    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-    pub fn begin(&mut self) {}
-
-    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
-    pub fn end(&mut self) {
-        gl::end_query(gl::TIME_ELAPSED);
-        self.next_query = (self.next_query + 1) % QUERY_COUNT as usize;
-    }
-
-    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-    pub fn end(&mut self) -> u64 { 0 }
-}
-
-#[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
-impl Drop for GpuProfile {
-    fn drop(&mut self) {
-        gl::delete_queries(&self.qids);
+    pub fn add_marker(&mut self, tag: T) {
+        let frame = &mut self.frames[self.next_frame];
+        frame.add_marker(tag);
     }
 }
 

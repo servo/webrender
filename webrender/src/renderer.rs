@@ -11,7 +11,7 @@
 
 use batch::RasterBatch;
 use debug_render::DebugRenderer;
-use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat, GpuProfile};
+use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat, GpuProfiler};
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler};
 use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
@@ -23,7 +23,7 @@ use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp};
 use internal_types::{AxisDirection, TextureSampler, GLContextHandleWrapper};
 use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
-use profiler::{RendererProfileTimers, RendererProfileCounters};
+use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use render_backend::RenderBackend;
 use std::cmp;
 use std::collections::HashMap;
@@ -46,6 +46,43 @@ pub const MAX_RASTER_OP_SIZE: u32 = 2048;
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
 const UBO_BIND_DATA: u32 = 1;
+
+// White
+const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: ColorF { r: 1.0, g: 1.0, b: 1.0, a: 1.0 } };
+
+// Grey
+const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: ColorF { r: 0.5, g: 0.5, b: 0.5, a: 1.0 } };
+
+// Black
+const GPU_TAG_CLEAR_TILES: GpuProfileTag = GpuProfileTag { label: "Clear Tiles", color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 } };
+
+// Red / dark red
+const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 } };
+const GPU_TAG_PRIM_RECT_CLIP: GpuProfileTag = GpuProfileTag { label: "RectClip", color: ColorF { r: 0.7, g: 0.0, b: 0.0, a: 1.0 } };
+
+// Green / dark green
+const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 } };
+const GPU_TAG_PRIM_IMAGE_CLIP: GpuProfileTag = GpuProfileTag { label: "ImageClip", color: ColorF { r: 0.0, g: 0.7, b: 0.0, a: 1.0 } };
+
+// Light blue
+const GPU_TAG_PRIM_BLEND: GpuProfileTag = GpuProfileTag { label: "Blend", color: ColorF { r: 0.8, g: 1.0, b: 1.0, a: 1.0 } };
+
+// Magenta
+const GPU_TAG_PRIM_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "Composite", color: ColorF { r: 1.0, g: 0.0, b: 1.0, a: 1.0 } };
+
+// Blue / dark blue
+const GPU_TAG_PRIM_TEXT: GpuProfileTag = GpuProfileTag { label: "Text", color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 } };
+const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "TextRun", color: ColorF { r: 0.0, g: 0.0, b: 0.7, a: 1.0 } };
+
+// Yellow / dark yellow
+const GPU_TAG_PRIM_ALIGNED_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AlignedGradient", color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 } };
+const GPU_TAG_PRIM_ANGLE_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AngleGradient", color: ColorF { r: 0.7, g: 0.7, b: 0.0, a: 1.0 } };
+
+// Cyan
+const GPU_TAG_PRIM_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "BoxShadow", color: ColorF { r: 0.0, g: 1.0, b: 1.0, a: 1.0 } };
+
+// Orange
+const GPU_TAG_PRIM_BORDER: GpuProfileTag = GpuProfileTag { label: "Border", color: ColorF { r: 1.0, g: 0.5, b: 0.0, a: 1.0 } };
 
 struct VertexDataTexture {
     id: TextureId,
@@ -347,8 +384,7 @@ pub struct Renderer {
     raster_op_target_rgba8: TextureId,
     render_targets: [TextureId; 2],
 
-    gpu_profile_paint: GpuProfile,
-    gpu_profile_composite: GpuProfile,
+    gpu_profile: GpuProfiler<GpuProfileTag>,
     quad_vao_id: VAOId,
 
     layer_texture: VertexDataTexture,
@@ -644,8 +680,7 @@ impl Renderer {
             raster_op_target_rgba8: raster_op_target_rgba8,
             render_targets: [TextureId(0), TextureId(0)],
             max_raster_op_size: max_raster_op_size,
-            gpu_profile_paint: GpuProfile::new(),
-            gpu_profile_composite: GpuProfile::new(),
+            gpu_profile: GpuProfiler::new(),
             quad_vao_id: quad_vao_id,
             layer_texture: layer_texture,
             render_task_texture: render_task_texture,
@@ -730,11 +765,14 @@ impl Renderer {
 
                 // Block CPU waiting for last frame's GPU profiles to arrive.
                 // In general this shouldn't block unless heavily GPU limited.
-                let paint_ns = self.gpu_profile_paint.get();
-                let composite_ns = self.gpu_profile_composite.get();
+                if let Some(samples) = self.gpu_profile.build_samples() {
+                    profile_timers.gpu_samples = samples.clone();
+                }
 
                 profile_timers.cpu_time.profile(|| {
                     self.device.begin_frame();
+                    self.gpu_profile.begin_frame();
+                    self.gpu_profile.add_marker(GPU_TAG_INIT);
 
                     gl::disable(gl::SCISSOR_TEST);
                     gl::disable(gl::DEPTH_TEST);
@@ -746,23 +784,18 @@ impl Renderer {
 
                     gl::bind_buffer(gl::UNIFORM_BUFFER, 0);
                     gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, 0);
+                    self.gpu_profile.end_frame();
                 });
 
                 let current_time = precise_time_ns();
                 let ns = current_time - self.last_time;
                 self.profile_counters.frame_time.set(ns);
 
-                profile_timers.gpu_time_paint.set(paint_ns);
-                profile_timers.gpu_time_composite.set(composite_ns);
-
-                let gpu_ns = paint_ns + composite_ns;
-                profile_timers.gpu_time_total.set(gpu_ns);
-
                 if self.enable_profiler {
                     self.profiler.draw_profile(&frame.profile_counters,
                                                &self.backend_profile_counters,
                                                &self.profile_counters,
-                                               &profile_timers,
+                                               &mut profile_timers,
                                                &mut self.debug);
                 }
 
@@ -1411,6 +1444,8 @@ impl Renderer {
                    target_size: &Size2D<f32>,
                    cache_texture: TextureId,
                    should_clear: bool) {
+        self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
+
         self.device.bind_render_target(render_target);
         gl::viewport(0,
                      0,
@@ -1463,6 +1498,7 @@ impl Renderer {
 
                 match &batch.data {
                     &PrimitiveBatchData::Blend(ref ubo_data) => {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_BLEND);
                         let shader = self.ps_blend.get(&mut self.device);
                         self.device.bind_program(shader, &projection);
                         self.device.bind_vao(self.quad_vao_id);
@@ -1483,6 +1519,7 @@ impl Renderer {
                         }
                     }
                     &PrimitiveBatchData::Composite(ref ubo_data) => {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_COMPOSITE);
                         let shader = self.ps_composite.get(&mut self.device);
                         self.device.bind_program(shader, &projection);
                         self.device.bind_vao(self.quad_vao_id);
@@ -1503,6 +1540,7 @@ impl Renderer {
                         }
                     }
                     &PrimitiveBatchData::Rectangles(ref ubo_data) => {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT);
                         let (shader, max_prim_items) = self.ps_rectangle.get(&mut self.device, batch.transform_kind);
                         self.draw_ubo_batch(ubo_data,
                                             shader,
@@ -1512,6 +1550,7 @@ impl Renderer {
                                             &projection);
                     }
                     &PrimitiveBatchData::RectanglesClip(ref ubo_data) => {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT_CLIP);
                         let (shader, max_prim_items) = self.ps_rectangle_clip.get(&mut self.device, batch.transform_kind);
                         self.draw_ubo_batch(ubo_data,
                                             shader,
@@ -1522,6 +1561,7 @@ impl Renderer {
 
                     }
                     &PrimitiveBatchData::Image(ref ubo_data) => {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE);
                         let (shader, max_prim_items) = self.ps_image.get(&mut self.device, batch.transform_kind);
                         self.draw_ubo_batch(ubo_data,
                                             shader,
@@ -1531,6 +1571,7 @@ impl Renderer {
                                             &projection);
                     }
                     &PrimitiveBatchData::ImageClip(ref ubo_data) => {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE_CLIP);
                         let (shader, max_prim_items) = self.ps_image_clip.get(&mut self.device, batch.transform_kind);
                         self.draw_ubo_batch(ubo_data,
                                             shader,
@@ -1541,6 +1582,7 @@ impl Renderer {
 
                     }
                     &PrimitiveBatchData::Borders(ref ubo_data) => {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_BORDER);
                         let (shader, max_prim_items) = self.ps_border.get(&mut self.device, batch.transform_kind);
                         self.draw_ubo_batch(ubo_data,
                                             shader,
@@ -1551,6 +1593,7 @@ impl Renderer {
 
                     }
                     &PrimitiveBatchData::BoxShadows(ref ubo_data) => {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_BOX_SHADOW);
                         let (shader, max_prim_items) = self.ps_box_shadow.get(&mut self.device, batch.transform_kind);
                         self.draw_ubo_batch(ubo_data,
                                             shader,
@@ -1561,6 +1604,7 @@ impl Renderer {
 
                     }
                     &PrimitiveBatchData::Text(ref ubo_data) => {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_TEXT);
                         let (shader, max_prim_items) = self.ps_text.get(&mut self.device, batch.transform_kind);
                         self.draw_ubo_batch(ubo_data,
                                             shader,
@@ -1570,6 +1614,7 @@ impl Renderer {
                                             &projection);
                     }
                     &PrimitiveBatchData::TextRun(ref ubo_data) => {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_TEXT_RUN);
                         let (shader, max_prim_items) = self.ps_text_run.get(&mut self.device, batch.transform_kind);
                         self.draw_ubo_batch(ubo_data,
                                             shader,
@@ -1579,6 +1624,7 @@ impl Renderer {
                                             &projection);
                     }
                     &PrimitiveBatchData::AlignedGradient(ref ubo_data) => {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_ALIGNED_GRADIENT);
                         let (shader, max_prim_items) = self.ps_aligned_gradient.get(&mut self.device, batch.transform_kind);
                         self.draw_ubo_batch(ubo_data,
                                             shader,
@@ -1589,6 +1635,7 @@ impl Renderer {
 
                     }
                     &PrimitiveBatchData::AngleGradient(ref ubo_data) => {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_ANGLE_GRADIENT);
                         let (shader, max_prim_items) = self.ps_angle_gradient.get(&mut self.device, batch.transform_kind);
                         self.draw_ubo_batch(ubo_data,
                                             shader,
@@ -1615,11 +1662,6 @@ impl Renderer {
                                         frame.viewport_size.height * self.device_pixel_ratio as i32);
         let needs_clear = viewport_size.width < framebuffer_size.width as i32 ||
                           viewport_size.height < framebuffer_size.height as i32;
-
-        //println!("render {} debug rects", frame.debug_rects.len());
-        self.gpu_profile_paint.begin();
-        self.gpu_profile_paint.end();
-        self.gpu_profile_composite.begin();
 
         for debug_rect in frame.debug_rects.iter().rev() {
             self.add_debug_rect(debug_rect.rect.origin,
@@ -1695,6 +1737,8 @@ impl Renderer {
             }
         }
 
+        self.gpu_profile.add_marker(GPU_TAG_CLEAR_TILES);
+
         // Clear tiles with no items
         if !frame.clear_tiles.is_empty() {
             let tile_clear_shader = self.tile_clear_shader.get(&mut self.device);
@@ -1716,8 +1760,6 @@ impl Renderer {
                 gl::delete_buffers(&ubos);
             }
         }
-
-        self.gpu_profile_composite.end();
     }
 }
 
