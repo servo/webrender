@@ -3,11 +3,25 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use debug_render::DebugRenderer;
+use device::GpuSample;
 use euclid::{Point2D, Size2D, Rect};
 use std::collections::vec_deque::VecDeque;
 use std::f32;
+use std::mem;
 use webrender_traits::ColorF;
 use time::precise_time_ns;
+
+const GRAPH_WIDTH: f32 = 1024.0;
+const GRAPH_HEIGHT: f32 = 320.0;
+const GRAPH_PADDING: f32 = 8.0;
+const GRAPH_FRAME_HEIGHT: f32 = 16.0;
+const PROFILE_PADDING: f32 = 10.0;
+
+#[derive(Debug, Clone)]
+pub struct GpuProfileTag {
+    pub label: &'static str,
+    pub color: ColorF,
+}
 
 trait ProfileCounter {
     fn description(&self) -> &'static str;
@@ -195,9 +209,8 @@ pub struct RendererProfileCounters {
 
 pub struct RendererProfileTimers {
     pub cpu_time: TimeProfileCounter,
-    pub gpu_time_paint: TimeProfileCounter,
-    pub gpu_time_composite: TimeProfileCounter,
-    pub gpu_time_total: TimeProfileCounter,
+    pub gpu_time: TimeProfileCounter,
+    pub gpu_samples: Vec<GpuSample<GpuProfileTag>>,
 }
 
 impl RendererProfileCounters {
@@ -221,9 +234,8 @@ impl RendererProfileTimers {
     pub fn new() -> RendererProfileTimers {
         RendererProfileTimers {
             cpu_time: TimeProfileCounter::new("Compositor CPU Time", false),
-            gpu_time_paint: TimeProfileCounter::new("GPU Time (paint)", false),
-            gpu_time_composite: TimeProfileCounter::new("GPU Time (composite)", false),
-            gpu_time_total: TimeProfileCounter::new("GPU Time (total)", false),
+            gpu_samples: Vec::new(),
+            gpu_time: TimeProfileCounter::new("GPU Time", false),
         }
     }
 }
@@ -352,6 +364,86 @@ impl ProfileGraph {
     }
 }
 
+struct GpuFrame {
+    total_time: u64,
+    samples: Vec<GpuSample<GpuProfileTag>>,
+}
+
+struct GpuFrameCollection {
+    frames: VecDeque<GpuFrame>,
+}
+
+impl GpuFrameCollection {
+    fn new() -> GpuFrameCollection {
+        GpuFrameCollection {
+            frames: VecDeque::new(),
+        }
+    }
+
+    fn push(&mut self, total_time: u64, samples: Vec<GpuSample<GpuProfileTag>>) {
+        if self.frames.len() == 20 {
+            self.frames.pop_back();
+        }
+        self.frames.push_front(GpuFrame {
+            total_time: total_time,
+            samples: samples,
+        });
+    }
+}
+
+impl GpuFrameCollection {
+    fn draw(&self,
+            x: f32,
+            y: f32,
+            debug_renderer: &mut DebugRenderer) -> Rect<f32> {
+        let bounding_rect = Rect::new(Point2D::new(x, y),
+                                      Size2D::new(GRAPH_WIDTH + 2.0 * GRAPH_PADDING,
+                                                  GRAPH_HEIGHT + 2.0 * GRAPH_PADDING));
+        let graph_rect = bounding_rect.inflate(-GRAPH_PADDING, -GRAPH_PADDING);
+
+        debug_renderer.add_quad(bounding_rect.origin.x,
+                                bounding_rect.origin.y,
+                                bounding_rect.origin.x + bounding_rect.size.width,
+                                bounding_rect.origin.y + bounding_rect.size.height,
+                                &ColorF::new(0.1, 0.1, 0.1, 0.8),
+                                &ColorF::new(0.2, 0.2, 0.2, 0.8));
+
+        let w = graph_rect.size.width;
+        let mut y0 = graph_rect.origin.y;
+
+        let max_time = self.frames
+                           .iter()
+                           .max_by_key(|f| f.total_time)
+                           .unwrap()
+                           .total_time as f32;
+
+        for frame in &self.frames {
+            let y1 = y0 + GRAPH_FRAME_HEIGHT;
+
+            let mut current_ns = 0;
+            for sample in &frame.samples {
+                let x0 = graph_rect.origin.x + w * current_ns as f32 / max_time;
+                current_ns += sample.time_ns;
+                let x1 = graph_rect.origin.x + w * current_ns as f32 / max_time;
+
+                let mut bottom_color = sample.tag.color;
+                bottom_color.a *= 0.5;
+
+                debug_renderer.add_quad(x0,
+                                        y0,
+                                        x1,
+                                        y1,
+                                        &sample.tag.color,
+                                        &bottom_color);
+            }
+
+            y0 = y1;
+        }
+
+        bounding_rect
+    }
+}
+
 pub struct Profiler {
     x_left: f32,
     y_left: f32,
@@ -360,6 +452,7 @@ pub struct Profiler {
     backend_time: ProfileGraph,
     compositor_time: ProfileGraph,
     gpu_time: ProfileGraph,
+    gpu_frames: GpuFrameCollection,
 }
 
 impl Profiler {
@@ -372,6 +465,7 @@ impl Profiler {
             backend_time: ProfileGraph::new(600),
             compositor_time: ProfileGraph::new(600),
             gpu_time: ProfileGraph::new(600),
+            gpu_frames: GpuFrameCollection::new(),
         }
     }
 
@@ -443,7 +537,7 @@ impl Profiler {
                         frame_profile: &FrameProfileCounters,
                         backend_profile: &BackendProfileCounters,
                         renderer_profile: &RendererProfileCounters,
-                        renderer_timers: &RendererProfileTimers,
+                        renderer_timers: &mut RendererProfileTimers,
                         debug_renderer: &mut DebugRenderer) {
         self.x_left = 20.0;
         self.y_left = 40.0;
@@ -475,20 +569,29 @@ impl Profiler {
         self.draw_counters(&[
             &backend_profile.total_time,
             &renderer_timers.cpu_time,
-            &renderer_timers.gpu_time_paint,
-            &renderer_timers.gpu_time_composite,
-            &renderer_timers.gpu_time_total,
+            &renderer_timers.gpu_time,
         ], debug_renderer, false);
+
+        let mut gpu_time = 0;
+        let gpu_samples = mem::replace(&mut renderer_timers.gpu_samples, Vec::new());
+        for sample in &gpu_samples {
+            gpu_time += sample.time_ns;
+        }
 
         self.backend_time.push(backend_profile.total_time.nanoseconds);
         self.compositor_time.push(renderer_timers.cpu_time.nanoseconds);
-        self.gpu_time.push(renderer_timers.gpu_time_total.nanoseconds);
+        self.gpu_time.push(gpu_time);
+        self.gpu_frames.push(gpu_time, gpu_samples);
 
         let rect = self.backend_time.draw_graph(self.x_left, self.y_left, "CPU (backend)", debug_renderer);
-        self.y_left += rect.size.height + 10.0;
+        self.y_left += rect.size.height + PROFILE_PADDING;
         let rect = self.compositor_time.draw_graph(self.x_left, self.y_left, "CPU (compositor)", debug_renderer);
-        self.y_left += rect.size.height + 10.0;
+        self.y_left += rect.size.height + PROFILE_PADDING;
         let rect = self.gpu_time.draw_graph(self.x_left, self.y_left, "GPU", debug_renderer);
-        self.y_left += rect.size.height + 10.0;
+        self.y_left += rect.size.height + PROFILE_PADDING;
+        let rect = self.gpu_frames.draw(self.x_left,
+                                        self.y_left,
+                                        debug_renderer);
+        self.y_left += rect.size.height + PROFILE_PADDING;
     }
 }
