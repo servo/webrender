@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#[cfg(all(feature = "serde_codegen", not(feature = "serde_macros")))]
+#[cfg(all(feature = "serde_codegen", not(feature = "serde_derive")))]
 mod inner {
     extern crate serde_codegen;
 
@@ -20,24 +20,24 @@ mod inner {
     }
 }
 
-#[cfg(all(feature = "serde_macros", not(feature = "serde_codegen")))]
+#[cfg(all(feature = "serde_derive", not(feature = "serde_codegen")))]
 mod inner {
     pub fn main() {}
 }
 
-#[cfg(all(feature = "serde_codegen", feature = "serde_macros"))]
+#[cfg(all(feature = "serde_codegen", feature = "serde_derive"))]
 mod inner {
     pub fn main() {
-        panic!("serde_codegen and serde_macros are both used. "
-               "You probably forgot --no-default-features.")
+        panic!("serde_codegen and serde_derive are both used. \
+               You probably forgot --no-default-features.")
     }
 }
 
-#[cfg(not(any(feature = "serde_codegen", feature = "serde_macros")))]
+#[cfg(not(any(feature = "serde_codegen", feature = "serde_derive")))]
 mod inner {
     pub fn main() {
-        panic!("Neither serde_codegen nor serde_macros are used. "
-               "You probably want --features serde_macros --no-default-features.")
+        panic!("Neither serde_codegen nor serde_derive are used. "
+               "You probably want --features serde_derive --no-default-features.")
     }
 }
 
