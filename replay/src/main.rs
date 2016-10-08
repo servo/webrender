@@ -89,6 +89,10 @@ fn main() {
 		enable_aa: false,
 		enable_msaa: false,
 		enable_profiler: false,
+		enable_recording: false,
+		enable_scrollbars: false,
+		precache_shaders: false,
+		renderer_kind: webrender_traits::RendererKind::Native,
 		debug: false,
 	};
 
