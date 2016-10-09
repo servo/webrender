@@ -297,7 +297,24 @@ impl Frame {
             None => return false,
         };
 
-        let layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+        let non_root_overscroll = if scroll_layer_id != root_scroll_layer_id {
+            let child_layer = self.layers.get(&scroll_layer_id).unwrap();
+            let overscroll_amount = child_layer.overscroll_amount();
+            overscroll_amount.width != 0.0 || overscroll_amount.height != 0.0
+        } else {
+            false
+        };
+        println!("phase: {:?}", phase);
+        println!("non_root_overscroll: {:?}", non_root_overscroll);
+
+        let layer = if non_root_overscroll && phase == ScrollEventPhase::Start {
+            println!("switching layer");
+            self.layers.get_mut(&root_scroll_layer_id).unwrap()
+        } else {
+            println!("keeping layer");
+            self.layers.get_mut(&scroll_layer_id).unwrap()
+        };
+
         if layer.scrolling.started_bouncing_back && phase == ScrollEventPhase::Move(false) {
             return false
         }
