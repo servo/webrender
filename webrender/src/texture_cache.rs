@@ -893,8 +893,8 @@ impl TextureCache {
         let is_opaque = match (&insert_op, format) {
             (&TextureInsertOp::Blit(ref bytes), ImageFormat::RGBA8) => {
                 let mut is_opaque = true;
-                for i in (0..bytes.len()).step_by(4) {
-                    if bytes[i + 3] != 255 {
+                for i in 0..(bytes.len() / 4) {
+                    if bytes[i * 4 + 3] != 255 {
                         is_opaque = false;
                         break;
                     }
