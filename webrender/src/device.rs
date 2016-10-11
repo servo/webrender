@@ -524,11 +524,22 @@ pub struct GpuFrameProfile<T> {
 }
 
 impl<T> GpuFrameProfile<T> {
+    #[cfg(not(target_os = "android"))]
     fn new() -> GpuFrameProfile<T> {
         let queries = gl::gen_queries(MAX_EVENTS_PER_FRAME as gl::GLint);
 
         GpuFrameProfile {
             queries: queries,
+            samples: Vec::new(),
+            next_query: 0,
+            pending_query: 0,
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    fn new() -> GpuFrameProfile<T> {
+        GpuFrameProfile {
+            queries: Vec::new(),
             samples: Vec::new(),
             next_query: 0,
             pending_query: 0,
@@ -541,18 +552,18 @@ impl<T> GpuFrameProfile<T> {
         self.samples.clear();
     }
 
-    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
+    #[cfg(not(target_os = "android"))]
     fn end_frame(&mut self) {
         if self.pending_query != 0 {
             gl::end_query(gl::TIME_ELAPSED);
         }
     }
 
-    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+    #[cfg(target_os = "android")]
     fn end_frame(&mut self) {
     }
 
-    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
+    #[cfg(not(target_os = "android"))]
     fn add_marker(&mut self, tag: T) {
         if self.pending_query != 0 {
             gl::end_query(gl::TIME_ELAPSED);
@@ -572,7 +583,7 @@ impl<T> GpuFrameProfile<T> {
         self.next_query += 1;
     }
 
-    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+    #[cfg(target_os = "android")]
     fn add_marker(&mut self, tag: T) {
         self.samples.push(GpuSample {
             tag: tag,
@@ -584,7 +595,7 @@ impl<T> GpuFrameProfile<T> {
         self.next_query <= MAX_EVENTS_PER_FRAME
     }
 
-    #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
+    #[cfg(not(target_os = "android"))]
     fn build_samples(&mut self) -> Vec<GpuSample<T>> {
         for (index, sample) in self.samples.iter_mut().enumerate() {
             sample.time_ns = gl::get_query_object_ui64v(self.queries[index], gl::QUERY_RESULT)
@@ -593,15 +604,20 @@ impl<T> GpuFrameProfile<T> {
         mem::replace(&mut self.samples, Vec::new())
     }
 
-    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+    #[cfg(target_os = "android")]
     fn build_samples(&mut self) -> Vec<GpuSample<T>> {
         mem::replace(&mut self.samples, Vec::new())
     }
 }
 
 impl<T> Drop for GpuFrameProfile<T> {
+    #[cfg(not(target_os = "android"))]
     fn drop(&mut self) {
         gl::delete_queries(&self.queries);
+    }
+
+    #[cfg(target_os = "android")]
+    fn drop(&mut self) {
     }
 }
 
