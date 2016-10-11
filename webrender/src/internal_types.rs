@@ -3,9 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use batch::{VertexBufferId, TileParams};
 use device::{TextureId, TextureFilter};
-use euclid::{Matrix4D, Point2D, Rect, Size2D};
+use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeListItem, FreeListItemId};
 use num_traits::Zero;
@@ -144,12 +143,6 @@ impl DevicePixel {
     pub fn as_f32(&self) -> f32 {
         let DevicePixel(value) = *self;
         value as f32
-    }
-
-    // TODO(gw): Remove eventually...
-    pub fn as_u32(&self) -> u32 {
-        let DevicePixel(value) = *self;
-        value as u32
     }
 }
 
@@ -304,55 +297,6 @@ pub struct FontVertex {
     pub t: f32,
 }
 
-/*
-impl PackedVertex {
-    pub fn from_components(x: f32,
-                           y: f32,
-                           color: &ColorF,
-                           u: f32,
-                           v: f32,
-                           mu: f32,
-                           mv: f32)
-                           -> PackedVertex {
-        PackedVertex {
-            x: x,
-            y: y,
-            color: PackedColor::from_color(color),
-            u: u,
-            v: v,
-            mu: (mu * UV_FLOAT_TO_FIXED) as u16,
-            mv: (mv * UV_FLOAT_TO_FIXED) as u16,
-            matrix_index: 0,
-            clip_in_rect_index: 0,
-            clip_out_rect_index: 0,
-            tile_params_index: 0,
-        }
-    }
-
-    /// Just like the above function, but doesn't scale the mask uv coordinates. This is useful
-    /// for the filter fragment shader, which uses the mask uv coordinates to store the texture
-    /// size.
-    pub fn from_components_unscaled_muv(x: f32, y: f32,
-                                        color: &ColorF,
-                                        u: f32, v: f32,
-                                        mu: u16, mv: u16)
-                                        -> PackedVertex {
-        PackedVertex {
-            x: x,
-            y: y,
-            color: PackedColor::from_color(color),
-            u: u,
-            v: v,
-            mu: mu,
-            mv: mv,
-            matrix_index: 0,
-            clip_in_rect_index: 0,
-            clip_out_rect_index: 0,
-            tile_params_index: 0,
-        }
-    }
-}*/
-
 #[derive(Debug)]
 pub struct DebugFontVertex {
     pub x: f32,
@@ -401,8 +345,6 @@ pub enum TextureUpdateDetails {
     Raw,
     Blit(Vec<u8>),
     Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage, BorderType),
-    /// Blur radius, border radius, box size, raster origin, and whether inverted, respectively.
-    BoxShadow(DevicePixel, DevicePixel, Size2D<DevicePixel>, Point2D<DevicePixel>, bool, BorderType),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -440,53 +382,6 @@ impl TextureUpdateList {
     }
 }
 
-// TODO(gw): Use bitflags crate for ClearInfo...
-// TODO(gw): Expand clear info to handle color, depth etc as needed.
-
-#[derive(Clone, Debug)]
-pub struct ClearInfo {
-    pub clear_color: bool,
-    pub clear_z: bool,
-    pub clear_stencil: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct DrawCall {
-    pub tile_params: Vec<TileParams>,
-    pub clip_rects: Vec<Rect<f32>>,
-    pub vertex_buffer_id: VertexBufferId,
-    pub color_texture_id: TextureId,
-    pub mask_texture_id: TextureId,
-    pub first_instance: u32,
-    pub instance_count: u32,
-}
-
-#[derive(Debug, Clone)]
-pub struct CompositeBatchJob {
-    pub rect: Rect<f32>,
-    pub transform: Matrix4D<f32>,
-    pub child_layer_index: ChildLayerIndex,
-}
-
-#[derive(Debug, Clone)]
-pub struct DrawCompositeBatchJob {
-    pub rect: Rect<f32>,
-    pub local_transform: Matrix4D<f32>,
-    pub world_transform: Matrix4D<f32>,
-    pub child_layer_index: ChildLayerIndex,
-}
-
-#[derive(Debug, Clone)]
-pub struct CompositeBatchInfo {
-    pub operation: CompositionOp,
-    pub texture_id: TextureId,
-    pub scroll_layer_id: ScrollLayerId,
-    pub jobs: Vec<CompositeBatchJob>,
-}
-
-#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq, Hash)]
-pub struct ChildLayerIndex(pub u32);
-
 pub struct RendererFrame {
     pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
     pub layers_bouncing_back: HashSet<ScrollLayerId, BuildHasherDefault<FnvHasher>>,
@@ -521,20 +416,6 @@ pub enum AxisDirection {
 
 #[derive(Debug, Clone, Copy)]
 pub struct StackingContextIndex(pub usize);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DrawListGroupId(pub usize);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RenderTargetId(pub usize);
-
-#[derive(Debug, Clone)]
-pub struct StackingContextInfo {
-    pub offset_from_layer: Point2D<f32>,
-    pub local_clip_rect: Rect<f32>,
-    pub transform: Matrix4D<f32>,
-    pub z_clear_needed: bool,
-}
 
 #[derive(Debug)]
 pub struct DrawList {
@@ -678,118 +559,6 @@ impl PackedVertexForTextureCacheUpdate {
             misc3: 0,
         }
     }
-}
-
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub struct BoxShadowRasterOp {
-    pub blur_radius: DevicePixel,
-    pub border_radius: DevicePixel,
-    // This is a tuple to work around the lack of `Eq` on `Rect`.
-    pub box_rect_size: (DevicePixel, DevicePixel),
-    pub local_raster_origin: (DevicePixel, DevicePixel),
-    pub raster_size: (DevicePixel, DevicePixel),
-    pub part: BoxShadowPart,
-    pub inverted: bool,
-}
-
-/*
-impl BoxShadowRasterOp {
-    pub fn raster_rect(blur_radius: f32,
-                       border_radius: f32,
-                       part: BoxShadowPart,
-                       box_rect: &Rect<f32>)
-                       -> Rect<f32> {
-        let outer_extent = blur_radius;
-        let inner_extent = outer_extent.max(border_radius);
-        let extent = outer_extent + inner_extent;
-        match part {
-            BoxShadowPart::Corner => {
-                Rect::new(Point2D::new(box_rect.origin.x - outer_extent,
-                                       box_rect.origin.y - outer_extent),
-                          Size2D::new(extent, extent))
-            }
-            BoxShadowPart::Edge => {
-                Rect::new(Point2D::new(box_rect.origin.x - outer_extent,
-                                       box_rect.origin.y + box_rect.size.height / 2.0),
-                          Size2D::new(extent, 1.0))
-            }
-        }
-    }
-
-    pub fn create_corner(blur_radius: f32,
-                         border_radius: f32,
-                         box_rect: &Rect<f32>,
-                         inverted: bool,
-                         device_pixel_ratio: f32)
-                         -> Option<BoxShadowRasterOp> {
-        if blur_radius > 0.0 || border_radius > 0.0 {
-            let raster_rect = BoxShadowRasterOp::raster_rect(blur_radius,
-                                                             border_radius,
-                                                             BoxShadowPart::Corner,
-                                                             box_rect);
-
-            let blur_radius = DevicePixel::new(blur_radius, device_pixel_ratio);
-            let border_radius = DevicePixel::new(border_radius, device_pixel_ratio);
-
-            Some(BoxShadowRasterOp {
-                blur_radius: blur_radius,
-                border_radius: border_radius,
-                local_raster_origin: (DevicePixel::new(box_rect.origin.x - raster_rect.origin.x, device_pixel_ratio),
-                                      DevicePixel::new(box_rect.origin.y - raster_rect.origin.y, device_pixel_ratio)),
-                box_rect_size: (DevicePixel::new(box_rect.size.width, device_pixel_ratio),
-                                DevicePixel::new(box_rect.size.height, device_pixel_ratio)),
-                raster_size: (DevicePixel::new(raster_rect.size.width, device_pixel_ratio),
-                              DevicePixel::new(raster_rect.size.height, device_pixel_ratio)),
-                part: BoxShadowPart::Corner,
-                inverted: inverted,
-            })
-        } else {
-            None
-        }
-    }
-
-    pub fn create_edge(blur_radius: f32,
-                       border_radius: f32,
-                       box_rect: &Rect<f32>,
-                       inverted: bool,
-                       device_pixel_ratio: f32)
-                       -> Option<BoxShadowRasterOp> {
-        if blur_radius > 0.0 {
-            let raster_rect = BoxShadowRasterOp::raster_rect(blur_radius,
-                                                             border_radius,
-                                                             BoxShadowPart::Edge,
-                                                             box_rect);
-
-            let blur_radius = DevicePixel::new(blur_radius, device_pixel_ratio);
-            let border_radius = DevicePixel::new(border_radius, device_pixel_ratio);
-
-            Some(BoxShadowRasterOp {
-                blur_radius: blur_radius,
-                border_radius: border_radius,
-                local_raster_origin: (DevicePixel::new(box_rect.origin.x - raster_rect.origin.x, device_pixel_ratio),
-                                      DevicePixel::new(box_rect.origin.y - raster_rect.origin.y, device_pixel_ratio)),
-                box_rect_size: (DevicePixel::new(box_rect.size.width, device_pixel_ratio),
-                                DevicePixel::new(box_rect.size.height, device_pixel_ratio)),
-                raster_size: (DevicePixel::new(raster_rect.size.width, device_pixel_ratio),
-                              DevicePixel::new(raster_rect.size.height, device_pixel_ratio)),
-                part: BoxShadowPart::Edge,
-                inverted: inverted,
-            })
-        } else {
-            None
-        }
-    }
-}*/
-
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub enum BoxShadowPart {
-    _Corner,
-    _Edge,
-}
-
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub enum RasterItem {
-    _BoxShadow(BoxShadowRasterOp),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

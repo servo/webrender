@@ -19,7 +19,7 @@ use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePixel};
-use internal_types::{PackedVertexForTextureCacheUpdate, CompositionOp};
+use internal_types::{PackedVertexForTextureCacheUpdate};
 use internal_types::{AxisDirection, TextureSampler, GLContextHandleWrapper};
 use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
@@ -39,7 +39,7 @@ use tiling::{self, Frame, FrameBuilderConfig, GLYPHS_PER_TEXT_RUN, PrimitiveBatc
 use tiling::{TransformedRectKind, RenderTarget, ClearTile};
 use time::precise_time_ns;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier};
-use webrender_traits::{ImageFormat, MixBlendMode, RenderApiSender, RendererKind};
+use webrender_traits::{ImageFormat, RenderApiSender, RendererKind};
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
 pub const MAX_RASTER_OP_SIZE: u32 = 2048;
@@ -191,40 +191,6 @@ struct PrimitiveShader {
     max_items: usize,
 }
 
-#[derive(Clone, Copy)]
-struct VertexBuffer {
-    vao_id: VAOId,
-}
-
-pub trait CompositionOpHelpers {
-    fn needs_framebuffer(&self) -> bool;
-}
-
-impl CompositionOpHelpers for CompositionOp {
-    fn needs_framebuffer(&self) -> bool {
-        match *self {
-            CompositionOp::MixBlend(MixBlendMode::Normal) => unreachable!(),
-
-            CompositionOp::MixBlend(MixBlendMode::Screen) |
-            CompositionOp::MixBlend(MixBlendMode::Overlay) |
-            CompositionOp::MixBlend(MixBlendMode::ColorDodge) |
-            CompositionOp::MixBlend(MixBlendMode::ColorBurn) |
-            CompositionOp::MixBlend(MixBlendMode::HardLight) |
-            CompositionOp::MixBlend(MixBlendMode::SoftLight) |
-            CompositionOp::MixBlend(MixBlendMode::Difference) |
-            CompositionOp::MixBlend(MixBlendMode::Exclusion) |
-            CompositionOp::MixBlend(MixBlendMode::Hue) |
-            CompositionOp::MixBlend(MixBlendMode::Saturation) |
-            CompositionOp::MixBlend(MixBlendMode::Color) |
-            CompositionOp::MixBlend(MixBlendMode::Luminosity) => true,
-            CompositionOp::Filter(_) |
-            CompositionOp::MixBlend(MixBlendMode::Multiply) |
-            CompositionOp::MixBlend(MixBlendMode::Darken) |
-            CompositionOp::MixBlend(MixBlendMode::Lighten) => false,
-        }
-    }
-}
-
 struct FileWatcher {
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
     result_tx: Sender<ResultMsg>,
@@ -344,8 +310,6 @@ pub struct Renderer {
     raster_batches: Vec<RasterBatch>,
     raster_op_vao: Option<VAOId>,
 
-    box_shadow_program_id: ProgramId,
-
     blur_program_id: ProgramId,
     u_direction: UniformLocation,
 
@@ -429,7 +393,6 @@ impl Renderer {
                                      Box::new(file_watch_handler));
         device.begin_frame();
 
-        let box_shadow_program_id = device.create_program("box_shadow", "shared_other");
         let blur_program_id = device.create_program("blur", "shared_other");
         let max_raster_op_size = MAX_RASTER_OP_SIZE * options.device_pixel_ratio as u32;
 
@@ -649,7 +612,6 @@ impl Renderer {
             pending_texture_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
             device_pixel_ratio: options.device_pixel_ratio,
-            box_shadow_program_id: box_shadow_program_id,
             blur_program_id: blur_program_id,
             tile_clear_shader: tile_clear_shader,
             ps_rectangle: ps_rectangle,
@@ -1030,24 +992,6 @@ impl Renderer {
                                     ]
                                 });
                             }
-                            TextureUpdateDetails::BoxShadow(blur_radius,
-                                                            border_radius,
-                                                            box_rect_size,
-                                                            raster_origin,
-                                                            inverted,
-                                                            border_type) => {
-                                self.update_texture_cache_for_box_shadow(
-                                    update.id,
-                                    &Rect::new(Point2D::new(x, y),
-                                               Size2D::new(width, height)),
-                                    &Rect::new(
-                                        Point2D::new(raster_origin.x, raster_origin.y),
-                                        Size2D::new(box_rect_size.width, box_rect_size.height)),
-                                    blur_radius,
-                                    border_radius,
-                                    inverted,
-                                    border_type)
-                            }
                         }
                     }
                 }
@@ -1055,87 +999,6 @@ impl Renderer {
         }
 
         self.flush_raster_batches();
-    }
-
-    fn update_texture_cache_for_box_shadow(&mut self,
-                                           update_id: TextureId,
-                                           texture_rect: &Rect<u32>,
-                                           box_rect: &Rect<DevicePixel>,
-                                           blur_radius: DevicePixel,
-                                           border_radius: DevicePixel,
-                                           inverted: bool,
-                                           border_type: BorderType) {
-        debug_assert!(border_type == BorderType::SinglePixel);
-        let box_shadow_program_id = self.box_shadow_program_id;
-
-        let blur_radius = blur_radius.as_f32();
-
-        let color = if inverted {
-            ColorF::new(1.0, 1.0, 1.0, 0.0)
-        } else {
-            ColorF::new(1.0, 1.0, 1.0, 1.0)
-        };
-
-        let zero_point = Point2D::new(0.0, 0.0);
-        let zero_size = Size2D::new(0.0, 0.0);
-
-        self.add_rect_to_raster_batch(update_id,
-                                      TextureId(0),
-                                      box_shadow_program_id,
-                                      None,
-                                      &texture_rect,
-                                      border_type,
-                                      |texture_rect| {
-            let box_rect_top_left = Point2D::new(box_rect.origin.x.as_f32() + texture_rect.origin.x,
-                                                 box_rect.origin.y.as_f32() + texture_rect.origin.y);
-            let box_rect_bottom_right = Point2D::new(box_rect_top_left.x + box_rect.size.width.as_f32(),
-                                                     box_rect_top_left.y + box_rect.size.height.as_f32());
-            let border_radii = Point2D::new(border_radius.as_f32(),
-                                            border_radius.as_f32());
-
-            [
-                PackedVertexForTextureCacheUpdate::new(&texture_rect.origin,
-                                                       &color,
-                                                       &zero_point,
-                                                       &border_radii,
-                                                       &zero_point,
-                                                       &box_rect_top_left,
-                                                       &box_rect_bottom_right,
-                                                       &zero_size,
-                                                       &zero_size,
-                                                       blur_radius),
-                PackedVertexForTextureCacheUpdate::new(&texture_rect.top_right(),
-                                                       &color,
-                                                       &zero_point,
-                                                       &border_radii,
-                                                       &zero_point,
-                                                       &box_rect_top_left,
-                                                       &box_rect_bottom_right,
-                                                       &zero_size,
-                                                       &zero_size,
-                                                       blur_radius),
-                PackedVertexForTextureCacheUpdate::new(&texture_rect.bottom_left(),
-                                                       &color,
-                                                       &zero_point,
-                                                       &border_radii,
-                                                       &zero_point,
-                                                       &box_rect_top_left,
-                                                       &box_rect_bottom_right,
-                                                       &zero_size,
-                                                       &zero_size,
-                                                       blur_radius),
-                PackedVertexForTextureCacheUpdate::new(&texture_rect.bottom_right(),
-                                                       &color,
-                                                       &zero_point,
-                                                       &border_radii,
-                                                       &zero_point,
-                                                       &box_rect_top_left,
-                                                       &box_rect_bottom_right,
-                                                       &zero_size,
-                                                       &zero_size,
-                                                       blur_radius),
-            ]
-        });
     }
 
     fn add_rect_to_raster_batch<F>(&mut self,

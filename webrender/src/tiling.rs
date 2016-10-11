@@ -726,7 +726,6 @@ struct BoxShadowPrimitive {
     spread_radius: f32,
     border_radius: f32,
     clip_mode: BoxShadowClipMode,
-    metrics: BoxShadowMetrics,
     cache: Option<BoxShadowPrimitiveCache>,
 }
 
@@ -2950,7 +2949,6 @@ impl FrameBuilder {
         };
 
         let prim = BoxShadowPrimitive {
-            metrics: metrics,
             src_rect: *box_bounds,
             bs_rect: bs_rect,
             color: *color,

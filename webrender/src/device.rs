@@ -39,71 +39,6 @@ const SHADER_VERSION: &'static str = "#version 300 es\n";
 
 static SHADER_PREAMBLE: &'static str = "shared.glsl";
 
-/*
-static QUAD_VERTICES: [PackedVertex; 6] = [
-    PackedVertex {
-        x: 0.0, y: 0.0,
-        color: PackedColor { r: 255, g: 255, b: 255, a: 255 },
-        u: 0.0, v: 0.0,
-        mu: 0, mv: 0,
-        matrix_index: 0,
-        clip_in_rect_index: 0,
-        clip_out_rect_index: 0,
-        tile_params_index: 0,
-    },
-    PackedVertex {
-        x: 1.0, y: 0.0,
-        color: PackedColor { r: 255, g: 255, b: 255, a: 255 },
-        u: 0.0, v: 0.0,
-        mu: 0, mv: 0,
-        matrix_index: 0,
-        clip_in_rect_index: 0,
-        clip_out_rect_index: 0,
-        tile_params_index: 0,
-    },
-    PackedVertex {
-        x: 1.0, y: 1.0,
-        color: PackedColor { r: 255, g: 255, b: 255, a: 255 },
-        u: 0.0, v: 0.0,
-        mu: 0, mv: 0,
-        matrix_index: 0,
-        clip_in_rect_index: 0,
-        clip_out_rect_index: 0,
-        tile_params_index: 0,
-    },
-    PackedVertex {
-        x: 0.0, y: 0.0,
-        color: PackedColor { r: 255, g: 255, b: 255, a: 255 },
-        u: 0.0, v: 0.0,
-        mu: 0, mv: 0,
-        matrix_index: 0,
-        clip_in_rect_index: 0,
-        clip_out_rect_index: 0,
-        tile_params_index: 0,
-    },
-    PackedVertex {
-        x: 1.0, y: 1.0,
-        color: PackedColor { r: 255, g: 255, b: 255, a: 255 },
-        u: 0.0, v: 0.0,
-        mu: 0, mv: 0,
-        matrix_index: 0,
-        clip_in_rect_index: 0,
-        clip_out_rect_index: 0,
-        tile_params_index: 0,
-    },
-    PackedVertex {
-        x: 0.0, y: 1.0,
-        color: PackedColor { r: 255, g: 255, b: 255, a: 255 },
-        u: 0.0, v: 0.0,
-        mu: 0, mv: 0,
-        matrix_index: 0,
-        clip_in_rect_index: 0,
-        clip_out_rect_index: 0,
-        tile_params_index: 0,
-    },
-];
-*/
-
 lazy_static! {
     pub static ref MAX_TEXTURE_SIZE: gl::GLint = {
         gl::get_integer_v(gl::MAX_TEXTURE_SIZE)
@@ -1422,27 +1357,11 @@ impl Device {
         UniformLocation(gl::get_uniform_location(program_id, name))
     }
 
-/*
-    pub fn set_uniform_1i(&self, uniform: UniformLocation, x: i32) {
-        debug_assert!(self.inside_frame);
-        let UniformLocation(location) = uniform;
-        gl::uniform_1i(location, x);
-    }
-*/
-
     pub fn set_uniform_2f(&self, uniform: UniformLocation, x: f32, y: f32) {
         debug_assert!(self.inside_frame);
         let UniformLocation(location) = uniform;
         gl::uniform_2f(location, x, y);
     }
-
-/*
-    pub fn set_uniform_4f(&self, uniform: UniformLocation, x: f32, y: f32, z: f32, w: f32) {
-        debug_assert!(self.inside_frame);
-        let UniformLocation(location) = uniform;
-        gl::uniform_4f(location, x, y, z, w);
-    }
-*/
 
     fn set_uniforms(&self, program: &Program, transform: &Matrix4D<f32>) {
         debug_assert!(self.inside_frame);
@@ -1651,15 +1570,6 @@ impl Device {
         debug_assert!(self.inside_frame);
         gl::draw_elements_instanced(gl::TRIANGLES, index_count, gl::UNSIGNED_SHORT, 0, instance_count);
     }
-
-/*
-    pub fn delete_vao(&mut self, vao_id: VAOId) {
-        self.vaos.remove(&vao_id).expect(&format!("unable to remove vao {:?}", vao_id));
-        if self.bound_vao == vao_id {
-            self.bound_vao = VAOId(0);
-        }
-    }
-*/
 
     pub fn end_frame(&mut self) {
         self.bind_render_target(None);

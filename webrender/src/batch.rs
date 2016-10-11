@@ -17,20 +17,6 @@ pub fn new_id() -> usize {
     ID_COUNTER.fetch_add(1, SeqCst)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct VertexBufferId(pub usize);
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct MatrixIndex(pub u8);
-
-#[derive(Clone, Debug)]
-pub struct TileParams {
-    pub u0: f32,
-    pub v0: f32,
-    pub u_size: f32,
-    pub v_size: f32,
-}
-
 // Information needed to blit an item from a raster op batch target to final destination.
 pub struct BlitJob {
     pub dest_texture_id: TextureId,
