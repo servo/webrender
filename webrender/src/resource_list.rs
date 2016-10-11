@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use fnv::FnvHasher;
-use internal_types::{Glyph, RasterItem};
+use internal_types::{Glyph};
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
 use webrender_traits::{FontKey, GlyphKey, ImageKey, ImageRendering};
@@ -13,12 +13,10 @@ type RequiredImageSet = HashSet<(ImageKey, ImageRendering), BuildHasherDefault<F
 type RequiredGlyphMap = HashMap<FontKey,
                                 HashSet<Glyph, BuildHasherDefault<FnvHasher>>,
                                 BuildHasherDefault<FnvHasher>>;
-type RequiredRasterSet = HashSet<RasterItem, BuildHasherDefault<FnvHasher>>;
 
 pub struct ResourceList {
     required_images: RequiredImageSet,
     required_glyphs: RequiredGlyphMap,
-    required_rasters: RequiredRasterSet,
 }
 
 impl ResourceList {
@@ -26,7 +24,6 @@ impl ResourceList {
         ResourceList {
             required_glyphs: HashMap::with_hasher(Default::default()),
             required_images: HashSet::with_hasher(Default::default()),
-            required_rasters: HashSet::with_hasher(Default::default()),
         }
     }
 
@@ -46,12 +43,6 @@ impl ResourceList {
     pub fn for_each_image<F>(&self, mut f: F) where F: FnMut(ImageKey, ImageRendering) {
         for &(image_id, image_rendering) in &self.required_images {
             f(image_id, image_rendering);
-        }
-    }
-
-    pub fn for_each_raster<F>(&self, mut f: F) where F: FnMut(&RasterItem) {
-        for raster_item in &self.required_rasters {
-            f(raster_item);
         }
     }
 

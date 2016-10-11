@@ -8,7 +8,7 @@ use euclid::Size2D;
 use fnv::FnvHasher;
 use frame::FrameId;
 use freelist::FreeList;
-use internal_types::{FontTemplate, RasterItem};
+use internal_types::{FontTemplate};
 use internal_types::{TextureUpdateList, DrawListId, DrawList};
 use platform::font::{FontContext, RasterizedGlyph};
 use rayon::prelude::*;
@@ -108,7 +108,6 @@ impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resourc
 
 pub struct ResourceCache {
     cached_glyphs: ResourceClassCache<GlyphKey, Option<TextureCacheItemId>>,
-    cached_rasters: ResourceClassCache<RasterItem, TextureCacheItemId>,
     cached_images: ResourceClassCache<(ImageKey, ImageRendering), CachedImageInfo>,
 
     // TODO(pcwalton): Figure out the lifecycle of these.
@@ -131,7 +130,6 @@ impl ResourceCache {
                enable_aa: bool) -> ResourceCache {
         ResourceCache {
             cached_glyphs: ResourceClassCache::new(),
-            cached_rasters: ResourceClassCache::new(),
             cached_images: ResourceClassCache::new(),
             webgl_textures: HashMap::with_hasher(Default::default()),
             draw_lists: FreeList::new(),
@@ -202,18 +200,6 @@ impl ResourceCache {
     }
 
     pub fn add_resource_list(&mut self, resource_list: &ResourceList, frame_id: FrameId) {
-        // Update texture cache with any GPU generated procedural items.
-        resource_list.for_each_raster(|raster_item| {
-            if !self.cached_rasters.contains_key(raster_item) {
-                let image_id = self.texture_cache.new_item_id();
-                self.texture_cache.insert_raster_op(image_id,
-                                                    raster_item,
-                                                    self.device_pixel_ratio);
-                self.cached_rasters.insert(raster_item.clone(), image_id, frame_id);
-            }
-            self.cached_rasters.mark_as_needed(raster_item, frame_id);
-        });
-
         // Update texture cache with any images that aren't yet uploaded to GPU.
         resource_list.for_each_image(|image_key, image_rendering| {
             let cached_images = &mut self.cached_images;
@@ -387,7 +373,6 @@ impl ResourceCache {
 
     pub fn expire_old_resources(&mut self, frame_id: FrameId) {
         self.cached_glyphs.expire_old_resources(&mut self.texture_cache, frame_id);
-        self.cached_rasters.expire_old_resources(&mut self.texture_cache, frame_id);
         self.cached_images.expire_old_resources(&mut self.texture_cache, frame_id);
     }
 }
