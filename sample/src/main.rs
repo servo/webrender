@@ -5,18 +5,18 @@ extern crate gleam;
 extern crate webrender_traits;
 extern crate euclid;
 
-use app_units::Au;
 use euclid::{Size2D, Point2D, Rect, Matrix4D};
 use gleam::gl;
 use std::path::PathBuf;
 use std::ffi::CStr;
 use webrender_traits::{PipelineId, ServoStackingContextId, StackingContextId, DisplayListId};
 use webrender_traits::{AuxiliaryListsBuilder, Epoch, ColorF, FragmentType, GlyphInstance};
+use webrender_traits::RendererKind;
 use std::fs::File;
 use std::io::Read;
 use std::env;
 
-fn load_file(name: &str) -> Vec<u8> {
+fn _load_file(name: &str) -> Vec<u8> {
     let mut file = File::open(name).unwrap();
     let mut buffer = vec![];
     file.read_to_end(&mut buffer).unwrap();
@@ -91,7 +91,7 @@ impl webrender_traits::RenderNotifier for Notifier {
         self.window_proxy.wakeup_event_loop();
     }
 
-    fn new_scroll_frame_ready(&mut self, composite_needed: bool) {
+    fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {
         self.window_proxy.wakeup_event_loop();
     }
 
@@ -140,7 +140,8 @@ fn main() {
         enable_recording: false,
         enable_scrollbars: false,
         debug: true,
-        precache_shaders: false
+        precache_shaders: false,
+        renderer_kind: RendererKind::Native,
     };
 
     let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);
@@ -187,9 +188,9 @@ fn main() {
                       clip_region,
                       ColorF::new(0.0, 1.0, 0.0, 1.0));
 
-    let text_bounds = Rect::new(Point2D::new(100.0, 200.0), Size2D::new(700.0, 300.0));
+    let _text_bounds = Rect::new(Point2D::new(100.0, 200.0), Size2D::new(700.0, 300.0));
 
-    let glyphs = vec![
+    let _glyphs = vec![
         GlyphInstance {
             index: 48,
             x: 100.0,
