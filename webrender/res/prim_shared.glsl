@@ -557,6 +557,7 @@ float do_clip(vec2 pos, vec4 clip_rect, vec4 radius) {
     float d_bl = distance(pos, ref_bl);
 
     float pixels_per_fragment = length(fwidth(pos.xy));
+    // TODO: compute the `nudge` separately for X and Y
     float nudge = 0.5 * pixels_per_fragment;
 
     bool out0 = pos.x < ref_tl.x && pos.y < ref_tl.y && d_tl > radius.x - nudge;
@@ -564,10 +565,8 @@ float do_clip(vec2 pos, vec4 clip_rect, vec4 radius) {
     bool out2 = pos.x > ref_br.x && pos.y > ref_br.y && d_br > radius.z - nudge;
     bool out3 = pos.x < ref_bl.x && pos.y > ref_bl.y && d_bl > radius.w - nudge;
 
-    float distance_from_border = (float(out0) * (d_tl - radius.x + nudge)) +
-                                 (float(out1) * (d_tr - radius.y + nudge)) +
-                                 (float(out2) * (d_br - radius.z + nudge)) +
-                                 (float(out3) * (d_bl - radius.w + nudge));
+    vec4 distances = vec4(d_tl, d_tr, d_br, d_bl) - radius + nudge;
+    float distance_from_border = dot(vec4(out0, out1, out2, out3), distances);
 
     // Move the distance back into pixels.
     distance_from_border /= pixels_per_fragment;
@@ -575,7 +574,7 @@ float do_clip(vec2 pos, vec4 clip_rect, vec4 radius) {
     // Apply a more gradual fade out to transparent.
     //distance_from_border -= 0.5;
 
-    return smoothstep(1.0, 0.0, distance_from_border);
+    return 1.0 - smoothstep(0.0, 1.0, distance_from_border);
 }
 
 float squared_distance_from_rect(vec2 p, vec2 origin, vec2 size) {
