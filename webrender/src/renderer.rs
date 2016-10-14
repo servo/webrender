@@ -269,8 +269,15 @@ fn create_prim_shader(name: &'static str,
         prefix.push_str(&format!("#define WR_FEATURE_{}\n", feature));
     }
 
+    let includes_base = ["prim_shared"];
+    let includes_clip = ["prim_shared", "clip_shared"];
+    let includes: &[&str] = if name.ends_with("_clip") {
+        &includes_clip
+    } else {
+        &includes_base
+    };
     let program_id = device.create_program_with_prefix(name,
-                                                       "prim_shared",
+                                                       includes,
                                                        Some(prefix));
 
     let data_index = gl::get_uniform_block_index(program_id.0, "Data");
@@ -288,8 +295,9 @@ fn create_clear_shader(name: &'static str,
                        max_ubo_vectors: usize) -> ProgramId {
     let prefix = format!("#define WR_MAX_UBO_VECTORS {}", max_ubo_vectors);
 
+    let includes = &["shared_other"];
     let program_id = device.create_program_with_prefix(name,
-                                                       "shared_other",
+                                                       includes,
                                                        Some(prefix));
 
     let data_index = gl::get_uniform_block_index(program_id.0, "Data");
@@ -453,7 +461,7 @@ impl Renderer {
                                                  max_prim_box_shadows,
                                                  &mut device,
                                                  options.precache_shaders);
-        let ps_aligned_gradient = PrimitiveShader::new("ps_gradient",
+        let ps_aligned_gradient = PrimitiveShader::new("ps_gradient_clip",
                                                        max_ubo_vectors,
                                                        max_prim_aligned_gradients,
                                                        &mut device,
