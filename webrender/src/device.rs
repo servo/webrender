@@ -1155,37 +1155,33 @@ impl Device {
     pub fn create_program(&mut self,
                           base_filename: &str,
                           include_filename: &str) -> ProgramId {
-        self.create_program_with_prefix(base_filename, include_filename, None)
+        self.create_program_with_prefix(base_filename, &[include_filename], None)
     }
 
     pub fn create_program_with_prefix(&mut self,
                                       base_filename: &str,
-                                      include_filename: &str,
+                                      include_filenames: &[&str],
                                       prefix: Option<String>) -> ProgramId {
         debug_assert!(self.inside_frame);
 
         let pid = gl::create_program();
+        let base_path = self.resource_path.join(base_filename);
 
-        let mut vs_path = self.resource_path.clone();
-        vs_path.push(&format!("{}.vs.glsl", base_filename));
+        let vs_path = base_path.with_extension("vs.glsl");
         //self.file_watcher.add_watch(vs_path.clone());
 
-        let mut fs_path = self.resource_path.clone();
-        fs_path.push(&format!("{}.fs.glsl", base_filename));
+        let fs_path = base_path.with_extension("fs.glsl");
         //self.file_watcher.add_watch(fs_path.clone());
 
-        let mut include_path = self.resource_path.clone();
-        include_path.push(&format!("{}.glsl", include_filename));
-        let mut f = File::open(&include_path).unwrap();
         let mut include = String::new();
-        f.read_to_string(&mut include).unwrap();
+        for inc_filename in include_filenames {
+            let include_path = self.resource_path.join(inc_filename).with_extension("glsl");
+            File::open(&include_path).unwrap().read_to_string(&mut include).unwrap();
+        }
 
-        let mut shared_path = self.resource_path.clone();
-        shared_path.push(&format!("{}.glsl", base_filename));
+        let shared_path = base_path.with_extension("glsl");
         if let Ok(mut f) = File::open(&shared_path) {
-            let mut shared_code = String::new();
-            f.read_to_string(&mut shared_code).unwrap();
-            include.push_str(&shared_code);
+            f.read_to_string(&mut include).unwrap();
         }
 
         let program = Program {
