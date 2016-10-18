@@ -28,7 +28,7 @@ float alpha_for_solid_border(float distance_from_ref,
   inner_radius += nudge;
   outer_radius -= nudge;
 
-  if ((distance_from_ref < outer_radius && distance_from_ref > inner_radius)) {
+  if (distance_from_ref < outer_radius && distance_from_ref > inner_radius) {
     return 1.0;
   }
 
