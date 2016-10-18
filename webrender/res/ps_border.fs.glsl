@@ -39,7 +39,7 @@ float alpha_for_solid_border(float distance_from_ref,
   distance_from_border /= pixels_per_fragment;
 
   // Apply a more gradual fade out to transparent.
-  distance_from_border -= 0.5;
+  // distance_from_border -= 0.5;
 
   return smoothstep(1.0, 0.0, distance_from_border);
 }
