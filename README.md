@@ -11,6 +11,14 @@ After updating shaders in webrender, go to servo and:
 # Use Webrender with Servo
 To use a custom webrender with servo, go to your servo build directory and:
 
-  1. Edit servo/.cargo/config - Create this file if it doesn't exist already.
-  2. Add 'paths = ["/Users/UserName/Path/To/webrender"]'
+  1. Edit servo/components/servo/Cargo.toml
+  2. Add at the end of the file:
+
+```
+paths = ["/Users/UserName/Path/To/webrender"]'
+[replace]
+"webrender:0.6.0" = { path = '/Users/UserName/Path/To/webrender/webrender/' }
+"webrender_traits:0.6.0" = { path = '/Users/UserName/Path/To/webrender/webrender_traits' }
+```
+
   3. Build as normal
