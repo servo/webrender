@@ -698,11 +698,8 @@ impl TextureCache {
             (ImageFormat::RGBA8, TextureCacheItemKind::Alternate) => {
                 (&mut self.arena.alternate_pages_rgba8, RenderTargetMode::RenderTarget)
             }
-            //(ImageFormat::RGBA8, TextureCacheItemKind::RenderTarget) => {
-            //    (&mut self.arena.render_target_pages, RenderTargetMode::RenderTarget)
-            //}
             (ImageFormat::RGB8, TextureCacheItemKind::Standard) => {
-                (&mut self.arena.pages_rgb8, RenderTargetMode::None)
+                (&mut self.arena.pages_rgb8, RenderTargetMode::RenderTarget)
             }
             (ImageFormat::Invalid, TextureCacheItemKind::Standard) |
             (ImageFormat::RGBAF32, TextureCacheItemKind::Standard) |
