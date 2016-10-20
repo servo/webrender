@@ -346,10 +346,10 @@ impl AlphaBatcher {
                         let layer = &ctx.layer_store[sc_index.0];
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
                         let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
+                        let needs_clipping = prim_metadata.clip_index.is_some();
                         let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                              !prim_metadata.is_opaque ||
-                                             prim_metadata.clip_index.is_some();
-                        let needs_clipping = prim_metadata.clip_index.is_some();
+                                             needs_clipping;
                         let flags = AlphaBatchKeyFlags::new(transform_kind,
                                                             needs_blending,
                                                             needs_clipping);
@@ -765,6 +765,8 @@ impl AlphaBatchKey {
              self.color_texture_id == other.color_texture_id)
     }
 }
+
+// FIXME(gw): Change these to use the bitflags!()
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 struct AlphaBatchKeyFlags(u8);
