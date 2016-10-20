@@ -517,20 +517,6 @@ impl TextureCacheItem {
         }
     }
 
-    fn to_image(&self) -> TextureImage {
-        let texture_size = self.texture_size;
-        TextureImage {
-            texture_id: self.texture_id,
-            texel_uv: Rect::new(
-                Point2D::new(self.uv_rect().top_left.x, self.uv_rect().top_left.y),
-                Size2D::new(self.uv_rect().bottom_right.x - self.uv_rect().top_left.x,
-                            self.uv_rect().bottom_right.y - self.uv_rect().top_left.y)),
-            pixel_uv:
-                Point2D::new((self.uv_rect().top_left.x * texture_size.width as f32) as u32,
-                             (self.uv_rect().top_left.y * texture_size.height as f32) as u32),
-        }
-    }
-
     pub fn uv_rect(&self) -> RectUv<f32> {
         let (width, height) = (self.texture_size.width as f32, self.texture_size.height as f32);
         RectUv {
@@ -542,6 +528,24 @@ impl TextureCacheItem {
                                       self.pixel_rect.bottom_left.y as f32 / height),
             bottom_right: Point2D::new(self.pixel_rect.bottom_right.x as f32 / width,
                                        self.pixel_rect.bottom_right.y as f32 / height),
+        }
+    }
+
+    pub fn aligned_uv_rect(&self) -> Rect<f32> {
+        let uv = self.uv_rect();
+        Rect::new(Point2D::new(uv.top_left.x, uv.top_left.y),
+                  Size2D::new(uv.bottom_right.x - uv.top_left.x,
+                              uv.bottom_right.y - uv.top_left.y))
+    }
+
+    fn to_image(&self) -> TextureImage {
+        let texture_size = self.texture_size;
+        TextureImage {
+            texture_id: self.texture_id,
+            texel_uv: self.aligned_uv_rect(),
+            pixel_uv:
+                Point2D::new((self.uv_rect().top_left.x * texture_size.width as f32) as u32,
+                             (self.uv_rect().top_left.y * texture_size.height as f32) as u32),
         }
     }
 }

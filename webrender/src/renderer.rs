@@ -25,6 +25,7 @@ use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use render_backend::RenderBackend;
+use resource_cache::DummyResources;
 use std::cmp;
 use std::collections::HashMap;
 use std::f32;
@@ -75,7 +76,8 @@ const GPU_TAG_PRIM_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "Composite"
 const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "TextRun", color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 } };
 
 // Yellow / dark yellow
-const GPU_TAG_PRIM_ALIGNED_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AlignedGradient", color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 } };
+const GPU_TAG_PRIM_GRADIENT: GpuProfileTag = GpuProfileTag { label: "Gradient", color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 } };
+const GPU_TAG_PRIM_GRADIENT_CLIP: GpuProfileTag = GpuProfileTag { label: "GradientClip", color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 } };
 const GPU_TAG_PRIM_ANGLE_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AngleGradient", color: ColorF { r: 0.7, g: 0.7, b: 0.0, a: 1.0 } };
 
 // Cyan
@@ -327,7 +329,8 @@ pub struct Renderer {
     ps_text_run: PrimitiveShader,
     ps_image: PrimitiveShader,
     ps_border: PrimitiveShader,
-    ps_aligned_gradient: PrimitiveShader,
+    ps_gradient: PrimitiveShader,
+    ps_gradient_clip: PrimitiveShader,
     ps_angle_gradient: PrimitiveShader,
     ps_box_shadow: PrimitiveShader,
     ps_rectangle_clip: PrimitiveShader,
@@ -370,7 +373,7 @@ pub struct Renderer {
     pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
     /// Used to dispatch functions to the main thread's event loop.
     /// Required to allow GLContext sharing in some implementations like WGL.
-    main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>
+    main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
 }
 
 impl Renderer {
@@ -456,11 +459,17 @@ impl Renderer {
                                                  max_prim_instances,
                                                  &mut device,
                                                  options.precache_shaders);
-        let ps_aligned_gradient = PrimitiveShader::new("ps_gradient_clip",
-                                                       max_ubo_vectors,
-                                                       max_prim_instances,
-                                                       &mut device,
-                                                       options.precache_shaders);
+
+        let ps_gradient = PrimitiveShader::new("ps_gradient",
+                                               max_ubo_vectors,
+                                               max_prim_instances,
+                                               &mut device,
+                                               options.precache_shaders);
+        let ps_gradient_clip = PrimitiveShader::new("ps_gradient_clip",
+                                                    max_ubo_vectors,
+                                                    max_prim_instances,
+                                                    &mut device,
+                                                    options.precache_shaders);
         let ps_angle_gradient = PrimitiveShader::new("ps_angle_gradient",
                                                      max_ubo_vectors,
                                                      max_prim_instances,
@@ -490,6 +499,7 @@ impl Renderer {
 
         let texture_ids = device.create_texture_ids(1024);
         let mut texture_cache = TextureCache::new(texture_ids);
+
         let white_pixels: Vec<u8> = vec![
             0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff,
@@ -522,6 +532,11 @@ impl Renderer {
                              TextureFilter::Linear,
                              TextureInsertOp::Blit(mask_pixels),
                              BorderType::SinglePixel);
+
+        let dummy_resources = DummyResources {
+            white_image_id: white_image_id,
+            opaque_mask_image_id: dummy_mask_image_id,
+        };
 
         let debug_renderer = DebugRenderer::new(&mut device);
 
@@ -605,6 +620,7 @@ impl Renderer {
                                                  result_tx,
                                                  device_pixel_ratio,
                                                  texture_cache,
+                                                 dummy_resources,
                                                  enable_aa,
                                                  backend_notifier,
                                                  context_handle,
@@ -633,8 +649,9 @@ impl Renderer {
             ps_rectangle_clip: ps_rectangle_clip,
             ps_image_clip: ps_image_clip,
             ps_box_shadow: ps_box_shadow,
+            ps_gradient: ps_gradient,
+            ps_gradient_clip: ps_gradient_clip,
             ps_angle_gradient: ps_angle_gradient,
-            ps_aligned_gradient: ps_aligned_gradient,
             ps_blend: ps_blend,
             ps_composite: ps_composite,
             max_clear_tiles: max_clear_tiles,
@@ -663,7 +680,7 @@ impl Renderer {
             data64_texture: data64_texture,
             data128_texture: data128_texture,
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
-            main_thread_dispatcher: main_thread_dispatcher
+            main_thread_dispatcher: main_thread_dispatcher,
         };
 
         renderer.update_uniform_locations();
@@ -1303,11 +1320,13 @@ impl Renderer {
                          shader: ProgramId,
                          quads_per_item: usize,
                          color_texture_id: TextureId,
+                         mask_texture_id: TextureId,
                          max_prim_items: usize,
                          projection: &Matrix4D<f32>) {
         self.device.bind_program(shader, &projection);
         self.device.bind_vao(self.quad_vao_id);
         self.device.bind_texture(TextureSampler::Color, color_texture_id);
+        self.device.bind_texture(TextureSampler::Mask, mask_texture_id);
 
         for chunk in ubo_data.chunks(max_prim_items) {
             let ubos = gl::gen_buffers(1);
@@ -1438,6 +1457,7 @@ impl Renderer {
                                         shader,
                                         1,
                                         batch.color_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1453,6 +1473,7 @@ impl Renderer {
                                         shader,
                                         1,
                                         batch.color_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1463,9 +1484,9 @@ impl Renderer {
                                         shader,
                                         1,
                                         batch.color_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
-
                 }
                 &PrimitiveBatchData::BoxShadow(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_BOX_SHADOW);
@@ -1474,9 +1495,9 @@ impl Renderer {
                                         shader,
                                         1,
                                         batch.color_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
-
                 }
                 &PrimitiveBatchData::TextRun(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_TEXT_RUN);
@@ -1485,19 +1506,25 @@ impl Renderer {
                                         shader,
                                         1,
                                         batch.color_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
                 &PrimitiveBatchData::AlignedGradient(ref ubo_data) => {
-                    self.gpu_profile.add_marker(GPU_TAG_PRIM_ALIGNED_GRADIENT);
-                    let (shader, max_prim_items) = self.ps_aligned_gradient.get(&mut self.device, batch.transform_kind);
+                    let (shader, max_prim_items) = if batch.has_complex_clip {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_GRADIENT_CLIP);
+                        self.ps_gradient_clip.get(&mut self.device, batch.transform_kind)
+                    } else {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_GRADIENT);
+                        self.ps_gradient.get(&mut self.device, batch.transform_kind)
+                    };
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
                                         batch.color_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
-
                 }
                 &PrimitiveBatchData::AngleGradient(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_ANGLE_GRADIENT);
@@ -1506,9 +1533,9 @@ impl Renderer {
                                         shader,
                                         1,
                                         batch.color_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
-
                 }
             }
         }
