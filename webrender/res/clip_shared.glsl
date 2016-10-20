@@ -5,6 +5,8 @@
 
 flat varying vec4 vClipRect;
 flat varying vec4 vClipRadius;
+flat varying vec4 vClipMaskUvRect;
+flat varying vec4 vClipMaskScreenRect;
 
 #ifdef WR_VERTEX_SHADER
 void write_clip(Clip clip) {
@@ -13,6 +15,9 @@ void write_clip(Clip clip) {
                        clip.top_right.outer_inner_radius.x,
                        clip.bottom_right.outer_inner_radius.x,
                        clip.bottom_left.outer_inner_radius.x);
+    //TODO: interpolate the final mask UV
+    vClipMaskUvRect = clip.mask_rect.uv;
+    vClipMaskScreenRect = clip.mask_rect.screen;
 }
 #endif
 
@@ -46,6 +51,13 @@ float do_clip(vec2 pos) {
     // Apply a more gradual fade out to transparent.
     //distance_from_border -= 0.5;
 
-    return 1.0 - smoothstep(0.0, 1.0, distance_from_border);
+    float border_alpha = 1.0 - smoothstep(0.0, 1.0, distance_from_border);
+
+    vec2 vMaskUv = (pos - vClipMaskScreenRect.xy) / vClipMaskScreenRect.zw;
+    vec2 clamped_mask_uv = clamp(vMaskUv, vec2(0.0, 0.0), vec2(1.0, 1.0));
+    vec2 source_uv = clamped_mask_uv * vClipMaskUvRect.zw + vClipMaskUvRect.xy;
+    float mask_alpha = texture(sMask, source_uv).r; //careful: texture has type A8
+
+    return border_alpha * mask_alpha;
 }
 #endif
