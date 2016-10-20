@@ -197,8 +197,13 @@ pub enum TextureSampler {
     Color,
     Mask,
     Cache,
+    Data16,
+    Data32,
+    Data64,
+    Data128,
     Layers,
     RenderTasks,
+    Geometry,
 }
 
 pub enum VertexAttribute {

@@ -209,3 +209,120 @@ pub fn subtract_rect(rect: &Rect<f32>,
         }
     }
 }
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[repr(u8)]
+pub enum TransformedRectKind {
+    AxisAligned = 0,
+    Complex = 1,
+}
+
+#[derive(Debug, Clone)]
+pub struct TransformedRect {
+    pub local_rect: Rect<f32>,
+    pub bounding_rect: Rect<DevicePixel>,
+    pub vertices: [Point4D<f32>; 4],
+    pub kind: TransformedRectKind,
+}
+
+impl TransformedRect {
+    pub fn new(rect: &Rect<f32>,
+           transform: &Matrix4D<f32>,
+           device_pixel_ratio: f32) -> TransformedRect {
+
+        let kind = if transform.can_losslessly_transform_and_perspective_project_a_2d_rect() {
+            TransformedRectKind::AxisAligned
+        } else {
+            TransformedRectKind::Complex
+        };
+
+        // FIXME(gw): This code is meant to be a fast path for simple transforms.
+        // However, it fails on transforms that translate Z but result in an
+        // axis aligned rect.
+
+/*
+        match kind {
+            TransformedRectKind::AxisAligned => {
+                let v0 = transform.transform_point(&rect.origin);
+                let v1 = transform.transform_point(&rect.top_right());
+                let v2 = transform.transform_point(&rect.bottom_left());
+                let v3 = transform.transform_point(&rect.bottom_right());
+
+                let screen_min_dp = Point2D::new(DevicePixel((v0.x * device_pixel_ratio).floor() as i32),
+                                                 DevicePixel((v0.y * device_pixel_ratio).floor() as i32));
+                let screen_max_dp = Point2D::new(DevicePixel((v3.x * device_pixel_ratio).ceil() as i32),
+                                                 DevicePixel((v3.y * device_pixel_ratio).ceil() as i32));
+
+                let screen_rect_dp = Rect::new(screen_min_dp, Size2D::new(screen_max_dp.x - screen_min_dp.x,
+                                                                          screen_max_dp.y - screen_min_dp.y));
+
+                TransformedRect {
+                    local_rect: *rect,
+                    vertices: [
+                        Point4D::new(v0.x, v0.y, 0.0, 1.0),
+                        Point4D::new(v1.x, v1.y, 0.0, 1.0),
+                        Point4D::new(v2.x, v2.y, 0.0, 1.0),
+                        Point4D::new(v3.x, v3.y, 0.0, 1.0),
+                    ],
+                    bounding_rect: screen_rect_dp,
+                    kind: kind,
+                }
+            }
+            TransformedRectKind::Complex => {
+                */
+                let vertices = [
+                    transform.transform_point4d(&Point4D::new(rect.origin.x,
+                                                              rect.origin.y,
+                                                              0.0,
+                                                              1.0)),
+                    transform.transform_point4d(&Point4D::new(rect.bottom_left().x,
+                                                              rect.bottom_left().y,
+                                                              0.0,
+                                                              1.0)),
+                    transform.transform_point4d(&Point4D::new(rect.bottom_right().x,
+                                                              rect.bottom_right().y,
+                                                              0.0,
+                                                              1.0)),
+                    transform.transform_point4d(&Point4D::new(rect.top_right().x,
+                                                              rect.top_right().y,
+                                                              0.0,
+                                                              1.0)),
+                ];
+
+
+                let mut screen_min : Point2D<f32> = Point2D::new(10000000.0, 10000000.0);
+                let mut screen_max : Point2D<f32>  = Point2D::new(-10000000.0, -10000000.0);
+
+                for vertex in &vertices {
+                    let inv_w = 1.0 / vertex.w;
+                    let vx = vertex.x * inv_w;
+                    let vy = vertex.y * inv_w;
+                    screen_min.x = screen_min.x.min(vx);
+                    screen_min.y = screen_min.y.min(vy);
+                    screen_max.x = screen_max.x.max(vx);
+                    screen_max.y = screen_max.y.max(vy);
+                }
+
+                let screen_min_dp = Point2D::new(DevicePixel((screen_min.x * device_pixel_ratio).floor() as i32),
+                                                 DevicePixel((screen_min.y * device_pixel_ratio).floor() as i32));
+                let screen_max_dp = Point2D::new(DevicePixel((screen_max.x * device_pixel_ratio).ceil() as i32),
+                                                 DevicePixel((screen_max.y * device_pixel_ratio).ceil() as i32));
+
+                let screen_rect_dp = Rect::new(screen_min_dp, Size2D::new(screen_max_dp.x - screen_min_dp.x,
+                                                                          screen_max_dp.y - screen_min_dp.y));
+
+                TransformedRect {
+                    local_rect: *rect,
+                    vertices: vertices,
+                    bounding_rect: screen_rect_dp,
+                    kind: kind,
+                }
+                /*
+            }
+        }*/
+    }
+}
+
+#[inline(always)]
+pub fn pack_as_float(value: u32) -> f32 {
+    value as f32 + 0.5
+}

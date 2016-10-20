@@ -760,7 +760,7 @@ impl FileWatcherThread {
 
 pub struct Device {
     // device state
-    bound_textures: [TextureId; 5],
+    bound_textures: [TextureId; 16],
     bound_program: ProgramId,
     bound_vao: VAOId,
     bound_fbo: FBOId,
@@ -804,13 +804,7 @@ impl Device {
             device_pixel_ratio: device_pixel_ratio,
             inside_frame: false,
 
-            bound_textures: [
-                                TextureId(0),
-                                TextureId(0),
-                                TextureId(0),
-                                TextureId(0),
-                                TextureId(0),
-                            ],
+            bound_textures: [ TextureId(0); 16 ],
             bound_program: ProgramId(0),
             bound_vao: VAOId(0),
             bound_fbo: FBOId(0),
@@ -1322,6 +1316,31 @@ impl Device {
                 let u_tasks = gl::get_uniform_location(program.id, "sRenderTasks");
                 if u_tasks != -1 {
                     gl::uniform_1i(u_tasks, TextureSampler::RenderTasks as i32);
+                }
+
+                let u_prim_geom = gl::get_uniform_location(program.id, "sPrimGeometry");
+                if u_prim_geom != -1 {
+                    gl::uniform_1i(u_prim_geom, TextureSampler::Geometry as i32);
+                }
+
+                let u_data16 = gl::get_uniform_location(program.id, "sData16");
+                if u_data16 != -1 {
+                    gl::uniform_1i(u_data16, TextureSampler::Data16 as i32);
+                }
+
+                let u_data32 = gl::get_uniform_location(program.id, "sData32");
+                if u_data32 != -1 {
+                    gl::uniform_1i(u_data32, TextureSampler::Data32 as i32);
+                }
+
+                let u_data64 = gl::get_uniform_location(program.id, "sData64");
+                if u_data64 != -1 {
+                    gl::uniform_1i(u_data64, TextureSampler::Data64 as i32);
+                }
+
+                let u_data128 = gl::get_uniform_location(program.id, "sData128");
+                if u_data128 != -1 {
+                    gl::uniform_1i(u_data128, TextureSampler::Data128    as i32);
                 }
             }
         }
