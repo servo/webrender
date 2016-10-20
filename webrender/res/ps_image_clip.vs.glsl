@@ -20,7 +20,7 @@ void main(void) {
                                  prim.layer,
                                  prim.tile);
     vLocalRect = prim.local_rect;
-    vLocalPos = vi.local_clamped_pos - vi.local_rect.p0;
+    vLocalPos = vi.local_clamped_pos;
 #endif
 
     Clip clip = fetch_clip(prim.clip_index);
