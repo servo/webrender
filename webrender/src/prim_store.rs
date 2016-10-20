@@ -7,7 +7,7 @@ use device::TextureId;
 use euclid::{Point2D, Matrix4D, Rect, Size2D};
 use frame::FrameId;
 use gpu_store::{GpuStore, GpuStoreAddress};
-use internal_types::{DevicePixel, Glyph};
+use internal_types::{DeviceRect, Glyph};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use resource_list::ResourceList;
@@ -314,7 +314,7 @@ pub enum PrimitiveContainer {
 
 pub struct PrimitiveStore {
     // CPU side information only
-    pub cpu_bounding_rects: Vec<Option<Rect<DevicePixel>>>,
+    pub cpu_bounding_rects: Vec<Option<DeviceRect>>,
     pub cpu_text_runs: Vec<TextRunPrimitiveCpu>,
     pub cpu_images: Vec<ImagePrimitiveCpu>,
     pub cpu_gradients: Vec<GradientPrimitiveCpu>,
@@ -499,7 +499,7 @@ impl PrimitiveStore {
         PrimitiveIndex(prim_index)
     }
 
-    pub fn get_bounding_rect(&self, index: PrimitiveIndex) -> &Option<Rect<DevicePixel>> {
+    pub fn get_bounding_rect(&self, index: PrimitiveIndex) -> &Option<DeviceRect> {
         &self.cpu_bounding_rects[index.0]
     }
 
@@ -578,7 +578,7 @@ impl PrimitiveStore {
 
     pub fn build_bounding_rect(&mut self,
                                prim_index: PrimitiveIndex,
-                               screen_rect: &Rect<DevicePixel>,
+                               screen_rect: &DeviceRect,
                                layer_transform: &Matrix4D<f32>,
                                layer_combined_local_clip_rect: &Rect<f32>,
                                device_pixel_ratio: f32) -> bool {
@@ -660,10 +660,10 @@ impl PrimitiveStore {
 
                     dest_glyphs[actual_glyph_count] = GpuBlock32::from(GlyphPrimitive {
                         offset: local_glyph_rect.origin,
-                        uv0: Point2D::new(image_info.pixel_rect.top_left.x.0 as f32,
-                                          image_info.pixel_rect.top_left.y.0 as f32),
-                        uv1: Point2D::new(image_info.pixel_rect.bottom_right.x.0 as f32,
-                                          image_info.pixel_rect.bottom_right.y.0 as f32),
+                        uv0: Point2D::new(image_info.pixel_rect.top_left.x as f32,
+                                          image_info.pixel_rect.top_left.y as f32),
+                        uv1: Point2D::new(image_info.pixel_rect.bottom_right.x as f32,
+                                          image_info.pixel_rect.bottom_right.y as f32),
                         padding: Point2D::zero(),
                     });
 
@@ -898,10 +898,10 @@ impl ImagePrimitiveCpu {
                 let info = resource_cache.get_image(image_key, image_rendering, frame_id);
                 ImageInfo {
                     color_texture_id: info.texture_id,
-                    uv0: Point2D::new(info.pixel_rect.top_left.x.0 as f32,
-                                      info.pixel_rect.top_left.y.0 as f32),
-                    uv1: Point2D::new(info.pixel_rect.bottom_right.x.0 as f32,
-                                      info.pixel_rect.bottom_right.y.0 as f32),
+                    uv0: Point2D::new(info.pixel_rect.top_left.x as f32,
+                                      info.pixel_rect.top_left.y as f32),
+                    uv1: Point2D::new(info.pixel_rect.bottom_right.x as f32,
+                                      info.pixel_rect.bottom_right.y as f32),
                     stretch_size: Some(stretch_size),
                     uv_kind: TextureCoordKind::Pixel,
                     tile_spacing: tile_spacing,

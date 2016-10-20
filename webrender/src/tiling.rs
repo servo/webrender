@@ -9,7 +9,7 @@ use euclid::{Point2D, Point4D, Rect, Matrix4D, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
 use gpu_store::GpuStoreAddress;
-use internal_types::{DevicePixel, CompositionOp};
+use internal_types::{DeviceRect, DevicePoint, DeviceSize, DeviceLength, device_pixel, CompositionOp};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
 use layer::Layer;
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
@@ -44,7 +44,7 @@ trait AlphaBatchHelpers {
     fn get_batch_info(&self, metadata: &PrimitiveMetadata) -> (AlphaBatchKind, TextureId);
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
-                         tile_rect: &Rect<DevicePixel>,
+                         tile_rect: &DeviceRect,
                          transform: &Matrix4D<f32>,
                          device_pixel_ratio: f32) -> bool;
     fn add_prim_to_batch(&self,
@@ -83,7 +83,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
     // Optional narrow phase intersection test, depending on primitive type.
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
-                         tile_rect: &Rect<DevicePixel>,
+                         tile_rect: &DeviceRect,
                          transform: &Matrix4D<f32>,
                          device_pixel_ratio: f32) -> bool {
         let metadata = self.get_metadata(prim_index);
@@ -443,7 +443,7 @@ impl RenderTarget {
     fn new(is_framebuffer: bool) -> RenderTarget {
         RenderTarget {
             is_framebuffer: is_framebuffer,
-            page_allocator: TexturePage::new(TextureId(0), RENDERABLE_CACHE_SIZE.0 as u32),
+            page_allocator: TexturePage::new(TextureId(0), RENDERABLE_CACHE_SIZE as u32),
             tasks: Vec::new(),
 
             alpha_batchers: Vec::new(),
@@ -534,8 +534,8 @@ impl RenderPhase {
 
 #[derive(Debug)]
 enum RenderTaskLocation {
-    Fixed(Rect<DevicePixel>),
-    Dynamic(Option<Point2D<DevicePixel>>, Size2D<DevicePixel>),
+    Fixed(DeviceRect),
+    Dynamic(Option<DevicePoint>, DeviceSize),
 }
 
 #[derive(Debug)]
@@ -547,7 +547,7 @@ enum AlphaRenderItem {
 
 #[derive(Debug)]
 struct AlphaRenderTask {
-    actual_rect: Rect<DevicePixel>,
+    actual_rect: DeviceRect,
     items: Vec<AlphaRenderItem>,
 }
 
@@ -565,7 +565,7 @@ struct RenderTask {
 }
 
 impl RenderTask {
-    fn new_alpha_batch(actual_rect: Rect<DevicePixel>, ctx: &RenderTargetContext) -> RenderTask {
+    fn new_alpha_batch(actual_rect: DeviceRect, ctx: &RenderTargetContext) -> RenderTask {
         let task_index = ctx.render_task_id_counter.fetch_add(1, Ordering::Relaxed);
 
         RenderTask {
@@ -592,14 +592,14 @@ impl RenderTask {
 
                 RenderTaskData {
                     data: [
-                        task.actual_rect.origin.x.0 as f32,
-                        task.actual_rect.origin.y.0 as f32,
-                        task.actual_rect.size.width.0 as f32,
-                        task.actual_rect.size.height.0 as f32,
-                        target_rect.origin.x.0 as f32,
-                        target_rect.origin.y.0 as f32,
-                        target_rect.size.width.0 as f32,
-                        target_rect.size.height.0 as f32,
+                        task.actual_rect.origin.x as f32,
+                        task.actual_rect.origin.y as f32,
+                        task.actual_rect.size.width as f32,
+                        task.actual_rect.size.height as f32,
+                        target_rect.origin.x as f32,
+                        target_rect.origin.y as f32,
+                        target_rect.size.width as f32,
+                        target_rect.size.height as f32,
                     ],
                 }
             }
@@ -617,12 +617,12 @@ impl RenderTask {
         }
     }
 
-    fn get_target_rect(&self) -> Rect<DevicePixel> {
+    fn get_target_rect(&self) -> DeviceRect {
         match self.location {
             RenderTaskLocation::Fixed(rect) => rect,
             RenderTaskLocation::Dynamic(origin, size) => {
-                Rect::new(origin.expect("Should have been allocated by now!"),
-                          size)
+                DeviceRect::new(origin.expect("Should have been allocated by now!"),
+                                size)
             }
         }
     }
@@ -661,15 +661,15 @@ impl RenderTask {
             RenderTaskLocation::Dynamic(ref mut origin, ref size) => {
                 let target = &mut targets[target_index];
 
-                let alloc_size = Size2D::new(size.width.0 as u32,
-                                             size.height.0 as u32);
+                let alloc_size = Size2D::new(size.width as u32,
+                                             size.height as u32);
 
                 let alloc_origin = target.page_allocator.allocate(&alloc_size);
 
                 match alloc_origin {
                     Some(alloc_origin) => {
-                        *origin = Some(Point2D::new(DevicePixel(alloc_origin.x as i32),
-                                                    DevicePixel(alloc_origin.y as i32)));
+                        *origin = Some(DevicePoint::new(alloc_origin.x as i32,
+                                                        alloc_origin.y as i32));
                     }
                     None => {
                         return false;
@@ -700,13 +700,13 @@ impl RenderTask {
 }
 
 pub const SCREEN_TILE_SIZE: i32 = 64;
-pub const RENDERABLE_CACHE_SIZE: DevicePixel = DevicePixel(2048);
+pub const RENDERABLE_CACHE_SIZE: i32 = 2048;
 
 #[derive(Debug, Clone)]
 pub struct DebugRect {
     pub label: String,
     pub color: ColorF,
-    pub rect: Rect<DevicePixel>,
+    pub rect: DeviceRect,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -1092,7 +1092,7 @@ impl StackingContext {
 
 #[derive(Debug, Clone)]
 pub struct ClearTile {
-    pub rect: Rect<DevicePixel>,
+    pub rect: DeviceRect,
 }
 
 #[derive(Clone, Copy)]
@@ -1177,14 +1177,14 @@ enum TileCommand {
 
 #[derive(Debug)]
 struct ScreenTile {
-    rect: Rect<DevicePixel>,
+    rect: DeviceRect,
     cmds: Vec<TileCommand>,
     prim_count: usize,
     is_simple: bool,
 }
 
 impl ScreenTile {
-    fn new(rect: Rect<DevicePixel>) -> ScreenTile {
+    fn new(rect: DeviceRect) -> ScreenTile {
         ScreenTile {
             rect: rect,
             cmds: Vec::new(),
@@ -1713,7 +1713,7 @@ impl FrameBuilder {
     }
 
     fn cull_layers(&mut self,
-                   screen_rect: &Rect<DevicePixel>,
+                   screen_rect: &DeviceRect,
                    layer_map: &HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>,
                    pipeline_auxiliary_lists: &HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>,
                    resource_list: &mut ResourceList,
@@ -1764,10 +1764,10 @@ impl FrameBuilder {
                             let layer_rect = layer_xf_rect.bounding_rect;
                             layer.xf_rect = Some(layer_xf_rect);
 
-                            let tile_x0 = layer_rect.origin.x.0 / SCREEN_TILE_SIZE;
-                            let tile_y0 = layer_rect.origin.y.0 / SCREEN_TILE_SIZE;
-                            let tile_x1 = (layer_rect.origin.x.0 + layer_rect.size.width.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
-                            let tile_y1 = (layer_rect.origin.y.0 + layer_rect.size.height.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+                            let tile_x0 = layer_rect.origin.x / SCREEN_TILE_SIZE;
+                            let tile_y0 = layer_rect.origin.y / SCREEN_TILE_SIZE;
+                            let tile_x1 = (layer_rect.origin.x + layer_rect.size.width + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+                            let tile_y1 = (layer_rect.origin.y + layer_rect.size.height + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
 
                             let tile_x0 = cmp::min(tile_x0, x_tile_count);
                             let tile_x0 = cmp::max(tile_x0, 0);
@@ -1824,27 +1824,30 @@ impl FrameBuilder {
     }
 
     fn create_screen_tiles(&self) -> (i32, i32, Vec<ScreenTile>) {
-        let dp_size = Size2D::new(DevicePixel::new(self.screen_rect.size.width as f32,
-                                                   self.device_pixel_ratio),
-                                  DevicePixel::new(self.screen_rect.size.height as f32,
-                                                   self.device_pixel_ratio));
+        let dp_size = DeviceSize::from_lengths(device_pixel(self.screen_rect.size.width as f32,
+                                                            self.device_pixel_ratio),
+                                               device_pixel(self.screen_rect.size.height as f32,
+                                                            self.device_pixel_ratio));
 
-        let x_tile_size = DevicePixel(SCREEN_TILE_SIZE);
-        let y_tile_size = DevicePixel(SCREEN_TILE_SIZE);
-        let x_tile_count = (dp_size.width + x_tile_size - DevicePixel(1)).0 / x_tile_size.0;
-        let y_tile_count = (dp_size.height + y_tile_size - DevicePixel(1)).0 / y_tile_size.0;
+        let x_tile_size = SCREEN_TILE_SIZE;
+        let y_tile_size = SCREEN_TILE_SIZE;
+        let x_tile_count = (dp_size.width + x_tile_size - 1) / x_tile_size;
+        let y_tile_count = (dp_size.height + y_tile_size - 1) / y_tile_size;
 
         // Build screen space tiles, which are individual BSP trees.
         let mut screen_tiles = Vec::new();
         for y in 0..y_tile_count {
-            let y0 = DevicePixel(y * y_tile_size.0);
+            let y0 = y * y_tile_size;
             let y1 = y0 + y_tile_size;
 
             for x in 0..x_tile_count {
-                let x0 = DevicePixel(x * x_tile_size.0);
+                let x0 = x * x_tile_size;
                 let x1 = x0 + x_tile_size;
 
-                let tile_rect = rect_from_points(x0, y0, x1, y1);
+                let tile_rect = rect_from_points(DeviceLength::new(x0),
+                                                 DeviceLength::new(y0),
+                                                 DeviceLength::new(x1),
+                                                 DeviceLength::new(y1));
 
                 screen_tiles.push(ScreenTile::new(tile_rect));
             }
@@ -1897,10 +1900,10 @@ impl FrameBuilder {
                             //           Does this cause any problems / demonstrate other bugs?
                             //           Restrict the tiles by clamping to the layer tile indices...
 
-                            let p_tile_x0 = p_rect.origin.x.0 / SCREEN_TILE_SIZE;
-                            let p_tile_y0 = p_rect.origin.y.0 / SCREEN_TILE_SIZE;
-                            let p_tile_x1 = (p_rect.origin.x.0 + p_rect.size.width.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
-                            let p_tile_y1 = (p_rect.origin.y.0 + p_rect.size.height.0 + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+                            let p_tile_x0 = p_rect.origin.x / SCREEN_TILE_SIZE;
+                            let p_tile_y0 = p_rect.origin.y / SCREEN_TILE_SIZE;
+                            let p_tile_x1 = (p_rect.origin.x + p_rect.size.width + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
+                            let p_tile_y1 = (p_rect.origin.y + p_rect.size.height + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
 
                             let p_tile_x0 = cmp::min(p_tile_x0, tile_range.x1);
                             let p_tile_x0 = cmp::max(p_tile_x0, tile_range.x0);
@@ -1950,7 +1953,7 @@ impl FrameBuilder {
     }
 
     fn prepare_primitives(&mut self,
-                          screen_rect: &Rect<DevicePixel>,
+                          screen_rect: &DeviceRect,
                           resource_cache: &ResourceCache,
                           frame_id: FrameId,
                           pipeline_auxiliary_lists: &HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>) {
@@ -2034,9 +2037,9 @@ impl FrameBuilder {
         let mut profile_counters = FrameProfileCounters::new();
         profile_counters.total_primitives.set(self.prim_store.prim_count());
 
-        let screen_rect = Rect::new(Point2D::zero(),
-                                    Size2D::new(DevicePixel::new(self.screen_rect.size.width as f32, self.device_pixel_ratio),
-                                                DevicePixel::new(self.screen_rect.size.height as f32, self.device_pixel_ratio)));
+        let screen_rect = DeviceRect::new(DevicePoint::zero(),
+                                          DeviceSize::from_lengths(device_pixel(self.screen_rect.size.width as f32, self.device_pixel_ratio),
+                                                                   device_pixel(self.screen_rect.size.height as f32, self.device_pixel_ratio)));
 
         let mut resource_list = ResourceList::new();
         let mut debug_rects = Vec::new();
@@ -2156,8 +2159,8 @@ impl FrameBuilder {
             profile_counters: profile_counters,
             phases: phases,
             clear_tiles: clear_tiles,
-            cache_size: Size2D::new(RENDERABLE_CACHE_SIZE.0 as f32,
-                                    RENDERABLE_CACHE_SIZE.0 as f32),
+            cache_size: Size2D::new(RENDERABLE_CACHE_SIZE as f32,
+                                    RENDERABLE_CACHE_SIZE as f32),
             layer_texture_data: self.packed_layers.clone(),
             render_task_data: render_tasks.render_task_data,
             gpu_data16: self.prim_store.gpu_data16.build(),

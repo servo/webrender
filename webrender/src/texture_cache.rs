@@ -10,7 +10,7 @@ use frame::FrameId;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
 use internal_types::{RenderTargetMode, TextureImage, TextureUpdateList};
-use internal_types::{RectUv, DevicePixel};
+use internal_types::{RectUv, DevicePixel, DevicePoint};
 use std::cmp::{self, Ordering};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -444,7 +444,7 @@ pub struct TextureCacheItem {
     pub user_data: TextureCacheItemUserData,
 
     // The texture coordinates for this item
-    pub pixel_rect: RectUv<DevicePixel>,
+    pub pixel_rect: RectUv<i32, DevicePixel>,
 
     // The size of the entire texture (not just the allocated rectangle)
     pub texture_size: Size2D<u32>,
@@ -498,14 +498,14 @@ impl TextureCacheItem {
             texture_id: texture_id,
             texture_size: *texture_size,
             pixel_rect: RectUv {
-                top_left: Point2D::new(DevicePixel::from_u32(requested_rect.origin.x),
-                                       DevicePixel::from_u32(requested_rect.origin.y)),
-                top_right: Point2D::new(DevicePixel::from_u32(requested_rect.origin.x + requested_rect.size.width),
-                                        DevicePixel::from_u32(requested_rect.origin.y)),
-                bottom_left: Point2D::new(DevicePixel::from_u32(requested_rect.origin.x),
-                                          DevicePixel::from_u32(requested_rect.origin.y + requested_rect.size.height)),
-                bottom_right: Point2D::new(DevicePixel::from_u32(requested_rect.origin.x + requested_rect.size.width),
-                                           DevicePixel::from_u32(requested_rect.origin.y + requested_rect.size.height))
+                top_left: DevicePoint::new(requested_rect.origin.x as i32,
+                                           requested_rect.origin.y as i32),
+                top_right: DevicePoint::new((requested_rect.origin.x + requested_rect.size.width) as i32,
+                                            requested_rect.origin.y as i32),
+                bottom_left: DevicePoint::new(requested_rect.origin.x as i32,
+                                              (requested_rect.origin.y + requested_rect.size.height) as i32),
+                bottom_right: DevicePoint::new((requested_rect.origin.x + requested_rect.size.width) as i32,
+                                               (requested_rect.origin.y + requested_rect.size.height) as i32)
             },
             user_data: TextureCacheItemUserData {
                 x0: user_x0,
@@ -534,14 +534,14 @@ impl TextureCacheItem {
     pub fn uv_rect(&self) -> RectUv<f32> {
         let (width, height) = (self.texture_size.width as f32, self.texture_size.height as f32);
         RectUv {
-            top_left: Point2D::new(self.pixel_rect.top_left.x.as_f32() / width,
-                                   self.pixel_rect.top_left.y.as_f32() / height),
-            top_right: Point2D::new(self.pixel_rect.top_right.x.as_f32() / width,
-                                    self.pixel_rect.top_right.y.as_f32() / height),
-            bottom_left: Point2D::new(self.pixel_rect.bottom_left.x.as_f32() / width,
-                                      self.pixel_rect.bottom_left.y.as_f32() / height),
-            bottom_right: Point2D::new(self.pixel_rect.bottom_right.x.as_f32() / width,
-                                       self.pixel_rect.bottom_right.y.as_f32() / height),
+            top_left: Point2D::new(self.pixel_rect.top_left.x as f32 / width,
+                                   self.pixel_rect.top_left.y as f32 / height),
+            top_right: Point2D::new(self.pixel_rect.top_right.x as f32 / width,
+                                    self.pixel_rect.top_right.y as f32 / height),
+            bottom_left: Point2D::new(self.pixel_rect.bottom_left.x as f32 / width,
+                                      self.pixel_rect.bottom_left.y as f32 / height),
+            bottom_right: Point2D::new(self.pixel_rect.bottom_right.x as f32 / width,
+                                       self.pixel_rect.bottom_right.y as f32 / height),
         }
     }
 }
@@ -632,10 +632,10 @@ impl TextureCache {
                 y0: 0,
             },
             pixel_rect: RectUv {
-                top_left: Point2D::zero(),
-                top_right: Point2D::zero(),
-                bottom_left: Point2D::zero(),
-                bottom_right: Point2D::zero(),
+                top_left: DevicePoint::zero(),
+                top_right: DevicePoint::zero(),
+                bottom_left: DevicePoint::zero(),
+                bottom_right: DevicePoint::zero(),
             },
             allocated_rect: Rect::zero(),
             requested_rect: Rect::zero(),

@@ -4,10 +4,9 @@
 
 use app_units::Au;
 use device::{TextureId, TextureFilter};
-use euclid::{Point2D, Rect, Size2D};
+use euclid::{Point2D, Rect, Size2D, TypedRect, TypedPoint2D, TypedSize2D, Length, UnknownUnit};
 use fnv::FnvHasher;
 use freelist::{FreeListItem, FreeListItemId};
-use num_traits::Zero;
 use offscreen_gl_context::{NativeGLContext, NativeGLContextHandle};
 use offscreen_gl_context::{GLContext, NativeGLContextMethods, GLContextDispatcher};
 use offscreen_gl_context::{OSMesaContext, OSMesaContextHandle};
@@ -17,7 +16,6 @@ use std::collections::{HashMap, HashSet};
 use std::f32;
 use std::hash::BuildHasherDefault;
 use std::i32;
-use std::ops::{Add, Sub};
 use std::path::PathBuf;
 use std::sync::Arc;
 use texture_cache::BorderType;
@@ -130,51 +128,16 @@ impl GLContextWrapper {
     }
 }
 
+pub type DeviceRect = TypedRect<i32, DevicePixel>;
+pub type DevicePoint = TypedPoint2D<i32, DevicePixel>;
+pub type DeviceSize = TypedSize2D<i32, DevicePixel>;
+pub type DeviceLength = Length<i32, DevicePixel>;
+
 #[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct DevicePixel(pub i32);
+pub struct DevicePixel;
 
-impl DevicePixel {
-    pub fn new(value: f32, device_pixel_ratio: f32) -> DevicePixel {
-        DevicePixel((value * device_pixel_ratio).round() as i32)
-    }
-
-    pub fn from_u32(value: u32) -> DevicePixel {
-        DevicePixel(value as i32)
-    }
-
-    // TODO(gw): Remove eventually...
-    pub fn as_f32(&self) -> f32 {
-        let DevicePixel(value) = *self;
-        value as f32
-    }
-}
-
-impl Add for DevicePixel {
-    type Output = DevicePixel;
-
-    #[inline]
-    fn add(self, other: DevicePixel) -> DevicePixel {
-        DevicePixel(self.0 + other.0)
-    }
-}
-
-impl Sub for DevicePixel {
-    type Output = DevicePixel;
-
-    fn sub(self, other: DevicePixel) -> DevicePixel {
-        DevicePixel(self.0 - other.0)
-    }
-}
-
-impl Zero for DevicePixel {
-    fn zero() -> DevicePixel {
-        DevicePixel(0)
-    }
-
-    fn is_zero(&self) -> bool {
-        let DevicePixel(value) = *self;
-        value == 0
-    }
+pub fn device_pixel(value: f32, device_pixel_ratio: f32) -> DeviceLength {
+    DeviceLength::new((value * device_pixel_ratio).round() as i32)
 }
 
 const UV_FLOAT_TO_FIXED: f32 = 65535.0;
@@ -473,11 +436,11 @@ pub struct RectColors {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct RectUv<T> {
-    pub top_left: Point2D<T>,
-    pub top_right: Point2D<T>,
-    pub bottom_left: Point2D<T>,
-    pub bottom_right: Point2D<T>,
+pub struct RectUv<T, U = UnknownUnit> {
+    pub top_left: TypedPoint2D<T, U>,
+    pub top_right: TypedPoint2D<T, U>,
+    pub bottom_left: TypedPoint2D<T, U>,
+    pub bottom_right: TypedPoint2D<T, U>,
 }
 
 #[derive(Clone, Debug)]
