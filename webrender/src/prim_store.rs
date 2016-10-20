@@ -263,7 +263,7 @@ impl Clip {
         Clip {
             rect: ClipRect {
                 rect: rect,
-                padding: [0.0, 0.0, 0.0, 0.0],
+                padding: [0.0; 4],
             },
             top_left: ClipCorner::invalid(rect),
             top_right: ClipCorner::invalid(rect),
@@ -276,7 +276,7 @@ impl Clip {
         Clip {
             rect: ClipRect {
                 rect: rect,
-                padding: [0.0, 0.0, 0.0, 0.0],
+                padding: [0.0; 4],
             },
             top_left: ClipCorner::uniform(Rect::new(Point2D::new(rect.origin.x,
                                                                  rect.origin.y),
@@ -509,11 +509,11 @@ impl PrimitiveStore {
         match (metadata.clip_index, clip) {
             (Some(clip_index), Some(clip)) => {
                 let clip_data = self.gpu_data32.get_slice_mut(clip_index, 5);
-                clip_data[0] = GpuBlock32::from(clip.rect.clone());
-                clip_data[1] = GpuBlock32::from(clip.top_left.clone());
-                clip_data[2] = GpuBlock32::from(clip.top_right.clone());
-                clip_data[3] = GpuBlock32::from(clip.bottom_left.clone());
-                clip_data[4] = GpuBlock32::from(clip.bottom_right.clone());
+                clip_data[0] = GpuBlock32::from(clip.rect);
+                clip_data[1] = GpuBlock32::from(clip.top_left);
+                clip_data[2] = GpuBlock32::from(clip.top_right);
+                clip_data[3] = GpuBlock32::from(clip.bottom_left);
+                clip_data[4] = GpuBlock32::from(clip.bottom_right);
             }
             (Some(..), None) => {
                 // TODO(gw): Add to clip free list!
@@ -523,11 +523,11 @@ impl PrimitiveStore {
                 // TODO(gw): Pull from clip free list!
                 let gpu_address = self.gpu_data32.alloc(5);
                 let clip_data = self.gpu_data32.get_slice_mut(gpu_address, 5);
-                clip_data[0] = GpuBlock32::from(clip.rect.clone());
-                clip_data[1] = GpuBlock32::from(clip.top_left.clone());
-                clip_data[2] = GpuBlock32::from(clip.top_right.clone());
-                clip_data[3] = GpuBlock32::from(clip.bottom_left.clone());
-                clip_data[4] = GpuBlock32::from(clip.bottom_right.clone());
+                clip_data[0] = GpuBlock32::from(clip.rect);
+                clip_data[1] = GpuBlock32::from(clip.top_left);
+                clip_data[2] = GpuBlock32::from(clip.top_right);
+                clip_data[3] = GpuBlock32::from(clip.bottom_left);
+                clip_data[4] = GpuBlock32::from(clip.bottom_right);
                 metadata.clip_index = Some(gpu_address);
             }
             (None, None) => {}
@@ -693,9 +693,7 @@ impl PrimitiveStore {
 
                 match uv_kind {
                     TextureCoordKind::Normalized => {}
-                    TextureCoordKind::Pixel => {
-                        uv1.x = -uv1.x;
-                    }
+                    TextureCoordKind::Pixel => uv1.x = -uv1.x,
                 }
 
                 let image_gpu = self.gpu_data32.get_mut(metadata.gpu_prim_index);
@@ -721,7 +719,7 @@ impl PrimitiveStore {
                         *dest = GpuBlock32::from(GradientStop {
                             offset: 1.0 - src.offset,
                             color: src.color,
-                            padding: [0.0, 0.0, 0.0],
+                            padding: [0.0; 3],
                         });
                     }
                 } else {
@@ -729,7 +727,7 @@ impl PrimitiveStore {
                         *dest = GpuBlock32::from(GradientStop {
                             offset: src.offset,
                             color: src.color,
-                            padding: [0.0, 0.0, 0.0],
+                            padding: [0.0; 3],
                         });
                     }
                 }

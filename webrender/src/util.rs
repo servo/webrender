@@ -235,6 +235,10 @@ impl TransformedRect {
             TransformedRectKind::Complex
         };
 
+        // FIXME(gw): This code is meant to be a fast path for simple transforms.
+        // However, it fails on transforms that translate Z but result in an
+        // axis aligned rect.
+
 /*
         match kind {
             TransformedRectKind::AxisAligned => {
