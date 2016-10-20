@@ -354,9 +354,15 @@ impl TextureUpdateList {
     }
 }
 
+/// Mostly wraps a tiling::Frame, adding a bit of extra information.
 pub struct RendererFrame {
+    /// The last rendered epoch for each pipeline present in the frame.
+    /// This information is used to know if a certain transformation on the layout has
+    /// been rendered, which is necessary for reftests.
     pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
+    /// The layers that are currently affected by the over-scrolling animation.
     pub layers_bouncing_back: HashSet<ScrollLayerId, BuildHasherDefault<FnvHasher>>,
+
     pub frame: Option<tiling::Frame>,
 }
 

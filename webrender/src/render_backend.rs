@@ -23,7 +23,10 @@ use record;
 use tiling::FrameBuilderConfig;
 use offscreen_gl_context::GLContextDispatcher;
 
-
+/// The render backend is responsible for transforming high level display lists into
+/// GPU-friendly work which is then submitted to the renderer in the form of a frame::Frame.
+///
+/// The render backend operates on its own thread.
 pub struct RenderBackend {
     api_rx: IpcReceiver<ApiMsg>,
     payload_rx: IpcBytesReceiver,

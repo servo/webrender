@@ -14,6 +14,7 @@ use webrender_traits::{SpecificDisplayListItem};
 use webrender_traits::{IframeInfo};
 use webrender_traits::{RectangleDisplayItem, ClipRegion, DisplayItem, SpecificDisplayItem};
 
+/// A representation of the layout within the display port for a given document or iframe.
 #[derive(Debug)]
 pub struct ScenePipeline {
     pub pipeline_id: PipelineId,
@@ -23,6 +24,7 @@ pub struct ScenePipeline {
     pub viewport_size: Size2D<f32>,
 }
 
+/// A complete representation of the layout bundling visible pipelines together.
 pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
     pub pipeline_map: HashMap<PipelineId, ScenePipeline, BuildHasherDefault<FnvHasher>>,
@@ -46,6 +48,7 @@ pub struct SceneItem {
     pub specific: SpecificSceneItem,
 }
 
+/// Similar to webrender_traits::DisplayList internal to WebRender.
 pub struct SceneDisplayList {
     pub pipeline_id: PipelineId,
     pub epoch: Epoch,
