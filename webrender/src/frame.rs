@@ -16,7 +16,7 @@ use resource_cache::ResourceCache;
 use scene::{SceneStackingContext, ScenePipeline, Scene, SceneItem, SpecificSceneItem};
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
-use tiling::{FrameBuilder, FrameBuilderConfig, InsideTest, PrimitiveFlags};
+use tiling::{FrameBuilder, FrameBuilderConfig, InsideTest, MaskedClip, PrimitiveFlags};
 use util::MatrixHelpers;
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
 use webrender_traits::{ColorF, StackingContext, FilterOp, MixBlendMode};
@@ -544,18 +544,32 @@ impl Frame {
 
                     for item in &draw_list.items {
                         let clips = auxiliary_lists.complex_clip_regions(&item.clip.complex);
-                        let clip = match clips.len() {
-                            0 => None,
-                            1 => Some(Box::new(Clip::from_clip_region(&clips[0]))),
+                        let mut clip = match clips.len() {
+                            0 if item.clip.image_mask.is_none() => None,
+                            0 => Some(MaskedClip::new(Clip::uniform(item.clip.main, 0.0), None)),
+                            1 => Some(MaskedClip::new(Clip::from_clip_region(&clips[0]), None)),
                             _ => {
                                 let internal_clip = clips.last().unwrap();
-                                if clips.iter().all(|current_clip| current_clip.might_contain(internal_clip)) {
-                                    Some(Box::new(Clip::from_clip_region(internal_clip)))
+                                let region = if clips.iter().all(|current_clip| current_clip.might_contain(internal_clip)) {
+                                    internal_clip
                                 } else {
-                                    Some(Box::new(Clip::from_clip_region(&clips[0])))
-                                }
+                                    &clips[0]
+                                };
+                                Some(MaskedClip::new(Clip::from_clip_region(region), None))
                             },
                         };
+
+                        if let Some(ref mask) = item.clip.image_mask {
+                            let old = match clip {
+                                Some(masked) => *masked.clip,
+                                None => Clip::uniform(item.clip.main, 0.0),
+                            };
+                            //Note: can't call `tex_cache.aligned_uv_rect()` here since the image
+                            // is not yet marked as needed this frame.
+                            clip = Some(MaskedClip::new(old.with_mask(Rect::zero(), mask.rect),
+                                                         Some(mask.image)));
+                        }
+
 
                         match item.item {
                             SpecificDisplayItem::WebGL(ref info) => {

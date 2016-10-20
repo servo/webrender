@@ -185,6 +185,7 @@ impl Scene {
             let clip = ClipRegion {
                 main: overflow,
                 complex: ItemRange::empty(),
+                image_mask: None,
             };
             let root_bg_color_item = DisplayItem {
                 item: SpecificDisplayItem::Rectangle(rectangle_item),

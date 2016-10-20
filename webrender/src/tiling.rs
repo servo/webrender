@@ -39,7 +39,7 @@ use webrender_traits::{BoxShadowClipMode, PipelineId, ScrollLayerId, WebGLContex
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
 
 trait AlphaBatchHelpers {
-    fn get_batch_info(&self, metadata: &PrimitiveMetadata) -> (AlphaBatchKind, TextureId);
+    fn get_batch_info(&self, metadata: &PrimitiveMetadata) -> (AlphaBatchKind, TextureId, TextureId);
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
                          tile_rect: &DeviceRect,
@@ -55,7 +55,7 @@ trait AlphaBatchHelpers {
 }
 
 impl AlphaBatchHelpers for PrimitiveStore {
-    fn get_batch_info(&self, metadata: &PrimitiveMetadata) -> (AlphaBatchKind, TextureId) {
+    fn get_batch_info(&self, metadata: &PrimitiveMetadata) -> (AlphaBatchKind, TextureId, TextureId) {
         let batch_kind = match metadata.prim_kind {
             PrimitiveKind::Border => AlphaBatchKind::Border,
             PrimitiveKind::BoxShadow => AlphaBatchKind::BoxShadow,
@@ -75,7 +75,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
             }
         };
 
-        (batch_kind, metadata.color_texture_id)
+        (batch_kind, metadata.color_texture_id, metadata.mask_texture_id)
     }
 
     // Optional narrow phase intersection test, depending on primitive type.
@@ -351,11 +351,12 @@ impl AlphaBatcher {
                         let flags = AlphaBatchKeyFlags::new(transform_kind,
                                                             needs_blending,
                                                             needs_clipping);
-                        let (batch_kind, color_texture_id) = ctx.prim_store
-                                                                .get_batch_info(prim_metadata);
+                        let (batch_kind, color_texture_id, mask_texture_id) = ctx.prim_store
+                                                                                 .get_batch_info(prim_metadata);
                         batch_key = AlphaBatchKey::primitive(batch_kind,
                                                              flags,
-                                                             color_texture_id);
+                                                             color_texture_id,
+                                                             mask_texture_id);
                     }
                 }
 
@@ -375,13 +376,14 @@ impl AlphaBatcher {
                         AlphaRenderItem::Primitive(_, prim_index) => {
                             // See if this task fits into the tile UBO
                             let prim_metadata = ctx.prim_store.get_metadata(prim_index);
-                            let (batch_kind, color_texture_id) = ctx.prim_store
-                                                                    .get_batch_info(prim_metadata);
+                            let (batch_kind, color_texture_id, mask_texture_id) = ctx.prim_store
+                                                                                     .get_batch_info(prim_metadata);
                             PrimitiveBatch::new(batch_kind,
                                                 batch_key.flags.transform_kind(),
                                                 batch_key.flags.needs_blending(),
                                                 batch_key.flags.needs_clipping(),
-                                                color_texture_id)
+                                                color_texture_id,
+                                                mask_texture_id)
                         }
                     };
                     batches.push((batch_key, new_batch))
@@ -680,6 +682,23 @@ impl RenderTask {
 pub const SCREEN_TILE_SIZE: i32 = 256;
 pub const RENDERABLE_CACHE_SIZE: i32 = 2048;
 
+/// Per-batch clipping info merged with the mask image.
+#[derive(Clone, Debug)]
+pub struct MaskedClip {
+    pub clip: Box<Clip>,
+    pub mask: Option<ImageKey>,
+}
+
+impl MaskedClip {
+    pub fn new(clip: Clip, mask: Option<ImageKey>) ->MaskedClip {
+        MaskedClip {
+            clip: Box::new(clip),
+            mask: mask,
+        }
+    }
+}
+
+
 #[derive(Debug, Clone)]
 pub struct DebugRect {
     pub label: String,
@@ -706,6 +725,7 @@ struct AlphaBatchKey {
     kind: AlphaBatchKind,
     flags: AlphaBatchKeyFlags,
     color_texture_id: TextureId,
+    mask_texture_id: TextureId,
 }
 
 impl AlphaBatchKey {
@@ -714,6 +734,7 @@ impl AlphaBatchKey {
             kind: AlphaBatchKind::Blend,
             flags: AlphaBatchKeyFlags(0),
             color_texture_id: TextureId(0),
+            mask_texture_id: TextureId(0),
         }
     }
 
@@ -722,17 +743,20 @@ impl AlphaBatchKey {
             kind: AlphaBatchKind::Composite,
             flags: AlphaBatchKeyFlags(0),
             color_texture_id: TextureId(0),
+            mask_texture_id: TextureId(0),
         }
     }
 
     fn primitive(kind: AlphaBatchKind,
                  flags: AlphaBatchKeyFlags,
-                 color_texture_id: TextureId)
+                 color_texture_id: TextureId,
+                 mask_texture_id: TextureId)
                  -> AlphaBatchKey {
         AlphaBatchKey {
             kind: kind,
             flags: flags,
             color_texture_id: color_texture_id,
+            mask_texture_id: mask_texture_id,
         }
     }
 
@@ -740,7 +764,9 @@ impl AlphaBatchKey {
         self.kind == other.kind &&
             self.flags == other.flags &&
             (self.color_texture_id == TextureId(0) || other.color_texture_id == TextureId(0) ||
-             self.color_texture_id == other.color_texture_id)
+             self.color_texture_id == other.color_texture_id) &&
+            (self.mask_texture_id == TextureId(0) || other.mask_texture_id == TextureId(0) ||
+             self.mask_texture_id == other.mask_texture_id)
     }
 }
 
@@ -820,6 +846,7 @@ pub struct PrimitiveBatch {
     pub transform_kind: TransformedRectKind,
     pub has_complex_clip: bool,
     pub color_texture_id: TextureId,        // TODO(gw): Expand to sampler array to handle all glyphs!
+    pub mask_texture_id: TextureId,
     pub blending_enabled: bool,
     pub data: PrimitiveBatchData,
 }
@@ -828,6 +855,7 @@ impl PrimitiveBatch {
     fn blend() -> PrimitiveBatch {
         PrimitiveBatch {
             color_texture_id: TextureId(0),
+            mask_texture_id: TextureId(0),
             transform_kind: TransformedRectKind::AxisAligned,
             has_complex_clip: false,
             blending_enabled: true,
@@ -838,6 +866,7 @@ impl PrimitiveBatch {
     fn composite() -> PrimitiveBatch {
         PrimitiveBatch {
             color_texture_id: TextureId(0),
+            mask_texture_id: TextureId(0),
             transform_kind: TransformedRectKind::AxisAligned,
             has_complex_clip: false,
             blending_enabled: true,
@@ -900,7 +929,8 @@ impl PrimitiveBatch {
            transform_kind: TransformedRectKind,
            blending_enabled: bool,
            has_complex_clip: bool,
-           color_texture_id: TextureId) -> PrimitiveBatch {
+           color_texture_id: TextureId,
+           mask_texture_id: TextureId) -> PrimitiveBatch {
         let data = match batch_kind {
             AlphaBatchKind::Rectangle => PrimitiveBatchData::Rectangles(Vec::new()),
             AlphaBatchKind::TextRun => PrimitiveBatchData::TextRun(Vec::new()),
@@ -914,6 +944,7 @@ impl PrimitiveBatch {
 
         PrimitiveBatch {
             color_texture_id: color_texture_id,
+            mask_texture_id: mask_texture_id,
             transform_kind: transform_kind,
             blending_enabled: blending_enabled,
             has_complex_clip: has_complex_clip,
@@ -1271,7 +1302,7 @@ impl FrameBuilder {
     fn add_primitive(&mut self,
                      rect: &Rect<f32>,
                      clip_rect: &Rect<f32>,
-                     clip: Option<Box<Clip>>,
+                     clip: Option<MaskedClip>,
                      container: PrimitiveContainer) -> PrimitiveIndex {
         let prim_index = self.prim_store.add_primitive(rect,
                                                        clip_rect,
@@ -1332,7 +1363,7 @@ impl FrameBuilder {
     pub fn add_solid_rectangle(&mut self,
                                rect: &Rect<f32>,
                                clip_rect: &Rect<f32>,
-                               clip: Option<Box<Clip>>,
+                               clip: Option<MaskedClip>,
                                color: &ColorF,
                                flags: PrimitiveFlags) {
         if color.a == 0.0 {
@@ -1381,7 +1412,7 @@ impl FrameBuilder {
     pub fn add_border(&mut self,
                       rect: Rect<f32>,
                       clip_rect: &Rect<f32>,
-                      clip: Option<Box<Clip>>,
+                      clip: Option<MaskedClip>,
                       border: &BorderDisplayItem) {
         let radius = &border.radius;
         let left = &border.left;
@@ -1453,7 +1484,7 @@ impl FrameBuilder {
     pub fn add_gradient(&mut self,
                         rect: Rect<f32>,
                         clip_rect: &Rect<f32>,
-                        clip: Option<Box<Clip>>,
+                        clip: Option<MaskedClip>,
                         start_point: Point2D<f32>,
                         end_point: Point2D<f32>,
                         stops: ItemRange) {
@@ -1486,7 +1517,7 @@ impl FrameBuilder {
         // TODO(gw): The gradient shader only has a clip variant
         // right now. So add an invalid clip if none is provided.
         // Remove this when a non-clip gradient shader is added.
-        let clip = Some(clip.unwrap_or(Box::new(Clip::invalid(rect))));
+        let clip = Some(clip.unwrap_or(MaskedClip::new(Clip::invalid(rect), None)));
 
         let gradient_gpu = GradientPrimitiveGpu {
             start_point: sp,
@@ -1504,7 +1535,7 @@ impl FrameBuilder {
     pub fn add_text(&mut self,
                     rect: Rect<f32>,
                     clip_rect: &Rect<f32>,
-                    clip: Option<Box<Clip>>,
+                    clip: Option<MaskedClip>,
                     font_key: FontKey,
                     size: Au,
                     blur_radius: Au,
@@ -1548,7 +1579,7 @@ impl FrameBuilder {
     pub fn add_box_shadow(&mut self,
                           box_bounds: &Rect<f32>,
                           clip_rect: &Rect<f32>,
-                          clip: Option<Box<Clip>>,
+                          clip: Option<MaskedClip>,
                           box_offset: &Point2D<f32>,
                           color: &ColorF,
                           blur_radius: f32,
@@ -1609,7 +1640,7 @@ impl FrameBuilder {
     pub fn add_webgl_rectangle(&mut self,
                                rect: Rect<f32>,
                                clip_rect: &Rect<f32>,
-                               clip: Option<Box<Clip>>,
+                               clip: Option<MaskedClip>,
                                context_id: WebGLContextId) {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::WebGL(context_id),
@@ -1624,7 +1655,7 @@ impl FrameBuilder {
     pub fn add_image(&mut self,
                      rect: Rect<f32>,
                      clip_rect: &Rect<f32>,
-                     clip: Option<Box<Clip>>,
+                     clip: Option<MaskedClip>,
                      stretch_size: &Size2D<f32>,
                      tile_spacing: &Size2D<f32>,
                      image_key: ImageKey,
