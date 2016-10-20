@@ -367,6 +367,7 @@ pub struct Renderer {
     data32_texture: VertexDataTexture,
     data64_texture: VertexDataTexture,
     data128_texture: VertexDataTexture,
+    dummy_mask_texture: TextureId,
     pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
     /// Used to dispatch functions to the main thread's event loop.
     /// Required to allow GLContext sharing in some implementations like WGL.
@@ -552,6 +553,11 @@ impl Renderer {
         let data64_texture = VertexDataTexture::new(&mut device);
         let data128_texture = VertexDataTexture::new(&mut device);
 
+        let dummy_mask_texture = device.create_texture_ids(1)[0];
+        device.init_texture(dummy_mask_texture, 1, 1, ImageFormat::A8,
+                            TextureFilter::Nearest, RenderTargetMode::None,
+                            Some(&[0xFF]));
+
         let x0 = 0.0;
         let y0 = 0.0;
         let x1 = 1.0;
@@ -662,6 +668,7 @@ impl Renderer {
             data32_texture: data32_texture,
             data64_texture: data64_texture,
             data128_texture: data128_texture,
+            dummy_mask_texture: dummy_mask_texture,
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
             main_thread_dispatcher: main_thread_dispatcher
         };
@@ -1137,7 +1144,7 @@ impl Renderer {
         self.device.bind_program(program_id, &projection);
 
         self.device.bind_texture(TextureSampler::Color, color_texture_id);
-        self.device.bind_texture(TextureSampler::Mask, TextureId(0));
+        self.device.bind_texture(TextureSampler::Mask, self.dummy_mask_texture);
 
         match blur_direction {
             Some(AxisDirection::Horizontal) => {
@@ -1303,11 +1310,13 @@ impl Renderer {
                          shader: ProgramId,
                          quads_per_item: usize,
                          color_texture_id: TextureId,
+                         mask_texture_id: TextureId,
                          max_prim_items: usize,
                          projection: &Matrix4D<f32>) {
         self.device.bind_program(shader, &projection);
         self.device.bind_vao(self.quad_vao_id);
         self.device.bind_texture(TextureSampler::Color, color_texture_id);
+        self.device.bind_texture(TextureSampler::Mask, mask_texture_id);
 
         for chunk in ubo_data.chunks(max_prim_items) {
             let ubos = gl::gen_buffers(1);
@@ -1384,6 +1393,12 @@ impl Renderer {
                     gl::disable(gl::BLEND);
                 }
 
+                let mask_texture_id = if batch.mask_texture_id != TextureId(0) {
+                    batch.mask_texture_id
+                } else {
+                    self.dummy_mask_texture
+                };
+
                 match &batch.data {
                     &PrimitiveBatchData::Blend(ref ubo_data) => {
                         self.gpu_profile.add_marker(GPU_TAG_PRIM_BLEND);
@@ -1439,6 +1454,7 @@ impl Renderer {
                                             shader,
                                             1,
                                             batch.color_texture_id,
+                                            mask_texture_id,
                                             max_prim_items,
                                             &projection);
                     }
@@ -1454,6 +1470,7 @@ impl Renderer {
                                             shader,
                                             1,
                                             batch.color_texture_id,
+                                            mask_texture_id,
                                             max_prim_items,
                                             &projection);
                     }
@@ -1464,6 +1481,7 @@ impl Renderer {
                                             shader,
                                             1,
                                             batch.color_texture_id,
+                                            mask_texture_id,
                                             max_prim_items,
                                             &projection);
 
@@ -1475,6 +1493,7 @@ impl Renderer {
                                             shader,
                                             1,
                                             batch.color_texture_id,
+                                            mask_texture_id,
                                             max_prim_items,
                                             &projection);
 
@@ -1486,6 +1505,7 @@ impl Renderer {
                                             shader,
                                             1,
                                             batch.color_texture_id,
+                                            mask_texture_id,
                                             max_prim_items,
                                             &projection);
                     }
@@ -1496,6 +1516,7 @@ impl Renderer {
                                             shader,
                                             1,
                                             batch.color_texture_id,
+                                            mask_texture_id,
                                             max_prim_items,
                                             &projection);
 
@@ -1507,6 +1528,7 @@ impl Renderer {
                                             shader,
                                             1,
                                             batch.color_texture_id,
+                                            mask_texture_id,
                                             max_prim_items,
                                             &projection);
 

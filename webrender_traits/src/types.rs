@@ -173,9 +173,17 @@ pub struct ColorF {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ImageMask {
+    pub image: ImageKey,
+    pub rect: Rect<f32>,
+    pub repeat: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ClipRegion {
     pub main: Rect<f32>,
     pub complex: ItemRange,
+    pub image_mask: Option<ImageMask>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
