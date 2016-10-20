@@ -312,6 +312,8 @@ fn create_clear_shader(name: &'static str,
     program_id
 }
 
+/// The renderer is responsible for submitting to the GPU the work prepared by the
+/// RenderBackend.
 pub struct Renderer {
     result_rx: Receiver<ResultMsg>,
     device: Device,

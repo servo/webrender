@@ -55,6 +55,7 @@ struct FlattenInfo {
 
 pub type LayerMap = HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>;
 
+// TODO: doc
 pub struct Frame {
     pub layers: LayerMap,
     pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
@@ -525,6 +526,17 @@ impl Frame {
                                    &composition_operations);
 
         if level == 0 {
+            // Add a large white rectangle as the root display item. This is removed
+            // by the occlusion culling for most tiles, and means that it's no longer
+            // necessary to clear the framebuffer.
+            //
+            // TODO(nical) Should this be optional?
+            // on deferred GPUs we probably still want to clear the framebuffer and
+            // Gecko currently supports semit-transparent windows.
+            // Also, this is not needed if the root stacking context has an opaque
+            // background (specified in set_root_stacking_context).
+            //
+            // If we do need this, does it make sense to keep Frame::clear_tiles?
             context.builder.add_solid_rectangle(&stacking_context.bounds,
                                                 &stacking_context.bounds,
                                                 None,

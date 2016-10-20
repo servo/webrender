@@ -40,6 +40,7 @@ pub enum PrimitiveKind {
     BoxShadow,
 }
 
+/// Geometry description for simple rectangular primitives, uploaded to the GPU.
 #[derive(Debug, Clone)]
 pub struct PrimitiveGeometry {
     pub local_rect: Rect<f32>,

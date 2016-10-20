@@ -6,6 +6,7 @@ use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use spring::{DAMPING, STIFFNESS, Spring};
 use webrender_traits::{PipelineId, ScrollLayerId};
 
+/// Contains scroll and transform information for scrollable and root stacking contexts.
 pub struct Layer {
     // Manages scrolling offset, overscroll state etc.
     pub scrolling: ScrollingState,
@@ -19,7 +20,7 @@ pub struct Layer {
     // Viewing rectangle clipped against parent layer(s)
     pub combined_local_viewport_rect: Rect<f32>,
 
-    // World transform for the viewport rect itself.
+    // World transform  for the viewport rect itself.
     pub world_viewport_transform: Matrix4D<f32>,
 
     // World transform for content within this layer

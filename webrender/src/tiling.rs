@@ -306,6 +306,7 @@ struct AlphaBatchTask {
     items: Vec<AlphaRenderItem>,
 }
 
+/// Encapsulates the logic of building batches for items that are blended.
 pub struct AlphaBatcher {
     pub batches: Vec<PrimitiveBatch>,
     tasks: Vec<AlphaBatchTask>,
@@ -429,6 +430,7 @@ struct RenderTargetContext<'a> {
     render_task_id_counter: AtomicUsize,
 }
 
+/// A render target represents a number of rendering operations on a surface.
 pub struct RenderTarget {
     pub alpha_batcher: AlphaBatcher,
     page_allocator: TexturePage,
@@ -460,6 +462,11 @@ impl RenderTarget {
     }
 }
 
+/// A render pass represents a set of rendering operations that don't depend on one
+/// another.
+///
+/// A render pass can have several render targets if there wasn't enough space in one
+/// target to do all of the rendering for that pass.
 pub struct RenderPass {
     pub is_framebuffer: bool,
     tasks: Vec<RenderTask>,
@@ -1061,6 +1068,8 @@ pub struct FrameBuilder {
     scrollbar_prims: Vec<ScrollbarPrimitive>,
 }
 
+/// A rendering-oriented representation of frame::Frame built by the render backend
+/// and presented to the renderer.
 pub struct Frame {
     pub viewport_size: Size2D<i32>,
     pub debug_rects: Vec<DebugRect>,
@@ -1081,6 +1090,7 @@ pub struct Frame {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct ScreenTileIndex(usize);
 
+// For debugging purposes.
 #[derive(Debug)]
 enum CompiledScreenTileInfo {
     SimpleAlpha(usize),
@@ -1240,6 +1250,8 @@ impl ScreenTile {
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
                         let prim_bounding_rect = ctx.prim_store.get_bounding_rect(prim_index);
 
+                        // If an opaque primitive covers a tile entirely, we can discard
+                        // all primitives underneith it.
                         if layer.xf_rect.as_ref().unwrap().kind == TransformedRectKind::AxisAligned &&
                            prim_metadata.clip_index.is_none() &&
                            prim_metadata.is_opaque &&
@@ -1655,6 +1667,8 @@ impl FrameBuilder {
                            PrimitiveContainer::Image(prim_cpu));
     }
 
+    /// Compute the contribution (bounding rectangles, and resources) of layers and their
+    /// primitives in screen space.
     fn cull_layers(&mut self,
                    screen_rect: &DeviceRect,
                    layer_map: &HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>,
