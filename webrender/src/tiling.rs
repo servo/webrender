@@ -32,12 +32,10 @@ use std::usize;
 use texture_cache::TexturePage;
 use util::{self, rect_from_points, MatrixHelpers, rect_from_points_f};
 use util::{TransformedRect, TransformedRectKind, subtract_rect, pack_as_float};
-use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, ComplexClipRegion};
+use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, ComplexClipRegion, MixBlendMode};
 use webrender_traits::{BorderDisplayItem, BorderStyle, ItemRange, AuxiliaryLists, BorderSide};
 use webrender_traits::{BoxShadowClipMode, PipelineId, ScrollLayerId, WebGLContextId};
 
-const ALPHA_BATCHERS_PER_RENDER_TARGET: usize = 4;
-const MIN_TASKS_PER_ALPHA_BATCHER: usize = 64;
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
 
 trait AlphaBatchHelpers {
@@ -399,14 +397,9 @@ impl AlphaBatcher {
                         debug_assert!(ok)
                     }
                     AlphaRenderItem::Blend(src_id, info) => {
-                        let (opacity, brightness) = match info {
-                            SimpleCompositeInfo::Opacity(opacity) => (opacity, 1.0),
-                            SimpleCompositeInfo::Brightness(brightness) => (1.0, brightness),
-                        };
                         let ok = batch.pack_blend(render_tasks.get_task_index(&src_id),
                                                   render_tasks.get_task_index(&task.task_id),
-                                                  opacity,
-                                                  brightness);
+                                                  info);
                         debug_assert!(ok)
                     }
                     AlphaRenderItem::Primitive(sc_index, prim_index) => {
@@ -435,8 +428,7 @@ pub struct RenderTarget {
     pub is_framebuffer: bool,
     page_allocator: TexturePage,
     tasks: Vec<RenderTask>,
-
-    pub alpha_batchers: Vec<AlphaBatcher>,
+    pub alpha_batcher: AlphaBatcher,
 }
 
 impl RenderTarget {
@@ -445,8 +437,7 @@ impl RenderTarget {
             is_framebuffer: is_framebuffer,
             page_allocator: TexturePage::new(TextureId(0), RENDERABLE_CACHE_SIZE as u32),
             tasks: Vec::new(),
-
-            alpha_batchers: Vec::new(),
+            alpha_batcher: AlphaBatcher::new(),
         }
     }
 
@@ -458,22 +449,10 @@ impl RenderTarget {
              ctx: &RenderTargetContext,
              render_tasks: &mut RenderTaskCollection) {
         // Step through each task, adding to batches as appropriate.
-        let tasks_per_batcher =
-            cmp::max((self.tasks.len() + ALPHA_BATCHERS_PER_RENDER_TARGET - 1) /
-                     ALPHA_BATCHERS_PER_RENDER_TARGET,
-                     MIN_TASKS_PER_ALPHA_BATCHER);
         for task in self.tasks.drain(..) {
             match task.kind {
                 RenderTaskKind::Alpha(info) => {
-                    let need_new_batcher =
-                        self.alpha_batchers.is_empty() ||
-                        self.alpha_batchers.last().unwrap().tasks.len() == tasks_per_batcher;
-
-                    if need_new_batcher {
-                        self.alpha_batchers.push(AlphaBatcher::new());
-                    }
-
-                    self.alpha_batchers.last_mut().unwrap().add_task(AlphaBatchTask {
+                    self.alpha_batcher.add_task(AlphaBatchTask {
                         task_id: task.id,
                         items: info.items,
                     });
@@ -481,10 +460,7 @@ impl RenderTarget {
             }
         }
 
-        //println!("+ + start render target");
-        for ab in &mut self.alpha_batchers {
-            ab.build(ctx, render_tasks);
-        }
+        self.alpha_batcher.build(ctx, render_tasks);
     }
 }
 
@@ -541,8 +517,8 @@ enum RenderTaskLocation {
 #[derive(Debug)]
 enum AlphaRenderItem {
     Primitive(StackingContextIndex, PrimitiveIndex),
-    Blend(RenderTaskId, SimpleCompositeInfo),
-    Composite(RenderTaskId, RenderTaskId, PackedCompositeInfo),
+    Blend(RenderTaskId, LowLevelFilterOp),
+    Composite(RenderTaskId, RenderTaskId, MixBlendMode),
 }
 
 #[derive(Debug)]
@@ -589,17 +565,19 @@ impl RenderTask {
         match self.kind {
             RenderTaskKind::Alpha(ref task) => {
                 let target_rect = self.get_target_rect();
+                debug_assert!(target_rect.size.width == task.actual_rect.size.width);
+                debug_assert!(target_rect.size.height == task.actual_rect.size.height);
 
                 RenderTaskData {
                     data: [
                         task.actual_rect.origin.x as f32,
                         task.actual_rect.origin.y as f32,
-                        task.actual_rect.size.width as f32,
-                        task.actual_rect.size.height as f32,
                         target_rect.origin.x as f32,
                         target_rect.origin.y as f32,
-                        target_rect.size.width as f32,
-                        target_rect.size.height as f32,
+                        task.actual_rect.size.width as f32,
+                        task.actual_rect.size.height as f32,
+                        0.0,
+                        0.0,
                     ],
                 }
             }
@@ -699,7 +677,7 @@ impl RenderTask {
     }
 }
 
-pub const SCREEN_TILE_SIZE: i32 = 64;
+pub const SCREEN_TILE_SIZE: i32 = 256;
 pub const RENDERABLE_CACHE_SIZE: i32 = 2048;
 
 #[derive(Debug, Clone)]
@@ -812,55 +790,8 @@ pub struct PrimitiveInstance {
 pub struct PackedBlendPrimitive {
     src_task_id: i32,
     target_task_id: i32,
-    brightness: i32,
-    opacity: i32,
-}
-
-#[derive(Debug, Copy, Clone)]
-struct PackedCompositeInfo {
-    kind: i32,
     op: i32,
     amount: i32,
-    padding: i32,
-}
-
-impl PackedCompositeInfo {
-    fn new(ops: &[CompositionOp]) -> PackedCompositeInfo {
-        // TODO(gw): Support chained filters
-        let op = &ops[0];
-
-        let (kind, op, amount) = match op {
-            &CompositionOp::MixBlend(mode) => {
-                (0, mode as u32, 0.0)
-            }
-            &CompositionOp::Filter(filter) => {
-                let (filter_mode, amount) = match filter {
-                    LowLevelFilterOp::Blur(..) => (0, 0.0),
-                    LowLevelFilterOp::Contrast(amount) => (1, amount.to_f32_px()),
-                    LowLevelFilterOp::Grayscale(amount) => (2, amount.to_f32_px()),
-                    LowLevelFilterOp::HueRotate(angle) => (3, (angle as f32) / ANGLE_FLOAT_TO_FIXED),
-                    LowLevelFilterOp::Invert(amount) => (4, amount.to_f32_px()),
-                    LowLevelFilterOp::Saturate(amount) => (5, amount.to_f32_px()),
-                    LowLevelFilterOp::Sepia(amount) => (6, amount.to_f32_px()),
-                    LowLevelFilterOp::Brightness(_) |
-                    LowLevelFilterOp::Opacity(_) => {
-                        // Expressible using GL blend modes, so not handled
-                        // here.
-                        unreachable!()
-                    }
-                };
-
-                (1, filter_mode, amount)
-            }
-        };
-
-        PackedCompositeInfo {
-            kind: kind,
-            op: op as i32,
-            amount: (amount * 65536.0).round() as i32,
-            padding: 0,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -868,8 +799,7 @@ pub struct PackedCompositePrimitive {
     src0_task_id: i32,
     src1_task_id: i32,
     target_task_id: i32,
-    padding: i32,
-    info: PackedCompositeInfo,
+    op: i32,
 }
 
 #[derive(Debug)]
@@ -918,15 +848,26 @@ impl PrimitiveBatch {
     fn pack_blend(&mut self,
                   src_rect_index: RenderTaskIndex,
                   target_rect_index: RenderTaskIndex,
-                  opacity: f32,
-                  brightness: f32) -> bool {
+                  filter: LowLevelFilterOp) -> bool {
         match &mut self.data {
             &mut PrimitiveBatchData::Blend(ref mut ubo_data) => {
+                let (filter_mode, amount) = match filter {
+                    LowLevelFilterOp::Blur(..) => (0, 0.0),
+                    LowLevelFilterOp::Contrast(amount) => (1, amount.to_f32_px()),
+                    LowLevelFilterOp::Grayscale(amount) => (2, amount.to_f32_px()),
+                    LowLevelFilterOp::HueRotate(angle) => (3, (angle as f32) / ANGLE_FLOAT_TO_FIXED),
+                    LowLevelFilterOp::Invert(amount) => (4, amount.to_f32_px()),
+                    LowLevelFilterOp::Saturate(amount) => (5, amount.to_f32_px()),
+                    LowLevelFilterOp::Sepia(amount) => (6, amount.to_f32_px()),
+                    LowLevelFilterOp::Brightness(amount) => (7, amount.to_f32_px()),
+                    LowLevelFilterOp::Opacity(amount) => (8, amount.to_f32_px()),
+                };
+
                 ubo_data.push(PackedBlendPrimitive {
                     src_task_id: src_rect_index.0 as i32,
                     target_task_id: target_rect_index.0 as i32,
-                    opacity: (opacity * 65535.0).round() as i32,
-                    brightness: (brightness * 65535.0).round() as i32,
+                    amount: (amount * 65535.0).round() as i32,
+                    op: filter_mode,
                 });
 
                 true
@@ -939,15 +880,14 @@ impl PrimitiveBatch {
                       rect0_index: RenderTaskIndex,
                       rect1_index: RenderTaskIndex,
                       target_rect_index: RenderTaskIndex,
-                      info: PackedCompositeInfo) -> bool {
+                      info: MixBlendMode) -> bool {
         match &mut self.data {
             &mut PrimitiveBatchData::Composite(ref mut ubo_data) => {
                 ubo_data.push(PackedCompositePrimitive {
                     src0_task_id: rect0_index.0 as i32,
                     src1_task_id: rect1_index.0 as i32,
                     target_task_id: target_rect_index.0 as i32,
-                    padding: 0,
-                    info: info,
+                    op: info as i32,
                 });
 
                 true
@@ -1028,18 +968,12 @@ impl Default for PackedStackingContext {
 }
 
 #[derive(Debug, Copy, Clone)]
-enum SimpleCompositeInfo {
-    Opacity(f32),
-    Brightness(f32),
-}
-
-#[derive(Debug, Copy, Clone)]
 enum CompositeKind {
     None,
     // Requires only a single texture as input (e.g. most filters)
-    Simple(SimpleCompositeInfo),
+    Simple(LowLevelFilterOp),
     // Requires two source textures (e.g. mix-blend-mode)
-    Complex(PackedCompositeInfo),
+    Complex(MixBlendMode),
 }
 
 impl CompositeKind {
@@ -1048,31 +982,24 @@ impl CompositeKind {
             return CompositeKind::None;
         }
 
-        if composition_ops.len() == 1 {
-            match composition_ops.first().unwrap() {
-                &CompositionOp::Filter(filter_op) => {
-                    match filter_op {
-                        LowLevelFilterOp::Opacity(opacity) => {
-                            let opacity = opacity.to_f32_px();
-                            if opacity == 1.0 {
-                                return CompositeKind::None;
-                            } else {
-                                return CompositeKind::Simple(SimpleCompositeInfo::Opacity(opacity));
-                            }
+        match composition_ops.first().unwrap() {
+            &CompositionOp::Filter(filter_op) => {
+                match filter_op {
+                    LowLevelFilterOp::Opacity(opacity) => {
+                        let opacityf = opacity.to_f32_px();
+                        if opacityf == 1.0 {
+                            CompositeKind::None
+                        } else {
+                            CompositeKind::Simple(LowLevelFilterOp::Opacity(opacity))
                         }
-                        LowLevelFilterOp::Brightness(amount) => {
-                            let amount = amount.to_f32_px();
-                            return CompositeKind::Simple(SimpleCompositeInfo::Brightness(amount));
-                        }
-                        _ => {}
                     }
+                    other_filter => CompositeKind::Simple(other_filter),
                 }
-                _ => {}
+            }
+            &CompositionOp::MixBlend(mode) => {
+                CompositeKind::Complex(mode)
             }
         }
-
-        let info = PackedCompositeInfo::new(composition_ops);
-        CompositeKind::Complex(info)
     }
 }
 
@@ -1084,8 +1011,8 @@ impl StackingContext {
     fn can_contribute_to_scene(&self) -> bool {
         match self.composite_kind {
             CompositeKind::None | CompositeKind::Complex(..) => true,
-            CompositeKind::Simple(SimpleCompositeInfo::Brightness(..)) => true,
-            CompositeKind::Simple(SimpleCompositeInfo::Opacity(opacity)) => opacity > 0.0,
+            CompositeKind::Simple(LowLevelFilterOp::Opacity(opacity)) => opacity > Au(0),
+            CompositeKind::Simple(..) => true,
         }
     }
 }
@@ -1247,7 +1174,10 @@ impl ScreenTile {
                     match layer.composite_kind {
                         CompositeKind::None => {}
                         CompositeKind::Simple(..) | CompositeKind::Complex(..) => {
-                            let prev_task = mem::replace(&mut current_task, RenderTask::new_alpha_batch(self.rect, ctx));
+                            let layer_rect = layer.xf_rect.as_ref().unwrap().bounding_rect;
+                            let needed_rect = layer_rect.intersection(&self.rect)
+                                                        .expect("bug if these don't overlap");
+                            let prev_task = mem::replace(&mut current_task, RenderTask::new_alpha_batch(needed_rect, ctx));
                             alpha_task_stack.push(prev_task);
                         }
                     }
