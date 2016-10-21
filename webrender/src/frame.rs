@@ -269,10 +269,10 @@ impl Frame {
         let mut result = vec![];
         for (scroll_layer_id, scroll_layer) in &self.layers {
             match scroll_layer_id.info {
-                ScrollLayerInfo::Scrollable(_) => {
+                ScrollLayerInfo::Scrollable(_, servo_scroll_root_id) => {
                     result.push(ScrollLayerState {
                         pipeline_id: scroll_layer.pipeline_id,
-                        stacking_context_id: scroll_layer.stacking_context_id,
+                        scroll_root_id: servo_scroll_root_id,
                         scroll_offset: scroll_layer.scrolling.offset,
                     })
                 }
@@ -394,16 +394,14 @@ impl Frame {
                     Layer::new(&root_viewport,
                                root_stacking_context.stacking_context.overflow.size,
                                &Matrix4D::identity(),
-                               root_pipeline_id,
-                               root_stacking_context.stacking_context.servo_id));
+                               root_pipeline_id));
 
                 self.layers.insert(
                     root_scroll_layer_id,
                     Layer::new(&root_viewport,
                                root_stacking_context.stacking_context.overflow.size,
                                &Matrix4D::identity(),
-                               root_pipeline_id,
-                               root_stacking_context.stacking_context.servo_id));
+                               root_pipeline_id));
 
                 // Work around borrow check on resource cache
                 {
@@ -636,8 +634,7 @@ impl Frame {
                             let layer = Layer::new(&inner_stacking_context.bounds,
                                                    inner_stacking_context.overflow.size,
                                                    &transform,
-                                                   parent_info.pipeline_id,
-                                                   inner_stacking_context.servo_id);
+                                                   parent_info.pipeline_id);
 
                             debug_assert!(parent_info.current_scroll_layer_id != inner_scroll_layer_id);
                             self.layers
@@ -696,8 +693,7 @@ impl Frame {
                                     Layer::new(&iframe_rect,
                                                iframe_stacking_context.overflow.size,
                                                &transform,
-                                               pipeline.pipeline_id,
-                                               iframe_stacking_context.servo_id));
+                                               pipeline.pipeline_id));
 
                         let iframe_scroll_layer_id = iframe_stacking_context.scroll_layer_id.unwrap();
 
@@ -706,8 +702,7 @@ impl Frame {
                                     Layer::new(&iframe_rect,
                                                iframe_stacking_context.overflow.size,
                                                &transform,
-                                               pipeline.pipeline_id,
-                                               iframe_stacking_context.servo_id));
+                                               pipeline.pipeline_id));
 
                         self.layers
                             .get_mut(&scroll_layer_id)
