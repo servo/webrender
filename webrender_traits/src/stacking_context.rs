@@ -4,12 +4,10 @@
 
 use display_list::AuxiliaryListsBuilder;
 use euclid::{Matrix4D, Rect};
-use {FilterOp, MixBlendMode, ScrollLayerId, ScrollPolicy};
-use {ServoStackingContextId, StackingContext};
+use {FilterOp, MixBlendMode, ScrollLayerId, ScrollPolicy, StackingContext};
 
 impl StackingContext {
-    pub fn new(servo_id: ServoStackingContextId,
-               scroll_layer_id: Option<ScrollLayerId>,
+    pub fn new(scroll_layer_id: Option<ScrollLayerId>,
                scroll_policy: ScrollPolicy,
                bounds: Rect<f32>,
                overflow: Rect<f32>,
@@ -22,7 +20,6 @@ impl StackingContext {
                auxiliary_lists_builder: &mut AuxiliaryListsBuilder)
                -> StackingContext {
         StackingContext {
-            servo_id: servo_id,
             scroll_layer_id: scroll_layer_id,
             scroll_policy: scroll_policy,
             bounds: bounds,

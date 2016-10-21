@@ -4,7 +4,7 @@
 
 use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use spring::{DAMPING, STIFFNESS, Spring};
-use webrender_traits::{PipelineId, ScrollLayerId, ServoStackingContextId};
+use webrender_traits::{PipelineId, ScrollLayerId};
 
 pub struct Layer {
     // Manages scrolling offset, overscroll state etc.
@@ -31,10 +31,6 @@ pub struct Layer {
     // Pipeline that this layer belongs to
     pub pipeline_id: PipelineId,
 
-    // Accounting information for mapping to servo stacking contexts.
-    // TODO(gw): Can we remove this somehow?
-    pub stacking_context_id: ServoStackingContextId,
-
     // Child layers
     pub children: Vec<ScrollLayerId>,
 }
@@ -43,8 +39,7 @@ impl Layer {
     pub fn new(local_viewport_rect: &Rect<f32>,
                content_size: Size2D<f32>,
                local_transform: &Matrix4D<f32>,
-               pipeline_id: PipelineId,
-               stacking_context_id: ServoStackingContextId)
+               pipeline_id: PipelineId)
                -> Layer {
         Layer {
             scrolling: ScrollingState::new(),
@@ -56,7 +51,6 @@ impl Layer {
             local_transform: *local_transform,
             children: Vec::new(),
             pipeline_id: pipeline_id,
-            stacking_context_id: stacking_context_id,
         }
     }
 

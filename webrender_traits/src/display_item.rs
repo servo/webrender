@@ -5,7 +5,7 @@
 use display_list::AuxiliaryListsBuilder;
 use euclid::{Rect, Size2D};
 use {BorderRadius, BorderDisplayItem, ClipRegion, ColorF, ComplexClipRegion};
-use {FontKey, ImageKey, PipelineId, ScrollLayerId, ScrollLayerInfo};
+use {FontKey, ImageKey, PipelineId, ScrollLayerId, ScrollLayerInfo, ServoScrollRootId};
 use {ImageMask};
 
 impl BorderDisplayItem {
@@ -106,10 +106,13 @@ impl ImageKey {
 }
 
 impl ScrollLayerId {
-    pub fn new(pipeline_id: PipelineId, index: usize) -> ScrollLayerId {
+    pub fn new(pipeline_id: PipelineId,
+               index: usize,
+               scroll_root_id: ServoScrollRootId)
+               -> ScrollLayerId {
         ScrollLayerId {
             pipeline_id: pipeline_id,
-            info: ScrollLayerInfo::Scrollable(index),
+            info: ScrollLayerInfo::Scrollable(index, scroll_root_id),
         }
     }
 
