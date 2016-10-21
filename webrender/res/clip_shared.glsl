@@ -34,27 +34,28 @@ float do_clip(vec2 pos) {
     float d_bl = distance(pos, ref_bl);
 
     float pixels_per_fragment = length(fwidth(pos.xy));
-    // TODO: compute the `nudge` separately for X and Y
     float nudge = 0.5 * pixels_per_fragment;
-
-    bool out0 = pos.x < ref_tl.x && pos.y < ref_tl.y && d_tl > vClipRadius.x - nudge;
-    bool out1 = pos.x > ref_tr.x && pos.y < ref_tr.y && d_tr > vClipRadius.y - nudge;
-    bool out2 = pos.x > ref_br.x && pos.y > ref_br.y && d_br > vClipRadius.z - nudge;
-    bool out3 = pos.x < ref_bl.x && pos.y > ref_bl.y && d_bl > vClipRadius.w - nudge;
-
     vec4 distances = vec4(d_tl, d_tr, d_br, d_bl) - vClipRadius + nudge;
-    float distance_from_border = dot(vec4(out0, out1, out2, out3), distances);
+
+    bvec4 is_out = bvec4(pos.x < ref_tl.x && pos.y < ref_tl.y,
+                         pos.x > ref_tr.x && pos.y < ref_tr.y,
+                         pos.x > ref_br.x && pos.y > ref_br.y,
+                         pos.x < ref_bl.x && pos.y > ref_bl.y);
+
+    float distance_from_border = dot(vec4(is_out),
+                                     max(vec4(0.0, 0.0, 0.0, 0.0), distances));
 
     // Move the distance back into pixels.
     distance_from_border /= pixels_per_fragment;
-
     // Apply a more gradual fade out to transparent.
     //distance_from_border -= 0.5;
 
     float border_alpha = 1.0 - smoothstep(0.0, 1.0, distance_from_border);
 
+    bool repeat_mask = false; //TODO
     vec2 vMaskUv = (pos - vClipMaskScreenRect.xy) / vClipMaskScreenRect.zw;
-    vec2 clamped_mask_uv = clamp(vMaskUv, vec2(0.0, 0.0), vec2(1.0, 1.0));
+    vec2 clamped_mask_uv = repeat_mask ? fract(vMaskUv) :
+        clamp(vMaskUv, vec2(0.0, 0.0), vec2(1.0, 1.0));
     vec2 source_uv = clamped_mask_uv * vClipMaskUvRect.zw + vClipMaskUvRect.xy;
     float mask_alpha = texture(sMask, source_uv).r; //careful: texture has type A8
 
