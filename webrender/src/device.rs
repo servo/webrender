@@ -1183,7 +1183,7 @@ impl Device {
         let fs_path = base_path.with_extension("fs.glsl");
         //self.file_watcher.add_watch(fs_path.clone());
 
-        let mut include = String::new();
+        let mut include = format!("// Base shader: {}\n", base_filename);
         for inc_filename in include_filenames {
             let include_path = self.resource_path.join(inc_filename).with_extension("glsl");
             File::open(&include_path).unwrap().read_to_string(&mut include).unwrap();
