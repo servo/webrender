@@ -689,7 +689,9 @@ impl PrimitiveStore {
                 } = image_cpu.image_info(resource_cache, frame_id);
 
                 metadata.color_texture_id = texture_id;
-                metadata.is_opaque = is_opaque;
+                metadata.is_opaque = is_opaque &&
+                                     tile_spacing.width == 0.0 &&
+                                     tile_spacing.height == 0.0;
 
                 match uv_kind {
                     TextureCoordKind::Normalized => {}
