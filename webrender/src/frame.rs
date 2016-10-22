@@ -63,6 +63,7 @@ pub struct Frame {
                                           AuxiliaryLists,
                                           BuildHasherDefault<FnvHasher>>,
     pub root_scroll_layer_id: Option<ScrollLayerId>,
+    current_scroll_layer_id: Option<ScrollLayerId>,
     id: FrameId,
     debug: bool,
     frame_builder_config: FrameBuilderConfig,
@@ -200,6 +201,7 @@ impl Frame {
             pipeline_auxiliary_lists: HashMap::with_hasher(Default::default()),
             layers: HashMap::with_hasher(Default::default()),
             root_scroll_layer_id: None,
+            current_scroll_layer_id: None,
             id: FrameId(0),
             debug: debug,
             frame_builder: None,
@@ -301,11 +303,51 @@ impl Frame {
             None => return false,
         };
 
-        let layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+        let non_root_overscroll = if scroll_layer_id != root_scroll_layer_id {
+            let child_layer = self.layers.get(&scroll_layer_id).unwrap();
+            let overscroll_amount = child_layer.overscroll_amount();
+            overscroll_amount.width != 0.0 || overscroll_amount.height != 0.0
+        } else {
+            false
+        };
+
+        if non_root_overscroll && phase == ScrollEventPhase::Start {
+            let mut current_layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+            current_layer.scrolling.non_root_overscroll = true;
+        };
+
+        let switch_layer = if phase == ScrollEventPhase::Move(true) {
+            let current_layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+            current_layer.scrolling.non_root_overscroll && non_root_overscroll
+        } else {
+            false
+        };
+
+        if phase == ScrollEventPhase::End {
+            let mut current_layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+            current_layer.scrolling.non_root_overscroll = false;
+        };
+
+        let layer = if switch_layer {
+            let mut nearest_parent_layer_id = root_scroll_layer_id;
+            {
+                let root_layer = self.layers.get(&root_scroll_layer_id).unwrap();
+                for &child_layer_id in root_layer.children.iter() {
+                    if child_layer_id != scroll_layer_id {
+                        nearest_parent_layer_id = child_layer_id;
+                    } else {
+                        break;
+                    }
+                };
+            }
+            self.layers.get_mut(&nearest_parent_layer_id).unwrap()
+        } else {
+            self.layers.get_mut(&scroll_layer_id).unwrap()
+        };
+
         if layer.scrolling.started_bouncing_back && phase == ScrollEventPhase::Move(false) {
             return false
         }
-
         let overscroll_amount = layer.overscroll_amount();
         let overscrolling = CAN_OVERSCROLL && (overscroll_amount.width != 0.0 ||
                                                overscroll_amount.height != 0.0);

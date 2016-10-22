@@ -8,7 +8,8 @@ use webrender_traits::{PipelineId, ScrollLayerId};
 
 /// Contains scroll and transform information for scrollable and root stacking contexts.
 pub struct Layer {
-    /// Manages scrolling offset, overscroll state etc.
+
+    // Manages scrolling offset, overscroll state etc.
     pub scrolling: ScrollingState,
 
     /// Size of the content inside the scroll region (in logical pixels)
@@ -106,11 +107,13 @@ pub struct ScrollingState {
     pub spring: Spring,
     pub started_bouncing_back: bool,
     pub bouncing_back: bool,
+    pub non_root_overscroll: bool,
 }
 
 impl ScrollingState {
     pub fn new() -> ScrollingState {
         ScrollingState {
+            non_root_overscroll: false,
             offset: Point2D::new(0.0, 0.0),
             spring: Spring::at(Point2D::new(0.0, 0.0), STIFFNESS, DAMPING),
             started_bouncing_back: false,
@@ -118,4 +121,3 @@ impl ScrollingState {
         }
     }
 }
-
