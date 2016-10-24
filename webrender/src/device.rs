@@ -39,6 +39,8 @@ const SHADER_VERSION: &'static str = "#version 300 es\n";
 
 static SHADER_PREAMBLE: &'static str = "shared.glsl";
 
+pub type Buffer = u32;
+
 lazy_static! {
     pub static ref MAX_TEXTURE_SIZE: gl::GLint = {
         gl::get_integer_v(gl::MAX_TEXTURE_SIZE)
@@ -1726,6 +1728,23 @@ impl Device {
         let index = gl::get_uniform_block_index(program_id.0, name);
         gl::uniform_block_binding(program_id.0, index, value);
         index
+    }
+
+    pub fn create_ubo<T>(&self, data: &[T], binding: u32) -> Buffer {
+        let ubo = gl::gen_buffers(1)[0];
+        gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
+        gl::buffer_data(gl::UNIFORM_BUFFER, data, gl::STATIC_DRAW);
+        gl::bind_buffer_base(gl::UNIFORM_BUFFER, binding, ubo);
+        ubo
+    }
+
+    pub fn reset_ubo(&self, binding: u32) {
+        gl::bind_buffer(gl::UNIFORM_BUFFER, 0);
+        gl::bind_buffer_base(gl::UNIFORM_BUFFER, binding, 0);
+    }
+
+    pub fn delete_buffer(&self, buffer: Buffer) {
+        gl::delete_buffers(&[buffer]);
     }
 
     pub fn set_multisample(&self, enable: bool) {

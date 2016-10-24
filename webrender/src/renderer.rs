@@ -766,8 +766,7 @@ impl Renderer {
                     self.update_texture_cache();
                     self.draw_tile_frame(frame, &framebuffer_size);
 
-                    gl::bind_buffer(gl::UNIFORM_BUFFER, 0);
-                    gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, 0);
+                    self.device.reset_ubo(UBO_BIND_DATA);
                     self.gpu_profile.end_frame();
                 });
 
@@ -1309,19 +1308,14 @@ impl Renderer {
         self.device.bind_texture(TextureSampler::Mask, mask_texture_id);
 
         for chunk in ubo_data.chunks(max_prim_items) {
-            let ubos = gl::gen_buffers(1);
-            let ubo = ubos[0];
-
-            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
+            let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
 
             let quad_count = chunk.len() * quads_per_item;
             self.device.draw_indexed_triangles_instanced_u16(6, quad_count as gl::GLint);
             self.profile_counters.vertices.add(6 * (quad_count as usize));
             self.profile_counters.draw_calls.inc();
 
-            gl::delete_buffers(&ubos);
+            self.device.delete_buffer(ubo);
         }
     }
 
@@ -1392,18 +1386,13 @@ impl Renderer {
                     self.device.bind_vao(self.quad_vao_id);
 
                     for chunk in ubo_data.chunks(self.max_prim_blends) {
-                        let ubos = gl::gen_buffers(1);
-                        let ubo = ubos[0];
-
-                        gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                        gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                        gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
+                        let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
 
                         self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
                         self.profile_counters.vertices.add(6 * chunk.len());
                         self.profile_counters.draw_calls.inc();
 
-                        gl::delete_buffers(&ubos);
+                        self.device.delete_buffer(ubo);
                     }
                 }
                 &PrimitiveBatchData::Composite(ref ubo_data) => {
@@ -1413,18 +1402,13 @@ impl Renderer {
                     self.device.bind_vao(self.quad_vao_id);
 
                     for chunk in ubo_data.chunks(self.max_prim_composites) {
-                        let ubos = gl::gen_buffers(1);
-                        let ubo = ubos[0];
-
-                        gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                        gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                        gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
+                        let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
 
                         self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
                         self.profile_counters.vertices.add(6 * chunk.len());
                         self.profile_counters.draw_calls.inc();
 
-                        gl::delete_buffers(&ubos);
+                        self.device.delete_buffer(ubo);
                     }
                 }
                 &PrimitiveBatchData::Rectangles(ref ubo_data) => {
@@ -1633,18 +1617,13 @@ impl Renderer {
             self.device.bind_vao(self.quad_vao_id);
 
             for chunk in frame.clear_tiles.chunks(self.max_clear_tiles) {
-                let ubos = gl::gen_buffers(1);
-                let ubo = ubos[0];
-
-                gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
+                let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
 
                 self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
                 self.profile_counters.vertices.add(6 * chunk.len());
                 self.profile_counters.draw_calls.inc();
 
-                gl::delete_buffers(&ubos);
+                self.device.delete_buffer(ubo);
             }
         }
     }
