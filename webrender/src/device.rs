@@ -778,6 +778,7 @@ impl FileWatcherThread {
 
 pub struct Capabilities {
     pub max_ubo_size: usize,
+    pub supports_multisampling: bool,
 }
 
 pub struct Device {
@@ -811,6 +812,12 @@ pub struct Device {
     next_vao_id: gl::GLuint,
 }
 
+#[cfg(target_os = "android")]
+const MSAA_SUPPORT: bool = false;
+#[cfg(any(target_os = "windows", unix))]
+const MSAA_SUPPORT: bool = true;
+
+
 impl Device {
     pub fn new(resource_path: PathBuf,
                device_pixel_ratio: f32,
@@ -831,6 +838,7 @@ impl Device {
 
             capabilities: Capabilities {
                 max_ubo_size: gl::get_integer_v(gl::MAX_UNIFORM_BLOCK_SIZE) as usize,
+                supports_multisampling: MSAA_SUPPORT, //TODO: query extensions
             },
 
             bound_textures: [ TextureId::invalid(); 16 ],
@@ -1718,6 +1726,16 @@ impl Device {
         let index = gl::get_uniform_block_index(program_id.0, name);
         gl::uniform_block_binding(program_id.0, index, value);
         index
+    }
+
+    pub fn set_multisample(&self, enable: bool) {
+        if self.capabilities.supports_multisampling {
+            if enable {
+                gl::enable(gl::MULTISAMPLE);
+            } else {
+                gl::disable(gl::MULTISAMPLE);
+            }
+        }
     }
 }
 

@@ -343,7 +343,7 @@ pub struct Renderer {
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
     enable_profiler: bool,
-    enable_msaa: bool,
+    _enable_msaa: bool,
     debug: DebugRenderer,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
@@ -659,7 +659,7 @@ impl Renderer {
             profile_counters: RendererProfileCounters::new(),
             profiler: Profiler::new(),
             enable_profiler: options.enable_profiler,
-            enable_msaa: options.enable_msaa,
+            _enable_msaa: options.enable_msaa,
             last_time: 0,
             raster_op_target_a8: raster_op_target_a8,
             raster_op_target_rgba8: raster_op_target_rgba8,
@@ -682,21 +682,6 @@ impl Renderer {
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
         (renderer, sender)
-    }
-
-    #[cfg(target_os = "android")]
-    fn enable_msaa(&self, _: bool) {
-    }
-
-    #[cfg(any(target_os = "windows", all(unix, not(target_os = "android"))))]
-    fn enable_msaa(&self, enable_msaa: bool) {
-        if self.enable_msaa {
-            if enable_msaa {
-                gl::enable(gl::MULTISAMPLE);
-            } else {
-                gl::disable(gl::MULTISAMPLE);
-            }
-        }
     }
 
     fn update_uniform_locations(&mut self) {
@@ -1093,7 +1078,7 @@ impl Renderer {
             gl::disable(gl::SCISSOR_TEST);
 
             // Disable MSAA here for raster ops
-            self.enable_msaa(false);
+            self.device.set_multisample(false);
 
             let projection = Matrix4D::ortho(0.0,
                                              self.max_raster_op_size as f32,
