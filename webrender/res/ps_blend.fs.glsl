@@ -37,22 +37,25 @@ vec3 hsvToRgb(vec3 c) {
     float residualHue = hue - float(sector);
 
     vec3 pqt = c.z * vec3(1.0 - c.y, 1.0 - c.y * residualHue, 1.0 - c.y * (1.0 - residualHue));
-    if (sector == 0)
-        return vec3(c.z, pqt.z, pqt.x);
-    if (sector == 1)
-        return vec3(pqt.y, c.z, pqt.x);
-    if (sector == 2)
-        return vec3(pqt.x, c.z, pqt.z);
-    if (sector == 3)
-        return vec3(pqt.x, pqt.y, c.z);
-    if (sector == 4)
-        return vec3(pqt.z, pqt.x, c.z);
-    return vec3(c.z, pqt.x, pqt.y);
+    switch (sector) {
+        case 0:
+            return vec3(c.z, pqt.z, pqt.x);
+        case 1:
+            return vec3(pqt.y, c.z, pqt.x);
+        case 2:
+            return vec3(pqt.x, c.z, pqt.z);
+        case 3:
+            return vec3(pqt.x, pqt.y, c.z);
+        case 4:
+            return vec3(pqt.z, pqt.x, c.z);
+        default:
+            return vec3(c.z, pqt.x, pqt.y);
+    }
 }
 
 vec4 Blur(float radius, vec2 direction) {
     // TODO(gw): Support blur in WR2!
-    return vec4(1, 1, 1, 1);
+    return vec4(1.0);
 }
 
 vec4 Contrast(vec4 Cs, float amount) {
