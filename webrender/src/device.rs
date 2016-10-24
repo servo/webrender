@@ -39,6 +39,8 @@ const SHADER_VERSION: &'static str = "#version 300 es\n";
 
 static SHADER_PREAMBLE: &'static str = "shared.glsl";
 
+pub type Buffer = u32;
+
 lazy_static! {
     pub static ref MAX_TEXTURE_SIZE: gl::GLint = {
         gl::get_integer_v(gl::MAX_TEXTURE_SIZE)
@@ -776,6 +778,11 @@ impl FileWatcherThread {
 }
 */
 
+pub struct Capabilities {
+    pub max_ubo_size: usize,
+    pub supports_multisampling: bool,
+}
+
 pub struct Device {
     // device state
     bound_textures: [TextureId; 16],
@@ -784,6 +791,9 @@ pub struct Device {
     bound_fbo: FBOId,
     default_fbo: gl::GLuint,
     device_pixel_ratio: f32,
+
+    // HW or API capabilties
+    capabilities: Capabilities,
 
     // debug
     inside_frame: bool,
@@ -804,6 +814,12 @@ pub struct Device {
     next_vao_id: gl::GLuint,
 }
 
+#[cfg(target_os = "android")]
+const MSAA_SUPPORT: bool = false;
+#[cfg(any(target_os = "windows", unix))]
+const MSAA_SUPPORT: bool = true;
+
+
 impl Device {
     pub fn new(resource_path: PathBuf,
                device_pixel_ratio: f32,
@@ -822,6 +838,11 @@ impl Device {
             device_pixel_ratio: device_pixel_ratio,
             inside_frame: false,
 
+            capabilities: Capabilities {
+                max_ubo_size: gl::get_integer_v(gl::MAX_UNIFORM_BLOCK_SIZE) as usize,
+                supports_multisampling: MSAA_SUPPORT, //TODO: query extensions
+            },
+
             bound_textures: [ TextureId::invalid(); 16 ],
             bound_program: ProgramId(0),
             bound_vao: VAOId(0),
@@ -838,6 +859,10 @@ impl Device {
             next_vao_id: 1,
             //file_watcher: file_watcher,
         }
+    }
+
+    pub fn get_capabilities(&self) -> &Capabilities {
+        &self.capabilities
     }
 
     pub fn compile_shader(path: &PathBuf,
@@ -921,7 +946,7 @@ impl Device {
         }
     }
 
-    pub fn bind_render_target(&mut self, texture_id: Option<(TextureId, i32)>) {
+    pub fn bind_render_target(&mut self, texture_id: Option<(TextureId, i32)>, width: u32, height: u32) {
         debug_assert!(self.inside_frame);
 
         let fbo_id = texture_id.map_or(FBOId(self.default_fbo), |texture_id| {
@@ -932,6 +957,8 @@ impl Device {
             self.bound_fbo = fbo_id;
             fbo_id.bind();
         }
+
+        gl::viewport(0, 0, width as gl::GLint, height as gl::GLint);
     }
 
     pub fn bind_program(&mut self,
@@ -1194,7 +1221,7 @@ impl Device {
         self.deinit_texture(texture_id);
         self.init_texture(texture_id, new_width, new_height, format, filter, mode, None);
         self.create_fbo_for_texture_if_necessary(texture_id, None);
-        self.bind_render_target(Some((temp_texture_id, 0)));
+        self.bind_render_target(Some((temp_texture_id, 0)), 1, 1);
         self.bind_texture(TextureSampler::Color, texture_id);
 
         gl::copy_tex_sub_image_2d(texture_id.target,
@@ -1206,7 +1233,7 @@ impl Device {
                                   old_width as i32,
                                   old_height as i32);
 
-        self.bind_render_target(None);
+        self.bind_render_target(None, 1, 1);
         self.deinit_texture(temp_texture_id);
     }
 
@@ -1683,7 +1710,7 @@ impl Device {
     }
 
     pub fn end_frame(&mut self) {
-        self.bind_render_target(None);
+        self.bind_render_target(None, 1, 1);
 
         debug_assert!(self.inside_frame);
         self.inside_frame = false;
@@ -1697,6 +1724,78 @@ impl Device {
         }
 
         gl::active_texture(gl::TEXTURE0);
+    }
+
+    pub fn assign_ubo_binding(&self, program_id: ProgramId, name: &str, value: u32) -> u32 {
+        let index = gl::get_uniform_block_index(program_id.0, name);
+        gl::uniform_block_binding(program_id.0, index, value);
+        index
+    }
+
+    pub fn create_ubo<T>(&self, data: &[T], binding: u32) -> Buffer {
+        let ubo = gl::gen_buffers(1)[0];
+        gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
+        gl::buffer_data(gl::UNIFORM_BUFFER, data, gl::STATIC_DRAW);
+        gl::bind_buffer_base(gl::UNIFORM_BUFFER, binding, ubo);
+        ubo
+    }
+
+    pub fn reset_ubo(&self, binding: u32) {
+        gl::bind_buffer(gl::UNIFORM_BUFFER, 0);
+        gl::bind_buffer_base(gl::UNIFORM_BUFFER, binding, 0);
+    }
+
+    pub fn delete_buffer(&self, buffer: Buffer) {
+        gl::delete_buffers(&[buffer]);
+    }
+
+    pub fn set_multisample(&self, enable: bool) {
+        if self.capabilities.supports_multisampling {
+            if enable {
+                gl::enable(gl::MULTISAMPLE);
+            } else {
+                gl::disable(gl::MULTISAMPLE);
+            }
+        }
+    }
+
+    pub fn clear_color(&self, c: [f32; 4]) {
+        gl::clear_color(c[0], c[1], c[2], c[3]);
+        gl::clear(gl::COLOR_BUFFER_BIT);
+    }
+
+    pub fn disable_depth(&self) {
+        gl::disable(gl::DEPTH_TEST);
+    }
+
+    pub fn disable_depth_write(&self) {
+        gl::depth_mask(false);
+    }
+
+    pub fn disable_stencil(&self) {
+        gl::disable(gl::STENCIL);
+    }
+
+    pub fn disable_scissor(&self) {
+        gl::disable(gl::SCISSOR_TEST);
+    }
+
+    pub fn set_blend(&self, enable: bool) {
+        if enable {
+            gl::enable(gl::BLEND);
+        } else {
+            gl::disable(gl::BLEND);
+        }
+    }
+
+    pub fn set_blend_mode_premultiplied_alpha(&self) {
+        gl::blend_func(gl::SRC_ALPHA, gl::ZERO);
+        gl::blend_equation(gl::FUNC_ADD);
+    }
+
+    pub fn set_blend_mode_alpha(&self) {
+        gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        gl::blend_equation(gl::FUNC_ADD);
     }
 }
 
