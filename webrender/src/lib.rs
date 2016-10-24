@@ -73,15 +73,15 @@ mod util;
 mod platform {
     #[cfg(target_os="macos")]
     pub use platform::macos::font;
-    #[cfg(any(target_os="linux", target_os="android", target_os = "windows"))]
-    pub use platform::linux::font;
+    #[cfg(any(target_os = "android", target_os = "windows", all(unix, not(target_os = "macos"))))]
+    pub use platform::unix::font;
 
     #[cfg(target_os="macos")]
     pub mod macos {
         pub mod font;
     }
-    #[cfg(any(target_os="linux", target_os="android", target_os = "windows"))]
-    pub mod linux {
+    #[cfg(any(target_os = "android", target_os = "windows", all(unix, not(target_os = "macos"))))]
+    pub mod unix {
         pub mod font;
     }
 }

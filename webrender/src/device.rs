@@ -25,7 +25,7 @@ const GL_FORMAT_A: gl::GLuint = gl::RED;
 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
 const GL_FORMAT_A: gl::GLuint = gl::ALPHA;
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", unix))]
 const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA;
 
 #[cfg(target_os = "android")]
