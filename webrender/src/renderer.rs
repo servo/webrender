@@ -18,7 +18,7 @@ use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePixel};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePoint};
 use internal_types::{PackedVertexForTextureCacheUpdate};
 use internal_types::{AxisDirection, TextureSampler, GLContextHandleWrapper};
 use ipc_channel::ipc;
@@ -76,7 +76,8 @@ const GPU_TAG_PRIM_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "Composite"
 const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "TextRun", color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 } };
 
 // Yellow / dark yellow
-const GPU_TAG_PRIM_ALIGNED_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AlignedGradient", color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 } };
+const GPU_TAG_PRIM_GRADIENT: GpuProfileTag = GpuProfileTag { label: "Gradient", color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 } };
+const GPU_TAG_PRIM_GRADIENT_CLIP: GpuProfileTag = GpuProfileTag { label: "GradientClip", color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 } };
 const GPU_TAG_PRIM_ANGLE_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AngleGradient", color: ColorF { r: 0.7, g: 0.7, b: 0.0, a: 1.0 } };
 
 // Cyan
@@ -328,7 +329,8 @@ pub struct Renderer {
     ps_text_run: PrimitiveShader,
     ps_image: PrimitiveShader,
     ps_border: PrimitiveShader,
-    ps_aligned_gradient: PrimitiveShader,
+    ps_gradient: PrimitiveShader,
+    ps_gradient_clip: PrimitiveShader,
     ps_angle_gradient: PrimitiveShader,
     ps_box_shadow: PrimitiveShader,
     ps_rectangle_clip: PrimitiveShader,
@@ -457,11 +459,17 @@ impl Renderer {
                                                  max_prim_instances,
                                                  &mut device,
                                                  options.precache_shaders);
-        let ps_aligned_gradient = PrimitiveShader::new("ps_gradient_clip",
-                                                       max_ubo_vectors,
-                                                       max_prim_instances,
-                                                       &mut device,
-                                                       options.precache_shaders);
+
+        let ps_gradient = PrimitiveShader::new("ps_gradient",
+                                               max_ubo_vectors,
+                                               max_prim_instances,
+                                               &mut device,
+                                               options.precache_shaders);
+        let ps_gradient_clip = PrimitiveShader::new("ps_gradient_clip",
+                                                    max_ubo_vectors,
+                                                    max_prim_instances,
+                                                    &mut device,
+                                                    options.precache_shaders);
         let ps_angle_gradient = PrimitiveShader::new("ps_angle_gradient",
                                                      max_ubo_vectors,
                                                      max_prim_instances,
@@ -641,8 +649,9 @@ impl Renderer {
             ps_rectangle_clip: ps_rectangle_clip,
             ps_image_clip: ps_image_clip,
             ps_box_shadow: ps_box_shadow,
+            ps_gradient: ps_gradient,
+            ps_gradient_clip: ps_gradient_clip,
             ps_angle_gradient: ps_angle_gradient,
-            ps_aligned_gradient: ps_aligned_gradient,
             ps_blend: ps_blend,
             ps_composite: ps_composite,
             max_clear_tiles: max_clear_tiles,
@@ -1265,8 +1274,8 @@ impl Renderer {
     }
 
     fn add_debug_rect(&mut self,
-                      p0: Point2D<DevicePixel>,
-                      p1: Point2D<DevicePixel>,
+                      p0: DevicePoint,
+                      p1: DevicePoint,
                       label: &str,
                       c: &ColorF) {
         let tile_x0 = p0.x;
@@ -1299,8 +1308,8 @@ impl Renderer {
                             tile_y1,
                             c);
         if label.len() > 0 {
-            self.debug.add_text((tile_x0.0 as f32 + tile_x1.0 as f32) * 0.5,
-                                (tile_y0.0 as f32 + tile_y1.0 as f32) * 0.5,
+            self.debug.add_text((tile_x0 as f32 + tile_x1 as f32) * 0.5,
+                                (tile_y0 as f32 + tile_y1 as f32) * 0.5,
                                 label,
                                 c);
         }
@@ -1386,56 +1395,54 @@ impl Renderer {
             gl::clear(gl::COLOR_BUFFER_BIT);
         }
 
-        for batcher in &target.alpha_batchers {
-            for batch in &batcher.batches {
-                if batch.blending_enabled {
-                    gl::enable(gl::BLEND);
-                } else {
-                    gl::disable(gl::BLEND);
-                }
+        for batch in &target.alpha_batcher.batches {
+            if batch.blending_enabled {
+                gl::enable(gl::BLEND);
+            } else {
+                gl::disable(gl::BLEND);
+            }
 
-                match &batch.data {
-                    &PrimitiveBatchData::Blend(ref ubo_data) => {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_BLEND);
-                        let shader = self.ps_blend.get(&mut self.device);
-                        self.device.bind_program(shader, &projection);
-                        self.device.bind_vao(self.quad_vao_id);
+            match &batch.data {
+                &PrimitiveBatchData::Blend(ref ubo_data) => {
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_BLEND);
+                    let shader = self.ps_blend.get(&mut self.device);
+                    self.device.bind_program(shader, &projection);
+                    self.device.bind_vao(self.quad_vao_id);
 
-                        for chunk in ubo_data.chunks(self.max_prim_blends) {
-                            let ubos = gl::gen_buffers(1);
-                            let ubo = ubos[0];
+                    for chunk in ubo_data.chunks(self.max_prim_blends) {
+                        let ubos = gl::gen_buffers(1);
+                        let ubo = ubos[0];
 
-                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
+                        gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
+                        gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
+                        gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
 
-                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-                            self.profile_counters.vertices.add(6 * chunk.len());
-                            self.profile_counters.draw_calls.inc();
+                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
+                        self.profile_counters.vertices.add(6 * chunk.len());
+                        self.profile_counters.draw_calls.inc();
 
-                            gl::delete_buffers(&ubos);
-                        }
+                        gl::delete_buffers(&ubos);
                     }
-                    &PrimitiveBatchData::Composite(ref ubo_data) => {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_COMPOSITE);
-                        let shader = self.ps_composite.get(&mut self.device);
-                        self.device.bind_program(shader, &projection);
-                        self.device.bind_vao(self.quad_vao_id);
+                }
+                &PrimitiveBatchData::Composite(ref ubo_data) => {
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_COMPOSITE);
+                    let shader = self.ps_composite.get(&mut self.device);
+                    self.device.bind_program(shader, &projection);
+                    self.device.bind_vao(self.quad_vao_id);
 
-                        for chunk in ubo_data.chunks(self.max_prim_composites) {
-                            let ubos = gl::gen_buffers(1);
-                            let ubo = ubos[0];
+                    for chunk in ubo_data.chunks(self.max_prim_composites) {
+                        let ubos = gl::gen_buffers(1);
+                        let ubo = ubos[0];
 
-                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
+                        gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
+                        gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
+                        gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
 
-                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-                            self.profile_counters.vertices.add(6 * chunk.len());
-                            self.profile_counters.draw_calls.inc();
+                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
+                        self.profile_counters.vertices.add(6 * chunk.len());
+                        self.profile_counters.draw_calls.inc();
 
-                            gl::delete_buffers(&ubos);
-                        }
+                        gl::delete_buffers(&ubos);
                     }
                 }
                 &PrimitiveBatchData::Rectangles(ref ubo_data) => {
@@ -1531,9 +1538,9 @@ impl Renderer {
                                         &projection);
                 }
             }
-
-            gl::disable(gl::BLEND);
         }
+
+        gl::disable(gl::BLEND);
     }
 
     fn draw_tile_frame(&mut self,
