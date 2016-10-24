@@ -3,9 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::{Matrix4D, Point2D, Point4D, Rect, Size2D};
-use internal_types::DevicePixel;
+use internal_types::{DeviceRect, DevicePoint, DeviceSize, DeviceLength};
 use num_traits::Zero;
-use std::ops::Sub;
 use time::precise_time_ns;
 
 #[allow(dead_code)]
@@ -89,38 +88,37 @@ impl MatrixHelpers for Matrix4D<f32> {
 }
 
 pub trait RectHelpers where Self: Sized {
-    type N;
-    fn from_points(a: &Point2D<Self::N>,
-                   b: &Point2D<Self::N>,
-                   c: &Point2D<Self::N>,
-                   d: &Point2D<Self::N>)
+
+    fn from_points(a: &Point2D<f32>,
+                   b: &Point2D<f32>,
+                   c: &Point2D<f32>,
+                   d: &Point2D<f32>)
                    -> Self;
     fn contains_rect(&self, other: &Self) -> bool;
-    fn from_floats(x0: Self::N, y0: Self::N, x1: Self::N, y1: Self::N) -> Self;
+    fn from_floats(x0: f32, y0: f32, x1: f32, y1: f32) -> Self;
     fn is_well_formed_and_nonempty(&self) -> bool;
 }
 
-impl<T> RectHelpers for Rect<T> where T: Clone + Copy + PartialOrd + Sub<T, Output=T> + Zero {
-    type N = T;
+impl RectHelpers for Rect<f32> {
 
-    fn from_points(a: &Point2D<T>, b: &Point2D<T>, c: &Point2D<T>, d: &Point2D<T>) -> Rect<T> {
-        let (mut min_x, mut min_y) = (a.x.clone(), a.y.clone());
-        let (mut max_x, mut max_y) = (min_x.clone(), min_y.clone());
+    fn from_points(a: &Point2D<f32>, b: &Point2D<f32>, c: &Point2D<f32>, d: &Point2D<f32>) -> Rect<f32> {
+        let (mut min_x, mut min_y) = (a.x, a.y);
+        let (mut max_x, mut max_y) = (min_x, min_y);
         for point in &[b, c, d] {
             if point.x < min_x {
-                min_x = point.x.clone()
+                min_x = point.x
             }
             if point.x > max_x {
-                max_x = point.x.clone()
+                max_x = point.x
             }
             if point.y < min_y {
-                min_y = point.y.clone()
+                min_y = point.y
             }
             if point.y > max_y {
-                max_y = point.y.clone()
+                max_y = point.y
             }
         }
-        Rect::new(Point2D::new(min_x.clone(), min_y.clone()),
+        Rect::new(Point2D::new(min_x, min_y),
                   Size2D::new(max_x - min_x, max_y - min_y))
     }
 
@@ -131,13 +129,13 @@ impl<T> RectHelpers for Rect<T> where T: Clone + Copy + PartialOrd + Sub<T, Outp
         self.max_y() >= other.max_y()
     }
 
-    fn from_floats(x0: T, y0: T, x1: T, y1: T) -> Rect<T> {
+    fn from_floats(x0: f32, y0: f32, x1: f32, y1: f32) -> Rect<f32> {
         Rect::new(Point2D::new(x0, y0),
                   Size2D::new(x1 - x0, y1 - y0))
     }
 
     fn is_well_formed_and_nonempty(&self) -> bool {
-        self.size.width > T::zero() && self.size.height > T::zero()
+        self.size.width > 0.0 && self.size.height > 0.0
     }
 }
 
@@ -148,12 +146,12 @@ pub fn rect_is_empty<N:PartialEq + Zero>(rect: &Rect<N>) -> bool {
 }
 
 #[inline]
-pub fn rect_from_points(x0: DevicePixel,
-                        y0: DevicePixel,
-                        x1: DevicePixel,
-                        y1: DevicePixel) -> Rect<DevicePixel> {
-    Rect::new(Point2D::new(x0, y0),
-              Size2D::new(x1 - x0, y1 - y0))
+pub fn rect_from_points(x0: DeviceLength,
+                        y0: DeviceLength,
+                        x1: DeviceLength,
+                        y1: DeviceLength) -> DeviceRect {
+    DeviceRect::new(DevicePoint::from_lengths(x0, y0),
+                    DeviceSize::from_lengths(x1 - x0, y1 - y0))
 }
 
 #[inline]
@@ -219,7 +217,7 @@ pub enum TransformedRectKind {
 #[derive(Debug, Clone)]
 pub struct TransformedRect {
     pub local_rect: Rect<f32>,
-    pub bounding_rect: Rect<DevicePixel>,
+    pub bounding_rect: DeviceRect,
     pub vertices: [Point4D<f32>; 4],
     pub kind: TransformedRectKind,
 }
@@ -302,13 +300,13 @@ impl TransformedRect {
                     screen_max.y = screen_max.y.max(vy);
                 }
 
-                let screen_min_dp = Point2D::new(DevicePixel((screen_min.x * device_pixel_ratio).floor() as i32),
-                                                 DevicePixel((screen_min.y * device_pixel_ratio).floor() as i32));
-                let screen_max_dp = Point2D::new(DevicePixel((screen_max.x * device_pixel_ratio).ceil() as i32),
-                                                 DevicePixel((screen_max.y * device_pixel_ratio).ceil() as i32));
+                let screen_min_dp = DevicePoint::new((screen_min.x * device_pixel_ratio).floor() as i32,
+                                                     (screen_min.y * device_pixel_ratio).floor() as i32);
+                let screen_max_dp = DevicePoint::new((screen_max.x * device_pixel_ratio).ceil() as i32,
+                                                     (screen_max.y * device_pixel_ratio).ceil() as i32);
 
-                let screen_rect_dp = Rect::new(screen_min_dp, Size2D::new(screen_max_dp.x - screen_min_dp.x,
-                                                                          screen_max_dp.y - screen_min_dp.y));
+                let screen_rect_dp = DeviceRect::new(screen_min_dp, DeviceSize::new(screen_max_dp.x - screen_min_dp.x,
+                                                                                    screen_max_dp.y - screen_min_dp.y));
 
                 TransformedRect {
                     local_rect: *rect,

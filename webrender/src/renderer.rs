@@ -18,7 +18,7 @@ use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePixel};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePoint};
 use internal_types::{PackedVertexForTextureCacheUpdate};
 use internal_types::{AxisDirection, TextureSampler, GLContextHandleWrapper};
 use ipc_channel::ipc;
@@ -1257,8 +1257,8 @@ impl Renderer {
     }
 
     fn add_debug_rect(&mut self,
-                      p0: Point2D<DevicePixel>,
-                      p1: Point2D<DevicePixel>,
+                      p0: DevicePoint,
+                      p1: DevicePoint,
                       label: &str,
                       c: &ColorF) {
         let tile_x0 = p0.x;
@@ -1291,8 +1291,8 @@ impl Renderer {
                             tile_y1,
                             c);
         if label.len() > 0 {
-            self.debug.add_text((tile_x0.0 as f32 + tile_x1.0 as f32) * 0.5,
-                                (tile_y0.0 as f32 + tile_y1.0 as f32) * 0.5,
+            self.debug.add_text((tile_x0 as f32 + tile_x1 as f32) * 0.5,
+                                (tile_y0 as f32 + tile_y1 as f32) * 0.5,
                                 label,
                                 c);
         }
