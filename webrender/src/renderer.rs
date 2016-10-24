@@ -283,14 +283,10 @@ fn create_prim_shader(name: &'static str,
     let program_id = device.create_program_with_prefix(name,
                                                        includes,
                                                        Some(prefix));
+    let data_index = device.assign_ubo_binding(program_id, "Data", UBO_BIND_DATA);
 
-    let data_index = gl::get_uniform_block_index(program_id.0, "Data");
-    gl::uniform_block_binding(program_id.0, data_index, UBO_BIND_DATA);
+    debug!("PrimShader {}: data={} max={}", name, data_index, max_ubo_vectors);
 
-    debug!("PrimShader {}: data={} max={}",
-           name,
-           data_index,
-           max_ubo_vectors);
     program_id
 }
 
@@ -304,8 +300,7 @@ fn create_clear_shader(name: &'static str,
                                                        includes,
                                                        Some(prefix));
 
-    let data_index = gl::get_uniform_block_index(program_id.0, "Data");
-    gl::uniform_block_binding(program_id.0, data_index, UBO_BIND_DATA);
+    let data_index = device.assign_ubo_binding(program_id, "Data", UBO_BIND_DATA);
 
     debug!("ClearShader {}: data={} max={}", name, data_index, max_ubo_vectors);
 
@@ -416,7 +411,7 @@ impl Renderer {
         let blur_program_id = device.create_program("blur", "shared_other");
         let max_raster_op_size = MAX_RASTER_OP_SIZE * options.device_pixel_ratio as u32;
 
-        let max_ubo_size = gl::get_integer_v(gl::MAX_UNIFORM_BLOCK_SIZE) as usize;
+        let max_ubo_size = device.get_capabilities().max_ubo_size;
         let max_ubo_vectors = max_ubo_size / 16;
 
         let max_prim_instances = get_ubo_max_len::<tiling::PrimitiveInstance>(max_ubo_size);

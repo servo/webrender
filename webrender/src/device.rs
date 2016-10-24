@@ -776,6 +776,10 @@ impl FileWatcherThread {
 }
 */
 
+pub struct Capabilities {
+    pub max_ubo_size: usize,
+}
+
 pub struct Device {
     // device state
     bound_textures: [TextureId; 16],
@@ -784,6 +788,9 @@ pub struct Device {
     bound_fbo: FBOId,
     default_fbo: gl::GLuint,
     device_pixel_ratio: f32,
+
+    // HW or API capabilties
+    capabilities: Capabilities,
 
     // debug
     inside_frame: bool,
@@ -822,6 +829,10 @@ impl Device {
             device_pixel_ratio: device_pixel_ratio,
             inside_frame: false,
 
+            capabilities: Capabilities {
+                max_ubo_size: gl::get_integer_v(gl::MAX_UNIFORM_BLOCK_SIZE) as usize,
+            },
+
             bound_textures: [ TextureId::invalid(); 16 ],
             bound_program: ProgramId(0),
             bound_vao: VAOId(0),
@@ -838,6 +849,10 @@ impl Device {
             next_vao_id: 1,
             //file_watcher: file_watcher,
         }
+    }
+
+    pub fn get_capabilities(&self) -> &Capabilities {
+        &self.capabilities
     }
 
     pub fn compile_shader(path: &PathBuf,
@@ -1697,6 +1712,12 @@ impl Device {
         }
 
         gl::active_texture(gl::TEXTURE0);
+    }
+
+    pub fn assign_ubo_binding(&self, program_id: ProgramId, name: &str, value: u32) -> u32 {
+        let index = gl::get_uniform_block_index(program_id.0, name);
+        gl::uniform_block_binding(program_id.0, index, value);
+        index
     }
 }
 
