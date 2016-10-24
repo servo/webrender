@@ -25,6 +25,7 @@ use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use render_backend::RenderBackend;
+use resource_cache::DummyResources;
 use std::cmp;
 use std::collections::HashMap;
 use std::f32;
@@ -367,11 +368,10 @@ pub struct Renderer {
     data32_texture: VertexDataTexture,
     data64_texture: VertexDataTexture,
     data128_texture: VertexDataTexture,
-    dummy_mask_texture: TextureId,
     pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
     /// Used to dispatch functions to the main thread's event loop.
     /// Required to allow GLContext sharing in some implementations like WGL.
-    main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>
+    main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
 }
 
 impl Renderer {
@@ -491,6 +491,7 @@ impl Renderer {
 
         let texture_ids = device.create_texture_ids(1024);
         let mut texture_cache = TextureCache::new(texture_ids);
+
         let white_pixels: Vec<u8> = vec![
             0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff,
@@ -524,6 +525,11 @@ impl Renderer {
                              TextureInsertOp::Blit(mask_pixels),
                              BorderType::SinglePixel);
 
+        let dummy_resources = DummyResources {
+            white_image_id: white_image_id,
+            opaque_mask_image_id: dummy_mask_image_id,
+        };
+
         let debug_renderer = DebugRenderer::new(&mut device);
 
         let raster_op_target_a8 = device.create_texture_ids(1)[0];
@@ -552,11 +558,6 @@ impl Renderer {
         let data32_texture = VertexDataTexture::new(&mut device);
         let data64_texture = VertexDataTexture::new(&mut device);
         let data128_texture = VertexDataTexture::new(&mut device);
-
-        let dummy_mask_texture = device.create_texture_ids(1)[0];
-        device.init_texture(dummy_mask_texture, 1, 1, ImageFormat::A8,
-                            TextureFilter::Nearest, RenderTargetMode::None,
-                            Some(&[0xFF]));
 
         let x0 = 0.0;
         let y0 = 0.0;
@@ -611,6 +612,7 @@ impl Renderer {
                                                  result_tx,
                                                  device_pixel_ratio,
                                                  texture_cache,
+                                                 dummy_resources,
                                                  enable_aa,
                                                  backend_notifier,
                                                  context_handle,
@@ -668,9 +670,8 @@ impl Renderer {
             data32_texture: data32_texture,
             data64_texture: data64_texture,
             data128_texture: data128_texture,
-            dummy_mask_texture: dummy_mask_texture,
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
-            main_thread_dispatcher: main_thread_dispatcher
+            main_thread_dispatcher: main_thread_dispatcher,
         };
 
         renderer.update_uniform_locations();
@@ -1144,7 +1145,7 @@ impl Renderer {
         self.device.bind_program(program_id, &projection);
 
         self.device.bind_texture(TextureSampler::Color, color_texture_id);
-        self.device.bind_texture(TextureSampler::Mask, self.dummy_mask_texture);
+        self.device.bind_texture(TextureSampler::Mask, TextureId(0));
 
         match blur_direction {
             Some(AxisDirection::Horizontal) => {
@@ -1392,12 +1393,6 @@ impl Renderer {
                 gl::disable(gl::BLEND);
             }
 
-                let mask_texture_id = if batch.mask_texture_id != TextureId(0) {
-                    batch.mask_texture_id
-                } else {
-                    self.dummy_mask_texture
-                };
-
             match &batch.data {
                 &PrimitiveBatchData::Blend(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_BLEND);
@@ -1453,7 +1448,7 @@ impl Renderer {
                                         shader,
                                         1,
                                         batch.color_texture_id,
-                                        mask_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1469,7 +1464,7 @@ impl Renderer {
                                         shader,
                                         1,
                                         batch.color_texture_id,
-                                        mask_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1480,7 +1475,7 @@ impl Renderer {
                                         shader,
                                         1,
                                         batch.color_texture_id,
-                                        mask_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1491,7 +1486,7 @@ impl Renderer {
                                         shader,
                                         1,
                                         batch.color_texture_id,
-                                        mask_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1502,7 +1497,7 @@ impl Renderer {
                                         shader,
                                         1,
                                         batch.color_texture_id,
-                                        mask_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1513,7 +1508,7 @@ impl Renderer {
                                         shader,
                                         1,
                                         batch.color_texture_id,
-                                        mask_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1524,7 +1519,7 @@ impl Renderer {
                                         shader,
                                         1,
                                         batch.color_texture_id,
-                                        mask_texture_id,
+                                        batch.mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }

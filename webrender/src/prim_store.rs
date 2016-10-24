@@ -13,7 +13,7 @@ use resource_cache::ResourceCache;
 use resource_list::ResourceList;
 use std::mem;
 use std::usize;
-use tiling::MaskedClip;
+use tiling::{MaskedClip, MaskImageSource};
 use util::TransformedRect;
 use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering, WebGLContextId};
 use webrender_traits::{FontKey, ItemRange, ComplexClipRegion, GlyphKey};
@@ -187,16 +187,6 @@ pub struct ClipCorner {
 }
 
 impl ClipCorner {
-    pub fn invalid(rect: Rect<f32>) -> ClipCorner {
-        ClipCorner {
-            rect: rect,
-            outer_radius_x: 0.0,
-            outer_radius_y: 0.0,
-            inner_radius_x: 0.0,
-            inner_radius_y: 0.0,
-        }
-    }
-
     pub fn uniform(rect: Rect<f32>, outer_radius: f32, inner_radius: f32) -> ClipCorner {
         ClipCorner {
             rect: rect,
@@ -266,23 +256,6 @@ impl Clip {
                 inner_radius_x: 0.0,
                 inner_radius_y: 0.0,
             },
-            mask_info: ImageMaskInfo {
-                uv_rect: Rect::zero(),
-                local_rect: Rect::zero(),
-            },
-        }
-    }
-
-    pub fn invalid(rect: Rect<f32>) -> Clip {
-        Clip {
-            rect: ClipRect {
-                rect: rect,
-                padding: [0.0; 4],
-            },
-            top_left: ClipCorner::invalid(rect),
-            top_right: ClipCorner::invalid(rect),
-            bottom_left: ClipCorner::invalid(rect),
-            bottom_right: ClipCorner::invalid(rect),
             mask_info: ImageMaskInfo {
                 uv_rect: Rect::zero(),
                 local_rect: Rect::zero(),
@@ -402,18 +375,20 @@ impl PrimitiveStore {
             local_clip_rect: *clip_rect,
         });
 
-        let mut clip_index = None;
-        let mask_image = if let Some(ref masked) = clip {
+        let (clip_index, (mask_image, mask_texture_id)) = if let Some(ref masked) = clip {
             let clip = masked.clip.as_ref().clone();
             // TODO(gw): This is slightly inefficient. It
             // pushes default data on when we already have
             // the data we need to push on available now.
             let gpu_address = self.gpu_data32.alloc(6);
             self.populate_clip_data(gpu_address, clip);
-            clip_index = Some(gpu_address);
-            masked.mask
+            let mask = match masked.mask {
+                MaskImageSource::User(image_key) => (Some(image_key), TextureId(0)),
+                MaskImageSource::Renderer(texture_id) => (None, texture_id),
+            };
+            (Some(gpu_address), mask)
         } else {
-            None
+            (None, (None, TextureId(0)))
         };
 
         let metadata = match container {
@@ -425,7 +400,7 @@ impl PrimitiveStore {
                     is_opaque: is_opaque,
                     need_to_build_cache: mask_image.is_some(),
                     color_texture_id: TextureId(0),
-                    mask_texture_id: TextureId(0),
+                    mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Rectangle,
@@ -445,7 +420,7 @@ impl PrimitiveStore {
                     is_opaque: false,
                     need_to_build_cache: true,
                     color_texture_id: TextureId(0),
-                    mask_texture_id: TextureId(0),
+                    mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::TextRun,
@@ -465,7 +440,7 @@ impl PrimitiveStore {
                     is_opaque: false,
                     need_to_build_cache: true,
                     color_texture_id: TextureId(0),
-                    mask_texture_id: TextureId(0),
+                    mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Image,
@@ -485,7 +460,7 @@ impl PrimitiveStore {
                     is_opaque: false,
                     need_to_build_cache: mask_image.is_some(),
                     color_texture_id: TextureId(0),
-                    mask_texture_id: TextureId(0),
+                    mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Border,
@@ -506,7 +481,7 @@ impl PrimitiveStore {
                     is_opaque: false,
                     need_to_build_cache: true,
                     color_texture_id: TextureId(0),
-                    mask_texture_id: TextureId(0),
+                    mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Gradient,
@@ -527,7 +502,7 @@ impl PrimitiveStore {
                     is_opaque: false,
                     need_to_build_cache: mask_image.is_some(),
                     color_texture_id: TextureId(0),
-                    mask_texture_id: TextureId(0),
+                    mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::BoxShadow,

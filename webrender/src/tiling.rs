@@ -682,15 +682,21 @@ impl RenderTask {
 pub const SCREEN_TILE_SIZE: i32 = 256;
 pub const RENDERABLE_CACHE_SIZE: i32 = 2048;
 
+#[derive(Clone, Copy, Debug)]
+pub enum MaskImageSource {
+    User(ImageKey),
+    Renderer(TextureId),
+}
+
 /// Per-batch clipping info merged with the mask image.
 #[derive(Clone, Debug)]
 pub struct MaskedClip {
     pub clip: Box<Clip>,
-    pub mask: Option<ImageKey>,
+    pub mask: MaskImageSource,
 }
 
 impl MaskedClip {
-    pub fn new(clip: Clip, mask: Option<ImageKey>) ->MaskedClip {
+    pub fn new(clip: Clip, mask: MaskImageSource) ->MaskedClip {
         MaskedClip {
             clip: Box::new(clip),
             mask: mask,
@@ -1513,11 +1519,6 @@ impl FrameBuilder {
         } else {
             (start_point, end_point)
         };
-
-        // TODO(gw): The gradient shader only has a clip variant
-        // right now. So add an invalid clip if none is provided.
-        // Remove this when a non-clip gradient shader is added.
-        let clip = Some(clip.unwrap_or(MaskedClip::new(Clip::invalid(rect), None)));
 
         let gradient_gpu = GradientPrimitiveGpu {
             start_point: sp,
