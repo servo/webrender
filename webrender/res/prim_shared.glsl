@@ -303,20 +303,20 @@ ClipRect fetch_clip_rect(int index) {
     return rect;
 }
 
-struct MaskRect {
-    vec4 uv;
-    vec4 screen;
+struct ImageMaskInfo {
+    vec4 uv_rect;
+    vec4 local_rect;
 };
 
-MaskRect fetch_mask_rect(int index) {
-    MaskRect rect;
+ImageMaskInfo fetch_mask_info(int index) {
+    ImageMaskInfo info;
 
     ivec2 uv = get_fetch_uv_2(index);
 
-    rect.uv = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    rect.screen = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
+    info.uv_rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
+    info.local_rect = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
 
-    return rect;
+    return info;
 }
 
 struct ClipCorner {
@@ -341,7 +341,7 @@ struct Clip {
     ClipCorner top_right;
     ClipCorner bottom_left;
     ClipCorner bottom_right;
-    MaskRect mask_rect;
+    ImageMaskInfo mask_info;
 };
 
 Clip fetch_clip(int index) {
@@ -352,7 +352,7 @@ Clip fetch_clip(int index) {
     clip.top_right = fetch_clip_corner(index + 2);
     clip.bottom_left = fetch_clip_corner(index + 3);
     clip.bottom_right = fetch_clip_corner(index + 4);
-    clip.mask_rect = fetch_mask_rect(index+5);
+    clip.mask_info = fetch_mask_info(index+5);
 
     return clip;
 }

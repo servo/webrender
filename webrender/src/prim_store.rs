@@ -209,9 +209,9 @@ impl ClipCorner {
 }
 
 #[derive(Debug, Clone)]
-pub struct MaskRect {
-    pub uv: Rect<f32>,
-    pub screen: Rect<f32>,
+pub struct ImageMaskInfo {
+    pub uv_rect: Rect<f32>,
+    pub local_rect: Rect<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -221,7 +221,7 @@ pub struct Clip {
     pub top_right: ClipCorner,
     pub bottom_left: ClipCorner,
     pub bottom_right: ClipCorner,
-    pub mask_rect: MaskRect,
+    pub mask_info: ImageMaskInfo,
 }
 
 impl Clip {
@@ -266,9 +266,9 @@ impl Clip {
                 inner_radius_x: 0.0,
                 inner_radius_y: 0.0,
             },
-            mask_rect: MaskRect {
-                uv: Rect::zero(),
-                screen: Rect::zero(),
+            mask_info: ImageMaskInfo {
+                uv_rect: Rect::zero(),
+                local_rect: Rect::zero(),
             },
         }
     }
@@ -283,9 +283,9 @@ impl Clip {
             top_right: ClipCorner::invalid(rect),
             bottom_left: ClipCorner::invalid(rect),
             bottom_right: ClipCorner::invalid(rect),
-            mask_rect: MaskRect {
-                uv: Rect::zero(),
-                screen: Rect::zero(),
+            mask_info: ImageMaskInfo {
+                uv_rect: Rect::zero(),
+                local_rect: Rect::zero(),
             },
         }
     }
@@ -316,18 +316,18 @@ impl Clip {
                                                         Size2D::new(radius, radius)),
                                               radius,
                                               0.0),
-            mask_rect: MaskRect {
-                uv: Rect::zero(),
-                screen: Rect::zero(),
+            mask_info: ImageMaskInfo {
+                uv_rect: Rect::zero(),
+                local_rect: Rect::zero(),
             },
         }
     }
 
-    pub fn with_mask(self, uv_rect: Rect<f32>, screen_rect: Rect<f32>) -> Clip {
+    pub fn with_mask(self, uv_rect: Rect<f32>, local_rect: Rect<f32>) -> Clip {
         Clip {
-            mask_rect: MaskRect {
-                uv: uv_rect,
-                screen: screen_rect,
+            mask_info: ImageMaskInfo {
+                uv_rect: uv_rect,
+                local_rect: local_rect,
             },
             .. self
         }
@@ -405,7 +405,7 @@ impl PrimitiveStore {
             clip_data[2] = GpuBlock32::from(clip.top_right);
             clip_data[3] = GpuBlock32::from(clip.bottom_left);
             clip_data[4] = GpuBlock32::from(clip.bottom_right);
-            clip_data[5] = GpuBlock32::from(clip.mask_rect);
+            clip_data[5] = GpuBlock32::from(clip.mask_info);
             clip_index = Some(gpu_address);
             masked.mask
         } else {
@@ -563,7 +563,7 @@ impl PrimitiveStore {
                 clip_data[2] = GpuBlock32::from(clip.top_right);
                 clip_data[3] = GpuBlock32::from(clip.bottom_left);
                 clip_data[4] = GpuBlock32::from(clip.bottom_right);
-                clip_data[5] = GpuBlock32::from(clip.mask_rect);
+                clip_data[5] = GpuBlock32::from(clip.mask_info);
             }
             (Some(..), None) => {
                 // TODO(gw): Add to clip free list!
@@ -578,7 +578,7 @@ impl PrimitiveStore {
                 clip_data[2] = GpuBlock32::from(clip.top_right);
                 clip_data[3] = GpuBlock32::from(clip.bottom_left);
                 clip_data[4] = GpuBlock32::from(clip.bottom_right);
-                clip_data[5] = GpuBlock32::from(clip.mask_rect);
+                clip_data[5] = GpuBlock32::from(clip.mask_info);
                 metadata.clip_index = Some(gpu_address);
             }
             (None, None) => {}
@@ -677,10 +677,10 @@ impl PrimitiveStore {
             if let Some(address) = metadata.clip_index {
                 let clip = self.gpu_data32.get_slice_mut(address, 6);
                 let old = clip[5].data; //TODO: avoid retaining the screen rectangle
-                clip[5] = GpuBlock32::from(MaskRect {
-                    uv: tex_cache.aligned_uv_rect(),
-                    screen: Rect::new(Point2D::new(old[4], old[5]),
-                                      Size2D::new(old[6], old[7])),
+                clip[5] = GpuBlock32::from(ImageMaskInfo {
+                    uv_rect: tex_cache.aligned_uv_rect(),
+                    local_rect: Rect::new(Point2D::new(old[4], old[5]),
+                                          Size2D::new(old[6], old[7])),
                 });
             }
         }
@@ -902,10 +902,10 @@ impl From<ClipRect> for GpuBlock32 {
     }
 }
 
-impl From<MaskRect> for GpuBlock32 {
-    fn from(data: MaskRect) -> GpuBlock32 {
+impl From<ImageMaskInfo> for GpuBlock32 {
+    fn from(data: ImageMaskInfo) -> GpuBlock32 {
         unsafe {
-            mem::transmute::<MaskRect, GpuBlock32>(data)
+            mem::transmute::<ImageMaskInfo, GpuBlock32>(data)
         }
     }
 }

@@ -6,7 +6,7 @@
 flat varying vec4 vClipRect;
 flat varying vec4 vClipRadius;
 flat varying vec4 vClipMaskUvRect;
-flat varying vec4 vClipMaskScreenRect;
+flat varying vec4 vClipMaskLocalRect;
 
 #ifdef WR_VERTEX_SHADER
 void write_clip(Clip clip) {
@@ -16,8 +16,8 @@ void write_clip(Clip clip) {
                        clip.bottom_right.outer_inner_radius.x,
                        clip.bottom_left.outer_inner_radius.x);
     //TODO: interpolate the final mask UV
-    vClipMaskUvRect = clip.mask_rect.uv;
-    vClipMaskScreenRect = clip.mask_rect.screen;
+    vClipMaskUvRect = clip.mask_info.uv_rect;
+    vClipMaskLocalRect = clip.mask_info.local_rect; //TODO: transform
 }
 #endif
 
@@ -53,7 +53,7 @@ float do_clip(vec2 pos) {
     float border_alpha = 1.0 - smoothstep(0.0, 1.0, distance_from_border);
 
     bool repeat_mask = false; //TODO
-    vec2 vMaskUv = (pos - vClipMaskScreenRect.xy) / vClipMaskScreenRect.zw;
+    vec2 vMaskUv = (pos - vClipMaskLocalRect.xy) / vClipMaskLocalRect.zw;
     vec2 clamped_mask_uv = repeat_mask ? fract(vMaskUv) :
         clamp(vMaskUv, vec2(0.0, 0.0), vec2(1.0, 1.0));
     vec2 source_uv = clamped_mask_uv * vClipMaskUvRect.zw + vClipMaskUvRect.xy;
