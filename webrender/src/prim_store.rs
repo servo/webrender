@@ -378,6 +378,16 @@ impl PrimitiveStore {
         }
     }
 
+    fn populate_clip_data(&mut self, address: GpuStoreAddress, clip: Clip) {
+        let data = self.gpu_data32.get_slice_mut(address, 6);
+        data[0] = GpuBlock32::from(clip.rect);
+        data[1] = GpuBlock32::from(clip.top_left);
+        data[2] = GpuBlock32::from(clip.top_right);
+        data[3] = GpuBlock32::from(clip.bottom_left);
+        data[4] = GpuBlock32::from(clip.bottom_right);
+        data[5] = GpuBlock32::from(clip.mask_info);
+    }
+
     pub fn add_primitive(&mut self,
                          rect: &Rect<f32>,
                          clip_rect: &Rect<f32>,
@@ -399,13 +409,7 @@ impl PrimitiveStore {
             // pushes default data on when we already have
             // the data we need to push on available now.
             let gpu_address = self.gpu_data32.alloc(6);
-            let clip_data = self.gpu_data32.get_slice_mut(gpu_address, 6);
-            clip_data[0] = GpuBlock32::from(clip.rect);
-            clip_data[1] = GpuBlock32::from(clip.top_left);
-            clip_data[2] = GpuBlock32::from(clip.top_right);
-            clip_data[3] = GpuBlock32::from(clip.bottom_left);
-            clip_data[4] = GpuBlock32::from(clip.bottom_right);
-            clip_data[5] = GpuBlock32::from(clip.mask_info);
+            self.populate_clip_data(gpu_address, clip);
             clip_index = Some(gpu_address);
             masked.mask
         } else {
@@ -553,35 +557,22 @@ impl PrimitiveStore {
     }
 
     pub fn set_complex_clip(&mut self, index: PrimitiveIndex, clip: Option<Clip>) {
-        let metadata = &mut self.cpu_metadata[index.0];
-
-        match (metadata.clip_index, clip) {
+        self.cpu_metadata[index.0].clip_index = match (self.cpu_metadata[index.0].clip_index, clip) {
             (Some(clip_index), Some(clip)) => {
-                let clip_data = self.gpu_data32.get_slice_mut(clip_index, 6);
-                clip_data[0] = GpuBlock32::from(clip.rect);
-                clip_data[1] = GpuBlock32::from(clip.top_left);
-                clip_data[2] = GpuBlock32::from(clip.top_right);
-                clip_data[3] = GpuBlock32::from(clip.bottom_left);
-                clip_data[4] = GpuBlock32::from(clip.bottom_right);
-                clip_data[5] = GpuBlock32::from(clip.mask_info);
+                self.populate_clip_data(clip_index, clip);
+                Some(clip_index)
             }
             (Some(..), None) => {
                 // TODO(gw): Add to clip free list!
-                metadata.clip_index = None;
+                None
             }
             (None, Some(clip)) => {
                 // TODO(gw): Pull from clip free list!
                 let gpu_address = self.gpu_data32.alloc(6);
-                let clip_data = self.gpu_data32.get_slice_mut(gpu_address, 6);
-                clip_data[0] = GpuBlock32::from(clip.rect);
-                clip_data[1] = GpuBlock32::from(clip.top_left);
-                clip_data[2] = GpuBlock32::from(clip.top_right);
-                clip_data[3] = GpuBlock32::from(clip.bottom_left);
-                clip_data[4] = GpuBlock32::from(clip.bottom_right);
-                clip_data[5] = GpuBlock32::from(clip.mask_info);
-                metadata.clip_index = Some(gpu_address);
+                self.populate_clip_data(gpu_address, clip);
+                Some(gpu_address)
             }
-            (None, None) => {}
+            (None, None) => None,
         }
     }
 
