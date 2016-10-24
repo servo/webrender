@@ -1376,146 +1376,144 @@ impl Renderer {
             gl::clear(gl::COLOR_BUFFER_BIT);
         }
 
-        for batcher in &target.alpha_batchers {
-            for batch in &batcher.batches {
-                if batch.blending_enabled {
-                    gl::enable(gl::BLEND);
-                } else {
-                    gl::disable(gl::BLEND);
-                }
-
-                match &batch.data {
-                    &PrimitiveBatchData::Blend(ref ubo_data) => {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_BLEND);
-                        let shader = self.ps_blend.get(&mut self.device);
-                        self.device.bind_program(shader, &projection);
-                        self.device.bind_vao(self.quad_vao_id);
-
-                        for chunk in ubo_data.chunks(self.max_prim_blends) {
-                            let ubos = gl::gen_buffers(1);
-                            let ubo = ubos[0];
-
-                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
-
-                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-                            self.profile_counters.vertices.add(6 * chunk.len());
-                            self.profile_counters.draw_calls.inc();
-
-                            gl::delete_buffers(&ubos);
-                        }
-                    }
-                    &PrimitiveBatchData::Composite(ref ubo_data) => {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_COMPOSITE);
-                        let shader = self.ps_composite.get(&mut self.device);
-                        self.device.bind_program(shader, &projection);
-                        self.device.bind_vao(self.quad_vao_id);
-
-                        for chunk in ubo_data.chunks(self.max_prim_composites) {
-                            let ubos = gl::gen_buffers(1);
-                            let ubo = ubos[0];
-
-                            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
-
-                            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
-                            self.profile_counters.vertices.add(6 * chunk.len());
-                            self.profile_counters.draw_calls.inc();
-
-                            gl::delete_buffers(&ubos);
-                        }
-                    }
-                    &PrimitiveBatchData::Rectangles(ref ubo_data) => {
-                        let (shader, max_prim_items) = if batch.has_complex_clip {
-                            self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT_CLIP);
-                            self.ps_rectangle_clip.get(&mut self.device, batch.transform_kind)
-                        } else {
-                            self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT);
-                            self.ps_rectangle.get(&mut self.device, batch.transform_kind)
-                        };
-                        self.draw_ubo_batch(ubo_data,
-                                            shader,
-                                            1,
-                                            batch.color_texture_id,
-                                            max_prim_items,
-                                            &projection);
-                    }
-                    &PrimitiveBatchData::Image(ref ubo_data) => {
-                        let (shader, max_prim_items) = if batch.has_complex_clip {
-                            self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE_CLIP);
-                            self.ps_image_clip.get(&mut self.device, batch.transform_kind)
-                        } else {
-                            self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE);
-                            self.ps_image.get(&mut self.device, batch.transform_kind)
-                        };
-                        self.draw_ubo_batch(ubo_data,
-                                            shader,
-                                            1,
-                                            batch.color_texture_id,
-                                            max_prim_items,
-                                            &projection);
-                    }
-                    &PrimitiveBatchData::Borders(ref ubo_data) => {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_BORDER);
-                        let (shader, max_prim_items) = self.ps_border.get(&mut self.device, batch.transform_kind);
-                        self.draw_ubo_batch(ubo_data,
-                                            shader,
-                                            1,
-                                            batch.color_texture_id,
-                                            max_prim_items,
-                                            &projection);
-
-                    }
-                    &PrimitiveBatchData::BoxShadow(ref ubo_data) => {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_BOX_SHADOW);
-                        let (shader, max_prim_items) = self.ps_box_shadow.get(&mut self.device, batch.transform_kind);
-                        self.draw_ubo_batch(ubo_data,
-                                            shader,
-                                            1,
-                                            batch.color_texture_id,
-                                            max_prim_items,
-                                            &projection);
-
-                    }
-                    &PrimitiveBatchData::TextRun(ref ubo_data) => {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_TEXT_RUN);
-                        let (shader, max_prim_items) = self.ps_text_run.get(&mut self.device, batch.transform_kind);
-                        self.draw_ubo_batch(ubo_data,
-                                            shader,
-                                            1,
-                                            batch.color_texture_id,
-                                            max_prim_items,
-                                            &projection);
-                    }
-                    &PrimitiveBatchData::AlignedGradient(ref ubo_data) => {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_ALIGNED_GRADIENT);
-                        let (shader, max_prim_items) = self.ps_aligned_gradient.get(&mut self.device, batch.transform_kind);
-                        self.draw_ubo_batch(ubo_data,
-                                            shader,
-                                            1,
-                                            batch.color_texture_id,
-                                            max_prim_items,
-                                            &projection);
-
-                    }
-                    &PrimitiveBatchData::AngleGradient(ref ubo_data) => {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_ANGLE_GRADIENT);
-                        let (shader, max_prim_items) = self.ps_angle_gradient.get(&mut self.device, batch.transform_kind);
-                        self.draw_ubo_batch(ubo_data,
-                                            shader,
-                                            1,
-                                            batch.color_texture_id,
-                                            max_prim_items,
-                                            &projection);
-
-                    }
-                }
+        for batch in &target.alpha_batcher.batches {
+            if batch.blending_enabled {
+                gl::enable(gl::BLEND);
+            } else {
+                gl::disable(gl::BLEND);
             }
 
-            gl::disable(gl::BLEND);
+            match &batch.data {
+                &PrimitiveBatchData::Blend(ref ubo_data) => {
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_BLEND);
+                    let shader = self.ps_blend.get(&mut self.device);
+                    self.device.bind_program(shader, &projection);
+                    self.device.bind_vao(self.quad_vao_id);
+
+                    for chunk in ubo_data.chunks(self.max_prim_blends) {
+                        let ubos = gl::gen_buffers(1);
+                        let ubo = ubos[0];
+
+                        gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
+                        gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
+                        gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
+
+                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
+                        self.profile_counters.vertices.add(6 * chunk.len());
+                        self.profile_counters.draw_calls.inc();
+
+                        gl::delete_buffers(&ubos);
+                    }
+                }
+                &PrimitiveBatchData::Composite(ref ubo_data) => {
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_COMPOSITE);
+                    let shader = self.ps_composite.get(&mut self.device);
+                    self.device.bind_program(shader, &projection);
+                    self.device.bind_vao(self.quad_vao_id);
+
+                    for chunk in ubo_data.chunks(self.max_prim_composites) {
+                        let ubos = gl::gen_buffers(1);
+                        let ubo = ubos[0];
+
+                        gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
+                        gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
+                        gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
+
+                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
+                        self.profile_counters.vertices.add(6 * chunk.len());
+                        self.profile_counters.draw_calls.inc();
+
+                        gl::delete_buffers(&ubos);
+                    }
+                }
+                &PrimitiveBatchData::Rectangles(ref ubo_data) => {
+                    let (shader, max_prim_items) = if batch.has_complex_clip {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT_CLIP);
+                        self.ps_rectangle_clip.get(&mut self.device, batch.transform_kind)
+                    } else {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT);
+                        self.ps_rectangle.get(&mut self.device, batch.transform_kind)
+                    };
+                    self.draw_ubo_batch(ubo_data,
+                                        shader,
+                                        1,
+                                        batch.color_texture_id,
+                                        max_prim_items,
+                                        &projection);
+                }
+                &PrimitiveBatchData::Image(ref ubo_data) => {
+                    let (shader, max_prim_items) = if batch.has_complex_clip {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE_CLIP);
+                        self.ps_image_clip.get(&mut self.device, batch.transform_kind)
+                    } else {
+                        self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE);
+                        self.ps_image.get(&mut self.device, batch.transform_kind)
+                    };
+                    self.draw_ubo_batch(ubo_data,
+                                        shader,
+                                        1,
+                                        batch.color_texture_id,
+                                        max_prim_items,
+                                        &projection);
+                }
+                &PrimitiveBatchData::Borders(ref ubo_data) => {
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_BORDER);
+                    let (shader, max_prim_items) = self.ps_border.get(&mut self.device, batch.transform_kind);
+                    self.draw_ubo_batch(ubo_data,
+                                        shader,
+                                        1,
+                                        batch.color_texture_id,
+                                        max_prim_items,
+                                        &projection);
+
+                }
+                &PrimitiveBatchData::BoxShadow(ref ubo_data) => {
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_BOX_SHADOW);
+                    let (shader, max_prim_items) = self.ps_box_shadow.get(&mut self.device, batch.transform_kind);
+                    self.draw_ubo_batch(ubo_data,
+                                        shader,
+                                        1,
+                                        batch.color_texture_id,
+                                        max_prim_items,
+                                        &projection);
+
+                }
+                &PrimitiveBatchData::TextRun(ref ubo_data) => {
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_TEXT_RUN);
+                    let (shader, max_prim_items) = self.ps_text_run.get(&mut self.device, batch.transform_kind);
+                    self.draw_ubo_batch(ubo_data,
+                                        shader,
+                                        1,
+                                        batch.color_texture_id,
+                                        max_prim_items,
+                                        &projection);
+                }
+                &PrimitiveBatchData::AlignedGradient(ref ubo_data) => {
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_ALIGNED_GRADIENT);
+                    let (shader, max_prim_items) = self.ps_aligned_gradient.get(&mut self.device, batch.transform_kind);
+                    self.draw_ubo_batch(ubo_data,
+                                        shader,
+                                        1,
+                                        batch.color_texture_id,
+                                        max_prim_items,
+                                        &projection);
+
+                }
+                &PrimitiveBatchData::AngleGradient(ref ubo_data) => {
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_ANGLE_GRADIENT);
+                    let (shader, max_prim_items) = self.ps_angle_gradient.get(&mut self.device, batch.transform_kind);
+                    self.draw_ubo_batch(ubo_data,
+                                        shader,
+                                        1,
+                                        batch.color_texture_id,
+                                        max_prim_items,
+                                        &projection);
+
+                }
+            }
         }
+
+        gl::disable(gl::BLEND);
     }
 
     fn draw_tile_frame(&mut self,
