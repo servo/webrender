@@ -13,7 +13,7 @@ use resource_cache::ResourceCache;
 use resource_list::ResourceList;
 use std::mem;
 use std::usize;
-use tiling::{MaskedClip, MaskImageSource};
+use tiling::{Clip, MaskImageSource};
 use util::TransformedRect;
 use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering, WebGLContextId};
 use webrender_traits::{FontKey, ItemRange, ComplexClipRegion, GlyphKey};
@@ -364,7 +364,7 @@ impl PrimitiveStore {
     pub fn add_primitive(&mut self,
                          rect: &Rect<f32>,
                          clip_rect: &Rect<f32>,
-                         clip: Option<MaskedClip>,
+                         clip: Option<Clip>,
                          container: PrimitiveContainer) -> PrimitiveIndex {
         let prim_index = self.cpu_metadata.len();
 

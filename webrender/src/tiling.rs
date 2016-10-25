@@ -690,14 +690,14 @@ pub enum MaskImageSource {
 
 /// Per-batch clipping info merged with the mask image.
 #[derive(Clone, Debug)]
-pub struct MaskedClip {
+pub struct Clip {
     pub clip: Box<ClipInfo>,
     pub mask: MaskImageSource,
 }
 
-impl MaskedClip {
-    pub fn new(clip: ClipInfo, mask: MaskImageSource) ->MaskedClip {
-        MaskedClip {
+impl Clip {
+    pub fn new(clip: ClipInfo, mask: MaskImageSource) ->Clip {
+        Clip {
             clip: Box::new(clip),
             mask: mask,
         }
@@ -1308,7 +1308,7 @@ impl FrameBuilder {
     fn add_primitive(&mut self,
                      rect: &Rect<f32>,
                      clip_rect: &Rect<f32>,
-                     clip: Option<MaskedClip>,
+                     clip: Option<Clip>,
                      container: PrimitiveContainer) -> PrimitiveIndex {
         let prim_index = self.prim_store.add_primitive(rect,
                                                        clip_rect,
@@ -1369,7 +1369,7 @@ impl FrameBuilder {
     pub fn add_solid_rectangle(&mut self,
                                rect: &Rect<f32>,
                                clip_rect: &Rect<f32>,
-                               clip: Option<MaskedClip>,
+                               clip: Option<Clip>,
                                color: &ColorF,
                                flags: PrimitiveFlags) {
         if color.a == 0.0 {
@@ -1418,7 +1418,7 @@ impl FrameBuilder {
     pub fn add_border(&mut self,
                       rect: Rect<f32>,
                       clip_rect: &Rect<f32>,
-                      clip: Option<MaskedClip>,
+                      clip: Option<Clip>,
                       border: &BorderDisplayItem) {
         let radius = &border.radius;
         let left = &border.left;
@@ -1490,7 +1490,7 @@ impl FrameBuilder {
     pub fn add_gradient(&mut self,
                         rect: Rect<f32>,
                         clip_rect: &Rect<f32>,
-                        clip: Option<MaskedClip>,
+                        clip: Option<Clip>,
                         start_point: Point2D<f32>,
                         end_point: Point2D<f32>,
                         stops: ItemRange) {
@@ -1536,7 +1536,7 @@ impl FrameBuilder {
     pub fn add_text(&mut self,
                     rect: Rect<f32>,
                     clip_rect: &Rect<f32>,
-                    clip: Option<MaskedClip>,
+                    clip: Option<Clip>,
                     font_key: FontKey,
                     size: Au,
                     blur_radius: Au,
@@ -1580,7 +1580,7 @@ impl FrameBuilder {
     pub fn add_box_shadow(&mut self,
                           box_bounds: &Rect<f32>,
                           clip_rect: &Rect<f32>,
-                          clip: Option<MaskedClip>,
+                          clip: Option<Clip>,
                           box_offset: &Point2D<f32>,
                           color: &ColorF,
                           blur_radius: f32,
@@ -1641,7 +1641,7 @@ impl FrameBuilder {
     pub fn add_webgl_rectangle(&mut self,
                                rect: Rect<f32>,
                                clip_rect: &Rect<f32>,
-                               clip: Option<MaskedClip>,
+                               clip: Option<Clip>,
                                context_id: WebGLContextId) {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::WebGL(context_id),
@@ -1656,7 +1656,7 @@ impl FrameBuilder {
     pub fn add_image(&mut self,
                      rect: Rect<f32>,
                      clip_rect: &Rect<f32>,
-                     clip: Option<MaskedClip>,
+                     clip: Option<Clip>,
                      stretch_size: &Size2D<f32>,
                      tile_spacing: &Size2D<f32>,
                      image_key: ImageKey,

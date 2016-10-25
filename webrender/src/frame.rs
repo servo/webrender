@@ -16,7 +16,7 @@ use resource_cache::{DummyResources, ResourceCache};
 use scene::{SceneStackingContext, ScenePipeline, Scene, SceneItem, SpecificSceneItem};
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
-use tiling::{FrameBuilder, FrameBuilderConfig, InsideTest, MaskedClip, MaskImageSource};
+use tiling::{FrameBuilder, FrameBuilderConfig, InsideTest, Clip, MaskImageSource};
 use tiling::PrimitiveFlags;
 use util::MatrixHelpers;
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
@@ -553,8 +553,8 @@ impl Frame {
                         let clips = auxiliary_lists.complex_clip_regions(&item.clip.complex);
                         let mut clip = match clips.len() {
                             0 if item.clip.image_mask.is_none() => None,
-                            0 => Some(MaskedClip::new(ClipInfo::uniform(item.clip.main, 0.0), dummy_mask_source)),
-                            1 => Some(MaskedClip::new(ClipInfo::from_clip_region(&clips[0]), dummy_mask_source)),
+                            0 => Some(Clip::new(ClipInfo::uniform(item.clip.main, 0.0), dummy_mask_source)),
+                            1 => Some(Clip::new(ClipInfo::from_clip_region(&clips[0]), dummy_mask_source)),
                             _ => {
                                 let internal_clip = clips.last().unwrap();
                                 let region = if clips.iter().all(|current_clip| current_clip.might_contain(internal_clip)) {
@@ -562,7 +562,7 @@ impl Frame {
                                 } else {
                                     &clips[0]
                                 };
-                                Some(MaskedClip::new(ClipInfo::from_clip_region(region), dummy_mask_source))
+                                Some(Clip::new(ClipInfo::from_clip_region(region), dummy_mask_source))
                             },
                         };
 
@@ -573,7 +573,7 @@ impl Frame {
                             };
                             //Note: can't call `tex_cache.aligned_uv_rect()` here since the image
                             // is not yet marked as needed this frame.
-                            clip = Some(MaskedClip::new(old.with_mask(Rect::zero(), mask.rect),
+                            clip = Some(Clip::new(old.with_mask(Rect::zero(), mask.rect),
                                                          MaskImageSource::User(mask.image)));
                         }
 
