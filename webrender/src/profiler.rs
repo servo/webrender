@@ -17,6 +17,8 @@ const GRAPH_PADDING: f32 = 8.0;
 const GRAPH_FRAME_HEIGHT: f32 = 16.0;
 const PROFILE_PADDING: f32 = 10.0;
 
+const ONE_SECOND_NS: u64 = 1000000000;
+
 #[derive(Debug, Clone)]
 pub struct GpuProfileTag {
     pub label: &'static str,
@@ -160,6 +162,72 @@ impl ProfileCounter for TimeProfileCounter {
     }
 }
 
+#[derive(Clone)]
+pub struct AverageTimeProfileCounter {
+    description: &'static str,
+    average_over_ns: u64,
+    start_ns: u64,
+    sum_ns: u64,
+    num_samples: u64,
+    nanoseconds: u64,
+    invert: bool,
+}
+
+impl AverageTimeProfileCounter {
+    pub fn new(description: &'static str, invert: bool, average_over_ns: u64) -> AverageTimeProfileCounter {
+        AverageTimeProfileCounter {
+            description: description,
+            average_over_ns: average_over_ns,
+            start_ns: precise_time_ns(),
+            sum_ns: 0,
+            num_samples: 0,
+            nanoseconds: 0,
+            invert: invert,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.start_ns = precise_time_ns();
+        self.nanoseconds = 0;
+        self.sum_ns = 0;
+        self.num_samples = 0;
+    }
+
+    pub fn set(&mut self, ns: u64) {
+        let now = precise_time_ns();
+        if (now - self.start_ns) > self.average_over_ns {
+            self.nanoseconds = self.sum_ns / self.num_samples;
+            self.start_ns = now;
+            self.sum_ns = 0;
+            self.num_samples = 0;
+        }
+        self.sum_ns += ns;
+        self.num_samples += 1;
+    }
+
+    pub fn profile<T, F>(&mut self, callback: F) -> T where F: FnOnce() -> T {
+        let t0 = precise_time_ns();
+        let val = callback();
+        let t1 = precise_time_ns();
+        self.set(t1 - t0);
+        val
+    }
+}
+
+impl ProfileCounter for AverageTimeProfileCounter {
+    fn description(&self) -> &'static str {
+        self.description
+    }
+
+    fn value(&self) -> String {
+        if self.invert {
+            format!("{:.2} fps", 1000000000.0 / self.nanoseconds as f64)
+        } else {
+            format!("{:.2} ms", self.nanoseconds as f64 / 1000000.0)
+        }
+    }
+}
+
 pub struct FrameProfileCounters {
     pub total_primitives: IntProfileCounter,
     pub visible_primitives: IntProfileCounter,
@@ -201,7 +269,7 @@ impl BackendProfileCounters {
 
 pub struct RendererProfileCounters {
     pub frame_counter: IntProfileCounter,
-    pub frame_time: TimeProfileCounter,
+    pub frame_time: AverageTimeProfileCounter,
     pub draw_calls: IntProfileCounter,
     pub vertices: IntProfileCounter,
     pub vao_count_and_size: ResourceProfileCounter,
@@ -217,7 +285,7 @@ impl RendererProfileCounters {
     pub fn new() -> RendererProfileCounters {
         RendererProfileCounters {
             frame_counter: IntProfileCounter::new("Frame"),
-            frame_time: TimeProfileCounter::new("FPS", true),
+            frame_time: AverageTimeProfileCounter::new("FPS", true, ONE_SECOND_NS / 2),
             draw_calls: IntProfileCounter::new("Draw Calls"),
             vertices: IntProfileCounter::new("Vertices"),
             vao_count_and_size: ResourceProfileCounter::new("VAO"),
