@@ -125,9 +125,9 @@ pub enum GradientType {
 
 #[derive(Debug, Clone)]
 pub struct GradientStop {
-    pub color: ColorF,
-    pub offset: f32,
-    pub padding: [f32; 3],
+    color: ColorF,
+    offset: f32,
+    padding: [f32; 3],
 }
 
 #[derive(Debug, Clone)]
@@ -146,8 +146,8 @@ pub struct GradientPrimitiveCpu {
 }
 
 #[derive(Debug, Clone)]
-pub struct InstanceRect {
-    pub rect: Rect<f32>,
+struct InstanceRect {
+    rect: Rect<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -164,30 +164,30 @@ pub struct TextRunPrimitiveCpu {
 }
 
 #[derive(Debug, Clone)]
-pub struct GlyphPrimitive {
-    pub offset: Point2D<f32>,
-    pub padding: Point2D<f32>,
-    pub uv0: Point2D<f32>,
-    pub uv1: Point2D<f32>,
+struct GlyphPrimitive {
+    offset: Point2D<f32>,
+    padding: Point2D<f32>,
+    uv0: Point2D<f32>,
+    uv1: Point2D<f32>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ClipRect {
-    pub rect: Rect<f32>,
-    pub padding: [f32; 4],
+struct ClipRect {
+    rect: Rect<f32>,
+    padding: [f32; 4],
 }
 
 #[derive(Debug, Clone)]
-pub struct ClipCorner {
-    pub rect: Rect<f32>,
-    pub outer_radius_x: f32,
-    pub outer_radius_y: f32,
-    pub inner_radius_x: f32,
-    pub inner_radius_y: f32,
+struct ClipCorner {
+    rect: Rect<f32>,
+    outer_radius_x: f32,
+    outer_radius_y: f32,
+    inner_radius_x: f32,
+    inner_radius_y: f32,
 }
 
 impl ClipCorner {
-    pub fn uniform(rect: Rect<f32>, outer_radius: f32, inner_radius: f32) -> ClipCorner {
+    fn uniform(rect: Rect<f32>, outer_radius: f32, inner_radius: f32) -> ClipCorner {
         ClipCorner {
             rect: rect,
             outer_radius_x: outer_radius,
@@ -199,19 +199,19 @@ impl ClipCorner {
 }
 
 #[derive(Debug, Clone)]
-pub struct ImageMaskInfo {
-    pub uv_rect: Rect<f32>,
-    pub local_rect: Rect<f32>,
+struct ImageMaskInfo {
+    uv_rect: Rect<f32>,
+    local_rect: Rect<f32>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ClipInfo {
-    pub rect: ClipRect,
-    pub top_left: ClipCorner,
-    pub top_right: ClipCorner,
-    pub bottom_left: ClipCorner,
-    pub bottom_right: ClipCorner,
-    pub mask_info: ImageMaskInfo,
+    rect: ClipRect,
+    top_left: ClipCorner,
+    top_right: ClipCorner,
+    bottom_left: ClipCorner,
+    bottom_right: ClipCorner,
+    mask_info: ImageMaskInfo,
 }
 
 impl ClipInfo {
