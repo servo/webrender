@@ -234,6 +234,9 @@ pub enum PrimitiveFlags {
 }
 
 #[derive(Debug, Copy, Clone)]
+struct RenderTargetIndex(usize);
+
+#[derive(Debug, Copy, Clone)]
 struct RenderTaskIndex(usize);
 
 #[derive(Debug, Copy, Clone)]
@@ -425,19 +428,48 @@ struct RenderTargetContext<'a> {
 }
 
 pub struct RenderTarget {
-    pub is_framebuffer: bool,
-    page_allocator: TexturePage,
-    tasks: Vec<RenderTask>,
     pub alpha_batcher: AlphaBatcher,
+    page_allocator: TexturePage,
 }
 
 impl RenderTarget {
-    fn new(is_framebuffer: bool) -> RenderTarget {
+    fn new() -> RenderTarget {
         RenderTarget {
-            is_framebuffer: is_framebuffer,
-            page_allocator: TexturePage::new(TextureId(0), RENDERABLE_CACHE_SIZE as u32),
-            tasks: Vec::new(),
             alpha_batcher: AlphaBatcher::new(),
+            page_allocator: TexturePage::new(TextureId::invalid(), RENDERABLE_CACHE_SIZE as u32),
+        }
+    }
+
+    fn build(&mut self,
+             ctx: &RenderTargetContext,
+             render_tasks: &mut RenderTaskCollection) {
+        self.alpha_batcher.build(ctx, render_tasks);
+    }
+
+    fn add_task(&mut self, task: RenderTask) {
+        match task.kind {
+            RenderTaskKind::Alpha(info) => {
+                self.alpha_batcher.add_task(AlphaBatchTask {
+                    task_id: task.id,
+                    items: info.items,
+                });
+            }
+        }
+    }
+}
+
+pub struct RenderPass {
+    pub is_framebuffer: bool,
+    tasks: Vec<RenderTask>,
+    pub targets: Vec<RenderTarget>,
+}
+
+impl RenderPass {
+    fn new(is_framebuffer: bool) -> RenderPass {
+        RenderPass {
+            is_framebuffer: is_framebuffer,
+            targets: vec![ RenderTarget::new() ],
+            tasks: Vec::new(),
         }
     }
 
@@ -449,59 +481,42 @@ impl RenderTarget {
              ctx: &RenderTargetContext,
              render_tasks: &mut RenderTaskCollection) {
         // Step through each task, adding to batches as appropriate.
-        for task in self.tasks.drain(..) {
-            match task.kind {
-                RenderTaskKind::Alpha(info) => {
-                    self.alpha_batcher.add_task(AlphaBatchTask {
-                        task_id: task.id,
-                        items: info.items,
-                    });
+        for mut task in self.tasks.drain(..) {
+            // Find a target to assign this task to, or create a new
+            // one if required.
+            match task.location {
+                RenderTaskLocation::Fixed(..) => {}
+                RenderTaskLocation::Dynamic(ref mut origin, ref size) => {
+                    let alloc_size = Size2D::new(size.width as u32,
+                                                 size.height as u32);
+
+                    let alloc_origin = self.targets
+                                           .last_mut()
+                                           .unwrap()
+                                           .page_allocator.allocate(&alloc_size);
+
+                    let alloc_origin = match alloc_origin {
+                        Some(alloc_origin) => alloc_origin,
+                        None => {
+                            let mut new_target = RenderTarget::new();
+                            let origin = new_target.page_allocator
+                                                   .allocate(&alloc_size)
+                                                   .expect("Each render task must allocate <= size of one target!");
+                            self.targets.push(new_target);
+                            origin
+                        }
+                    };
+
+                    let alloc_origin = DevicePoint::new(alloc_origin.x as i32,
+                                                        alloc_origin.y as i32);
+                    *origin = Some((alloc_origin, RenderTargetIndex(self.targets.len() - 1)));
                 }
             }
+
+            render_tasks.add(&task);
+            self.targets.last_mut().unwrap().add_task(task);
         }
 
-        self.alpha_batcher.build(ctx, render_tasks);
-    }
-}
-
-pub struct RenderPhase {
-    pub targets: Vec<RenderTarget>,
-}
-
-impl RenderPhase {
-    fn new(max_target_count: usize) -> RenderPhase {
-        //println!("+ start render phase: targets={}", max_target_count);
-        let mut targets = Vec::with_capacity(max_target_count);
-        for index in 0..max_target_count {
-            targets.push(RenderTarget::new(index == max_target_count-1));
-        }
-
-        RenderPhase {
-            targets: targets,
-        }
-    }
-
-    fn add_compiled_screen_tile(&mut self,
-                                mut tile: CompiledScreenTile,
-                                render_tasks: &mut RenderTaskCollection) -> Option<CompiledScreenTile> {
-        debug_assert!(tile.required_target_count <= self.targets.len());
-
-        let ok = tile.main_render_task.alloc_if_required(self.targets.len() - 1,
-                                                         &mut self.targets);
-
-        if ok {
-            tile.main_render_task.assign_to_targets(self.targets.len() - 1,
-                                                    &mut self.targets,
-                                                    render_tasks);
-            None
-        } else {
-            Some(tile)
-        }
-    }
-
-    fn build(&mut self,
-             ctx: &RenderTargetContext,
-             render_tasks: &mut RenderTaskCollection) {
         for target in &mut self.targets {
             target.build(ctx, render_tasks);
         }
@@ -511,7 +526,7 @@ impl RenderPhase {
 #[derive(Debug)]
 enum RenderTaskLocation {
     Fixed(DeviceRect),
-    Dynamic(Option<DevicePoint>, DeviceSize),
+    Dynamic(Option<(DevicePoint, RenderTargetIndex)>, DeviceSize),
 }
 
 #[derive(Debug)]
@@ -564,7 +579,7 @@ impl RenderTask {
     fn write_task_data(&self) -> RenderTaskData {
         match self.kind {
             RenderTaskKind::Alpha(ref task) => {
-                let target_rect = self.get_target_rect();
+                let (target_rect, target_index) = self.get_target_rect();
                 debug_assert!(target_rect.size.width == task.actual_rect.size.width);
                 debug_assert!(target_rect.size.height == task.actual_rect.size.height);
 
@@ -576,7 +591,7 @@ impl RenderTask {
                         target_rect.origin.y as f32,
                         task.actual_rect.size.width as f32,
                         task.actual_rect.size.height as f32,
-                        0.0,
+                        target_index.0 as f32,
                         0.0,
                     ],
                 }
@@ -595,75 +610,36 @@ impl RenderTask {
         }
     }
 
-    fn get_target_rect(&self) -> DeviceRect {
+    fn get_target_rect(&self) -> (DeviceRect, RenderTargetIndex) {
         match self.location {
-            RenderTaskLocation::Fixed(rect) => rect,
-            RenderTaskLocation::Dynamic(origin, size) => {
-                DeviceRect::new(origin.expect("Should have been allocated by now!"),
-                                size)
+            RenderTaskLocation::Fixed(rect) => (rect, RenderTargetIndex(0)),
+            RenderTaskLocation::Dynamic(origin_and_target_index, size) => {
+                let (origin, target_index) = origin_and_target_index.expect("Should have been allocated by now!");
+                (DeviceRect::new(origin, size), target_index)
             }
         }
     }
 
-    fn assign_to_targets(mut self,
-                         target_index: usize,
-                         targets: &mut Vec<RenderTarget>,
-                         render_tasks: &mut RenderTaskCollection) {
+    fn assign_to_passes(mut self,
+                        pass_index: usize,
+                        passes: &mut Vec<RenderPass>) {
         for child in self.children.drain(..) {
-            child.assign_to_targets(target_index - 1,
-                                    targets,
-                                    render_tasks);
+            child.assign_to_passes(pass_index - 1,
+                                   passes);
         }
-
-        render_tasks.add(&self);
 
         // Sanity check - can be relaxed if needed
         match self.location {
             RenderTaskLocation::Fixed(..) => {
-                debug_assert!(target_index == targets.len() - 1);
+                debug_assert!(pass_index == passes.len() - 1);
             }
             RenderTaskLocation::Dynamic(..) => {
-                debug_assert!(target_index < targets.len() - 1);
+                debug_assert!(pass_index < passes.len() - 1);
             }
         }
 
-        let target = &mut targets[target_index];
-        target.add_render_task(self);
-    }
-
-    fn alloc_if_required(&mut self,
-                         target_index: usize,
-                         targets: &mut Vec<RenderTarget>) -> bool {
-        match self.location {
-            RenderTaskLocation::Fixed(..) => {}
-            RenderTaskLocation::Dynamic(ref mut origin, ref size) => {
-                let target = &mut targets[target_index];
-
-                let alloc_size = Size2D::new(size.width as u32,
-                                             size.height as u32);
-
-                let alloc_origin = target.page_allocator.allocate(&alloc_size);
-
-                match alloc_origin {
-                    Some(alloc_origin) => {
-                        *origin = Some(DevicePoint::new(alloc_origin.x as i32,
-                                                        alloc_origin.y as i32));
-                    }
-                    None => {
-                        return false;
-                    }
-                }
-            }
-        }
-
-        for child in &mut self.children {
-            if !child.alloc_if_required(target_index - 1,
-                                        targets) {
-                return false;
-            }
-        }
-
-        true
+        let pass = &mut passes[pass_index];
+        pass.add_render_task(self);
     }
 
     fn max_depth(&self,
@@ -713,7 +689,7 @@ impl AlphaBatchKey {
         AlphaBatchKey {
             kind: AlphaBatchKind::Blend,
             flags: AlphaBatchKeyFlags(0),
-            color_texture_id: TextureId(0),
+            color_texture_id: TextureId::invalid(),
         }
     }
 
@@ -721,7 +697,7 @@ impl AlphaBatchKey {
         AlphaBatchKey {
             kind: AlphaBatchKind::Composite,
             flags: AlphaBatchKeyFlags(0),
-            color_texture_id: TextureId(0),
+            color_texture_id: TextureId::invalid(),
         }
     }
 
@@ -739,7 +715,7 @@ impl AlphaBatchKey {
     fn is_compatible_with(&self, other: &AlphaBatchKey) -> bool {
         self.kind == other.kind &&
             self.flags == other.flags &&
-            (self.color_texture_id == TextureId(0) || other.color_texture_id == TextureId(0) ||
+            (self.color_texture_id == TextureId::invalid() || other.color_texture_id == TextureId::invalid() ||
              self.color_texture_id == other.color_texture_id)
     }
 }
@@ -827,7 +803,7 @@ pub struct PrimitiveBatch {
 impl PrimitiveBatch {
     fn blend() -> PrimitiveBatch {
         PrimitiveBatch {
-            color_texture_id: TextureId(0),
+            color_texture_id: TextureId::invalid(),
             transform_kind: TransformedRectKind::AxisAligned,
             has_complex_clip: false,
             blending_enabled: true,
@@ -837,7 +813,7 @@ impl PrimitiveBatch {
 
     fn composite() -> PrimitiveBatch {
         PrimitiveBatch {
-            color_texture_id: TextureId(0),
+            color_texture_id: TextureId::invalid(),
             transform_kind: TransformedRectKind::AxisAligned,
             has_complex_clip: false,
             blending_enabled: true,
@@ -1052,7 +1028,7 @@ pub struct Frame {
     pub viewport_size: Size2D<i32>,
     pub debug_rects: Vec<DebugRect>,
     pub cache_size: Size2D<f32>,
-    pub phases: Vec<RenderPhase>,
+    pub passes: Vec<RenderPass>,
     pub clear_tiles: Vec<ClearTile>,
     pub profile_counters: FrameProfileCounters,
 
@@ -1077,21 +1053,26 @@ enum CompiledScreenTileInfo {
 #[derive(Debug)]
 struct CompiledScreenTile {
     main_render_task: RenderTask,
-    required_target_count: usize,
+    required_pass_count: usize,
     info: CompiledScreenTileInfo,
 }
 
 impl CompiledScreenTile {
     fn new(main_render_task: RenderTask,
            info: CompiledScreenTileInfo) -> CompiledScreenTile {
-        let mut required_target_count = 0;
-        main_render_task.max_depth(0, &mut required_target_count);
+        let mut required_pass_count = 0;
+        main_render_task.max_depth(0, &mut required_pass_count);
 
         CompiledScreenTile {
             main_render_task: main_render_task,
-            required_target_count: required_target_count,
+            required_pass_count: required_pass_count,
             info: info,
         }
+    }
+
+    fn build(self, passes: &mut Vec<RenderPass>) {
+        self.main_render_task.assign_to_passes(passes.len() - 1,
+                                               passes);
     }
 }
 
@@ -2013,10 +1994,13 @@ impl FrameBuilder {
 
         // Build list of passes, target allocs that each tile needs.
         let mut compiled_screen_tiles = Vec::new();
+        let mut max_passes_needed = 0;
         for screen_tile in screen_tiles {
             let rect = screen_tile.rect;        // TODO(gw): Remove clone here
             match screen_tile.compile(&ctx) {
                 Some(compiled_screen_tile) => {
+                    max_passes_needed = cmp::max(max_passes_needed,
+                                                 compiled_screen_tile.required_pass_count);
                     if self.debug {
                         let (label, color) = match &compiled_screen_tile.info {
                             &CompiledScreenTileInfo::SimpleAlpha(prim_count) => {
@@ -2042,44 +2026,26 @@ impl FrameBuilder {
             }
         }
 
-        let mut phases = Vec::new();
+        let mut passes = Vec::new();
         let static_render_task_count = ctx.render_task_id_counter.load(Ordering::SeqCst);
         let mut render_tasks = RenderTaskCollection::new(static_render_task_count);
 
         if !compiled_screen_tiles.is_empty() {
-            // Sort by pass count to minimize render target switches.
-            compiled_screen_tiles.sort_by(|a, b| {
-                let a_passes = a.required_target_count;
-                let b_passes = b.required_target_count;
-                b_passes.cmp(&a_passes)
-            });
-
-            // Do the allocations now, assigning each tile to a render
-            // phase as required.
-
-            let mut current_phase = RenderPhase::new(compiled_screen_tiles[0].required_target_count);
-
-            for compiled_screen_tile in compiled_screen_tiles {
-                if let Some(failed_tile) = current_phase.add_compiled_screen_tile(compiled_screen_tile,
-                                                                                  &mut render_tasks) {
-                    let full_phase = mem::replace(&mut current_phase,
-                                                  RenderPhase::new(failed_tile.required_target_count));
-                    phases.push(full_phase);
-
-                    let result = current_phase.add_compiled_screen_tile(failed_tile,
-                                                                        &mut render_tasks);
-                    assert!(result.is_none(), "TODO: Handle single tile not fitting in render phase.");
-                }
+            // Do the allocations now, assigning each tile's tasks to a render
+            // pass and target as required.
+            for index in 0..max_passes_needed {
+                passes.push(RenderPass::new(index == max_passes_needed-1));
             }
 
-            phases.push(current_phase);
+            for compiled_screen_tile in compiled_screen_tiles {
+                compiled_screen_tile.build(&mut passes);
+            }
 
-            //println!("rendering: phase count={}", phases.len());
-            for phase in &mut phases {
-                phase.build(&ctx, &mut render_tasks);
+            for pass in passes.iter_mut().rev() {
+                pass.build(&ctx, &mut render_tasks);
 
-                profile_counters.phases.inc();
-                profile_counters.targets.add(phase.targets.len());
+                profile_counters.passes.inc();
+                profile_counters.targets.add(pass.targets.len());
             }
         }
 
@@ -2087,7 +2053,7 @@ impl FrameBuilder {
             viewport_size: self.screen_rect.size,
             debug_rects: debug_rects,
             profile_counters: profile_counters,
-            phases: phases,
+            passes: passes,
             clear_tiles: clear_tiles,
             cache_size: Size2D::new(RENDERABLE_CACHE_SIZE as f32,
                                     RENDERABLE_CACHE_SIZE as f32),

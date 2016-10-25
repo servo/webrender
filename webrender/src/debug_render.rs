@@ -4,7 +4,7 @@
 
 use debug_font_data;
 use device::{Device, ProgramId, VAOId, TextureId, VertexFormat};
-use device::{TextureFilter, VertexUsageHint};
+use device::{TextureFilter, VertexUsageHint, TextureTarget};
 use euclid::{Matrix4D, Point2D, Size2D, Rect};
 use gleam::gl;
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, TextureSampler};
@@ -36,7 +36,7 @@ impl DebugRenderer {
         let line_vao = device.create_vao(VertexFormat::DebugColor, None);
         let tri_vao = device.create_vao(VertexFormat::DebugColor, None);
 
-        let font_texture_id = device.create_texture_ids(1)[0];
+        let font_texture_id = device.create_texture_ids(1, TextureTarget::Default)[0];
         device.init_texture(font_texture_id,
                             debug_font_data::BMP_WIDTH,
                             debug_font_data::BMP_HEIGHT,

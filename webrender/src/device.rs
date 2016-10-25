@@ -46,6 +46,12 @@ lazy_static! {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
+pub enum TextureTarget {
+    Default,
+    Array,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum TextureFilter {
     Nearest,
     Linear,
@@ -317,12 +323,21 @@ impl VertexFormat {
 
 impl TextureId {
     pub fn bind(&self) {
-        let TextureId(id) = *self;
-        gl::bind_texture(gl::TEXTURE_2D, id);
+        gl::bind_texture(self.target, self.name);
+    }
+
+    pub fn new(name: gl::GLuint) -> TextureId {
+        TextureId {
+            name: name,
+            target: gl::TEXTURE_2D,
+        }
     }
 
     pub fn invalid() -> TextureId {
-        TextureId(0)
+        TextureId {
+            name: 0,
+            target: gl::TEXTURE_2D,
+        }
     }
 }
 
@@ -490,7 +505,10 @@ impl Drop for VAO {
 }
 
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Debug, Copy, Clone)]
-pub struct TextureId(pub gl::GLuint);       // TODO: HACK: Should not be public!
+pub struct TextureId {
+    name: gl::GLuint,
+    target: gl::GLuint,
+}
 
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 pub struct ProgramId(pub gl::GLuint);
@@ -804,7 +822,7 @@ impl Device {
             device_pixel_ratio: device_pixel_ratio,
             inside_frame: false,
 
-            bound_textures: [ TextureId(0); 16 ],
+            bound_textures: [ TextureId::invalid(); 16 ],
             bound_program: ProgramId(0),
             bound_vao: VAOId(0),
             bound_fbo: FBOId(0),
@@ -866,7 +884,7 @@ impl Device {
 
         // Texture state
         for i in 0..self.bound_textures.len() {
-            self.bound_textures[i] = TextureId(0);
+            self.bound_textures[i] = TextureId::invalid();
             gl::active_texture(gl::TEXTURE0 + i as gl::GLuint);
             gl::bind_texture(gl::TEXTURE_2D, 0);
         }
@@ -889,7 +907,9 @@ impl Device {
         gl::active_texture(gl::TEXTURE0);
     }
 
-    pub fn bind_texture(&mut self, sampler: TextureSampler, texture_id: TextureId) {
+    pub fn bind_texture(&mut self,
+                        sampler: TextureSampler,
+                        texture_id: TextureId) {
         debug_assert!(self.inside_frame);
 
         let sampler_index = sampler as usize;
@@ -901,11 +921,11 @@ impl Device {
         }
     }
 
-    pub fn bind_render_target(&mut self, texture_id: Option<TextureId>) {
+    pub fn bind_render_target(&mut self, texture_id: Option<(TextureId, i32)>) {
         debug_assert!(self.inside_frame);
 
         let fbo_id = texture_id.map_or(FBOId(self.default_fbo), |texture_id| {
-            self.textures.get(&texture_id).unwrap().fbo_ids[0]
+            self.textures.get(&texture_id.0).unwrap().fbo_ids[texture_id.1 as usize]
         });
 
         if self.bound_fbo != fbo_id {
@@ -928,12 +948,22 @@ impl Device {
         self.set_uniforms(program, projection);
     }
 
-    pub fn create_texture_ids(&mut self, count: i32) -> Vec<TextureId> {
+    pub fn create_texture_ids(&mut self,
+                              count: i32,
+                              target: TextureTarget) -> Vec<TextureId> {
         let id_list = gl::gen_textures(count);
         let mut texture_ids = Vec::new();
 
+        let target = match target {
+            TextureTarget::Default => gl::TEXTURE_2D,
+            TextureTarget::Array => gl::TEXTURE_2D_ARRAY,
+        };
+
         for id in id_list {
-            let texture_id = TextureId(id);
+            let texture_id = TextureId {
+                name: id,
+                target: target,
+            };
 
             let texture = Texture {
                 id: id,
@@ -980,7 +1010,7 @@ impl Device {
         self.raw_textures.insert(texture_id, (x0, y0, width, height));
     }
 
-    fn set_texture_parameters(&mut self, filter: TextureFilter) {
+    fn set_texture_parameters(&mut self, target: gl::GLuint, filter: TextureFilter) {
         let filter = match filter {
             TextureFilter::Nearest => {
                 gl::NEAREST
@@ -990,21 +1020,22 @@ impl Device {
             }
         };
 
-        gl::tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, filter as gl::GLint);
-        gl::tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, filter as gl::GLint);
+        gl::tex_parameter_i(target, gl::TEXTURE_MAG_FILTER, filter as gl::GLint);
+        gl::tex_parameter_i(target, gl::TEXTURE_MIN_FILTER, filter as gl::GLint);
 
-        gl::tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as gl::GLint);
-        gl::tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as gl::GLint);
+        gl::tex_parameter_i(target, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as gl::GLint);
+        gl::tex_parameter_i(target, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as gl::GLint);
     }
 
     fn upload_texture_image(&mut self,
-                               width: u32,
-                               height: u32,
-                               internal_format: u32,
-                               format: u32,
-                               type_: u32,
-                               pixels: Option<&[u8]>) {
-        gl::tex_image_2d(gl::TEXTURE_2D,
+                            target: gl::GLuint,
+                            width: u32,
+                            height: u32,
+                            internal_format: u32,
+                            format: u32,
+                            type_: u32,
+                            pixels: Option<&[u8]>) {
+        gl::tex_image_2d(target,
                          0,
                          internal_format as gl::GLint,
                          width as gl::GLint, height as gl::GLint,
@@ -1012,20 +1043,6 @@ impl Device {
                          format,
                          type_,
                          pixels);
-    }
-
-    fn deinit_texture_image(&mut self, format: ImageFormat) {
-        let (internal_format, gl_format) = gl_texture_formats_for_image_format(format);
-        let type_ = gl_type_for_texture_format(format);
-        gl::tex_image_2d(gl::TEXTURE_2D,
-                         0,
-                         internal_format,
-                         0,
-                         0,
-                         0,
-                         gl_format,
-                         type_,
-                         None);
     }
 
     pub fn init_texture(&mut self,
@@ -1044,29 +1061,36 @@ impl Device {
             texture.width = width;
             texture.height = height;
             texture.filter = filter;
-            texture.mode = mode
+            texture.mode = mode;
         }
 
         let (internal_format, gl_format) = gl_texture_formats_for_image_format(format);
         let type_ = gl_type_for_texture_format(format);
 
         match mode {
-            RenderTargetMode::RenderTarget => {
+            RenderTargetMode::SimpleRenderTarget => {
                 self.bind_texture(TextureSampler::Color, texture_id);
-                self.set_texture_parameters(filter);
-                self.upload_texture_image(width,
+                self.set_texture_parameters(texture_id.target, filter);
+                self.upload_texture_image(texture_id.target,
+                                          width,
                                           height,
                                           internal_format as u32,
                                           gl_format,
                                           type_,
                                           None);
-                self.create_fbo_for_texture_if_necessary(texture_id);
+                self.create_fbo_for_texture_if_necessary(texture_id, None);
+            }
+            RenderTargetMode::LayerRenderTarget(layer_count) => {
+                self.bind_texture(TextureSampler::Color, texture_id);
+                self.set_texture_parameters(texture_id.target, filter);
+                self.create_fbo_for_texture_if_necessary(texture_id, Some(layer_count));
             }
             RenderTargetMode::None => {
-                texture_id.bind();
-                self.set_texture_parameters(filter);
-
-                self.upload_texture_image(width, height,
+                self.bind_texture(TextureSampler::Color, texture_id);
+                self.set_texture_parameters(texture_id.target, filter);
+                self.upload_texture_image(texture_id.target,
+                                          width,
+                                          height,
                                           internal_format as u32,
                                           gl_format,
                                           type_,
@@ -1075,26 +1099,69 @@ impl Device {
         }
     }
 
-    pub fn create_fbo_for_texture_if_necessary(&mut self, texture_id: TextureId) {
-        if !self.textures.get(&texture_id).unwrap().fbo_ids.is_empty() {
-            return
-        }
+    pub fn create_fbo_for_texture_if_necessary(&mut self,
+                                               texture_id: TextureId,
+                                               layer_count: Option<i32>) {
+        let texture = self.textures.get_mut(&texture_id).unwrap();
 
-        let fbo_ids: Vec<_> =
-            gl::gen_framebuffers(1).into_iter().map(|fbo_id| FBOId(fbo_id)).collect();
-        for fbo_id in &fbo_ids[..] {
-            gl::bind_framebuffer(gl::FRAMEBUFFER, fbo_id.0);
+        match layer_count {
+            Some(layer_count) => {
+                debug_assert!(layer_count > 0);
 
-            gl::framebuffer_texture_2d(gl::FRAMEBUFFER,
-                                       gl::COLOR_ATTACHMENT0,
-                                       gl::TEXTURE_2D,
-                                       texture_id.0,
-                                       0);
+                // If we have enough layers allocated already, just use them.
+                // TODO(gw): Probably worth removing some after a while if
+                //           there is a surplus?
+                let current_layer_count = texture.fbo_ids.len() as i32;
+                if current_layer_count >= layer_count {
+                    return;
+                }
+
+                let (internal_format, gl_format) = gl_texture_formats_for_image_format(texture.format);
+                let type_ = gl_type_for_texture_format(texture.format);
+
+                gl::tex_image_3d(texture_id.target,
+                                 0,
+                                 internal_format as gl::GLint,
+                                 texture.width as gl::GLint,
+                                 texture.height as gl::GLint,
+                                 layer_count,
+                                 0,
+                                 gl_format,
+                                 type_,
+                                 None);
+
+                let needed_layer_count = layer_count - current_layer_count;
+                let new_fbos = gl::gen_framebuffers(needed_layer_count);
+                texture.fbo_ids.extend(new_fbos.into_iter().map(|id| FBOId(id)));
+
+                for (fbo_index, fbo_id) in texture.fbo_ids.iter().enumerate() {
+                    gl::bind_framebuffer(gl::FRAMEBUFFER, fbo_id.0);
+                    gl::framebuffer_texture_layer(gl::FRAMEBUFFER,
+                                                  gl::COLOR_ATTACHMENT0,
+                                                  texture_id.name,
+                                                  0,
+                                                  fbo_index as gl::GLint);
+                }
+            }
+            None => {
+                debug_assert!(texture.fbo_ids.len() == 0 || texture.fbo_ids.len() == 1);
+                if texture.fbo_ids.is_empty() {
+                    let new_fbo = gl::gen_framebuffers(1)[0];
+
+                    gl::bind_framebuffer(gl::FRAMEBUFFER, new_fbo);
+
+                    gl::framebuffer_texture_2d(gl::FRAMEBUFFER,
+                                               gl::COLOR_ATTACHMENT0,
+                                               texture_id.target,
+                                               texture_id.name,
+                                               0);
+
+                    texture.fbo_ids.push(FBOId(new_fbo));
+                }
+            }
         }
 
         gl::bind_framebuffer(gl::FRAMEBUFFER, self.default_fbo);
-
-        self.textures.get_mut(&texture_id).unwrap().fbo_ids = fbo_ids;
     }
 
     pub fn resize_texture(&mut self,
@@ -1108,14 +1175,14 @@ impl Device {
 
         let (old_width, old_height) = self.get_texture_dimensions(texture_id);
 
-        let temp_texture_id = self.create_texture_ids(1)[0];
+        let temp_texture_id = self.create_texture_ids(1, TextureTarget::Default)[0];
         self.init_texture(temp_texture_id, old_width, old_height, format, filter, mode, None);
-        self.create_fbo_for_texture_if_necessary(temp_texture_id);
+        self.create_fbo_for_texture_if_necessary(temp_texture_id, None);
 
-        self.bind_render_target(Some(texture_id));
+        self.bind_render_target(Some((texture_id, 0)));
         self.bind_texture(TextureSampler::Color, temp_texture_id);
 
-        gl::copy_tex_sub_image_2d(gl::TEXTURE_2D,
+        gl::copy_tex_sub_image_2d(temp_texture_id.target,
                                   0,
                                   0,
                                   0,
@@ -1126,11 +1193,11 @@ impl Device {
 
         self.deinit_texture(texture_id);
         self.init_texture(texture_id, new_width, new_height, format, filter, mode, None);
-        self.create_fbo_for_texture_if_necessary(texture_id);
-        self.bind_render_target(Some(temp_texture_id));
+        self.create_fbo_for_texture_if_necessary(texture_id, None);
+        self.bind_render_target(Some((temp_texture_id, 0)));
         self.bind_texture(TextureSampler::Color, texture_id);
 
-        gl::copy_tex_sub_image_2d(gl::TEXTURE_2D,
+        gl::copy_tex_sub_image_2d(texture_id.target,
                                   0,
                                   0,
                                   0,
@@ -1146,11 +1213,22 @@ impl Device {
     pub fn deinit_texture(&mut self, texture_id: TextureId) {
         debug_assert!(self.inside_frame);
 
-        let texture_format = self.textures[&texture_id].format;
         self.bind_texture(TextureSampler::Color, texture_id);
-        self.deinit_texture_image(texture_format);
 
         let texture = self.textures.get_mut(&texture_id).unwrap();
+        let (internal_format, gl_format) = gl_texture_formats_for_image_format(texture.format);
+        let type_ = gl_type_for_texture_format(texture.format);
+
+        gl::tex_image_2d(texture_id.target,
+                         0,
+                         internal_format,
+                         0,
+                         0,
+                         0,
+                         gl_format,
+                         type_,
+                         None);
+
         if !texture.fbo_ids.is_empty() {
             let fbo_ids: Vec<_> = texture.fbo_ids.iter().map(|&FBOId(fbo_id)| fbo_id).collect();
             gl::delete_framebuffers(&fbo_ids[..]);
@@ -1402,13 +1480,14 @@ impl Device {
     }
 
     fn update_image_for_2d_texture(&mut self,
+                                   target: gl::GLuint,
                                    x0: gl::GLint,
                                    y0: gl::GLint,
                                    width: gl::GLint,
                                    height: gl::GLint,
                                    format: gl::GLuint,
                                    data: &[u8]) {
-        gl::tex_sub_image_2d(gl::TEXTURE_2D,
+        gl::tex_sub_image_2d(target,
                              0,
                              x0, y0,
                              width, height,
@@ -1450,7 +1529,8 @@ impl Device {
         assert!(data.len() as u32 == bpp * width * height);
 
         self.bind_texture(TextureSampler::Color, texture_id);
-        self.update_image_for_2d_texture(x0 as gl::GLint,
+        self.update_image_for_2d_texture(texture_id.target,
+                                         x0 as gl::GLint,
                                          y0 as gl::GLint,
                                          width as gl::GLint,
                                          height as gl::GLint,
@@ -1467,7 +1547,7 @@ impl Device {
                                  width: i32,
                                  height: i32) {
         self.bind_texture(TextureSampler::Color, texture_id);
-        gl::copy_tex_sub_image_2d(gl::TEXTURE_2D,
+        gl::copy_tex_sub_image_2d(texture_id.target,
                                   0,
                                   dest_x,
                                   dest_y,

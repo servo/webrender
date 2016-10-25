@@ -383,7 +383,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: is_opaque,
                     need_to_build_cache: false,
-                    color_texture_id: TextureId(0),
+                    color_texture_id: TextureId::invalid(),
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Rectangle,
                     cpu_prim_index: SpecificPrimitiveIndex::invalid(),
@@ -401,7 +401,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     need_to_build_cache: true,
-                    color_texture_id: TextureId(0),
+                    color_texture_id: TextureId::invalid(),
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::TextRun,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_runs.len()),
@@ -419,7 +419,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     need_to_build_cache: true,
-                    color_texture_id: TextureId(0),
+                    color_texture_id: TextureId::invalid(),
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Image,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_images.len()),
@@ -437,7 +437,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     need_to_build_cache: false,
-                    color_texture_id: TextureId(0),
+                    color_texture_id: TextureId::invalid(),
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Border,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_borders.len()),
@@ -456,7 +456,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     need_to_build_cache: true,
-                    color_texture_id: TextureId(0),
+                    color_texture_id: TextureId::invalid(),
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Gradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
@@ -475,7 +475,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     need_to_build_cache: false,
-                    color_texture_id: TextureId(0),
+                    color_texture_id: TextureId::invalid(),
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::BoxShadow,
                     cpu_prim_index: SpecificPrimitiveIndex::invalid(),
@@ -640,7 +640,7 @@ impl PrimitiveStore {
                         Some(image_info) => image_info,
                     };
 
-                    debug_assert!(metadata.color_texture_id == TextureId(0) ||
+                    debug_assert!(metadata.color_texture_id == TextureId::invalid() ||
                                   metadata.color_texture_id == image_info.texture_id);
                     metadata.color_texture_id = image_info.texture_id;
 

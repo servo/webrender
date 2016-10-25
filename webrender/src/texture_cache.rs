@@ -687,19 +687,19 @@ impl TextureCache {
 
         let (page_list, mode) = match (format, kind) {
             (ImageFormat::A8, TextureCacheItemKind::Standard) => {
-                (&mut self.arena.pages_a8, RenderTargetMode::RenderTarget)
+                (&mut self.arena.pages_a8, RenderTargetMode::SimpleRenderTarget)
             }
             (ImageFormat::A8, TextureCacheItemKind::Alternate) => {
-                (&mut self.arena.alternate_pages_a8, RenderTargetMode::RenderTarget)
+                (&mut self.arena.alternate_pages_a8, RenderTargetMode::SimpleRenderTarget)
             }
             (ImageFormat::RGBA8, TextureCacheItemKind::Standard) => {
-                (&mut self.arena.pages_rgba8, RenderTargetMode::RenderTarget)
+                (&mut self.arena.pages_rgba8, RenderTargetMode::SimpleRenderTarget)
             }
             (ImageFormat::RGBA8, TextureCacheItemKind::Alternate) => {
-                (&mut self.arena.alternate_pages_rgba8, RenderTargetMode::RenderTarget)
+                (&mut self.arena.alternate_pages_rgba8, RenderTargetMode::SimpleRenderTarget)
             }
             (ImageFormat::RGB8, TextureCacheItemKind::Standard) => {
-                (&mut self.arena.pages_rgb8, RenderTargetMode::RenderTarget)
+                (&mut self.arena.pages_rgb8, RenderTargetMode::SimpleRenderTarget)
             }
             (ImageFormat::Invalid, TextureCacheItemKind::Standard) |
             (ImageFormat::RGBAF32, TextureCacheItemKind::Standard) |
