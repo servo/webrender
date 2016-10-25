@@ -578,7 +578,7 @@ Composite fetch_composite(int index) {
 #endif
 
 #ifdef WR_FRAGMENT_SHADER
-float squared_distance_from_rect(vec2 p, vec2 origin, vec2 size) {
+float distance_from_rect(vec2 p, vec2 origin, vec2 size) {
     vec2 clamped = clamp(p, origin, origin + size);
     return distance(clamped, p);
 }
@@ -587,10 +587,10 @@ vec2 init_transform_fs(vec3 local_pos, vec4 local_rect, out float fragment_alpha
     fragment_alpha = 1.0;
     vec2 pos = local_pos.xy / local_pos.z;
 
-    float squared_distance = squared_distance_from_rect(pos, local_rect.xy, local_rect.zw);
-    if (squared_distance != 0.0) {
+    float border_distance = distance_from_rect(pos, local_rect.xy, local_rect.zw);
+    if (border_distance != 0.0) {
         float delta = length(fwidth(local_pos.xy));
-        fragment_alpha = smoothstep(1.0, 0.0, squared_distance / delta * 2.0);
+        fragment_alpha = 1.0 - smoothstep(0.0, 1.0, border_distance / delta * 2.0);
     }
 
     return pos;
