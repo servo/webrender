@@ -693,7 +693,7 @@ impl Renderer {
     fn enable_msaa(&self, _: bool) {
     }
 
-    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+    #[cfg(any(target_os = "windows", unix))]
     fn enable_msaa(&self, enable_msaa: bool) {
         if self.enable_msaa {
             if enable_msaa {

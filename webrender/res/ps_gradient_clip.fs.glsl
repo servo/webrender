@@ -13,8 +13,4 @@ void main(void) {
 
     alpha = min(alpha, do_clip(local_pos));
     oFragColor = vColor * vec4(1, 1, 1, alpha);
-
-#ifdef WR_FEATURE_TRANSFORM
-    oFragColor.a *= alpha;
-#endif
 }
