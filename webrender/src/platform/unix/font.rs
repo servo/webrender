@@ -150,7 +150,7 @@ impl FontContext {
                     top: (*slot).bitmap_top as i32,
                     width: bitmap.width as u32,
                     height: bitmap.rows as u32,
-                    bytes: final_buffer.to_vec(),
+                    bytes: final_buffer,
                 };
 
                 Some(glyph)
