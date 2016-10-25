@@ -383,12 +383,12 @@ impl PrimitiveStore {
             let gpu_address = self.gpu_data32.alloc(6);
             self.populate_clip_data(gpu_address, clip);
             let mask = match masked.mask {
-                MaskImageSource::User(image_key) => (Some(image_key), TextureId(0)),
+                MaskImageSource::User(image_key) => (Some(image_key), TextureId::invalid()),
                 MaskImageSource::Renderer(texture_id) => (None, texture_id),
             };
             (Some(gpu_address), mask)
         } else {
-            (None, (None, TextureId(0)))
+            (None, (None, TextureId::invalid()))
         };
 
         let metadata = match container {
@@ -399,7 +399,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: is_opaque,
                     need_to_build_cache: mask_image.is_some(),
-                    color_texture_id: TextureId(0),
+                    color_texture_id: TextureId::invalid(),
                     mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
                     clip_index: clip_index,
@@ -419,7 +419,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     need_to_build_cache: true,
-                    color_texture_id: TextureId(0),
+                    color_texture_id: TextureId::invalid(),
                     mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
                     clip_index: clip_index,
@@ -439,7 +439,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     need_to_build_cache: true,
-                    color_texture_id: TextureId(0),
+                    color_texture_id: TextureId::invalid(),
                     mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
                     clip_index: clip_index,
@@ -459,7 +459,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     need_to_build_cache: mask_image.is_some(),
-                    color_texture_id: TextureId(0),
+                    color_texture_id: TextureId::invalid(),
                     mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
                     clip_index: clip_index,
@@ -480,7 +480,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     need_to_build_cache: true,
-                    color_texture_id: TextureId(0),
+                    color_texture_id: TextureId::invalid(),
                     mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
                     clip_index: clip_index,
@@ -501,7 +501,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     need_to_build_cache: mask_image.is_some(),
-                    color_texture_id: TextureId(0),
+                    color_texture_id: TextureId::invalid(),
                     mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
                     clip_index: clip_index,
@@ -678,7 +678,7 @@ impl PrimitiveStore {
                         Some(image_info) => image_info,
                     };
 
-                    debug_assert!(metadata.color_texture_id == TextureId(0) ||
+                    debug_assert!(metadata.color_texture_id == TextureId::invalid() ||
                                   metadata.color_texture_id == image_info.texture_id);
                     metadata.color_texture_id = image_info.texture_id;
 
