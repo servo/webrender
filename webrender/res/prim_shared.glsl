@@ -335,7 +335,7 @@ ClipCorner fetch_clip_corner(int index) {
     return corner;
 }
 
-struct Clip {
+struct ClipInfo {
     ClipRect rect;
     ClipCorner top_left;
     ClipCorner top_right;
@@ -344,8 +344,8 @@ struct Clip {
     ImageMaskInfo mask_info;
 };
 
-Clip fetch_clip(int index) {
-    Clip clip;
+ClipInfo fetch_clip(int index) {
+    ClipInfo clip;
 
     clip.rect = fetch_clip_rect(index + 0);
     clip.top_left = fetch_clip_corner(index + 1);

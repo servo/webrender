@@ -9,7 +9,7 @@ flat varying vec4 vClipMaskUvRect;
 flat varying vec4 vClipMaskLocalRect;
 
 #ifdef WR_VERTEX_SHADER
-void write_clip(Clip clip) {
+void write_clip(ClipInfo clip) {
     vClipRect = vec4(clip.rect.rect.xy, clip.rect.rect.xy + clip.rect.rect.zw);
     vClipRadius = vec4(clip.top_left.outer_inner_radius.x,
                        clip.top_right.outer_inner_radius.x,

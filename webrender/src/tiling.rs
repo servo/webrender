@@ -14,7 +14,7 @@ use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
 use layer::Layer;
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitive};
-use prim_store::{Clip, ImagePrimitiveCpu, ImagePrimitiveKind};
+use prim_store::{ClipInfo, ImagePrimitiveCpu, ImagePrimitiveKind};
 use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
 use prim_store::{TextRunPrimitiveGpu, TextRunPrimitiveCpu};
@@ -691,12 +691,12 @@ pub enum MaskImageSource {
 /// Per-batch clipping info merged with the mask image.
 #[derive(Clone, Debug)]
 pub struct MaskedClip {
-    pub clip: Box<Clip>,
+    pub clip: Box<ClipInfo>,
     pub mask: MaskImageSource,
 }
 
 impl MaskedClip {
-    pub fn new(clip: Clip, mask: MaskImageSource) ->MaskedClip {
+    pub fn new(clip: ClipInfo, mask: MaskImageSource) ->MaskedClip {
         MaskedClip {
             clip: Box::new(clip),
             mask: mask,
@@ -1984,7 +1984,7 @@ impl FrameBuilder {
             if scrollbar_prim.border_radius == 0.0 {
                 self.prim_store.set_complex_clip(scrollbar_prim.prim_index, None);
             } else {
-                let clip = Clip::uniform(geom.local_rect, scrollbar_prim.border_radius);
+                let clip = ClipInfo::uniform(geom.local_rect, scrollbar_prim.border_radius);
                 self.prim_store.set_complex_clip(scrollbar_prim.prim_index, Some(clip));
             }
             *self.prim_store.gpu_geometry.get_mut(GpuStoreAddress(scrollbar_prim.prim_index.0 as i32)) = geom;

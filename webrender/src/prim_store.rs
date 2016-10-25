@@ -205,7 +205,7 @@ pub struct ImageMaskInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct Clip {
+pub struct ClipInfo {
     pub rect: ClipRect,
     pub top_left: ClipCorner,
     pub top_right: ClipCorner,
@@ -214,9 +214,9 @@ pub struct Clip {
     pub mask_info: ImageMaskInfo,
 }
 
-impl Clip {
-    pub fn from_clip_region(clip: &ComplexClipRegion) -> Clip {
-        Clip {
+impl ClipInfo {
+    pub fn from_clip_region(clip: &ComplexClipRegion) -> ClipInfo {
+        ClipInfo {
             rect: ClipRect {
                 rect: clip.rect,
                 padding: [0.0, 0.0, 0.0, 0.0],
@@ -263,8 +263,8 @@ impl Clip {
         }
     }
 
-    pub fn uniform(rect: Rect<f32>, radius: f32) -> Clip {
-        Clip {
+    pub fn uniform(rect: Rect<f32>, radius: f32) -> ClipInfo {
+        ClipInfo {
             rect: ClipRect {
                 rect: rect,
                 padding: [0.0; 4],
@@ -296,8 +296,8 @@ impl Clip {
         }
     }
 
-    pub fn with_mask(self, uv_rect: Rect<f32>, local_rect: Rect<f32>) -> Clip {
-        Clip {
+    pub fn with_mask(self, uv_rect: Rect<f32>, local_rect: Rect<f32>) -> ClipInfo {
+        ClipInfo {
             mask_info: ImageMaskInfo {
                 uv_rect: uv_rect,
                 local_rect: local_rect,
@@ -351,7 +351,7 @@ impl PrimitiveStore {
         }
     }
 
-    fn populate_clip_data(&mut self, address: GpuStoreAddress, clip: Clip) {
+    fn populate_clip_data(&mut self, address: GpuStoreAddress, clip: ClipInfo) {
         let data = self.gpu_data32.get_slice_mut(address, 6);
         data[0] = GpuBlock32::from(clip.rect);
         data[1] = GpuBlock32::from(clip.top_left);
@@ -531,7 +531,7 @@ impl PrimitiveStore {
         &self.cpu_bounding_rects[index.0]
     }
 
-    pub fn set_complex_clip(&mut self, index: PrimitiveIndex, clip: Option<Clip>) {
+    pub fn set_complex_clip(&mut self, index: PrimitiveIndex, clip: Option<ClipInfo>) {
         self.cpu_metadata[index.0].clip_index = match (self.cpu_metadata[index.0].clip_index, clip) {
             (Some(clip_index), Some(clip)) => {
                 self.populate_clip_data(clip_index, clip);
