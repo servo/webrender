@@ -1635,6 +1635,14 @@ impl Renderer {
             }
         }
     }
+
+    pub fn debug_renderer<'a>(&'a mut self) -> &'a mut DebugRenderer {
+        &mut self.debug
+    }
+
+    pub fn set_profiler_enabled(&mut self, enabled: bool) {
+        self.enable_profiler = enabled;
+    }
 }
 
 #[derive(Clone, Debug)]
