@@ -1794,7 +1794,9 @@ impl Device {
     }
 
     pub fn set_blend_mode_alpha(&self) {
-        gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        //gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
+                                gl::ONE, gl::ONE);
         gl::blend_equation(gl::FUNC_ADD);
     }
 }
