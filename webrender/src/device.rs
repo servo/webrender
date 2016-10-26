@@ -39,7 +39,6 @@ const SHADER_VERSION: &'static str = "#version 300 es\n";
 
 static SHADER_PREAMBLE: &'static str = "shared.glsl";
 
-pub type Buffer = u32;
 pub type ViewportDimensions = [u32; 2];
 
 lazy_static! {
@@ -346,29 +345,31 @@ impl TextureId {
 
 impl ProgramId {
     fn bind(&self) {
-        let ProgramId(id) = *self;
-        gl::use_program(id);
+        gl::use_program(self.0);
     }
 }
 
 impl VBOId {
     fn bind(&self) {
-        let VBOId(id) = *self;
-        gl::bind_buffer(gl::ARRAY_BUFFER, id);
+        gl::bind_buffer(gl::ARRAY_BUFFER, self.0);
     }
 }
 
 impl IBOId {
     fn bind(&self) {
-        let IBOId(id) = *self;
-        gl::bind_buffer(gl::ELEMENT_ARRAY_BUFFER, id);
+        gl::bind_buffer(gl::ELEMENT_ARRAY_BUFFER, self.0);
+    }
+}
+
+impl UBOId {
+    fn _bind(&self) {
+        gl::bind_buffer(gl::UNIFORM_BUFFER, self.0);
     }
 }
 
 impl FBOId {
     fn bind(&self) {
-        let FBOId(id) = *self;
-        gl::bind_framebuffer(gl::FRAMEBUFFER, id);
+        gl::bind_framebuffer(gl::FRAMEBUFFER, self.0);
     }
 }
 
@@ -527,6 +528,9 @@ pub struct VBOId(gl::GLuint);
 
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 struct IBOId(gl::GLuint);
+
+#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
+pub struct UBOId(gl::GLuint);
 
 const MAX_EVENTS_PER_FRAME: usize = 256;
 const MAX_PROFILE_FRAMES: usize = 4;
@@ -1735,12 +1739,12 @@ impl Device {
         index
     }
 
-    pub fn create_ubo<T>(&self, data: &[T], binding: u32) -> Buffer {
+    pub fn create_ubo<T>(&self, data: &[T], binding: u32) -> UBOId {
         let ubo = gl::gen_buffers(1)[0];
         gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
         gl::buffer_data(gl::UNIFORM_BUFFER, data, gl::STATIC_DRAW);
         gl::bind_buffer_base(gl::UNIFORM_BUFFER, binding, ubo);
-        ubo
+        UBOId(ubo)
     }
 
     pub fn reset_ubo(&self, binding: u32) {
@@ -1748,8 +1752,8 @@ impl Device {
         gl::bind_buffer_base(gl::UNIFORM_BUFFER, binding, 0);
     }
 
-    pub fn delete_buffer(&self, buffer: Buffer) {
-        gl::delete_buffers(&[buffer]);
+    pub fn delete_buffer(&self, buffer: UBOId) {
+        gl::delete_buffers(&[buffer.0]);
     }
 
     pub fn set_multisample(&self, enable: bool) {
