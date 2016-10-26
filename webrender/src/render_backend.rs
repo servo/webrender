@@ -89,15 +89,15 @@ impl RenderBackend {
 
     pub fn run(&mut self) {
         let mut profile_counters = BackendProfileCounters::new();
-        let mut frame_counter:u32 = 0;
-        if self.enable_recording{
-                fs::create_dir("record").ok();
+        let mut frame_counter: u32 = 0;
+        if self.enable_recording {
+            fs::create_dir("record").ok();
         }
         loop {
             let msg = self.api_rx.recv();
             match msg {
                 Ok(msg) => {
-                    if self.enable_recording{
+                    if self.enable_recording {
                         record::write_msg(frame_counter, &msg);
                     }
                     match msg {
@@ -183,9 +183,8 @@ impl RenderBackend {
                             for leftover_auxiliary_data in leftover_auxiliary_data {
                                 self.payload_tx.send(&leftover_auxiliary_data[..]).unwrap()
                             }
-                            if self.enable_recording{
-                                record::write_data(frame_counter, &auxiliary_data);
-                                frame_counter += 1;
+                            if self.enable_recording {
+                                record::write_payload(frame_counter, &auxiliary_data);
                             }
                             let mut auxiliary_data = Cursor::new(&mut auxiliary_data[8..]);
                             for (display_list_id,
@@ -223,7 +222,10 @@ impl RenderBackend {
                                 self.render()
                             });
 
-                            self.publish_frame_and_notify_compositor(frame, &mut profile_counters);
+                            if self.scene.root_pipeline_id.is_some() {
+                                self.publish_frame_and_notify_compositor(frame, &mut profile_counters);
+                                frame_counter += 1;
+                            }
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
                             let frame = profile_counters.total_time.profile(|| {
@@ -233,7 +235,10 @@ impl RenderBackend {
                                 self.render()
                             });
 
-                            self.publish_frame(frame, &mut profile_counters);
+                            if self.scene.root_pipeline_id.is_some() {
+                                self.publish_frame_and_notify_compositor(frame, &mut profile_counters);
+                                frame_counter += 1;
+                            }
                         }
                         ApiMsg::Scroll(delta, cursor, move_phase) => {
                             let frame = profile_counters.total_time.profile(|| {
