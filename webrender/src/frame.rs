@@ -11,12 +11,13 @@ use internal_types::{CompositionOp};
 use internal_types::{LowLevelFilterOp};
 use internal_types::{RendererFrame};
 use layer::{Layer, ScrollingState};
-use prim_store::Clip;
-use resource_cache::ResourceCache;
+use prim_store::ClipInfo;
+use resource_cache::{DummyResources, ResourceCache};
 use scene::{SceneStackingContext, ScenePipeline, Scene, SceneItem, SpecificSceneItem};
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
-use tiling::{FrameBuilder, FrameBuilderConfig, InsideTest, PrimitiveFlags};
+use tiling::{FrameBuilder, FrameBuilderConfig, InsideTest, Clip, MaskImageSource};
+use tiling::PrimitiveFlags;
 use util::MatrixHelpers;
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
 use webrender_traits::{ColorF, StackingContext, FilterOp, MixBlendMode};
@@ -35,6 +36,7 @@ static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF { r: 0.3, g: 0.3, b: 0.3, a: 0.6
 
 struct FlattenContext<'a> {
     resource_cache: &'a mut ResourceCache,
+    dummy_resources: &'a DummyResources,
     scene: &'a Scene,
     pipeline_sizes: &'a mut HashMap<PipelineId, Size2D<f32>>,
     builder: &'a mut FrameBuilder,
@@ -368,6 +370,7 @@ impl Frame {
     pub fn create(&mut self,
                   scene: &Scene,
                   resource_cache: &mut ResourceCache,
+                  dummy_resources: &DummyResources,
                   pipeline_sizes: &mut HashMap<PipelineId, Size2D<f32>>,
                   device_pixel_ratio: f32) {
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
@@ -415,6 +418,7 @@ impl Frame {
                     {
                         let mut context = FlattenContext {
                             resource_cache: resource_cache,
+                            dummy_resources: dummy_resources,
                             scene: scene,
                             pipeline_sizes: pipeline_sizes,
                             builder: &mut frame_builder,
@@ -530,32 +534,49 @@ impl Frame {
                                                 PrimitiveFlags::None);
         }
 
+        let dummy_mask_source = {
+            let cache_id = context.dummy_resources.opaque_mask_image_id;
+            let cache_item = context.resource_cache.get_image_by_cache_id(cache_id);
+            MaskImageSource::Renderer(cache_item.texture_id)
+        };
+
         for item in scene_items {
             match item.specific {
                 SpecificSceneItem::DrawList(draw_list_id) => {
                     let draw_list = context.resource_cache.get_draw_list(draw_list_id);
                     let builder = &mut context.builder;
-
-                    let auxiliary_lists = {
-                        self.pipeline_auxiliary_lists
+                    let auxiliary_lists = self.pipeline_auxiliary_lists
                                               .get(&parent_info.pipeline_id)
-                                              .expect("No auxiliary lists?!")
-                    };
+                                              .expect("No auxiliary lists?!");
 
                     for item in &draw_list.items {
                         let clips = auxiliary_lists.complex_clip_regions(&item.clip.complex);
-                        let clip = match clips.len() {
-                            0 => None,
-                            1 => Some(Box::new(Clip::from_clip_region(&clips[0]))),
+                        let mut clip = match clips.len() {
+                            0 if item.clip.image_mask.is_none() => None,
+                            0 => Some(Clip::new(ClipInfo::uniform(item.clip.main, 0.0), dummy_mask_source)),
+                            1 => Some(Clip::new(ClipInfo::from_clip_region(&clips[0]), dummy_mask_source)),
                             _ => {
                                 let internal_clip = clips.last().unwrap();
-                                if clips.iter().all(|current_clip| current_clip.might_contain(internal_clip)) {
-                                    Some(Box::new(Clip::from_clip_region(internal_clip)))
+                                let region = if clips.iter().all(|current_clip| current_clip.might_contain(internal_clip)) {
+                                    internal_clip
                                 } else {
-                                    Some(Box::new(Clip::from_clip_region(&clips[0])))
-                                }
+                                    &clips[0]
+                                };
+                                Some(Clip::new(ClipInfo::from_clip_region(region), dummy_mask_source))
                             },
                         };
+
+                        if let Some(ref mask) = item.clip.image_mask {
+                            let old = match clip {
+                                Some(masked) => *masked.clip,
+                                None => ClipInfo::uniform(item.clip.main, 0.0),
+                            };
+                            //Note: can't call `tex_cache.aligned_uv_rect()` here since the image
+                            // is not yet marked as needed this frame.
+                            clip = Some(Clip::new(old.with_mask(Rect::zero(), mask.rect),
+                                                         MaskImageSource::User(mask.image)));
+                        }
+
 
                         match item.item {
                             SpecificDisplayItem::WebGL(ref info) => {

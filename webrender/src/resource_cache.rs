@@ -27,6 +27,11 @@ use webrender_traits::{GlyphDimensions, PipelineId, WebGLContextId};
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
+pub struct DummyResources {
+    pub white_image_id: TextureCacheItemId,
+    pub opaque_mask_image_id: TextureCacheItemId,
+}
+
 struct ImageResource {
     bytes: Vec<u8>,
     width: u32,
@@ -364,6 +369,12 @@ impl ResourceCache {
                      -> &TextureCacheItem {
         let image_info = &self.cached_images.get(&(image_key, image_rendering), frame_id);
         self.texture_cache.get(image_info.texture_cache_id)
+    }
+
+    #[inline]
+    pub fn get_image_by_cache_id(&self, texture_cache_id: TextureCacheItemId)
+                                 -> &TextureCacheItem {
+        self.texture_cache.get(texture_cache_id)
     }
 
     #[inline]

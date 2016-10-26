@@ -13,6 +13,7 @@ use resource_cache::ResourceCache;
 use resource_list::ResourceList;
 use std::mem;
 use std::usize;
+use tiling::{Clip, MaskImageSource};
 use util::TransformedRect;
 use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering, WebGLContextId};
 use webrender_traits::{FontKey, ItemRange, ComplexClipRegion, GlyphKey};
@@ -51,6 +52,8 @@ pub struct PrimitiveMetadata {
     pub is_opaque: bool,
     pub need_to_build_cache: bool,
     pub color_texture_id: TextureId,
+    pub mask_texture_id: TextureId,
+    pub mask_image: Option<ImageKey>,
     pub clip_index: Option<GpuStoreAddress>,
     pub prim_kind: PrimitiveKind,
     pub cpu_prim_index: SpecificPrimitiveIndex,
@@ -122,9 +125,9 @@ pub enum GradientType {
 
 #[derive(Debug, Clone)]
 pub struct GradientStop {
-    pub color: ColorF,
-    pub offset: f32,
-    pub padding: [f32; 3],
+    color: ColorF,
+    offset: f32,
+    padding: [f32; 3],
 }
 
 #[derive(Debug, Clone)]
@@ -143,8 +146,8 @@ pub struct GradientPrimitiveCpu {
 }
 
 #[derive(Debug, Clone)]
-pub struct InstanceRect {
-    pub rect: Rect<f32>,
+struct InstanceRect {
+    rect: Rect<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -161,40 +164,30 @@ pub struct TextRunPrimitiveCpu {
 }
 
 #[derive(Debug, Clone)]
-pub struct GlyphPrimitive {
-    pub offset: Point2D<f32>,
-    pub padding: Point2D<f32>,
-    pub uv0: Point2D<f32>,
-    pub uv1: Point2D<f32>,
+struct GlyphPrimitive {
+    offset: Point2D<f32>,
+    padding: Point2D<f32>,
+    uv0: Point2D<f32>,
+    uv1: Point2D<f32>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ClipRect {
-    pub rect: Rect<f32>,
-    pub padding: [f32; 4],
+struct ClipRect {
+    rect: Rect<f32>,
+    padding: [f32; 4],
 }
 
 #[derive(Debug, Clone)]
-pub struct ClipCorner {
-    pub rect: Rect<f32>,
-    pub outer_radius_x: f32,
-    pub outer_radius_y: f32,
-    pub inner_radius_x: f32,
-    pub inner_radius_y: f32,
+struct ClipCorner {
+    rect: Rect<f32>,
+    outer_radius_x: f32,
+    outer_radius_y: f32,
+    inner_radius_x: f32,
+    inner_radius_y: f32,
 }
 
 impl ClipCorner {
-    pub fn invalid(rect: Rect<f32>) -> ClipCorner {
-        ClipCorner {
-            rect: rect,
-            outer_radius_x: 0.0,
-            outer_radius_y: 0.0,
-            inner_radius_x: 0.0,
-            inner_radius_y: 0.0,
-        }
-    }
-
-    pub fn uniform(rect: Rect<f32>, outer_radius: f32, inner_radius: f32) -> ClipCorner {
+    fn uniform(rect: Rect<f32>, outer_radius: f32, inner_radius: f32) -> ClipCorner {
         ClipCorner {
             rect: rect,
             outer_radius_x: outer_radius,
@@ -206,17 +199,24 @@ impl ClipCorner {
 }
 
 #[derive(Debug, Clone)]
-pub struct Clip {
-    pub rect: ClipRect,
-    pub top_left: ClipCorner,
-    pub top_right: ClipCorner,
-    pub bottom_left: ClipCorner,
-    pub bottom_right: ClipCorner,
+struct ImageMaskInfo {
+    uv_rect: Rect<f32>,
+    local_rect: Rect<f32>,
 }
 
-impl Clip {
-    pub fn from_clip_region(clip: &ComplexClipRegion) -> Clip {
-        Clip {
+#[derive(Debug, Clone)]
+pub struct ClipInfo {
+    rect: ClipRect,
+    top_left: ClipCorner,
+    top_right: ClipCorner,
+    bottom_left: ClipCorner,
+    bottom_right: ClipCorner,
+    mask_info: ImageMaskInfo,
+}
+
+impl ClipInfo {
+    pub fn from_clip_region(clip: &ComplexClipRegion) -> ClipInfo {
+        ClipInfo {
             rect: ClipRect {
                 rect: clip.rect,
                 padding: [0.0, 0.0, 0.0, 0.0],
@@ -256,24 +256,15 @@ impl Clip {
                 inner_radius_x: 0.0,
                 inner_radius_y: 0.0,
             },
-        }
-    }
-
-    pub fn invalid(rect: Rect<f32>) -> Clip {
-        Clip {
-            rect: ClipRect {
-                rect: rect,
-                padding: [0.0; 4],
+            mask_info: ImageMaskInfo {
+                uv_rect: Rect::zero(),
+                local_rect: Rect::zero(),
             },
-            top_left: ClipCorner::invalid(rect),
-            top_right: ClipCorner::invalid(rect),
-            bottom_left: ClipCorner::invalid(rect),
-            bottom_right: ClipCorner::invalid(rect),
         }
     }
 
-    pub fn uniform(rect: Rect<f32>, radius: f32) -> Clip {
-        Clip {
+    pub fn uniform(rect: Rect<f32>, radius: f32) -> ClipInfo {
+        ClipInfo {
             rect: ClipRect {
                 rect: rect,
                 padding: [0.0; 4],
@@ -298,6 +289,20 @@ impl Clip {
                                                         Size2D::new(radius, radius)),
                                               radius,
                                               0.0),
+            mask_info: ImageMaskInfo {
+                uv_rect: Rect::zero(),
+                local_rect: Rect::zero(),
+            },
+        }
+    }
+
+    pub fn with_mask(self, uv_rect: Rect<f32>, local_rect: Rect<f32>) -> ClipInfo {
+        ClipInfo {
+            mask_info: ImageMaskInfo {
+                uv_rect: uv_rect,
+                local_rect: local_rect,
+            },
+            .. self
         }
     }
 }
@@ -346,10 +351,20 @@ impl PrimitiveStore {
         }
     }
 
+    fn populate_clip_data(&mut self, address: GpuStoreAddress, clip: ClipInfo) {
+        let data = self.gpu_data32.get_slice_mut(address, 6);
+        data[0] = GpuBlock32::from(clip.rect);
+        data[1] = GpuBlock32::from(clip.top_left);
+        data[2] = GpuBlock32::from(clip.top_right);
+        data[3] = GpuBlock32::from(clip.bottom_left);
+        data[4] = GpuBlock32::from(clip.bottom_right);
+        data[5] = GpuBlock32::from(clip.mask_info);
+    }
+
     pub fn add_primitive(&mut self,
                          rect: &Rect<f32>,
                          clip_rect: &Rect<f32>,
-                         clip: Option<Box<Clip>>,
+                         clip: Option<Clip>,
                          container: PrimitiveContainer) -> PrimitiveIndex {
         let prim_index = self.cpu_metadata.len();
 
@@ -360,20 +375,21 @@ impl PrimitiveStore {
             local_clip_rect: *clip_rect,
         });
 
-        let mut clip_index = None;
-        if let Some(clip) = clip {
+        let (clip_index, (mask_image, mask_texture_id)) = if let Some(ref masked) = clip {
+            let clip = masked.clip.as_ref().clone();
             // TODO(gw): This is slightly inefficient. It
             // pushes default data on when we already have
             // the data we need to push on available now.
-            let gpu_address = self.gpu_data32.alloc(5);
-            let clip_data = self.gpu_data32.get_slice_mut(gpu_address, 5);
-            clip_data[0] = GpuBlock32::from(clip.rect.clone());
-            clip_data[1] = GpuBlock32::from(clip.top_left.clone());
-            clip_data[2] = GpuBlock32::from(clip.top_right.clone());
-            clip_data[3] = GpuBlock32::from(clip.bottom_left.clone());
-            clip_data[4] = GpuBlock32::from(clip.bottom_right.clone());
-            clip_index = Some(gpu_address);
-        }
+            let gpu_address = self.gpu_data32.alloc(6);
+            self.populate_clip_data(gpu_address, clip);
+            let mask = match masked.mask {
+                MaskImageSource::User(image_key) => (Some(image_key), TextureId(0)),
+                MaskImageSource::Renderer(texture_id) => (None, texture_id),
+            };
+            (Some(gpu_address), mask)
+        } else {
+            (None, (None, TextureId(0)))
+        };
 
         let metadata = match container {
             PrimitiveContainer::Rectangle(rect) => {
@@ -382,8 +398,10 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: is_opaque,
-                    need_to_build_cache: false,
+                    need_to_build_cache: mask_image.is_some(),
                     color_texture_id: TextureId(0),
+                    mask_texture_id: mask_texture_id,
+                    mask_image: mask_image,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Rectangle,
                     cpu_prim_index: SpecificPrimitiveIndex::invalid(),
@@ -402,6 +420,8 @@ impl PrimitiveStore {
                     is_opaque: false,
                     need_to_build_cache: true,
                     color_texture_id: TextureId(0),
+                    mask_texture_id: mask_texture_id,
+                    mask_image: mask_image,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::TextRun,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_runs.len()),
@@ -420,6 +440,8 @@ impl PrimitiveStore {
                     is_opaque: false,
                     need_to_build_cache: true,
                     color_texture_id: TextureId(0),
+                    mask_texture_id: mask_texture_id,
+                    mask_image: mask_image,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Image,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_images.len()),
@@ -436,8 +458,10 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
-                    need_to_build_cache: false,
+                    need_to_build_cache: mask_image.is_some(),
                     color_texture_id: TextureId(0),
+                    mask_texture_id: mask_texture_id,
+                    mask_image: mask_image,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Border,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_borders.len()),
@@ -457,6 +481,8 @@ impl PrimitiveStore {
                     is_opaque: false,
                     need_to_build_cache: true,
                     color_texture_id: TextureId(0),
+                    mask_texture_id: mask_texture_id,
+                    mask_image: mask_image,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Gradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
@@ -474,8 +500,10 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
-                    need_to_build_cache: false,
+                    need_to_build_cache: mask_image.is_some(),
                     color_texture_id: TextureId(0),
+                    mask_texture_id: mask_texture_id,
+                    mask_image: mask_image,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::BoxShadow,
                     cpu_prim_index: SpecificPrimitiveIndex::invalid(),
@@ -503,34 +531,23 @@ impl PrimitiveStore {
         &self.cpu_bounding_rects[index.0]
     }
 
-    pub fn set_complex_clip(&mut self, index: PrimitiveIndex, clip: Option<Clip>) {
-        let metadata = &mut self.cpu_metadata[index.0];
-
-        match (metadata.clip_index, clip) {
+    pub fn set_complex_clip(&mut self, index: PrimitiveIndex, clip: Option<ClipInfo>) {
+        self.cpu_metadata[index.0].clip_index = match (self.cpu_metadata[index.0].clip_index, clip) {
             (Some(clip_index), Some(clip)) => {
-                let clip_data = self.gpu_data32.get_slice_mut(clip_index, 5);
-                clip_data[0] = GpuBlock32::from(clip.rect);
-                clip_data[1] = GpuBlock32::from(clip.top_left);
-                clip_data[2] = GpuBlock32::from(clip.top_right);
-                clip_data[3] = GpuBlock32::from(clip.bottom_left);
-                clip_data[4] = GpuBlock32::from(clip.bottom_right);
+                self.populate_clip_data(clip_index, clip);
+                Some(clip_index)
             }
             (Some(..), None) => {
                 // TODO(gw): Add to clip free list!
-                metadata.clip_index = None;
+                None
             }
             (None, Some(clip)) => {
                 // TODO(gw): Pull from clip free list!
-                let gpu_address = self.gpu_data32.alloc(5);
-                let clip_data = self.gpu_data32.get_slice_mut(gpu_address, 5);
-                clip_data[0] = GpuBlock32::from(clip.rect);
-                clip_data[1] = GpuBlock32::from(clip.top_left);
-                clip_data[2] = GpuBlock32::from(clip.top_right);
-                clip_data[3] = GpuBlock32::from(clip.bottom_left);
-                clip_data[4] = GpuBlock32::from(clip.bottom_right);
-                metadata.clip_index = Some(gpu_address);
+                let gpu_address = self.gpu_data32.alloc(6);
+                self.populate_clip_data(gpu_address, clip);
+                Some(gpu_address)
             }
-            (None, None) => {}
+            (None, None) => None,
         }
     }
 
@@ -571,6 +588,10 @@ impl PrimitiveStore {
                     ImagePrimitiveKind::WebGL(..) => {}
                 }
             }
+        }
+
+        if let Some(mask_key) = metadata.mask_image {
+            resource_list.add_image(mask_key, ImageRendering::Auto);
         }
 
         self.cpu_metadata[index.0].need_to_build_cache
@@ -616,7 +637,24 @@ impl PrimitiveStore {
         debug_assert!(metadata.need_to_build_cache);
         metadata.need_to_build_cache = false;
 
+        if let Some(mask_key) = metadata.mask_image {
+            let tex_cache = resource_cache.get_image(mask_key, ImageRendering::Auto, frame_id);
+            metadata.mask_texture_id = tex_cache.texture_id;
+            if let Some(address) = metadata.clip_index {
+                let clip = self.gpu_data32.get_slice_mut(address, 6);
+                let old = clip[5].data; //TODO: avoid retaining the screen rectangle
+                clip[5] = GpuBlock32::from(ImageMaskInfo {
+                    uv_rect: tex_cache.aligned_uv_rect(),
+                    local_rect: Rect::new(Point2D::new(old[4], old[5]),
+                                          Size2D::new(old[6], old[7])),
+                });
+            }
+        }
+
         match metadata.prim_kind {
+            PrimitiveKind::Rectangle |
+            PrimitiveKind::Border |
+            PrimitiveKind::BoxShadow => false,
             PrimitiveKind::TextRun => {
                 let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
                 debug_assert!(metadata.gpu_data_count == text.glyph_range.length as i32);
@@ -736,7 +774,6 @@ impl PrimitiveStore {
 
                 false
             }
-            _ => unreachable!(),
         }
     }
 }
@@ -827,6 +864,14 @@ impl From<ClipRect> for GpuBlock32 {
     fn from(data: ClipRect) -> GpuBlock32 {
         unsafe {
             mem::transmute::<ClipRect, GpuBlock32>(data)
+        }
+    }
+}
+
+impl From<ImageMaskInfo> for GpuBlock32 {
+    fn from(data: ImageMaskInfo) -> GpuBlock32 {
+        unsafe {
+            mem::transmute::<ImageMaskInfo, GpuBlock32>(data)
         }
     }
 }

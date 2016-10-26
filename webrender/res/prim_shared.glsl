@@ -257,7 +257,6 @@ PrimitiveInstance fetch_instance(int index) {
 
     return pi;
 }
-
 struct Primitive {
     Layer layer;
     Tile tile;
@@ -298,9 +297,26 @@ ClipRect fetch_clip_rect(int index) {
     ivec2 uv = get_fetch_uv_2(index);
 
     rect.rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    rect.dummy = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
+    //rect.dummy = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
+    rect.dummy = vec4(0.0, 0.0, 0.0, 0.0);
 
     return rect;
+}
+
+struct ImageMaskInfo {
+    vec4 uv_rect;
+    vec4 local_rect;
+};
+
+ImageMaskInfo fetch_mask_info(int index) {
+    ImageMaskInfo info;
+
+    ivec2 uv = get_fetch_uv_2(index);
+
+    info.uv_rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
+    info.local_rect = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
+
+    return info;
 }
 
 struct ClipCorner {
@@ -319,22 +335,24 @@ ClipCorner fetch_clip_corner(int index) {
     return corner;
 }
 
-struct Clip {
+struct ClipInfo {
     ClipRect rect;
     ClipCorner top_left;
     ClipCorner top_right;
     ClipCorner bottom_left;
     ClipCorner bottom_right;
+    ImageMaskInfo mask_info;
 };
 
-Clip fetch_clip(int index) {
-    Clip clip;
+ClipInfo fetch_clip(int index) {
+    ClipInfo clip;
 
     clip.rect = fetch_clip_rect(index + 0);
     clip.top_left = fetch_clip_corner(index + 1);
     clip.top_right = fetch_clip_corner(index + 2);
     clip.bottom_left = fetch_clip_corner(index + 3);
     clip.bottom_right = fetch_clip_corner(index + 4);
+    clip.mask_info = fetch_mask_info(index+5);
 
     return clip;
 }
