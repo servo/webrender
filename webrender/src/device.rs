@@ -39,7 +39,7 @@ const SHADER_VERSION: &'static str = "#version 300 es\n";
 
 static SHADER_PREAMBLE: &'static str = "shared.glsl";
 
-pub type Buffer = u32;
+pub type ViewportDimensions = [u32; 2];
 
 lazy_static! {
     pub static ref MAX_TEXTURE_SIZE: gl::GLint = {
@@ -345,29 +345,31 @@ impl TextureId {
 
 impl ProgramId {
     fn bind(&self) {
-        let ProgramId(id) = *self;
-        gl::use_program(id);
+        gl::use_program(self.0);
     }
 }
 
 impl VBOId {
     fn bind(&self) {
-        let VBOId(id) = *self;
-        gl::bind_buffer(gl::ARRAY_BUFFER, id);
+        gl::bind_buffer(gl::ARRAY_BUFFER, self.0);
     }
 }
 
 impl IBOId {
     fn bind(&self) {
-        let IBOId(id) = *self;
-        gl::bind_buffer(gl::ELEMENT_ARRAY_BUFFER, id);
+        gl::bind_buffer(gl::ELEMENT_ARRAY_BUFFER, self.0);
+    }
+}
+
+impl UBOId {
+    fn _bind(&self) {
+        gl::bind_buffer(gl::UNIFORM_BUFFER, self.0);
     }
 }
 
 impl FBOId {
     fn bind(&self) {
-        let FBOId(id) = *self;
-        gl::bind_framebuffer(gl::FRAMEBUFFER, id);
+        gl::bind_framebuffer(gl::FRAMEBUFFER, self.0);
     }
 }
 
@@ -526,6 +528,9 @@ pub struct VBOId(gl::GLuint);
 
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 struct IBOId(gl::GLuint);
+
+#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
+pub struct UBOId(gl::GLuint);
 
 const MAX_EVENTS_PER_FRAME: usize = 256;
 const MAX_PROFILE_FRAMES: usize = 4;
@@ -814,12 +819,6 @@ pub struct Device {
     next_vao_id: gl::GLuint,
 }
 
-#[cfg(target_os = "android")]
-const MSAA_SUPPORT: bool = false;
-#[cfg(any(target_os = "windows", unix))]
-const MSAA_SUPPORT: bool = true;
-
-
 impl Device {
     pub fn new(resource_path: PathBuf,
                device_pixel_ratio: f32,
@@ -840,7 +839,7 @@ impl Device {
 
             capabilities: Capabilities {
                 max_ubo_size: gl::get_integer_v(gl::MAX_UNIFORM_BLOCK_SIZE) as usize,
-                supports_multisampling: MSAA_SUPPORT, //TODO: query extensions
+                supports_multisampling: false, //TODO
             },
 
             bound_textures: [ TextureId::invalid(); 16 ],
@@ -946,7 +945,7 @@ impl Device {
         }
     }
 
-    pub fn bind_render_target(&mut self, texture_id: Option<(TextureId, i32)>, width: u32, height: u32) {
+    pub fn bind_render_target(&mut self, texture_id: Option<(TextureId, i32, ViewportDimensions)>) {
         debug_assert!(self.inside_frame);
 
         let fbo_id = texture_id.map_or(FBOId(self.default_fbo), |texture_id| {
@@ -958,7 +957,9 @@ impl Device {
             fbo_id.bind();
         }
 
-        gl::viewport(0, 0, width as gl::GLint, height as gl::GLint);
+        if let Some((_, _, dim)) = texture_id {
+            gl::viewport(0, 0, dim[0] as gl::GLint, dim[1] as gl::GLint);
+        }
     }
 
     pub fn bind_program(&mut self,
@@ -1206,7 +1207,7 @@ impl Device {
         self.init_texture(temp_texture_id, old_width, old_height, format, filter, mode, None);
         self.create_fbo_for_texture_if_necessary(temp_texture_id, None);
 
-        self.bind_render_target(Some((texture_id, 0)));
+        self.bind_render_target(Some((texture_id, 0, [1, 1]))); // the viewport doesn't matter here
         self.bind_texture(TextureSampler::Color, temp_texture_id);
 
         gl::copy_tex_sub_image_2d(temp_texture_id.target,
@@ -1221,7 +1222,7 @@ impl Device {
         self.deinit_texture(texture_id);
         self.init_texture(texture_id, new_width, new_height, format, filter, mode, None);
         self.create_fbo_for_texture_if_necessary(texture_id, None);
-        self.bind_render_target(Some((temp_texture_id, 0)), 1, 1);
+        self.bind_render_target(Some((temp_texture_id, 0, [1, 1]))); // the viewport doesn't matter here
         self.bind_texture(TextureSampler::Color, texture_id);
 
         gl::copy_tex_sub_image_2d(texture_id.target,
@@ -1233,7 +1234,7 @@ impl Device {
                                   old_width as i32,
                                   old_height as i32);
 
-        self.bind_render_target(None, 1, 1);
+        self.bind_render_target(None);
         self.deinit_texture(temp_texture_id);
     }
 
@@ -1710,7 +1711,7 @@ impl Device {
     }
 
     pub fn end_frame(&mut self) {
-        self.bind_render_target(None, 1, 1);
+        self.bind_render_target(None);
 
         debug_assert!(self.inside_frame);
         self.inside_frame = false;
@@ -1732,12 +1733,12 @@ impl Device {
         index
     }
 
-    pub fn create_ubo<T>(&self, data: &[T], binding: u32) -> Buffer {
+    pub fn create_ubo<T>(&self, data: &[T], binding: u32) -> UBOId {
         let ubo = gl::gen_buffers(1)[0];
         gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
         gl::buffer_data(gl::UNIFORM_BUFFER, data, gl::STATIC_DRAW);
         gl::bind_buffer_base(gl::UNIFORM_BUFFER, binding, ubo);
-        ubo
+        UBOId(ubo)
     }
 
     pub fn reset_ubo(&self, binding: u32) {
@@ -1745,8 +1746,8 @@ impl Device {
         gl::bind_buffer_base(gl::UNIFORM_BUFFER, binding, 0);
     }
 
-    pub fn delete_buffer(&self, buffer: Buffer) {
-        gl::delete_buffers(&[buffer]);
+    pub fn delete_buffer(&self, buffer: UBOId) {
+        gl::delete_buffers(&[buffer.0]);
     }
 
     pub fn set_multisample(&self, enable: bool) {

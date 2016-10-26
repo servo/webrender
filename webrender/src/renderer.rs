@@ -342,7 +342,6 @@ pub struct Renderer {
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
     enable_profiler: bool,
-    _enable_msaa: bool,
     debug: DebugRenderer,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
@@ -658,7 +657,6 @@ impl Renderer {
             profile_counters: RendererProfileCounters::new(),
             profiler: Profiler::new(),
             enable_profiler: options.enable_profiler,
-            _enable_msaa: options.enable_msaa,
             last_time: 0,
             raster_op_target_a8: raster_op_target_a8,
             raster_op_target_rgba8: raster_op_target_rgba8,
@@ -1122,9 +1120,8 @@ impl Renderer {
         self.device.set_blend(!self.device.texture_has_alpha(target_texture_id));
         self.device.set_blend_mode_premultiplied_alpha();
 
-        self.device.bind_render_target(Some((target_texture_id, 0)),
-                                       self.max_raster_op_size,
-                                       self.max_raster_op_size);
+        let dimensions = [self.max_raster_op_size, self.max_raster_op_size];
+        self.device.bind_render_target(Some((target_texture_id, 0, dimensions)));
 
         self.device.bind_program(program_id, &projection);
 
@@ -1323,9 +1320,9 @@ impl Renderer {
                    should_clear: bool) {
         self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
 
-        self.device.bind_render_target(render_target,
-                                       target_size.width as u32,
-                                       target_size.height as u32);
+        self.device.bind_render_target(render_target.map(|(id, slice)|
+            (id, slice, [target_size.width as u32, target_size.height as u32])
+            ));
 
         self.device.set_blend(false);
         self.device.set_blend_mode_alpha();
@@ -1523,10 +1520,8 @@ impl Renderer {
                                          ORTHO_FAR_PLANE);
 
         if frame.passes.is_empty() {
-            gl::clear_color(1.0, 1.0, 1.0, 1.0);
-            gl::clear(gl::COLOR_BUFFER_BIT);
+            self.device.clear_color([1.0, 1.0, 1.0, 1.0]);
         } else {
-
             // Add new render targets to the pool if required.
             let needed_targets = frame.passes.len() - 1;     // framebuffer doesn't need a target!
             let current_target_count = self.render_targets.len();
