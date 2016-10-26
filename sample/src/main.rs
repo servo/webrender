@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::ffi::CStr;
 use webrender_traits::{PipelineId, ServoStackingContextId, StackingContextId, DisplayListId};
 use webrender_traits::{AuxiliaryListsBuilder, Epoch, ColorF, FragmentType, GlyphInstance};
-use webrender_traits::RendererKind;
+use webrender_traits::{ImageFormat, RendererKind};
 use std::fs::File;
 use std::io::Read;
 use std::env;
@@ -180,9 +180,21 @@ fn main() {
 
     let mut builder = webrender_traits::DisplayListBuilder::new();
 
-    let clip_region = webrender_traits::ClipRegion::new(&bounds,
-                                                        Vec::new(),
-                                                        &mut frame_builder.auxiliary_lists_builder);
+    let clip_region = {
+        let rect = Rect::new(Point2D::new(100.0, 100.0), Size2D::new(100.0, 100.0));
+        let mask = webrender_traits::ImageMask {
+            image: api.add_image(2, 2, ImageFormat::A8, vec![0,80, 180, 255]),
+            rect: rect,
+            repeat: false,
+        };
+        let radius = webrender_traits::BorderRadius::uniform(20.0);
+        let complex = webrender_traits::ComplexClipRegion::new(rect, radius);
+
+        webrender_traits::ClipRegion::new(&bounds,
+                                          vec![complex],
+                                          Some(mask),
+                                          &mut frame_builder.auxiliary_lists_builder)
+    };
 
     builder.push_rect(Rect::new(Point2D::new(100.0, 100.0), Size2D::new(100.0, 100.0)),
                       clip_region,
