@@ -195,7 +195,8 @@ impl AverageTimeProfileCounter {
 
     pub fn set(&mut self, ns: u64) {
         let now = precise_time_ns();
-        if (now - self.start_ns) > self.average_over_ns {
+        if (now - self.start_ns) > self.average_over_ns &&
+           self.num_samples > 0 {
             self.nanoseconds = self.sum_ns / self.num_samples;
             self.start_ns = now;
             self.sum_ns = 0;
