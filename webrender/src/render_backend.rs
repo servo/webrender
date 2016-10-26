@@ -288,7 +288,7 @@ impl RenderBackend {
                                         self.webgl_contexts.insert(id, ctx);
 
                                         self.resource_cache
-                                            .add_webgl_texture(id, TextureId(texture_id), real_size);
+                                            .add_webgl_texture(id, TextureId::new(texture_id), real_size);
 
                                         tx.send(Ok((id, limits))).unwrap();
                                     },

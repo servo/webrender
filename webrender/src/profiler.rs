@@ -231,7 +231,7 @@ impl ProfileCounter for AverageTimeProfileCounter {
 pub struct FrameProfileCounters {
     pub total_primitives: IntProfileCounter,
     pub visible_primitives: IntProfileCounter,
-    pub phases: IntProfileCounter,
+    pub passes: IntProfileCounter,
     pub targets: IntProfileCounter,
 }
 
@@ -240,8 +240,8 @@ impl FrameProfileCounters {
         FrameProfileCounters {
             total_primitives: IntProfileCounter::new("Total Primitives"),
             visible_primitives: IntProfileCounter::new("Visible Primitives"),
-            phases: IntProfileCounter::new("Phases"),
-            targets: IntProfileCounter::new("Target switches"),
+            passes: IntProfileCounter::new("Passes"),
+            targets: IntProfileCounter::new("Render Targets"),
         }
     }
 }
@@ -620,7 +620,7 @@ impl Profiler {
         self.draw_counters(&[
             &frame_profile.total_primitives,
             &frame_profile.visible_primitives,
-            &frame_profile.phases,
+            &frame_profile.passes,
             &frame_profile.targets,
         ], debug_renderer, true);
 

@@ -12,7 +12,7 @@
 use batch::RasterBatch;
 use debug_render::DebugRenderer;
 use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat, GpuProfiler};
-use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler};
+use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
 use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use gleam::gl;
@@ -92,7 +92,7 @@ struct VertexDataTexture {
 
 impl VertexDataTexture {
     fn new(device: &mut Device) -> VertexDataTexture {
-        let id = device.create_texture_ids(1)[0];
+        let id = device.create_texture_ids(1, TextureTarget::Default)[0];
 
         VertexDataTexture {
             id: id,
@@ -358,7 +358,7 @@ pub struct Renderer {
     max_raster_op_size: u32,
     raster_op_target_a8: TextureId,
     raster_op_target_rgba8: TextureId,
-    render_targets: [TextureId; 2],
+    render_targets: Vec<TextureId>,
 
     gpu_profile: GpuProfiler<GpuProfileTag>,
     quad_vao_id: VAOId,
@@ -497,7 +497,7 @@ impl Renderer {
                                                            &mut device,
                                                            options.precache_shaders);
 
-        let texture_ids = device.create_texture_ids(1024);
+        let texture_ids = device.create_texture_ids(1024, TextureTarget::Default);
         let mut texture_cache = TextureCache::new(texture_ids);
 
         let white_pixels: Vec<u8> = vec![
@@ -540,22 +540,22 @@ impl Renderer {
 
         let debug_renderer = DebugRenderer::new(&mut device);
 
-        let raster_op_target_a8 = device.create_texture_ids(1)[0];
+        let raster_op_target_a8 = device.create_texture_ids(1, TextureTarget::Default)[0];
         device.init_texture(raster_op_target_a8,
                             max_raster_op_size,
                             max_raster_op_size,
                             ImageFormat::A8,
                             TextureFilter::Nearest,
-                            RenderTargetMode::RenderTarget,
+                            RenderTargetMode::SimpleRenderTarget,
                             None);
 
-        let raster_op_target_rgba8 = device.create_texture_ids(1)[0];
+        let raster_op_target_rgba8 = device.create_texture_ids(1, TextureTarget::Default)[0];
         device.init_texture(raster_op_target_rgba8,
                             max_raster_op_size,
                             max_raster_op_size,
                             ImageFormat::RGBA8,
                             TextureFilter::Nearest,
-                            RenderTargetMode::RenderTarget,
+                            RenderTargetMode::SimpleRenderTarget,
                             None);
 
         let layer_texture = VertexDataTexture::new(&mut device);
@@ -668,7 +668,7 @@ impl Renderer {
             last_time: 0,
             raster_op_target_a8: raster_op_target_a8,
             raster_op_target_rgba8: raster_op_target_rgba8,
-            render_targets: [TextureId(0), TextureId(0)],
+            render_targets: Vec::new(),
             max_raster_op_size: max_raster_op_size,
             gpu_profile: GpuProfiler::new(),
             quad_vao_id: quad_vao_id,
@@ -1148,13 +1148,13 @@ impl Renderer {
             gl::disable(gl::BLEND);
         }
 
-        self.device.bind_render_target(Some(target_texture_id));
+        self.device.bind_render_target(Some((target_texture_id, 0)));
         gl::viewport(0, 0, self.max_raster_op_size as gl::GLint, self.max_raster_op_size as gl::GLint);
 
         self.device.bind_program(program_id, &projection);
 
         self.device.bind_texture(TextureSampler::Color, color_texture_id);
-        self.device.bind_texture(TextureSampler::Mask, TextureId(0));
+        self.device.bind_texture(TextureSampler::Mask, TextureId::invalid());
 
         match blur_direction {
             Some(AxisDirection::Horizontal) => {
@@ -1346,10 +1346,10 @@ impl Renderer {
     }
 
     fn draw_target(&mut self,
-                   render_target: Option<TextureId>,
+                   render_target: Option<(TextureId, i32)>,
                    target: &RenderTarget,
                    target_size: &Size2D<f32>,
-                   cache_texture: TextureId,
+                   cache_texture: Option<TextureId>,
                    should_clear: bool) {
         self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
 
@@ -1363,7 +1363,9 @@ impl Renderer {
         gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
         gl::blend_equation(gl::FUNC_ADD);
 
-        self.device.bind_texture(TextureSampler::Cache, cache_texture);
+        if let Some(cache_texture) = cache_texture {
+            self.device.bind_texture(TextureSampler::Cache, cache_texture);
+        }
 
         let projection = match render_target {
             Some(..) => {
@@ -1572,28 +1574,30 @@ impl Renderer {
                                          ORTHO_NEAR_PLANE,
                                          ORTHO_FAR_PLANE);
 
-        if frame.phases.is_empty() {
+        if frame.passes.is_empty() {
             gl::clear_color(1.0, 1.0, 1.0, 1.0);
             gl::clear(gl::COLOR_BUFFER_BIT);
         } else {
-            if self.render_targets[0] == TextureId(0) {
-                self.render_targets[0] = self.device.create_texture_ids(1)[0];
-                self.render_targets[1] = self.device.create_texture_ids(1)[0];
 
-                self.device.init_texture(self.render_targets[0],
+            // Add new render targets to the pool if required.
+            let needed_targets = frame.passes.len() - 1;     // framebuffer doesn't need a target!
+            let current_target_count = self.render_targets.len();
+            if needed_targets > current_target_count {
+                let new_target_count = needed_targets - current_target_count;
+                let new_targets = self.device.create_texture_ids(new_target_count as i32,
+                                                                 TextureTarget::Array);
+                self.render_targets.extend_from_slice(&new_targets);
+            }
+
+            // Init textures and render targets to match this scene. This shouldn't
+            // block in drivers, but it might be worth checking...
+            for (pass, texture_id) in frame.passes.iter().zip(self.render_targets.iter()) {
+                self.device.init_texture(*texture_id,
                                          frame.cache_size.width as u32,
                                          frame.cache_size.height as u32,
                                          ImageFormat::RGBA8,
                                          TextureFilter::Linear,
-                                         RenderTargetMode::RenderTarget,
-                                         None);
-
-                self.device.init_texture(self.render_targets[1],
-                                         frame.cache_size.width as u32,
-                                         frame.cache_size.height as u32,
-                                         ImageFormat::RGBA8,
-                                         TextureFilter::Linear,
-                                         RenderTargetMode::RenderTarget,
+                                         RenderTargetMode::LayerRenderTarget(pass.targets.len() as i32),
                                          None);
             }
 
@@ -1613,28 +1617,30 @@ impl Renderer {
             self.device.bind_texture(TextureSampler::Data64, self.data64_texture.id);
             self.device.bind_texture(TextureSampler::Data128, self.data128_texture.id);
 
-            for (phase_index, phase) in frame.phases.iter().enumerate() {
-                let mut render_target_index = 0;
+            let mut src_id = None;
 
-                for target in &phase.targets {
-                    if target.is_framebuffer {
-                        let ct_index = self.render_targets[1 - render_target_index];
-                        self.draw_target(None,
-                                         target,
-                                         &Size2D::new(framebuffer_size.width as f32, framebuffer_size.height as f32),
-                                         ct_index,
-                                         needs_clear && phase_index == 0);
-                    } else {
-                        let rt_index = self.render_targets[render_target_index];
-                        let ct_index = self.render_targets[1 - render_target_index];
-                        self.draw_target(Some(rt_index),
-                                         target,
-                                         &frame.cache_size,
-                                         ct_index,
-                                         true);
-                        render_target_index = 1 - render_target_index;
-                    }
+            for (pass_index, pass) in frame.passes.iter().enumerate() {
+                let (do_clear, size, target_id) = if pass.is_framebuffer {
+                    (needs_clear,
+                     Size2D::new(framebuffer_size.width as f32, framebuffer_size.height as f32),
+                     None)
+                } else {
+                    (true, frame.cache_size, Some(self.render_targets[pass_index]))
+                };
+
+                for (target_index, target) in pass.targets.iter().enumerate() {
+                    let render_target = target_id.map(|texture_id| {
+                        (texture_id, target_index as i32)
+                    });
+                    self.draw_target(render_target,
+                                     target,
+                                     &size,
+                                     src_id,
+                                     do_clear);
+
                 }
+
+                src_id = target_id;
             }
         }
 

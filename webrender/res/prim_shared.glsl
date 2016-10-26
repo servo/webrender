@@ -34,6 +34,8 @@
 
 #define MAX_STOPS_PER_ANGLE_GRADIENT 8
 
+uniform sampler2DArray sCache;
+
 #ifdef WR_VERTEX_SHADER
 
 #define VECS_PER_LAYER             13
@@ -121,7 +123,7 @@ Layer fetch_layer(int index) {
 
 struct Tile {
     vec4 screen_origin_task_origin;
-    vec4 size;
+    vec4 size_target_index;
 };
 
 Tile fetch_tile(int index) {
@@ -130,7 +132,7 @@ Tile fetch_tile(int index) {
     ivec2 uv = get_fetch_uv(index, VECS_PER_TILE);
 
     tile.screen_origin_task_origin = texelFetchOffset(sRenderTasks, uv, 0, ivec2(0, 0));
-    tile.size = texelFetchOffset(sRenderTasks, uv, 0, ivec2(1, 0));
+    tile.size_target_index = texelFetchOffset(sRenderTasks, uv, 0, ivec2(1, 0));
 
     return tile;
 }
@@ -425,7 +427,7 @@ VertexInfo write_vertex(vec4 instance_rect,
 
     vec2 clamped_pos = clamp(device_pos,
                              vec2(tile.screen_origin_task_origin.xy),
-                             vec2(tile.screen_origin_task_origin.xy + tile.size.xy));
+                             vec2(tile.screen_origin_task_origin.xy + tile.size_target_index.xy));
 
     vec4 local_clamped_pos = layer.inv_transform * vec4(clamped_pos / uDevicePixelRatio, world_pos.z, 1);
     local_clamped_pos.xyz /= local_clamped_pos.w;
@@ -479,11 +481,11 @@ TransformVertexInfo write_transform_vertex(vec4 instance_rect,
 
     vec2 min_pos_clamped = clamp(min_pos * uDevicePixelRatio,
                                  vec2(tile.screen_origin_task_origin.xy),
-                                 vec2(tile.screen_origin_task_origin.xy + tile.size.xy));
+                                 vec2(tile.screen_origin_task_origin.xy + tile.size_target_index.xy));
 
     vec2 max_pos_clamped = clamp(max_pos * uDevicePixelRatio,
                                  vec2(tile.screen_origin_task_origin.xy),
-                                 vec2(tile.screen_origin_task_origin.xy + tile.size.xy));
+                                 vec2(tile.screen_origin_task_origin.xy + tile.size_target_index.xy));
 
     vec2 clamped_pos = mix(min_pos_clamped,
                            max_pos_clamped,

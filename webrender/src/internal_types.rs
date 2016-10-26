@@ -308,7 +308,8 @@ impl DebugColorVertex {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RenderTargetMode {
     None,
-    RenderTarget,
+    SimpleRenderTarget,
+    LayerRenderTarget(i32),      // Number of texture layers
 }
 
 #[derive(Debug)]
