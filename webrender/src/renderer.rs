@@ -15,7 +15,6 @@ use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat, GpuPro
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
 use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
-use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePoint};
@@ -758,9 +757,9 @@ impl Renderer {
                     self.gpu_profile.begin_frame();
                     self.gpu_profile.add_marker(GPU_TAG_INIT);
 
-                    gl::disable(gl::SCISSOR_TEST);
-                    gl::disable(gl::DEPTH_TEST);
-                    gl::disable(gl::BLEND);
+                    self.device.disable_scissor();
+                    self.device.disable_depth();
+                    self.device.set_blend(false);
 
                     //self.update_shaders();
                     self.update_texture_cache();
@@ -1073,9 +1072,8 @@ impl Renderer {
         if !batches.is_empty() {
             //println!("flushing {:?} raster batches", batches.len());
 
-            gl::disable(gl::DEPTH_TEST);
-            gl::disable(gl::SCISSOR_TEST);
-
+            self.device.disable_depth();
+            self.device.disable_scissor();
             // Disable MSAA here for raster ops
             self.device.set_multisample(false);
 
@@ -1120,12 +1118,9 @@ impl Renderer {
                                                 program_id: ProgramId,
                                                 blur_direction: Option<AxisDirection>,
                                                 projection: &Matrix4D<f32>) {
-        if !self.device.texture_has_alpha(target_texture_id) {
-            gl::enable(gl::BLEND);
-            gl::blend_func(gl::SRC_ALPHA, gl::ZERO);
-        } else {
-            gl::disable(gl::BLEND);
-        }
+
+        self.device.set_blend(!self.device.texture_has_alpha(target_texture_id));
+        self.device.set_blend_mode_premultiplied_alpha();
 
         self.device.bind_render_target(Some((target_texture_id, 0)),
                                        self.max_raster_op_size,
@@ -1332,13 +1327,11 @@ impl Renderer {
                                        target_size.width as u32,
                                        target_size.height as u32);
 
-        gl::disable(gl::BLEND);
-        gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-        gl::blend_equation(gl::FUNC_ADD);
-
+        self.device.set_blend(false);
+        self.device.set_blend_mode_alpha();
         if let Some(cache_texture) = cache_texture {
-            self.device.bind_texture(TextureSampler::Cache, cache_texture);
-        }
+	        self.device.bind_texture(TextureSampler::Cache, cache_texture);
+	    }
 
         let (color, projection) = match render_target {
             Some(..) => (
@@ -1367,11 +1360,7 @@ impl Renderer {
         }
 
         for batch in &target.alpha_batcher.batches {
-            if batch.blending_enabled {
-                gl::enable(gl::BLEND);
-            } else {
-                gl::disable(gl::BLEND);
-            }
+            self.device.set_blend(batch.blending_enabled);
 
             match &batch.data {
                 &PrimitiveBatchData::Blend(ref ubo_data) => {
@@ -1501,7 +1490,7 @@ impl Renderer {
             }
         }
 
-        gl::disable(gl::BLEND);
+        self.device.set_blend(false);
     }
 
     fn draw_tile_frame(&mut self,
@@ -1522,9 +1511,9 @@ impl Renderer {
                                 &debug_rect.color);
         }
 
-        gl::depth_mask(false);
-        gl::disable(gl::STENCIL_TEST);
-        gl::disable(gl::BLEND);
+        self.device.disable_depth_write();
+        self.device.disable_stencil();
+        self.device.set_blend(false);
 
         let projection = Matrix4D::ortho(0.0,
                                          framebuffer_size.width as f32,

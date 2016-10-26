@@ -1763,6 +1763,40 @@ impl Device {
         gl::clear_color(c[0], c[1], c[2], c[3]);
         gl::clear(gl::COLOR_BUFFER_BIT);
     }
+
+    pub fn disable_depth(&self) {
+        gl::disable(gl::DEPTH_TEST);
+    }
+
+    pub fn disable_depth_write(&self) {
+        gl::depth_mask(false);
+    }
+
+    pub fn disable_stencil(&self) {
+        gl::disable(gl::STENCIL);
+    }
+
+    pub fn disable_scissor(&self) {
+        gl::disable(gl::SCISSOR_TEST);
+    }
+
+    pub fn set_blend(&self, enable: bool) {
+        if enable {
+            gl::enable(gl::BLEND);
+        } else {
+            gl::disable(gl::BLEND);
+        }
+    }
+
+    pub fn set_blend_mode_premultiplied_alpha(&self) {
+        gl::blend_func(gl::SRC_ALPHA, gl::ZERO);
+        gl::blend_equation(gl::FUNC_ADD);
+    }
+
+    pub fn set_blend_mode_alpha(&self) {
+        gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        gl::blend_equation(gl::FUNC_ADD);
+    }
 }
 
 impl Drop for Device {
