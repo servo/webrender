@@ -946,7 +946,7 @@ impl Device {
         }
     }
 
-    pub fn bind_render_target(&mut self, texture_id: Option<(TextureId, i32)>) {
+    pub fn bind_render_target(&mut self, texture_id: Option<(TextureId, i32)>, width: u32, height: u32) {
         debug_assert!(self.inside_frame);
 
         let fbo_id = texture_id.map_or(FBOId(self.default_fbo), |texture_id| {
@@ -957,6 +957,8 @@ impl Device {
             self.bound_fbo = fbo_id;
             fbo_id.bind();
         }
+
+        gl::viewport(0, 0, width as gl::GLint, height as gl::GLint);
     }
 
     pub fn bind_program(&mut self,
@@ -1219,7 +1221,7 @@ impl Device {
         self.deinit_texture(texture_id);
         self.init_texture(texture_id, new_width, new_height, format, filter, mode, None);
         self.create_fbo_for_texture_if_necessary(texture_id, None);
-        self.bind_render_target(Some((temp_texture_id, 0)));
+        self.bind_render_target(Some((temp_texture_id, 0)), 1, 1);
         self.bind_texture(TextureSampler::Color, texture_id);
 
         gl::copy_tex_sub_image_2d(texture_id.target,
@@ -1231,7 +1233,7 @@ impl Device {
                                   old_width as i32,
                                   old_height as i32);
 
-        self.bind_render_target(None);
+        self.bind_render_target(None, 1, 1);
         self.deinit_texture(temp_texture_id);
     }
 
@@ -1708,7 +1710,7 @@ impl Device {
     }
 
     pub fn end_frame(&mut self) {
-        self.bind_render_target(None);
+        self.bind_render_target(None, 1, 1);
 
         debug_assert!(self.inside_frame);
         self.inside_frame = false;
@@ -1755,6 +1757,11 @@ impl Device {
                 gl::disable(gl::MULTISAMPLE);
             }
         }
+    }
+
+    pub fn clear_color(&self, c: [f32; 4]) {
+        gl::clear_color(c[0], c[1], c[2], c[3]);
+        gl::clear(gl::COLOR_BUFFER_BIT);
     }
 }
 

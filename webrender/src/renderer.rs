@@ -1127,8 +1127,9 @@ impl Renderer {
             gl::disable(gl::BLEND);
         }
 
-        self.device.bind_render_target(Some((target_texture_id, 0)));
-        gl::viewport(0, 0, self.max_raster_op_size as gl::GLint, self.max_raster_op_size as gl::GLint);
+        self.device.bind_render_target(Some((target_texture_id, 0)),
+                                       self.max_raster_op_size,
+                                       self.max_raster_op_size);
 
         self.device.bind_program(program_id, &projection);
 
@@ -1166,7 +1167,7 @@ impl Renderer {
         self.profile_counters.draw_calls.inc();
 
         //println!("drawing triangles due to GL texture cache update");
-        self.device.draw_triangles_u16(0, batch.indices.len() as gl::GLint);
+        self.device.draw_triangles_u16(0, batch.indices.len() as i32);
 
         for blit_job in batch.blit_jobs {
             self.device.read_framebuffer_rect(blit_job.dest_texture_id,
@@ -1311,7 +1312,7 @@ impl Renderer {
             let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
 
             let quad_count = chunk.len() * quads_per_item;
-            self.device.draw_indexed_triangles_instanced_u16(6, quad_count as gl::GLint);
+            self.device.draw_indexed_triangles_instanced_u16(6, quad_count as i32);
             self.profile_counters.vertices.add(6 * (quad_count as usize));
             self.profile_counters.draw_calls.inc();
 
@@ -1327,11 +1328,9 @@ impl Renderer {
                    should_clear: bool) {
         self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
 
-        self.device.bind_render_target(render_target);
-        gl::viewport(0,
-                     0,
-                     target_size.width as i32,
-                     target_size.height as i32);
+        self.device.bind_render_target(render_target,
+                                       target_size.width as u32,
+                                       target_size.height as u32);
 
         gl::disable(gl::BLEND);
         gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
@@ -1341,34 +1340,30 @@ impl Renderer {
             self.device.bind_texture(TextureSampler::Cache, cache_texture);
         }
 
-        let projection = match render_target {
-            Some(..) => {
-                // todo(gw): remove me!
-                gl::clear_color(0.0, 0.0, 0.0, 0.0);
-
+        let (color, projection) = match render_target {
+            Some(..) => (
+                [0.0, 0.0, 0.0, 0.0],
                 Matrix4D::ortho(0.0,
                                target_size.width as f32,
                                0.0,
                                target_size.height as f32,
                                ORTHO_NEAR_PLANE,
                                ORTHO_FAR_PLANE)
-            }
-            None => {
-                // todo(gw): remove me!
-                gl::clear_color(1.0, 1.0, 1.0, 1.0);
-
+            ),
+            None => (
+                [1.0, 1.0, 1.0, 1.0],
                 Matrix4D::ortho(0.0,
                                target_size.width as f32,
                                target_size.height as f32,
                                0.0,
                                ORTHO_NEAR_PLANE,
                                ORTHO_FAR_PLANE)
-            }
+            ),
         };
 
         // todo(gw): remove me!
         if should_clear {
-            gl::clear(gl::COLOR_BUFFER_BIT);
+            self.device.clear_color(color);
         }
 
         for batch in &target.alpha_batcher.batches {
@@ -1388,7 +1383,7 @@ impl Renderer {
                     for chunk in ubo_data.chunks(self.max_prim_blends) {
                         let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
 
-                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
+                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
                         self.profile_counters.vertices.add(6 * chunk.len());
                         self.profile_counters.draw_calls.inc();
 
@@ -1404,7 +1399,7 @@ impl Renderer {
                     for chunk in ubo_data.chunks(self.max_prim_composites) {
                         let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
 
-                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
+                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
                         self.profile_counters.vertices.add(6 * chunk.len());
                         self.profile_counters.draw_calls.inc();
 
@@ -1619,7 +1614,7 @@ impl Renderer {
             for chunk in frame.clear_tiles.chunks(self.max_clear_tiles) {
                 let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
 
-                self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
+                self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
                 self.profile_counters.vertices.add(6 * chunk.len());
                 self.profile_counters.draw_calls.inc();
 
