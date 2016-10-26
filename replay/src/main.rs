@@ -10,138 +10,138 @@ use bincode::serde::deserialize;
 use byteorder::{LittleEndian, ReadBytesExt};
 use euclid::Size2D;
 use gleam::gl;
+use std::io::Read;
 use std::fs::File;
-use std::io::{BufReader};
-use std::io::prelude::*;
 use std::path::PathBuf;
 use std::env;
-use webrender_traits::{ApiMsg, RenderApi, PipelineId};
+use webrender_traits::{RenderApi, PipelineId};
 use glutin::{Event, ElementState, VirtualKeyCode as Key};
 
+
 struct Notifier {
-window_proxy: glutin::WindowProxy,
+    window_proxy: glutin::WindowProxy,
 }
 
 impl Notifier {
-	fn new(window_proxy: glutin::WindowProxy) -> Notifier {
-		Notifier {window_proxy: window_proxy,
-		}
-	}
+    fn new(window_proxy: glutin::WindowProxy) -> Notifier {
+        Notifier {
+            window_proxy: window_proxy,
+        }
+    }
 }
 
 impl webrender_traits::RenderNotifier for Notifier {
-	fn new_frame_ready(&mut self) {
-		self.window_proxy.wakeup_event_loop();
-	}
+    fn new_frame_ready(&mut self) {
+        self.window_proxy.wakeup_event_loop();
+    }
 
-	fn pipeline_size_changed(&mut self,
-			pid: PipelineId,
-			size: Option<Size2D<f32>>) {
-	}
+    fn pipeline_size_changed(&mut self,
+                             _pid: PipelineId,
+                             _size: Option<Size2D<f32>>) {
+    }
 
-	fn new_scroll_frame_ready(&mut self, composite_needed:bool){}
+    fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {
+    }
 }
 
-
-fn get_file(dir:&String, frame: i32) -> Option<File>{
-	let filename = format!("{}/frame_{}.bin", dir,frame);
-	File::open(filename).ok()
+fn read_file(dir: &str, frame: i32, api: &RenderApi) -> bool {
+    let filename = format!("{}/frame_{}.bin", dir, frame);
+    let mut file = match File::open(&filename) {
+        Ok(file) => file,
+        Err(_e) => {
+            //println!("Failed to open `{}`: {:?}", filename, e);
+            return false
+        }
+    };
+    while let Ok(mut len) = file.read_u32::<LittleEndian>() {
+        if len > 0 {
+            let mut buffer = vec![0; len as usize];
+            file.read_exact(&mut buffer).unwrap();
+            let msg = deserialize(&buffer).unwrap();
+            api.api_sender.send(msg).unwrap();
+        } else {
+            len = file.read_u32::<LittleEndian>().unwrap();
+            let mut buffer = vec![0; len as usize];
+            file.read_exact(&mut buffer).unwrap();
+            api.payload_sender.send(&buffer[..]).unwrap();
+        }
+    }
+    true
 }
-
-fn read_file(file: &mut File, api: &RenderApi){	
-	while let Some(len) = file.read_u32::<LittleEndian>().ok(){
-		let mut buffer = vec![0; len as usize];
-		file.read_exact(&mut buffer).unwrap();
-		let msg:Option<ApiMsg> = deserialize(&buffer).ok();
-		match msg{
-			Some(msg) => {	
-				api.api_sender.send(msg).unwrap();
-			}
-			None => {
-				api.payload_sender.send(&buffer[..]).unwrap();
-			}
-		}
-	}
-}	
 
 
 fn main() {
-	let args:Vec<String> = env::args().collect();
-	if args.len() != 3{
-		println!("{}  <resources_path> <directory>", args[0]);
-		return;
-	}
-	let resource_path = &args[1];
-	let ref dir= args[2];
-	let window = glutin::WindowBuilder::new()
-		.with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGl, (3,2)))
-		.build()
-		.unwrap();
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 3 {
+        println!("{} <resources_path> <directory>", args[0]);
+        return;
+    }
+    let resource_path = &args[1];
+    let ref dir = args[2];
+    let window = glutin::WindowBuilder::new()
+        .with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGl, (3,2)))
+        .build()
+        .unwrap();
 
-	let (width, height) = window.get_outer_size().unwrap();
-	unsafe{
-		window.make_current().ok();
-		gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
-	}
+   unsafe {
+        window.make_current().unwrap();
+        gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
+    }
 
-	let opts = webrender::RendererOptions{device_pixel_ratio: 2.0,
-		resource_path: PathBuf::from(resource_path),
-		enable_aa: false,
-		enable_msaa: false,
-		enable_profiler: false,
-		enable_recording: false,
-		enable_scrollbars: false,
-		precache_shaders: false,
-		renderer_kind: webrender_traits::RendererKind::Native,
-		debug: false,
-	};
+    let opts = webrender::RendererOptions {
+        device_pixel_ratio: window.hidpi_factor(),
+        resource_path: PathBuf::from(resource_path),
+        enable_aa: false,
+        enable_msaa: false,
+        enable_profiler: false,
+        enable_recording: false,
+        enable_scrollbars: false,
+        precache_shaders: false,
+        renderer_kind: webrender_traits::RendererKind::Native,
+        debug: false,
+    };
 
-	let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);	
-	let mut api = sender.create_api();
-	let notifier = Box::new(Notifier::new(window.create_window_proxy()));
-	renderer.set_render_notifier(notifier);
-	let (mut width, mut height) = window.get_outer_size().unwrap();
-	width *= window.hidpi_factor() as u32;
-	height *= window.hidpi_factor() as u32;
+    let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);
+    let api = sender.create_api();
+    let notifier = Box::new(Notifier::new(window.create_window_proxy()));
+    renderer.set_render_notifier(notifier);
+    let (mut width, mut height) = window.get_inner_size().unwrap();
 
+    //read and send the resources file
+    let mut frame_num = 0;
+    read_file(dir, frame_num, &api);
 
-	//read and send the resources file
-	let mut frame_num = 0;
-	if let Some(mut file) = get_file(dir, frame_num){
-		read_file(&mut file, &api);
-	}	
-	for event in window.wait_events(){
-		match event {
-			Event::Closed => break,
-			Event::Awakened => { 				
-					gl::clear(gl::COLOR_BUFFER_BIT);
-					renderer.update();
-					renderer.render(Size2D::new(width, height));
-					window.swap_buffers();	
-			}
-			Event::KeyboardInput(ElementState::Pressed, _, Some(Key::Right)) =>{
-				frame_num += 1;
-				if let Some(mut file) = get_file(dir, frame_num){
-					read_file(&mut file, &api);
-				}
-				else{
-					frame_num -= 1;
-					println!("At last frame.");
-				}	
-			}
-			Event::KeyboardInput(ElementState::Pressed, _, Some(Key::Left)) => {
-				frame_num -= 1;
-				if let Some(mut file) = get_file(dir, frame_num){
-					read_file(&mut file, &api);
-				}
-
-				else{
-					frame_num +=1;
-					println!("At first frame.");
-				}
-			}
-			_ => ()
-		}
-	}
+    for event in window.wait_events() {
+        match event {
+            Event::KeyboardInput(ElementState::Pressed, _, Some(Key::Escape)) |
+            Event::Closed => break,
+            Event::Resized(w, h) => {
+                width = w;
+                height = h;
+            }
+            //Event::Refresh |
+            Event::Awakened => {
+                println!("Rendering frame {}.", frame_num);
+                gl::clear(gl::COLOR_BUFFER_BIT);
+                renderer.update();
+                renderer.render(Size2D::new(width, height));
+                window.swap_buffers().unwrap();
+            }
+            Event::KeyboardInput(ElementState::Pressed, _, Some(Key::Right)) =>{
+                frame_num += 1;
+                if !read_file(dir, frame_num, &api) {
+                    frame_num -= 1;
+                    println!("At last frame.");
+                }
+            }
+            Event::KeyboardInput(ElementState::Pressed, _, Some(Key::Left)) => {
+                frame_num -= 1;
+                if frame_num < 0 || !read_file(dir, frame_num, &api) {
+                    frame_num +=1;
+                    println!("At first frame.");
+                }
+            }
+            _ => ()
+        }
+    }
 }
-

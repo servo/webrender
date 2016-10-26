@@ -1,12 +1,12 @@
 [package]
-name = "replay"
+name = "wr-replay"
 version = "0.1.0"
 authors = ["lana <alanamramjit@gmail.com>"]
 
-[dependencies.webrender_traits]
+[dependencies.webrender]
 git = "http://github.com/servo/webrender"
 
-[dependencies.webrender]
+[dependencies.webrender_traits]
 git = "http://github.com/servo/webrender"
 
 [dependencies]
