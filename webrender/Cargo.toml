@@ -11,7 +11,7 @@ serde_derive = ["webrender_traits/serde_derive"]
 
 [dependencies]
 app_units = "0.3"
-bincode = "0.6.0"
+bincode = "0.6"
 bit-set = "0.4"
 byteorder = "0.5"
 euclid = "0.10"
