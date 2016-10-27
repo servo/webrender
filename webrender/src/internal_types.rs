@@ -354,7 +354,7 @@ impl TextureUpdateList {
     }
 }
 
-// Mostly wraps a tiling::Frame, adding a bit of extra information.
+/// Mostly wraps a tiling::Frame, adding a bit of extra information.
 pub struct RendererFrame {
     // The last rendered epoch for each pipeline present in the frame.
     // This information is used to know if a certain transformation on the layout has

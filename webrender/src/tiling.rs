@@ -1251,7 +1251,7 @@ impl ScreenTile {
                         let prim_bounding_rect = ctx.prim_store.get_bounding_rect(prim_index);
 
                         // If an opaque primitive covers a tile entirely, we can discard
-                        // all primitives underneith it.
+                        // all primitives underneath it.
                         if layer.xf_rect.as_ref().unwrap().kind == TransformedRectKind::AxisAligned &&
                            prim_metadata.clip_index.is_none() &&
                            prim_metadata.is_opaque &&

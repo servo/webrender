@@ -20,7 +20,7 @@ pub struct Layer {
     // Viewing rectangle clipped against parent layer(s)
     pub combined_local_viewport_rect: Rect<f32>,
 
-    // World transform  for the viewport rect itself.
+    // World transform for the viewport rect itself.
     pub world_viewport_transform: Matrix4D<f32>,
 
     // World transform for content within this layer
