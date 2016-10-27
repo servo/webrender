@@ -9,8 +9,8 @@ use euclid::{Size2D, Point2D, Rect, Matrix4D};
 use gleam::gl;
 use std::path::PathBuf;
 use std::ffi::CStr;
-use webrender_traits::{PipelineId, ServoStackingContextId, StackingContextId, DisplayListId};
-use webrender_traits::{AuxiliaryListsBuilder, Epoch, ColorF, FragmentType, GlyphInstance};
+use webrender_traits::{PipelineId, StackingContextId, DisplayListId};
+use webrender_traits::{AuxiliaryListsBuilder, Epoch, ColorF, GlyphInstance};
 use webrender_traits::{ImageFormat, RendererKind};
 use std::fs::File;
 use std::io::Read;
@@ -79,9 +79,9 @@ impl WebRenderFrameBuilder {
     }
 
     pub fn next_scroll_layer_id(&mut self) -> webrender_traits::ScrollLayerId {
-        let scroll_layer_id = self.next_scroll_layer_id;
+        let scroll_layer_id = webrender_traits::ServoScrollRootId(self.next_scroll_layer_id);
         self.next_scroll_layer_id += 1;
-        webrender_traits::ScrollLayerId::new(self.root_pipeline_id, scroll_layer_id)
+        webrender_traits::ScrollLayerId::new(self.root_pipeline_id, 0, scroll_layer_id)
     }
 
 }
@@ -162,11 +162,8 @@ fn main() {
     let root_scroll_layer_id = frame_builder.next_scroll_layer_id();
 
     let bounds = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(width as f32, height as f32));
-
-    let servo_id = ServoStackingContextId(FragmentType::FragmentBody, 0);
     let mut sc =
-        webrender_traits::StackingContext::new(servo_id,
-                                               Some(root_scroll_layer_id),
+        webrender_traits::StackingContext::new(Some(root_scroll_layer_id),
                                                webrender_traits::ScrollPolicy::Scrollable,
                                                bounds,
                                                bounds,
