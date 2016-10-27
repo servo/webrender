@@ -945,7 +945,9 @@ impl Device {
         }
     }
 
-    pub fn bind_render_target(&mut self, texture_id: Option<(TextureId, i32, ViewportDimensions)>) {
+    pub fn bind_render_target(&mut self,
+                              texture_id: Option<(TextureId, i32)>,
+                              dimensions: Option<ViewportDimensions>) {
         debug_assert!(self.inside_frame);
 
         let fbo_id = texture_id.map_or(FBOId(self.default_fbo), |texture_id| {
@@ -957,8 +959,8 @@ impl Device {
             fbo_id.bind();
         }
 
-        if let Some((_, _, dim)) = texture_id {
-            gl::viewport(0, 0, dim[0] as gl::GLint, dim[1] as gl::GLint);
+        if let Some(dimensions) = dimensions {
+            gl::viewport(0, 0, dimensions[0] as gl::GLint, dimensions[1] as gl::GLint);
         }
     }
 
@@ -1207,7 +1209,7 @@ impl Device {
         self.init_texture(temp_texture_id, old_width, old_height, format, filter, mode, None);
         self.create_fbo_for_texture_if_necessary(temp_texture_id, None);
 
-        self.bind_render_target(Some((texture_id, 0, [1, 1]))); // the viewport doesn't matter here
+        self.bind_render_target(Some((texture_id, 0)), None);
         self.bind_texture(TextureSampler::Color, temp_texture_id);
 
         gl::copy_tex_sub_image_2d(temp_texture_id.target,
@@ -1222,7 +1224,7 @@ impl Device {
         self.deinit_texture(texture_id);
         self.init_texture(texture_id, new_width, new_height, format, filter, mode, None);
         self.create_fbo_for_texture_if_necessary(texture_id, None);
-        self.bind_render_target(Some((temp_texture_id, 0, [1, 1]))); // the viewport doesn't matter here
+        self.bind_render_target(Some((temp_texture_id, 0)), None);
         self.bind_texture(TextureSampler::Color, texture_id);
 
         gl::copy_tex_sub_image_2d(texture_id.target,
@@ -1234,7 +1236,7 @@ impl Device {
                                   old_width as i32,
                                   old_height as i32);
 
-        self.bind_render_target(None);
+        self.bind_render_target(None, None);
         self.deinit_texture(temp_texture_id);
     }
 
@@ -1711,7 +1713,7 @@ impl Device {
     }
 
     pub fn end_frame(&mut self) {
-        self.bind_render_target(None);
+        self.bind_render_target(None, None);
 
         debug_assert!(self.inside_frame);
         self.inside_frame = false;
