@@ -16,13 +16,13 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
-use webrender_traits::{RenderNotifier, WebGLContextId, RenderDispatcher};
+use webrender_traits::{RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
 use batch::new_id;
 use device::TextureId;
 use record;
 use tiling::FrameBuilderConfig;
-use gleam::gl;
 use offscreen_gl_context::GLContextDispatcher;
+
 
 pub struct RenderBackend {
     api_rx: IpcReceiver<ApiMsg>,
@@ -339,7 +339,7 @@ impl RenderBackend {
         // incur minimal cost.
         for (_, webgl_context) in &self.webgl_contexts {
             webgl_context.make_current();
-            gl::flush();
+            webgl_context.apply_command(WebGLCommand::Flush);
             webgl_context.unbind();
         }
 

@@ -15,7 +15,6 @@ use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat, GpuPro
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
 use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use fnv::FnvHasher;
-use gleam::gl;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePoint};
@@ -283,14 +282,10 @@ fn create_prim_shader(name: &'static str,
     let program_id = device.create_program_with_prefix(name,
                                                        includes,
                                                        Some(prefix));
+    let data_index = device.assign_ubo_binding(program_id, "Data", UBO_BIND_DATA);
 
-    let data_index = gl::get_uniform_block_index(program_id.0, "Data");
-    gl::uniform_block_binding(program_id.0, data_index, UBO_BIND_DATA);
+    debug!("PrimShader {}: data={} max={}", name, data_index, max_ubo_vectors);
 
-    debug!("PrimShader {}: data={} max={}",
-           name,
-           data_index,
-           max_ubo_vectors);
     program_id
 }
 
@@ -304,8 +299,7 @@ fn create_clear_shader(name: &'static str,
                                                        includes,
                                                        Some(prefix));
 
-    let data_index = gl::get_uniform_block_index(program_id.0, "Data");
-    gl::uniform_block_binding(program_id.0, data_index, UBO_BIND_DATA);
+    let data_index = device.assign_ubo_binding(program_id, "Data", UBO_BIND_DATA);
 
     debug!("ClearShader {}: data={} max={}", name, data_index, max_ubo_vectors);
 
@@ -348,7 +342,6 @@ pub struct Renderer {
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
     enable_profiler: bool,
-    enable_msaa: bool,
     debug: DebugRenderer,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
@@ -416,7 +409,7 @@ impl Renderer {
         let blur_program_id = device.create_program("blur", "shared_other");
         let max_raster_op_size = MAX_RASTER_OP_SIZE * options.device_pixel_ratio as u32;
 
-        let max_ubo_size = gl::get_integer_v(gl::MAX_UNIFORM_BLOCK_SIZE) as usize;
+        let max_ubo_size = device.get_capabilities().max_ubo_size;
         let max_ubo_vectors = max_ubo_size / 16;
 
         let max_prim_instances = get_ubo_max_len::<tiling::PrimitiveInstance>(max_ubo_size);
@@ -664,7 +657,6 @@ impl Renderer {
             profile_counters: RendererProfileCounters::new(),
             profiler: Profiler::new(),
             enable_profiler: options.enable_profiler,
-            enable_msaa: options.enable_msaa,
             last_time: 0,
             raster_op_target_a8: raster_op_target_a8,
             raster_op_target_rgba8: raster_op_target_rgba8,
@@ -687,21 +679,6 @@ impl Renderer {
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
         (renderer, sender)
-    }
-
-    #[cfg(target_os = "android")]
-    fn enable_msaa(&self, _: bool) {
-    }
-
-    #[cfg(any(target_os = "windows", all(unix, not(target_os = "android"))))]
-    fn enable_msaa(&self, enable_msaa: bool) {
-        if self.enable_msaa {
-            if enable_msaa {
-                gl::enable(gl::MULTISAMPLE);
-            } else {
-                gl::disable(gl::MULTISAMPLE);
-            }
-        }
     }
 
     fn update_uniform_locations(&mut self) {
@@ -778,16 +755,15 @@ impl Renderer {
                     self.gpu_profile.begin_frame();
                     self.gpu_profile.add_marker(GPU_TAG_INIT);
 
-                    gl::disable(gl::SCISSOR_TEST);
-                    gl::disable(gl::DEPTH_TEST);
-                    gl::disable(gl::BLEND);
+                    self.device.disable_scissor();
+                    self.device.disable_depth();
+                    self.device.set_blend(false);
 
                     //self.update_shaders();
                     self.update_texture_cache();
                     self.draw_tile_frame(frame, &framebuffer_size);
 
-                    gl::bind_buffer(gl::UNIFORM_BUFFER, 0);
-                    gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, 0);
+                    self.device.reset_ubo(UBO_BIND_DATA);
                     self.gpu_profile.end_frame();
                 });
 
@@ -1094,11 +1070,10 @@ impl Renderer {
         if !batches.is_empty() {
             //println!("flushing {:?} raster batches", batches.len());
 
-            gl::disable(gl::DEPTH_TEST);
-            gl::disable(gl::SCISSOR_TEST);
-
+            self.device.disable_depth();
+            self.device.disable_scissor();
             // Disable MSAA here for raster ops
-            self.enable_msaa(false);
+            self.device.set_multisample(false);
 
             let projection = Matrix4D::ortho(0.0,
                                              self.max_raster_op_size as f32,
@@ -1141,15 +1116,12 @@ impl Renderer {
                                                 program_id: ProgramId,
                                                 blur_direction: Option<AxisDirection>,
                                                 projection: &Matrix4D<f32>) {
-        if !self.device.texture_has_alpha(target_texture_id) {
-            gl::enable(gl::BLEND);
-            gl::blend_func(gl::SRC_ALPHA, gl::ZERO);
-        } else {
-            gl::disable(gl::BLEND);
-        }
 
-        self.device.bind_render_target(Some((target_texture_id, 0)));
-        gl::viewport(0, 0, self.max_raster_op_size as gl::GLint, self.max_raster_op_size as gl::GLint);
+        self.device.set_blend(!self.device.texture_has_alpha(target_texture_id));
+        self.device.set_blend_mode_premultiplied_alpha();
+
+        let dimensions = [self.max_raster_op_size, self.max_raster_op_size];
+        self.device.bind_render_target(Some((target_texture_id, 0, dimensions)));
 
         self.device.bind_program(program_id, &projection);
 
@@ -1187,7 +1159,7 @@ impl Renderer {
         self.profile_counters.draw_calls.inc();
 
         //println!("drawing triangles due to GL texture cache update");
-        self.device.draw_triangles_u16(0, batch.indices.len() as gl::GLint);
+        self.device.draw_triangles_u16(0, batch.indices.len() as i32);
 
         for blit_job in batch.blit_jobs {
             self.device.read_framebuffer_rect(blit_job.dest_texture_id,
@@ -1329,19 +1301,14 @@ impl Renderer {
         self.device.bind_texture(TextureSampler::Mask, mask_texture_id);
 
         for chunk in ubo_data.chunks(max_prim_items) {
-            let ubos = gl::gen_buffers(1);
-            let ubo = ubos[0];
-
-            gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-            gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-            gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
+            let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
 
             let quad_count = chunk.len() * quads_per_item;
-            self.device.draw_indexed_triangles_instanced_u16(6, quad_count as gl::GLint);
+            self.device.draw_indexed_triangles_instanced_u16(6, quad_count as i32);
             self.profile_counters.vertices.add(6 * (quad_count as usize));
             self.profile_counters.draw_calls.inc();
 
-            gl::delete_buffers(&ubos);
+            self.device.delete_buffer(ubo);
         }
     }
 
@@ -1353,56 +1320,44 @@ impl Renderer {
                    should_clear: bool) {
         self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
 
-        self.device.bind_render_target(render_target);
-        gl::viewport(0,
-                     0,
-                     target_size.width as i32,
-                     target_size.height as i32);
+        self.device.bind_render_target(render_target.map(|(id, slice)|
+            (id, slice, [target_size.width as u32, target_size.height as u32])
+            ));
 
-        gl::disable(gl::BLEND);
-        gl::blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-        gl::blend_equation(gl::FUNC_ADD);
-
+        self.device.set_blend(false);
+        self.device.set_blend_mode_alpha();
         if let Some(cache_texture) = cache_texture {
-            self.device.bind_texture(TextureSampler::Cache, cache_texture);
-        }
+	        self.device.bind_texture(TextureSampler::Cache, cache_texture);
+	    }
 
-        let projection = match render_target {
-            Some(..) => {
-                // todo(gw): remove me!
-                gl::clear_color(0.0, 0.0, 0.0, 0.0);
-
+        let (color, projection) = match render_target {
+            Some(..) => (
+                [0.0, 0.0, 0.0, 0.0],
                 Matrix4D::ortho(0.0,
                                target_size.width as f32,
                                0.0,
                                target_size.height as f32,
                                ORTHO_NEAR_PLANE,
                                ORTHO_FAR_PLANE)
-            }
-            None => {
-                // todo(gw): remove me!
-                gl::clear_color(1.0, 1.0, 1.0, 1.0);
-
+            ),
+            None => (
+                [1.0, 1.0, 1.0, 1.0],
                 Matrix4D::ortho(0.0,
                                target_size.width as f32,
                                target_size.height as f32,
                                0.0,
                                ORTHO_NEAR_PLANE,
                                ORTHO_FAR_PLANE)
-            }
+            ),
         };
 
         // todo(gw): remove me!
         if should_clear {
-            gl::clear(gl::COLOR_BUFFER_BIT);
+            self.device.clear_color(color);
         }
 
         for batch in &target.alpha_batcher.batches {
-            if batch.blending_enabled {
-                gl::enable(gl::BLEND);
-            } else {
-                gl::disable(gl::BLEND);
-            }
+            self.device.set_blend(batch.blending_enabled);
 
             match &batch.data {
                 &PrimitiveBatchData::Blend(ref ubo_data) => {
@@ -1412,18 +1367,13 @@ impl Renderer {
                     self.device.bind_vao(self.quad_vao_id);
 
                     for chunk in ubo_data.chunks(self.max_prim_blends) {
-                        let ubos = gl::gen_buffers(1);
-                        let ubo = ubos[0];
+                        let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
 
-                        gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                        gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                        gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
-
-                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
+                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
                         self.profile_counters.vertices.add(6 * chunk.len());
                         self.profile_counters.draw_calls.inc();
 
-                        gl::delete_buffers(&ubos);
+                        self.device.delete_buffer(ubo);
                     }
                 }
                 &PrimitiveBatchData::Composite(ref ubo_data) => {
@@ -1433,18 +1383,13 @@ impl Renderer {
                     self.device.bind_vao(self.quad_vao_id);
 
                     for chunk in ubo_data.chunks(self.max_prim_composites) {
-                        let ubos = gl::gen_buffers(1);
-                        let ubo = ubos[0];
+                        let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
 
-                        gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                        gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                        gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
-
-                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
+                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
                         self.profile_counters.vertices.add(6 * chunk.len());
                         self.profile_counters.draw_calls.inc();
 
-                        gl::delete_buffers(&ubos);
+                        self.device.delete_buffer(ubo);
                     }
                 }
                 &PrimitiveBatchData::Rectangles(ref ubo_data) => {
@@ -1542,7 +1487,7 @@ impl Renderer {
             }
         }
 
-        gl::disable(gl::BLEND);
+        self.device.set_blend(false);
     }
 
     fn draw_tile_frame(&mut self,
@@ -1563,9 +1508,9 @@ impl Renderer {
                                 &debug_rect.color);
         }
 
-        gl::depth_mask(false);
-        gl::disable(gl::STENCIL_TEST);
-        gl::disable(gl::BLEND);
+        self.device.disable_depth_write();
+        self.device.disable_stencil();
+        self.device.set_blend(false);
 
         let projection = Matrix4D::ortho(0.0,
                                          framebuffer_size.width as f32,
@@ -1575,10 +1520,8 @@ impl Renderer {
                                          ORTHO_FAR_PLANE);
 
         if frame.passes.is_empty() {
-            gl::clear_color(1.0, 1.0, 1.0, 1.0);
-            gl::clear(gl::COLOR_BUFFER_BIT);
+            self.device.clear_color([1.0, 1.0, 1.0, 1.0]);
         } else {
-
             // Add new render targets to the pool if required.
             let needed_targets = frame.passes.len() - 1;     // framebuffer doesn't need a target!
             let current_target_count = self.render_targets.len();
@@ -1653,18 +1596,13 @@ impl Renderer {
             self.device.bind_vao(self.quad_vao_id);
 
             for chunk in frame.clear_tiles.chunks(self.max_clear_tiles) {
-                let ubos = gl::gen_buffers(1);
-                let ubo = ubos[0];
+                let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
 
-                gl::bind_buffer(gl::UNIFORM_BUFFER, ubo);
-                gl::buffer_data(gl::UNIFORM_BUFFER, &chunk, gl::STATIC_DRAW);
-                gl::bind_buffer_base(gl::UNIFORM_BUFFER, UBO_BIND_DATA, ubo);
-
-                self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as gl::GLint);
+                self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
                 self.profile_counters.vertices.add(6 * chunk.len());
                 self.profile_counters.draw_calls.inc();
 
-                gl::delete_buffers(&ubos);
+                self.device.delete_buffer(ubo);
             }
         }
     }
