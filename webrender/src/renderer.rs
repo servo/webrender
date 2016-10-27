@@ -1121,7 +1121,7 @@ impl Renderer {
         self.device.set_blend_mode_premultiplied_alpha();
 
         let dimensions = [self.max_raster_op_size, self.max_raster_op_size];
-        self.device.bind_render_target(Some((target_texture_id, 0, dimensions)));
+        self.device.bind_render_target(Some((target_texture_id, 0)), Some(dimensions));
 
         self.device.bind_program(program_id, &projection);
 
@@ -1320,9 +1320,8 @@ impl Renderer {
                    should_clear: bool) {
         self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
 
-        self.device.bind_render_target(render_target.map(|(id, slice)|
-            (id, slice, [target_size.width as u32, target_size.height as u32])
-            ));
+        let dimensions = [target_size.width as u32, target_size.height as u32];
+        self.device.bind_render_target(render_target, Some(dimensions));
 
         self.device.set_blend(false);
         self.device.set_blend_mode_alpha();
