@@ -134,6 +134,7 @@ impl TimeProfileCounter {
         self.nanoseconds = 0;
     }
 
+    #[allow(dead_code)]
     pub fn set(&mut self, ns: u64) {
         self.nanoseconds = ns;
     }
@@ -186,6 +187,7 @@ impl AverageTimeProfileCounter {
         }
     }
 
+    #[allow(dead_code)]
     fn reset(&mut self) {
         self.start_ns = precise_time_ns();
         self.nanoseconds = 0;
@@ -206,6 +208,7 @@ impl AverageTimeProfileCounter {
         self.num_samples += 1;
     }
 
+    #[allow(dead_code)]
     pub fn profile<T, F>(&mut self, callback: F) -> T where F: FnOnce() -> T {
         let t0 = precise_time_ns();
         let val = callback();
