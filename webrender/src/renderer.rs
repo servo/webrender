@@ -48,6 +48,9 @@ pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
 const UBO_BIND_DATA: u32 = 1;
 
+// Black
+const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 } };
+
 // White
 const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: ColorF { r: 1.0, g: 1.0, b: 1.0, a: 1.0 } };
 
@@ -136,6 +139,7 @@ const TRANSFORM_FEATURE: &'static [&'static str] = &["TRANSFORM"];
 enum ShaderKind {
     Primitive,
     Clear,
+    Cache,
 }
 
 struct LazilyCompiledShader {
@@ -176,7 +180,7 @@ impl LazilyCompiledShader {
                                         device,
                                         self.max_ubo_vectors)
                 }
-                ShaderKind::Primitive => {
+                ShaderKind::Primitive | ShaderKind::Cache => {
                     create_prim_shader(self.name,
                                        device,
                                        self.max_ubo_vectors,
@@ -319,6 +323,8 @@ pub struct Renderer {
     blur_program_id: ProgramId,
     u_direction: UniformLocation,
 
+    cs_box_shadow: LazilyCompiledShader,
+
     ps_rectangle: PrimitiveShader,
     ps_text_run: PrimitiveShader,
     ps_image: PrimitiveShader,
@@ -338,6 +344,7 @@ pub struct Renderer {
     max_clear_tiles: usize,
     max_prim_blends: usize,
     max_prim_composites: usize,
+    max_cache_instances: usize,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
@@ -413,8 +420,16 @@ impl Renderer {
         let max_ubo_vectors = max_ubo_size / 16;
 
         let max_prim_instances = get_ubo_max_len::<tiling::PrimitiveInstance>(max_ubo_size);
+        let max_cache_instances = get_ubo_max_len::<tiling::CachePrimitiveInstance>(max_ubo_size);
         let max_prim_blends = get_ubo_max_len::<tiling::PackedBlendPrimitive>(max_ubo_size);
         let max_prim_composites = get_ubo_max_len::<tiling::PackedCompositePrimitive>(max_ubo_size);
+
+        let cs_box_shadow = LazilyCompiledShader::new(ShaderKind::Cache,
+                                                      "cs_box_shadow",
+                                                      max_cache_instances,
+                                                      &[],
+                                                      &mut device,
+                                                      options.precache_shaders);
 
         let ps_rectangle = PrimitiveShader::new("ps_rectangle",
                                                 max_ubo_vectors,
@@ -635,6 +650,7 @@ impl Renderer {
             device_pixel_ratio: options.device_pixel_ratio,
             blur_program_id: blur_program_id,
             tile_clear_shader: tile_clear_shader,
+            cs_box_shadow: cs_box_shadow,
             ps_rectangle: ps_rectangle,
             ps_text_run: ps_text_run,
             ps_image: ps_image,
@@ -650,6 +666,7 @@ impl Renderer {
             max_clear_tiles: max_clear_tiles,
             max_prim_blends: max_prim_blends,
             max_prim_composites: max_prim_composites,
+            max_cache_instances: max_cache_instances,
             u_direction: UniformLocation::invalid(),
             notifier: notifier,
             debug: debug_renderer,
@@ -1353,6 +1370,22 @@ impl Renderer {
         // todo(gw): remove me!
         if should_clear {
             self.device.clear_color(color);
+        }
+
+        // Draw any cache primitives for this target.
+        if !target.box_shadow_cache_prims.is_empty() {
+            self.device.set_blend(false);
+
+            self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
+            let shader = self.cs_box_shadow.get(&mut self.device);
+            let max_cache_instances = self.max_cache_instances;
+            self.draw_ubo_batch(&target.box_shadow_cache_prims,
+                                shader,
+                                1,
+                                TextureId::invalid(),
+                                TextureId::invalid(),
+                                max_cache_instances,
+                                &projection);
         }
 
         for batch in &target.alpha_batcher.batches {

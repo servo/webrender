@@ -7,7 +7,7 @@ use device::TextureId;
 use euclid::{Point2D, Matrix4D, Rect, Size2D};
 use frame::FrameId;
 use gpu_store::{GpuStore, GpuStoreAddress};
-use internal_types::{DeviceRect, Glyph};
+use internal_types::{DeviceRect, DeviceSize, Glyph};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use resource_list::ResourceList;
@@ -46,6 +46,17 @@ pub struct PrimitiveGeometry {
     pub local_clip_rect: Rect<f32>,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum PrimitiveCacheKey {
+    BoxShadow(BoxShadowPrimitiveCacheKey),
+}
+
+#[derive(Debug)]
+pub struct PrimitiveCacheInfo {
+    pub size: DeviceSize,
+    pub key: PrimitiveCacheKey,
+}
+
 // TODO(gw): Pack the fields here better!
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
@@ -60,6 +71,7 @@ pub struct PrimitiveMetadata {
     pub gpu_prim_index: GpuStoreAddress,
     pub gpu_data_address: GpuStoreAddress,
     pub gpu_data_count: i32,
+    pub cache_info: Option<PrimitiveCacheInfo>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -105,12 +117,21 @@ pub struct BorderPrimitiveGpu {
     pub radii: [Size2D<f32>; 4],
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct BoxShadowPrimitiveCacheKey {
+    pub shadow_rect_size: Size2D<Au>,
+    pub border_radius: Au,
+    pub blur_radius: Au,
+    pub inverted: bool,
+}
+
 #[derive(Debug, Clone)]
-pub struct BoxShadowPrimitive {
+pub struct BoxShadowPrimitiveGpu {
     pub src_rect: Rect<f32>,
     pub bs_rect: Rect<f32>,
     pub color: ColorF,
-    pub border_radii: Point2D<f32>,
+    pub border_radius: f32,
+    pub edge_size: f32,
     pub blur_radius: f32,
     pub inverted: f32,
 }
@@ -314,7 +335,7 @@ pub enum PrimitiveContainer {
     Image(ImagePrimitiveCpu),
     Border(BorderPrimitiveCpu, BorderPrimitiveGpu),
     Gradient(GradientPrimitiveCpu, GradientPrimitiveGpu),
-    BoxShadow(BoxShadowPrimitive, Vec<Rect<f32>>),
+    BoxShadow(BoxShadowPrimitiveGpu, Vec<Rect<f32>>),
 }
 
 pub struct PrimitiveStore {
@@ -332,10 +353,13 @@ pub struct PrimitiveStore {
     pub gpu_data32: GpuStore<GpuBlock32>,
     pub gpu_data64: GpuStore<GpuBlock64>,
     pub gpu_data128: GpuStore<GpuBlock128>,
+
+    // General
+    device_pixel_ratio: f32,
 }
 
 impl PrimitiveStore {
-    pub fn new() -> PrimitiveStore {
+    pub fn new(device_pixel_ratio: f32) -> PrimitiveStore {
         PrimitiveStore {
             cpu_metadata: Vec::new(),
             cpu_bounding_rects: Vec::new(),
@@ -348,6 +372,7 @@ impl PrimitiveStore {
             gpu_data32: GpuStore::new(),
             gpu_data64: GpuStore::new(),
             gpu_data128: GpuStore::new(),
+            device_pixel_ratio: device_pixel_ratio,
         }
     }
 
@@ -408,6 +433,7 @@ impl PrimitiveStore {
                     gpu_prim_index: gpu_address,
                     gpu_data_address: GpuStoreAddress(0),
                     gpu_data_count: 0,
+                    cache_info: None,
                 };
 
                 metadata
@@ -428,6 +454,7 @@ impl PrimitiveStore {
                     gpu_prim_index: gpu_address,
                     gpu_data_address: gpu_glyphs_address,
                     gpu_data_count: text_cpu.glyph_range.length as i32,
+                    cache_info: None,
                 };
 
                 self.cpu_text_runs.push(text_cpu);
@@ -448,6 +475,7 @@ impl PrimitiveStore {
                     gpu_prim_index: gpu_address,
                     gpu_data_address: GpuStoreAddress(0),
                     gpu_data_count: 0,
+                    cache_info: None,
                 };
 
                 self.cpu_images.push(image_cpu);
@@ -468,6 +496,7 @@ impl PrimitiveStore {
                     gpu_prim_index: gpu_address,
                     gpu_data_address: GpuStoreAddress(0),
                     gpu_data_count: 0,
+                    cache_info: None,
                 };
 
                 self.cpu_borders.push(border_cpu);
@@ -489,13 +518,32 @@ impl PrimitiveStore {
                     gpu_prim_index: gpu_address,
                     gpu_data_address: gpu_stops_address,
                     gpu_data_count: gradient_cpu.stops_range.length as i32,
+                    cache_info: None,
                 };
 
                 self.cpu_gradients.push(gradient_cpu);
                 metadata
             }
-            PrimitiveContainer::BoxShadow(box_shadow, instance_rects) => {
-                let gpu_prim_address = self.gpu_data64.push(box_shadow);
+            PrimitiveContainer::BoxShadow(box_shadow_gpu, instance_rects) => {
+                // TODO(gw): Account for zoom factor!
+                // Here, we calculate the size of the patch required in order
+                // to create the box shadow corner. First, scale it by the
+                // device pixel ratio since the cache shader expects vertices
+                // in device space. The shader adds a 1-pixel border around
+                // the patch, in order to prevent bilinear filter artifacts as
+                // the patch is clamped / mirrored across the box shadow rect.
+                let edge_size = box_shadow_gpu.edge_size.ceil() * self.device_pixel_ratio;
+                let edge_size = edge_size as i32 + 2;   // Account for bilinear filtering
+                let cache_size = DeviceSize::new(edge_size, edge_size);
+                let cache_key = PrimitiveCacheKey::BoxShadow(BoxShadowPrimitiveCacheKey {
+                    blur_radius: Au::from_f32_px(box_shadow_gpu.blur_radius),
+                    border_radius: Au::from_f32_px(box_shadow_gpu.border_radius),
+                    inverted: box_shadow_gpu.inverted != 0.0,
+                    shadow_rect_size: Size2D::new(Au::from_f32_px(box_shadow_gpu.bs_rect.size.width),
+                                                  Au::from_f32_px(box_shadow_gpu.bs_rect.size.height)),
+                });
+
+                let gpu_prim_address = self.gpu_data64.push(box_shadow_gpu);
                 let gpu_data_address = self.gpu_data16.get_next_address();
 
                 let metadata = PrimitiveMetadata {
@@ -510,6 +558,10 @@ impl PrimitiveStore {
                     gpu_prim_index: gpu_prim_address,
                     gpu_data_address: gpu_data_address,
                     gpu_data_count: instance_rects.len() as i32,
+                    cache_info: Some(PrimitiveCacheInfo {
+                        size: cache_size,
+                        key: cache_key,
+                    }),
                 };
 
                 for rect in instance_rects {
@@ -897,10 +949,10 @@ impl Default for GpuBlock64 {
     }
 }
 
-impl From<BoxShadowPrimitive> for GpuBlock64 {
-    fn from(data: BoxShadowPrimitive) -> GpuBlock64 {
+impl From<BoxShadowPrimitiveGpu> for GpuBlock64 {
+    fn from(data: BoxShadowPrimitiveGpu) -> GpuBlock64 {
         unsafe {
-            mem::transmute::<BoxShadowPrimitive, GpuBlock64>(data)
+            mem::transmute::<BoxShadowPrimitiveGpu, GpuBlock64>(data)
         }
     }
 }
