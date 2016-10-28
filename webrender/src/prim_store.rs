@@ -526,6 +526,12 @@ impl PrimitiveStore {
             }
             PrimitiveContainer::BoxShadow(box_shadow_gpu, instance_rects) => {
                 // TODO(gw): Account for zoom factor!
+                // Here, we calculate the size of the patch required in order
+                // to create the box shadow corner. First, scale it by the
+                // device pixel ratio since the cache shader expects vertices
+                // in device space. The shader adds a 1-pixel border around
+                // the patch, in order to prevent bilinear filter artifacts as
+                // the patch is clamped / mirrored across the box shadow rect.
                 let edge_size = box_shadow_gpu.edge_size.ceil() * self.device_pixel_ratio;
                 let edge_size = edge_size as i32 + 2;   // Account for bilinear filtering
                 let cache_size = DeviceSize::new(edge_size, edge_size);

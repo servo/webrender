@@ -1374,7 +1374,7 @@ impl Renderer {
 
         // Draw any cache primitives for this target.
         if !target.box_shadow_cache_prims.is_empty() {
-            gl::disable(gl::BLEND);
+            self.device.set_blend(false);
 
             self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
             let shader = self.cs_box_shadow.get(&mut self.device);

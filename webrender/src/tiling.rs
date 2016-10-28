@@ -1742,9 +1742,9 @@ impl FrameBuilder {
             };
 
             self.add_primitive(&prim_rect,
-                            clip_rect,
-                            clip,
-                            PrimitiveContainer::BoxShadow(prim_gpu, instance_rects));
+                               clip_rect,
+                               clip,
+                               PrimitiveContainer::BoxShadow(prim_gpu, instance_rects));
         }
     }
 

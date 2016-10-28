@@ -17,7 +17,15 @@ void main(void) {
     vBlurRadius = bs.border_radius_edge_size_blur_radius_inverted.z;
     vInverted = bs.border_radius_edge_size_blur_radius_inverted.w;
     vBoxShadowRect = vec4(bs.bs_rect.xy, bs.bs_rect.xy + bs.bs_rect.zw);
+
+    // The fragment shader expects logical units, beginning at where the
+    // blur radius begins.
+    // The first path of the equation gets the virtual position in
+    // logical pixels within the patch rectangle (accounting for
+    // bilinear offset). Then we add the start position of the
+    // box shadow rect and subtract the blur radius to get the
+    // virtual coordinates that the FS expects.
     vPos = (pos - 1.0 - p0) / uDevicePixelRatio + bs.bs_rect.xy - vec2(2.0 * vBlurRadius);
 
-    gl_Position = uTransform * vec4(pos, 0, 1);
+    gl_Position = uTransform * vec4(pos, 0.0, 1.0);
 }
