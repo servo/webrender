@@ -1752,6 +1752,11 @@ impl Device {
         gl::delete_buffers(&[buffer.0]);
     }
 
+    #[cfg(target_os = "android")]
+    pub fn set_multisample(&self, enable: bool) {
+    }
+
+    #[cfg(not(target_os = "android"))]
     pub fn set_multisample(&self, enable: bool) {
         if self.capabilities.supports_multisampling {
             if enable {
