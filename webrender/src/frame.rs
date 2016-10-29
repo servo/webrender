@@ -298,9 +298,15 @@ impl Frame {
             None => return false,
         };
 
-        let scroll_layer_id = match self.get_scroll_layer(&cursor, root_scroll_layer_id) {
-            Some(scroll_layer_id) => scroll_layer_id,
-            None => return false,
+        let scroll_layer_id = match (phase, self.get_scroll_layer(&cursor, root_scroll_layer_id),
+            self.current_scroll_layer_id) {
+            (ScrollEventPhase::Start, Some(scroll_layer_id), _) => {
+                self.current_scroll_layer_id = Some(scroll_layer_id);
+                scroll_layer_id
+            },
+            (ScrollEventPhase::Start, None, _) => return false,
+            (_, _, Some(scroll_layer_id)) => scroll_layer_id,
+            (_, _, None) => return false,
         };
 
         let non_root_overscroll = if scroll_layer_id != root_scroll_layer_id {
