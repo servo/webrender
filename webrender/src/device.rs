@@ -1781,7 +1781,7 @@ impl Device {
     }
 
     pub fn disable_stencil(&self) {
-        gl::disable(gl::STENCIL);
+        gl::disable(gl::STENCIL_TEST);
     }
 
     pub fn disable_scissor(&self) {
