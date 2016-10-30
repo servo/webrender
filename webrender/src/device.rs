@@ -884,16 +884,18 @@ impl Device {
         source.extend_from_slice(s.as_bytes());
         gl::shader_source(id, &[&source[..]]);
         gl::compile_shader(id);
+        let log = gl::get_shader_info_log(id);
         if gl::get_shader_iv(id, gl::COMPILE_STATUS) == (0 as gl::GLint) {
-            println!("Failed to compile shader: {:?}", path);
-            println!("{}", gl::get_shader_info_log(id));
+            println!("Failed to compile shader: {:?}\n{}", path, log);
             if panic_on_fail {
                 panic!("-- Shader compile failed - exiting --");
             }
 
             None
         } else {
-            //println!("{}", gl::get_shader_info_log(id));
+            if !log.is_empty() {
+                println!("Warnings detected on shader: {:?}\n{}", path, log);
+            }
             Some(id)
         }
     }
