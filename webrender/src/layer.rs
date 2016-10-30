@@ -6,32 +6,33 @@ use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use spring::{DAMPING, STIFFNESS, Spring};
 use webrender_traits::{PipelineId, ScrollLayerId};
 
+/// Contains scroll and transform information for scrollable and root stacking contexts.
 pub struct Layer {
-    // Manages scrolling offset, overscroll state etc.
+    /// Manages scrolling offset, overscroll state etc.
     pub scrolling: ScrollingState,
 
-    // Size of the content inside the scroll region (in logical pixels)
+    /// Size of the content inside the scroll region (in logical pixels)
     pub content_size: Size2D<f32>,
 
-    // Viewing rectangle
+    /// Viewing rectangle
     pub local_viewport_rect: Rect<f32>,
 
-    // Viewing rectangle clipped against parent layer(s)
+    /// Viewing rectangle clipped against parent layer(s)
     pub combined_local_viewport_rect: Rect<f32>,
 
-    // World transform for the viewport rect itself.
+    /// World transform for the viewport rect itself.
     pub world_viewport_transform: Matrix4D<f32>,
 
-    // World transform for content within this layer
+    /// World transform for content within this layer
     pub world_content_transform: Matrix4D<f32>,
 
-    // Transform for this layer, relative to parent layer.
+    /// Transform for this layer, relative to parent layer.
     pub local_transform: Matrix4D<f32>,
 
-    // Pipeline that this layer belongs to
+    /// Pipeline that this layer belongs to
     pub pipeline_id: PipelineId,
 
-    // Child layers
+    /// Child layers
     pub children: Vec<ScrollLayerId>,
 }
 

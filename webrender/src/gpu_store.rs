@@ -8,6 +8,7 @@ use std::mem;
 #[derive(Debug, Copy, Clone)]
 pub struct GpuStoreAddress(pub i32);
 
+/// A CPU-side buffer storing content to be uploaded to the GPU.
 pub struct GpuStore<T> {
     data: Vec<T>,
     // TODO(gw): Could store this intrusively inside
