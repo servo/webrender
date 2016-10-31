@@ -20,6 +20,7 @@ use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
 use prim_store::{PrimitiveCacheKey, TextRunPrimitiveGpu, TextRunPrimitiveCpu};
 use prim_store::{PrimitiveStore, GpuBlock16, GpuBlock32, GpuBlock64, GpuBlock128};
 use profiler::FrameProfileCounters;
+use renderer::BlendMode;
 use resource_cache::ResourceCache;
 use resource_list::ResourceList;
 use std::cmp;
@@ -388,11 +389,16 @@ impl AlphaBatcher {
                                              !prim_metadata.is_opaque ||
                                              needs_clipping;
                         let flags = AlphaBatchKeyFlags::new(transform_kind,
-                                                            needs_blending,
                                                             needs_clipping);
+                        let blend_mode = if needs_blending {
+                            BlendMode::Alpha
+                        } else {
+                            BlendMode::None
+                        };
                         let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
                         batch_key = AlphaBatchKey::primitive(batch_kind,
                                                              flags,
+                                                             blend_mode,
                                                              prim_metadata.color_texture_id,
                                                              prim_metadata.mask_texture_id);
                     }
@@ -805,6 +811,7 @@ enum AlphaBatchKind {
 pub struct AlphaBatchKey {
     kind: AlphaBatchKind,
     pub flags: AlphaBatchKeyFlags,
+    pub blend_mode: BlendMode,
     pub color_texture_id: TextureId,
     pub mask_texture_id: TextureId,
 }
@@ -814,8 +821,8 @@ impl AlphaBatchKey {
         AlphaBatchKey {
             kind: AlphaBatchKind::Blend,
             flags: AlphaBatchKeyFlags::new(TransformedRectKind::AxisAligned,
-                                           true,
                                            false),
+            blend_mode: BlendMode::Alpha,
             color_texture_id: TextureId::invalid(),
             mask_texture_id: TextureId::invalid(),
         }
@@ -825,8 +832,8 @@ impl AlphaBatchKey {
         AlphaBatchKey {
             kind: AlphaBatchKind::Composite,
             flags: AlphaBatchKeyFlags::new(TransformedRectKind::AxisAligned,
-                                           true,
                                            false),
+            blend_mode: BlendMode::Alpha,
             color_texture_id: TextureId::invalid(),
             mask_texture_id: TextureId::invalid(),
         }
@@ -834,12 +841,14 @@ impl AlphaBatchKey {
 
     fn primitive(kind: AlphaBatchKind,
                  flags: AlphaBatchKeyFlags,
+                 blend_mode: BlendMode,
                  color_texture_id: TextureId,
                  mask_texture_id: TextureId)
                  -> AlphaBatchKey {
         AlphaBatchKey {
             kind: kind,
             flags: flags,
+            blend_mode: blend_mode,
             color_texture_id: color_texture_id,
             mask_texture_id: mask_texture_id,
         }
@@ -862,11 +871,9 @@ pub struct AlphaBatchKeyFlags(u8);
 
 impl AlphaBatchKeyFlags {
     fn new(transform_kind: TransformedRectKind,
-           needs_blending: bool,
            needs_clipping: bool) -> AlphaBatchKeyFlags {
-        AlphaBatchKeyFlags( ((needs_clipping as u8) << 2) |
-                            ((transform_kind as u8) << 1) |
-                            ((needs_blending as u8) << 0) )
+        AlphaBatchKeyFlags( ((transform_kind as u8) << 1) |
+                            ((needs_clipping as u8) << 0) )
     }
 
     pub fn transform_kind(&self) -> TransformedRectKind {
@@ -877,12 +884,8 @@ impl AlphaBatchKeyFlags {
         }
     }
 
-    pub fn needs_blending(&self) -> bool {
-        (self.0 & 1) != 0
-    }
-
     pub fn needs_clipping(&self) -> bool {
-        (self.0 & 4) != 0
+        (self.0 & 1) != 0
     }
 }
 
