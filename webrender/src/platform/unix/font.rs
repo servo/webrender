@@ -3,14 +3,16 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
+use internal_types::FontRenderMode;
 use webrender_traits::{FontKey, NativeFontHandle};
 
-use freetype::freetype::{FTErrorMethods, FT_PIXEL_MODE_GRAY, FT_PIXEL_MODE_MONO};
-use freetype::freetype::{FT_Done_FreeType, FT_LOAD_RENDER, FT_LOAD_MONOCHROME};
+use freetype::freetype::{FTErrorMethods, FT_PIXEL_MODE_GRAY, FT_PIXEL_MODE_MONO, FT_PIXEL_MODE_LCD};
+use freetype::freetype::{FT_Done_FreeType, FT_RENDER_MODE_LCD, FT_Library_SetLcdFilter};
+use freetype::freetype::{FT_RENDER_MODE_NORMAL, FT_RENDER_MODE_MONO};
 use freetype::freetype::{FT_Library, FT_Set_Char_Size};
 use freetype::freetype::{FT_Face, FT_Long, FT_UInt, FT_F26Dot6};
-use freetype::freetype::{FT_Init_FreeType, FT_Load_Glyph};
-use freetype::freetype::{FT_New_Memory_Face, FT_GlyphSlot};
+use freetype::freetype::{FT_Init_FreeType, FT_Load_Glyph, FT_Render_Glyph};
+use freetype::freetype::{FT_New_Memory_Face, FT_GlyphSlot, FT_LcdFilter};
 
 use std::{mem, ptr, slice};
 use std::collections::HashMap;
@@ -48,6 +50,9 @@ impl FontContext {
         unsafe {
             let result = FT_Init_FreeType(&mut lib);
             if !result.succeeded() { panic!("Unable to initialize FreeType library {}", result); }
+
+            // TODO(gw): Check result of this to determine if freetype build supports subpixel.
+            FT_Library_SetLcdFilter(lib, FT_LcdFilter::FT_LCD_FILTER_DEFAULT);
         }
 
         FontContext {
@@ -82,14 +87,12 @@ impl FontContext {
         panic!("TODO: Not supported on Linux");
     }
 
-    pub fn get_glyph(&mut self,
-                     font_key: FontKey,
-                     size: Au,
-                     character: u32,
-                     device_pixel_ratio: f32,
-                     enable_aa: bool) -> Option<RasterizedGlyph> {
+    fn load_glyph(&self,
+                  font_key: FontKey,
+                  size: Au,
+                  character: u32,
+                  device_pixel_ratio: f32) -> Option<FT_GlyphSlot> {
         debug_assert!(self.faces.contains_key(&font_key));
-
         let face = self.faces.get(&font_key).unwrap();
 
         unsafe {
@@ -98,66 +101,120 @@ impl FontContext {
             let result = FT_Set_Char_Size(face.face, char_size as FT_F26Dot6, 0, 0, 0);
             assert!(result.succeeded());
 
-            let flags = if enable_aa {
-                FT_LOAD_RENDER
-            } else {
-                FT_LOAD_MONOCHROME | FT_LOAD_RENDER
-            };
-            let result =  FT_Load_Glyph(face.face, character as FT_UInt, flags);
+            let result =  FT_Load_Glyph(face.face, character as FT_UInt, 0);
             if result.succeeded() {
-
                 let void_glyph = (*face.face).glyph;
-                let slot: FT_GlyphSlot = mem::transmute(void_glyph);
-                assert!(!slot.is_null());
-
-                let bitmap = &(*slot).bitmap;
-                debug_assert!((enable_aa && bitmap.pixel_mode as i8 == FT_PIXEL_MODE_GRAY as i8) ||
-                              (!enable_aa && bitmap.pixel_mode as i8 == FT_PIXEL_MODE_MONO as i8));
-
-                let mut final_buffer = Vec::with_capacity((bitmap.width * bitmap.rows) as usize * 4);
-
-                if enable_aa {
-                    let buffer = slice::from_raw_parts(
-                        bitmap.buffer,
-                        (bitmap.width * bitmap.rows) as usize
-                    );
-
-                    // Convert to RGBA.
-                    for &byte in buffer.iter() {
-                        final_buffer.extend_from_slice(&[ 0xff, 0xff, 0xff, byte ]);
-                    }
-                } else {
-                    // This is not exactly efficient... but it's only used by the
-                    // reftest pass when we have AA disabled on glyphs.
-                    for y in 0..bitmap.rows {
-                        for x in 0..bitmap.width {
-                            let byte_index = (y * bitmap.pitch) + (x >> 3);
-                            let bit_index = x & 7;
-                            let byte_ptr = bitmap.buffer.offset(byte_index as isize);
-                            let bit = (*byte_ptr & (128 >> bit_index)) != 0;
-                            let byte_value = if bit {
-                                0xff
-                            } else {
-                                0
-                            };
-                            final_buffer.extend_from_slice(&[ 0xff, 0xff, 0xff, byte_value ]);
-                        }
-                    }
-                }
-
-                let glyph = RasterizedGlyph {
-                    left: (*slot).bitmap_left as i32,
-                    top: (*slot).bitmap_top as i32,
-                    width: bitmap.width as u32,
-                    height: bitmap.rows as u32,
-                    bytes: final_buffer,
-                };
-
-                Some(glyph)
-            } else {
-                None
+                let slot_ptr: FT_GlyphSlot = mem::transmute(void_glyph);
+                assert!(!slot_ptr.is_null());
+                return Some(slot_ptr);
             }
         }
+
+        None
+    }
+
+    #[allow(dead_code)]     // TODO(gw): Expose this to the public glyph dimensions API.
+    pub fn get_glyph_dimensions(&self,
+                                font_key: FontKey,
+                                size: Au,
+                                character: u32,
+                                device_pixel_ratio: f32) -> Option<(Au, Au)> {
+        self.load_glyph(font_key, size, character, device_pixel_ratio).map(|slot| {
+            let metrics = unsafe { &(*slot).metrics };
+            (Au::from_px((metrics.width >> 6) as i32), Au::from_px((metrics.height >> 6) as i32))
+        })
+    }
+
+    pub fn get_glyph(&mut self,
+                     font_key: FontKey,
+                     size: Au,
+                     character: u32,
+                     device_pixel_ratio: f32,
+                     render_mode: FontRenderMode) -> Option<RasterizedGlyph> {
+        let mut glyph = None;
+
+        if let Some(slot) = self.load_glyph(font_key,
+                                            size,
+                                            character,
+                                            device_pixel_ratio) {
+            let render_mode = match render_mode {
+                FontRenderMode::Mono => FT_RENDER_MODE_MONO,
+                FontRenderMode::Alpha => FT_RENDER_MODE_NORMAL,
+                FontRenderMode::Subpixel => FT_RENDER_MODE_LCD,
+            };
+
+            unsafe {
+                let result = FT_Render_Glyph(slot, render_mode);
+
+                if result.succeeded() {
+                    let bitmap = &(*slot).bitmap;
+                    let bitmap_mode = bitmap.pixel_mode as u32;
+
+                    let width = match bitmap_mode {
+                        FT_PIXEL_MODE_MONO | FT_PIXEL_MODE_GRAY => bitmap.width,
+                        FT_PIXEL_MODE_LCD => bitmap.width / 3,
+                        _ => panic!("Unexpected render mode!"),
+                    } as u32;
+
+                    let mut final_buffer = Vec::with_capacity(width as usize * bitmap.rows as usize * 4);
+
+                    match bitmap_mode {
+                        FT_PIXEL_MODE_MONO => {
+                            // This is not exactly efficient... but it's only used by the
+                            // reftest pass when we have AA disabled on glyphs.
+                            for y in 0..bitmap.rows {
+                                for x in 0..bitmap.width {
+                                    let byte_index = (y * bitmap.pitch) + (x >> 3);
+                                    let bit_index = x & 7;
+                                    let byte_ptr = bitmap.buffer.offset(byte_index as isize);
+                                    let bit = (*byte_ptr & (0x80 >> bit_index)) != 0;
+                                    let byte_value = if bit {
+                                        0xff
+                                    } else {
+                                        0
+                                    };
+                                    final_buffer.extend_from_slice(&[ 0xff, 0xff, 0xff, byte_value ]);
+                                }
+                            }
+                        }
+                        FT_PIXEL_MODE_GRAY => {
+                            let buffer = slice::from_raw_parts(
+                                bitmap.buffer,
+                                (bitmap.width * bitmap.rows) as usize
+                            );
+
+                            // Convert to RGBA.
+                            for &byte in buffer.iter() {
+                                final_buffer.extend_from_slice(&[ 0xff, 0xff, 0xff, byte ]);
+                            }
+                        }
+                        FT_PIXEL_MODE_LCD => {
+                            for y in 0..bitmap.rows {
+                                for x in 0..(bitmap.width / 3) {
+                                    let index = (y * bitmap.pitch) + (x * 3);
+                                    let ptr = bitmap.buffer.offset(index as isize);
+                                    let b = *ptr;
+                                    let g = *(ptr.offset(1));
+                                    let r = *(ptr.offset(2));
+                                    final_buffer.extend_from_slice(&[ r, g, b, 0xff ]);
+                                }
+                            }
+                        }
+                        _ => panic!("Unexpected render mode!"),
+                    }
+
+                    glyph = Some(RasterizedGlyph {
+                        left: (*slot).bitmap_left as i32,
+                        top: (*slot).bitmap_top as i32,
+                        width: width,
+                        height: bitmap.rows as u32,
+                        bytes: final_buffer,
+                    });
+                }
+            }
+        }
+
+        glyph
     }
 }
 
