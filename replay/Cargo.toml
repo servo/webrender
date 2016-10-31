@@ -1,0 +1,17 @@
+[package]
+name = "wr-replay"
+version = "0.1.0"
+authors = ["lana <alanamramjit@gmail.com>"]
+
+[dependencies.webrender]
+path = "../webrender"
+
+[dependencies.webrender_traits]
+path = "../webrender_traits"
+
+[dependencies]
+bincode = "0.6"
+byteorder = "0.5"
+euclid = "0.10"
+gleam = "0.2"
+glutin = "0.6"
