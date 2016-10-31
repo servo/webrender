@@ -656,28 +656,20 @@ impl PrimitiveStore {
                                layer_transform: &Matrix4D<f32>,
                                layer_combined_local_clip_rect: &Rect<f32>,
                                device_pixel_ratio: f32) -> bool {
-        let mut bounding_rect = None;
-        let mut visible = false;
         let geom = &self.gpu_geometry.get(GpuStoreAddress(prim_index.0 as i32));
 
-        match geom.local_rect
-                  .intersection(&geom.local_clip_rect)
-                  .and_then(|rect| rect.intersection(layer_combined_local_clip_rect)) {
-            Some(local_rect) => {
-                let xf_rect = TransformedRect::new(&local_rect,
-                                                   layer_transform,
-                                                   device_pixel_ratio);
-                if xf_rect.bounding_rect
-                          .intersects(screen_rect) {
-                    bounding_rect = Some(xf_rect.bounding_rect);
-                    visible = true;
-                }
-            }
-            None => {}
-        };
+        let bounding_rect = geom.local_rect
+                                .intersection(&geom.local_clip_rect)
+                                .and_then(|rect| rect.intersection(layer_combined_local_clip_rect))
+                                .and_then(|ref local_rect| {
+            let xf_rect = TransformedRect::new(local_rect,
+                                               layer_transform,
+                                               device_pixel_ratio);
+            xf_rect.bounding_rect.intersection(screen_rect)
+        });
 
         self.cpu_bounding_rects[prim_index.0] = bounding_rect;
-        visible
+        bounding_rect.is_some()
     }
 
     pub fn prepare_prim_for_render(&mut self,
