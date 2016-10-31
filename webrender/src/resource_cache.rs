@@ -8,7 +8,7 @@ use euclid::Size2D;
 use fnv::FnvHasher;
 use frame::FrameId;
 use freelist::FreeList;
-use internal_types::{FontTemplate};
+use internal_types::{FontTemplate, FontRenderMode};
 use internal_types::{TextureUpdateList, DrawListId, DrawList};
 use platform::font::{FontContext, RasterizedGlyph};
 use rayon::prelude::*;
@@ -396,6 +396,12 @@ fn run_raster_jobs(pending_raster_jobs: &mut Vec<GlyphRasterJob>,
         return
     }
 
+    let render_mode = if enable_aa {
+        FontRenderMode::Alpha
+    } else {
+        FontRenderMode::Mono
+    };
+
     pending_raster_jobs.par_iter_mut().weight_max().for_each(|job| {
         let font_template = &font_templates[&job.glyph_key.font_key];
         FONT_CONTEXT.with(move |font_context| {
@@ -413,7 +419,7 @@ fn run_raster_jobs(pending_raster_jobs: &mut Vec<GlyphRasterJob>,
                                                 job.glyph_key.size,
                                                 job.glyph_key.index,
                                                 device_pixel_ratio,
-                                                enable_aa);
+                                                render_mode);
         });
     });
 }
