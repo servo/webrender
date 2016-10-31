@@ -88,6 +88,12 @@ const GPU_TAG_PRIM_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "BoxShadow
 // Orange
 const GPU_TAG_PRIM_BORDER: GpuProfileTag = GpuProfileTag { label: "Border", color: ColorF { r: 1.0, g: 0.5, b: 0.0, a: 1.0 } };
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum BlendMode {
+    None,
+    Alpha,
+}
+
 struct VertexDataTexture {
     id: TextureId,
 }
@@ -1390,14 +1396,25 @@ impl Renderer {
                                 &projection);
         }
 
+        let mut prev_blend_mode = BlendMode::None;
+
         for batch in &target.alpha_batcher.batches {
             let color_texture_id = batch.key.color_texture_id;
             let mask_texture_id = batch.key.mask_texture_id;
             let transform_kind = batch.key.flags.transform_kind();
             let has_complex_clip = batch.key.flags.needs_clipping();
-            let blending_enabled = batch.key.flags.needs_blending();
 
-            self.device.set_blend(blending_enabled);
+            if batch.key.blend_mode != prev_blend_mode {
+                match batch.key.blend_mode {
+                    BlendMode::None => {
+                        self.device.set_blend(false);
+                    }
+                    BlendMode::Alpha => {
+                        self.device.set_blend(true);
+                    }
+                }
+                prev_blend_mode = batch.key.blend_mode;
+            }
 
             match &batch.data {
                 &PrimitiveBatchData::Blend(ref ubo_data) => {
