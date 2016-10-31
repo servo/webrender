@@ -1391,7 +1391,13 @@ impl Renderer {
         }
 
         for batch in &target.alpha_batcher.batches {
-            self.device.set_blend(batch.blending_enabled);
+            let color_texture_id = batch.key.color_texture_id;
+            let mask_texture_id = batch.key.mask_texture_id;
+            let transform_kind = batch.key.flags.transform_kind();
+            let has_complex_clip = batch.key.flags.needs_clipping();
+            let blending_enabled = batch.key.flags.needs_blending();
+
+            self.device.set_blend(blending_enabled);
 
             match &batch.data {
                 &PrimitiveBatchData::Blend(ref ubo_data) => {
@@ -1427,94 +1433,94 @@ impl Renderer {
                     }
                 }
                 &PrimitiveBatchData::Rectangles(ref ubo_data) => {
-                    let (shader, max_prim_items) = if batch.has_complex_clip {
+                    let (shader, max_prim_items) = if has_complex_clip {
                         self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT_CLIP);
-                        self.ps_rectangle_clip.get(&mut self.device, batch.transform_kind)
+                        self.ps_rectangle_clip.get(&mut self.device, transform_kind)
                     } else {
                         self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT);
-                        self.ps_rectangle.get(&mut self.device, batch.transform_kind)
+                        self.ps_rectangle.get(&mut self.device, transform_kind)
                     };
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        batch.color_texture_id,
-                                        batch.mask_texture_id,
+                                        color_texture_id,
+                                        mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
                 &PrimitiveBatchData::Image(ref ubo_data) => {
-                    let (shader, max_prim_items) = if batch.has_complex_clip {
+                    let (shader, max_prim_items) = if has_complex_clip {
                         self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE_CLIP);
-                        self.ps_image_clip.get(&mut self.device, batch.transform_kind)
+                        self.ps_image_clip.get(&mut self.device, transform_kind)
                     } else {
                         self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE);
-                        self.ps_image.get(&mut self.device, batch.transform_kind)
+                        self.ps_image.get(&mut self.device, transform_kind)
                     };
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        batch.color_texture_id,
-                                        batch.mask_texture_id,
+                                        color_texture_id,
+                                        mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
                 &PrimitiveBatchData::Borders(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_BORDER);
-                    let (shader, max_prim_items) = self.ps_border.get(&mut self.device, batch.transform_kind);
+                    let (shader, max_prim_items) = self.ps_border.get(&mut self.device, transform_kind);
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        batch.color_texture_id,
-                                        batch.mask_texture_id,
+                                        color_texture_id,
+                                        mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
                 &PrimitiveBatchData::BoxShadow(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_BOX_SHADOW);
-                    let (shader, max_prim_items) = self.ps_box_shadow.get(&mut self.device, batch.transform_kind);
+                    let (shader, max_prim_items) = self.ps_box_shadow.get(&mut self.device, transform_kind);
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        batch.color_texture_id,
-                                        batch.mask_texture_id,
+                                        color_texture_id,
+                                        mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
                 &PrimitiveBatchData::TextRun(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_TEXT_RUN);
-                    let (shader, max_prim_items) = self.ps_text_run.get(&mut self.device, batch.transform_kind);
+                    let (shader, max_prim_items) = self.ps_text_run.get(&mut self.device, transform_kind);
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        batch.color_texture_id,
-                                        batch.mask_texture_id,
+                                        color_texture_id,
+                                        mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
                 &PrimitiveBatchData::AlignedGradient(ref ubo_data) => {
-                    let (shader, max_prim_items) = if batch.has_complex_clip {
+                    let (shader, max_prim_items) = if has_complex_clip {
                         self.gpu_profile.add_marker(GPU_TAG_PRIM_GRADIENT_CLIP);
-                        self.ps_gradient_clip.get(&mut self.device, batch.transform_kind)
+                        self.ps_gradient_clip.get(&mut self.device, transform_kind)
                     } else {
                         self.gpu_profile.add_marker(GPU_TAG_PRIM_GRADIENT);
-                        self.ps_gradient.get(&mut self.device, batch.transform_kind)
+                        self.ps_gradient.get(&mut self.device, transform_kind)
                     };
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        batch.color_texture_id,
-                                        batch.mask_texture_id,
+                                        color_texture_id,
+                                        mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }
                 &PrimitiveBatchData::AngleGradient(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_ANGLE_GRADIENT);
-                    let (shader, max_prim_items) = self.ps_angle_gradient.get(&mut self.device, batch.transform_kind);
+                    let (shader, max_prim_items) = self.ps_angle_gradient.get(&mut self.device, transform_kind);
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        batch.color_texture_id,
-                                        batch.mask_texture_id,
+                                        color_texture_id,
+                                        mask_texture_id,
                                         max_prim_items,
                                         &projection);
                 }

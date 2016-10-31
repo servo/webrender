@@ -39,7 +39,7 @@ use webrender_traits::{BoxShadowClipMode, PipelineId, ScrollLayerId, WebGLContex
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
 
 trait AlphaBatchHelpers {
-    fn get_batch_info(&self, metadata: &PrimitiveMetadata) -> (AlphaBatchKind, TextureId, TextureId);
+    fn get_batch_kind(&self, metadata: &PrimitiveMetadata) -> AlphaBatchKind;
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
                          tile_rect: &DeviceRect,
@@ -50,14 +50,12 @@ trait AlphaBatchHelpers {
                          batch: &mut PrimitiveBatch,
                          layer_index: StackingContextIndex,
                          task_id: i32,
-                         transform_kind: TransformedRectKind,
-                         needs_blending: bool,
                          render_tasks: &RenderTaskCollection,
                          pass_index: RenderPassIndex);
 }
 
 impl AlphaBatchHelpers for PrimitiveStore {
-    fn get_batch_info(&self, metadata: &PrimitiveMetadata) -> (AlphaBatchKind, TextureId, TextureId) {
+    fn get_batch_kind(&self, metadata: &PrimitiveMetadata) -> AlphaBatchKind {
         let batch_kind = match metadata.prim_kind {
             PrimitiveKind::Border => AlphaBatchKind::Border,
             PrimitiveKind::BoxShadow => AlphaBatchKind::BoxShadow,
@@ -77,7 +75,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
             }
         };
 
-        (batch_kind, metadata.color_texture_id, metadata.mask_texture_id)
+        batch_kind
     }
 
     // Optional narrow phase intersection test, depending on primitive type.
@@ -111,13 +109,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
                          batch: &mut PrimitiveBatch,
                          layer_index: StackingContextIndex,
                          task_id: i32,
-                         transform_kind: TransformedRectKind,
-                         needs_blending: bool,
                          render_tasks: &RenderTaskCollection,
                          child_pass_index: RenderPassIndex) {
-        debug_assert!(transform_kind == batch.transform_kind);
-        debug_assert!(needs_blending == batch.blending_enabled);
-
         let metadata = self.get_metadata(prim_index);
         let layer_index = layer_index.0 as i32;
         let global_prim_id = prim_index.0 as i32;
@@ -370,7 +363,7 @@ impl AlphaBatcher {
              ctx: &RenderTargetContext,
              render_tasks: &RenderTaskCollection,
              child_pass_index: RenderPassIndex) {
-        let mut batches: Vec<(AlphaBatchKey, PrimitiveBatch)> = vec![];
+        let mut batches: Vec<PrimitiveBatch> = vec![];
         for task in &mut self.tasks {
             let task_index = render_tasks.get_static_task_index(&task.task_id);
             let task_index = task_index.0 as i32;
@@ -397,17 +390,16 @@ impl AlphaBatcher {
                         let flags = AlphaBatchKeyFlags::new(transform_kind,
                                                             needs_blending,
                                                             needs_clipping);
-                        let (batch_kind, color_texture_id, mask_texture_id) = ctx.prim_store
-                                                                                 .get_batch_info(prim_metadata);
+                        let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
                         batch_key = AlphaBatchKey::primitive(batch_kind,
                                                              flags,
-                                                             color_texture_id,
-                                                             mask_texture_id);
+                                                             prim_metadata.color_texture_id,
+                                                             prim_metadata.mask_texture_id);
                     }
                 }
 
                 while existing_batch_index < batches.len() &&
-                        !batches[existing_batch_index].0.is_compatible_with(&batch_key) {
+                        !batches[existing_batch_index].key.is_compatible_with(&batch_key) {
                     existing_batch_index += 1
                 }
 
@@ -422,20 +414,14 @@ impl AlphaBatcher {
                         AlphaRenderItem::Primitive(_, prim_index) => {
                             // See if this task fits into the tile UBO
                             let prim_metadata = ctx.prim_store.get_metadata(prim_index);
-                            let (batch_kind, color_texture_id, mask_texture_id) = ctx.prim_store
-                                                                                     .get_batch_info(prim_metadata);
-                            PrimitiveBatch::new(batch_kind,
-                                                batch_key.flags.transform_kind(),
-                                                batch_key.flags.needs_blending(),
-                                                batch_key.flags.needs_clipping(),
-                                                color_texture_id,
-                                                mask_texture_id)
+                            let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
+                            PrimitiveBatch::new(batch_kind, batch_key)
                         }
                     };
-                    batches.push((batch_key, new_batch))
+                    batches.push(new_batch)
                 }
 
-                let batch = &mut batches[existing_batch_index].1;
+                let batch = &mut batches[existing_batch_index];
                 match item {
                     AlphaRenderItem::Composite(src0_id, src1_id, info) => {
                         let ok = batch.pack_composite(render_tasks.get_static_task_index(&src0_id),
@@ -455,8 +441,6 @@ impl AlphaBatcher {
                                                          batch,
                                                          sc_index,
                                                          task_index,
-                                                         batch_key.flags.transform_kind(),
-                                                         batch_key.flags.needs_blending(),
                                                          render_tasks,
                                                          child_pass_index);
                     }
@@ -464,7 +448,7 @@ impl AlphaBatcher {
             }
         }
 
-        self.batches.extend(batches.into_iter().map(|(_, batch)| batch))
+        self.batches.extend(batches.into_iter())
     }
 }
 
@@ -818,18 +802,20 @@ enum AlphaBatchKind {
 }
 
 #[derive(Copy, Clone, Debug)]
-struct AlphaBatchKey {
+pub struct AlphaBatchKey {
     kind: AlphaBatchKind,
-    flags: AlphaBatchKeyFlags,
-    color_texture_id: TextureId,
-    mask_texture_id: TextureId,
+    pub flags: AlphaBatchKeyFlags,
+    pub color_texture_id: TextureId,
+    pub mask_texture_id: TextureId,
 }
 
 impl AlphaBatchKey {
     fn blend() -> AlphaBatchKey {
         AlphaBatchKey {
             kind: AlphaBatchKind::Blend,
-            flags: AlphaBatchKeyFlags(0),
+            flags: AlphaBatchKeyFlags::new(TransformedRectKind::AxisAligned,
+                                           true,
+                                           false),
             color_texture_id: TextureId::invalid(),
             mask_texture_id: TextureId::invalid(),
         }
@@ -838,7 +824,9 @@ impl AlphaBatchKey {
     fn composite() -> AlphaBatchKey {
         AlphaBatchKey {
             kind: AlphaBatchKind::Composite,
-            flags: AlphaBatchKeyFlags(0),
+            flags: AlphaBatchKeyFlags::new(TransformedRectKind::AxisAligned,
+                                           true,
+                                           false),
             color_texture_id: TextureId::invalid(),
             mask_texture_id: TextureId::invalid(),
         }
@@ -870,7 +858,7 @@ impl AlphaBatchKey {
 // FIXME(gw): Change these to use the bitflags!()
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-struct AlphaBatchKeyFlags(u8);
+pub struct AlphaBatchKeyFlags(u8);
 
 impl AlphaBatchKeyFlags {
     fn new(transform_kind: TransformedRectKind,
@@ -881,7 +869,7 @@ impl AlphaBatchKeyFlags {
                             ((needs_blending as u8) << 0) )
     }
 
-    fn transform_kind(&self) -> TransformedRectKind {
+    pub fn transform_kind(&self) -> TransformedRectKind {
         if ((self.0 >> 1) & 1) == 0 {
             TransformedRectKind::AxisAligned
         } else {
@@ -889,11 +877,11 @@ impl AlphaBatchKeyFlags {
         }
     }
 
-    fn needs_blending(&self) -> bool {
+    pub fn needs_blending(&self) -> bool {
         (self.0 & 1) != 0
     }
 
-    fn needs_clipping(&self) -> bool {
+    pub fn needs_clipping(&self) -> bool {
         (self.0 & 4) != 0
     }
 }
@@ -948,33 +936,21 @@ pub enum PrimitiveBatchData {
 
 #[derive(Debug)]
 pub struct PrimitiveBatch {
-    pub transform_kind: TransformedRectKind,
-    pub has_complex_clip: bool,
-    pub color_texture_id: TextureId,        // TODO(gw): Expand to sampler array to handle all glyphs!
-    pub mask_texture_id: TextureId,
-    pub blending_enabled: bool,
+    pub key: AlphaBatchKey,
     pub data: PrimitiveBatchData,
 }
 
 impl PrimitiveBatch {
     fn blend() -> PrimitiveBatch {
         PrimitiveBatch {
-            color_texture_id: TextureId::invalid(),
-            mask_texture_id: TextureId::invalid(),
-            transform_kind: TransformedRectKind::AxisAligned,
-            has_complex_clip: false,
-            blending_enabled: true,
+            key: AlphaBatchKey::blend(),
             data: PrimitiveBatchData::Blend(Vec::new()),
         }
     }
 
     fn composite() -> PrimitiveBatch {
         PrimitiveBatch {
-            color_texture_id: TextureId::invalid(),
-            mask_texture_id: TextureId::invalid(),
-            transform_kind: TransformedRectKind::AxisAligned,
-            has_complex_clip: false,
-            blending_enabled: true,
+            key: AlphaBatchKey::composite(),
             data: PrimitiveBatchData::Composite(Vec::new()),
         }
     }
@@ -1031,11 +1007,7 @@ impl PrimitiveBatch {
     }
 
     fn new(batch_kind: AlphaBatchKind,
-           transform_kind: TransformedRectKind,
-           blending_enabled: bool,
-           has_complex_clip: bool,
-           color_texture_id: TextureId,
-           mask_texture_id: TextureId) -> PrimitiveBatch {
+           key: AlphaBatchKey) -> PrimitiveBatch {
         let data = match batch_kind {
             AlphaBatchKind::Rectangle => PrimitiveBatchData::Rectangles(Vec::new()),
             AlphaBatchKind::TextRun => PrimitiveBatchData::TextRun(Vec::new()),
@@ -1048,11 +1020,7 @@ impl PrimitiveBatch {
         };
 
         PrimitiveBatch {
-            color_texture_id: color_texture_id,
-            mask_texture_id: mask_texture_id,
-            transform_kind: transform_kind,
-            blending_enabled: blending_enabled,
-            has_complex_clip: has_complex_clip,
+            key: key,
             data: data,
         }
     }
