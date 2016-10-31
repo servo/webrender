@@ -12,6 +12,7 @@ use core_graphics::geometry::CGPoint;
 use core_text::font::CTFont;
 use core_text::font_descriptor::kCTFontDefaultOrientation;
 use core_text;
+use internal_types::FontRenderMode;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use webrender_traits::FontKey;
@@ -77,7 +78,7 @@ impl FontContext {
                      size: Au,
                      character: u32,
                      device_pixel_ratio: f32,
-                     enable_aa: bool)
+                     render_mode: FontRenderMode)
                      -> Option<RasterizedGlyph> {
         let ct_font = match self.ct_fonts.entry(((font_key).clone(), size)) {
             Entry::Occupied(entry) => (*entry.get()).clone(),
@@ -113,6 +114,8 @@ impl FontContext {
                                                               rasterized_width as usize * 4,
                                                               &CGColorSpace::create_device_rgb(),
                                                               kCGImageAlphaPremultipliedLast);
+        // TODO(gw): Add subpixel render mode support on mac.
+        let enable_aa = render_mode != FontRenderMode::Mono;
         cg_context.set_allows_font_smoothing(enable_aa);
         cg_context.set_should_smooth_fonts(enable_aa);
         cg_context.set_allows_antialiasing(enable_aa);
