@@ -1991,23 +1991,13 @@ impl FrameBuilder {
                             let p_tile_x1 = (p_rect.origin.x + p_rect.size.width + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
                             let p_tile_y1 = (p_rect.origin.y + p_rect.size.height + SCREEN_TILE_SIZE - 1) / SCREEN_TILE_SIZE;
 
-                            let p_tile_x0 = cmp::min(p_tile_x0, tile_range.x1);
-                            let p_tile_x0 = cmp::max(p_tile_x0, tile_range.x0);
-                            let p_tile_x1 = cmp::min(p_tile_x1, tile_range.x1);
-                            let p_tile_x1 = cmp::max(p_tile_x1, tile_range.x0);
-
-                            let p_tile_y0 = cmp::min(p_tile_y0, tile_range.y1);
-                            let p_tile_y0 = cmp::max(p_tile_y0, tile_range.y0);
-                            let p_tile_y1 = cmp::min(p_tile_y1, tile_range.y1);
-                            let p_tile_y1 = cmp::max(p_tile_y1, tile_range.y0);
-
-                            for py in p_tile_y0..p_tile_y1 {
-                                for px in p_tile_x0..p_tile_x1 {
+                            for py in cmp::max(p_tile_y0, tile_range.y0) .. cmp::min(p_tile_y1, tile_range.y1) {
+                                for px in cmp::max(p_tile_x0, tile_range.x0) .. cmp::min(p_tile_x1, tile_range.x1) {
                                     let tile = &mut screen_tiles[(py * x_tile_count + px) as usize];
 
                                     // TODO(gw): Support narrow phase for 3d transform elements!
                                     if xf_rect.kind == TransformedRectKind::Complex ||
-                                       self.prim_store.prim_affects_tile(prim_index,
+                                        self.prim_store.prim_affects_tile(prim_index,
                                                                          &tile.rect,
                                                                          &packed_layer.transform,
                                                                          self.device_pixel_ratio) {
