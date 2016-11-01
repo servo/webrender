@@ -12,6 +12,7 @@ use core_graphics::geometry::CGPoint;
 use core_text::font::CTFont;
 use core_text::font_descriptor::kCTFontDefaultOrientation;
 use core_text;
+use internal_types::FontRenderMode;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use webrender_traits::FontKey;
@@ -40,6 +41,33 @@ impl RasterizedGlyph {
             height: 0,
             bytes: vec![],
         }
+    }
+}
+
+struct GlyphMetrics {
+    rasterized_left: i32,
+    rasterized_descent: i32,
+    rasterized_ascent: i32,
+    rasterized_width: u32,
+    rasterized_height: u32,
+}
+
+fn get_glyph_metrics(ct_font: &CTFont, glyph: CGGlyph) -> GlyphMetrics {
+    let bounds = ct_font.get_bounding_rects_for_glyphs(kCTFontDefaultOrientation, &[glyph]);
+
+    let rasterized_left = bounds.origin.x.floor() as i32;
+    let rasterized_width =
+        (bounds.origin.x - (rasterized_left as f64) + bounds.size.width).ceil() as u32;
+    let rasterized_descent = (-bounds.origin.y).ceil() as i32;
+    let rasterized_ascent = (bounds.size.height + bounds.origin.y).ceil() as i32;
+    let rasterized_height = (rasterized_descent + rasterized_ascent) as u32;
+
+    GlyphMetrics {
+        rasterized_ascent: rasterized_ascent,
+        rasterized_descent: rasterized_descent,
+        rasterized_left: rasterized_left,
+        rasterized_width: rasterized_width,
+        rasterized_height: rasterized_height,
     }
 }
 
@@ -72,76 +100,95 @@ impl FontContext {
         self.cg_fonts.insert((*font_key).clone(), native_font_handle);
     }
 
-    pub fn get_glyph(&mut self,
-                     font_key: FontKey,
-                     size: Au,
-                     character: u32,
-                     device_pixel_ratio: f32,
-                     enable_aa: bool)
-                     -> Option<RasterizedGlyph> {
-        let ct_font = match self.ct_fonts.entry(((font_key).clone(), size)) {
-            Entry::Occupied(entry) => (*entry.get()).clone(),
+    fn get_ct_font(&mut self,
+                   font_key: FontKey,
+                   size: Au,
+                   device_pixel_ratio: f32) -> Option<CTFont> {
+        match self.ct_fonts.entry(((font_key).clone(), size)) {
+            Entry::Occupied(entry) => Some((*entry.get()).clone()),
             Entry::Vacant(entry) => {
                 let cg_font = match self.cg_fonts.get(&font_key) {
-                    None => return Some(RasterizedGlyph::blank()),
+                    None => return None,
                     Some(cg_font) => cg_font,
                 };
                 let ct_font = core_text::font::new_from_CGFont(
                         cg_font,
                         size.to_f64_px() * (device_pixel_ratio as f64));
                 entry.insert(ct_font.clone());
-                ct_font
-            }
-        };
-
-        let glyph = character as CGGlyph;
-        let bounds = ct_font.get_bounding_rects_for_glyphs(kCTFontDefaultOrientation, &[glyph]);
-
-        let rasterized_left = bounds.origin.x.floor() as i32;
-        let rasterized_width =
-            (bounds.origin.x - (rasterized_left as f64) + bounds.size.width).ceil() as u32;
-        let rasterized_descent = (-bounds.origin.y).ceil() as i32;
-        let rasterized_ascent = (bounds.size.height + bounds.origin.y).ceil() as i32;
-        let rasterized_height = (rasterized_descent + rasterized_ascent) as u32;
-        if rasterized_width == 0 || rasterized_height == 0 {
-            return Some(RasterizedGlyph::blank())
-        }
-
-        let mut cg_context = CGContext::create_bitmap_context(rasterized_width as usize,
-                                                              rasterized_height as usize,
-                                                              8,
-                                                              rasterized_width as usize * 4,
-                                                              &CGColorSpace::create_device_rgb(),
-                                                              kCGImageAlphaPremultipliedLast);
-        cg_context.set_allows_font_smoothing(enable_aa);
-        cg_context.set_should_smooth_fonts(enable_aa);
-        cg_context.set_allows_antialiasing(enable_aa);
-        cg_context.set_should_antialias(enable_aa);
-        cg_context.set_rgb_fill_color(1.0, 1.0, 1.0, 1.0);
-
-        let rasterization_origin = CGPoint {
-            x: -rasterized_left as f64,
-            y: rasterized_descent as f64,
-        };
-        ct_font.draw_glyphs(&[glyph], &[rasterization_origin], cg_context.clone());
-
-        let rasterized_area = (rasterized_width * rasterized_height) as usize;
-        let mut rasterized_pixels = cg_context.data().to_vec();
-        for i in 0..rasterized_area {
-            let alpha = (rasterized_pixels[i * 4 + 3] as f32) / 255.0;
-            for j in 0..3 {
-                rasterized_pixels[i * 4 + j] =
-                    ((rasterized_pixels[i * 4 + j] as f32) / alpha) as u8;
+                Some(ct_font)
             }
         }
+    }
 
-        Some(RasterizedGlyph {
-            left: rasterized_left,
-            top: (bounds.size.height + bounds.origin.y).ceil() as i32,
-            width: rasterized_width,
-            height: rasterized_height,
-            bytes: rasterized_pixels,
+    #[allow(dead_code)]     // TODO(gw): Expose this to the public glyph dimensions API.
+    pub fn get_glyph_dimensions(&mut self,
+                                font_key: FontKey,
+                                size: Au,
+                                character: u32,
+                                device_pixel_ratio: f32) -> Option<(Au, Au)> {
+        self.get_ct_font(font_key, size, device_pixel_ratio).map(|ref ct_font| {
+            let glyph = character as CGGlyph;
+            let metrics = get_glyph_metrics(ct_font, glyph);
+            (Au::from_px(metrics.rasterized_width as i32), Au::from_px(metrics.rasterized_height as i32))
         })
+    }
+
+    pub fn rasterize_glyph(&mut self,
+                           font_key: FontKey,
+                           size: Au,
+                           character: u32,
+                           device_pixel_ratio: f32,
+                           render_mode: FontRenderMode) -> Option<RasterizedGlyph> {
+        match self.get_ct_font(font_key, size, device_pixel_ratio) {
+            Some(ref ct_font) => {
+                let glyph = character as CGGlyph;
+                let metrics = get_glyph_metrics(ct_font, glyph);
+                if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
+                    return Some(RasterizedGlyph::blank())
+                }
+
+                let mut cg_context = CGContext::create_bitmap_context(metrics.rasterized_width as usize,
+                                                                      metrics.rasterized_height as usize,
+                                                                      8,
+                                                                      metrics.rasterized_width as usize * 4,
+                                                                      &CGColorSpace::create_device_rgb(),
+                                                                      kCGImageAlphaPremultipliedLast);
+                // TODO(gw): Add subpixel render mode support on mac.
+                let enable_aa = render_mode != FontRenderMode::Mono;
+                cg_context.set_allows_font_smoothing(enable_aa);
+                cg_context.set_should_smooth_fonts(enable_aa);
+                cg_context.set_allows_antialiasing(enable_aa);
+                cg_context.set_should_antialias(enable_aa);
+                cg_context.set_rgb_fill_color(1.0, 1.0, 1.0, 1.0);
+
+                let rasterization_origin = CGPoint {
+                    x: -metrics.rasterized_left as f64,
+                    y: metrics.rasterized_descent as f64,
+                };
+                ct_font.draw_glyphs(&[glyph], &[rasterization_origin], cg_context.clone());
+
+                let rasterized_area = (metrics.rasterized_width * metrics.rasterized_height) as usize;
+                let mut rasterized_pixels = cg_context.data().to_vec();
+                for i in 0..rasterized_area {
+                    let alpha = (rasterized_pixels[i * 4 + 3] as f32) / 255.0;
+                    for j in 0..3 {
+                        rasterized_pixels[i * 4 + j] =
+                            ((rasterized_pixels[i * 4 + j] as f32) / alpha) as u8;
+                    }
+                }
+
+                Some(RasterizedGlyph {
+                    left: metrics.rasterized_left,
+                    top: metrics.rasterized_ascent,
+                    width: metrics.rasterized_width,
+                    height: metrics.rasterized_height,
+                    bytes: rasterized_pixels,
+                })
+            }
+            None => {
+                return Some(RasterizedGlyph::blank());
+            }
+        }
     }
 }
 
