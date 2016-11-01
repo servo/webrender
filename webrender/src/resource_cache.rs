@@ -415,11 +415,11 @@ fn run_raster_jobs(pending_raster_jobs: &mut Vec<GlyphRasterJob>,
                                                  (*native_font_handle).clone());
                 }
             }
-            job.result = font_context.get_glyph(job.glyph_key.font_key,
-                                                job.glyph_key.size,
-                                                job.glyph_key.index,
-                                                device_pixel_ratio,
-                                                render_mode);
+            job.result = font_context.rasterize_glyph(job.glyph_key.font_key,
+                                                      job.glyph_key.size,
+                                                      job.glyph_key.index,
+                                                      device_pixel_ratio,
+                                                      render_mode);
         });
     });
 }

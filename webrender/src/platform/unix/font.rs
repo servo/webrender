@@ -125,12 +125,12 @@ impl FontContext {
         })
     }
 
-    pub fn get_glyph(&mut self,
-                     font_key: FontKey,
-                     size: Au,
-                     character: u32,
-                     device_pixel_ratio: f32,
-                     render_mode: FontRenderMode) -> Option<RasterizedGlyph> {
+    pub fn rasterize_glyph(&mut self,
+                           font_key: FontKey,
+                           size: Au,
+                           character: u32,
+                           device_pixel_ratio: f32,
+                           render_mode: FontRenderMode) -> Option<RasterizedGlyph> {
         let mut glyph = None;
 
         if let Some(slot) = self.load_glyph(font_key,
