@@ -456,8 +456,6 @@ pub struct TextureCacheItem {
     // bilinear filtering / texture bleeding purposes.
     pub allocated_rect: Rect<u32>,
     pub requested_rect: Rect<u32>,
-
-    pub is_opaque: bool,
 }
 
 // Structure squat the width/height fields to maintain the free list information :)
@@ -491,8 +489,7 @@ impl TextureCacheItem {
            user_x0: i32, user_y0: i32,
            allocated_rect: Rect<u32>,
            requested_rect: Rect<u32>,
-           texture_size: &Size2D<u32>,
-           is_opaque: bool)
+           texture_size: &Size2D<u32>)
            -> TextureCacheItem {
         TextureCacheItem {
             texture_id: texture_id,
@@ -513,7 +510,6 @@ impl TextureCacheItem {
             },
             allocated_rect: allocated_rect,
             requested_rect: requested_rect,
-            is_opaque: is_opaque,
         }
     }
 
@@ -645,7 +641,6 @@ impl TextureCache {
             requested_rect: Rect::zero(),
             texture_size: Size2D::zero(),
             texture_id: TextureId::invalid(),
-            is_opaque: false,
         };
         self.items.insert(new_item)
     }
@@ -659,8 +654,7 @@ impl TextureCache {
                     format: ImageFormat,
                     kind: TextureCacheItemKind,
                     border_type: BorderType,
-                    filter: TextureFilter,
-                    is_opaque: bool)
+                    filter: TextureFilter)
                     -> AllocationResult {
         let requested_size = Size2D::new(requested_width, requested_height);
 
@@ -679,8 +673,7 @@ impl TextureCache {
                 user_x0, user_y0,
                 Rect::new(Point2D::zero(), requested_size),
                 Rect::new(Point2D::zero(), requested_size),
-                &requested_size,
-                is_opaque);
+                &requested_size);
             *self.items.get_mut(image_id) = cache_item;
 
             return AllocationResult {
@@ -740,8 +733,7 @@ impl TextureCache {
                                                        user_x0, user_y0,
                                                        allocated_rect,
                                                        requested_rect,
-                                                       &Size2D::new(page.texture_size, page.texture_size),
-                                                       is_opaque);
+                                                       &Size2D::new(page.texture_size, page.texture_size));
                 *self.items.get_mut(image_id) = cache_item;
 
                 return AllocationResult {
@@ -847,25 +839,6 @@ impl TextureCache {
                   filter: TextureFilter,
                   insert_op: TextureInsertOp,
                   border_type: BorderType) {
-
-        let is_opaque = match (&insert_op, format) {
-            (&TextureInsertOp::Blit(ref bytes), ImageFormat::RGBA8) => {
-                let mut is_opaque = true;
-                for i in 0..(bytes.len() / 4) {
-                    if bytes[i * 4 + 3] != 255 {
-                        is_opaque = false;
-                        break;
-                    }
-                }
-                is_opaque
-            }
-            (&TextureInsertOp::Blit(..), ImageFormat::RGB8) => true,
-            (&TextureInsertOp::Blit(..), ImageFormat::A8) => false,
-            (&TextureInsertOp::Blit(..), ImageFormat::Invalid) |
-            (&TextureInsertOp::Blit(..), ImageFormat::RGBAF32) => unreachable!(),
-            (&TextureInsertOp::Blur(..), _) => false,
-        };
-
         let result = self.allocate(image_id,
                                    x0,
                                    y0,
@@ -874,8 +847,7 @@ impl TextureCache {
                                    format,
                                    TextureCacheItemKind::Standard,
                                    border_type,
-                                   filter,
-                                   is_opaque);
+                                   filter);
 
         let op = match (result.kind, insert_op) {
             (AllocationKind::TexturePage, TextureInsertOp::Blit(bytes)) => {
@@ -971,16 +943,14 @@ impl TextureCache {
                               ImageFormat::RGBA8,
                               TextureCacheItemKind::Standard,
                               BorderType::SinglePixel,
-                              TextureFilter::Linear,
-                              false);
+                              TextureFilter::Linear);
                 self.allocate(horizontal_blur_image_id,
                               0, 0,
                               width, height,
                               ImageFormat::RGBA8,
                               TextureCacheItemKind::Alternate,
                               BorderType::SinglePixel,
-                              TextureFilter::Linear,
-                              false);
+                              TextureFilter::Linear);
                 let unblurred_glyph_item = self.get(unblurred_glyph_image_id);
                 let horizontal_blur_item = self.get(horizontal_blur_image_id);
                 TextureUpdateOp::Update(

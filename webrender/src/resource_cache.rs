@@ -27,6 +27,11 @@ use webrender_traits::{GlyphDimensions, PipelineId, WebGLContextId};
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
+pub struct ImageProperties {
+    pub format: ImageFormat,
+    pub is_opaque: bool,
+}
+
 pub struct DummyResources {
     pub white_image_id: TextureCacheItemId,
     pub opaque_mask_image_id: TextureCacheItemId,
@@ -38,6 +43,7 @@ struct ImageResource {
     height: u32,
     format: ImageFormat,
     epoch: Epoch,
+    is_opaque: bool,
 }
 
 struct GlyphRasterJob {
@@ -158,6 +164,7 @@ impl ResourceCache {
                               format: ImageFormat,
                               bytes: Vec<u8>) {
         let resource = ImageResource {
+            is_opaque: is_image_opaque(format, &bytes),
             width: width,
             height: height,
             format: format,
@@ -185,6 +192,7 @@ impl ResourceCache {
         };
 
         let resource = ImageResource {
+            is_opaque: is_image_opaque(format, &bytes),
             width: width,
             height: height,
             format: format,
@@ -371,6 +379,15 @@ impl ResourceCache {
         self.texture_cache.get(image_info.texture_cache_id)
     }
 
+    pub fn get_image_properties(&self, image_key: ImageKey) -> ImageProperties {
+        let image_template = &self.image_templates[&image_key];
+
+        ImageProperties {
+            format: image_template.format,
+            is_opaque: image_template.is_opaque,
+        }
+    }
+
     #[inline]
     pub fn get_image_by_cache_id(&self, texture_cache_id: TextureCacheItemId)
                                  -> &TextureCacheItem {
@@ -440,3 +457,23 @@ impl Resource for CachedImageInfo {
     }
 }
 
+// TODO(gw): If this ever shows up in profiles, consider calculating
+// this lazily on demand, possibly via the resource cache thread.
+// It can probably be made a lot faster with SIMD too!
+fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
+    match format {
+        ImageFormat::RGBA8 => {
+            let mut is_opaque = true;
+            for i in 0..(bytes.len() / 4) {
+                if bytes[i * 4 + 3] != 255 {
+                    is_opaque = false;
+                    break;
+                }
+            }
+            is_opaque
+        }
+        ImageFormat::RGB8 => true,
+        ImageFormat::A8 => false,
+        ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
+    }
+}
