@@ -986,6 +986,7 @@ impl ImagePrimitiveCpu {
         match self.kind {
             ImagePrimitiveKind::Image(image_key, image_rendering, stretch_size, tile_spacing) => {
                 let info = resource_cache.get_image(image_key, image_rendering, frame_id);
+                let image_properties = resource_cache.get_image_properties(image_key);
                 ImageInfo {
                     color_texture_id: info.texture_id,
                     uv0: Point2D::new(info.pixel_rect.top_left.x as f32,
@@ -995,7 +996,7 @@ impl ImagePrimitiveCpu {
                     stretch_size: Some(stretch_size),
                     uv_kind: TextureCoordKind::Pixel,
                     tile_spacing: tile_spacing,
-                    is_opaque: info.is_opaque,
+                    is_opaque: image_properties.is_opaque,
                 }
             }
             ImagePrimitiveKind::WebGL(context_id) => {
