@@ -8,7 +8,8 @@ use internal_types::DrawListId;
 use resource_cache::ResourceCache;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
-use webrender_traits::{AuxiliaryLists, BuiltDisplayList, ItemRange, PipelineId, Epoch};
+use tiling::AuxiliaryListsMap;
+use webrender_traits::{AuxiliaryLists, BuiltDisplayList, PipelineId, Epoch};
 use webrender_traits::{ColorF, DisplayListId, StackingContext, StackingContextId};
 use webrender_traits::{SpecificDisplayListItem};
 use webrender_traits::{IframeInfo};
@@ -29,9 +30,7 @@ pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
     pub pipeline_map: HashMap<PipelineId, ScenePipeline, BuildHasherDefault<FnvHasher>>,
     pub pipeline_sizes: HashMap<PipelineId, Size2D<f32>>,
-    pub pipeline_auxiliary_lists: HashMap<PipelineId,
-                                          AuxiliaryLists,
-                                          BuildHasherDefault<FnvHasher>>,
+    pub pipeline_auxiliary_lists: AuxiliaryListsMap,
     pub display_list_map: HashMap<DisplayListId, SceneDisplayList, BuildHasherDefault<FnvHasher>>,
     pub stacking_context_map: HashMap<StackingContextId, SceneStackingContext, BuildHasherDefault<FnvHasher>>,
 }
@@ -185,15 +184,10 @@ impl Scene {
             let rectangle_item = RectangleDisplayItem {
                 color: background_color,
             };
-            let clip = ClipRegion {
-                main: overflow,
-                complex: ItemRange::empty(),
-                image_mask: None,
-            };
             let root_bg_color_item = DisplayItem {
                 item: SpecificDisplayItem::Rectangle(rectangle_item),
                 rect: overflow,
-                clip: clip,
+                clip: ClipRegion::simple(&overflow),
             };
 
             let draw_list_id = resource_cache.add_draw_list(vec![root_bg_color_item], pipeline_id);
