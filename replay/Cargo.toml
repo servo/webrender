@@ -2,12 +2,14 @@
 name = "wr-replay"
 version = "0.1.0"
 authors = ["lana <alanamramjit@gmail.com>"]
+workspace = ".."
 
 [dependencies.webrender]
 path = "../webrender"
 
 [dependencies.webrender_traits]
 path = "../webrender_traits"
+default_features = false
 
 [dependencies]
 bincode = "0.6"

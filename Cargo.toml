@@ -1,0 +1,2 @@
+[workspace]
+members = ["webrender", "webrender_traits", "sample", "replay"]

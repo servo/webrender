@@ -2,12 +2,14 @@
 name = "wr-sample"
 version = "0.1.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
+workspace = ".."
 
 [dependencies.webrender]
 path = "../webrender"
 
 [dependencies.webrender_traits]
 path = "../webrender_traits"
+default_features = false
 
 [dependencies]
 app_units = "0.3"
