@@ -6,7 +6,7 @@ use display_list::AuxiliaryListsBuilder;
 use euclid::{Rect, Size2D};
 use {BorderRadius, BorderDisplayItem, ClipRegion, ColorF, ComplexClipRegion};
 use {FontKey, ImageKey, PipelineId, ScrollLayerId, ScrollLayerInfo, ServoScrollRootId};
-use {ImageMask};
+use {ImageMask, ItemRange};
 
 impl BorderDisplayItem {
     pub fn top_left_inner_radius(&self) -> Size2D<f32> {
@@ -60,6 +60,14 @@ impl ClipRegion {
             main: *rect,
             complex: auxiliary_lists_builder.add_complex_clip_regions(&complex),
             image_mask: image_mask,
+        }
+    }
+
+    pub fn simple(rect: &Rect<f32>) -> ClipRegion {
+        ClipRegion {
+            main: *rect,
+            complex: ItemRange::empty(),
+            image_mask: None,
         }
     }
 }

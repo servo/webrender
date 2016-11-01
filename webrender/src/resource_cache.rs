@@ -53,6 +53,7 @@ enum State {
     QueryResources,
 }
 
+#[derive(Clone, Debug)]
 pub struct DummyResources {
     pub white_image_id: TextureCacheItemId,
     pub opaque_mask_image_id: TextureCacheItemId,

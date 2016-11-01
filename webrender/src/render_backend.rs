@@ -411,6 +411,7 @@ impl RenderBackend {
 
     fn render(&mut self) -> RendererFrame {
         let frame = self.frame.build(&mut self.resource_cache,
+                                     &self.scene.pipeline_auxiliary_lists,
                                      self.device_pixel_ratio);
 
         let pending_update = self.resource_cache.pending_updates();
