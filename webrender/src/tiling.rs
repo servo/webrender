@@ -129,12 +129,11 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     global_prim_id: global_prim_id,
                     prim_address: prim_address,
                     clip_address: clip_address,
-                    user_data: [0, 0, 0],
+                    sub_index: 0,
+                    user_data: [0, 0],
                 });
             }
             &mut PrimitiveBatchData::TextRun(ref mut data) => {
-                let metadata = self.get_metadata(prim_index);
-
                 for glyph_index in 0..metadata.gpu_data_count {
                     data.push(PrimitiveInstance {
                         task_id: task_id,
@@ -142,7 +141,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         global_prim_id: global_prim_id,
                         prim_address: prim_address,
                         clip_address: clip_address,
-                        user_data: [ metadata.gpu_data_address.0, glyph_index, 0 ],
+                        sub_index: metadata.gpu_data_address.0 + glyph_index,
+                        user_data: [ 0, 0 ],
                     });
                 }
             }
@@ -153,7 +153,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     global_prim_id: global_prim_id,
                     prim_address: prim_address,
                     clip_address: clip_address,
-                    user_data: [ 0, 0, 0 ],
+                    sub_index: 0,
+                    user_data: [ 0, 0 ],
                 });
             }
             &mut PrimitiveBatchData::Borders(ref mut data) => {
@@ -164,13 +165,12 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         global_prim_id: global_prim_id,
                         prim_address: prim_address,
                         clip_address: clip_address,
-                        user_data: [ border_segment, 0, 0 ],
+                        sub_index: border_segment,
+                        user_data: [ 0, 0 ],
                     });
                 }
             }
             &mut PrimitiveBatchData::AlignedGradient(ref mut data) => {
-                let metadata = self.get_metadata(prim_index);
-
                 for part_index in 0..(metadata.gpu_data_count - 1) {
                     data.push(PrimitiveInstance {
                         task_id: task_id,
@@ -178,24 +178,23 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         global_prim_id: global_prim_id,
                         prim_address: prim_address,
                         clip_address: clip_address,
-                        user_data: [ metadata.gpu_data_address.0, part_index, 0 ],
+                        sub_index: metadata.gpu_data_address.0 + part_index,
+                        user_data: [ 0, 0 ],
                     });
                 }
             }
             &mut PrimitiveBatchData::AngleGradient(ref mut data) => {
-                let metadata = self.get_metadata(prim_index);
-
                 data.push(PrimitiveInstance {
                     task_id: task_id,
                     layer_index: layer_index,
                     global_prim_id: global_prim_id,
                     prim_address: prim_address,
                     clip_address: clip_address,
-                    user_data: [ metadata.gpu_data_address.0, metadata.gpu_data_count, 0 ],
+                    sub_index: metadata.gpu_data_address.0,
+                    user_data: [ metadata.gpu_data_count, 0 ],
                 });
             }
              &mut PrimitiveBatchData::BoxShadow(ref mut data) => {
-                let metadata = self.get_metadata(prim_index);
                 let cache_key = metadata.cache_info.as_ref().unwrap().key;
                 let cache_task_id = RenderTaskId::Dynamic(RenderTaskKey::CachePrimitive(cache_key));
                 let cache_task_index = render_tasks.get_task_index(&cache_task_id,
@@ -208,9 +207,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         global_prim_id: global_prim_id,
                         prim_address: prim_address,
                         clip_address: clip_address,
-                        user_data: [ metadata.gpu_data_address.0,
-                                     rect_index,
-                                     cache_task_index.0 as i32, ],
+                        sub_index: metadata.gpu_data_address.0 + rect_index,
+                        user_data: [ cache_task_index.0 as i32, 0 ],
                     });
                 }
             }
@@ -906,7 +904,8 @@ pub struct PrimitiveInstance {
     task_id: i32,
     layer_index: i32,
     clip_address: GpuStoreAddress,
-    user_data: [i32; 3],
+    sub_index: i32,
+    user_data: [i32; 2],
 }
 
 #[derive(Debug, Clone)]
