@@ -15,7 +15,7 @@ use core_text;
 use internal_types::FontRenderMode;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use webrender_traits::FontKey;
+use webrender_traits::{FontKey, GlyphDimensions};
 
 pub type NativeFontHandle = CGFont;
 
@@ -25,8 +25,6 @@ pub struct FontContext {
 }
 
 pub struct RasterizedGlyph {
-    pub left: i32,
-    pub top: i32,
     pub width: u32,
     pub height: u32,
     pub bytes: Vec<u8>,
@@ -35,8 +33,6 @@ pub struct RasterizedGlyph {
 impl RasterizedGlyph {
     pub fn blank() -> RasterizedGlyph {
         RasterizedGlyph {
-            left: 0,
-            top: 0,
             width: 0,
             height: 0,
             bytes: vec![],
@@ -120,16 +116,20 @@ impl FontContext {
         }
     }
 
-    #[allow(dead_code)]     // TODO(gw): Expose this to the public glyph dimensions API.
     pub fn get_glyph_dimensions(&mut self,
                                 font_key: FontKey,
                                 size: Au,
                                 character: u32,
-                                device_pixel_ratio: f32) -> Option<(Au, Au)> {
+                                device_pixel_ratio: f32) -> Option<GlyphDimensions> {
         self.get_ct_font(font_key, size, device_pixel_ratio).map(|ref ct_font| {
             let glyph = character as CGGlyph;
             let metrics = get_glyph_metrics(ct_font, glyph);
-            (Au::from_px(metrics.rasterized_width as i32), Au::from_px(metrics.rasterized_height as i32))
+            GlyphDimensions {
+                left: metrics.rasterized_left,
+                top: metrics.rasterized_ascent,
+                width: metrics.rasterized_width as u32,
+                height: metrics.rasterized_height as u32,
+            }
         })
     }
 
@@ -178,8 +178,6 @@ impl FontContext {
                 }
 
                 Some(RasterizedGlyph {
-                    left: metrics.rasterized_left,
-                    top: metrics.rasterized_ascent,
                     width: metrics.rasterized_width,
                     height: metrics.rasterized_height,
                     bytes: rasterized_pixels,

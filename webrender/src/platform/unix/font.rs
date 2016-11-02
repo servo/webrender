@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use internal_types::FontRenderMode;
-use webrender_traits::{FontKey, NativeFontHandle};
+use webrender_traits::{FontKey, GlyphDimensions, NativeFontHandle};
 
 use freetype::freetype::{FTErrorMethods, FT_PIXEL_MODE_GRAY, FT_PIXEL_MODE_MONO, FT_PIXEL_MODE_LCD};
 use freetype::freetype::{FT_Done_FreeType, FT_RENDER_MODE_LCD, FT_Library_SetLcdFilter};
@@ -16,7 +16,6 @@ use freetype::freetype::{FT_New_Memory_Face, FT_GlyphSlot, FT_LcdFilter};
 
 use std::{mem, ptr, slice};
 use std::collections::HashMap;
-//use util;
 
 struct Face {
     face: FT_Face,
@@ -28,8 +27,6 @@ pub struct FontContext {
 }
 
 pub struct RasterizedGlyph {
-    pub left: i32,
-    pub top: i32,
     pub width: u32,
     pub height: u32,
     pub bytes: Vec<u8>,
@@ -113,15 +110,19 @@ impl FontContext {
         None
     }
 
-    #[allow(dead_code)]     // TODO(gw): Expose this to the public glyph dimensions API.
     pub fn get_glyph_dimensions(&self,
                                 font_key: FontKey,
                                 size: Au,
                                 character: u32,
-                                device_pixel_ratio: f32) -> Option<(Au, Au)> {
+                                device_pixel_ratio: f32) -> Option<GlyphDimensions> {
         self.load_glyph(font_key, size, character, device_pixel_ratio).map(|slot| {
             let metrics = unsafe { &(*slot).metrics };
-            (Au::from_px((metrics.width >> 6) as i32), Au::from_px((metrics.height >> 6) as i32))
+            GlyphDimensions {
+                left: (metrics.horiBearingX >> 6) as i32,
+                top: (metrics.horiBearingY >> 6) as i32,
+                width: (metrics.width >> 6) as u32,
+                height: (metrics.height >> 6) as u32,
+            }
         })
     }
 
@@ -150,34 +151,55 @@ impl FontContext {
                     let bitmap = &(*slot).bitmap;
                     let bitmap_mode = bitmap.pixel_mode as u32;
 
-                    let width = match bitmap_mode {
-                        FT_PIXEL_MODE_MONO | FT_PIXEL_MODE_GRAY => bitmap.width,
-                        FT_PIXEL_MODE_LCD => bitmap.width / 3,
-                        _ => panic!("Unexpected render mode!"),
-                    } as u32;
-
-                    let mut final_buffer = Vec::with_capacity(width as usize * bitmap.rows as usize * 4);
+                    let metrics = &(*slot).metrics;
+                    let glyph_width = (metrics.width >> 6) as i32;
+                    let glyph_height = (metrics.height >> 6) as i32;
+                    let mut final_buffer = Vec::with_capacity(glyph_width as usize *
+                                                              glyph_height as usize *
+                                                              4);
 
                     match bitmap_mode {
                         FT_PIXEL_MODE_MONO => {
                             // This is not exactly efficient... but it's only used by the
                             // reftest pass when we have AA disabled on glyphs.
-                            for y in 0..bitmap.rows {
-                                for x in 0..bitmap.width {
-                                    let byte_index = (y * bitmap.pitch) + (x >> 3);
-                                    let bit_index = x & 7;
-                                    let byte_ptr = bitmap.buffer.offset(byte_index as isize);
-                                    let bit = (*byte_ptr & (0x80 >> bit_index)) != 0;
-                                    let byte_value = if bit {
-                                        0xff
+                            let offset_x = (metrics.horiBearingX >> 6) as i32 - (*slot).bitmap_left;
+                            let offset_y = (metrics.horiBearingY >> 6) as i32 - (*slot).bitmap_top;
+
+                            // Due to AA being disabled, the bitmap produced for mono
+                            // glyphs is often smaller than the reported glyph dimensions.
+                            // To account for this, place the rendered glyph within the
+                            // box of the glyph dimensions, filling in invalid pixels with
+                            // zero alpha.
+                            for iy in 0..glyph_height {
+                                let y = iy - offset_y;
+                                for ix in 0..glyph_width {
+                                    let x = ix + offset_x;
+                                    let valid_byte = x >= 0 &&
+                                                     y >= 0 &&
+                                                     x < bitmap.width &&
+                                                     y < bitmap.rows;
+                                    let byte_value = if valid_byte {
+                                        let byte_index = (y * bitmap.pitch) + (x >> 3);
+                                        let bit_index = x & 7;
+                                        let byte_ptr = bitmap.buffer.offset(byte_index as isize);
+                                        let bit = (*byte_ptr & (0x80 >> bit_index)) != 0;
+                                        if bit {
+                                            0xff
+                                        } else {
+                                            0
+                                        }
                                     } else {
                                         0
                                     };
+
                                     final_buffer.extend_from_slice(&[ 0xff, 0xff, 0xff, byte_value ]);
                                 }
                             }
                         }
                         FT_PIXEL_MODE_GRAY => {
+                            // We can assume that the reported glyph dimensions exactly
+                            // match the rasterized bitmap for normal alpha coverage glyphs.
+
                             let buffer = slice::from_raw_parts(
                                 bitmap.buffer,
                                 (bitmap.width * bitmap.rows) as usize
@@ -204,10 +226,8 @@ impl FontContext {
                     }
 
                     glyph = Some(RasterizedGlyph {
-                        left: (*slot).bitmap_left as i32,
-                        top: (*slot).bitmap_top as i32,
-                        width: width,
-                        height: bitmap.rows as u32,
+                        width: glyph_width as u32,
+                        height: glyph_height as u32,
                         bytes: final_buffer,
                     });
                 }

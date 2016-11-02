@@ -116,11 +116,7 @@ impl RenderBackend {
                         ApiMsg::GetGlyphDimensions(glyph_keys, tx) => {
                             let mut glyph_dimensions = Vec::with_capacity(glyph_keys.len());
                             for glyph_key in &glyph_keys {
-                                // Get the next frame id, so it'll remain in the texture cache.
-                                // This assumes that the glyph will be used in the next frame.
-                                let frame_id = self.frame.next_frame_id();
-                                let glyph_dim = self.resource_cache
-                                                    .get_glyph_dimensions(&glyph_key, frame_id);
+                                let glyph_dim = self.resource_cache.get_glyph_dimensions(glyph_key);
                                 glyph_dimensions.push(glyph_dim);
                             };
                             tx.send(glyph_dimensions).unwrap();

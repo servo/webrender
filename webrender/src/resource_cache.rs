@@ -132,6 +132,9 @@ pub struct ResourceCache {
 
     texture_cache: TextureCache,
 
+    // TODO(gw): We should expire (parts of) this cache semi-regularly!
+    cached_glyph_dimensions: HashMap<GlyphKey, Option<GlyphDimensions>, BuildHasherDefault<FnvHasher>>,
+
     pending_raster_jobs: Vec<GlyphRasterJob>,
 }
 
@@ -146,6 +149,7 @@ impl ResourceCache {
             draw_lists: FreeList::new(),
             font_templates: HashMap::with_hasher(Default::default()),
             image_templates: HashMap::with_hasher(Default::default()),
+            cached_glyph_dimensions: HashMap::with_hasher(Default::default()),
             texture_cache: texture_cache,
             pending_raster_jobs: Vec::new(),
             device_pixel_ratio: device_pixel_ratio,
@@ -247,8 +251,6 @@ impl ResourceCache {
 
                     // TODO: Can we avoid the clone of the bytes here?
                     self.texture_cache.insert(image_id,
-                                              0,
-                                              0,
                                               image_template.width,
                                               image_template.height,
                                               image_template.format,
@@ -314,8 +316,6 @@ impl ResourceCache {
                     }
                 }
                 self.texture_cache.insert(image_id,
-                                          result.left,
-                                          result.top,
                                           texture_width,
                                           texture_height,
                                           ImageFormat::RGBA8,
@@ -353,20 +353,35 @@ impl ResourceCache {
         image_id.map(|image_id| self.texture_cache.get(image_id))
     }
 
-    pub fn get_glyph_dimensions(&mut self,
-                                glyph_key: &GlyphKey,
-                                frame_id: FrameId)
-                                -> Option<GlyphDimensions> {
-        self.create_raster_job(&glyph_key, frame_id);
-        self.raster_pending_glyphs(frame_id);
-        self.get_glyph(&glyph_key, frame_id).map(|cached_glyph| {
-            GlyphDimensions {
-                left:   cached_glyph.user_data.x0,
-                top:    cached_glyph.user_data.y0,
-                width:  cached_glyph.requested_rect.size.width,
-                height: cached_glyph.requested_rect.size.height,
+    pub fn get_glyph_dimensions(&mut self, glyph_key: &GlyphKey) -> Option<GlyphDimensions> {
+        match self.cached_glyph_dimensions.entry(glyph_key.clone()) {
+            Occupied(entry) => *entry.get(),
+            Vacant(entry) => {
+                let mut dimensions = None;
+                let device_pixel_ratio = self.device_pixel_ratio;
+                let font_template = &self.font_templates[&glyph_key.font_key];
+
+                FONT_CONTEXT.with(|font_context| {
+                    let mut font_context = font_context.borrow_mut();
+                    match *font_template {
+                        FontTemplate::Raw(ref bytes) => {
+                            font_context.add_raw_font(&glyph_key.font_key, &**bytes);
+                        }
+                        FontTemplate::Native(ref native_font_handle) => {
+                            font_context.add_native_font(&glyph_key.font_key,
+                                                         (*native_font_handle).clone());
+                        }
+                    }
+
+                    dimensions = font_context.get_glyph_dimensions(glyph_key.font_key,
+                                                                   glyph_key.size,
+                                                                   glyph_key.index,
+                                                                   device_pixel_ratio);
+                });
+
+                *entry.insert(dimensions)
             }
-        })
+        }
     }
 
     #[inline]

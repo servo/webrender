@@ -58,7 +58,7 @@ pub enum ApiMsg {
     WebGLCommand(WebGLContextId, WebGLCommand),
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Copy, Clone, Deserialize, Serialize, Debug)]
 pub struct GlyphDimensions {
     pub left: i32,
     pub top: i32,

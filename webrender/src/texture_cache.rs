@@ -348,14 +348,6 @@ impl TexturePage {
     }
 }
 
-// TODO(gw): This is used to store data specific to glyphs.
-//           Perhaps find a better place to store it.
-#[derive(Debug, Clone)]
-pub struct TextureCacheItemUserData {
-    pub x0: i32,
-    pub y0: i32,
-}
-
 /// A binning free list. Binning is important to avoid sifting through lots of small strips when
 /// allocating many texture items.
 struct FreeRectList {
@@ -440,9 +432,6 @@ pub struct TextureCacheItem {
     // Identifies the texture and array slice
     pub texture_id: TextureId,
 
-    // Custom data - unused by texture cache itself
-    pub user_data: TextureCacheItemUserData,
-
     // The texture coordinates for this item
     pub pixel_rect: RectUv<i32, DevicePixel>,
 
@@ -486,7 +475,6 @@ impl FreeListItem for TextureCacheItem {
 
 impl TextureCacheItem {
     fn new(texture_id: TextureId,
-           user_x0: i32, user_y0: i32,
            allocated_rect: Rect<u32>,
            requested_rect: Rect<u32>,
            texture_size: &Size2D<u32>)
@@ -503,10 +491,6 @@ impl TextureCacheItem {
                                               (requested_rect.origin.y + requested_rect.size.height) as i32),
                 bottom_right: DevicePoint::new((requested_rect.origin.x + requested_rect.size.width) as i32,
                                                (requested_rect.origin.y + requested_rect.size.height) as i32)
-            },
-            user_data: TextureCacheItemUserData {
-                x0: user_x0,
-                y0: user_y0,
             },
             allocated_rect: allocated_rect,
             requested_rect: requested_rect,
@@ -627,10 +611,6 @@ impl TextureCache {
     //           how the raster_jobs code works.
     pub fn new_item_id(&mut self) -> TextureCacheItemId {
         let new_item = TextureCacheItem {
-            user_data: TextureCacheItemUserData {
-                x0: 0,
-                y0: 0,
-            },
             pixel_rect: RectUv {
                 top_left: DevicePoint::zero(),
                 top_right: DevicePoint::zero(),
@@ -647,8 +627,6 @@ impl TextureCache {
 
     pub fn allocate(&mut self,
                     image_id: TextureCacheItemId,
-                    user_x0: i32,
-                    user_y0: i32,
                     requested_width: u32,
                     requested_height: u32,
                     format: ImageFormat,
@@ -670,7 +648,6 @@ impl TextureCache {
                                  .expect("TODO: Handle running out of texture ids!");
             let cache_item = TextureCacheItem::new(
                 texture_id,
-                user_x0, user_y0,
                 Rect::new(Point2D::zero(), requested_size),
                 Rect::new(Point2D::zero(), requested_size),
                 &requested_size);
@@ -730,7 +707,6 @@ impl TextureCache {
                                                requested_size);
 
                 let cache_item = TextureCacheItem::new(page.texture_id,
-                                                       user_x0, user_y0,
                                                        allocated_rect,
                                                        requested_rect,
                                                        &Size2D::new(page.texture_size, page.texture_size));
@@ -831,8 +807,6 @@ impl TextureCache {
 
     pub fn insert(&mut self,
                   image_id: TextureCacheItemId,
-                  x0: i32,
-                  y0: i32,
                   width: u32,
                   height: u32,
                   format: ImageFormat,
@@ -840,8 +814,6 @@ impl TextureCache {
                   insert_op: TextureInsertOp,
                   border_type: BorderType) {
         let result = self.allocate(image_id,
-                                   x0,
-                                   y0,
                                    width,
                                    height,
                                    format,
@@ -938,14 +910,12 @@ impl TextureCache {
                 let horizontal_blur_image_id = self.new_item_id();
                 // TODO(pcwalton): Destroy these!
                 self.allocate(unblurred_glyph_image_id,
-                              0, 0,
                               glyph_size.width, glyph_size.height,
                               ImageFormat::RGBA8,
                               TextureCacheItemKind::Standard,
                               BorderType::SinglePixel,
                               TextureFilter::Linear);
                 self.allocate(horizontal_blur_image_id,
-                              0, 0,
                               width, height,
                               ImageFormat::RGBA8,
                               TextureCacheItemKind::Alternate,

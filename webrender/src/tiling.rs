@@ -2002,7 +2002,7 @@ impl FrameBuilder {
 
     fn prepare_primitives(&mut self,
                           screen_rect: &DeviceRect,
-                          resource_cache: &ResourceCache,
+                          resource_cache: &mut ResourceCache,
                           frame_id: FrameId,
                           pipeline_auxiliary_lists: &HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>) {
         for (layer, packed_layer) in self.layer_store
