@@ -674,7 +674,7 @@ impl PrimitiveStore {
 
     pub fn prepare_prim_for_render(&mut self,
                                    prim_index: PrimitiveIndex,
-                                   resource_cache: &ResourceCache,
+                                   resource_cache: &mut ResourceCache,
                                    frame_id: FrameId,
                                    device_pixel_ratio: f32,
                                    auxiliary_lists: &AuxiliaryLists) -> bool {
@@ -718,28 +718,29 @@ impl PrimitiveStore {
                 for src in src_glyphs {
                     glyph_key.index = src.index;
 
+                    let dimensions = match resource_cache.get_glyph_dimensions(&glyph_key) {
+                        None => continue,
+                        Some(dimensions) => dimensions,
+                    };
+
+                    let x = src.x + dimensions.left as f32 / device_pixel_ratio - blur_offset;
+                    let y = src.y - dimensions.top as f32 / device_pixel_ratio - blur_offset;
+
+                    let width = dimensions.width as f32 / device_pixel_ratio;
+                    let height = dimensions.height as f32 / device_pixel_ratio;
+
                     let image_info = match resource_cache.get_glyph(&glyph_key, frame_id) {
                         None => continue,
                         Some(image_info) => image_info,
                     };
 
-                    debug_assert!(metadata.color_texture_id == TextureId::invalid() ||
-                                  metadata.color_texture_id == image_info.texture_id);
-                    metadata.color_texture_id = image_info.texture_id;
-
-                    let x = src.x + image_info.user_data.x0 as f32 / device_pixel_ratio -
-                        blur_offset;
-                    let y = src.y - image_info.user_data.y0 as f32 / device_pixel_ratio -
-                        blur_offset;
-
-                    let width = image_info.requested_rect.size.width as f32 /
-                        device_pixel_ratio;
-                    let height = image_info.requested_rect.size.height as f32 /
-                        device_pixel_ratio;
-
                     let local_glyph_rect = Rect::new(Point2D::new(x, y),
                                                      Size2D::new(width, height));
                     local_rect = local_rect.union(&local_glyph_rect);
+
+                    debug_assert!(metadata.color_texture_id == TextureId::invalid() ||
+                                  metadata.color_texture_id == image_info.texture_id);
+                    metadata.color_texture_id = image_info.texture_id;
 
                     dest_glyphs[actual_glyph_count] = GpuBlock32::from(GlyphPrimitive {
                         offset: local_glyph_rect.origin,

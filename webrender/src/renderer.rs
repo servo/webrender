@@ -529,8 +529,6 @@ impl Renderer {
         // TODO: Ensure that the white texture can never get evicted when the cache supports LRU eviction!
         let white_image_id = texture_cache.new_item_id();
         texture_cache.insert(white_image_id,
-                             0,
-                             0,
                              2,
                              2,
                              ImageFormat::RGBA8,
@@ -540,8 +538,6 @@ impl Renderer {
 
         let dummy_mask_image_id = texture_cache.new_item_id();
         texture_cache.insert(dummy_mask_image_id,
-                             0,
-                             0,
                              2,
                              2,
                              ImageFormat::A8,

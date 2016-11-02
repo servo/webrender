@@ -879,9 +879,4 @@ impl Frame {
         }
         layers_bouncing_back
     }
-
-    /// Returns the id which the next Frame would possess
-    pub fn next_frame_id(&self) -> FrameId {
-        FrameId(self.id.0 + 1)
-    }
 }
