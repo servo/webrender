@@ -857,6 +857,7 @@ impl AlphaBatchKey {
     fn is_compatible_with(&self, other: &AlphaBatchKey) -> bool {
         self.kind == other.kind &&
             self.flags == other.flags &&
+            self.blend_mode == other.blend_mode &&
         (self.color_texture_id == TextureId::invalid() || other.color_texture_id == TextureId::invalid() ||
              self.color_texture_id == other.color_texture_id) &&
             (self.mask_texture_id == TextureId::invalid() || other.mask_texture_id == TextureId::invalid() ||
