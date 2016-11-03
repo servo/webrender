@@ -594,7 +594,6 @@ struct Image {
     vec4 st_rect;                        // Location of the image texture in the texture atlas.
     vec4 stretch_size_and_tile_spacing;  // Size of the actual image and amount of space between
                                          //     tiled instances of this image.
-    bool has_pixel_coords;
 };
 
 Image fetch_image(int index) {
@@ -604,9 +603,6 @@ Image fetch_image(int index) {
 
     image.st_rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
     image.stretch_size_and_tile_spacing = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
-
-    image.has_pixel_coords = image.st_rect.z < 0.0;
-    image.st_rect.z = abs(image.st_rect.z);
 
     return image;
 }

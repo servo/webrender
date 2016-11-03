@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use device::{TextureFilter, TextureId};
-use euclid::Size2D;
+use euclid::{Point2D, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
 use freelist::FreeList;
@@ -13,7 +13,6 @@ use internal_types::{TextureUpdateList, DrawListId, DrawList};
 use platform::font::{FontContext, RasterizedGlyph};
 use rayon::prelude::*;
 use renderer::BLUR_INFLATION_FACTOR;
-use resource_list::ResourceList;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
@@ -27,9 +26,22 @@ use webrender_traits::{GlyphDimensions, PipelineId, WebGLContextId};
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
+pub struct CacheItem {
+    pub texture_id: TextureId,
+    pub uv0: Point2D<f32>,
+    pub uv1: Point2D<f32>,
+}
+
 pub struct ImageProperties {
     pub format: ImageFormat,
     pub is_opaque: bool,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum State {
+    Idle,
+    AddResources,
+    QueryResources,
 }
 
 pub struct DummyResources {
@@ -117,24 +129,43 @@ impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resourc
     }
 }
 
+struct ImageResourceRequest {
+    key: ImageKey,
+    rendering: ImageRendering,
+}
+
+struct TextRunResourceRequest {
+    key: FontKey,
+    size: Au,
+    blur_radius: Au,
+    glyph_indices: Vec<u32>,
+}
+
+enum ResourceRequest {
+    Image(ImageResourceRequest),
+    TextRun(TextRunResourceRequest),
+}
+
 pub struct ResourceCache {
     cached_glyphs: ResourceClassCache<GlyphKey, Option<TextureCacheItemId>>,
     cached_images: ResourceClassCache<(ImageKey, ImageRendering), CachedImageInfo>,
 
     // TODO(pcwalton): Figure out the lifecycle of these.
-    webgl_textures: HashMap<WebGLContextId, TextureId, BuildHasherDefault<FnvHasher>>,
+    webgl_textures: HashMap<WebGLContextId, (TextureId, Size2D<i32>), BuildHasherDefault<FnvHasher>>,
 
     draw_lists: FreeList<DrawList>,
     font_templates: HashMap<FontKey, FontTemplate, BuildHasherDefault<FnvHasher>>,
     image_templates: HashMap<ImageKey, ImageResource, BuildHasherDefault<FnvHasher>>,
     device_pixel_ratio: f32,
     enable_aa: bool,
+    state: State,
+    current_frame_id: FrameId,
 
     texture_cache: TextureCache,
 
     // TODO(gw): We should expire (parts of) this cache semi-regularly!
     cached_glyph_dimensions: HashMap<GlyphKey, Option<GlyphDimensions>, BuildHasherDefault<FnvHasher>>,
-
+    pending_requests: Vec<ResourceRequest>,
     pending_raster_jobs: Vec<GlyphRasterJob>,
 }
 
@@ -151,9 +182,12 @@ impl ResourceCache {
             image_templates: HashMap::with_hasher(Default::default()),
             cached_glyph_dimensions: HashMap::with_hasher(Default::default()),
             texture_cache: texture_cache,
-            pending_raster_jobs: Vec::new(),
+            state: State::Idle,
             device_pixel_ratio: device_pixel_ratio,
             enable_aa: enable_aa,
+            current_frame_id: FrameId(0),
+            pending_raster_jobs: Vec::new(),
+            pending_requests: Vec::new(),
         }
     }
 
@@ -212,79 +246,35 @@ impl ResourceCache {
     }
 
     pub fn add_webgl_texture(&mut self, id: WebGLContextId, texture_id: TextureId, size: Size2D<i32>) {
-        self.webgl_textures.insert(id, texture_id);
+        self.webgl_textures.insert(id, (texture_id, size));
         self.texture_cache.add_raw_update(texture_id, size);
     }
 
-    pub fn add_resource_list(&mut self, resource_list: &ResourceList, frame_id: FrameId) {
-        // Update texture cache with any images that aren't yet uploaded to GPU.
-        resource_list.for_each_image(|image_key, image_rendering| {
-            let cached_images = &mut self.cached_images;
-            let image_template = &self.image_templates[&image_key];
-
-            match cached_images.entry((image_key, image_rendering), frame_id) {
-                Occupied(entry) => {
-                    if entry.get().epoch != image_template.epoch {
-                        let image_id = entry.get().texture_cache_id;
-
-                        // TODO: Can we avoid the clone of the bytes here?
-                        self.texture_cache.update(image_id,
-                                                  image_template.width,
-                                                  image_template.height,
-                                                  image_template.format,
-                                                  image_template.bytes.clone());
-
-                        // Update the cached epoch
-                        *entry.into_mut() = CachedImageInfo {
-                            texture_cache_id: image_id,
-                            epoch: image_template.epoch,
-                        };
-                    }
-                }
-                Vacant(entry) => {
-                    let image_id = self.texture_cache.new_item_id();
-
-                    let filter = match image_rendering {
-                        ImageRendering::Pixelated => TextureFilter::Nearest,
-                        ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
-                    };
-
-                    // TODO: Can we avoid the clone of the bytes here?
-                    self.texture_cache.insert(image_id,
-                                              image_template.width,
-                                              image_template.height,
-                                              image_template.format,
-                                              filter,
-                                              TextureInsertOp::Blit(image_template.bytes.clone()),
-                                              BorderType::SinglePixel);
-
-                    entry.insert(CachedImageInfo {
-                        texture_cache_id: image_id,
-                        epoch: image_template.epoch,
-                    });
-                }
-            };
-        });
-
-        // Update texture cache with any newly rasterized glyphs.
-        resource_list.for_each_glyph(|glyph_key| {
-            self.create_raster_job(glyph_key, frame_id);
-        });
+    pub fn request_image(&mut self,
+                         key: ImageKey,
+                         rendering: ImageRendering) {
+        debug_assert!(self.state == State::AddResources);
+        self.pending_requests.push(ResourceRequest::Image(ImageResourceRequest {
+            key: key,
+            rendering: rendering,
+        }));
     }
 
-    #[inline]
-    fn create_raster_job(&mut self, glyph_key: &GlyphKey, frame_id: FrameId) {
-        if !self.cached_glyphs.contains_key(glyph_key) {
-            self.pending_raster_jobs.push(GlyphRasterJob {
-                glyph_key: glyph_key.clone(),
-                result: None,
-            });
-        }
-        self.cached_glyphs.mark_as_needed(glyph_key, frame_id);
+    pub fn request_glyphs(&mut self,
+                          key: FontKey,
+                          size: Au,
+                          blur_radius: Au,
+                          glyph_indices: &[u32]) {
+        debug_assert!(self.state == State::AddResources);
+        self.pending_requests.push(ResourceRequest::TextRun(TextRunResourceRequest {
+            key: key,
+            size: size,
+            blur_radius: blur_radius,
+            glyph_indices: glyph_indices.to_vec(),
+        }));
     }
 
-    pub fn raster_pending_glyphs(&mut self,
-                                 frame_id: FrameId) {
+    pub fn raster_pending_glyphs(&mut self) {
         // Run raster jobs in parallel
         run_raster_jobs(&mut self.pending_raster_jobs,
                         &self.font_templates,
@@ -326,7 +316,7 @@ impl ResourceCache {
             } else {
                 None
             };
-            self.cached_glyphs.insert(job.glyph_key, image_id, frame_id);
+            self.cached_glyphs.insert(job.glyph_key, image_id, self.current_frame_id);
         }
     }
 
@@ -347,10 +337,32 @@ impl ResourceCache {
         self.texture_cache.pending_updates()
     }
 
-    #[inline]
-    pub fn get_glyph(&self, glyph_key: &GlyphKey, frame_id: FrameId) -> Option<&TextureCacheItem> {
-        let image_id = self.cached_glyphs.get(glyph_key, frame_id);
-        image_id.map(|image_id| self.texture_cache.get(image_id))
+    pub fn get_glyphs<F>(&self,
+                         font_key: FontKey,
+                         size: Au,
+                         blur_radius: Au,
+                         glyph_indices: &[u32],
+                         mut f: F) -> TextureId where F: FnMut(usize, Point2D<f32>, Point2D<f32>) {
+        debug_assert!(self.state == State::QueryResources);
+        let mut glyph_key = GlyphKey::new(font_key,
+                                          size,
+                                          blur_radius,
+                                          0);
+        let mut texture_id = TextureId::invalid();
+        for (loop_index, glyph_index) in glyph_indices.iter().enumerate() {
+            glyph_key.index = *glyph_index;
+            let image_id = self.cached_glyphs.get(&glyph_key, self.current_frame_id);
+            let cache_item = image_id.map(|image_id| self.texture_cache.get(image_id));
+            if let Some(cache_item) = cache_item {
+                let uv0 = Point2D::new(cache_item.pixel_rect.top_left.x as f32,
+                                       cache_item.pixel_rect.top_left.y as f32);
+                let uv1 = Point2D::new(cache_item.pixel_rect.bottom_right.x as f32,
+                                       cache_item.pixel_rect.bottom_right.y as f32);
+                f(loop_index, uv0, uv1);
+                texture_id = cache_item.texture_id;
+            }
+        }
+        texture_id
     }
 
     pub fn get_glyph_dimensions(&mut self, glyph_key: &GlyphKey) -> Option<GlyphDimensions> {
@@ -387,11 +399,18 @@ impl ResourceCache {
     #[inline]
     pub fn get_image(&self,
                      image_key: ImageKey,
-                     image_rendering: ImageRendering,
-                     frame_id: FrameId)
-                     -> &TextureCacheItem {
-        let image_info = &self.cached_images.get(&(image_key, image_rendering), frame_id);
-        self.texture_cache.get(image_info.texture_cache_id)
+                     image_rendering: ImageRendering) -> CacheItem {
+        debug_assert!(self.state == State::QueryResources);
+        let image_info = &self.cached_images.get(&(image_key, image_rendering),
+                                                 self.current_frame_id);
+        let item = self.texture_cache.get(image_info.texture_cache_id);
+        CacheItem {
+            texture_id: item.texture_id,
+            uv0: Point2D::new(item.pixel_rect.top_left.x as f32,
+                              item.pixel_rect.top_left.y as f32),
+            uv1: Point2D::new(item.pixel_rect.bottom_right.x as f32,
+                              item.pixel_rect.bottom_right.y as f32),
+        }
     }
 
     pub fn get_image_properties(&self, image_key: ImageKey) -> ImageProperties {
@@ -410,13 +429,105 @@ impl ResourceCache {
     }
 
     #[inline]
-    pub fn get_webgl_texture(&self, context_id: &WebGLContextId) -> TextureId {
-        self.webgl_textures.get(context_id).unwrap().clone()
+    pub fn get_webgl_texture(&self, context_id: &WebGLContextId) -> CacheItem {
+        let (id, size) = *self.webgl_textures.get(context_id).unwrap();
+        CacheItem {
+            texture_id: id,
+            uv0: Point2D::new(0.0, size.height as f32),
+            uv1: Point2D::new(size.width as f32, 0.0),
+        }
     }
 
     pub fn expire_old_resources(&mut self, frame_id: FrameId) {
         self.cached_glyphs.expire_old_resources(&mut self.texture_cache, frame_id);
         self.cached_images.expire_old_resources(&mut self.texture_cache, frame_id);
+    }
+
+    pub fn begin_frame(&mut self, frame_id: FrameId) {
+        debug_assert!(self.state == State::Idle);
+        self.state = State::AddResources;
+        self.current_frame_id = frame_id;
+    }
+
+    pub fn block_until_all_resources_added(&mut self) {
+        debug_assert!(self.state == State::AddResources);
+        self.state = State::QueryResources;
+
+        for request in self.pending_requests.drain(..) {
+            match request {
+                ResourceRequest::Image(ref image_request) => {
+                    let cached_images = &mut self.cached_images;
+                    let image_template = &self.image_templates[&image_request.key];
+                    let key = (image_request.key, image_request.rendering);
+
+                    match cached_images.entry(key, self.current_frame_id) {
+                        Occupied(entry) => {
+                            let image_id = entry.get().texture_cache_id;
+
+                            if entry.get().epoch != image_template.epoch {
+                                // TODO: Can we avoid the clone of the bytes here?
+                                self.texture_cache.update(image_id,
+                                                          image_template.width,
+                                                          image_template.height,
+                                                          image_template.format,
+                                                          image_template.bytes.clone());
+
+                                // Update the cached epoch
+                                *entry.into_mut() = CachedImageInfo {
+                                    texture_cache_id: image_id,
+                                    epoch: image_template.epoch,
+                                };
+                            }
+                        }
+                        Vacant(entry) => {
+                            let image_id = self.texture_cache.new_item_id();
+
+                            let filter = match image_request.rendering {
+                                ImageRendering::Pixelated => TextureFilter::Nearest,
+                                ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
+                            };
+
+                            // TODO: Can we avoid the clone of the bytes here?
+                            self.texture_cache.insert(image_id,
+                                                      image_template.width,
+                                                      image_template.height,
+                                                      image_template.format,
+                                                      filter,
+                                                      TextureInsertOp::Blit(image_template.bytes.clone()),
+                                                      BorderType::SinglePixel);
+
+                            entry.insert(CachedImageInfo {
+                                texture_cache_id: image_id,
+                                epoch: image_template.epoch,
+                            });
+                        }
+                    }
+                }
+                ResourceRequest::TextRun(ref text_run) => {
+                    for glyph_index in &text_run.glyph_indices {
+                        let glyph_key = GlyphKey::new(text_run.key,
+                                                      text_run.size,
+                                                      text_run.blur_radius,
+                                                      *glyph_index);
+
+                        self.cached_glyphs.mark_as_needed(&glyph_key, self.current_frame_id);
+                        if !self.cached_glyphs.contains_key(&glyph_key) {
+                            self.pending_raster_jobs.push(GlyphRasterJob {
+                                glyph_key: glyph_key,
+                                result: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        self.raster_pending_glyphs();
+    }
+
+    pub fn end_frame(&mut self) {
+        debug_assert!(self.state == State::QueryResources);
+        self.state = State::Idle;
     }
 }
 

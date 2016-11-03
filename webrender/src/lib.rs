@@ -63,7 +63,6 @@ mod profiler;
 mod record;
 mod render_backend;
 mod resource_cache;
-mod resource_list;
 mod scene;
 mod spring;
 mod texture_cache;

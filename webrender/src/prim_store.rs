@@ -5,12 +5,10 @@
 use app_units::Au;
 use device::TextureId;
 use euclid::{Point2D, Matrix4D, Rect, Size2D};
-use frame::FrameId;
 use gpu_store::{GpuStore, GpuStoreAddress};
-use internal_types::{DeviceRect, DeviceSize, Glyph};
+use internal_types::{DeviceRect, DeviceSize};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
-use resource_list::ResourceList;
 use std::mem;
 use std::usize;
 use tiling::{Clip, MaskImageSource};
@@ -62,8 +60,6 @@ pub struct PrimitiveCacheInfo {
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
     pub is_opaque: bool,
-    pub need_to_build_cache: bool,
-    pub color_texture_id: TextureId,
     pub mask_texture_id: TextureId,
     pub mask_image: Option<ImageKey>,
     pub clip_index: Option<GpuStoreAddress>,
@@ -75,12 +71,6 @@ pub struct PrimitiveMetadata {
     pub cache_info: Option<PrimitiveCacheInfo>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum TextureCoordKind {
-    Normalized = 0,
-    Pixel,
-}
-
 #[derive(Debug, Clone)]
 pub struct RectanglePrimitive {
     pub color: ColorF,
@@ -88,13 +78,14 @@ pub struct RectanglePrimitive {
 
 #[derive(Debug)]
 pub enum ImagePrimitiveKind {
-    Image(ImageKey, ImageRendering, Size2D<f32>, Size2D<f32>),
+    Image(ImageKey, ImageRendering, Size2D<f32>),
     WebGL(WebGLContextId),
 }
 
 #[derive(Debug)]
 pub struct ImagePrimitiveCpu {
     pub kind: ImagePrimitiveKind,
+    pub color_texture_id: TextureId,
 }
 
 #[derive(Debug, Clone)]
@@ -165,6 +156,7 @@ pub struct GradientPrimitiveCpu {
     pub stops_range: ItemRange,
     pub kind: GradientType,
     pub reverse_stops: bool,
+    pub cache_dirty: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -183,6 +175,10 @@ pub struct TextRunPrimitiveCpu {
     pub font_size: Au,
     pub blur_radius: Au,
     pub glyph_range: ItemRange,
+    pub cache_dirty: bool,
+    // TODO(gw): Maybe make this an Arc for sharing with resource cache
+    pub glyph_indices: Vec<u32>,
+    pub color_texture_id: TextureId,
 }
 
 #[derive(Debug, Clone)]
@@ -333,7 +329,7 @@ impl ClipInfo {
 pub enum PrimitiveContainer {
     Rectangle(RectanglePrimitive),
     TextRun(TextRunPrimitiveCpu, TextRunPrimitiveGpu),
-    Image(ImagePrimitiveCpu),
+    Image(ImagePrimitiveCpu, ImagePrimitiveGpu),
     Border(BorderPrimitiveCpu, BorderPrimitiveGpu),
     Gradient(GradientPrimitiveCpu, GradientPrimitiveGpu),
     BoxShadow(BoxShadowPrimitiveGpu, Vec<Rect<f32>>),
@@ -357,6 +353,7 @@ pub struct PrimitiveStore {
 
     // General
     device_pixel_ratio: f32,
+    prims_to_resolve: Vec<PrimitiveIndex>,
 }
 
 impl PrimitiveStore {
@@ -374,6 +371,7 @@ impl PrimitiveStore {
             gpu_data64: GpuStore::new(),
             gpu_data128: GpuStore::new(),
             device_pixel_ratio: device_pixel_ratio,
+            prims_to_resolve: Vec::new(),
         }
     }
 
@@ -424,10 +422,8 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: is_opaque,
-                    need_to_build_cache: mask_image.is_some(),
-                    color_texture_id: TextureId::invalid(),
-                    mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
+                    mask_texture_id: mask_texture_id,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Rectangle,
                     cpu_prim_index: SpecificPrimitiveIndex::invalid(),
@@ -445,10 +441,8 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
-                    need_to_build_cache: true,
-                    color_texture_id: TextureId::invalid(),
-                    mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
+                    mask_texture_id: mask_texture_id,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::TextRun,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_runs.len()),
@@ -461,15 +455,13 @@ impl PrimitiveStore {
                 self.cpu_text_runs.push(text_cpu);
                 metadata
             }
-            PrimitiveContainer::Image(image_cpu) => {
-                let gpu_address = self.gpu_data32.alloc(1);
+            PrimitiveContainer::Image(image_cpu, image_gpu) => {
+                let gpu_address = self.gpu_data32.push(image_gpu);
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
-                    need_to_build_cache: true,
-                    color_texture_id: TextureId::invalid(),
-                    mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
+                    mask_texture_id: mask_texture_id,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Image,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_images.len()),
@@ -487,10 +479,8 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
-                    need_to_build_cache: mask_image.is_some(),
-                    color_texture_id: TextureId::invalid(),
-                    mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
+                    mask_texture_id: mask_texture_id,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Border,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_borders.len()),
@@ -509,10 +499,8 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
-                    need_to_build_cache: true,
-                    color_texture_id: TextureId::invalid(),
-                    mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
+                    mask_texture_id: mask_texture_id,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::Gradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
@@ -549,10 +537,8 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
-                    need_to_build_cache: mask_image.is_some(),
-                    color_texture_id: TextureId::invalid(),
-                    mask_texture_id: mask_texture_id,
                     mask_image: mask_image,
+                    mask_texture_id: mask_texture_id,
                     clip_index: clip_index,
                     prim_kind: PrimitiveKind::BoxShadow,
                     cpu_prim_index: SpecificPrimitiveIndex::invalid(),
@@ -578,6 +564,74 @@ impl PrimitiveStore {
         self.cpu_metadata.push(metadata);
 
         PrimitiveIndex(prim_index)
+    }
+
+    pub fn resolve_primitives(&mut self, resource_cache: &ResourceCache) {
+        for prim_index in self.prims_to_resolve.drain(..) {
+            let metadata = &mut self.cpu_metadata[prim_index.0];
+
+            if let Some(mask_key) = metadata.mask_image {
+                let tex_cache = resource_cache.get_image(mask_key, ImageRendering::Auto);
+                metadata.mask_texture_id = tex_cache.texture_id;
+                if let Some(address) = metadata.clip_index {
+                    let clip = self.gpu_data32.get_slice_mut(address, 6);
+                    let old = clip[5].data; //TODO: avoid retaining the screen rectangle
+                    clip[5] = GpuBlock32::from(ImageMaskInfo {
+                        uv_rect: Rect::new(tex_cache.uv0,
+                                           Size2D::new(tex_cache.uv1.x - tex_cache.uv0.x,
+                                                       tex_cache.uv1.y - tex_cache.uv0.x)),
+                        local_rect: Rect::new(Point2D::new(old[4], old[5]),
+                                              Size2D::new(old[6], old[7])),
+                    });
+                }
+            }
+
+            match metadata.prim_kind {
+                PrimitiveKind::Rectangle |
+                PrimitiveKind::Border |
+                PrimitiveKind::BoxShadow |
+                PrimitiveKind::Gradient => {}
+                PrimitiveKind::TextRun => {
+                    let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
+
+                    let dest_glyphs = self.gpu_data32.get_slice_mut(metadata.gpu_data_address,
+                                                                    text.glyph_range.length);
+
+                    let texture_id = resource_cache.get_glyphs(text.font_key,
+                                                               text.font_size,
+                                                               text.blur_radius,
+                                                               &text.glyph_indices, |index, uv0, uv1| {
+                        let dest_glyph = &mut dest_glyphs[index];
+                        let dest: &mut GlyphPrimitive = unsafe {
+                            mem::transmute(dest_glyph)
+                        };
+                        dest.uv0 = uv0;
+                        dest.uv1 = uv1;
+                    });
+
+                    text.color_texture_id = texture_id;
+                }
+                PrimitiveKind::Image => {
+                    let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
+                    let image_gpu: &mut ImagePrimitiveGpu = unsafe {
+                        mem::transmute(self.gpu_data32.get_mut(metadata.gpu_prim_index))
+                    };
+
+                    let cache_item = match image_cpu.kind {
+                        ImagePrimitiveKind::Image(image_key, image_rendering, _) => {
+                            resource_cache.get_image(image_key, image_rendering)
+                        }
+                        ImagePrimitiveKind::WebGL(context_id) => {
+                            resource_cache.get_webgl_texture(&context_id)
+                        }
+                    };
+
+                    image_cpu.color_texture_id = cache_item.texture_id;
+                    image_gpu.uv0 = cache_item.uv0;
+                    image_gpu.uv1 = cache_item.uv1;
+                }
+            }
+        }
     }
 
     pub fn get_bounding_rect(&self, index: PrimitiveIndex) -> &Option<DeviceRect> {
@@ -612,44 +666,6 @@ impl PrimitiveStore {
         self.cpu_metadata.len()
     }
 
-    pub fn build_resource_list(&mut self,
-                               index: PrimitiveIndex,
-                               resource_list: &mut ResourceList,
-                               auxiliary_lists: &AuxiliaryLists) -> bool {
-        let metadata = &self.cpu_metadata[index.0];
-
-        match metadata.prim_kind {
-            PrimitiveKind::Rectangle |
-            PrimitiveKind::Border |
-            PrimitiveKind::Gradient |
-            PrimitiveKind::BoxShadow => {}
-
-            PrimitiveKind::TextRun => {
-                let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
-                let glyphs = auxiliary_lists.glyph_instances(&text.glyph_range);
-                for glyph in glyphs {
-                    let glyph = Glyph::new(text.font_size, text.blur_radius, glyph.index);
-                    resource_list.add_glyph(text.font_key, glyph);
-                }
-            }
-            PrimitiveKind::Image => {
-                let image = &self.cpu_images[metadata.cpu_prim_index.0];
-                match image.kind {
-                    ImagePrimitiveKind::Image(image_key, image_rendering, _, _) => {
-                        resource_list.add_image(image_key, image_rendering);
-                    }
-                    ImagePrimitiveKind::WebGL(..) => {}
-                }
-            }
-        }
-
-        if let Some(mask_key) = metadata.mask_image {
-            resource_list.add_image(mask_key, ImageRendering::Auto);
-        }
-
-        self.cpu_metadata[index.0].need_to_build_cache
-    }
-
     pub fn build_bounding_rect(&mut self,
                                prim_index: PrimitiveIndex,
                                screen_rect: &DeviceRect,
@@ -675,152 +691,143 @@ impl PrimitiveStore {
     pub fn prepare_prim_for_render(&mut self,
                                    prim_index: PrimitiveIndex,
                                    resource_cache: &mut ResourceCache,
-                                   frame_id: FrameId,
                                    device_pixel_ratio: f32,
                                    auxiliary_lists: &AuxiliaryLists) -> bool {
         let metadata = &mut self.cpu_metadata[prim_index.0];
-        debug_assert!(metadata.need_to_build_cache);
-        metadata.need_to_build_cache = false;
+
+        let mut prim_needs_resolve = false;
+        let mut rebuild_bounding_rect = false;
 
         if let Some(mask_key) = metadata.mask_image {
-            let tex_cache = resource_cache.get_image(mask_key, ImageRendering::Auto, frame_id);
-            metadata.mask_texture_id = tex_cache.texture_id;
-            if let Some(address) = metadata.clip_index {
-                let clip = self.gpu_data32.get_slice_mut(address, 6);
-                let old = clip[5].data; //TODO: avoid retaining the screen rectangle
-                clip[5] = GpuBlock32::from(ImageMaskInfo {
-                    uv_rect: tex_cache.aligned_uv_rect(),
-                    local_rect: Rect::new(Point2D::new(old[4], old[5]),
-                                          Size2D::new(old[6], old[7])),
-                });
-            }
+            resource_cache.request_image(mask_key, ImageRendering::Auto);
+            prim_needs_resolve = true;
         }
 
         match metadata.prim_kind {
             PrimitiveKind::Rectangle |
             PrimitiveKind::Border |
-            PrimitiveKind::BoxShadow => false,
+            PrimitiveKind::BoxShadow => {}
             PrimitiveKind::TextRun => {
-                let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
-                debug_assert!(metadata.gpu_data_count == text.glyph_range.length as i32);
-                let dest_glyphs = self.gpu_data32.get_slice_mut(metadata.gpu_data_address,
-                                                                text.glyph_range.length);
-                let src_glyphs = auxiliary_lists.glyph_instances(&text.glyph_range);
-                let mut glyph_key = GlyphKey::new(text.font_key,
-                                                  text.font_size,
-                                                  text.blur_radius,
-                                                  src_glyphs[0].index);
-                let blur_offset = text.blur_radius.to_f32_px() *
-                    (BLUR_INFLATION_FACTOR as f32) / 2.0;
-                let mut local_rect = Rect::zero();
-                let mut actual_glyph_count = 0;
+                let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
+                prim_needs_resolve = true;
 
-                for src in src_glyphs {
-                    glyph_key.index = src.index;
+                if text.cache_dirty {
+                    rebuild_bounding_rect = true;
+                    text.cache_dirty = false;
 
-                    let dimensions = match resource_cache.get_glyph_dimensions(&glyph_key) {
-                        None => continue,
-                        Some(dimensions) => dimensions,
-                    };
+                    debug_assert!(metadata.gpu_data_count == text.glyph_range.length as i32);
+                    debug_assert!(text.glyph_indices.is_empty());
+                    let src_glyphs = auxiliary_lists.glyph_instances(&text.glyph_range);
+                    let dest_glyphs = self.gpu_data32.get_slice_mut(metadata.gpu_data_address,
+                                                                    text.glyph_range.length);
+                    let mut glyph_key = GlyphKey::new(text.font_key,
+                                                      text.font_size,
+                                                      text.blur_radius,
+                                                      src_glyphs[0].index);
+                    let blur_offset = text.blur_radius.to_f32_px() *
+                        (BLUR_INFLATION_FACTOR as f32) / 2.0;
+                    let mut local_rect = Rect::zero();
+                    let mut actual_glyph_count = 0;
 
-                    let x = src.x + dimensions.left as f32 / device_pixel_ratio - blur_offset;
-                    let y = src.y - dimensions.top as f32 / device_pixel_ratio - blur_offset;
+                    for src in src_glyphs {
+                        glyph_key.index = src.index;
 
-                    let width = dimensions.width as f32 / device_pixel_ratio;
-                    let height = dimensions.height as f32 / device_pixel_ratio;
+                        let dimensions = match resource_cache.get_glyph_dimensions(&glyph_key) {
+                            None => continue,
+                            Some(dimensions) => dimensions,
+                        };
 
-                    let image_info = match resource_cache.get_glyph(&glyph_key, frame_id) {
-                        None => continue,
-                        Some(image_info) => image_info,
-                    };
+                        // TODO(gw): Check for this and ensure platforms return None in this case!!!
+                        debug_assert!(dimensions.width > 0 && dimensions.height > 0);
 
-                    let local_glyph_rect = Rect::new(Point2D::new(x, y),
-                                                     Size2D::new(width, height));
-                    local_rect = local_rect.union(&local_glyph_rect);
+                        let x = src.x + dimensions.left as f32 / device_pixel_ratio - blur_offset;
+                        let y = src.y - dimensions.top as f32 / device_pixel_ratio - blur_offset;
 
-                    debug_assert!(metadata.color_texture_id == TextureId::invalid() ||
-                                  metadata.color_texture_id == image_info.texture_id);
-                    metadata.color_texture_id = image_info.texture_id;
+                        let width = dimensions.width as f32 / device_pixel_ratio;
+                        let height = dimensions.height as f32 / device_pixel_ratio;
 
-                    dest_glyphs[actual_glyph_count] = GpuBlock32::from(GlyphPrimitive {
-                        offset: local_glyph_rect.origin,
-                        uv0: Point2D::new(image_info.pixel_rect.top_left.x as f32,
-                                          image_info.pixel_rect.top_left.y as f32),
-                        uv1: Point2D::new(image_info.pixel_rect.bottom_right.x as f32,
-                                          image_info.pixel_rect.bottom_right.y as f32),
-                        padding: Point2D::zero(),
-                    });
+                        let local_glyph_rect = Rect::new(Point2D::new(x, y),
+                                                         Size2D::new(width, height));
+                        local_rect = local_rect.union(&local_glyph_rect);
 
-                    actual_glyph_count += 1;
+                        dest_glyphs[actual_glyph_count] = GpuBlock32::from(GlyphPrimitive {
+                            uv0: Point2D::zero(),
+                            uv1: Point2D::zero(),
+                            padding: Point2D::zero(),
+                            offset: local_glyph_rect.origin,
+                        });
+
+                        text.glyph_indices.push(src.index);
+
+                        actual_glyph_count += 1;
+                    }
+
+                    metadata.gpu_data_count = actual_glyph_count as i32;
+                    self.gpu_geometry.get_mut(GpuStoreAddress(prim_index.0 as i32)).local_rect = local_rect;
                 }
 
-                metadata.gpu_data_count = actual_glyph_count as i32;
-                self.gpu_geometry.get_mut(GpuStoreAddress(prim_index.0 as i32)).local_rect = local_rect;
-                true
+                resource_cache.request_glyphs(text.font_key,
+                                              text.font_size,
+                                              text.blur_radius,
+                                              &text.glyph_indices);
             }
             PrimitiveKind::Image => {
-                let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
-                let geom = self.gpu_geometry.get(GpuStoreAddress(prim_index.0 as i32));
+                let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
+                prim_needs_resolve = true;
 
-                let ImageInfo {
-                    color_texture_id: texture_id,
-                    uv0,
-                    mut uv1,
-                    stretch_size,
-                    tile_spacing,
-                    uv_kind,
-                    is_opaque,
-                } = image_cpu.image_info(resource_cache, frame_id);
+                match image_cpu.kind {
+                    ImagePrimitiveKind::Image(image_key, image_rendering, tile_spacing) => {
+                        resource_cache.request_image(image_key, image_rendering);
 
-                metadata.color_texture_id = texture_id;
-                metadata.is_opaque = is_opaque &&
-                                     tile_spacing.width == 0.0 &&
-                                     tile_spacing.height == 0.0;
-
-                match uv_kind {
-                    TextureCoordKind::Normalized => {}
-                    TextureCoordKind::Pixel => uv1.x = -uv1.x,
+                        // TODO(gw): This doesn't actually need to be calculated each frame.
+                        // It's cheap enough that it's not worth introducing a cache for images
+                        // right now, but if we introduce a cache for images for some other
+                        // reason then we might as well cache this with it.
+                        let image_properties = resource_cache.get_image_properties(image_key);
+                        metadata.is_opaque = image_properties.is_opaque &&
+                                             tile_spacing.width == 0.0 &&
+                                             tile_spacing.height == 0.0;
+                    }
+                    ImagePrimitiveKind::WebGL(..) => {}
                 }
-
-                let image_gpu = self.gpu_data32.get_mut(metadata.gpu_prim_index);
-                *image_gpu = GpuBlock32::from(ImagePrimitiveGpu {
-                    uv0: uv0,
-                    uv1: uv1,
-                    stretch_size: stretch_size.unwrap_or(geom.local_rect.size),
-                    tile_spacing: tile_spacing,
-                });
-
-                false
             }
             PrimitiveKind::Gradient => {
-                let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                let src_stops = auxiliary_lists.gradient_stops(&gradient.stops_range);
+                let gradient = &mut self.cpu_gradients[metadata.cpu_prim_index.0];
+                if gradient.cache_dirty {
+                    let src_stops = auxiliary_lists.gradient_stops(&gradient.stops_range);
 
-                debug_assert!(metadata.gpu_data_count == gradient.stops_range.length as i32);
-                let dest_stops = self.gpu_data32.get_slice_mut(metadata.gpu_data_address,
-                                                               gradient.stops_range.length);
+                    debug_assert!(metadata.gpu_data_count == gradient.stops_range.length as i32);
+                    let dest_stops = self.gpu_data32.get_slice_mut(metadata.gpu_data_address,
+                                                                   gradient.stops_range.length);
 
-                if gradient.reverse_stops {
-                    for (src, dest) in src_stops.iter().rev().zip(dest_stops.iter_mut()) {
-                        *dest = GpuBlock32::from(GradientStop {
-                            offset: 1.0 - src.offset,
-                            color: src.color,
-                            padding: [0.0; 3],
-                        });
+                    if gradient.reverse_stops {
+                        for (src, dest) in src_stops.iter().rev().zip(dest_stops.iter_mut()) {
+                            *dest = GpuBlock32::from(GradientStop {
+                                offset: 1.0 - src.offset,
+                                color: src.color,
+                                padding: [0.0; 3],
+                            });
+                        }
+                    } else {
+                        for (src, dest) in src_stops.iter().zip(dest_stops.iter_mut()) {
+                            *dest = GpuBlock32::from(GradientStop {
+                                offset: src.offset,
+                                color: src.color,
+                                padding: [0.0; 3],
+                            });
+                        }
                     }
-                } else {
-                    for (src, dest) in src_stops.iter().zip(dest_stops.iter_mut()) {
-                        *dest = GpuBlock32::from(GradientStop {
-                            offset: src.offset,
-                            color: src.color,
-                            padding: [0.0; 3],
-                        });
-                    }
+
+                    gradient.cache_dirty = false;
                 }
-
-                false
             }
         }
+
+        if prim_needs_resolve {
+            self.prims_to_resolve.push(prim_index);
+        }
+
+        rebuild_bounding_rect
     }
 }
 
@@ -968,49 +975,6 @@ impl From<BorderPrimitiveGpu> for GpuBlock128 {
     fn from(data: BorderPrimitiveGpu) -> GpuBlock128 {
         unsafe {
             mem::transmute::<BorderPrimitiveGpu, GpuBlock128>(data)
-        }
-    }
-}
-
-struct ImageInfo {
-    color_texture_id: TextureId,
-    uv0: Point2D<f32>,
-    uv1: Point2D<f32>,
-    stretch_size: Option<Size2D<f32>>,
-    uv_kind: TextureCoordKind,
-    tile_spacing: Size2D<f32>,
-    is_opaque: bool,
-}
-
-impl ImagePrimitiveCpu {
-    fn image_info(&self, resource_cache: &ResourceCache, frame_id: FrameId) -> ImageInfo {
-        match self.kind {
-            ImagePrimitiveKind::Image(image_key, image_rendering, stretch_size, tile_spacing) => {
-                let info = resource_cache.get_image(image_key, image_rendering, frame_id);
-                let image_properties = resource_cache.get_image_properties(image_key);
-                ImageInfo {
-                    color_texture_id: info.texture_id,
-                    uv0: Point2D::new(info.pixel_rect.top_left.x as f32,
-                                      info.pixel_rect.top_left.y as f32),
-                    uv1: Point2D::new(info.pixel_rect.bottom_right.x as f32,
-                                      info.pixel_rect.bottom_right.y as f32),
-                    stretch_size: Some(stretch_size),
-                    uv_kind: TextureCoordKind::Pixel,
-                    tile_spacing: tile_spacing,
-                    is_opaque: image_properties.is_opaque,
-                }
-            }
-            ImagePrimitiveKind::WebGL(context_id) => {
-                ImageInfo {
-                    color_texture_id: resource_cache.get_webgl_texture(&context_id),
-                    uv0: Point2D::new(0.0, 1.0),
-                    uv1: Point2D::new(1.0, 0.0),
-                    stretch_size: None,
-                    uv_kind: TextureCoordKind::Normalized,
-                    tile_spacing: Size2D::zero(),
-                    is_opaque: false,
-                }
-            }
         }
     }
 }
