@@ -53,7 +53,6 @@ impl BuiltDisplayList {
 
 pub struct DisplayListBuilder {
     pub mode: DisplayListMode,
-    pub has_stacking_contexts: bool,
 
     pub work_list: Vec<DisplayItem>,
 
@@ -65,7 +64,6 @@ impl DisplayListBuilder {
     pub fn new() -> DisplayListBuilder {
         DisplayListBuilder {
             mode: DisplayListMode::Default,
-            has_stacking_contexts: false,
             work_list: Vec::new(),
             display_list_items: Vec::new(),
             display_items: Vec::new(),
@@ -218,7 +216,6 @@ impl DisplayListBuilder {
     }
 
     pub fn push_stacking_context(&mut self, stacking_context_id: StackingContextId) {
-        self.has_stacking_contexts = true;
         self.flush();
         let info = StackingContextInfo {
             id: stacking_context_id,
@@ -296,7 +293,6 @@ impl DisplayListBuilder {
             BuiltDisplayList {
                 descriptor: BuiltDisplayListDescriptor {
                     mode: self.mode,
-                    has_stacking_contexts: self.has_stacking_contexts,
                     display_list_items_size: display_list_items_size,
                     display_items_size: display_items_size,
                 },

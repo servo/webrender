@@ -31,7 +31,6 @@ impl StackingContext {
             establishes_3d_context: establishes_3d_context,
             mix_blend_mode: mix_blend_mode,
             filters: auxiliary_lists_builder.add_filters(&filters),
-            has_stacking_contexts: false,
         }
     }
 }

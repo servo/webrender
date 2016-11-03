@@ -156,7 +156,6 @@ pub struct BuiltDisplayList {
 #[derive(Copy, Clone, Deserialize, Serialize)]
 pub struct BuiltDisplayListDescriptor {
     pub mode: DisplayListMode,
-    pub has_stacking_contexts: bool,
 
     /// The size in bytes of the display list items in this display list.
     display_list_items_size: usize,
@@ -457,7 +456,6 @@ pub struct StackingContext {
     pub establishes_3d_context: bool,
     pub mix_blend_mode: MixBlendMode,
     pub filters: ItemRange,
-    pub has_stacking_contexts: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
