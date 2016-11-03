@@ -11,6 +11,7 @@ extern crate byteorder;
 extern crate core;
 extern crate euclid;
 extern crate gleam;
+#[macro_use]
 extern crate heapsize;
 extern crate ipc_channel;
 extern crate offscreen_gl_context;

@@ -171,6 +171,7 @@ pub struct ColorF {
     pub b: f32,
     pub a: f32,
 }
+known_heap_size!(0, ColorF);
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ImageMask {
@@ -285,6 +286,7 @@ pub struct GradientStop {
     pub offset: f32,
     pub color: ColorF,
 }
+known_heap_size!(0, GradientStop);
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct IdNamespace(pub u32);
