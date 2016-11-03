@@ -216,6 +216,18 @@ impl ResourceCache {
         self.texture_cache.add_raw_update(texture_id, size);
     }
 
+    pub fn update_webgl_texture(&mut self, id: WebGLContextId, texture_id: TextureId, size: Size2D<i32>) {
+        let prev_texture_id = *self.webgl_textures.get(&id).unwrap();
+
+        // Remove existing cache if texture id has changed
+        if prev_texture_id != texture_id {
+            self.texture_cache.add_raw_remove(prev_texture_id);
+        }
+        // Update new texture id and size
+        self.webgl_textures.insert(id, texture_id);
+        self.texture_cache.add_raw_update(texture_id, size);
+    }
+
     pub fn add_resource_list(&mut self, resource_list: &ResourceList, frame_id: FrameId) {
         // Update texture cache with any images that aren't yet uploaded to GPU.
         resource_list.for_each_image(|image_key, image_rendering| {

@@ -1042,6 +1042,10 @@ impl Device {
         self.raw_textures.insert(texture_id, (x0, y0, width, height));
     }
 
+    pub fn remove_raw_texture(&mut self, texture_id: TextureId) {
+        self.raw_textures.remove(&texture_id);
+    }
+
     fn set_texture_parameters(&mut self, target: gl::GLuint, filter: TextureFilter) {
         let filter = match filter {
             TextureFilter::Nearest => {
