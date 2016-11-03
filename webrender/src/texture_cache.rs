@@ -779,6 +779,13 @@ impl TextureCache {
         })
     }
 
+    pub fn add_raw_remove(&mut self, id: TextureId) {
+        self.pending_updates.push(TextureUpdate {
+            id: id,
+            op: TextureUpdateOp::Remove
+        });
+    }
+
     pub fn update(&mut self,
                   image_id: TextureCacheItemId,
                   width: u32,

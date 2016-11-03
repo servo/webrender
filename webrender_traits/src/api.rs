@@ -229,6 +229,11 @@ impl RenderApi {
         rx.recv().unwrap()
     }
 
+    pub fn resize_webgl_context(&self, context_id: WebGLContextId, size: &Size2D<i32>) {
+        let msg = ApiMsg::ResizeWebGLContext(context_id, *size);
+        self.api_sender.send(msg).unwrap();
+    }
+
     pub fn send_webgl_command(&self, context_id: WebGLContextId, command: WebGLCommand) {
         let msg = ApiMsg::WebGLCommand(context_id, command);
         self.api_sender.send(msg).unwrap();

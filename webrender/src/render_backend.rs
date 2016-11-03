@@ -303,6 +303,21 @@ impl RenderBackend {
                                 tx.send(Err("Not implemented yet".to_owned())).unwrap();
                             }
                         }
+                        ApiMsg::ResizeWebGLContext(context_id, size) => {
+                            let ctx = self.webgl_contexts.get_mut(&context_id).unwrap();
+                            ctx.make_current();
+                            match ctx.resize(&size) {
+                                Ok(_) => {
+                                    // Update webgl texture size. Texture id may change too.
+                                    let (real_size, texture_id, _) = ctx.get_info();
+                                    self.resource_cache
+                                        .update_webgl_texture(context_id, TextureId::new(texture_id), real_size);
+                                },
+                                Err(msg) => {
+                                    error!("Error resizing WebGLContext: {}", msg);
+                                }
+                            }
+                        }
                         ApiMsg::WebGLCommand(context_id, command) => {
                             // TODO: Buffer the commands and only apply them here if they need to
                             // be synchronous.

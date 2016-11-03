@@ -134,6 +134,17 @@ impl GLContextWrapper {
             }
         }
     }
+
+    pub fn resize(&mut self, size: &Size2D<i32>) -> Result<(), &'static str> {
+        match *self {
+            GLContextWrapper::Native(ref mut ctx) => {
+                ctx.resize(*size)
+            }
+            GLContextWrapper::OSMesa(ref mut ctx) => {
+                ctx.resize(*size)
+            }
+        }
+    }
 }
 
 pub type DeviceRect = TypedRect<i32, DevicePixel>;
@@ -338,6 +349,7 @@ pub enum TextureUpdateOp {
     Create(u32, u32, ImageFormat, TextureFilter, RenderTargetMode, Option<Vec<u8>>),
     Update(u32, u32, u32, u32, TextureUpdateDetails),
     Grow(u32, u32, ImageFormat, TextureFilter, RenderTargetMode),
+    Remove
 }
 
 pub struct TextureUpdate {

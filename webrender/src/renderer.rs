@@ -1033,6 +1033,9 @@ impl Renderer {
                             }
                         }
                     }
+                    TextureUpdateOp::Remove => {
+                        self.device.remove_raw_texture(update.id);
+                    }
                 }
             }
         }
