@@ -115,13 +115,17 @@ impl FontContext {
                                 size: Au,
                                 character: u32,
                                 device_pixel_ratio: f32) -> Option<GlyphDimensions> {
-        self.load_glyph(font_key, size, character, device_pixel_ratio).map(|slot| {
+        self.load_glyph(font_key, size, character, device_pixel_ratio).and_then(|slot| {
             let metrics = unsafe { &(*slot).metrics };
-            GlyphDimensions {
-                left: (metrics.horiBearingX >> 6) as i32,
-                top: (metrics.horiBearingY >> 6) as i32,
-                width: (metrics.width >> 6) as u32,
-                height: (metrics.height >> 6) as u32,
+            if metrics.width == 0 || metrics.height == 0 {
+                None
+            } else {
+                Some(GlyphDimensions {
+                    left: (metrics.horiBearingX >> 6) as i32,
+                    top: (metrics.horiBearingY >> 6) as i32,
+                    width: (metrics.width >> 6) as u32,
+                    height: (metrics.height >> 6) as u32,
+                })
             }
         })
     }
