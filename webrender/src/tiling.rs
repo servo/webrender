@@ -541,6 +541,24 @@ impl RenderPass {
         self.tasks.push(task);
     }
 
+    fn allocate_target(targets: &mut Vec<RenderTarget>, size: Size2D<u32>) -> Point2D<u32> {
+        let existing_origin = targets.last_mut()
+                                     .unwrap()
+                                     .page_allocator.allocate(&size);
+        match existing_origin {
+            Some(origin) => origin,
+            None => {
+                let mut new_target = RenderTarget::new();
+                let origin = new_target.page_allocator
+                                       .allocate(&size)
+                                       .expect("Each render task must allocate <= size of one target!");
+                targets.push(new_target);
+                origin
+            }
+        }
+    }
+
+
     fn build(&mut self,
              ctx: &RenderTargetContext,
              render_tasks: &mut RenderTaskCollection) {
@@ -569,27 +587,11 @@ impl RenderPass {
 
                     let alloc_size = Size2D::new(size.width as u32,
                                                  size.height as u32);
+                    let alloc_origin = Self::allocate_target(&mut self.targets, alloc_size);
 
-                    let alloc_origin = self.targets
-                                           .last_mut()
-                                           .unwrap()
-                                           .page_allocator.allocate(&alloc_size);
-
-                    let alloc_origin = match alloc_origin {
-                        Some(alloc_origin) => alloc_origin,
-                        None => {
-                            let mut new_target = RenderTarget::new();
-                            let origin = new_target.page_allocator
-                                                   .allocate(&alloc_size)
-                                                   .expect("Each render task must allocate <= size of one target!");
-                            self.targets.push(new_target);
-                            origin
-                        }
-                    };
-
-                    let alloc_origin = DevicePoint::new(alloc_origin.x as i32,
-                                                        alloc_origin.y as i32);
-                    *origin = Some((alloc_origin, RenderTargetIndex(self.targets.len() - 1)));
+                    *origin = Some((DevicePoint::new(alloc_origin.x as i32,
+                                                     alloc_origin.y as i32),
+                                    RenderTargetIndex(self.targets.len() - 1)));
                 }
             }
 
