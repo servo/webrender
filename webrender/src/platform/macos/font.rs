@@ -121,14 +121,18 @@ impl FontContext {
                                 size: Au,
                                 character: u32,
                                 device_pixel_ratio: f32) -> Option<GlyphDimensions> {
-        self.get_ct_font(font_key, size, device_pixel_ratio).map(|ref ct_font| {
+        self.get_ct_font(font_key, size, device_pixel_ratio).and_then(|ref ct_font| {
             let glyph = character as CGGlyph;
             let metrics = get_glyph_metrics(ct_font, glyph);
-            GlyphDimensions {
-                left: metrics.rasterized_left,
-                top: metrics.rasterized_ascent,
-                width: metrics.rasterized_width as u32,
-                height: metrics.rasterized_height as u32,
+            if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
+                None
+            } else {
+                Some(GlyphDimensions {
+                    left: metrics.rasterized_left,
+                    top: metrics.rasterized_ascent,
+                    width: metrics.rasterized_width as u32,
+                    height: metrics.rasterized_height as u32,
+                })
             }
         })
     }

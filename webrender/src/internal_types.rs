@@ -475,24 +475,6 @@ pub struct PolygonPosColorUv {
     pub vertices: Vec<WorkVertex>,
 }
 
-#[derive(PartialEq, Eq, Hash)]
-pub struct Glyph {
-    pub size: Au,
-    pub blur_radius: Au,
-    pub index: u32,
-}
-
-impl Glyph {
-    #[inline]
-    pub fn new(size: Au, blur_radius: Au, index: u32) -> Glyph {
-        Glyph {
-            size: size,
-            blur_radius: blur_radius,
-            index: index,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct PackedVertexForTextureCacheUpdate {

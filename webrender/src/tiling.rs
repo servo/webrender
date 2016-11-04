@@ -14,7 +14,7 @@ use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
 use layer::Layer;
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
-use prim_store::{ClipInfo, ImagePrimitiveCpu, ImagePrimitiveKind};
+use prim_store::{ClipInfo, ImagePrimitiveCpu, ImagePrimitiveKind, ImagePrimitiveGpu};
 use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata, PrimitiveCacheInfo};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
 use prim_store::{PrimitiveCacheKey, TextRunPrimitiveGpu, TextRunPrimitiveCpu};
@@ -22,7 +22,6 @@ use prim_store::{PrimitiveStore, GpuBlock16, GpuBlock32, GpuBlock64, GpuBlock128
 use profiler::FrameProfileCounters;
 use renderer::BlendMode;
 use resource_cache::ResourceCache;
-use resource_list::ResourceList;
 use std::cmp;
 use std::collections::{HashMap};
 use std::f32;
@@ -41,6 +40,7 @@ const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
 
 trait AlphaBatchHelpers {
     fn get_batch_kind(&self, metadata: &PrimitiveMetadata) -> AlphaBatchKind;
+    fn get_texture_id(&self, metadata: &PrimitiveMetadata) -> TextureId;
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
                          tile_rect: &DeviceRect,
@@ -77,6 +77,23 @@ impl AlphaBatchHelpers for PrimitiveStore {
         };
 
         batch_kind
+    }
+
+    fn get_texture_id(&self, metadata: &PrimitiveMetadata) -> TextureId {
+        match metadata.prim_kind {
+            PrimitiveKind::Border |
+            PrimitiveKind::BoxShadow |
+            PrimitiveKind::Rectangle |
+            PrimitiveKind::Gradient => TextureId::invalid(),
+            PrimitiveKind::Image => {
+                let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
+                image_cpu.color_texture_id
+            }
+            PrimitiveKind::TextRun => {
+                let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
+                text_run_cpu.color_texture_id
+            }
+        }
     }
 
     // Optional narrow phase intersection test, depending on primitive type.
@@ -394,10 +411,11 @@ impl AlphaBatcher {
                             BlendMode::None
                         };
                         let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
+                        let color_texture_id = ctx.prim_store.get_texture_id(prim_metadata);
                         batch_key = AlphaBatchKey::primitive(batch_kind,
                                                              flags,
                                                              blend_mode,
-                                                             prim_metadata.color_texture_id,
+                                                             color_texture_id,
                                                              prim_metadata.mask_texture_id);
                     }
                 }
@@ -456,10 +474,15 @@ impl AlphaBatcher {
     }
 }
 
-struct RenderTargetContext<'a> {
-    layer_store: &'a Vec<StackingContext>,
+struct CompileTileContext<'a> {
+    layer_store: &'a [StackingContext],
     prim_store: &'a PrimitiveStore,
     render_task_id_counter: AtomicUsize,
+}
+
+struct RenderTargetContext<'a> {
+    layer_store: &'a [StackingContext],
+    prim_store: &'a PrimitiveStore,
 }
 
 /// A render target represents a number of rendering operations on a surface.
@@ -482,7 +505,9 @@ impl RenderTarget {
              ctx: &RenderTargetContext,
              render_tasks: &mut RenderTaskCollection,
              child_pass_index: RenderPassIndex) {
-        self.alpha_batcher.build(ctx, render_tasks, child_pass_index);
+        self.alpha_batcher.build(ctx,
+                                 render_tasks,
+                                 child_pass_index);
     }
 
     fn add_task(&mut self,
@@ -647,7 +672,7 @@ struct RenderTask {
 }
 
 impl RenderTask {
-    fn new_alpha_batch(actual_rect: DeviceRect, ctx: &RenderTargetContext) -> RenderTask {
+    fn new_alpha_batch(actual_rect: DeviceRect, ctx: &CompileTileContext) -> RenderTask {
         let task_index = ctx.render_task_id_counter.fetch_add(1, Ordering::Relaxed);
 
         RenderTask {
@@ -1053,7 +1078,6 @@ struct StackingContext {
     xf_rect: Option<TransformedRect>,
     composite_kind: CompositeKind,
     local_clip_rect: Rect<f32>,
-    prims_to_prepare: Vec<PrimitiveIndex>,
     tile_range: Option<TileRange>,
 }
 
@@ -1270,7 +1294,7 @@ impl ScreenTile {
         }
     }
 
-    fn compile(self, ctx: &RenderTargetContext) -> Option<CompiledScreenTile> {
+    fn compile(self, ctx: &CompileTileContext) -> Option<CompiledScreenTile> {
         if self.prim_count == 0 {
             return None;
         }
@@ -1434,7 +1458,6 @@ impl FrameBuilder {
             xf_rect: None,
             composite_kind: CompositeKind::new(composition_operations),
             local_clip_rect: clip_rect,
-            prims_to_prepare: Vec::new(),
             tile_range: None,
         };
         self.layer_store.push(sc);
@@ -1596,6 +1619,7 @@ impl FrameBuilder {
             stops_range: stops,
             kind: kind,
             reverse_stops: reverse_stops,
+            cache_dirty: true,
         };
 
         // To get reftests exactly matching with reverse start/end
@@ -1651,6 +1675,9 @@ impl FrameBuilder {
                 font_size: size,
                 blur_radius: blur_radius,
                 glyph_range: sub_range,
+                cache_dirty: true,
+                glyph_indices: Vec::new(),
+                color_texture_id: TextureId::invalid(),
             };
 
             let prim_gpu = TextRunPrimitiveGpu {
@@ -1740,12 +1767,20 @@ impl FrameBuilder {
                                context_id: WebGLContextId) {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::WebGL(context_id),
+            color_texture_id: TextureId::invalid(),
+        };
+
+        let prim_gpu = ImagePrimitiveGpu {
+            uv0: Point2D::zero(),
+            uv1: Point2D::zero(),
+            stretch_size: rect.size,
+            tile_spacing: Size2D::zero(),
         };
 
         self.add_primitive(&rect,
                            clip_rect,
                            clip,
-                           PrimitiveContainer::Image(prim_cpu));
+                           PrimitiveContainer::Image(prim_cpu, prim_gpu));
     }
 
     pub fn add_image(&mut self,
@@ -1759,14 +1794,21 @@ impl FrameBuilder {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::Image(image_key,
                                             image_rendering,
-                                            stretch_size.clone(),
-                                            tile_spacing.clone()),
+                                            *tile_spacing),
+            color_texture_id: TextureId::invalid(),
+        };
+
+        let prim_gpu = ImagePrimitiveGpu {
+            uv0: Point2D::zero(),
+            uv1: Point2D::zero(),
+            stretch_size: *stretch_size,
+            tile_spacing: *tile_spacing,
         };
 
         self.add_primitive(&rect,
                            clip_rect,
                            clip,
-                           PrimitiveContainer::Image(prim_cpu));
+                           PrimitiveContainer::Image(prim_cpu, prim_gpu));
     }
 
     /// Compute the contribution (bounding rectangles, and resources) of layers and their
@@ -1775,9 +1817,9 @@ impl FrameBuilder {
                    screen_rect: &DeviceRect,
                    layer_map: &HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>,
                    pipeline_auxiliary_lists: &HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>,
-                   resource_list: &mut ResourceList,
                    x_tile_count: i32,
                    y_tile_count: i32,
+                   resource_cache: &mut ResourceCache,
                    profile_counters: &mut FrameProfileCounters) {
         // Build layer screen rects.
         // TODO(gw): This can be done earlier once update_layer_transforms() is fixed.
@@ -1867,10 +1909,15 @@ impl FrameBuilder {
                                                                self.device_pixel_ratio) {
                             profile_counters.visible_primitives.inc();
 
-                            if self.prim_store.build_resource_list(prim_index,
-                                                                   resource_list,
-                                                                   auxiliary_lists) {
-                                layer.prims_to_prepare.push(prim_index)
+                            if self.prim_store.prepare_prim_for_render(prim_index,
+                                                                       resource_cache,
+                                                                       self.device_pixel_ratio,
+                                                                       auxiliary_lists) {
+                                self.prim_store.build_bounding_rect(prim_index,
+                                                                    screen_rect,
+                                                                    &packed_layer.transform,
+                                                                    &packed_layer.local_clip_rect,
+                                                                    self.device_pixel_ratio);
                             }
                         }
                     }
@@ -2001,37 +2048,6 @@ impl FrameBuilder {
         }
     }
 
-    fn prepare_primitives(&mut self,
-                          screen_rect: &DeviceRect,
-                          resource_cache: &mut ResourceCache,
-                          frame_id: FrameId,
-                          pipeline_auxiliary_lists: &HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>) {
-        for (layer, packed_layer) in self.layer_store
-                                         .iter_mut()
-                                         .zip(self.packed_layers.iter()) {
-            if !layer.is_visible() {
-                continue;
-            }
-
-            let auxiliary_lists = pipeline_auxiliary_lists.get(&layer.pipeline_id)
-                                                              .expect("No auxiliary lists?!");
-
-            for prim_index in layer.prims_to_prepare.drain(..) {
-                if self.prim_store.prepare_prim_for_render(prim_index,
-                                                           resource_cache,
-                                                           frame_id,
-                                                           self.device_pixel_ratio,
-                                                           auxiliary_lists) {
-                    self.prim_store.build_bounding_rect(prim_index,
-                                                        screen_rect,
-                                                        &packed_layer.transform,
-                                                        &packed_layer.local_clip_rect,
-                                                        self.device_pixel_ratio);
-                }
-            }
-        }
-    }
-
     fn update_scroll_bars(&mut self,
                           layer_map: &HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>) {
         let distance_from_edge = 8.0;
@@ -2086,11 +2102,12 @@ impl FrameBuilder {
         let mut profile_counters = FrameProfileCounters::new();
         profile_counters.total_primitives.set(self.prim_store.prim_count());
 
+        resource_cache.begin_frame(frame_id);
+
         let screen_rect = DeviceRect::new(DevicePoint::zero(),
                                           DeviceSize::from_lengths(device_pixel(self.screen_rect.size.width as f32, self.device_pixel_ratio),
                                                                    device_pixel(self.screen_rect.size.height as f32, self.device_pixel_ratio)));
 
-        let mut resource_list = ResourceList::new();
         let mut debug_rects = Vec::new();
 
         let (x_tile_count, y_tile_count, mut screen_tiles) = self.create_screen_tiles();
@@ -2100,75 +2117,79 @@ impl FrameBuilder {
         self.cull_layers(&screen_rect,
                          layer_map,
                          pipeline_auxiliary_lists,
-                         &mut resource_list,
                          x_tile_count,
                          y_tile_count,
+                         resource_cache,
                          &mut profile_counters);
 
-        resource_cache.add_resource_list(&resource_list, frame_id);
-        resource_cache.raster_pending_glyphs(frame_id);
-
-        self.prepare_primitives(&screen_rect,
-                                resource_cache,
-                                frame_id,
-                                pipeline_auxiliary_lists);
-
-        let ctx = RenderTargetContext {
-            layer_store: &self.layer_store,
-            prim_store: &self.prim_store,
-
-            // This doesn't need to be atomic right now (all the screen tiles are
-            // compiled on a single thread). However, in the future each of the
-            // compile steps below will be run on a worker thread, which will
-            // require an atomic int here anyway.
-            render_task_id_counter: AtomicUsize::new(0),
-        };
-
-        if !self.layer_store.is_empty() {
-            self.assign_prims_to_screen_tiles(&mut screen_tiles, x_tile_count);
-        }
-
         let mut clear_tiles = Vec::new();
-
-        // Build list of passes, target allocs that each tile needs.
         let mut compiled_screen_tiles = Vec::new();
         let mut max_passes_needed = 0;
-        for screen_tile in screen_tiles {
-            let rect = screen_tile.rect;        // TODO(gw): Remove clone here
-            match screen_tile.compile(&ctx) {
-                Some(compiled_screen_tile) => {
-                    max_passes_needed = cmp::max(max_passes_needed,
-                                                 compiled_screen_tile.required_pass_count);
-                    if self.debug {
-                        let (label, color) = match &compiled_screen_tile.info {
-                            &CompiledScreenTileInfo::SimpleAlpha(prim_count) => {
-                                (format!("{}", prim_count), ColorF::new(1.0, 0.0, 1.0, 1.0))
-                            }
-                            &CompiledScreenTileInfo::ComplexAlpha(cmd_count, prim_count) => {
-                                (format!("{}|{}", cmd_count, prim_count), ColorF::new(1.0, 0.0, 0.0, 1.0))
-                            }
-                        };
-                        debug_rects.push(DebugRect {
-                            label: label,
-                            color: color,
+
+        let mut render_tasks = {
+            let ctx = CompileTileContext {
+                layer_store: &self.layer_store,
+                prim_store: &self.prim_store,
+
+                // This doesn't need to be atomic right now (all the screen tiles are
+                // compiled on a single thread). However, in the future each of the
+                // compile steps below will be run on a worker thread, which will
+                // require an atomic int here anyway.
+                render_task_id_counter: AtomicUsize::new(0),
+            };
+
+            if !self.layer_store.is_empty() {
+                self.assign_prims_to_screen_tiles(&mut screen_tiles, x_tile_count);
+            }
+
+            // Build list of passes, target allocs that each tile needs.
+            for screen_tile in screen_tiles {
+                let rect = screen_tile.rect;
+                match screen_tile.compile(&ctx) {
+                    Some(compiled_screen_tile) => {
+                        max_passes_needed = cmp::max(max_passes_needed,
+                                                     compiled_screen_tile.required_pass_count);
+                        if self.debug {
+                            let (label, color) = match &compiled_screen_tile.info {
+                                &CompiledScreenTileInfo::SimpleAlpha(prim_count) => {
+                                    (format!("{}", prim_count), ColorF::new(1.0, 0.0, 1.0, 1.0))
+                                }
+                                &CompiledScreenTileInfo::ComplexAlpha(cmd_count, prim_count) => {
+                                    (format!("{}|{}", cmd_count, prim_count), ColorF::new(1.0, 0.0, 0.0, 1.0))
+                                }
+                            };
+                            debug_rects.push(DebugRect {
+                                label: label,
+                                color: color,
+                                rect: rect,
+                            });
+                        }
+                        compiled_screen_tiles.push(compiled_screen_tile);
+                    }
+                    None => {
+                        clear_tiles.push(ClearTile {
                             rect: rect,
                         });
                     }
-                    compiled_screen_tiles.push(compiled_screen_tile);
-                }
-                None => {
-                    clear_tiles.push(ClearTile {
-                        rect: rect,
-                    });
                 }
             }
-        }
+
+            let static_render_task_count = ctx.render_task_id_counter.load(Ordering::SeqCst);
+            RenderTaskCollection::new(static_render_task_count)
+        };
+
+        resource_cache.block_until_all_resources_added();
+
+        self.prim_store.resolve_primitives(resource_cache);
 
         let mut passes = Vec::new();
-        let static_render_task_count = ctx.render_task_id_counter.load(Ordering::SeqCst);
-        let mut render_tasks = RenderTaskCollection::new(static_render_task_count);
 
         if !compiled_screen_tiles.is_empty() {
+            let ctx = RenderTargetContext {
+                layer_store: &self.layer_store,
+                prim_store: &self.prim_store,
+            };
+
             // Do the allocations now, assigning each tile's tasks to a render
             // pass and target as required.
             for index in 0..max_passes_needed {
@@ -2188,6 +2209,8 @@ impl FrameBuilder {
             }
         }
 
+        resource_cache.end_frame();
+
         Frame {
             viewport_size: self.screen_rect.size,
             debug_rects: debug_rects,
@@ -2205,7 +2228,6 @@ impl FrameBuilder {
             gpu_geometry: self.prim_store.gpu_geometry.build(),
         }
     }
-
 }
 
 //Test for one clip region contains another
