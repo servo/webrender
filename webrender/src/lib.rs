@@ -50,6 +50,7 @@ extern crate log;
 extern crate bitflags;
 
 mod batch_builder;
+mod clip_stack;
 mod debug_colors;
 mod debug_font_data;
 mod debug_render;
