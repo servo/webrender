@@ -14,14 +14,15 @@ use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
 use layer::Layer;
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
-use prim_store::{ClipInfo, ImagePrimitiveCpu, ImagePrimitiveKind, ImagePrimitiveGpu};
+use prim_store::{ImagePrimitiveCpu, ImagePrimitiveGpu, ImagePrimitiveKind};
 use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata, PrimitiveCacheInfo};
+use prim_store::PrimitiveClipSource;
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
 use prim_store::{PrimitiveCacheKey, TextRunPrimitiveGpu, TextRunPrimitiveCpu};
 use prim_store::{PrimitiveStore, GpuBlock16, GpuBlock32, GpuBlock64, GpuBlock128};
 use profiler::FrameProfileCounters;
 use renderer::BlendMode;
-use resource_cache::ResourceCache;
+use resource_cache::{DummyResources, ResourceCache};
 use std::cmp;
 use std::collections::{HashMap};
 use std::f32;
@@ -32,11 +33,19 @@ use std::usize;
 use texture_cache::TexturePage;
 use util::{self, rect_from_points, MatrixHelpers, rect_from_points_f};
 use util::{TransformedRect, TransformedRectKind, subtract_rect, pack_as_float};
-use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, ComplexClipRegion, MixBlendMode};
-use webrender_traits::{BorderDisplayItem, BorderStyle, ItemRange, AuxiliaryLists, BorderSide};
-use webrender_traits::{BoxShadowClipMode, PipelineId, ScrollLayerId, WebGLContextId};
+use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, MixBlendMode};
+use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle};
+use webrender_traits::{AuxiliaryLists, ItemRange, BoxShadowClipMode, ClipRegion};
+use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
+
+pub type LayerMap = HashMap<ScrollLayerId,
+                            Layer,
+                            BuildHasherDefault<FnvHasher>>;
+pub type AuxiliaryListsMap = HashMap<PipelineId,
+                                     AuxiliaryLists,
+                                     BuildHasherDefault<FnvHasher>>;
 
 trait AlphaBatchHelpers {
     fn get_batch_kind(&self, metadata: &PrimitiveMetadata) -> AlphaBatchKind;
@@ -788,29 +797,6 @@ impl RenderTask {
 pub const SCREEN_TILE_SIZE: i32 = 256;
 pub const RENDERABLE_CACHE_SIZE: i32 = 2048;
 
-#[derive(Clone, Copy, Debug)]
-pub enum MaskImageSource {
-    User(ImageKey),
-    Renderer(TextureId),
-}
-
-/// Per-batch clipping info merged with the mask image.
-#[derive(Clone, Debug)]
-pub struct Clip {
-    pub clip: Box<ClipInfo>,
-    pub mask: MaskImageSource,
-}
-
-impl Clip {
-    pub fn new(clip: ClipInfo, mask: MaskImageSource) ->Clip {
-        Clip {
-            clip: Box::new(clip),
-            mask: mask,
-        }
-    }
-}
-
-
 #[derive(Debug, Clone)]
 pub struct DebugRect {
     pub label: String,
@@ -1173,6 +1159,7 @@ pub struct FrameBuilder {
     prim_store: PrimitiveStore,
     cmds: Vec<PrimitiveRunCmd>,
     device_pixel_ratio: f32,
+    dummy_resources: DummyResources,
     debug: bool,
 
     layer_store: Vec<StackingContext>,
@@ -1401,6 +1388,7 @@ impl ScreenTile {
 impl FrameBuilder {
     pub fn new(viewport_size: Size2D<f32>,
                device_pixel_ratio: f32,
+               dummy_resources: DummyResources,
                debug: bool,
                _config: FrameBuilderConfig) -> FrameBuilder {
         let viewport_size = Size2D::new(viewport_size.width as i32, viewport_size.height as i32);
@@ -1410,6 +1398,7 @@ impl FrameBuilder {
             prim_store: PrimitiveStore::new(device_pixel_ratio),
             cmds: Vec::new(),
             device_pixel_ratio: device_pixel_ratio,
+            dummy_resources: dummy_resources,
             debug: debug,
             packed_layers: Vec::new(),
             scrollbar_prims: Vec::new(),
@@ -1418,12 +1407,10 @@ impl FrameBuilder {
 
     fn add_primitive(&mut self,
                      rect: &Rect<f32>,
-                     clip_rect: &Rect<f32>,
-                     clip: Option<Clip>,
+                     clip_region: &ClipRegion,
                      container: PrimitiveContainer) -> PrimitiveIndex {
         let prim_index = self.prim_store.add_primitive(rect,
-                                                       clip_rect,
-                                                       clip,
+                                                       clip_region,
                                                        container);
 
         match self.cmds.last_mut().unwrap() {
@@ -1478,8 +1465,7 @@ impl FrameBuilder {
 
     pub fn add_solid_rectangle(&mut self,
                                rect: &Rect<f32>,
-                               clip_rect: &Rect<f32>,
-                               clip: Option<Clip>,
+                               clip_region: &ClipRegion,
                                color: &ColorF,
                                flags: PrimitiveFlags) {
         if color.a == 0.0 {
@@ -1491,8 +1477,7 @@ impl FrameBuilder {
         };
 
         let prim_index = self.add_primitive(rect,
-                                            clip_rect,
-                                            clip,
+                                            clip_region,
                                             PrimitiveContainer::Rectangle(prim));
 
         match flags {
@@ -1527,8 +1512,7 @@ impl FrameBuilder {
 
     pub fn add_border(&mut self,
                       rect: Rect<f32>,
-                      clip_rect: &Rect<f32>,
-                      clip: Option<Clip>,
+                      clip_region: &ClipRegion,
                       border: &BorderDisplayItem) {
         let radius = &border.radius;
         let left = &border.left;
@@ -1592,15 +1576,13 @@ impl FrameBuilder {
         };
 
         self.add_primitive(&rect,
-                           clip_rect,
-                           clip,
+                           clip_region,
                            PrimitiveContainer::Border(prim_cpu, prim_gpu));
     }
 
     pub fn add_gradient(&mut self,
                         rect: Rect<f32>,
-                        clip_rect: &Rect<f32>,
-                        clip: Option<Clip>,
+                        clip_region: &ClipRegion,
                         start_point: Point2D<f32>,
                         end_point: Point2D<f32>,
                         stops: ItemRange) {
@@ -1639,15 +1621,13 @@ impl FrameBuilder {
         };
 
         self.add_primitive(&rect,
-                           clip_rect,
-                           clip,
+                           clip_region,
                            PrimitiveContainer::Gradient(gradient_cpu, gradient_gpu));
     }
 
     pub fn add_text(&mut self,
                     rect: Rect<f32>,
-                    clip_rect: &Rect<f32>,
-                    clip: Option<Clip>,
+                    clip_region: &ClipRegion,
                     font_key: FontKey,
                     size: Au,
                     blur_radius: Au,
@@ -1685,16 +1665,14 @@ impl FrameBuilder {
             };
 
             self.add_primitive(&rect,
-                               clip_rect,
-                               clip.clone(),
+                               clip_region,
                                PrimitiveContainer::TextRun(prim_cpu, prim_gpu));
         }
     }
 
     pub fn add_box_shadow(&mut self,
                           box_bounds: &Rect<f32>,
-                          clip_rect: &Rect<f32>,
-                          clip: Option<Clip>,
+                          clip_region: &ClipRegion,
                           box_offset: &Point2D<f32>,
                           color: &ColorF,
                           blur_radius: f32,
@@ -1708,8 +1686,7 @@ impl FrameBuilder {
         // Fast path.
         if blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None {
             self.add_solid_rectangle(&box_bounds,
-                                     clip_rect,
-                                     None,
+                                     clip_region,
                                      color,
                                      PrimitiveFlags::None);
             return;
@@ -1737,8 +1714,7 @@ impl FrameBuilder {
         if edge_size == 0.0 {
             for rect in &instance_rects {
                 self.add_solid_rectangle(rect,
-                                         clip_rect,
-                                         clip.clone(),
+                                         clip_region,
                                          color,
                                          PrimitiveFlags::None)
             }
@@ -1754,16 +1730,14 @@ impl FrameBuilder {
             };
 
             self.add_primitive(&prim_rect,
-                               clip_rect,
-                               clip,
+                               clip_region,
                                PrimitiveContainer::BoxShadow(prim_gpu, instance_rects));
         }
     }
 
     pub fn add_webgl_rectangle(&mut self,
                                rect: Rect<f32>,
-                               clip_rect: &Rect<f32>,
-                               clip: Option<Clip>,
+                               clip_region: &ClipRegion,
                                context_id: WebGLContextId) {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::WebGL(context_id),
@@ -1778,15 +1752,13 @@ impl FrameBuilder {
         };
 
         self.add_primitive(&rect,
-                           clip_rect,
-                           clip,
+                           clip_region,
                            PrimitiveContainer::Image(prim_cpu, prim_gpu));
     }
 
     pub fn add_image(&mut self,
                      rect: Rect<f32>,
-                     clip_rect: &Rect<f32>,
-                     clip: Option<Clip>,
+                     clip_region: &ClipRegion,
                      stretch_size: &Size2D<f32>,
                      tile_spacing: &Size2D<f32>,
                      image_key: ImageKey,
@@ -1806,8 +1778,7 @@ impl FrameBuilder {
         };
 
         self.add_primitive(&rect,
-                           clip_rect,
-                           clip,
+                           clip_region,
                            PrimitiveContainer::Image(prim_cpu, prim_gpu));
     }
 
@@ -1815,8 +1786,8 @@ impl FrameBuilder {
     /// primitives in screen space.
     fn cull_layers(&mut self,
                    screen_rect: &DeviceRect,
-                   layer_map: &HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>,
-                   pipeline_auxiliary_lists: &HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>,
+                   layer_map: &LayerMap,
+                   auxiliary_lists_map: &AuxiliaryListsMap,
                    x_tile_count: i32,
                    y_tile_count: i32,
                    resource_cache: &mut ResourceCache,
@@ -1826,6 +1797,10 @@ impl FrameBuilder {
 
         // TODO(gw): Remove this stack once the layers refactor is done!
         let mut layer_stack: Vec<StackingContextIndex> = Vec::new();
+        let dummy_mask_cache_item = {
+            let opaque_mask_id = self.dummy_resources.opaque_mask_image_id;
+            resource_cache.get_image_by_cache_id(opaque_mask_id).clone()
+        };
 
         for cmd in &self.cmds {
             match cmd {
@@ -1897,8 +1872,8 @@ impl FrameBuilder {
                     }
 
                     let packed_layer = &self.packed_layers[sc_index.0];
-                    let auxiliary_lists = pipeline_auxiliary_lists.get(&layer.pipeline_id)
-                                                                  .expect("No auxiliary lists?!");
+                    let auxiliary_lists = auxiliary_lists_map.get(&layer.pipeline_id)
+                                                             .expect("No auxiliary lists?");
 
                     for i in 0..prim_count {
                         let prim_index = PrimitiveIndex(prim_index.0 + i);
@@ -1912,6 +1887,7 @@ impl FrameBuilder {
                             if self.prim_store.prepare_prim_for_render(prim_index,
                                                                        resource_cache,
                                                                        self.device_pixel_ratio,
+                                                                       &dummy_mask_cache_item,
                                                                        auxiliary_lists) {
                                 self.prim_store.build_bounding_rect(prim_index,
                                                                     screen_rect,
@@ -2049,7 +2025,7 @@ impl FrameBuilder {
     }
 
     fn update_scroll_bars(&mut self,
-                          layer_map: &HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>) {
+                          layer_map: &LayerMap) {
         let distance_from_edge = 8.0;
 
         for scrollbar_prim in &self.scrollbar_prims {
@@ -2084,12 +2060,13 @@ impl FrameBuilder {
             geom.local_rect.origin.y = util::lerp(min_y, max_y, f);
             geom.local_clip_rect = geom.local_rect;
 
-            if scrollbar_prim.border_radius == 0.0 {
-                self.prim_store.set_complex_clip(scrollbar_prim.prim_index, None);
+            let clip_source = if scrollbar_prim.border_radius == 0.0 {
+                PrimitiveClipSource::NoClip
             } else {
-                let clip = ClipInfo::uniform(geom.local_rect, scrollbar_prim.border_radius);
-                self.prim_store.set_complex_clip(scrollbar_prim.prim_index, Some(clip));
-            }
+                PrimitiveClipSource::Complex(geom.local_rect,
+                                             scrollbar_prim.border_radius)
+            };
+            self.prim_store.set_clip_source(scrollbar_prim.prim_index, clip_source);
             *self.prim_store.gpu_geometry.get_mut(GpuStoreAddress(scrollbar_prim.prim_index.0 as i32)) = geom;
         }
     }
@@ -2097,8 +2074,9 @@ impl FrameBuilder {
     pub fn build(&mut self,
                  resource_cache: &mut ResourceCache,
                  frame_id: FrameId,
-                 pipeline_auxiliary_lists: &HashMap<PipelineId, AuxiliaryLists, BuildHasherDefault<FnvHasher>>,
-                 layer_map: &HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>) -> Frame {
+                 layer_map: &LayerMap,
+                 auxiliary_lists_map: &AuxiliaryListsMap) -> Frame {
+
         let mut profile_counters = FrameProfileCounters::new();
         profile_counters.total_primitives.set(self.prim_store.prim_count());
 
@@ -2116,7 +2094,7 @@ impl FrameBuilder {
 
         self.cull_layers(&screen_rect,
                          layer_map,
-                         pipeline_auxiliary_lists,
+                         auxiliary_lists_map,
                          x_tile_count,
                          y_tile_count,
                          resource_cache,
@@ -2227,33 +2205,5 @@ impl FrameBuilder {
             gpu_data128: self.prim_store.gpu_data128.build(),
             gpu_geometry: self.prim_store.gpu_geometry.build(),
         }
-    }
-}
-
-//Test for one clip region contains another
-pub trait InsideTest<T> {
-    fn might_contain(&self, clip: &T) -> bool;
-}
-
-impl InsideTest<ComplexClipRegion> for ComplexClipRegion {
-    // Returns true if clip is inside self, can return false negative
-    fn might_contain(&self, clip: &ComplexClipRegion) -> bool {
-        let delta_left = clip.rect.origin.x - self.rect.origin.x;
-        let delta_top = clip.rect.origin.y - self.rect.origin.y;
-        let delta_right = self.rect.max_x() - clip.rect.max_x();
-        let delta_bottom = self.rect.max_y() - clip.rect.max_y();
-
-        delta_left >= 0f32 &&
-        delta_top >= 0f32 &&
-        delta_right >= 0f32 &&
-        delta_bottom >= 0f32 &&
-        clip.radii.top_left.width >= self.radii.top_left.width - delta_left &&
-        clip.radii.top_left.height >= self.radii.top_left.height - delta_top &&
-        clip.radii.top_right.width >= self.radii.top_right.width - delta_right &&
-        clip.radii.top_right.height >= self.radii.top_right.height - delta_top &&
-        clip.radii.bottom_left.width >= self.radii.bottom_left.width - delta_left &&
-        clip.radii.bottom_left.height >= self.radii.bottom_left.height - delta_bottom &&
-        clip.radii.bottom_right.width >= self.radii.bottom_right.width - delta_right &&
-        clip.radii.bottom_right.height >= self.radii.bottom_right.height - delta_bottom
     }
 }

@@ -187,6 +187,12 @@ pub struct ClipRegion {
     pub image_mask: Option<ImageMask>,
 }
 
+impl ClipRegion {
+    pub fn is_complex(&self) -> bool {
+        self.complex.length !=0 || self.image_mask.is_some()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ComplexClipRegion {
     /// The boundaries of the rectangle.
