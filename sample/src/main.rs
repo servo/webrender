@@ -138,7 +138,7 @@ fn main() {
         enable_recording: false,
         enable_scrollbars: false,
         debug: true,
-        precache_shaders: false,
+        precache_shaders: true,
         renderer_kind: RendererKind::Native,
     };
 
