@@ -231,7 +231,7 @@ impl ClipCorner {
 #[derive(Debug, Clone)]
 struct ImageMaskData {
     uv_rect: Rect<f32>,
-    local_rect: Rect<f32>,
+    screen_rect: Rect<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -288,7 +288,7 @@ impl ClipData {
             },
             mask_data: ImageMaskData {
                 uv_rect: Rect::zero(),
-                local_rect: Rect::zero(),
+                screen_rect: Rect::zero(),
             },
         }
     }
@@ -321,7 +321,7 @@ impl ClipData {
                                               0.0),
             mask_data: ImageMaskData {
                 uv_rect: Rect::zero(),
-                local_rect: Rect::zero(),
+                screen_rect: Rect::zero(),
             },
         }
     }
@@ -577,7 +577,7 @@ impl PrimitiveStore {
                         uv_rect: Rect::new(tex_cache.uv0,
                                            Size2D::new(tex_cache.uv1.x - tex_cache.uv0.x,
                                                        tex_cache.uv1.y - tex_cache.uv0.y)),
-                        local_rect: mask.rect,
+                        screen_rect: mask.rect,
                     });
                 }
             }
@@ -688,6 +688,14 @@ impl PrimitiveStore {
                                    device_pixel_ratio: f32,
                                    dummy_mask_cache_item: &TextureCacheItem,
                                    auxiliary_lists: &AuxiliaryLists) -> bool {
+        /*
+        if let ClipMask::Image(image_mask) = self.cpu_metadata[prim_index.0].clip_mask {
+            let tex_cache = resource_cache.get_image(image_mask.image,
+                                                     ImageRendering::Auto,
+                                                     frame_id);
+            self.update_mask_info(prim_index, image_mask.rect, tex_cache);
+        }*/
+
         let metadata = &mut self.cpu_metadata[prim_index.0];
         let mut prim_needs_resolve = false;
         let mut rebuild_bounding_rect = false;
