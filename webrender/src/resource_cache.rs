@@ -7,9 +7,7 @@ use device::{TextureFilter, TextureId};
 use euclid::{Point2D, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
-use freelist::FreeList;
-use internal_types::FontTemplate;
-use internal_types::{TextureUpdateList, DrawListId, DrawList};
+use internal_types::{FontTemplate, TextureUpdateList};
 use platform::font::{FontContext, RasterizedGlyph};
 use rayon::prelude::*;
 use std::cell::RefCell;
@@ -19,8 +17,8 @@ use std::fmt::Debug;
 use std::hash::BuildHasherDefault;
 use std::hash::Hash;
 use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
-use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, DisplayItem, ImageRendering};
-use webrender_traits::{FontRenderMode, GlyphDimensions, PipelineId, WebGLContextId};
+use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRendering};
+use webrender_traits::{FontRenderMode, GlyphDimensions, WebGLContextId};
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
@@ -180,7 +178,6 @@ pub struct ResourceCache {
     // TODO(pcwalton): Figure out the lifecycle of these.
     webgl_textures: HashMap<WebGLContextId, WebGLTexture, BuildHasherDefault<FnvHasher>>,
 
-    draw_lists: FreeList<DrawList>,
     font_templates: HashMap<FontKey, FontTemplate, BuildHasherDefault<FnvHasher>>,
     image_templates: HashMap<ImageKey, ImageResource, BuildHasherDefault<FnvHasher>>,
     device_pixel_ratio: f32,
@@ -204,7 +201,6 @@ impl ResourceCache {
             cached_glyphs: ResourceClassCache::new(),
             cached_images: ResourceClassCache::new(),
             webgl_textures: HashMap::with_hasher(Default::default()),
-            draw_lists: FreeList::new(),
             font_templates: HashMap::with_hasher(Default::default()),
             image_templates: HashMap::with_hasher(Default::default()),
             cached_glyph_dimensions: HashMap::with_hasher(Default::default()),
@@ -345,19 +341,6 @@ impl ResourceCache {
             };
             self.cached_glyphs.insert(job.glyph_key, image_id, self.current_frame_id);
         }
-    }
-
-    pub fn add_draw_list(&mut self, items: Vec<DisplayItem>, pipeline_id: PipelineId)
-                         -> DrawListId {
-        self.draw_lists.insert(DrawList::new(items, pipeline_id))
-    }
-
-    pub fn get_draw_list(&self, draw_list_id: DrawListId) -> &DrawList {
-        self.draw_lists.get(draw_list_id)
-    }
-
-    pub fn remove_draw_list(&mut self, draw_list_id: DrawListId) {
-        self.draw_lists.free(draw_list_id);
     }
 
     pub fn pending_updates(&mut self) -> TextureUpdateList {
