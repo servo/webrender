@@ -1665,6 +1665,10 @@ impl Renderer {
         &mut self.debug
     }
 
+    pub fn get_profiler_enabled(&mut self) -> bool {
+        self.enable_profiler
+    }
+
     pub fn set_profiler_enabled(&mut self, enabled: bool) {
         self.enable_profiler = enabled;
     }
