@@ -186,6 +186,9 @@ pub enum TextureSampler {
     Layers,
     RenderTasks,
     Geometry,
+    YPlane,
+    UPlane,
+    VPlane,
 }
 
 pub enum VertexAttribute {

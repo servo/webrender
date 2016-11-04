@@ -36,7 +36,7 @@ use util::{TransformedRect, TransformedRectKind, subtract_rect, pack_as_float};
 use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, MixBlendMode};
 use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle};
 use webrender_traits::{AuxiliaryLists, ItemRange, BoxShadowClipMode, ClipRegion};
-use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId};
+use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId, ExternalImageKey};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
 
@@ -182,6 +182,10 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     sub_index: 0,
                     user_data: [ 0, 0 ],
                 });
+            }
+            &mut PrimitiveBatchData::ExternalImage(ref mut data, img_key) => {
+                // TODO(nical)
+                unimplemented!();
             }
             &mut PrimitiveBatchData::Borders(ref mut data) => {
                 for border_segment in 0..8 {
@@ -942,6 +946,7 @@ pub enum PrimitiveBatchData {
     Rectangles(Vec<PrimitiveInstance>),
     TextRun(Vec<PrimitiveInstance>),
     Image(Vec<PrimitiveInstance>),
+    ExternalImage(Vec<PrimitiveInstance>, ExternalImageKey),
     Borders(Vec<PrimitiveInstance>),
     AlignedGradient(Vec<PrimitiveInstance>),
     AngleGradient(Vec<PrimitiveInstance>),

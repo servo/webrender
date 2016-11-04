@@ -325,6 +325,9 @@ pub enum ImageFormat {
 pub struct ImageKey(u32, u32);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct ExternalImageKey(u32, u32);
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ImageRendering {
     Auto,
     CrispEdges,

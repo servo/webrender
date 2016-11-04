@@ -40,7 +40,7 @@ use tiling::{RenderTarget, ClearTile};
 use time::precise_time_ns;
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
-use webrender_traits::{ImageFormat, RenderApiSender, RendererKind};
+use webrender_traits::{ImageFormat, RenderApiSender, RendererKind, ExternalImageKey};
 
 pub const BLUR_INFLATION_FACTOR: u32 = 3;
 pub const MAX_RASTER_OP_SIZE: u32 = 2048;
@@ -318,6 +318,17 @@ fn create_clear_shader(name: &'static str,
     program_id
 }
 
+pub enum ExternalTexture {
+    Yuv {
+        y_id: TextureId,
+        u_id: TextureId,
+        v_id: TextureId,
+    },
+    Rgb {
+        id: TextureId,
+    }
+}
+
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
 pub struct Renderer {
@@ -382,6 +393,9 @@ pub struct Renderer {
     data64_texture: VertexDataTexture,
     data128_texture: VertexDataTexture,
     pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
+
+    external_textures: HashMap<ExternalImageKey, ExternalTexture>,
+
     /// Used to dispatch functions to the main thread's event loop.
     /// Required to allow GLContext sharing in some implementations like WGL.
     main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
@@ -714,6 +728,7 @@ impl Renderer {
             data128_texture: data128_texture,
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
             main_thread_dispatcher: main_thread_dispatcher,
+            external_textures: HashMap::new(),
         };
 
         renderer.update_uniform_locations();
@@ -1490,6 +1505,48 @@ impl Renderer {
                         self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE);
                         self.ps_image.get(&mut self.device, transform_kind)
                     };
+                    self.draw_ubo_batch(ubo_data,
+                                        shader,
+                                        1,
+                                        color_texture_id,
+                                        mask_texture_id,
+                                        max_prim_items,
+                                        &projection);
+                }
+                &PrimitiveBatchData::ExternalImage(ref ubo_data, img_key) => {
+
+                    let (shader, max_prim_items) = match self.external_textures.get(&img_key) {
+                        Some(&ExternalTexture::Yuv { y_id, u_id, v_id }) => {
+                            self.device.bind_texture(TextureSampler::YPlane, y_id);
+                            self.device.bind_texture(TextureSampler::UPlane, u_id);
+                            self.device.bind_texture(TextureSampler::VPlane, v_id);
+
+                            if has_complex_clip {
+                                // TODO(nical)
+                                unimplemented!();
+                            }
+
+                            // TODO(nical) needs its own GPU_TAG?
+                            self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE);
+                            self.ps_yuv_image.get(&mut self.device, transform_kind)
+                        }
+                        Some(&ExternalTexture::Rgb { id }) => {
+                            self.device.bind_texture(TextureSampler::Color, id);
+
+                            if has_complex_clip {
+                                self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE_CLIP);
+                                self.ps_image_clip.get(&mut self.device, transform_kind)
+                            } else {
+                                self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE);
+                                self.ps_image.get(&mut self.device, transform_kind)
+                            }
+                        }
+                        None => {
+                            // TODO(nical) properly handle this.
+                            panic!("Missing external image!");
+                        }
+                    };
+
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
