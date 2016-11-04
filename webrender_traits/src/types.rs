@@ -36,20 +36,14 @@ pub enum ApiMsg {
     CloneApi(IpcSender<IdNamespace>),
     /// Supplies a new frame to WebRender.
     ///
-    /// The first `StackingContextId` describes the root stacking context. The actual stacking
-    /// contexts are supplied as the sixth parameter, while the display lists that make up those
-    /// stacking contexts are supplied as the seventh parameter.
-    ///
-    /// After receiving this message, WebRender will read the display lists, followed by the
+    /// After receiving this message, WebRender will read the display list, followed by the
     /// auxiliary lists, from the payload channel.
-    SetRootStackingContext(StackingContextId,
-                           ColorF,
-                           Epoch,
-                           PipelineId,
-                           Size2D<f32>,
-                           Vec<(StackingContextId, StackingContext)>,
-                           Vec<(DisplayListId, BuiltDisplayListDescriptor)>,
-                           AuxiliaryListsDescriptor),
+    SetRootDisplayList(ColorF,
+                       Epoch,
+                       PipelineId,
+                       Size2D<f32>,
+                       BuiltDisplayListDescriptor,
+                       AuxiliaryListsDescriptor),
     SetRootPipeline(PipelineId),
     Scroll(Point2D<f32>, Point2D<f32>, ScrollEventPhase),
     TickScrollingBounce,
@@ -210,23 +204,10 @@ pub struct DisplayItem {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct DisplayListId(pub u32, pub u32);
-
-#[derive(Clone, Copy, Deserialize, Serialize)]
-pub struct DisplayListItem {
-    pub specific: SpecificDisplayListItem,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum DisplayListMode {
     Default,
     PseudoFloat,
     PseudoPositionedContent,
-}
-
-#[derive(Clone, Copy, Deserialize, Serialize)]
-pub struct DrawListInfo {
-    pub items: ItemRange,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -302,15 +283,19 @@ pub struct GradientStop {
 }
 known_heap_size!(0, GradientStop);
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub struct IdNamespace(pub u32);
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct PushStackingContextDisplayItem {
+    pub stacking_context: StackingContext,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct IframeDisplayItem {
+    pub pipeline_id: PipelineId,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub struct IframeInfo {
-    pub id: PipelineId,
-    pub bounds: Rect<f32>,
-    pub clip: ClipRegion,
-}
+pub struct IdNamespace(pub u32);
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ImageDisplayItem {
@@ -452,36 +437,23 @@ pub enum SpecificDisplayItem {
     Border(BorderDisplayItem),
     BoxShadow(BoxShadowDisplayItem),
     Gradient(GradientDisplayItem),
+    Iframe(IframeDisplayItem),
+    PushStackingContext(PushStackingContextDisplayItem),
+    PopStackingContext,
 }
 
-#[derive(Clone, Copy, Deserialize, Serialize)]
-pub enum SpecificDisplayListItem {
-    DrawList(DrawListInfo),
-    StackingContext(StackingContextInfo),
-    Iframe(IframeInfo),
-}
-
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StackingContext {
     pub scroll_layer_id: Option<ScrollLayerId>,
     pub scroll_policy: ScrollPolicy,
     pub bounds: Rect<f32>,
     pub overflow: Rect<f32>,
     pub z_index: i32,
-    pub display_lists: Vec<DisplayListId>,
     pub transform: Matrix4D<f32>,
     pub perspective: Matrix4D<f32>,
     pub establishes_3d_context: bool,
     pub mix_blend_mode: MixBlendMode,
     pub filters: ItemRange,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct StackingContextId(pub u32, pub u32);
-
-#[derive(Clone, Copy, Deserialize, Serialize)]
-pub struct StackingContextInfo {
-    pub id: StackingContextId,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

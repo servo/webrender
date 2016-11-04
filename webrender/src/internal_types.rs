@@ -6,7 +6,6 @@ use app_units::Au;
 use device::{TextureId, TextureFilter};
 use euclid::{Point2D, Rect, Size2D, TypedRect, TypedPoint2D, TypedSize2D, Length, UnknownUnit};
 use fnv::FnvHasher;
-use freelist::{FreeListItem, FreeListItemId};
 use offscreen_gl_context::{NativeGLContext, NativeGLContextHandle};
 use offscreen_gl_context::{GLContext, NativeGLContextMethods, GLContextDispatcher};
 use offscreen_gl_context::{OSMesaContext, OSMesaContextHandle};
@@ -20,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tiling;
 use webrender_traits::{Epoch, ColorF, PipelineId};
-use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem};
+use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle};
 use webrender_traits::{ScrollLayerId, WebGLCommand};
 
 pub enum GLContextHandleWrapper {
@@ -161,8 +160,6 @@ pub enum FontTemplate {
     Raw(Arc<Vec<u8>>),
     Native(NativeFontHandle),
 }
-
-pub type DrawListId = FreeListItemId;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TextureSampler {
@@ -417,36 +414,6 @@ pub enum AxisDirection {
 
 #[derive(Debug, Clone, Copy)]
 pub struct StackingContextIndex(pub usize);
-
-#[derive(Debug)]
-pub struct DrawList {
-    pub items: Vec<DisplayItem>,
-    pub stacking_context_index: Option<StackingContextIndex>,
-    pub pipeline_id: PipelineId,
-    // TODO(gw): Structure squat to remove this field.
-    next_free_id: Option<FreeListItemId>,
-}
-
-impl DrawList {
-    pub fn new(items: Vec<DisplayItem>, pipeline_id: PipelineId) -> DrawList {
-        DrawList {
-            items: items,
-            stacking_context_index: None,
-            pipeline_id: pipeline_id,
-            next_free_id: None,
-        }
-    }
-}
-
-impl FreeListItem for DrawList {
-    fn next_free_id(&self) -> Option<FreeListItemId> {
-        self.next_free_id
-    }
-
-    fn set_next_free_id(&mut self, id: Option<FreeListItemId>) {
-        self.next_free_id = id;
-    }
-}
 
 #[derive(Clone, Copy, Debug)]
 pub struct RectUv<T, U = UnknownUnit> {
