@@ -263,14 +263,16 @@ impl ResourceCache {
     }
 
     pub fn update_webgl_texture(&mut self, id: WebGLContextId, texture_id: TextureId, size: Size2D<i32>) {
-        let prev_texture_id = *self.webgl_textures.get(&id).unwrap();
+        let webgl_texture = self.webgl_textures.get_mut(&id).unwrap();
 
         // Remove existing cache if texture id has changed
-        if prev_texture_id != texture_id {
-            self.texture_cache.add_raw_remove(prev_texture_id);
+        if webgl_texture.id != texture_id {
+            self.texture_cache.add_raw_remove(webgl_texture.id);
         }
         // Update new texture id and size
-        self.webgl_textures.insert(id, texture_id);
+        webgl_texture.id = texture_id;
+        webgl_texture.size = size;
+
         self.texture_cache.add_raw_update(texture_id, size);
     }
 
@@ -380,6 +382,8 @@ impl ResourceCache {
                 let uv1 = Point2D::new(cache_item.pixel_rect.bottom_right.x as f32,
                                        cache_item.pixel_rect.bottom_right.y as f32);
                 f(loop_index, uv0, uv1);
+                debug_assert!(texture_id == TextureId::invalid() ||
+                              texture_id == cache_item.texture_id);
                 texture_id = cache_item.texture_id;
             }
         }
