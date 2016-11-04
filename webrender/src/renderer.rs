@@ -141,6 +141,8 @@ impl VertexDataTexture {
 }
 
 const TRANSFORM_FEATURE: &'static [&'static str] = &["TRANSFORM"];
+const YUV_TRANSFORM_FEATURE: &'static [&'static str] = &["TRANSFORM", "YUV_IMAGE"];
+const YUV_FEATURE: &'static [&'static str] = &["YUV_IMAGE"];
 
 enum ShaderKind {
     Primitive,
@@ -336,6 +338,7 @@ pub struct Renderer {
     ps_rectangle: PrimitiveShader,
     ps_text_run: PrimitiveShader,
     ps_image: PrimitiveShader,
+    ps_yuv_image: PrimitiveShader,
     ps_border: PrimitiveShader,
     ps_gradient: PrimitiveShader,
     ps_gradient_clip: PrimitiveShader,
@@ -513,6 +516,22 @@ impl Renderer {
                                                            &mut device,
                                                            options.precache_shaders);
 
+        let ps_yuv_image = PrimitiveShader {
+            simple: LazilyCompiledShader::new(ShaderKind::Primitive,
+                                              "ps_image",
+                                              max_ubo_vectors,
+                                              YUV_FEATURE,
+                                              &mut device,
+                                              false),
+            transform: LazilyCompiledShader::new(ShaderKind::Primitive,
+                                                 "ps_image",
+                                                 max_ubo_vectors,
+                                                 YUV_TRANSFORM_FEATURE,
+                                                 &mut device,
+                                                 false),
+            max_items: max_prim_instances,
+        };
+
         let texture_ids = device.create_texture_ids(1024, TextureTarget::Default);
         let mut texture_cache = TextureCache::new(texture_ids);
 
@@ -658,6 +677,7 @@ impl Renderer {
             ps_rectangle: ps_rectangle,
             ps_text_run: ps_text_run,
             ps_image: ps_image,
+            ps_yuv_image: ps_yuv_image,
             ps_border: ps_border,
             ps_rectangle_clip: ps_rectangle_clip,
             ps_image_clip: ps_image_clip,

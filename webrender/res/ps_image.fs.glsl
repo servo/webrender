@@ -4,6 +4,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#ifdef WR_YUV_IMAGE
+uniform sampler2D sYTexture;
+// TODO: investigate storing the U and V planes in the same texture.
+uniform sampler2D sUTexture;
+uniform sampler2D sVTexture;
+uniform Mat3 uYuvColorMatrix;
+#endif
+
 void main(void) {
 #ifdef WR_FEATURE_TRANSFORM
     float alpha = 0.0;
@@ -25,5 +33,13 @@ void main(void) {
     vec2 st = vTextureOffset + ((position_in_tile / vStretchSize) * vTextureSize);
     alpha = alpha * float(all(bvec2(step(position_in_tile, vStretchSize))));
 
+#ifdef WR_YUV_IMAGE
+    float y = texture(sYTexture, st).a;
+    float u = texture(sUTexture, st).a;
+    float v = texture(sVTexture, st).a;
+    oFragColor.rgb = uYuvColorMatrix * vec3(y - 0.06275, u - 0.50196, v - 0.50196);
+    oFragColor.a = alpha;
+#else
     oFragColor = vec4(1, 1, 1, alpha) * texture(sDiffuse, st);
+#endif
 }
