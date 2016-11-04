@@ -182,11 +182,12 @@ impl AlphaBatchHelpers for PrimitiveStore {
         let prim_address = metadata.gpu_prim_index;
         let clip_address = metadata.clip_index.unwrap_or(GpuStoreAddress(0));
 
+        /*
         if let ClipMask::Cached(ref mask_cache) = metadata.clip_mask {
             let cache_task_id = RenderTaskId::Dynamic(RenderTaskKey::CacheMask(mask_cache.key));
             let cache_task_index = render_tasks.get_task_index(&cache_task_id,
                                                                child_pass_index);
-        }
+        }*/
 
         match &mut batch.data {
             &mut PrimitiveBatchData::Blend(..) |
@@ -1633,10 +1634,11 @@ impl ScreenTile {
                     }
 
                     // Add a task to render the updated image mask
+                    /*
                     if let ClipMask::Cached(ref mask_info) = prim_metadata.clip_mask {
                         let mask_task = RenderTask::new_mask(mask_info);
                         current_task.children.push(mask_task);
-                    }
+                    }*/
 
                     // Add any dynamic render tasks needed to render this primitive
                     if let Some(ref render_task) = prim_metadata.render_task {
@@ -1689,8 +1691,15 @@ impl FrameBuilder {
                      rect: &Rect<f32>,
                      clip_region: &ClipRegion,
                      container: PrimitiveContainer) -> PrimitiveIndex {
-        let prim_index = self.prim_store.add_primitive(rect,
-                                                       clip_region,
+
+        let clip_source = self.clip_stack.generate_source(clip_region);
+        let geometry = PrimitiveGeometry {
+            local_rect: *rect,
+            local_clip_rect: clip_region.main,
+        };
+
+        let prim_index = self.prim_store.add_primitive(geometry,
+                                                       Box::new(clip_source),
                                                        container);
 
         match self.cmds.last_mut().unwrap() {

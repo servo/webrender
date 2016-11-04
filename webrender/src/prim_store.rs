@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
+use clip_stack::MaskCacheInfo;
 use euclid::{Point2D, Matrix4D, Rect, Size2D};
 use gpu_store::{GpuStore, GpuStoreAddress};
 use internal_types::{device_pixel, DeviceRect, DeviceSize, SourceTexture};
@@ -55,7 +56,8 @@ pub enum PrimitiveCacheKey {
 pub enum PrimitiveClipSource {
     NoClip,
     Complex(Rect<f32>, f32),
-    Region(ClipRegion),
+    Region(ClipRegion), //TODO: simplify once MaskTarget is finalized
+    MaskTarget(Rect<f32>, MaskCacheInfo),
 }
 
 // TODO(gw): Pack the fields here better!
@@ -64,7 +66,7 @@ pub struct PrimitiveMetadata {
     pub is_opaque: bool,
     pub mask_texture_id: SourceTexture,
     pub clip_index: Option<GpuStoreAddress>,
-    pub clip_source: Box<PrimitiveClipSource>,
+    pub clip_source: Box<PrimitiveClipSource>, //TODO: reconsider the Box
     pub prim_kind: PrimitiveKind,
     pub cpu_prim_index: SpecificPrimitiveIndex,
     pub gpu_prim_index: GpuStoreAddress,
@@ -387,23 +389,13 @@ impl PrimitiveStore {
     }
 
     pub fn add_primitive(&mut self,
-                         rect: &Rect<f32>,
-                         clip: &ClipRegion,
+                         geometry: PrimitiveGeometry,
+                         clip_source: Box<PrimitiveClipSource>,
                          container: PrimitiveContainer) -> PrimitiveIndex {
         let prim_index = self.cpu_metadata.len();
 
         self.cpu_bounding_rects.push(None);
-
-        self.gpu_geometry.push(PrimitiveGeometry {
-            local_rect: *rect,
-            local_clip_rect: clip.main.clone(),
-        });
-
-        let clip_source = Box::new(if clip.is_complex() {
-            PrimitiveClipSource::Region(clip.clone())
-        } else {
-            PrimitiveClipSource::NoClip
-        });
+        self.gpu_geometry.push(geometry);
 
         let metadata = match container {
             PrimitiveContainer::Rectangle(rect) => {
