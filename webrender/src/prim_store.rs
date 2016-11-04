@@ -394,12 +394,11 @@ impl PrimitiveStore {
             local_clip_rect: clip.main.clone(),
         });
 
-        let (clip_index, clip_source) = if clip.is_complex() {
-            (Some(self.gpu_data32.alloc(6)),
-             Box::new(PrimitiveClipSource::Region(clip.clone())))
+        let clip_source = Box::new(if clip.is_complex() {
+            PrimitiveClipSource::Region(clip.clone())
         } else {
-            (None, Box::new(PrimitiveClipSource::NoClip))
-        };
+            PrimitiveClipSource::NoClip
+        });
 
         let metadata = match container {
             PrimitiveContainer::Rectangle(rect) => {
@@ -409,7 +408,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: is_opaque,
                     mask_texture_id: TextureId::invalid(),
-                    clip_index: clip_index,
+                    clip_index: None,
                     clip_source: clip_source,
                     prim_kind: PrimitiveKind::Rectangle,
                     cpu_prim_index: SpecificPrimitiveIndex::invalid(),
@@ -428,7 +427,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     mask_texture_id: TextureId::invalid(),
-                    clip_index: clip_index,
+                    clip_index: None,
                     clip_source: clip_source,
                     prim_kind: PrimitiveKind::TextRun,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_runs.len()),
@@ -447,7 +446,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     mask_texture_id: TextureId::invalid(),
-                    clip_index: clip_index,
+                    clip_index: None,
                     clip_source: clip_source,
                     prim_kind: PrimitiveKind::Image,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_images.len()),
@@ -466,7 +465,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     mask_texture_id: TextureId::invalid(),
-                    clip_index: clip_index,
+                    clip_index: None,
                     clip_source: clip_source,
                     prim_kind: PrimitiveKind::Border,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_borders.len()),
@@ -486,7 +485,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     mask_texture_id: TextureId::invalid(),
-                    clip_index: clip_index,
+                    clip_index: None,
                     clip_source: clip_source,
                     prim_kind: PrimitiveKind::Gradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
@@ -524,7 +523,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     mask_texture_id: TextureId::invalid(),
-                    clip_index: clip_index,
+                    clip_index: None,
                     clip_source: clip_source,
                     prim_kind: PrimitiveKind::BoxShadow,
                     cpu_prim_index: SpecificPrimitiveIndex::invalid(),
@@ -679,26 +678,24 @@ impl PrimitiveStore {
         let metadata = &mut self.cpu_metadata[prim_index.0];
         let mut prim_needs_resolve = false;
         let mut rebuild_bounding_rect = false;
-        if let &PrimitiveClipSource::Region(ClipRegion { image_mask: Some(mask), .. }) = metadata.clip_source.as_ref() {
-            resource_cache.request_image(mask.image, ImageRendering::Auto);
-            prim_needs_resolve = true;
-        }
-        if let Some(gpu_address) = metadata.clip_index {
+
+        if metadata.clip_index.is_none() {
+            // if the `clip_index` already exist, we consider the contents up to date
             let clip_data = match metadata.clip_source.as_ref() {
-                &PrimitiveClipSource::NoClip => {
-                    let local_rect = self.gpu_geometry.get(GpuStoreAddress(prim_index.0 as i32))
-                                         .local_clip_rect;
-                    ClipData::uniform(local_rect, 0.0)
-                }
+                &PrimitiveClipSource::NoClip => None,
                 &PrimitiveClipSource::Complex(rect, radius) => {
-                    ClipData::uniform(rect, radius)
+                    Some(ClipData::uniform(rect, radius))
                 }
                 &PrimitiveClipSource::Region(ref clip_region) => {
+                    if let Some(mask) = clip_region.image_mask {
+                        resource_cache.request_image(mask.image, ImageRendering::Auto);
+                    }
                     let clips = auxiliary_lists.complex_clip_regions(&clip_region.complex);
                     //TODO: proper solution to multiple complex clips
                     match clips.len() {
-                        0 => ClipData::uniform(clip_region.main, 0.0),
-                        1 => ClipData::from_clip_region(&clips[0]),
+                        0 if clip_region.image_mask.is_none() => None,
+                        0 => Some(ClipData::uniform(clip_region.main, 0.0)),
+                        1 => Some(ClipData::from_clip_region(&clips[0])),
                         _ => {
                             let internal_clip = clips.last().unwrap();
                             let region = if clips.iter().all(|current_clip| current_clip.might_contain(internal_clip)) {
@@ -706,15 +703,20 @@ impl PrimitiveStore {
                             } else {
                                 &clips[0]
                             };
-                            ClipData::from_clip_region(region)
+                            Some(ClipData::from_clip_region(region))
                         },
                     }
                 }
             };
 
-            metadata.mask_texture_id = dummy_mask_cache_item.texture_id;
-            let gpu_data = self.gpu_data32.get_slice_mut(gpu_address, 6);
-            Self::populate_clip_data(gpu_data, clip_data);
+            if let Some(data) = clip_data {
+                prim_needs_resolve = true;
+                let gpu_address = self.gpu_data32.alloc(6);
+                let gpu_data = self.gpu_data32.get_slice_mut(gpu_address, 6);
+                Self::populate_clip_data(gpu_data, data);
+                metadata.clip_index = Some(gpu_address);
+                metadata.mask_texture_id = dummy_mask_cache_item.texture_id;
+            }
         }
 
         match metadata.prim_kind {
