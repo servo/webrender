@@ -5,26 +5,22 @@
 use device::TextureId;
 use euclid::{Rect, Matrix4D};
 use internal_types::DeviceSize;
+use prim_store::PrimitiveClipSource;
 use util::{TransformedRect, TransformedRectKind};
-use webrender_traits::{ComplexClipRegion, ImageMask};
+use webrender_traits::{ClipRegion, ComplexClipRegion, ImageMask, ItemRange};
 
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct MaskCacheKey {
-    index: u32,
+    layer_id: u32,
+    item_range: ItemRange,
+    mask_image: Option<ImageMask>,
 }
 
 #[derive(Debug)]
 pub struct MaskCacheInfo {
     pub size: DeviceSize,
     pub key: MaskCacheKey,
-}
-
-#[derive(Debug)]
-pub enum ClipMask {
-    Cached(MaskCacheInfo),
-    Image(ImageMask),
-    Dummy(TextureId),
 }
 
 struct LayerInfo {
@@ -39,17 +35,15 @@ pub struct ClipRegionStack {
     layers: Vec<LayerInfo>,
     next_layer_id: u32,
     device_pixel_ratio: f32,
-    dummy_textute_id: TextureId,
 }
 
 impl ClipRegionStack {
-    pub fn new(device_pixel_ratio: f32, dummy_textute_id: TextureId) -> ClipRegionStack {
+    pub fn new(device_pixel_ratio: f32) -> ClipRegionStack {
         ClipRegionStack {
             last_token_index: 0,
             layers: Vec::new(),
             next_layer_id: 0,
             device_pixel_ratio: device_pixel_ratio,
-            dummy_textute_id: dummy_textute_id,
         }
     }
 
@@ -60,11 +54,13 @@ impl ClipRegionStack {
             ).is_some()
     }
 
-    pub fn generate_mask(&mut self,
-                         rect: &Rect<f32>,
-                         complex: &[ComplexClipRegion],
-                         mask_image: &Option<ImageMask>)
-                         -> ClipMask {
+    pub fn generate_source(&mut self, clip_region: &ClipRegion) -> PrimitiveClipSource {
+        if clip_region.is_complex() {
+            PrimitiveClipSource::Region(clip_region.clone())
+        } else {
+            PrimitiveClipSource::NoClip
+        };
+        /*
         if self.need_mask() || !complex.is_empty() {
             self.last_token_index += 1;
             let t_rect = TransformedRect::new(rect,
@@ -79,8 +75,8 @@ impl ClipRegionStack {
         } else if let &Some(image) = mask_image {
             ClipMask::Image(image)
         } else {
-            ClipMask::Dummy(self.dummy_textute_id)
-        }
+            ClipMask::Dummy(TextureId::invalid()) //self.dummy_textute_id
+        }*/
     }
 
     pub fn push_layer(&mut self,
