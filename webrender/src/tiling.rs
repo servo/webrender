@@ -4,6 +4,7 @@
 
 use app_units::Au;
 use batch_builder::BorderSideHelpers;
+use clip_stack::{ClipRegionStack, ClipMask, MaskCacheKey, MaskCacheInfo};
 use device::{TextureId};
 use euclid::{Point2D, Point4D, Rect, Matrix4D, Size2D};
 use fnv::FnvHasher;
@@ -182,6 +183,12 @@ impl AlphaBatchHelpers for PrimitiveStore {
         let prim_address = metadata.gpu_prim_index;
         let clip_address = metadata.clip_index.unwrap_or(GpuStoreAddress(0));
 
+        if let ClipMask::Cached(ref mask_cache) = metadata.clip_mask {
+            let cache_task_id = RenderTaskId::Dynamic(RenderTaskKey::CacheMask(mask_cache.key));
+            let cache_task_index = render_tasks.get_task_index(&cache_task_id,
+                                                               child_pass_index);
+        }
+
         match &mut batch.data {
             &mut PrimitiveBatchData::Blend(..) |
             &mut PrimitiveBatchData::Composite(..) => unreachable!(),
@@ -335,11 +342,13 @@ pub struct RenderTaskIndex(usize);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum RenderTaskKey {
-    // Draw this primitive to a cache target.
+    /// Draw this primitive to a cache target.
     CachePrimitive(PrimitiveCacheKey),
-    // Apply a vertical blur pass of given radius for this primitive.
+    /// Draw the tile alpha mask for a primitive.
+    CacheMask(MaskCacheKey),
+    /// Apply a vertical blur pass of given radius for this primitive.
     VerticalBlur(i32, PrimitiveIndex),
-    // Apply a horizontal blur pass of given radius for this primitive.
+    /// Apply a horizontal blur pass of given radius for this primitive.
     HorizontalBlur(i32, PrimitiveIndex),
 }
 
@@ -696,6 +705,9 @@ impl RenderTarget {
                     }
                 }
             }
+            RenderTaskKind::CacheMask => {
+                //TODO
+            }
         }
     }
 }
@@ -817,6 +829,7 @@ pub struct AlphaRenderTask {
 pub enum RenderTaskKind {
     Alpha(AlphaRenderTask),
     CachePrimitive(PrimitiveIndex),
+    CacheMask,
     VerticalBlur(DeviceLength, PrimitiveIndex),
     HorizontalBlur(DeviceLength, PrimitiveIndex),
 }
@@ -855,6 +868,15 @@ impl RenderTask {
             children: Vec::new(),
             location: RenderTaskLocation::Dynamic(None, size),
             kind: RenderTaskKind::CachePrimitive(prim_index),
+        }
+    }
+
+    fn new_mask(cache_info: &MaskCacheInfo) -> RenderTask {
+        RenderTask {
+            id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(cache_info.key)),
+            children: Vec::new(),
+            location: RenderTaskLocation::Dynamic(None, cache_info.size),
+            kind: RenderTaskKind::CacheMask,
         }
     }
 
@@ -905,6 +927,7 @@ impl RenderTask {
         match self.kind {
             RenderTaskKind::Alpha(ref mut task) => task,
             RenderTaskKind::CachePrimitive(..) |
+            RenderTaskKind::CacheMask |
             RenderTaskKind::VerticalBlur(..) |
             RenderTaskKind::HorizontalBlur(..) => unreachable!(),
         }
@@ -933,7 +956,7 @@ impl RenderTask {
                     ],
                 }
             }
-            RenderTaskKind::CachePrimitive(..) => {
+            RenderTaskKind::CachePrimitive(..) | RenderTaskKind::CacheMask => {
                 let (target_rect, target_index) = self.get_target_rect();
 
                 RenderTaskData {
@@ -1400,6 +1423,7 @@ pub struct FrameBuilder {
     packed_layers: Vec<PackedStackingContext>,
 
     scrollbar_prims: Vec<ScrollbarPrimitive>,
+    clip_stack: ClipRegionStack,
 }
 
 /// A rendering-oriented representation of frame::Frame built by the render backend
@@ -1594,6 +1618,12 @@ impl ScreenTile {
                         }
                     }
 
+                    // Add a task to render the updated image mask
+                    if let ClipMask::Cached(ref mask_info) = prim_metadata.clip_mask {
+                        let mask_task = RenderTask::new_mask(mask_info);
+                        current_task.children.push(mask_task);
+                    }
+
                     // Add any dynamic render tasks needed to render this primitive
                     if let Some(ref render_task) = prim_metadata.render_task {
                         current_task.children.push(render_task.clone());
@@ -1635,6 +1665,8 @@ impl FrameBuilder {
             debug: debug,
             packed_layers: Vec::new(),
             scrollbar_prims: Vec::new(),
+            clip_stack: ClipRegionStack::new(device_pixel_ratio,
+                                             dummy_mask_texture_id),
             config: config,
         }
     }
@@ -2075,6 +2107,10 @@ impl FrameBuilder {
                                                          .pre_mul(&layer.local_transform);
                     packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
 
+                    self.clip_stack.push_layer(&packed_layer.transform,
+                                               &scroll_layer.combined_local_viewport_rect,
+                                               None);
+
                     let inv_layer_transform = layer.local_transform.inverse().unwrap();
                     let local_viewport_rect = scroll_layer.combined_local_viewport_rect;
                     let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
@@ -2154,6 +2190,7 @@ impl FrameBuilder {
                 }
                 &PrimitiveRunCmd::PopStackingContext => {
                     layer_stack.pop().unwrap();
+                    self.clip_stack.pop_layer().unwrap();
                 }
             }
         }

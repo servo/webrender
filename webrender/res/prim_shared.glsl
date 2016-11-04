@@ -371,7 +371,7 @@ ClipRect fetch_clip_rect(int index) {
 
 struct ImageMaskData {
     vec4 uv_rect;
-    vec4 local_rect;
+    vec4 screen_rect;
 };
 
 ImageMaskData fetch_mask_data(int index) {
@@ -380,7 +380,7 @@ ImageMaskData fetch_mask_data(int index) {
     ivec2 uv = get_fetch_uv_2(index);
 
     info.uv_rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    info.local_rect = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
+    info.screen_rect = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
 
     return info;
 }
