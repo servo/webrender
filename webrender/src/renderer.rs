@@ -92,6 +92,7 @@ const GPU_TAG_PRIM_BORDER: GpuProfileTag = GpuProfileTag { label: "Border", colo
 pub enum BlendMode {
     None,
     Alpha,
+    Subpixel(ColorF),
 }
 
 struct VertexDataTexture {
@@ -140,7 +141,8 @@ impl VertexDataTexture {
     }
 }
 
-const TRANSFORM_FEATURE: &'static [&'static str] = &["TRANSFORM"];
+const TRANSFORM_FEATURE: &'static str = "TRANSFORM";
+const SUBPIXEL_AA_FEATURE: &'static str = "SUBPIXEL_AA";
 
 enum ShaderKind {
     Primitive,
@@ -153,14 +155,14 @@ struct LazilyCompiledShader {
     name: &'static str,
     kind: ShaderKind,
     max_ubo_vectors: usize,
-    features: &'static [&'static str],
+    features: Vec<&'static str>,
 }
 
 impl LazilyCompiledShader {
     fn new(kind: ShaderKind,
            name: &'static str,
            max_ubo_vectors: usize,
-           features: &'static [&'static str],
+           features: &[&'static str],
            device: &mut Device,
            precache: bool) -> LazilyCompiledShader {
         let mut shader = LazilyCompiledShader {
@@ -168,7 +170,7 @@ impl LazilyCompiledShader {
             name: name,
             kind: kind,
             max_ubo_vectors: max_ubo_vectors,
-            features: features,
+            features: features.to_vec(),
         };
 
         if precache {
@@ -190,7 +192,7 @@ impl LazilyCompiledShader {
                     create_prim_shader(self.name,
                                        device,
                                        self.max_ubo_vectors,
-                                       self.features)
+                                       &self.features)
                 }
             };
             self.id = Some(id);
@@ -235,18 +237,22 @@ impl PrimitiveShader {
            max_ubo_vectors: usize,
            max_prim_items: usize,
            device: &mut Device,
+           features: &[&'static str],
            precache: bool) -> PrimitiveShader {
         let simple = LazilyCompiledShader::new(ShaderKind::Primitive,
                                                name,
                                                max_ubo_vectors,
-                                               &[],
+                                               features,
                                                device,
                                                precache);
+
+        let mut transform_features = features.to_vec();
+        transform_features.push(TRANSFORM_FEATURE);
 
         let transform = LazilyCompiledShader::new(ShaderKind::Primitive,
                                                   name,
                                                   max_ubo_vectors,
-                                                  TRANSFORM_FEATURE,
+                                                  &transform_features,
                                                   device,
                                                   precache);
 
@@ -335,6 +341,7 @@ pub struct Renderer {
 
     ps_rectangle: PrimitiveShader,
     ps_text_run: PrimitiveShader,
+    ps_text_run_subpixel: PrimitiveShader,
     ps_image: PrimitiveShader,
     ps_border: PrimitiveShader,
     ps_gradient: PrimitiveShader,
@@ -443,53 +450,69 @@ impl Renderer {
                                                 max_ubo_vectors,
                                                 max_prim_instances,
                                                 &mut device,
+                                                &[],
                                                 options.precache_shaders);
         let ps_text_run = PrimitiveShader::new("ps_text_run",
                                                max_ubo_vectors,
                                                max_prim_instances,
                                                &mut device,
+                                               &[],
                                                options.precache_shaders);
+        let ps_text_run_subpixel = PrimitiveShader::new("ps_text_run",
+                                                        max_ubo_vectors,
+                                                        max_prim_instances,
+                                                        &mut device,
+                                                        &[ SUBPIXEL_AA_FEATURE ],
+                                                        options.precache_shaders);
         let ps_image = PrimitiveShader::new("ps_image",
                                             max_ubo_vectors,
                                             max_prim_instances,
                                             &mut device,
+                                            &[],
                                             options.precache_shaders);
         let ps_border = PrimitiveShader::new("ps_border",
                                              max_ubo_vectors,
                                              max_prim_instances,
                                              &mut device,
+                                             &[],
                                              options.precache_shaders);
         let ps_rectangle_clip = PrimitiveShader::new("ps_rectangle_clip",
                                                      max_ubo_vectors,
                                                      max_prim_instances,
                                                      &mut device,
+                                                     &[],
                                                      options.precache_shaders);
         let ps_image_clip = PrimitiveShader::new("ps_image_clip",
                                                  max_ubo_vectors,
                                                  max_prim_instances,
                                                  &mut device,
+                                                 &[],
                                                  options.precache_shaders);
 
         let ps_box_shadow = PrimitiveShader::new("ps_box_shadow",
                                                  max_ubo_vectors,
                                                  max_prim_instances,
                                                  &mut device,
+                                                 &[],
                                                  options.precache_shaders);
 
         let ps_gradient = PrimitiveShader::new("ps_gradient",
                                                max_ubo_vectors,
                                                max_prim_instances,
                                                &mut device,
+                                               &[],
                                                options.precache_shaders);
         let ps_gradient_clip = PrimitiveShader::new("ps_gradient_clip",
                                                     max_ubo_vectors,
                                                     max_prim_instances,
                                                     &mut device,
+                                                    &[],
                                                     options.precache_shaders);
         let ps_angle_gradient = PrimitiveShader::new("ps_angle_gradient",
                                                      max_ubo_vectors,
                                                      max_prim_instances,
                                                      &mut device,
+                                                     &[],
                                                      options.precache_shaders);
 
         let ps_blend = LazilyCompiledShader::new(ShaderKind::Primitive,
@@ -619,7 +642,8 @@ impl Renderer {
             RendererKind::OSMesa => GLContextHandleWrapper::current_osmesa_handle(),
         };
 
-        let config = FrameBuilderConfig::new(options.enable_scrollbars);
+        let config = FrameBuilderConfig::new(options.enable_scrollbars,
+                                             options.enable_subpixel_aa);
 
         let debug = options.debug;
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
@@ -657,6 +681,7 @@ impl Renderer {
             cs_box_shadow: cs_box_shadow,
             ps_rectangle: ps_rectangle,
             ps_text_run: ps_text_run,
+            ps_text_run_subpixel: ps_text_run_subpixel,
             ps_image: ps_image,
             ps_border: ps_border,
             ps_rectangle_clip: ps_rectangle_clip,
@@ -1405,9 +1430,13 @@ impl Renderer {
 
             if batch.key.blend_mode != prev_blend_mode {
                 match batch.key.blend_mode {
-                    // TODO(gw): More blend modes to come with subpixel aa work.
                     BlendMode::None | BlendMode::Alpha => {
                         self.device.set_blend(batch.key.blend_mode == BlendMode::Alpha);
+                        self.device.set_blend_mode_alpha();
+                    }
+                    BlendMode::Subpixel(color) => {
+                        self.device.set_blend(true);
+                        self.device.set_blend_mode_subpixel(color);
                     }
                 }
                 prev_blend_mode = batch.key.blend_mode;
@@ -1502,7 +1531,10 @@ impl Renderer {
                 }
                 &PrimitiveBatchData::TextRun(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_TEXT_RUN);
-                    let (shader, max_prim_items) = self.ps_text_run.get(&mut self.device, transform_kind);
+                    let (shader, max_prim_items) = match batch.key.blend_mode {
+                        BlendMode::Subpixel(..) => self.ps_text_run_subpixel.get(&mut self.device, transform_kind),
+                        BlendMode::Alpha | BlendMode::None => self.ps_text_run.get(&mut self.device, transform_kind),
+                    };
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
@@ -1686,4 +1718,5 @@ pub struct RendererOptions {
     pub enable_scrollbars: bool,
     pub precache_shaders: bool,
     pub renderer_kind: RendererKind,
+    pub enable_subpixel_aa: bool,
 }

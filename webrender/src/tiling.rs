@@ -36,7 +36,7 @@ use util::{TransformedRect, TransformedRectKind, subtract_rect, pack_as_float};
 use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, MixBlendMode};
 use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle};
 use webrender_traits::{AuxiliaryLists, ItemRange, BoxShadowClipMode, ClipRegion};
-use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId};
+use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId, FontRenderMode};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
 
@@ -50,6 +50,7 @@ pub type AuxiliaryListsMap = HashMap<PipelineId,
 trait AlphaBatchHelpers {
     fn get_batch_kind(&self, metadata: &PrimitiveMetadata) -> AlphaBatchKind;
     fn get_texture_id(&self, metadata: &PrimitiveMetadata) -> TextureId;
+    fn get_blend_mode(&self, needs_blending: bool, metadata: &PrimitiveMetadata) -> BlendMode;
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
                          tile_rect: &DeviceRect,
@@ -101,6 +102,25 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
                 text_run_cpu.color_texture_id
+            }
+        }
+    }
+
+    fn get_blend_mode(&self, needs_blending: bool, metadata: &PrimitiveMetadata) -> BlendMode {
+        match metadata.prim_kind {
+            PrimitiveKind::TextRun => {
+                let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
+                match text_run_cpu.render_mode {
+                    FontRenderMode::Subpixel => BlendMode::Subpixel(text_run_cpu.color),
+                    FontRenderMode::Alpha | FontRenderMode::Mono => BlendMode::Alpha,
+                }
+            }
+            _ => {
+                if needs_blending {
+                    BlendMode::Alpha
+                } else {
+                    BlendMode::None
+                }
             }
         }
     }
@@ -414,11 +434,7 @@ impl AlphaBatcher {
                                              needs_clipping;
                         let flags = AlphaBatchKeyFlags::new(transform_kind,
                                                             needs_clipping);
-                        let blend_mode = if needs_blending {
-                            BlendMode::Alpha
-                        } else {
-                            BlendMode::None
-                        };
+                        let blend_mode = ctx.prim_store.get_blend_mode(needs_blending, prim_metadata);
                         let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
                         let color_texture_id = ctx.prim_store.get_texture_id(prim_metadata);
                         batch_key = AlphaBatchKey::primitive(batch_kind,
@@ -1144,12 +1160,15 @@ pub struct ClearTile {
 #[derive(Clone, Copy)]
 pub struct FrameBuilderConfig {
     pub enable_scrollbars: bool,
+    pub enable_subpixel_aa: bool,
 }
 
 impl FrameBuilderConfig {
-    pub fn new(enable_scrollbars: bool) -> FrameBuilderConfig {
+    pub fn new(enable_scrollbars: bool,
+               enable_subpixel_aa: bool) -> FrameBuilderConfig {
         FrameBuilderConfig {
             enable_scrollbars: enable_scrollbars,
+            enable_subpixel_aa: enable_subpixel_aa,
         }
     }
 }
@@ -1161,6 +1180,7 @@ pub struct FrameBuilder {
     device_pixel_ratio: f32,
     dummy_resources: DummyResources,
     debug: bool,
+    config: FrameBuilderConfig,
 
     layer_store: Vec<StackingContext>,
     packed_layers: Vec<PackedStackingContext>,
@@ -1390,7 +1410,7 @@ impl FrameBuilder {
                device_pixel_ratio: f32,
                dummy_resources: DummyResources,
                debug: bool,
-               _config: FrameBuilderConfig) -> FrameBuilder {
+               config: FrameBuilderConfig) -> FrameBuilder {
         let viewport_size = Size2D::new(viewport_size.width as i32, viewport_size.height as i32);
         FrameBuilder {
             screen_rect: Rect::new(Point2D::zero(), viewport_size),
@@ -1402,6 +1422,7 @@ impl FrameBuilder {
             debug: debug,
             packed_layers: Vec::new(),
             scrollbar_prims: Vec::new(),
+            config: config,
         }
     }
 
@@ -1641,6 +1662,15 @@ impl FrameBuilder {
             return
         }
 
+        // TODO(gw): Use a proper algorithm to select
+        // whether this item should be rendered with
+        // subpixel AA!
+        let render_mode = if self.config.enable_subpixel_aa {
+            FontRenderMode::Subpixel
+        } else {
+            FontRenderMode::Alpha
+        };
+
         let text_run_count = (glyph_range.length + 7) / 8;
         for run_index in 0..text_run_count {
             let start = run_index * 8;
@@ -1658,6 +1688,8 @@ impl FrameBuilder {
                 cache_dirty: true,
                 glyph_indices: Vec::new(),
                 color_texture_id: TextureId::invalid(),
+                color: *color,
+                render_mode: render_mode,
             };
 
             let prim_gpu = TextRunPrimitiveGpu {

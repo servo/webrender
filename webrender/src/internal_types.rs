@@ -24,14 +24,6 @@ use webrender_traits::{Epoch, ColorF, PipelineId};
 use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem};
 use webrender_traits::{ScrollLayerId, WebGLCommand};
 
-#[allow(dead_code)]     // TODO(gw): Make use of the subpixel render mode!
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-pub enum FontRenderMode {
-    Mono,
-    Alpha,
-    Subpixel,
-}
-
 pub enum GLContextHandleWrapper {
     Native(NativeGLContextHandle),
     OSMesa(OSMesaContextHandle),
