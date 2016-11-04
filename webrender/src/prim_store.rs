@@ -226,7 +226,7 @@ impl ClipCorner {
 #[derive(Debug, Clone)]
 struct ImageMaskData {
     uv_rect: Rect<f32>,
-    local_rect: Rect<f32>,
+    screen_rect: Rect<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -283,7 +283,7 @@ impl ClipData {
             },
             mask_data: ImageMaskData {
                 uv_rect: Rect::zero(),
-                local_rect: Rect::zero(),
+                screen_rect: Rect::zero(),
             },
         }
     }
@@ -316,7 +316,7 @@ impl ClipData {
                                               0.0),
             mask_data: ImageMaskData {
                 uv_rect: Rect::zero(),
-                local_rect: Rect::zero(),
+                screen_rect: Rect::zero(),
             },
         }
     }
@@ -564,7 +564,7 @@ impl PrimitiveStore {
                         uv_rect: Rect::new(tex_cache.uv0,
                                            Size2D::new(tex_cache.uv1.x - tex_cache.uv0.x,
                                                        tex_cache.uv1.y - tex_cache.uv0.y)),
-                        local_rect: mask.rect,
+                        screen_rect: mask.rect,
                     });
                 }
             }
