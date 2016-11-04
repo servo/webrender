@@ -339,7 +339,7 @@ pub enum ImageRendering {
     Pixelated,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ItemRange {
     pub start: usize,
     pub length: usize,
