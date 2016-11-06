@@ -101,12 +101,13 @@ impl Layer {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct ScrollingState {
     pub offset: Point2D<f32>,
     pub spring: Spring,
     pub started_bouncing_back: bool,
     pub bouncing_back: bool,
+    pub non_root_overscroll: bool
 }
 
 impl ScrollingState {
@@ -116,6 +117,7 @@ impl ScrollingState {
             spring: Spring::at(Point2D::new(0.0, 0.0), STIFFNESS, DAMPING),
             started_bouncing_back: false,
             bouncing_back: false,
+            non_root_overscroll: false
         }
     }
 }
