@@ -298,9 +298,36 @@ impl Frame {
             None => return false,
         };
 
-        let scroll_root_id = match scroll_layer_id.info {
-            ScrollLayerInfo::Scrollable(_, scroll_root_id) => scroll_root_id,
-            ScrollLayerInfo::Fixed => unreachable!("Tried to scroll a fixed position layer."),
+        let non_root_overscroll = if scroll_layer_id != root_scroll_layer_id {
+            let child_layer = self.layers.get(&scroll_layer_id).unwrap();
+            let overscroll_amount = child_layer.overscroll_amount();
+            overscroll_amount.width != 0.0 || overscroll_amount.height != 0.0
+        } else {
+            false
+        };
+
+        let switch_layer = match phase {
+            ScrollEventPhase::Start => {
+                let mut current_layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+                current_layer.scrolling.non_root_overscroll = non_root_overscroll;
+                false
+            },
+            ScrollEventPhase::Move(_) => {
+                let current_layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+                current_layer.scrolling.non_root_overscroll && non_root_overscroll
+            },
+            ScrollEventPhase::End => {
+                let mut current_layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+                current_layer.scrolling.non_root_overscroll = false;
+                false
+            },
+        };
+
+        let scroll_root_id = match (switch_layer, scroll_layer_id.info, root_scroll_layer_id.info) {
+            (true, _, ScrollLayerInfo::Scrollable(_, scroll_root_id)) => scroll_root_id,
+            (true, ScrollLayerInfo::Scrollable(_, scroll_root_id), ScrollLayerInfo::Fixed) => scroll_root_id,
+            (false, ScrollLayerInfo::Scrollable(_, scroll_root_id), _) => scroll_root_id,
+            (_, ScrollLayerInfo::Fixed, _) => unreachable!("Tried to scroll a fixed position layer."),
         };
 
         let mut scrolled_a_layer = false;
@@ -376,7 +403,6 @@ impl Frame {
                 layer.scrolling.offset != original_layer_scroll_offset ||
                 layer.scrolling.started_bouncing_back;
         }
-
         scrolled_a_layer
     }
 
