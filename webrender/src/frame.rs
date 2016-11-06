@@ -53,6 +53,7 @@ pub struct Frame {
                                           BuildHasherDefault<FnvHasher>>,
     pub root_scroll_layer_id: Option<ScrollLayerId>,
     pending_scroll_offsets: HashMap<(PipelineId, ServoScrollRootId), LayerPoint>,
+    current_scroll_layer_id: Option<ScrollLayerId>,
     id: FrameId,
     debug: bool,
     frame_builder_config: FrameBuilderConfig,
@@ -212,6 +213,7 @@ impl Frame {
             layers: HashMap::with_hasher(Default::default()),
             root_scroll_layer_id: None,
             pending_scroll_offsets: HashMap::new(),
+            current_scroll_layer_id: None,
             id: FrameId(0),
             debug: debug,
             frame_builder: None,
@@ -340,9 +342,17 @@ impl Frame {
             None => return false,
         };
 
-        let scroll_layer_id = match self.get_scroll_layer(&cursor, root_scroll_layer_id) {
-            Some(scroll_layer_id) => scroll_layer_id,
-            None => return false,
+        let scroll_layer_id = match (
+            phase,
+            self.get_scroll_layer(&cursor, root_scroll_layer_id),
+            self.current_scroll_layer_id) {
+            (ScrollEventPhase::Start, Some(scroll_layer_id), _) => {
+                self.current_scroll_layer_id = Some(scroll_layer_id);
+                scroll_layer_id
+            },
+            (ScrollEventPhase::Start, None, _) => return false,
+            (_, _, Some(scroll_layer_id)) => scroll_layer_id,
+            (_, _, None) => return false,
         };
 
         let scroll_root_id = match scroll_layer_id.info {
