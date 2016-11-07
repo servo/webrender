@@ -63,6 +63,7 @@ struct ImageResource {
     bytes: Vec<u8>,
     width: u32,
     height: u32,
+    stride: u32,
     format: ImageFormat,
     epoch: Epoch,
     is_opaque: bool,
@@ -209,12 +210,14 @@ impl ResourceCache {
                               image_key: ImageKey,
                               width: u32,
                               height: u32,
+                              stride: u32,
                               format: ImageFormat,
                               bytes: Vec<u8>) {
         let resource = ImageResource {
             is_opaque: is_image_opaque(format, &bytes),
             width: width,
             height: height,
+            stride: width, // This is an invalid stride for now, fixup
             format: format,
             bytes: bytes,
             epoch: Epoch(0),
@@ -243,6 +246,7 @@ impl ResourceCache {
             is_opaque: is_image_opaque(format, &bytes),
             width: width,
             height: height,
+            stride: width, // This is an invalid stride for now, fixup
             format: format,
             bytes: bytes,
             epoch: next_epoch,
@@ -332,6 +336,7 @@ impl ResourceCache {
                 self.texture_cache.insert(image_id,
                                           texture_width,
                                           texture_height,
+                                          texture_width,
                                           ImageFormat::RGBA8,
                                           TextureFilter::Linear,
                                           insert_op,
@@ -494,6 +499,7 @@ impl ResourceCache {
                                 self.texture_cache.update(image_id,
                                                           image_template.width,
                                                           image_template.height,
+                                                          image_template.stride,
                                                           image_template.format,
                                                           image_template.bytes.clone());
 
@@ -516,6 +522,7 @@ impl ResourceCache {
                             self.texture_cache.insert(image_id,
                                                       image_template.width,
                                                       image_template.height,
+                                                      image_template.stride,
                                                       image_template.format,
                                                       filter,
                                                       TextureInsertOp::Blit(image_template.bytes.clone()),

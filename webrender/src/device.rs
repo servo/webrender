@@ -15,6 +15,8 @@ use std::hash::BuildHasherDefault;
 use std::io::Read;
 use std::path::PathBuf;
 use std::mem;
+use std::borrow::Cow;
+use std::borrow::Borrow;
 //use std::sync::mpsc::{channel, Sender};
 //use std::thread;
 use webrender_traits::ImageFormat;
@@ -1532,6 +1534,58 @@ impl Device {
                              data);
     }
 
+    fn get_texture_info<'a>(&mut self, texture_id: TextureId, data: &'a [u8]) -> (u32, u32, Cow<'a, [u8]>) {
+        match self.textures.get(&texture_id).unwrap().format {
+            ImageFormat::A8 => {
+                if cfg!(any(target_arch="arm", target_arch="aarch64")) {
+                    // Since we can allocate data here, i don't think we can
+                    // return a reference to a &[u8]. But I hope Cow fixes this so we don't
+                    // do an actual copy in the other cases? REVIEW ME PLZ
+                    let mut expanded_data = Vec::new();
+                    for byte in data {
+                        expanded_data.push(*byte);
+                        expanded_data.push(*byte);
+                        expanded_data.push(*byte);
+                        expanded_data.push(*byte);
+                    }
+                    return (GL_FORMAT_BGRA, 4, Cow::Owned(expanded_data))
+                } else {
+                    return (GL_FORMAT_A, 1, Cow::Borrowed(data))
+                }
+            }
+            ImageFormat::RGB8 => return (gl::RGB, 3, Cow::Borrowed(data)),
+            ImageFormat::RGBA8 => return (GL_FORMAT_BGRA, 4, Cow::Borrowed(data)),
+            ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
+        };
+    }
+
+    pub fn update_texture_with_stride(&mut self,
+                                      texture_id: TextureId,
+                                      x0: u32,
+                                      y0: u32,
+                                      width: u32,
+                                      height: u32,
+                                      stride_bytes: u32, // should be in bytes
+                                      data: &[u8]) {
+        debug_assert!(self.inside_frame);
+        let (gl_format, bpp, data) = self.get_texture_info(texture_id, data);
+        let row_length = stride_bytes / bpp;
+        assert!(data.len() as u32 == bpp * row_length * height);
+
+        gl::pixel_store_i(gl::UNPACK_ROW_LENGTH, row_length as gl::GLint);
+        self.bind_texture(TextureSampler::Color, texture_id);
+        self.update_image_for_2d_texture(texture_id.target,
+                                         x0 as gl::GLint,
+                                         y0 as gl::GLint,
+                                         width as gl::GLint,
+                                         height as gl::GLint,
+                                         gl_format,
+                                         data.borrow());
+        // Reset stride to 0 since the stride only applies to this
+        // texture upload
+        gl::pixel_store_i(gl::UNPACK_ROW_LENGTH, 0);
+    }
+
     pub fn update_texture(&mut self,
                           texture_id: TextureId,
                           x0: u32,
@@ -1540,28 +1594,7 @@ impl Device {
                           height: u32,
                           data: &[u8]) {
         debug_assert!(self.inside_frame);
-
-        let mut expanded_data = Vec::new();
-
-        let (gl_format, bpp, data) = match self.textures.get(&texture_id).unwrap().format {
-            ImageFormat::A8 => {
-                if cfg!(any(target_arch="arm", target_arch="aarch64")) {
-                    for byte in data {
-                        expanded_data.push(*byte);
-                        expanded_data.push(*byte);
-                        expanded_data.push(*byte);
-                        expanded_data.push(*byte);
-                    }
-                    (GL_FORMAT_BGRA, 4, expanded_data.as_slice())
-                } else {
-                    (GL_FORMAT_A, 1, data)
-                }
-            }
-            ImageFormat::RGB8 => (gl::RGB, 3, data),
-            ImageFormat::RGBA8 => (GL_FORMAT_BGRA, 4, data),
-            ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
-        };
-
+        let (gl_format, bpp, data) = self.get_texture_info(texture_id, data);
         assert!(data.len() as u32 == bpp * width * height);
 
         self.bind_texture(TextureSampler::Color, texture_id);
@@ -1571,7 +1604,7 @@ impl Device {
                                          width as gl::GLint,
                                          height as gl::GLint,
                                          gl_format,
-                                         data);
+                                         data.borrow());
     }
 
     pub fn read_framebuffer_rect(&mut self,

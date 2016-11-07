@@ -335,6 +335,7 @@ pub enum RenderTargetMode {
 pub enum TextureUpdateDetails {
     Raw,
     Blit(Vec<u8>),
+    BlitWithStride(Vec<u8>, u32),
     Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage, BorderType),
 }
 

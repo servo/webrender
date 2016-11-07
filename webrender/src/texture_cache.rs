@@ -790,6 +790,7 @@ impl TextureCache {
                   image_id: TextureCacheItemId,
                   width: u32,
                   height: u32,
+                  stride: u32, // TODO (mchang) Handle strides
                   _format: ImageFormat,
                   bytes: Vec<u8>) {
         let existing_item = self.items.get(image_id);
@@ -816,6 +817,7 @@ impl TextureCache {
                   image_id: TextureCacheItemId,
                   width: u32,
                   height: u32,
+                  stride: u32,
                   format: ImageFormat,
                   filter: TextureFilter,
                   insert_op: TextureInsertOp,
@@ -909,7 +911,7 @@ impl TextureCache {
                                         result.item.requested_rect.origin.y,
                                         width,
                                         height,
-                                        TextureUpdateDetails::Blit(bytes))
+                                        TextureUpdateDetails::BlitWithStride(bytes, stride))
             }
             (AllocationKind::TexturePage,
              TextureInsertOp::Blur(bytes, glyph_size, blur_radius)) => {

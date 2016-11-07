@@ -531,6 +531,7 @@ impl Renderer {
         texture_cache.insert(white_image_id,
                              2,
                              2,
+                             2 * 4, // 4 bytes per pixel because RGBA8
                              ImageFormat::RGBA8,
                              TextureFilter::Linear,
                              TextureInsertOp::Blit(white_pixels),
@@ -540,6 +541,7 @@ impl Renderer {
         texture_cache.insert(dummy_mask_image_id,
                              2,
                              2,
+                             2, // Stride is 2 because 1 byte per pixel A8
                              ImageFormat::A8,
                              TextureFilter::Linear,
                              TextureInsertOp::Blit(mask_pixels),
@@ -888,6 +890,15 @@ impl Renderer {
                                     x,
                                     y,
                                     width, height,
+                                    bytes.as_slice());
+                            }
+                            TextureUpdateDetails::BlitWithStride(bytes, stride) => {
+                                //println!("Updating with stride {:?} and width: {:?}", stride, width);
+                                self.device.update_texture_with_stride(
+                                    update.id,
+                                    x,
+                                    y,
+                                    width, height, stride,
                                     bytes.as_slice());
                             }
                             TextureUpdateDetails::Blur(bytes,

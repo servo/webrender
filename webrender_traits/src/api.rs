@@ -91,11 +91,12 @@ impl RenderApi {
     pub fn add_image(&self,
                      width: u32,
                      height: u32,
+                     stride: u32,
                      format: ImageFormat,
                      bytes: Vec<u8>) -> ImageKey {
         let new_id = self.next_unique_id();
         let key = ImageKey::new(new_id.0, new_id.1);
-        let msg = ApiMsg::AddImage(key, width, height, format, bytes);
+        let msg = ApiMsg::AddImage(key, width, height, stride, format, bytes);
         self.api_sender.send(msg).unwrap();
         key
     }
