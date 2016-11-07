@@ -380,7 +380,7 @@ impl PrimitiveStore {
         }
     }
 
-    fn populate_clip_data(data: &mut [GpuBlock32], clip: ClipData) {
+    pub fn populate_clip_data(data: &mut [GpuBlock32], clip: ClipData) {
         data[0] = GpuBlock32::from(clip.rect);
         data[1] = GpuBlock32::from(clip.top_left);
         data[2] = GpuBlock32::from(clip.top_right);
@@ -740,18 +740,9 @@ impl PrimitiveStore {
             }
         }
 
-        {
-            let clip_gpu_store = &mut self.gpu_data32;
-            let fun_add = |data| {
-                let gpu_address = clip_gpu_store.alloc(6);
-                let gpu_data = clip_gpu_store.get_slice_mut(gpu_address, 6);
-                Self::populate_clip_data(gpu_data, data);
-                gpu_address
-            };
-            metadata.clip_cache_info = clip_stack.generate(&metadata.clip_source,
-                                                           auxiliary_lists,
-                                                           fun_add);
-        }
+        metadata.clip_cache_info = clip_stack.generate(&metadata.clip_source,
+                                                           &mut self.gpu_data32,
+                                                           auxiliary_lists);
 
         match metadata.prim_kind {
             PrimitiveKind::Rectangle |

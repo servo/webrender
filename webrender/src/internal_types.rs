@@ -426,7 +426,7 @@ pub enum AxisDirection {
     Vertical,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
 pub struct StackingContextIndex(pub usize);
 
 #[derive(Clone, Copy, Debug)]
