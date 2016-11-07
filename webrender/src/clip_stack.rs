@@ -3,23 +3,24 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::{Rect, Matrix4D};
-use gpu_store::GpuStoreAddress;
-use prim_store::{ClipData, PrimitiveClipSource};
+use gpu_store::{GpuStore, GpuStoreAddress};
+use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
+use tiling::StackingContextIndex;
 use util::{TransformedRect, TransformedRectKind};
-use webrender_traits::{AuxiliaryLists, BorderRadius, ComplexClipRegion, ImageMask};
+use webrender_traits::{AuxiliaryLists, ImageMask};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct ClipItemRange {
-    pub start: u32,
-    pub length: u32,
+pub struct ClipAddressRange {
+    pub start: GpuStoreAddress, // start GPU address
+    pub count: u32, // number of items, not bytes
 }
 
 type ImageMaskIndex = u16;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct MaskCacheKey {
-    pub layer_id: u32,
-    pub item_range: ClipItemRange,
+    pub layer_id: StackingContextIndex,
+    pub clip_range: ClipAddressRange,
     pub mask_id: Option<ImageMaskIndex>,
 }
 
@@ -32,14 +33,13 @@ struct LayerInfo {
     world_transform: Matrix4D<f32>,
     transformed_rect: TransformedRect,
     mask_image: Option<ImageMask>,
-    _index: u32,
+    prev_layer_id: Option<StackingContextIndex>,
 }
 
 pub struct ClipRegionStack {
     layers: Vec<LayerInfo>,
-    complex_regions: Vec<ComplexClipRegion>,
     image_masks: Vec<ImageMask>,
-    current_layer_id: u32,
+    current_layer_id: Option<StackingContextIndex>,
     device_pixel_ratio: f32,
 }
 
@@ -47,18 +47,16 @@ impl ClipRegionStack {
     pub fn new(device_pixel_ratio: f32) -> ClipRegionStack {
         ClipRegionStack {
             layers: Vec::new(),
-            complex_regions: Vec::new(),
             image_masks: Vec::new(),
-            current_layer_id: 0,
+            current_layer_id: None,
             device_pixel_ratio: device_pixel_ratio,
         }
     }
 
     pub fn reset(&mut self) {
         self.layers.clear();
-        self.complex_regions.clear();
         self.image_masks.clear();
-        self.current_layer_id = 0;
+        self.current_layer_id = None;
     }
 
     fn need_mask(&self) -> bool {
@@ -68,38 +66,48 @@ impl ClipRegionStack {
             ).is_some()
     }
 
-    pub fn generate<F>(&mut self,
+    pub fn generate(&mut self,
                     source: &PrimitiveClipSource,
-                    aux_lists: &AuxiliaryLists,
-                    fun_data: F)
-                    -> Option<MaskCacheInfo>
-    where F: FnMut(ClipData) -> GpuStoreAddress {
+                    clip_store: &mut GpuStore<GpuBlock32>,
+                    aux_lists: &AuxiliaryLists)
+                    -> Option<MaskCacheInfo> {
         let mut clip_key = MaskCacheKey {
-            layer_id: self.current_layer_id,
-            item_range: ClipItemRange {
-                start: self.complex_regions.len() as u32,
-                length: 0,
+            layer_id: self.current_layer_id
+                          .expect("Unexpected primitive outisde of a stacking context"),
+            clip_range: ClipAddressRange {
+                start: GpuStoreAddress(0),
+                count: 0,
             },
             mask_id: None,
         };
         match source {
             &PrimitiveClipSource::NoClip => (),
             &PrimitiveClipSource::Complex(rect, radius) => {
-                clip_key.item_range.length = 1;
-                let radius = BorderRadius::uniform(radius);
-                self.complex_regions.push(ComplexClipRegion::new(rect, radius));
+                let address = clip_store.alloc(6);
+                let slice = clip_store.get_slice_mut(address, 6);
+                let data = ClipData::uniform(rect, radius);
+                PrimitiveStore::populate_clip_data(slice, data);
+                clip_key.clip_range.count = 1;
+                clip_key.clip_range.start = address;
             },
             &PrimitiveClipSource::Region(ref region) => {
                 let clips = aux_lists.complex_clip_regions(&region.complex);
-                clip_key.item_range.length += clips.len() as u32;
-                self.complex_regions.extend_from_slice(clips);
+                let address = clip_store.alloc(6 * clips.len());
+                let slice = clip_store.get_slice_mut(address, 6 * clips.len());
+                for (clip, chunk) in clips.iter().zip(slice.chunks_mut(6)) {
+                    let data = ClipData::from_clip_region(clip);
+                    PrimitiveStore::populate_clip_data(chunk, data);
+                }
+                clip_key.clip_range.count = clips.len() as u32;
+                clip_key.clip_range.start = address;
+                /* //TODO
                 if let Some(ref mask) = region.image_mask {
                     clip_key.mask_id = Some(self.image_masks.len() as ImageMaskIndex);
                     self.image_masks.push(mask.clone());
-                }
+                }*/
             },
         };
-        if self.need_mask() || clip_key.mask_id.is_some() || clip_key.item_range.length != 0 {
+        if self.need_mask() || clip_key.mask_id.is_some() || clip_key.clip_range.count != 0 {
             Some(MaskCacheInfo {
                 key: clip_key,
             })
@@ -109,6 +117,7 @@ impl ClipRegionStack {
     }
 
     pub fn push_layer(&mut self,
+                      sc_index: StackingContextIndex,
                       local_transform: &Matrix4D<f32>,
                       rect: &Rect<f32>,
                       mask_image: Option<ImageMask>) {
@@ -126,18 +135,18 @@ impl ClipRegionStack {
             (wt, tr)
         };
 
-        self.current_layer_id += 1;
-
         self.layers.push(LayerInfo {
             world_transform: world_transform,
             transformed_rect: transformed_rect,
             mask_image: mask_image,
-            _index: self.current_layer_id,
+            prev_layer_id: self.current_layer_id,
         });
+
+        self.current_layer_id = Some(sc_index);
     }
 
-    pub fn pop_layer(&mut self) -> Option<()> {
-        self.layers.pop()
-            .map(|_| ())
+    pub fn pop_layer(&mut self) {
+        self.current_layer_id = self.layers.pop()
+                                    .and_then(|l| l.prev_layer_id);
     }
 }
