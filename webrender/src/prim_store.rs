@@ -741,8 +741,9 @@ impl PrimitiveStore {
         }
 
         metadata.clip_cache_info = clip_stack.generate(&metadata.clip_source,
-                                                           &mut self.gpu_data32,
-                                                           auxiliary_lists);
+                                                       &mut self.gpu_data32,
+                                                       dummy_mask_cache_item.texture_id,
+                                                       auxiliary_lists);
 
         match metadata.prim_kind {
             PrimitiveKind::Rectangle |

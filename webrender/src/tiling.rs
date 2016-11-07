@@ -596,7 +596,7 @@ struct RenderTargetContext<'a> {
 pub struct RenderTarget {
     pub alpha_batcher: AlphaBatcher,
     pub box_shadow_cache_prims: Vec<CachePrimitiveInstance>,
-    pub clip_cache_items: Vec<CacheClipInstance>,    
+    pub clip_cache_items: HashMap<TextureId, Vec<CacheClipInstance>>,
     // List of text runs to be cached to this render target.
     // TODO(gw): For now, assume that these all come from
     //           the same source texture id. This is almost
@@ -722,16 +722,19 @@ impl RenderTarget {
                     }
                 }
             }
-            RenderTaskKind::CacheMask => {
-                let cache = match task.id {
-                    RenderTaskId::Dynamic(RenderTaskKey::CacheMask(ref cache)) => cache,
+            RenderTaskKind::CacheMask(_) => {
+                let key = match task.id {
+                    RenderTaskId::Dynamic(RenderTaskKey::CacheMask(ref key)) => key,
                     _ => unreachable!()
                 };
-                self.clip_cache_items.extend((0 .. cache.clip_range.count).map(|region_id| {
+                let items = self.clip_cache_items
+                                .entry(key.mask_texture_id)
+                                .or_insert(Vec::new());
+                items.extend((0 .. key.clip_range.count).map(|region_id| {
                     CacheClipInstance {
                         task_id: render_tasks.get_task_index(&task.id, pass_index).0 as i32,
-                        layer_index: cache.layer_id.0 as i32,
-                        clip_address: GpuStoreAddress(cache.clip_range.start.0 + 6 * (region_id as i32)),
+                        layer_index: key.layer_id.0 as i32,
+                        clip_address: GpuStoreAddress(key.clip_range.start.0 + 6 * (region_id as i32)),
                         pad: 0,
                     }
                 }));
@@ -854,11 +857,16 @@ pub struct AlphaRenderTask {
     items: Vec<AlphaRenderItem>,
 }
 
+#[derive(Debug)]
+struct CacheMaskTask {
+    actual_rect: DeviceRect,
+}
+
 #[derive(Debug, Clone)]
 pub enum RenderTaskKind {
     Alpha(AlphaRenderTask),
     CachePrimitive(PrimitiveIndex),
-    CacheMask,
+    CacheMask(CacheMaskTask),
     VerticalBlur(DeviceLength, PrimitiveIndex),
     HorizontalBlur(DeviceLength, PrimitiveIndex),
 }
@@ -900,13 +908,15 @@ impl RenderTask {
         }
     }
 
-    fn new_mask(cache_info: &MaskCacheInfo) -> RenderTask {
+    fn new_mask(actual_rect: DeviceRect, cache_info: &MaskCacheInfo) -> RenderTask {
         let size = DeviceSize::new(SCREEN_TILE_SIZE, SCREEN_TILE_SIZE);
         RenderTask {
             id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(cache_info.key)),
             children: Vec::new(),
             location: RenderTaskLocation::Dynamic(None, size),
-            kind: RenderTaskKind::CacheMask,
+            kind: RenderTaskKind::CacheMask(CacheMaskTask {
+                actual_rect: actual_rect
+            }),
         }
     }
 
@@ -957,7 +967,7 @@ impl RenderTask {
         match self.kind {
             RenderTaskKind::Alpha(ref mut task) => task,
             RenderTaskKind::CachePrimitive(..) |
-            RenderTaskKind::CacheMask |
+            RenderTaskKind::CacheMask(..) |
             RenderTaskKind::VerticalBlur(..) |
             RenderTaskKind::HorizontalBlur(..) => unreachable!(),
         }
@@ -995,6 +1005,20 @@ impl RenderTask {
                         target_index.0 as f32,
                         0.0,
                         0.0,
+                        0.0,
+                    ],
+                }
+            }
+            RenderTaskKind::CacheMask(ref task) => {
+                RenderTaskData {
+                    data: [
+                        task.actual_rect.origin.x as f32,
+                        task.actual_rect.origin.y as f32,
+                        target_rect.origin.x as f32,
+                        target_rect.origin.y as f32,
+                        task.actual_rect.size.width as f32,
+                        task.actual_rect.size.height as f32,
+                        target_index.0 as f32,
                         0.0,
                     ],
                 }
@@ -1657,7 +1681,7 @@ impl ScreenTile {
 
                     // Add a task to render the updated image mask
                     if let Some(ref clip_info) = prim_metadata.clip_cache_info {
-                        let mask_task = RenderTask::new_mask(clip_info);
+                        let mask_task = RenderTask::new_mask(self.rect, clip_info);
                         current_task.children.push(mask_task);
                     }
 

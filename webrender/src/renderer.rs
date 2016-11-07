@@ -1028,7 +1028,7 @@ impl Renderer {
 
         let (color, projection) = match render_target {
             Some(..) => (
-                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
                 Matrix4D::ortho(0.0,
                                target_size.width as f32,
                                0.0,
@@ -1098,6 +1098,26 @@ impl Renderer {
                                 &BatchTextures::no_texture(),
                                 max_cache_instances,
                                 &projection);
+        }
+
+        // Draw the clip items into the tiled alpha mask.
+        if !target.clip_cache_items.is_empty() {
+            self.device.set_blend(true);
+            self.device.set_blend_mode_multiply();
+            self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
+            let shader = self.cs_clip.get(&mut self.device);
+            let max_prim_items = self.max_cache_instances;
+            for (&mask_texture_id, items) in target.clip_cache_items.iter() {
+                self.draw_ubo_batch(items,
+                                    shader,
+                                    1,
+                                    TextureId::invalid(),
+                                    mask_texture_id,
+                                    max_prim_items,
+                                    &projection);
+
+            }
+            self.device.set_blend(false);
         }
 
         // Draw any textrun caches for this target. For now, this
