@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use batch_builder::BorderSideHelpers;
-use clip_stack::{ClipRegionStack, ClipMask, MaskCacheKey, MaskCacheInfo};
+use clip_stack::{ClipRegionStack, MaskCacheKey, MaskCacheInfo};
 use device::{TextureId};
 use euclid::{Point2D, Point4D, Rect, Matrix4D, Size2D};
 use fnv::FnvHasher;
@@ -486,13 +486,12 @@ impl AlphaBatcher {
 
             let mut existing_batch_index = 0;
             for item in task.items.drain(..) {
-                let batch_key;
-                match item {
+                let batch_key = match item {
                     AlphaRenderItem::Composite(..) => {
-                        batch_key = AlphaBatchKey::composite();
+                        AlphaBatchKey::composite()
                     }
                     AlphaRenderItem::Blend(..) => {
-                        batch_key = AlphaBatchKey::blend();
+                        AlphaBatchKey::blend()
                     }
                     AlphaRenderItem::Primitive(sc_index, prim_index) => {
                         // See if this task fits into the tile UBO
@@ -525,7 +524,7 @@ impl AlphaBatcher {
                                                              blend_mode,
                                                              textures);
                     }
-                }
+                };
 
                 while existing_batch_index < batches.len() &&
                         !batches[existing_batch_index].key.is_compatible_with(&batch_key) {
@@ -590,12 +589,14 @@ struct CompileTileContext<'a> {
 struct RenderTargetContext<'a> {
     layer_store: &'a [StackingContext],
     prim_store: &'a PrimitiveStore,
+    clip_stack: &'a ClipRegionStack,
 }
 
 /// A render target represents a number of rendering operations on a surface.
 pub struct RenderTarget {
     pub alpha_batcher: AlphaBatcher,
     pub box_shadow_cache_prims: Vec<CachePrimitiveInstance>,
+    pub clip_cache_items: Vec<CacheClipInstance>,    
     // List of text runs to be cached to this render target.
     // TODO(gw): For now, assume that these all come from
     //           the same source texture id. This is almost
@@ -617,6 +618,7 @@ impl RenderTarget {
         RenderTarget {
             alpha_batcher: AlphaBatcher::new(),
             box_shadow_cache_prims: Vec::new(),
+            clip_cache_items: Vec::new(),
             text_run_cache_prims: Vec::new(),
             text_run_textures: BatchTextures::no_texture(),
             vertical_blurs: Vec::new(),
@@ -720,7 +722,18 @@ impl RenderTarget {
                 }
             }
             RenderTaskKind::CacheMask => {
-                //TODO
+                let cache = match task.id {
+                    RenderTaskId::Dynamic(RenderTaskKey::CacheMask(ref cache)) => cache,
+                    _ => unreachable!()
+                };
+                self.clip_cache_items.extend((0 .. cache.item_range.length).map(|region_id| {
+                    CacheClipInstance {
+                        task_id: render_tasks.get_task_index(&task.id, pass_index).0 as i32,
+                        layer_index: 0,
+                        clip_address: GpuStoreAddress(0),
+                        pad: 0,
+                    }
+                }));
             }
         }
     }
@@ -887,10 +900,11 @@ impl RenderTask {
     }
 
     fn new_mask(cache_info: &MaskCacheInfo) -> RenderTask {
+        let size = DeviceSize::new(SCREEN_TILE_SIZE, SCREEN_TILE_SIZE);
         RenderTask {
             id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(cache_info.key)),
             children: Vec::new(),
-            location: RenderTaskLocation::Dynamic(None, cache_info.size),
+            location: RenderTaskLocation::Dynamic(None, size),
             kind: RenderTaskKind::CacheMask,
         }
     }
@@ -952,12 +966,11 @@ impl RenderTask {
     // of render task that is provided to the GPU shaders
     // via a vertex texture.
     fn write_task_data(&self) -> RenderTaskData {
+        let (target_rect, target_index) = self.get_target_rect();
         match self.kind {
             RenderTaskKind::Alpha(ref task) => {
-                let (target_rect, target_index) = self.get_target_rect();
                 debug_assert!(target_rect.size.width == task.actual_rect.size.width);
                 debug_assert!(target_rect.size.height == task.actual_rect.size.height);
-
                 RenderTaskData {
                     data: [
                         task.actual_rect.origin.x as f32,
@@ -971,9 +984,7 @@ impl RenderTask {
                     ],
                 }
             }
-            RenderTaskKind::CachePrimitive(..) | RenderTaskKind::CacheMask => {
-                let (target_rect, target_index) = self.get_target_rect();
-
+            RenderTaskKind::CachePrimitive(..) => {
                 RenderTaskData {
                     data: [
                         target_rect.origin.x as f32,
@@ -1174,6 +1185,16 @@ pub struct CachePrimitiveInstance {
     prim_address: GpuStoreAddress,
     task_id: i32,
     sub_index: i32,
+}
+
+/// An instance drawn into the clipping mask, typically
+/// a transformed rectangle with rounded corners.
+#[derive(Debug)]
+pub struct CacheClipInstance {
+    task_id: i32,
+    layer_index: i32,
+    clip_address: GpuStoreAddress,
+    pad: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -1634,11 +1655,10 @@ impl ScreenTile {
                     }
 
                     // Add a task to render the updated image mask
-                    /*
-                    if let ClipMask::Cached(ref mask_info) = prim_metadata.clip_mask {
-                        let mask_task = RenderTask::new_mask(mask_info);
+                    if let Some(ref clip_info) = prim_metadata.clip_cache_info {
+                        let mask_task = RenderTask::new_mask(clip_info);
                         current_task.children.push(mask_task);
-                    }*/
+                    }
 
                     // Add any dynamic render tasks needed to render this primitive
                     if let Some(ref render_task) = prim_metadata.render_task {
@@ -1692,7 +1712,11 @@ impl FrameBuilder {
                      clip_region: &ClipRegion,
                      container: PrimitiveContainer) -> PrimitiveIndex {
 
-        let clip_source = self.clip_stack.generate_source(clip_region);
+        let clip_source = if clip_region.is_complex() {
+            PrimitiveClipSource::Region(clip_region.clone())
+        } else {
+            PrimitiveClipSource::NoClip
+        };
         let geometry = PrimitiveGeometry {
             local_rect: *rect,
             local_clip_rect: clip_region.main,
@@ -2106,10 +2130,12 @@ impl FrameBuilder {
 
         // TODO(gw): Remove this stack once the layers refactor is done!
         let mut layer_stack: Vec<StackingContextIndex> = Vec::new();
+
         let dummy_mask_cache_item = {
             let opaque_mask_id = self.dummy_resources.opaque_mask_image_id;
             resource_cache.get_image_by_cache_id(opaque_mask_id).clone()
         };
+        self.clip_stack.reset();
 
         for cmd in &self.cmds {
             match cmd {
@@ -2121,10 +2147,6 @@ impl FrameBuilder {
                     layer.xf_rect = None;
                     layer.tile_range = None;
 
-                    if !layer.can_contribute_to_scene() {
-                        continue;
-                    }
-
                     let scroll_layer = &layer_map[&layer.scroll_layer_id];
                     packed_layer.transform = scroll_layer.world_content_transform
                                                          .pre_mul(&layer.local_transform);
@@ -2133,6 +2155,10 @@ impl FrameBuilder {
                     self.clip_stack.push_layer(&packed_layer.transform,
                                                &scroll_layer.combined_local_viewport_rect,
                                                None);
+
+                    if !layer.can_contribute_to_scene() {
+                        continue;
+                    }
 
                     let inv_layer_transform = layer.local_transform.inverse().unwrap();
                     let local_viewport_rect = scroll_layer.combined_local_viewport_rect;
@@ -2199,6 +2225,7 @@ impl FrameBuilder {
 
                             if self.prim_store.prepare_prim_for_render(prim_index,
                                                                        resource_cache,
+                                                                       &mut self.clip_stack,
                                                                        self.device_pixel_ratio,
                                                                        &dummy_mask_cache_item,
                                                                        auxiliary_lists) {
@@ -2480,6 +2507,7 @@ impl FrameBuilder {
             let ctx = RenderTargetContext {
                 layer_store: &self.layer_store,
                 prim_store: &self.prim_store,
+                clip_stack: &self.clip_stack,
             };
 
             // Do the allocations now, assigning each tile's tasks to a render

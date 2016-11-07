@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use clip_stack::MaskCacheInfo;
+use clip_stack::{ClipRegionStack, MaskCacheInfo};
 use device::TextureId;
 use euclid::{Point2D, Matrix4D, Rect, Size2D};
 use gpu_store::{GpuStore, GpuStoreAddress};
@@ -57,8 +57,7 @@ pub enum PrimitiveCacheKey {
 pub enum PrimitiveClipSource {
     NoClip,
     Complex(Rect<f32>, f32),
-    Region(ClipRegion), //TODO: simplify once MaskTarget is finalized
-    MaskTarget(Rect<f32>, MaskCacheInfo),
+    Region(ClipRegion),
 }
 
 // TODO(gw): Pack the fields here better!
@@ -67,7 +66,8 @@ pub struct PrimitiveMetadata {
     pub is_opaque: bool,
     pub mask_texture_id: TextureId,
     pub clip_index: Option<GpuStoreAddress>,
-    pub clip_source: Box<PrimitiveClipSource>, //TODO: reconsider the Box
+    pub clip_source: Box<PrimitiveClipSource>,
+    pub clip_cache_info: Option<MaskCacheInfo>, //TODO: merge with clip_source
     pub prim_kind: PrimitiveKind,
     pub cpu_prim_index: SpecificPrimitiveIndex,
     pub gpu_prim_index: GpuStoreAddress,
@@ -408,6 +408,7 @@ impl PrimitiveStore {
                     mask_texture_id: TextureId::invalid(),
                     clip_index: None,
                     clip_source: clip_source,
+                    clip_cache_info: None,
                     prim_kind: PrimitiveKind::Rectangle,
                     cpu_prim_index: SpecificPrimitiveIndex::invalid(),
                     gpu_prim_index: gpu_address,
@@ -427,6 +428,7 @@ impl PrimitiveStore {
                     mask_texture_id: TextureId::invalid(),
                     clip_index: None,
                     clip_source: clip_source,
+                    clip_cache_info: None,
                     prim_kind: PrimitiveKind::TextRun,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_runs.len()),
                     gpu_prim_index: gpu_address,
@@ -446,6 +448,7 @@ impl PrimitiveStore {
                     mask_texture_id: TextureId::invalid(),
                     clip_index: None,
                     clip_source: clip_source,
+                    clip_cache_info: None,
                     prim_kind: PrimitiveKind::Image,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_images.len()),
                     gpu_prim_index: gpu_address,
@@ -465,6 +468,7 @@ impl PrimitiveStore {
                     mask_texture_id: TextureId::invalid(),
                     clip_index: None,
                     clip_source: clip_source,
+                    clip_cache_info: None,
                     prim_kind: PrimitiveKind::Border,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_borders.len()),
                     gpu_prim_index: gpu_address,
@@ -485,6 +489,7 @@ impl PrimitiveStore {
                     mask_texture_id: TextureId::invalid(),
                     clip_index: None,
                     clip_source: clip_source,
+                    clip_cache_info: None,
                     prim_kind: PrimitiveKind::Gradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
                     gpu_prim_index: gpu_address,
@@ -534,6 +539,7 @@ impl PrimitiveStore {
                     mask_texture_id: TextureId::invalid(),
                     clip_index: None,
                     clip_source: clip_source,
+                    clip_cache_info: None,
                     prim_kind: PrimitiveKind::BoxShadow,
                     cpu_prim_index: SpecificPrimitiveIndex::invalid(),
                     gpu_prim_index: gpu_prim_address,
@@ -678,6 +684,7 @@ impl PrimitiveStore {
     pub fn prepare_prim_for_render(&mut self,
                                    prim_index: PrimitiveIndex,
                                    resource_cache: &mut ResourceCache,
+                                   clip_stack: &mut ClipRegionStack,
                                    device_pixel_ratio: f32,
                                    dummy_mask_cache_item: &TextureCacheItem,
                                    auxiliary_lists: &AuxiliaryLists) -> bool {
@@ -731,6 +738,19 @@ impl PrimitiveStore {
                 metadata.clip_index = Some(gpu_address);
                 metadata.mask_texture_id = dummy_mask_cache_item.texture_id;
             }
+        }
+
+        {
+            let clip_gpu_store = &mut self.gpu_data32;
+            let fun_add = |data| {
+                let gpu_address = clip_gpu_store.alloc(6);
+                let gpu_data = clip_gpu_store.get_slice_mut(gpu_address, 6);
+                Self::populate_clip_data(gpu_data, data);
+                gpu_address
+            };
+            metadata.clip_cache_info = clip_stack.generate(&metadata.clip_source,
+                                                           auxiliary_lists,
+                                                           fun_add);
         }
 
         match metadata.prim_kind {
