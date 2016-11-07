@@ -839,8 +839,30 @@ pub struct AlphaBatchKey {
     kind: AlphaBatchKind,
     pub flags: AlphaBatchKeyFlags,
     pub blend_mode: BlendMode,
-    pub texture_id_0: TextureId,
-    pub texture_id_1: TextureId,
+    pub texture_0: SourceTexture,
+    pub texture_1: SourceTexture,
+}
+
+/// A reference to a texture, either an id assigned by the render backend or an
+/// indirect key resolved to an id later by the renderer.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum SourceTexture {
+    Id(TextureId),
+    External(u32), // TODO(nical) ExternalImageKey
+    // TODO(nical): should this have a None variant to better separate the cases
+    // where the batch does not use all its texture slots and cases where a slot
+    // will be used but the texture hasn't been assigned yet?
+}
+
+impl SourceTexture {
+    pub fn invalid() -> SourceTexture { SourceTexture::Id(TextureId::invalid()) }
+
+    pub fn is_invalid(&self) -> bool {
+        match *self {
+            SourceTexture::Id(id) => { id == TextureId::invalid() }
+            SourceTexture::External(_) => { false }
+        }
+    }
 }
 
 impl AlphaBatchKey {
@@ -850,8 +872,8 @@ impl AlphaBatchKey {
             flags: AlphaBatchKeyFlags::new(TransformedRectKind::AxisAligned,
                                            false),
             blend_mode: BlendMode::Alpha,
-            texture_id_0: TextureId::invalid(),
-            texture_id_1: TextureId::invalid(),
+            texture_0: SourceTexture::invalid(),
+            texture_1: SourceTexture::invalid(),
         }
     }
 
@@ -861,8 +883,8 @@ impl AlphaBatchKey {
             flags: AlphaBatchKeyFlags::new(TransformedRectKind::AxisAligned,
                                            false),
             blend_mode: BlendMode::Alpha,
-            texture_id_0: TextureId::invalid(),
-            texture_id_1: TextureId::invalid(),
+            texture_0: SourceTexture::invalid(),
+            texture_1: SourceTexture::invalid(),
         }
     }
 
@@ -876,8 +898,8 @@ impl AlphaBatchKey {
             kind: kind,
             flags: flags,
             blend_mode: blend_mode,
-            texture_id_0: texture_id_0,
-            texture_id_1: texture_id_1,
+            texture_0: SourceTexture::Id(texture_id_0),
+            texture_1: SourceTexture::Id(texture_id_1),
         }
     }
 
@@ -885,10 +907,10 @@ impl AlphaBatchKey {
         self.kind == other.kind &&
             self.flags == other.flags &&
             self.blend_mode == other.blend_mode &&
-        (self.texture_id_0 == TextureId::invalid() || other.texture_id_0 == TextureId::invalid() ||
-             self.texture_id_0 == other.texture_id_0) &&
-            (self.texture_id_1 == TextureId::invalid() || other.texture_id_1 == TextureId::invalid() ||
-             self.texture_id_1 == other.texture_id_1)
+        (self.texture_0.is_invalid() || other.texture_0.is_invalid() ||
+             self.texture_0 == other.texture_0) &&
+            (self.texture_1.is_invalid() || other.texture_1.is_invalid() ||
+             self.texture_1 == other.texture_1)
     }
 }
 
