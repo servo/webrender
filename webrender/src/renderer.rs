@@ -36,7 +36,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::{TextureCache, TextureInsertOp};
-use tiling::{self, Frame, FrameBuilderConfig, PrimitiveBatchData};
+use tiling::{self, Frame, FrameBuilderConfig, PrimitiveBatchData, SourceTexture};
 use tiling::{RenderTarget, ClearTile};
 use time::precise_time_ns;
 use util::TransformedRectKind;
@@ -1329,6 +1329,16 @@ impl Renderer {
         }
     }
 
+    fn resolve_texture_id(&self, texture: SourceTexture) -> TextureId {
+        match texture {
+            SourceTexture::Id(id) => { id }
+            SourceTexture::External(_key) => {
+                //TODO[nical]
+                unimplemented!();
+            }
+        }
+    }
+
     fn draw_target(&mut self,
                    render_target: Option<(TextureId, i32)>,
                    target: &RenderTarget,
@@ -1391,8 +1401,8 @@ impl Renderer {
         let mut prev_blend_mode = BlendMode::None;
 
         for batch in &target.alpha_batcher.batches {
-            let texture_id_0 = batch.key.texture_id_0;
-            let texture_id_1 = batch.key.texture_id_1;
+            let texture_id_0 = self.resolve_texture_id(batch.key.texture_0);
+            let texture_id_1 = self.resolve_texture_id(batch.key.texture_1);
             let transform_kind = batch.key.flags.transform_kind();
             let has_complex_clip = batch.key.flags.needs_clipping();
 
