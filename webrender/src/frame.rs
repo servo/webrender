@@ -714,6 +714,14 @@ impl Frame {
                                               info.image_key,
                                               info.image_rendering);
                 }
+                SpecificDisplayItem::YuvImage(ref info) => {
+                    context.builder.add_yuv_image(LayerRect::from_untyped(&item.rect),
+                                                  &item.clip,
+                                                  info.y_image_key,
+                                                  info.u_image_key,
+                                                  info.v_image_key,
+                                                  info.color_space);
+                }
                 SpecificDisplayItem::Text(ref text_info) => {
                     context.builder.add_text(LayerRect::from_untyped(&item.rect),
                                              &item.clip,

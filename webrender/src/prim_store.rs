@@ -12,7 +12,7 @@ use std::mem;
 use std::usize;
 use tiling::RenderTask;
 use util::TransformedRect;
-use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering};
+use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering, YuvColorSpace};
 use webrender_traits::{ClipRegion, ComplexClipRegion, ItemRange, GlyphKey};
 use webrender_traits::{FontKey, FontRenderMode, WebGLContextId};
 use webrender_traits::{device_length, DeviceIntRect, DeviceIntSize};
@@ -73,6 +73,7 @@ pub enum PrimitiveKind {
     Rectangle,
     TextRun,
     Image,
+    YuvImage,
     Border,
     Gradient,
     BoxShadow,
@@ -142,6 +143,46 @@ pub struct ImagePrimitiveCpu {
 pub struct ImagePrimitiveGpu {
     pub stretch_size: LayerSize,
     pub tile_spacing: LayerSize,
+}
+
+#[derive(Debug)]
+pub struct YuvImagePrimitiveCpu {
+    pub y_key: ImageKey,
+    pub u_key: ImageKey,
+    pub v_key: ImageKey,
+    pub y_texture_id: SourceTexture,
+    pub u_texture_id: SourceTexture,
+    pub v_texture_id: SourceTexture,
+}
+
+#[derive(Debug, Clone)]
+pub struct YuvImagePrimitiveGpu {
+    pub y_uv0: DevicePoint,
+    pub y_uv1: DevicePoint,
+    pub u_uv0: DevicePoint,
+    pub u_uv1: DevicePoint,
+    pub v_uv0: DevicePoint,
+    pub v_uv1: DevicePoint,
+    pub size: LayerSize,
+    pub color_space: f32,
+    pub padding: f32,
+}
+
+impl YuvImagePrimitiveGpu {
+    pub fn new(size: LayerSize, color_space: YuvColorSpace) -> Self {
+        let int_color_space: u8 = unsafe { mem::transmute(color_space) };
+        YuvImagePrimitiveGpu {
+            y_uv0: DevicePoint::zero(),
+            y_uv1: DevicePoint::zero(),
+            u_uv0: DevicePoint::zero(),
+            u_uv1: DevicePoint::zero(),
+            v_uv0: DevicePoint::zero(),
+            v_uv1: DevicePoint::zero(),
+            size: size,
+            color_space: int_color_space as f32,
+            padding: 0.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -362,6 +403,7 @@ pub enum PrimitiveContainer {
     Rectangle(RectanglePrimitive),
     TextRun(TextRunPrimitiveCpu, TextRunPrimitiveGpu),
     Image(ImagePrimitiveCpu, ImagePrimitiveGpu),
+    YuvImage(YuvImagePrimitiveCpu, YuvImagePrimitiveGpu),
     Border(BorderPrimitiveCpu, BorderPrimitiveGpu),
     Gradient(GradientPrimitiveCpu, GradientPrimitiveGpu),
     BoxShadow(BoxShadowPrimitiveGpu, Vec<LayerRect>),
@@ -372,6 +414,7 @@ pub struct PrimitiveStore {
     pub cpu_bounding_rects: Vec<Option<DeviceIntRect>>,
     pub cpu_text_runs: Vec<TextRunPrimitiveCpu>,
     pub cpu_images: Vec<ImagePrimitiveCpu>,
+    pub cpu_yuv_images: Vec<YuvImagePrimitiveCpu>,
     pub cpu_gradients: Vec<GradientPrimitiveCpu>,
     pub cpu_metadata: Vec<PrimitiveMetadata>,
     pub cpu_borders: Vec<BorderPrimitiveCpu>,
@@ -398,6 +441,7 @@ impl PrimitiveStore {
             cpu_bounding_rects: Vec::new(),
             cpu_text_runs: Vec::new(),
             cpu_images: Vec::new(),
+            cpu_yuv_images: Vec::new(),
             cpu_gradients: Vec::new(),
             cpu_borders: Vec::new(),
             gpu_geometry: GpuStore::new(),
@@ -485,6 +529,24 @@ impl PrimitiveStore {
                 };
 
                 self.cpu_images.push(image_cpu);
+                metadata
+            }
+            PrimitiveContainer::YuvImage(image_cpu, image_gpu) => {
+                let gpu_address = self.gpu_data64.push(image_gpu);
+
+                let metadata = PrimitiveMetadata {
+                    is_opaque: true,
+                    clip_source: clip_source,
+                    clip_cache_info: clip_info,
+                    prim_kind: PrimitiveKind::YuvImage,
+                    cpu_prim_index: SpecificPrimitiveIndex(self.cpu_yuv_images.len()),
+                    gpu_prim_index: gpu_address,
+                    gpu_data_address: GpuStoreAddress(0),
+                    gpu_data_count: 0,
+                    render_task: None,
+                };
+
+                self.cpu_yuv_images.push(image_cpu);
                 metadata
             }
             PrimitiveContainer::Border(border_cpu, border_gpu) => {
@@ -662,6 +724,33 @@ impl PrimitiveStore {
                         resource_rect.uv1 = cache_item.uv1;
                     }
                     image_cpu.color_texture_id = texture_id;
+                }
+                PrimitiveKind::YuvImage => {
+                    let image_cpu = &mut self.cpu_yuv_images[metadata.cpu_prim_index.0];
+                    let image_gpu: &mut YuvImagePrimitiveGpu = unsafe {
+                        mem::transmute(self.gpu_data64.get_mut(metadata.gpu_prim_index))
+                    };
+
+                    if image_cpu.y_texture_id == SourceTexture::Invalid {
+                        let y_cache_item = resource_cache.get_cached_image(image_cpu.y_key, ImageRendering::Auto);
+                        image_cpu.y_texture_id = y_cache_item.texture_id;
+                        image_gpu.y_uv0 = y_cache_item.uv0;
+                        image_gpu.y_uv1 = y_cache_item.uv1;
+                    }
+
+                    if image_cpu.u_texture_id == SourceTexture::Invalid {
+                        let u_cache_item = resource_cache.get_cached_image(image_cpu.u_key, ImageRendering::Auto);
+                        image_cpu.u_texture_id = u_cache_item.texture_id;
+                        image_gpu.u_uv0 = u_cache_item.uv0;
+                        image_gpu.u_uv1 = u_cache_item.uv1;
+                    }
+
+                    if image_cpu.v_texture_id == SourceTexture::Invalid {
+                        let v_cache_item = resource_cache.get_cached_image(image_cpu.v_key, ImageRendering::Auto);
+                        image_cpu.v_texture_id = v_cache_item.texture_id;
+                        image_gpu.v_uv0 = v_cache_item.uv0;
+                        image_gpu.v_uv1 = v_cache_item.uv1;
+                    }
                 }
             }
         }
@@ -851,6 +940,17 @@ impl PrimitiveStore {
                     ImagePrimitiveKind::WebGL(..) => {}
                 }
             }
+            PrimitiveKind::YuvImage => {
+                let image_cpu = &mut self.cpu_yuv_images[metadata.cpu_prim_index.0];
+                prim_needs_resolve = true;
+
+                resource_cache.request_image(image_cpu.y_key, ImageRendering::Auto);
+                resource_cache.request_image(image_cpu.u_key, ImageRendering::Auto);
+                resource_cache.request_image(image_cpu.v_key, ImageRendering::Auto);
+
+                // TODO(nical): Currently assuming no tile_spacing for yuv images.
+                metadata.is_opaque = true;
+            }
             PrimitiveKind::Gradient => {
                 let gradient = &mut self.cpu_gradients[metadata.cpu_prim_index.0];
                 if gradient.cache_dirty {
@@ -969,6 +1069,14 @@ impl From<GradientStop> for GpuBlock32 {
     fn from(data: GradientStop) -> GpuBlock32 {
         unsafe {
             mem::transmute::<GradientStop, GpuBlock32>(data)
+        }
+    }
+}
+
+impl From<YuvImagePrimitiveGpu> for GpuBlock64 {
+    fn from(data: YuvImagePrimitiveGpu) -> GpuBlock64 {
+        unsafe {
+            mem::transmute::<YuvImagePrimitiveGpu, GpuBlock64>(data)
         }
     }
 }
