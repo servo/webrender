@@ -13,7 +13,8 @@ use std::mem;
 use std::usize;
 use texture_cache::TextureCacheItem;
 use util::TransformedRect;
-use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering, WebGLContextId};
+use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering};
+use webrender_traits::{FontRenderMode, WebGLContextId};
 use webrender_traits::{ClipRegion, FontKey, ItemRange, ComplexClipRegion, GlyphKey};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -186,6 +187,8 @@ pub struct TextRunPrimitiveCpu {
     // TODO(gw): Maybe make this an Arc for sharing with resource cache
     pub glyph_indices: Vec<u32>,
     pub color_texture_id: TextureId,
+    pub color: ColorF,
+    pub render_mode: FontRenderMode,
 }
 
 #[derive(Debug, Clone)]
@@ -583,7 +586,8 @@ impl PrimitiveStore {
                     let texture_id = resource_cache.get_glyphs(text.font_key,
                                                                text.font_size,
                                                                text.blur_radius,
-                                                               &text.glyph_indices, |index, uv0, uv1| {
+                                                               &text.glyph_indices,
+                                                               text.render_mode, |index, uv0, uv1| {
                         let dest_glyph = &mut dest_glyphs[index];
                         let dest: &mut GlyphPrimitive = unsafe {
                             mem::transmute(dest_glyph)
@@ -785,7 +789,8 @@ impl PrimitiveStore {
                 resource_cache.request_glyphs(text.font_key,
                                               text.font_size,
                                               text.blur_radius,
-                                              &text.glyph_indices);
+                                              &text.glyph_indices,
+                                              text.render_mode);
             }
             PrimitiveKind::Image => {
                 let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];

@@ -3,8 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use internal_types::FontRenderMode;
-use webrender_traits::{FontKey, GlyphDimensions, NativeFontHandle};
+use webrender_traits::{FontKey, FontRenderMode, GlyphDimensions, NativeFontHandle};
 
 use freetype::freetype::{FTErrorMethods, FT_PIXEL_MODE_GRAY, FT_PIXEL_MODE_MONO, FT_PIXEL_MODE_LCD};
 use freetype::freetype::{FT_Done_FreeType, FT_RENDER_MODE_LCD, FT_Library_SetLcdFilter};
@@ -49,7 +48,10 @@ impl FontContext {
             if !result.succeeded() { panic!("Unable to initialize FreeType library {}", result); }
 
             // TODO(gw): Check result of this to determine if freetype build supports subpixel.
-            FT_Library_SetLcdFilter(lib, FT_LcdFilter::FT_LCD_FILTER_DEFAULT);
+            let result = FT_Library_SetLcdFilter(lib, FT_LcdFilter::FT_LCD_FILTER_DEFAULT);
+            if !result.succeeded() {
+                println!("WARN: Initializing a FreeType library build without subpixel AA enabled!");
+            }
         }
 
         FontContext {
@@ -156,7 +158,7 @@ impl FontContext {
                     let bitmap_mode = bitmap.pixel_mode as u32;
 
                     let metrics = &(*slot).metrics;
-                    let glyph_width = (metrics.width >> 6) as i32;
+                    let mut glyph_width = (metrics.width >> 6) as i32;
                     let glyph_height = (metrics.height >> 6) as i32;
                     let mut final_buffer = Vec::with_capacity(glyph_width as usize *
                                                               glyph_height as usize *
@@ -215,6 +217,9 @@ impl FontContext {
                             }
                         }
                         FT_PIXEL_MODE_LCD => {
+                            // Extra subpixel on each side of the glyph.
+                            glyph_width += 2;
+
                             for y in 0..bitmap.rows {
                                 for x in 0..(bitmap.width / 3) {
                                     let index = (y * bitmap.pitch) + (x * 3);

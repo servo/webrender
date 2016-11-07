@@ -12,10 +12,9 @@ use core_graphics::geometry::CGPoint;
 use core_text::font::CTFont;
 use core_text::font_descriptor::kCTFontDefaultOrientation;
 use core_text;
-use internal_types::FontRenderMode;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use webrender_traits::{FontKey, GlyphDimensions};
+use webrender_traits::{FontKey, FontRenderMode, GlyphDimensions};
 
 pub type NativeFontHandle = CGFont;
 
