@@ -3,7 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use core_graphics::base::kCGImageAlphaPremultipliedLast;
+use core_graphics::base::{kCGImageAlphaNoneSkipFirst, kCGImageAlphaPremultipliedLast};
+use core_graphics::base::kCGBitmapByteOrder32Little;
 use core_graphics::color_space::CGColorSpace;
 use core_graphics::context::CGContext;
 use core_graphics::data_provider::CGDataProvider;
@@ -47,6 +48,27 @@ struct GlyphMetrics {
     rasterized_height: u32,
 }
 
+// According to the Skia source code, there's no public API to
+// determine if subpixel AA is supported. So jrmuizel ported
+// this function from Skia which is used to check if a glyph
+// can be rendered with subpixel AA.
+fn supports_subpixel_aa() -> bool {
+    let mut cg_context = CGContext::create_bitmap_context(1, 1, 8, 4,
+                                                          &CGColorSpace::create_device_rgb(),
+                                                          kCGImageAlphaNoneSkipFirst |
+                                                          kCGBitmapByteOrder32Little);
+    let ct_font = core_text::font::new_from_name("Helvetica", 16.).unwrap();
+    cg_context.set_should_smooth_fonts(true);
+    cg_context.set_should_antialias(true);
+    cg_context.set_allows_font_smoothing(true);
+    cg_context.set_rgb_fill_color(1.0, 1.0, 1.0, 1.0);
+    let point = CGPoint {x: -1., y: 0.};
+    let glyph = '|' as CGGlyph;
+    ct_font.draw_glyphs(&[glyph], &[point], cg_context.clone());
+    let data = cg_context.data();
+    data[0] != data[1] || data[1] != data[2]
+}
+
 fn get_glyph_metrics(ct_font: &CTFont, glyph: CGGlyph) -> GlyphMetrics {
     let bounds = ct_font.get_bounding_rects_for_glyphs(kCTFontDefaultOrientation, &[glyph]);
 
@@ -68,6 +90,8 @@ fn get_glyph_metrics(ct_font: &CTFont, glyph: CGGlyph) -> GlyphMetrics {
 
 impl FontContext {
     pub fn new() -> FontContext {
+        debug!("Test for subpixel AA support: {}", supports_subpixel_aa());
+
         FontContext {
             cg_fonts: HashMap::new(),
             ct_fonts: HashMap::new(),
@@ -150,18 +174,28 @@ impl FontContext {
                     return Some(RasterizedGlyph::blank())
                 }
 
+                let context_flags = match render_mode {
+                    FontRenderMode::Subpixel => kCGBitmapByteOrder32Little | kCGImageAlphaNoneSkipFirst,
+                    FontRenderMode::Alpha | FontRenderMode::Mono => kCGImageAlphaPremultipliedLast,
+                };
+
                 let mut cg_context = CGContext::create_bitmap_context(metrics.rasterized_width as usize,
                                                                       metrics.rasterized_height as usize,
                                                                       8,
                                                                       metrics.rasterized_width as usize * 4,
                                                                       &CGColorSpace::create_device_rgb(),
-                                                                      kCGImageAlphaPremultipliedLast);
-                // TODO(gw): Add subpixel render mode support on mac.
-                let enable_aa = render_mode != FontRenderMode::Mono;
-                cg_context.set_allows_font_smoothing(enable_aa);
-                cg_context.set_should_smooth_fonts(enable_aa);
-                cg_context.set_allows_antialiasing(enable_aa);
-                cg_context.set_should_antialias(enable_aa);
+                                                                      context_flags);
+
+                let (antialias, smooth) = match render_mode {
+                    FontRenderMode::Subpixel => (true, true),
+                    FontRenderMode::Alpha => (true, false),
+                    FontRenderMode::Mono => (false, false),
+                };
+
+                cg_context.set_allows_font_smoothing(smooth);
+                cg_context.set_should_smooth_fonts(smooth);
+                cg_context.set_allows_antialiasing(antialias);
+                cg_context.set_should_antialias(antialias);
                 cg_context.set_rgb_fill_color(1.0, 1.0, 1.0, 1.0);
 
                 let rasterization_origin = CGPoint {
@@ -172,12 +206,17 @@ impl FontContext {
 
                 let rasterized_area = (metrics.rasterized_width * metrics.rasterized_height) as usize;
                 let mut rasterized_pixels = cg_context.data().to_vec();
-                for i in 0..rasterized_area {
-                    let alpha = (rasterized_pixels[i * 4 + 3] as f32) / 255.0;
-                    for j in 0..3 {
-                        rasterized_pixels[i * 4 + j] =
-                            ((rasterized_pixels[i * 4 + j] as f32) / alpha) as u8;
+
+                match render_mode {
+                    FontRenderMode::Alpha | FontRenderMode::Mono => {
+                        for i in 0..rasterized_area {
+                            let alpha = (rasterized_pixels[i * 4 + 3] as f32) / 255.0;
+                            for channel in &mut rasterized_pixels[(i*4)..(i*4 + 3)] {
+                                *channel = ((*channel as f32) / alpha) as u8;
+                            }
+                        }
                     }
+                    FontRenderMode::Subpixel => {}
                 }
 
                 Some(RasterizedGlyph {
