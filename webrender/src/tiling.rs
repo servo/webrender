@@ -839,8 +839,8 @@ pub struct AlphaBatchKey {
     kind: AlphaBatchKind,
     pub flags: AlphaBatchKeyFlags,
     pub blend_mode: BlendMode,
-    pub color_texture_id: TextureId,
-    pub mask_texture_id: TextureId,
+    pub texture_id_0: TextureId,
+    pub texture_id_1: TextureId,
 }
 
 impl AlphaBatchKey {
@@ -850,8 +850,8 @@ impl AlphaBatchKey {
             flags: AlphaBatchKeyFlags::new(TransformedRectKind::AxisAligned,
                                            false),
             blend_mode: BlendMode::Alpha,
-            color_texture_id: TextureId::invalid(),
-            mask_texture_id: TextureId::invalid(),
+            texture_id_0: TextureId::invalid(),
+            texture_id_1: TextureId::invalid(),
         }
     }
 
@@ -861,23 +861,23 @@ impl AlphaBatchKey {
             flags: AlphaBatchKeyFlags::new(TransformedRectKind::AxisAligned,
                                            false),
             blend_mode: BlendMode::Alpha,
-            color_texture_id: TextureId::invalid(),
-            mask_texture_id: TextureId::invalid(),
+            texture_id_0: TextureId::invalid(),
+            texture_id_1: TextureId::invalid(),
         }
     }
 
     fn primitive(kind: AlphaBatchKind,
                  flags: AlphaBatchKeyFlags,
                  blend_mode: BlendMode,
-                 color_texture_id: TextureId,
-                 mask_texture_id: TextureId)
+                 texture_id_0: TextureId,
+                 texture_id_1: TextureId)
                  -> AlphaBatchKey {
         AlphaBatchKey {
             kind: kind,
             flags: flags,
             blend_mode: blend_mode,
-            color_texture_id: color_texture_id,
-            mask_texture_id: mask_texture_id,
+            texture_id_0: texture_id_0,
+            texture_id_1: texture_id_1,
         }
     }
 
@@ -885,10 +885,10 @@ impl AlphaBatchKey {
         self.kind == other.kind &&
             self.flags == other.flags &&
             self.blend_mode == other.blend_mode &&
-        (self.color_texture_id == TextureId::invalid() || other.color_texture_id == TextureId::invalid() ||
-             self.color_texture_id == other.color_texture_id) &&
-            (self.mask_texture_id == TextureId::invalid() || other.mask_texture_id == TextureId::invalid() ||
-             self.mask_texture_id == other.mask_texture_id)
+        (self.texture_id_0 == TextureId::invalid() || other.texture_id_0 == TextureId::invalid() ||
+             self.texture_id_0 == other.texture_id_0) &&
+            (self.texture_id_1 == TextureId::invalid() || other.texture_id_1 == TextureId::invalid() ||
+             self.texture_id_1 == other.texture_id_1)
     }
 }
 

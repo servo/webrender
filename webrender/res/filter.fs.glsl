@@ -71,7 +71,7 @@ vec4 Blur(float radius, vec2 direction) {
             texCoord.x <= 1.0 &&
             texCoord.y >= 0.0 &&
             texCoord.y <= 1.0 ?
-            Texture(sDiffuse, texCoord) :
+            Texture(COLOR_TEXTURE_0, texCoord) :
             vec4(0.0);
         color += x * gauss(offsetF, sigma);
     }
@@ -126,7 +126,7 @@ void main(void)
         // Gaussian blur is specially handled:
         result = Blur(amount, uFilterParams.zw);
     } else {
-        vec4 Cs = Texture(sDiffuse, vColorTexCoord);
+        vec4 Cs = Texture(COLOR_TEXTURE_0, vColorTexCoord);
 
         if (filterOp == 1) {
             result = Contrast(Cs, amount);

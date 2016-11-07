@@ -168,8 +168,8 @@ pub type DrawListId = FreeListItemId;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TextureSampler {
-    Color,
-    Mask,
+    Slot0,
+    Slot1,
     Cache,
     Data16,
     Data32,
@@ -179,6 +179,12 @@ pub enum TextureSampler {
     RenderTasks,
     Geometry,
 }
+
+// Aliases that can be used when it is clearer to refer to the texture slots as
+// what they are used for in a given context (instead of the generic slot names).
+pub const SAMPLER_COLOR_0: TextureSampler = TextureSampler::Slot0;
+//pub const SAMPLER_COLOR_1: TextureSampler = TextureSampler::Slot1;
+//pub const SAMPLER_MASK: TextureSampler = TextureSampler::Slot1;
 
 pub enum VertexAttribute {
     Position,

@@ -1105,7 +1105,7 @@ impl Device {
 
         match mode {
             RenderTargetMode::SimpleRenderTarget => {
-                self.bind_texture(TextureSampler::Color, texture_id);
+                self.bind_texture(TextureSampler::Slot0, texture_id);
                 self.set_texture_parameters(texture_id.target, filter);
                 self.upload_texture_image(texture_id.target,
                                           width,
@@ -1117,12 +1117,12 @@ impl Device {
                 self.create_fbo_for_texture_if_necessary(texture_id, None);
             }
             RenderTargetMode::LayerRenderTarget(layer_count) => {
-                self.bind_texture(TextureSampler::Color, texture_id);
+                self.bind_texture(TextureSampler::Slot0, texture_id);
                 self.set_texture_parameters(texture_id.target, filter);
                 self.create_fbo_for_texture_if_necessary(texture_id, Some(layer_count));
             }
             RenderTargetMode::None => {
-                self.bind_texture(TextureSampler::Color, texture_id);
+                self.bind_texture(TextureSampler::Slot0, texture_id);
                 self.set_texture_parameters(texture_id.target, filter);
                 self.upload_texture_image(texture_id.target,
                                           width,
@@ -1216,7 +1216,7 @@ impl Device {
         self.create_fbo_for_texture_if_necessary(temp_texture_id, None);
 
         self.bind_render_target(Some((texture_id, 0)), None);
-        self.bind_texture(TextureSampler::Color, temp_texture_id);
+        self.bind_texture(TextureSampler::Slot0, temp_texture_id);
 
         gl::copy_tex_sub_image_2d(temp_texture_id.target,
                                   0,
@@ -1231,7 +1231,7 @@ impl Device {
         self.init_texture(texture_id, new_width, new_height, format, filter, mode, None);
         self.create_fbo_for_texture_if_necessary(texture_id, None);
         self.bind_render_target(Some((temp_texture_id, 0)), None);
-        self.bind_texture(TextureSampler::Color, texture_id);
+        self.bind_texture(TextureSampler::Slot0, texture_id);
 
         gl::copy_tex_sub_image_2d(texture_id.target,
                                   0,
@@ -1249,7 +1249,7 @@ impl Device {
     pub fn deinit_texture(&mut self, texture_id: TextureId) {
         debug_assert!(self.inside_frame);
 
-        self.bind_texture(TextureSampler::Color, texture_id);
+        self.bind_texture(TextureSampler::Slot0, texture_id);
 
         let texture = self.textures.get_mut(&texture_id).unwrap();
         let (internal_format, gl_format) = gl_texture_formats_for_image_format(texture.format);
@@ -1404,13 +1404,13 @@ impl Device {
                 program.u_transform = gl::get_uniform_location(program.id, "uTransform");
 
                 program_id.bind();
-                let u_diffuse = gl::get_uniform_location(program.id, "sDiffuse");
-                if u_diffuse != -1 {
-                    gl::uniform_1i(u_diffuse, TextureSampler::Color as i32);
+                let u_texture_0 = gl::get_uniform_location(program.id, "sTexture0");
+                if u_texture_0 != -1 {
+                    gl::uniform_1i(u_texture_0, TextureSampler::Slot0 as i32);
                 }
-                let u_mask = gl::get_uniform_location(program.id, "sMask");
-                if u_mask != -1 {
-                    gl::uniform_1i(u_mask, TextureSampler::Mask as i32);
+                let u_texture_1 = gl::get_uniform_location(program.id, "sTexture1");
+                if u_texture_1 != -1 {
+                    gl::uniform_1i(u_texture_1, TextureSampler::Slot1 as i32);
                 }
                 let u_device_pixel_ratio = gl::get_uniform_location(program.id, "uDevicePixelRatio");
                 if u_device_pixel_ratio != -1 {
@@ -1564,7 +1564,7 @@ impl Device {
 
         assert!(data.len() as u32 == bpp * width * height);
 
-        self.bind_texture(TextureSampler::Color, texture_id);
+        self.bind_texture(TextureSampler::Slot0, texture_id);
         self.update_image_for_2d_texture(texture_id.target,
                                          x0 as gl::GLint,
                                          y0 as gl::GLint,
@@ -1582,7 +1582,7 @@ impl Device {
                                  src_y: i32,
                                  width: i32,
                                  height: i32) {
-        self.bind_texture(TextureSampler::Color, texture_id);
+        self.bind_texture(TextureSampler::Slot0, texture_id);
         gl::copy_tex_sub_image_2d(texture_id.target,
                                   0,
                                   dest_x,

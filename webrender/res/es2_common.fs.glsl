@@ -8,8 +8,8 @@
 
 precision highp float;
 
-uniform sampler2D sDiffuse;
-uniform sampler2D sMask;
+uniform sampler2D sTexture0;
+uniform sampler2D sTexture1;
 uniform vec4 uBlendParams;
 uniform vec4 uAtlasParams;
 uniform vec2 uDirection;
@@ -27,6 +27,10 @@ varying float vBlurRadius;
 varying vec4 vTileParams;
 varying vec4 vClipInRect;
 varying vec4 vClipOutRect;
+
+#define COLOR_TEXTURE_0 sTexture0
+#define COLOR_TEXTURE_1 sTexture1
+#define MASK_TEXTURE sTexture1
 
 vec4 Texture(sampler2D sampler, vec2 texCoord) {
     return texture2D(sampler, texCoord);
