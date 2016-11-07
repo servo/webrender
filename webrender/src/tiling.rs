@@ -14,7 +14,7 @@ use layer::Layer;
 use mask_cache::{OPAQUE_TASK_INDEX, MaskCacheKey, MaskCacheInfo};
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
-use prim_store::{ImagePrimitiveCpu, ImagePrimitiveGpu, ImagePrimitiveKind};
+use prim_store::{ImagePrimitiveCpu, ImagePrimitiveGpu, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu, ImagePrimitiveKind, };
 use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata, TexelRect};
 use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve, PrimitiveClipSource};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
@@ -34,7 +34,7 @@ use texture_cache::TexturePage;
 use util::{self, rect_from_points, MatrixHelpers, rect_from_points_f};
 use util::{TransformedRect, TransformedRectKind, subtract_rect, pack_as_float};
 use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, MixBlendMode};
-use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle};
+use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle, YuvColorSpace};
 use webrender_traits::{AuxiliaryLists, ItemRange, BoxShadowClipMode, ClipRegion};
 use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId, FontRenderMode};
 use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize, DeviceIntLength, device_length};
@@ -77,6 +77,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::Border => AlphaBatchKind::Border,
             PrimitiveKind::BoxShadow => AlphaBatchKind::BoxShadow,
             PrimitiveKind::Image => AlphaBatchKind::Image,
+            PrimitiveKind::YuvImage => AlphaBatchKind::YuvImage,
             PrimitiveKind::Rectangle => AlphaBatchKind::Rectangle,
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
@@ -116,11 +117,14 @@ impl AlphaBatchHelpers for PrimitiveStore {
                 let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
                 [image_cpu.color_texture_id, invalid, invalid]
             }
+            PrimitiveKind::YuvImage => {
+                let image_cpu = &self.cpu_yuv_images[metadata.cpu_prim_index.0];
+                [image_cpu.y_texture_id, image_cpu.u_texture_id, image_cpu.v_texture_id]
+            }
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
                 [text_run_cpu.color_texture_id, invalid, invalid]
             }
-            // TODO(nical): YuvImage will return 3 textures.
         }
     }
 
@@ -167,6 +171,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::Rectangle |
             PrimitiveKind::TextRun |
             PrimitiveKind::Image |
+            PrimitiveKind::YuvImage |
             PrimitiveKind::Gradient |
             PrimitiveKind::BoxShadow => true,
             PrimitiveKind::Border => {
@@ -247,6 +252,17 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     prim_address: prim_address,
                     sub_index: 0,
                     user_data: [ image_cpu.resource_address.0, 0 ],
+                });
+            }
+            &mut PrimitiveBatchData::YuvImage(ref mut data) => {
+                data.push(PrimitiveInstance {
+                    task_index: task_index,
+                    clip_task_index: clip_task_index,
+                    layer_index: layer_index,
+                    global_prim_id: global_prim_id,
+                    prim_address: prim_address,
+                    sub_index: 0,
+                    user_data: [ 0, 0 ],
                 });
             }
             &mut PrimitiveBatchData::Borders(ref mut data) => {
@@ -1195,6 +1211,7 @@ enum AlphaBatchKind {
     Rectangle,
     TextRun,
     Image,
+    YuvImage,
     Border,
     AlignedGradient,
     AngleGradient,
@@ -1346,6 +1363,7 @@ pub enum PrimitiveBatchData {
     Rectangles(Vec<PrimitiveInstance>),
     TextRun(Vec<PrimitiveInstance>),
     Image(Vec<PrimitiveInstance>),
+    YuvImage(Vec<PrimitiveInstance>),
     Borders(Vec<PrimitiveInstance>),
     AlignedGradient(Vec<PrimitiveInstance>),
     AngleGradient(Vec<PrimitiveInstance>),
@@ -1433,6 +1451,7 @@ impl PrimitiveBatch {
             AlphaBatchKind::Rectangle => PrimitiveBatchData::Rectangles(Vec::new()),
             AlphaBatchKind::TextRun => PrimitiveBatchData::TextRun(Vec::new()),
             AlphaBatchKind::Image => PrimitiveBatchData::Image(Vec::new()),
+            AlphaBatchKind::YuvImage => PrimitiveBatchData::YuvImage(Vec::new()),
             AlphaBatchKind::Border => PrimitiveBatchData::Borders(Vec::new()),
             AlphaBatchKind::AlignedGradient => PrimitiveBatchData::AlignedGradient(Vec::new()),
             AlphaBatchKind::AngleGradient => PrimitiveBatchData::AngleGradient(Vec::new()),
@@ -2240,6 +2259,30 @@ impl FrameBuilder {
         self.add_primitive(&rect,
                            clip_region,
                            PrimitiveContainer::Image(prim_cpu, prim_gpu));
+    }
+
+    pub fn add_yuv_image(&mut self,
+                         rect: LayerRect,
+                         clip_region: &ClipRegion,
+                         y_image_key: ImageKey,
+                         u_image_key: ImageKey,
+                         v_image_key: ImageKey,
+                         color_space: YuvColorSpace) {
+
+        let prim_cpu = YuvImagePrimitiveCpu {
+            y_key: y_image_key,
+            u_key: u_image_key,
+            v_key: v_image_key,
+            y_texture_id: SourceTexture::Invalid,
+            u_texture_id: SourceTexture::Invalid,
+            v_texture_id: SourceTexture::Invalid,
+        };
+
+        let prim_gpu = YuvImagePrimitiveGpu::new(rect.size, color_space);
+
+        self.add_primitive(&rect,
+                           clip_region,
+                           PrimitiveContainer::YuvImage(prim_cpu, prim_gpu));
     }
 
     /// Compute the contribution (bounding rectangles, and resources) of layers and their

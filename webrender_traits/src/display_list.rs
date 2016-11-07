@@ -9,9 +9,9 @@ use std::slice;
 use {AuxiliaryLists, AuxiliaryListsDescriptor, BorderDisplayItem, BorderRadius};
 use {BorderSide, BoxShadowClipMode, BoxShadowDisplayItem, BuiltDisplayList};
 use {BuiltDisplayListDescriptor, ClipRegion, ComplexClipRegion, ColorF};
-use {DisplayItem, DisplayListMode, FilterOp};
+use {DisplayItem, DisplayListMode, FilterOp, YuvColorSpace};
 use {FontKey, GlyphInstance, GradientDisplayItem, GradientStop, IframeDisplayItem};
-use {ImageDisplayItem, ImageKey, ImageRendering, ItemRange, PipelineId,};
+use {ImageDisplayItem, YuvImageDisplayItem, ImageKey, ImageRendering, ItemRange, PipelineId,};
 use {PushScrollLayerItem, PushStackingContextDisplayItem, RectangleDisplayItem, ScrollLayerId};
 use {SpecificDisplayItem, StackingContext, TextDisplayItem, WebGLContextId, WebGLDisplayItem};
 
@@ -101,6 +101,25 @@ impl DisplayListBuilder {
         };
 
         self.list.push(display_item);
+    }
+
+    pub fn push_yuv_image(&mut self,
+                          rect: Rect<f32>,
+                          clip: ClipRegion,
+                          y_key: ImageKey,
+                          u_key: ImageKey,
+                          v_key: ImageKey,
+                          color_space: YuvColorSpace) {
+        self.list.push(DisplayItem {
+            item: SpecificDisplayItem::YuvImage(YuvImageDisplayItem {
+                y_image_key: y_key,
+                u_image_key: u_key,
+                v_image_key: v_key,
+                color_space: color_space,
+            }),
+            rect: rect,
+            clip: clip,
+        });
     }
 
     pub fn push_webgl_canvas(&mut self,
