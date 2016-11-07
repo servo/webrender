@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use device::TextureId;
 use euclid::{Rect, Matrix4D};
 use gpu_store::{GpuStore, GpuStoreAddress};
 use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
@@ -21,7 +22,7 @@ type ImageMaskIndex = u16;
 pub struct MaskCacheKey {
     pub layer_id: StackingContextIndex,
     pub clip_range: ClipAddressRange,
-    pub mask_id: Option<ImageMaskIndex>,
+    pub mask_texture_id: TextureId,
 }
 
 #[derive(Debug)]
@@ -69,6 +70,7 @@ impl ClipRegionStack {
     pub fn generate(&mut self,
                     source: &PrimitiveClipSource,
                     clip_store: &mut GpuStore<GpuBlock32>,
+                    dummy_texture_id: TextureId,
                     aux_lists: &AuxiliaryLists)
                     -> Option<MaskCacheInfo> {
         let mut clip_key = MaskCacheKey {
@@ -78,7 +80,7 @@ impl ClipRegionStack {
                 start: GpuStoreAddress(0),
                 count: 0,
             },
-            mask_id: None,
+            mask_texture_id: dummy_texture_id,
         };
         match source {
             &PrimitiveClipSource::NoClip => (),
@@ -107,7 +109,9 @@ impl ClipRegionStack {
                 }*/
             },
         };
-        if self.need_mask() || clip_key.mask_id.is_some() || clip_key.clip_range.count != 0 {
+        if self.need_mask() ||
+           clip_key.mask_texture_id != TextureId::invalid() ||
+           clip_key.clip_range.count != 0 {
             Some(MaskCacheInfo {
                 key: clip_key,
             })

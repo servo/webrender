@@ -1770,6 +1770,12 @@ impl Device {
         gl::blend_color(color.r, color.g, color.b, color.a);
         gl::blend_func(gl::CONSTANT_COLOR, gl::ONE_MINUS_SRC_COLOR);
     }
+
+    pub fn set_blend_mode_multiply(&self) {
+        gl::blend_func_separate(gl::ZERO, gl::SRC_COLOR,
+                                gl::ZERO, gl::SRC_ALPHA);
+        gl::blend_equation(gl::FUNC_ADD);
+    }
 }
 
 impl Drop for Device {
