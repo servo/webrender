@@ -46,6 +46,7 @@ pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 const UBO_BIND_DATA: u32 = 1;
 
 const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: debug_colors::BLACK };
+const GPU_TAG_CACHE_CLIP: GpuProfileTag = GpuProfileTag { label: "C_Clip", color: debug_colors::PURPLE };
 const GPU_TAG_CACHE_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "C_TextRun", color: debug_colors::MISTYROSE };
 const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: debug_colors::WHITE };
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: debug_colors::SLATEGREY };
@@ -314,6 +315,7 @@ pub struct Renderer {
     // draw intermediate results to cache targets. The results
     // of these shaders are then used by the primitive shaders.
     cs_box_shadow: LazilyCompiledShader,
+    cs_clip: LazilyCompiledShader,
     cs_text_run: LazilyCompiledShader,
     cs_blur: LazilyCompiledShader,
 
@@ -435,6 +437,12 @@ impl Renderer {
                                                       &[],
                                                       &mut device,
                                                       options.precache_shaders);
+        let cs_clip = LazilyCompiledShader::new(ShaderKind::Cache,
+                                                "cs_clip",
+                                                max_cache_instances,
+                                                TRANSFORM_FEATURE,
+                                                &mut device,
+                                                options.precache_shaders);
         let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache,
                                                     "cs_text_run",
                                                     max_cache_instances,
@@ -665,6 +673,7 @@ impl Renderer {
             device_pixel_ratio: options.device_pixel_ratio,
             tile_clear_shader: tile_clear_shader,
             cs_box_shadow: cs_box_shadow,
+            cs_clip: cs_clip,
             cs_text_run: cs_text_run,
             cs_blur: cs_blur,
             ps_rectangle: ps_rectangle,
@@ -1014,8 +1023,8 @@ impl Renderer {
         self.device.set_blend(false);
         self.device.set_blend_mode_alpha();
         if let Some(cache_texture) = cache_texture {
-	        self.device.bind_texture(TextureSampler::Cache, cache_texture);
-	    }
+            self.device.bind_texture(TextureSampler::Cache, cache_texture);
+        }
 
         let (color, projection) = match render_target {
             Some(..) => (
@@ -1080,10 +1089,9 @@ impl Renderer {
         // Draw any box-shadow caches for this target.
         if !target.box_shadow_cache_prims.is_empty() {
             self.device.set_blend(false);
-
             self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
             let shader = self.cs_box_shadow.get(&mut self.device);
-            let max_cache_instances = self.max_cache_instances;
+            let max_prim_items = self.max_cache_instances;
             self.draw_ubo_batch(&target.box_shadow_cache_prims,
                                 shader,
                                 1,
