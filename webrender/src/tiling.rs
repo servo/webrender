@@ -589,7 +589,7 @@ struct CompileTileContext<'a> {
 struct RenderTargetContext<'a> {
     layer_store: &'a [StackingContext],
     prim_store: &'a PrimitiveStore,
-    clip_stack: &'a ClipRegionStack,
+    _clip_stack: &'a ClipRegionStack,
 }
 
 /// A render target represents a number of rendering operations on a surface.
@@ -726,11 +726,11 @@ impl RenderTarget {
                     RenderTaskId::Dynamic(RenderTaskKey::CacheMask(ref cache)) => cache,
                     _ => unreachable!()
                 };
-                self.clip_cache_items.extend((0 .. cache.item_range.length).map(|region_id| {
+                self.clip_cache_items.extend((0 .. cache.clip_range.count).map(|region_id| {
                     CacheClipInstance {
                         task_id: render_tasks.get_task_index(&task.id, pass_index).0 as i32,
-                        layer_index: 0,
-                        clip_address: GpuStoreAddress(0),
+                        layer_index: cache.layer_id.0 as i32,
+                        clip_address: GpuStoreAddress(cache.clip_range.start.0 + 6 * (region_id as i32)),
                         pad: 0,
                     }
                 }));
@@ -2152,7 +2152,8 @@ impl FrameBuilder {
                                                          .pre_mul(&layer.local_transform);
                     packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
 
-                    self.clip_stack.push_layer(&packed_layer.transform,
+                    self.clip_stack.push_layer(sc_index,
+                                               &packed_layer.transform,
                                                &scroll_layer.combined_local_viewport_rect,
                                                None);
 
@@ -2240,7 +2241,7 @@ impl FrameBuilder {
                 }
                 &PrimitiveRunCmd::PopStackingContext => {
                     layer_stack.pop().unwrap();
-                    self.clip_stack.pop_layer().unwrap();
+                    self.clip_stack.pop_layer();
                 }
             }
         }
@@ -2507,7 +2508,7 @@ impl FrameBuilder {
             let ctx = RenderTargetContext {
                 layer_store: &self.layer_store,
                 prim_store: &self.prim_store,
-                clip_stack: &self.clip_stack,
+                _clip_stack: &self.clip_stack,
             };
 
             // Do the allocations now, assigning each tile's tasks to a render
