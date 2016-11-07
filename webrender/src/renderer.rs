@@ -10,6 +10,7 @@
 //! [renderer]: struct.Renderer.html
 
 use batch::RasterBatch;
+use debug_colors;
 use debug_render::DebugRenderer;
 use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat, GpuProfiler};
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
@@ -48,45 +49,22 @@ pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
 const UBO_BIND_DATA: u32 = 1;
 
-// Black
-const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 } };
-
-// White
-const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: ColorF { r: 1.0, g: 1.0, b: 1.0, a: 1.0 } };
-
-// Grey
-const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: ColorF { r: 0.5, g: 0.5, b: 0.5, a: 1.0 } };
-
-// Black
-const GPU_TAG_CLEAR_TILES: GpuProfileTag = GpuProfileTag { label: "Clear Tiles", color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 } };
-
-// Red / dark red
-const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 } };
-const GPU_TAG_PRIM_RECT_CLIP: GpuProfileTag = GpuProfileTag { label: "RectClip", color: ColorF { r: 0.7, g: 0.0, b: 0.0, a: 1.0 } };
-
-// Green / dark green
-const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 } };
-const GPU_TAG_PRIM_IMAGE_CLIP: GpuProfileTag = GpuProfileTag { label: "ImageClip", color: ColorF { r: 0.0, g: 0.7, b: 0.0, a: 1.0 } };
-
-// Light blue
-const GPU_TAG_PRIM_BLEND: GpuProfileTag = GpuProfileTag { label: "Blend", color: ColorF { r: 0.8, g: 1.0, b: 1.0, a: 1.0 } };
-
-// Magenta
-const GPU_TAG_PRIM_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "Composite", color: ColorF { r: 1.0, g: 0.0, b: 1.0, a: 1.0 } };
-
-// Blue
-const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "TextRun", color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 } };
-
-// Yellow / dark yellow
-const GPU_TAG_PRIM_GRADIENT: GpuProfileTag = GpuProfileTag { label: "Gradient", color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 } };
-const GPU_TAG_PRIM_GRADIENT_CLIP: GpuProfileTag = GpuProfileTag { label: "GradientClip", color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 } };
-const GPU_TAG_PRIM_ANGLE_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AngleGradient", color: ColorF { r: 0.7, g: 0.7, b: 0.0, a: 1.0 } };
-
-// Cyan
-const GPU_TAG_PRIM_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "BoxShadow", color: ColorF { r: 0.0, g: 1.0, b: 1.0, a: 1.0 } };
-
-// Orange
-const GPU_TAG_PRIM_BORDER: GpuProfileTag = GpuProfileTag { label: "Border", color: ColorF { r: 1.0, g: 0.5, b: 0.0, a: 1.0 } };
+const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: debug_colors::BLACK };
+const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: debug_colors::WHITE };
+const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: debug_colors::SLATEGREY };
+const GPU_TAG_CLEAR_TILES: GpuProfileTag = GpuProfileTag { label: "Clear Tiles", color: debug_colors::BROWN };
+const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: debug_colors::RED };
+const GPU_TAG_PRIM_RECT_CLIP: GpuProfileTag = GpuProfileTag { label: "RectClip", color: debug_colors::DARKRED };
+const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: debug_colors::GREEN };
+const GPU_TAG_PRIM_IMAGE_CLIP: GpuProfileTag = GpuProfileTag { label: "ImageClip", color: debug_colors::DARKGREEN };
+const GPU_TAG_PRIM_BLEND: GpuProfileTag = GpuProfileTag { label: "Blend", color: debug_colors::LIGHTBLUE };
+const GPU_TAG_PRIM_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "Composite", color: debug_colors::MAGENTA };
+const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "TextRun", color: debug_colors::BLUE };
+const GPU_TAG_PRIM_GRADIENT: GpuProfileTag = GpuProfileTag { label: "Gradient", color: debug_colors::YELLOW };
+const GPU_TAG_PRIM_GRADIENT_CLIP: GpuProfileTag = GpuProfileTag { label: "GradientClip", color: debug_colors::YELLOWGREEN };
+const GPU_TAG_PRIM_ANGLE_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AngleGradient", color: debug_colors::POWDERBLUE };
+const GPU_TAG_PRIM_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "BoxShadow", color: debug_colors::CYAN };
+const GPU_TAG_PRIM_BORDER: GpuProfileTag = GpuProfileTag { label: "Border", color: debug_colors::ORANGE };
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BlendMode {
