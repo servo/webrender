@@ -16,7 +16,7 @@ void write_clip(ClipData clip) {
                        clip.bottom_right.outer_inner_radius.x,
                        clip.bottom_left.outer_inner_radius.x);
     //TODO: interpolate the final mask UV
-    vec2 texture_size = textureSize(sMask, 0);
+    vec2 texture_size = textureSize(MASK_TEXTURE, 0);
     vClipMaskUvRect = clip.mask_data.uv_rect / texture_size.xyxy;
     vClipMaskLocalRect = clip.mask_data.local_rect; //TODO: transform
 }
@@ -58,7 +58,7 @@ float do_clip(vec2 pos) {
     vec2 clamped_mask_uv = repeat_mask ? fract(vMaskUv) :
         clamp(vMaskUv, vec2(0.0, 0.0), vec2(1.0, 1.0));
     vec2 source_uv = clamped_mask_uv * vClipMaskUvRect.zw + vClipMaskUvRect.xy;
-    float mask_alpha = texture(sMask, source_uv).r; //careful: texture has type A8
+    float mask_alpha = texture(MASK_TEXTURE,  source_uv).r; //careful: texture has type A8
 
     return border_alpha * mask_alpha;
 }

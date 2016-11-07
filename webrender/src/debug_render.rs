@@ -6,7 +6,7 @@ use debug_font_data;
 use device::{Device, ProgramId, VAOId, TextureId, VertexFormat};
 use device::{TextureFilter, VertexUsageHint, TextureTarget};
 use euclid::{Matrix4D, Point2D, Size2D, Rect};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, TextureSampler};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SAMPLER_COLOR_0};
 use internal_types::{DebugFontVertex, DebugColorVertex, RenderTargetMode, PackedColor};
 use std::f32;
 use webrender_traits::{ColorF, ImageFormat};
@@ -196,7 +196,7 @@ impl DebugRenderer {
 
             // Glyphs
             device.bind_program(self.font_program_id, &projection);
-            device.bind_texture(TextureSampler::Color, self.font_texture_id);
+            device.bind_texture(SAMPLER_COLOR_0, self.font_texture_id);
             device.bind_vao(self.font_vao);
             device.update_vao_indices(self.font_vao,
                                       &self.font_indices,

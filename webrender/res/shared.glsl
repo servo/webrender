@@ -33,8 +33,12 @@
 //======================================================================================
 // Shared shader uniforms
 //======================================================================================
-uniform sampler2D sDiffuse;
-uniform sampler2D sMask;
+uniform sampler2D sTexture0;
+uniform sampler2D sTexture1;
+
+#define COLOR_TEXTURE_0 sTexture0
+#define COLOR_TEXTURE_1 sTexture1
+#define MASK_TEXTURE sTexture1
 
 //======================================================================================
 // Interpolator definitions

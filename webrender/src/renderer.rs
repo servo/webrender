@@ -1047,7 +1047,7 @@ impl Renderer {
 
     fn add_rect_to_raster_batch<F>(&mut self,
                                    dest_texture_id: TextureId,
-                                   color_texture_id: TextureId,
+                                   texture_id_0: TextureId,
                                    program_id: ProgramId,
                                    blur_direction: Option<AxisDirection>,
                                    dest_rect: &Rect<u32>,
@@ -1056,7 +1056,7 @@ impl Renderer {
         // FIXME(pcwalton): Use a hash table if this linear search shows up in the profile.
         for batch in &mut self.raster_batches {
             if batch.add_rect_if_possible(dest_texture_id,
-                                          color_texture_id,
+                                          texture_id_0,
                                           program_id,
                                           blur_direction,
                                           dest_rect,
@@ -1075,11 +1075,11 @@ impl Renderer {
                                                 self.max_raster_op_size,
                                                 program_id,
                                                 blur_direction,
-                                                color_texture_id,
+                                                texture_id_0,
                                                 dest_texture_id);
 
         let added = raster_batch.add_rect_if_possible(dest_texture_id,
-                                                      color_texture_id,
+                                                      texture_id_0,
                                                       program_id,
                                                       blur_direction,
                                                       dest_rect,
@@ -1135,7 +1135,7 @@ impl Renderer {
 
     fn set_up_gl_state_for_texture_cache_update(&mut self,
                                                 target_texture_id: TextureId,
-                                                color_texture_id: TextureId,
+                                                texture_id_0: TextureId,
                                                 program_id: ProgramId,
                                                 blur_direction: Option<AxisDirection>,
                                                 projection: &Matrix4D<f32>) {
@@ -1148,8 +1148,8 @@ impl Renderer {
 
         self.device.bind_program(program_id, &projection);
 
-        self.device.bind_texture(TextureSampler::Color, color_texture_id);
-        self.device.bind_texture(TextureSampler::Mask, TextureId::invalid());
+        self.device.bind_texture(TextureSampler::Slot0, texture_id_0);
+        self.device.bind_texture(TextureSampler::Slot1, TextureId::invalid());
 
         match blur_direction {
             Some(AxisDirection::Horizontal) => {
@@ -1308,14 +1308,14 @@ impl Renderer {
                          ubo_data: &[T],
                          shader: ProgramId,
                          quads_per_item: usize,
-                         color_texture_id: TextureId,
-                         mask_texture_id: TextureId,
+                         texture_id_0: TextureId,
+                         texture_id_1: TextureId,
                          max_prim_items: usize,
                          projection: &Matrix4D<f32>) {
         self.device.bind_program(shader, &projection);
         self.device.bind_vao(self.quad_vao_id);
-        self.device.bind_texture(TextureSampler::Color, color_texture_id);
-        self.device.bind_texture(TextureSampler::Mask, mask_texture_id);
+        self.device.bind_texture(TextureSampler::Slot0, texture_id_0);
+        self.device.bind_texture(TextureSampler::Slot1, texture_id_1);
 
         for chunk in ubo_data.chunks(max_prim_items) {
             let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
@@ -1391,8 +1391,8 @@ impl Renderer {
         let mut prev_blend_mode = BlendMode::None;
 
         for batch in &target.alpha_batcher.batches {
-            let color_texture_id = batch.key.color_texture_id;
-            let mask_texture_id = batch.key.mask_texture_id;
+            let texture_id_0 = batch.key.texture_id_0;
+            let texture_id_1 = batch.key.texture_id_1;
             let transform_kind = batch.key.flags.transform_kind();
             let has_complex_clip = batch.key.flags.needs_clipping();
 
@@ -1454,8 +1454,8 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        texture_id_0,
+                                        texture_id_1,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1470,8 +1470,8 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        texture_id_0,
+                                        texture_id_1,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1481,8 +1481,8 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        texture_id_0,
+                                        texture_id_1,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1492,8 +1492,8 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        texture_id_0,
+                                        texture_id_1,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1506,8 +1506,8 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        texture_id_0,
+                                        texture_id_1,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1522,8 +1522,8 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        texture_id_0,
+                                        texture_id_1,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1533,8 +1533,8 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        texture_id_0,
+                                        texture_id_1,
                                         max_prim_items,
                                         &projection);
                 }
