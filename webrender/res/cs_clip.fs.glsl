@@ -5,6 +5,7 @@
 void main(void) {
     float alpha = 1.f;
     vec2 local_pos = init_transform_fs(vPos, vLocalRect, alpha);
-    alpha = vColor.a * min(alpha, do_clip(local_pos));
-    oFragColor = vec4(1, 1, 1, alpha);
+    float clip_alpha = do_clip(local_pos);
+    float inv_alpha = 1.0 - min(alpha, clip_alpha);
+    oFragColor = vec4(1, 1, 1, inv_alpha);
 }
