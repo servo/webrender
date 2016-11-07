@@ -944,14 +944,16 @@ impl Renderer {
                          ubo_data: &[T],
                          shader: ProgramId,
                          quads_per_item: usize,
-                         color_texture_id: TextureId,
-                         mask_texture_id: TextureId,
+                         textures: &BatchTextures,
                          max_prim_items: usize,
                          projection: &Matrix4D<f32>) {
         self.device.bind_program(shader, &projection);
         self.device.bind_vao(self.quad_vao_id);
-        self.device.bind_texture(TextureSampler::Color, color_texture_id);
-        self.device.bind_texture(TextureSampler::Mask, mask_texture_id);
+
+        for i in 0..textures.colors.len() {
+            self.device.bind_texture(TextureSampler::color(i), textures.colors[i]);
+        }
+        self.device.bind_texture(TextureSampler::Mask, textures.mask);
 
         for chunk in ubo_data.chunks(max_prim_items) {
             let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
@@ -1054,8 +1056,7 @@ impl Renderer {
             self.draw_ubo_batch(&target.box_shadow_cache_prims,
                                 shader,
                                 1,
-                                TextureId::invalid(),
-                                TextureId::invalid(),
+                                &BatchTextures::no_texture(),
                                 max_cache_instances,
                                 &projection);
         }
@@ -1085,8 +1086,6 @@ impl Renderer {
         let mut prev_blend_mode = BlendMode::None;
 
         for batch in &target.alpha_batcher.batches {
-            let color_texture_id = batch.key.color_texture_id;
-            let mask_texture_id = batch.key.mask_texture_id;
             let transform_kind = batch.key.flags.transform_kind();
             let has_complex_clip = batch.key.flags.needs_clipping();
 
@@ -1120,34 +1119,27 @@ impl Renderer {
                 &PrimitiveBatchData::Blend(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_BLEND);
                     let shader = self.ps_blend.get(&mut self.device);
-                    self.device.bind_program(shader, &projection);
-                    self.device.bind_vao(self.quad_vao_id);
-
-                    for chunk in ubo_data.chunks(self.max_prim_blends) {
-                        let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
-
-                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
-                        self.profile_counters.vertices.add(6 * chunk.len());
-                        self.profile_counters.draw_calls.inc();
-
-                        self.device.delete_buffer(ubo);
-                    }
+                    let max_prim_items = self.max_prim_blends;
+                    self.draw_ubo_batch(ubo_data, shader,
+                                        1,
+                                        &batch.key.textures,
+                                        max_prim_items,
+                                        &projection);
                 }
                 &PrimitiveBatchData::Composite(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_COMPOSITE);
                     let shader = self.ps_composite.get(&mut self.device);
-                    self.device.bind_program(shader, &projection);
-                    self.device.bind_vao(self.quad_vao_id);
+                    let max_prim_items = self.max_prim_composites;
 
-                    for chunk in ubo_data.chunks(self.max_prim_composites) {
-                        let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
+                    // The composite shader only samples from sCache.
+                    debug_assert!(cache_texture.is_some());
 
-                        self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
-                        self.profile_counters.vertices.add(6 * chunk.len());
-                        self.profile_counters.draw_calls.inc();
+                    self.draw_ubo_batch(ubo_data, shader,
+                                        1,
+                                        &batch.key.textures,
+                                        max_prim_items,
+                                        &projection);
 
-                        self.device.delete_buffer(ubo);
-                    }
                 }
                 &PrimitiveBatchData::Rectangles(ref ubo_data) => {
                     let (shader, max_prim_items) = if has_complex_clip {
@@ -1160,8 +1152,7 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        &batch.key.textures,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1176,8 +1167,7 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        &batch.key.textures,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1187,8 +1177,7 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        &batch.key.textures,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1198,8 +1187,7 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        &batch.key.textures,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1212,8 +1200,7 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        &batch.key.textures,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1228,8 +1215,7 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        &batch.key.textures,
                                         max_prim_items,
                                         &projection);
                 }
@@ -1239,8 +1225,7 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        &batch.key.textures,
                                         max_prim_items,
                                         &projection);
                 }

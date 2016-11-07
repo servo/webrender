@@ -196,7 +196,7 @@ impl DebugRenderer {
 
             // Glyphs
             device.bind_program(self.font_program_id, &projection);
-            device.bind_texture(TextureSampler::Color, self.font_texture_id);
+            device.bind_texture(TextureSampler::Color0, self.font_texture_id);
             device.bind_vao(self.font_vao);
             device.update_vao_indices(self.font_vao,
                                       &self.font_indices,

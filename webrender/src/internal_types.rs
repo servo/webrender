@@ -166,7 +166,9 @@ pub type DrawListId = FreeListItemId;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TextureSampler {
-    Color,
+    Color0,
+    Color1,
+    Color2,
     Mask,
     Cache,
     Data16,
@@ -177,6 +179,39 @@ pub enum TextureSampler {
     RenderTasks,
     Geometry,
 }
+
+impl TextureSampler {
+    pub fn color(n: usize) -> TextureSampler {
+        match n {
+            0 => TextureSampler::Color0,
+            1 => TextureSampler::Color1,
+            2 => TextureSampler::Color2,
+            _ => {
+                panic!("There are only 3 color samplers.");
+            }
+        }
+    }
+}
+
+/// Optional textures that can be used as a source in the shaders.
+/// Textures that are not used by the batch are equal to TextureId::invalid().
+#[derive(Copy, Clone, Debug)]
+pub struct BatchTextures {
+    pub colors: [TextureId; 3],
+    pub mask: TextureId,
+}
+
+impl BatchTextures {
+    pub fn no_texture() -> Self {
+        BatchTextures {
+            colors: [TextureId::invalid(); 3],
+            mask: TextureId::invalid(),
+        }
+    }
+}
+
+// In some places we need to temporarily bind a texture to any slot.
+pub const DEFAULT_TEXTURE: TextureSampler = TextureSampler::Color0;
 
 pub enum VertexAttribute {
     Position,
