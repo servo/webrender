@@ -412,8 +412,15 @@ impl AlphaBatcher {
                         let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                              !prim_metadata.is_opaque ||
                                              needs_clipping;
-                        let flags = AlphaBatchKeyFlags::new(transform_kind,
-                                                            needs_clipping);
+                        let needs_clipping_flag = if needs_clipping {
+                            NEEDS_CLIPPING
+                        } else {
+                            AlphaBatchKeyFlags::empty()
+                        };
+                        let flags = match transform_kind {
+                            TransformedRectKind::AxisAligned => AXIS_ALIGNED | needs_clipping_flag,
+                            TransformedRectKind::Complex     => COMPLEX | needs_clipping_flag,
+                        };
                         let blend_mode = if needs_blending {
                             BlendMode::Alpha
                         } else {
@@ -820,27 +827,13 @@ enum AlphaBatchKind {
 
 bitflags! {
     pub flags AlphaBatchKeyFlags: u8 {
+        const NEEDS_CLIPPING  = 0b00000001,
         const AXIS_ALIGNED    = 0b00000010,
         const COMPLEX         = 0b00000100,
-        const NEEDS_CLIPPLING = 0b00000001,
     }
 }
 
 impl AlphaBatchKeyFlags {
-    fn new(transform_kind: TransformedRectKind,
-        needs_clipping: bool) -> AlphaBatchKeyFlags {
-        let needs_clipping_flag = if needs_clipping {
-            NEEDS_CLIPPLING
-        } else {
-            AlphaBatchKeyFlags::empty()
-        };
-
-        match transform_kind {
-            TransformedRectKind::AxisAligned => AXIS_ALIGNED | needs_clipping_flag,
-            TransformedRectKind::Complex     => COMPLEX | needs_clipping_flag,
-        }
-    }
-
     pub fn transform_kind(&self) -> TransformedRectKind {
         if self.contains(AXIS_ALIGNED) {
             TransformedRectKind::AxisAligned
@@ -850,7 +843,7 @@ impl AlphaBatchKeyFlags {
     }
 
     pub fn needs_clipping(&self) -> bool {
-        self.contains(NEEDS_CLIPPLING)
+        self.contains(NEEDS_CLIPPING)
     }
 }
 
