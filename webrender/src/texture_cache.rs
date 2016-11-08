@@ -852,7 +852,7 @@ impl TextureCache {
                                                 result.item.allocated_rect.origin.y,
                                                 result.item.allocated_rect.size.width,
                                                 1,
-                                                TextureUpdateDetails::Blit(top_row_bytes))
+                                                TextureUpdateDetails::Blit(top_row_bytes, stride))
                 };
 
                 let border_update_op_bottom = TextureUpdate {
@@ -863,7 +863,7 @@ impl TextureCache {
                             result.item.requested_rect.size.height + 1,
                         result.item.allocated_rect.size.width,
                         1,
-                        TextureUpdateDetails::Blit(bottom_row_bytes))
+                        TextureUpdateDetails::Blit(bottom_row_bytes, stride))
                 };
 
                 let border_update_op_left = TextureUpdate {
@@ -873,7 +873,7 @@ impl TextureCache {
                         result.item.requested_rect.origin.y,
                         1,
                         result.item.requested_rect.size.height,
-                        TextureUpdateDetails::Blit(left_column_bytes))
+                        TextureUpdateDetails::Blit(left_column_bytes, stride))
                 };
 
                 let border_update_op_right = TextureUpdate {
@@ -882,7 +882,7 @@ impl TextureCache {
                                                 result.item.requested_rect.origin.y,
                                                 1,
                                                 result.item.requested_rect.size.height,
-                                                TextureUpdateDetails::Blit(right_column_bytes))
+                                                TextureUpdateDetails::Blit(right_column_bytes, stride))
                 };
 
                 self.pending_updates.push(border_update_op_top);
