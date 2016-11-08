@@ -319,6 +319,28 @@ pub struct ImageDisplayItem {
     pub image_rendering: ImageRendering,
 }
 
+// TODO(nical): The only differences with the image item is that we provide a
+// different type of key but more importantly we provide the uv rectangle.
+// It would look nicer if the ImageDisplayItem was doing both external and
+// regular images, but it may not make sense to have an uv_rect specified for
+// regular images.
+// The reason I think we should have uv_rect for external images is that I would
+// like gecko to pack several of the externally rendered items (for example all
+// native widgets like buttons, check boxes and the like) in the same texture, and
+// in some cases we just don't have a choice because the GPU will round up the
+// texture size to 32 if the image is smaller.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ExternalImageDisplayItem {
+    pub image_key: ExternalImageKey,
+    pub stretch_size: Size2D<f32>,
+    pub tile_spacing: Size2D<f32>,
+    // TODO(nical) Decide what unit to use!
+    // Should it be in texels or [0..1] texture space?
+    // I'd say in texels...
+    pub uv_rect: Rect<f32>,
+    pub image_rendering: ImageRendering,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ImageFormat {
     Invalid,
@@ -330,6 +352,9 @@ pub enum ImageFormat {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ImageKey(u32, u32);
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct ExternalImageKey(u32, u32);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ImageRendering {
@@ -444,6 +469,7 @@ pub enum SpecificDisplayItem {
     Rectangle(RectangleDisplayItem),
     Text(TextDisplayItem),
     Image(ImageDisplayItem),
+    ExternalImage(ExternalImageDisplayItem),
     WebGL(WebGLDisplayItem),
     Border(BorderDisplayItem),
     BoxShadow(BoxShadowDisplayItem),

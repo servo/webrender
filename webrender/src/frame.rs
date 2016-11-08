@@ -595,6 +595,15 @@ impl Frame {
                                                   info.image_key,
                                                   info.image_rendering);
                             }
+                            SpecificDisplayItem::ExternalImage(ref info) => {
+                                builder.add_external_image(item.rect,
+                                                           &item.clip,
+                                                           &info.stretch_size,
+                                                           &info.tile_spacing,
+                                                           info.image_key,
+                                                           info.uv_rect,
+                                                           info.image_rendering);
+                            }
                             SpecificDisplayItem::Text(ref text_info) => {
                                 builder.add_text(item.rect,
                                                  &item.clip,

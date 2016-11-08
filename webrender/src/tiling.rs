@@ -11,7 +11,7 @@ use frame::FrameId;
 use gpu_store::GpuStoreAddress;
 use internal_types::{DeviceRect, DevicePoint, DeviceSize, DeviceLength, device_pixel, CompositionOp};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
-use internal_types::{BatchTextures};
+use internal_types::{SourceTexture, BatchTextures};
 use layer::Layer;
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
@@ -34,7 +34,7 @@ use std::usize;
 use texture_cache::TexturePage;
 use util::{self, rect_from_points, MatrixHelpers, rect_from_points_f};
 use util::{TransformedRect, TransformedRectKind, subtract_rect, pack_as_float};
-use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, MixBlendMode};
+use webrender_traits::{ColorF, FontKey, ImageKey, ExternalImageKey, ImageRendering, MixBlendMode};
 use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle};
 use webrender_traits::{AuxiliaryLists, ItemRange, BoxShadowClipMode, ClipRegion};
 use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId, FontRenderMode};
@@ -50,7 +50,7 @@ pub type AuxiliaryListsMap = HashMap<PipelineId,
 
 trait AlphaBatchHelpers {
     fn get_batch_kind(&self, metadata: &PrimitiveMetadata) -> AlphaBatchKind;
-    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [TextureId; 3];
+    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [SourceTexture; 3];
     fn get_blend_mode(&self, needs_blending: bool, metadata: &PrimitiveMetadata) -> BlendMode;
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
@@ -100,8 +100,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
         batch_kind
     }
 
-    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [TextureId; 3] {
-        let invalid = TextureId::invalid();
+    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [SourceTexture; 3] {
+        let invalid = SourceTexture::invalid();
         match metadata.prim_kind {
             PrimitiveKind::Border |
             PrimitiveKind::BoxShadow |
@@ -113,7 +113,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
             }
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
-                [text_run_cpu.color_texture_id, invalid, invalid]
+                [SourceTexture::Id(text_run_cpu.color_texture_id), invalid, invalid]
             }
             // TODO(nical): YuvImage will return 3 textures.
         }
@@ -494,7 +494,7 @@ impl AlphaBatcher {
 
                         let textures = BatchTextures {
                             colors: ctx.prim_store.get_color_textures(prim_metadata),
-                            mask: prim_metadata.mask_texture_id,
+                            mask: SourceTexture::Id(prim_metadata.mask_texture_id),
                         };
 
                         batch_key = AlphaBatchKey::primitive(batch_kind,
@@ -673,11 +673,11 @@ impl RenderTarget {
                         // we switch the texture atlas to use texture layers!
                         let textures = BatchTextures {
                             colors: ctx.prim_store.get_color_textures(prim_metadata),
-                            mask: prim_metadata.mask_texture_id,
+                            mask: SourceTexture::Id(prim_metadata.mask_texture_id),
                         };
 
-                        debug_assert!(textures.colors[0] != TextureId::invalid());
-                        debug_assert!(self.text_run_textures.colors[0] == TextureId::invalid() ||
+                        debug_assert!(textures.colors[0] != SourceTexture::invalid());
+                        debug_assert!(self.text_run_textures.colors[0] == SourceTexture::invalid() ||
                                       self.text_run_textures.colors[0] == textures.colors[0]);
                         self.text_run_textures = textures;
 
@@ -1117,7 +1117,7 @@ pub enum BlurDirection {
 }
 
 #[inline]
-fn textures_compatible(t1: TextureId, t2: TextureId) -> bool {
+fn textures_compatible(t1: SourceTexture, t2: SourceTexture) -> bool {
     !t1.is_valid() || !t2.is_valid() || t1 == t2
 }
 
@@ -1995,7 +1995,7 @@ impl FrameBuilder {
                                context_id: WebGLContextId) {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::WebGL(context_id),
-            color_texture_id: TextureId::invalid(),
+            color_texture_id: SourceTexture::invalid(),
         };
 
         let prim_gpu = ImagePrimitiveGpu {
@@ -2021,12 +2021,45 @@ impl FrameBuilder {
             kind: ImagePrimitiveKind::Image(image_key,
                                             image_rendering,
                                             *tile_spacing),
-            color_texture_id: TextureId::invalid(),
+            color_texture_id: SourceTexture::invalid(),
         };
 
         let prim_gpu = ImagePrimitiveGpu {
             uv0: Point2D::zero(),
             uv1: Point2D::zero(),
+            stretch_size: *stretch_size,
+            tile_spacing: *tile_spacing,
+        };
+
+        self.add_primitive(&rect,
+                           clip_region,
+                           PrimitiveContainer::Image(prim_cpu, prim_gpu));
+    }
+
+    pub fn add_external_image(&mut self,
+                              rect: Rect<f32>,
+                              clip_region: &ClipRegion,
+                              stretch_size: &Size2D<f32>,
+                              tile_spacing: &Size2D<f32>,
+                              key: ExternalImageKey,
+                              uv_rect: Rect<f32>,
+                              image_rendering: ImageRendering) {
+        // The external image primitve works like a regular image where
+        // most of the information is already resolved, except the texture
+        // which is resolved later in the renderer instead of using the resource
+        // cache.
+
+        let prim_cpu = ImagePrimitiveCpu {
+            kind: ImagePrimitiveKind::ExternalImage(image_rendering,
+                                                    *tile_spacing),
+            color_texture_id: SourceTexture::External(key),
+        };
+
+        // TODO(nical): check that we don't need to invert y or whatnot, and look into
+        // where we are supposed to compute the tiled texture coordinates.
+        let prim_gpu = ImagePrimitiveGpu {
+            uv0: uv_rect.origin,
+            uv1: uv_rect.bottom_right(),
             stretch_size: *stretch_size,
             tile_spacing: *tile_spacing,
         };
