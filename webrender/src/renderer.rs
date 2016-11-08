@@ -443,6 +443,12 @@ impl Renderer {
                                                           &[ TRANSFORM_FEATURE ],
                                                           &mut device,
                                                           options.precache_shaders);
+        let cs_clip_image = LazilyCompiledShader::new(ShaderKind::Cache,
+                                                      "cs_clip_image",
+                                                      max_cache_instances,
+                                                      TRANSFORM_FEATURE,
+                                                      &mut device,
+                                                      options.precache_shaders);
         let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache,
                                                     "cs_text_run",
                                                     max_cache_instances,
@@ -674,6 +680,7 @@ impl Renderer {
             tile_clear_shader: tile_clear_shader,
             cs_box_shadow: cs_box_shadow,
             cs_clip_rectangle: cs_clip_rectangle,
+            cs_clip_image: cs_clip_image,
             cs_text_run: cs_text_run,
             cs_blur: cs_blur,
             ps_rectangle: ps_rectangle,
@@ -1116,17 +1123,16 @@ impl Renderer {
                                     max_prim_items,
                                     &projection);
             }
-            /*
             for (&mask_texture_id, items) in target.clip_images.iter() {
                 let shader = self.cs_clip_image.get(&mut self.device);
-                self.draw_ubo_batch(&target.clip_rectangles,
+                self.draw_ubo_batch(items,
                                     shader,
                                     1,
                                     TextureId::invalid(),
                                     mask_texture_id,
                                     max_prim_items,
                                     &projection);
-            }*/
+            }
             self.device.set_blend(false);
         }
 
