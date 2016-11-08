@@ -589,6 +589,7 @@ struct CompileTileContext<'a> {
 struct RenderTargetContext<'a> {
     layer_store: &'a [StackingContext],
     prim_store: &'a PrimitiveStore,
+    resource_cache: &'a ResourceCache,
     _clip_stack: &'a ClipRegionStack,
 }
 
@@ -723,21 +724,32 @@ impl RenderTarget {
                     }
                 }
             }
-            RenderTaskKind::CacheMask(_) => {
+            RenderTaskKind::CacheMask(ref task_info) => {
                 let key = match task.id {
                     RenderTaskId::Dynamic(RenderTaskKey::CacheMask(ref key)) => key,
                     _ => unreachable!()
                 };
+                let task_id = render_tasks.get_task_index(&task.id, pass_index).0 as i32;
                 self.clip_rectangles.extend((0 .. key.clip_range.count as usize)
                                     .map(|region_id| {
                     CacheClipInstance {
-                        task_id: render_tasks.get_task_index(&task.id, pass_index).0 as i32,
+                        task_id: task_id,
                         layer_index: key.layer_id.0 as i32,
                         address: GpuStoreAddress(key.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * region_id) as i32)),
                         pad: 0,
                     }
                 }));
-                //CLIP TODO: mask image
+                if let (Some(address), Some(mask_key)) = (key.image, task_info.image) {
+                    let cache_item = ctx.resource_cache.get_image(mask_key, ImageRendering::Auto);
+                    self.clip_images.entry(cache_item.texture_id)
+                                    .or_insert(Vec::new())
+                                    .push(CacheClipInstance {
+                        task_id: task_id,
+                        layer_index: key.layer_id.0 as i32,
+                        address: address,
+                        pad: 0,
+                    })
+                }
             }
         }
     }
@@ -860,6 +872,7 @@ pub struct AlphaRenderTask {
 #[derive(Debug)]
 struct CacheMaskTask {
     actual_rect: DeviceRect,
+    image: Option<ImageKey>,
 }
 
 #[derive(Debug, Clone)]
@@ -915,7 +928,8 @@ impl RenderTask {
             children: Vec::new(),
             location: RenderTaskLocation::Dynamic(None, size),
             kind: RenderTaskKind::CacheMask(CacheMaskTask {
-                actual_rect: actual_rect
+                actual_rect: actual_rect,
+                image: cache_info.image.map(|mask| mask.image),
             }),
         }
     }
@@ -2534,6 +2548,7 @@ impl FrameBuilder {
             let ctx = RenderTargetContext {
                 layer_store: &self.layer_store,
                 prim_store: &self.prim_store,
+                resource_cache: resource_cache,
                 _clip_stack: &self.clip_stack,
             };
 
