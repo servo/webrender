@@ -198,14 +198,14 @@ impl TextureSampler {
 /// Optional textures that can be used as a source in the shaders.
 /// Textures that are not used by the batch are equal to TextureId::invalid().
 #[derive(Copy, Clone, Debug)]
-pub struct PrimitiveBatchTextures {
+pub struct BatchTextures {
     pub colors: [TextureId; 3],
     pub mask: TextureId,
 }
 
-impl PrimitiveBatchTextures {
+impl BatchTextures {
     pub fn no_texture() -> Self {
-        PrimitiveBatchTextures {
+        BatchTextures {
             colors: [TextureId::invalid(); 3],
             mask: TextureId::invalid(),
         }
@@ -213,7 +213,7 @@ impl PrimitiveBatchTextures {
 }
 
 // In some places we need to temporarily bind a texture to any slot.
-pub const DEFAULT_SAMPLER: TextureSampler = TextureSampler::Color0;
+pub const DEFAULT_TEXTURE: TextureSampler = TextureSampler::Color0;
 
 pub enum VertexAttribute {
     Position,
