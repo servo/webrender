@@ -27,7 +27,7 @@ pub enum ApiMsg {
     /// Gets the glyph dimensions
     GetGlyphDimensions(Vec<GlyphKey>, IpcSender<Vec<Option<GlyphDimensions>>>),
     /// Adds an image from the resource cache.
-    AddImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
+    AddImage(ImageKey, u32, u32, Option<u32>, ImageFormat, Vec<u8>),
     /// Updates the the resource cache with the new image data.
     UpdateImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
     /// Drops an image from the resource cache.
@@ -247,6 +247,13 @@ pub enum FilterOp {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct FontKey(u32, u32);
 
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
+pub enum FontRenderMode {
+    Mono,
+    Alpha,
+    Subpixel,
+}
+
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub struct GlyphKey {
     pub font_key: FontKey,
@@ -256,7 +263,10 @@ pub struct GlyphKey {
 }
 
 impl GlyphKey {
-    pub fn new(font_key: FontKey, size: Au, blur_radius: Au, index: u32) -> GlyphKey {
+    pub fn new(font_key: FontKey,
+               size: Au,
+               blur_radius: Au,
+               index: u32) -> GlyphKey {
         GlyphKey {
             font_key: font_key,
             size: size,

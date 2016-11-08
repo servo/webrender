@@ -121,11 +121,12 @@ impl RenderBackend {
                             };
                             tx.send(glyph_dimensions).unwrap();
                         }
-                        ApiMsg::AddImage(id, width, height, format, bytes) => {
+                        ApiMsg::AddImage(id, width, height, stride, format, bytes) => {
                             profile_counters.image_templates.inc(bytes.len());
                             self.resource_cache.add_image_template(id,
                                                                    width,
                                                                    height,
+                                                                   stride,
                                                                    format,
                                                                    bytes);
                         }

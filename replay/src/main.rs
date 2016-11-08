@@ -99,6 +99,7 @@ fn main() {
         precache_shaders: false,
         renderer_kind: webrender_traits::RendererKind::Native,
         debug: false,
+        enable_subpixel_aa: false,
     };
 
     let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);

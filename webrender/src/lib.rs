@@ -51,6 +51,7 @@ extern crate bitflags;
 
 mod batch;
 mod batch_builder;
+mod debug_colors;
 mod debug_font_data;
 mod debug_render;
 mod device;

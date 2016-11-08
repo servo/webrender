@@ -10,6 +10,7 @@
 //! [renderer]: struct.Renderer.html
 
 use batch::RasterBatch;
+use debug_colors;
 use debug_render::DebugRenderer;
 use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat, GpuProfiler};
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
@@ -48,50 +49,29 @@ pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
 const UBO_BIND_DATA: u32 = 1;
 
-// Black
-const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 } };
-
-// White
-const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: ColorF { r: 1.0, g: 1.0, b: 1.0, a: 1.0 } };
-
-// Grey
-const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: ColorF { r: 0.5, g: 0.5, b: 0.5, a: 1.0 } };
-
-// Black
-const GPU_TAG_CLEAR_TILES: GpuProfileTag = GpuProfileTag { label: "Clear Tiles", color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 } };
-
-// Red / dark red
-const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 } };
-const GPU_TAG_PRIM_RECT_CLIP: GpuProfileTag = GpuProfileTag { label: "RectClip", color: ColorF { r: 0.7, g: 0.0, b: 0.0, a: 1.0 } };
-
-// Green / dark green
-const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 } };
-const GPU_TAG_PRIM_IMAGE_CLIP: GpuProfileTag = GpuProfileTag { label: "ImageClip", color: ColorF { r: 0.0, g: 0.7, b: 0.0, a: 1.0 } };
-
-// Light blue
-const GPU_TAG_PRIM_BLEND: GpuProfileTag = GpuProfileTag { label: "Blend", color: ColorF { r: 0.8, g: 1.0, b: 1.0, a: 1.0 } };
-
-// Magenta
-const GPU_TAG_PRIM_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "Composite", color: ColorF { r: 1.0, g: 0.0, b: 1.0, a: 1.0 } };
-
-// Blue
-const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "TextRun", color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 } };
-
-// Yellow / dark yellow
-const GPU_TAG_PRIM_GRADIENT: GpuProfileTag = GpuProfileTag { label: "Gradient", color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 } };
-const GPU_TAG_PRIM_GRADIENT_CLIP: GpuProfileTag = GpuProfileTag { label: "GradientClip", color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 } };
-const GPU_TAG_PRIM_ANGLE_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AngleGradient", color: ColorF { r: 0.7, g: 0.7, b: 0.0, a: 1.0 } };
-
-// Cyan
-const GPU_TAG_PRIM_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "BoxShadow", color: ColorF { r: 0.0, g: 1.0, b: 1.0, a: 1.0 } };
-
-// Orange
-const GPU_TAG_PRIM_BORDER: GpuProfileTag = GpuProfileTag { label: "Border", color: ColorF { r: 1.0, g: 0.5, b: 0.0, a: 1.0 } };
+const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: debug_colors::BLACK };
+const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: debug_colors::WHITE };
+const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: debug_colors::SLATEGREY };
+const GPU_TAG_CLEAR_TILES: GpuProfileTag = GpuProfileTag { label: "Clear Tiles", color: debug_colors::BROWN };
+const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: debug_colors::RED };
+const GPU_TAG_PRIM_RECT_CLIP: GpuProfileTag = GpuProfileTag { label: "RectClip", color: debug_colors::DARKRED };
+const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: debug_colors::GREEN };
+const GPU_TAG_PRIM_IMAGE_CLIP: GpuProfileTag = GpuProfileTag { label: "ImageClip", color: debug_colors::DARKGREEN };
+const GPU_TAG_PRIM_BLEND: GpuProfileTag = GpuProfileTag { label: "Blend", color: debug_colors::LIGHTBLUE };
+const GPU_TAG_PRIM_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "Composite", color: debug_colors::MAGENTA };
+const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "TextRun", color: debug_colors::BLUE };
+const GPU_TAG_PRIM_GRADIENT: GpuProfileTag = GpuProfileTag { label: "Gradient", color: debug_colors::YELLOW };
+const GPU_TAG_PRIM_GRADIENT_CLIP: GpuProfileTag = GpuProfileTag { label: "GradientClip", color: debug_colors::YELLOWGREEN };
+const GPU_TAG_PRIM_ANGLE_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AngleGradient", color: debug_colors::POWDERBLUE };
+const GPU_TAG_PRIM_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "BoxShadow", color: debug_colors::CYAN };
+const GPU_TAG_PRIM_BORDER: GpuProfileTag = GpuProfileTag { label: "Border", color: debug_colors::ORANGE };
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BlendMode {
     None,
     Alpha,
+    // Use the color of the text itself as a constant color blend factor.
+    Subpixel(ColorF),
 }
 
 struct VertexDataTexture {
@@ -140,7 +120,8 @@ impl VertexDataTexture {
     }
 }
 
-const TRANSFORM_FEATURE: &'static [&'static str] = &["TRANSFORM"];
+const TRANSFORM_FEATURE: &'static str = "TRANSFORM";
+const SUBPIXEL_AA_FEATURE: &'static str = "SUBPIXEL_AA";
 
 enum ShaderKind {
     Primitive,
@@ -153,14 +134,14 @@ struct LazilyCompiledShader {
     name: &'static str,
     kind: ShaderKind,
     max_ubo_vectors: usize,
-    features: &'static [&'static str],
+    features: Vec<&'static str>,
 }
 
 impl LazilyCompiledShader {
     fn new(kind: ShaderKind,
            name: &'static str,
            max_ubo_vectors: usize,
-           features: &'static [&'static str],
+           features: &[&'static str],
            device: &mut Device,
            precache: bool) -> LazilyCompiledShader {
         let mut shader = LazilyCompiledShader {
@@ -168,7 +149,7 @@ impl LazilyCompiledShader {
             name: name,
             kind: kind,
             max_ubo_vectors: max_ubo_vectors,
-            features: features,
+            features: features.to_vec(),
         };
 
         if precache {
@@ -190,7 +171,7 @@ impl LazilyCompiledShader {
                     create_prim_shader(self.name,
                                        device,
                                        self.max_ubo_vectors,
-                                       self.features)
+                                       &self.features)
                 }
             };
             self.id = Some(id);
@@ -235,18 +216,22 @@ impl PrimitiveShader {
            max_ubo_vectors: usize,
            max_prim_items: usize,
            device: &mut Device,
+           features: &[&'static str],
            precache: bool) -> PrimitiveShader {
         let simple = LazilyCompiledShader::new(ShaderKind::Primitive,
                                                name,
                                                max_ubo_vectors,
-                                               &[],
+                                               features,
                                                device,
                                                precache);
+
+        let mut transform_features = features.to_vec();
+        transform_features.push(TRANSFORM_FEATURE);
 
         let transform = LazilyCompiledShader::new(ShaderKind::Primitive,
                                                   name,
                                                   max_ubo_vectors,
-                                                  TRANSFORM_FEATURE,
+                                                  &transform_features,
                                                   device,
                                                   precache);
 
@@ -335,6 +320,7 @@ pub struct Renderer {
 
     ps_rectangle: PrimitiveShader,
     ps_text_run: PrimitiveShader,
+    ps_text_run_subpixel: PrimitiveShader,
     ps_image: PrimitiveShader,
     ps_border: PrimitiveShader,
     ps_gradient: PrimitiveShader,
@@ -443,53 +429,69 @@ impl Renderer {
                                                 max_ubo_vectors,
                                                 max_prim_instances,
                                                 &mut device,
+                                                &[],
                                                 options.precache_shaders);
         let ps_text_run = PrimitiveShader::new("ps_text_run",
                                                max_ubo_vectors,
                                                max_prim_instances,
                                                &mut device,
+                                               &[],
                                                options.precache_shaders);
+        let ps_text_run_subpixel = PrimitiveShader::new("ps_text_run",
+                                                        max_ubo_vectors,
+                                                        max_prim_instances,
+                                                        &mut device,
+                                                        &[ SUBPIXEL_AA_FEATURE ],
+                                                        options.precache_shaders);
         let ps_image = PrimitiveShader::new("ps_image",
                                             max_ubo_vectors,
                                             max_prim_instances,
                                             &mut device,
+                                            &[],
                                             options.precache_shaders);
         let ps_border = PrimitiveShader::new("ps_border",
                                              max_ubo_vectors,
                                              max_prim_instances,
                                              &mut device,
+                                             &[],
                                              options.precache_shaders);
         let ps_rectangle_clip = PrimitiveShader::new("ps_rectangle_clip",
                                                      max_ubo_vectors,
                                                      max_prim_instances,
                                                      &mut device,
+                                                     &[],
                                                      options.precache_shaders);
         let ps_image_clip = PrimitiveShader::new("ps_image_clip",
                                                  max_ubo_vectors,
                                                  max_prim_instances,
                                                  &mut device,
+                                                 &[],
                                                  options.precache_shaders);
 
         let ps_box_shadow = PrimitiveShader::new("ps_box_shadow",
                                                  max_ubo_vectors,
                                                  max_prim_instances,
                                                  &mut device,
+                                                 &[],
                                                  options.precache_shaders);
 
         let ps_gradient = PrimitiveShader::new("ps_gradient",
                                                max_ubo_vectors,
                                                max_prim_instances,
                                                &mut device,
+                                               &[],
                                                options.precache_shaders);
         let ps_gradient_clip = PrimitiveShader::new("ps_gradient_clip",
                                                     max_ubo_vectors,
                                                     max_prim_instances,
                                                     &mut device,
+                                                    &[],
                                                     options.precache_shaders);
         let ps_angle_gradient = PrimitiveShader::new("ps_angle_gradient",
                                                      max_ubo_vectors,
                                                      max_prim_instances,
                                                      &mut device,
+                                                     &[],
                                                      options.precache_shaders);
 
         let ps_blend = LazilyCompiledShader::new(ShaderKind::Primitive,
@@ -531,6 +533,7 @@ impl Renderer {
         texture_cache.insert(white_image_id,
                              2,
                              2,
+                             None,
                              ImageFormat::RGBA8,
                              TextureFilter::Linear,
                              TextureInsertOp::Blit(white_pixels),
@@ -540,6 +543,7 @@ impl Renderer {
         texture_cache.insert(dummy_mask_image_id,
                              2,
                              2,
+                             None,
                              ImageFormat::A8,
                              TextureFilter::Linear,
                              TextureInsertOp::Blit(mask_pixels),
@@ -619,7 +623,8 @@ impl Renderer {
             RendererKind::OSMesa => GLContextHandleWrapper::current_osmesa_handle(),
         };
 
-        let config = FrameBuilderConfig::new(options.enable_scrollbars);
+        let config = FrameBuilderConfig::new(options.enable_scrollbars,
+                                             options.enable_subpixel_aa);
 
         let debug = options.debug;
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
@@ -657,6 +662,7 @@ impl Renderer {
             cs_box_shadow: cs_box_shadow,
             ps_rectangle: ps_rectangle,
             ps_text_run: ps_text_run,
+            ps_text_run_subpixel: ps_text_run_subpixel,
             ps_image: ps_image,
             ps_border: ps_border,
             ps_rectangle_clip: ps_rectangle_clip,
@@ -882,12 +888,12 @@ impl Renderer {
                             TextureUpdateDetails::Raw => {
                                 self.device.update_raw_texture(update.id, x, y, width, height);
                             }
-                            TextureUpdateDetails::Blit(bytes) => {
+                            TextureUpdateDetails::Blit(bytes, stride) => {
                                 self.device.update_texture(
                                     update.id,
                                     x,
                                     y,
-                                    width, height,
+                                    width, height, stride,
                                     bytes.as_slice());
                             }
                             TextureUpdateDetails::Blur(bytes,
@@ -904,6 +910,7 @@ impl Renderer {
                                     unblurred_glyph_texture_image.pixel_uv.y,
                                     glyph_size.width,
                                     glyph_size.height,
+                                    None,
                                     bytes.as_slice());
 
                                 let blur_program_id = self.blur_program_id;
@@ -1405,9 +1412,13 @@ impl Renderer {
 
             if batch.key.blend_mode != prev_blend_mode {
                 match batch.key.blend_mode {
-                    // TODO(gw): More blend modes to come with subpixel aa work.
                     BlendMode::None | BlendMode::Alpha => {
                         self.device.set_blend(batch.key.blend_mode == BlendMode::Alpha);
+                        self.device.set_blend_mode_alpha();
+                    }
+                    BlendMode::Subpixel(color) => {
+                        self.device.set_blend(true);
+                        self.device.set_blend_mode_subpixel(color);
                     }
                 }
                 prev_blend_mode = batch.key.blend_mode;
@@ -1502,7 +1513,10 @@ impl Renderer {
                 }
                 &PrimitiveBatchData::TextRun(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_TEXT_RUN);
-                    let (shader, max_prim_items) = self.ps_text_run.get(&mut self.device, transform_kind);
+                    let (shader, max_prim_items) = match batch.key.blend_mode {
+                        BlendMode::Subpixel(..) => self.ps_text_run_subpixel.get(&mut self.device, transform_kind),
+                        BlendMode::Alpha | BlendMode::None => self.ps_text_run.get(&mut self.device, transform_kind),
+                    };
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
@@ -1686,4 +1700,5 @@ pub struct RendererOptions {
     pub enable_scrollbars: bool,
     pub precache_shaders: bool,
     pub renderer_kind: RendererKind,
+    pub enable_subpixel_aa: bool,
 }

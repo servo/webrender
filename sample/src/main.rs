@@ -140,6 +140,7 @@ fn main() {
         debug: true,
         precache_shaders: true,
         renderer_kind: RendererKind::Native,
+        enable_subpixel_aa: false,
     };
 
     let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);

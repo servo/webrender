@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::mem;
 //use std::sync::mpsc::{channel, Sender};
 //use std::thread;
-use webrender_traits::ImageFormat;
+use webrender_traits::{ColorF, ImageFormat};
 
 #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
 const GL_FORMAT_A: gl::GLuint = gl::RED;
@@ -1538,6 +1538,7 @@ impl Device {
                           y0: u32,
                           width: u32,
                           height: u32,
+                          stride: Option<u32>,
                           data: &[u8]) {
         debug_assert!(self.inside_frame);
 
@@ -1562,7 +1563,16 @@ impl Device {
             ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
         };
 
-        assert!(data.len() as u32 == bpp * width * height);
+        let row_length = match stride {
+            Some(value) => value / bpp,
+            None => width,
+        };
+
+        assert!(data.len() as u32 == bpp * row_length * height);
+
+        if let Some(stride) = stride {
+          gl::pixel_store_i(gl::UNPACK_ROW_LENGTH, row_length as gl::GLint);
+        }
 
         self.bind_texture(TextureSampler::Color, texture_id);
         self.update_image_for_2d_texture(texture_id.target,
@@ -1572,6 +1582,11 @@ impl Device {
                                          height as gl::GLint,
                                          gl_format,
                                          data);
+
+        // Reset row length to 0, otherwise the stride would apply to all texture uploads.
+        if let Some(stride) = stride {
+          gl::pixel_store_i(gl::UNPACK_ROW_LENGTH, 0 as gl::GLint);
+        }
     }
 
     pub fn read_framebuffer_rect(&mut self,
@@ -1812,6 +1827,11 @@ impl Device {
         gl::blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
                                 gl::ONE, gl::ONE);
         gl::blend_equation(gl::FUNC_ADD);
+    }
+
+    pub fn set_blend_mode_subpixel(&self, color: ColorF) {
+        gl::blend_color(color.r, color.g, color.b, color.a);
+        gl::blend_func(gl::CONSTANT_COLOR, gl::ONE_MINUS_SRC_COLOR);
     }
 }
 

@@ -8,7 +8,7 @@ use euclid::{Point2D, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
 use freelist::FreeList;
-use internal_types::{FontTemplate, FontRenderMode};
+use internal_types::FontTemplate;
 use internal_types::{TextureUpdateList, DrawListId, DrawList};
 use platform::font::{FontContext, RasterizedGlyph};
 use rayon::prelude::*;
@@ -22,7 +22,7 @@ use std::hash::Hash;
 use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
 use texture_cache::{BorderType, TextureInsertOp};
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, DisplayItem, ImageRendering};
-use webrender_traits::{GlyphDimensions, PipelineId, WebGLContextId};
+use webrender_traits::{FontRenderMode, GlyphDimensions, PipelineId, WebGLContextId};
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
@@ -39,6 +39,25 @@ pub struct CacheItem {
     pub texture_id: TextureId,
     pub uv0: Point2D<f32>,
     pub uv1: Point2D<f32>,
+}
+
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub struct RenderedGlyphKey {
+    pub key: GlyphKey,
+    pub render_mode: FontRenderMode,
+}
+
+impl RenderedGlyphKey {
+    pub fn new(font_key: FontKey,
+               size: Au,
+               blur_radius: Au,
+               index: u32,
+               render_mode: FontRenderMode) -> RenderedGlyphKey {
+        RenderedGlyphKey {
+            key: GlyphKey::new(font_key, size, blur_radius, index),
+            render_mode: render_mode,
+        }
+    }
 }
 
 pub struct ImageProperties {
@@ -63,13 +82,14 @@ struct ImageResource {
     bytes: Vec<u8>,
     width: u32,
     height: u32,
+    stride: Option<u32>,
     format: ImageFormat,
     epoch: Epoch,
     is_opaque: bool,
 }
 
 struct GlyphRasterJob {
-    glyph_key: GlyphKey,
+    glyph_key: RenderedGlyphKey,
     result: Option<RasterizedGlyph>,
 }
 
@@ -144,6 +164,7 @@ struct TextRunResourceRequest {
     size: Au,
     blur_radius: Au,
     glyph_indices: Vec<u32>,
+    render_mode: FontRenderMode,
 }
 
 enum ResourceRequest {
@@ -157,7 +178,7 @@ struct WebGLTexture {
 }
 
 pub struct ResourceCache {
-    cached_glyphs: ResourceClassCache<GlyphKey, Option<TextureCacheItemId>>,
+    cached_glyphs: ResourceClassCache<RenderedGlyphKey, Option<TextureCacheItemId>>,
     cached_images: ResourceClassCache<(ImageKey, ImageRendering), CachedImageInfo>,
 
     // TODO(pcwalton): Figure out the lifecycle of these.
@@ -209,12 +230,14 @@ impl ResourceCache {
                               image_key: ImageKey,
                               width: u32,
                               height: u32,
+                              stride: Option<u32>,
                               format: ImageFormat,
                               bytes: Vec<u8>) {
         let resource = ImageResource {
             is_opaque: is_image_opaque(format, &bytes),
             width: width,
             height: height,
+            stride: stride,
             format: format,
             bytes: bytes,
             epoch: Epoch(0),
@@ -243,6 +266,7 @@ impl ResourceCache {
             is_opaque: is_image_opaque(format, &bytes),
             width: width,
             height: height,
+            stride: None,
             format: format,
             bytes: bytes,
             epoch: next_epoch,
@@ -288,13 +312,15 @@ impl ResourceCache {
                           key: FontKey,
                           size: Au,
                           blur_radius: Au,
-                          glyph_indices: &[u32]) {
+                          glyph_indices: &[u32],
+                          render_mode: FontRenderMode) {
         debug_assert!(self.state == State::AddResources);
         self.pending_requests.push(ResourceRequest::TextRun(TextRunResourceRequest {
             key: key,
             size: size,
             blur_radius: blur_radius,
             glyph_indices: glyph_indices.to_vec(),
+            render_mode: render_mode,
         }));
     }
 
@@ -313,7 +339,7 @@ impl ResourceCache {
                 let texture_width;
                 let texture_height;
                 let insert_op;
-                match job.glyph_key.blur_radius {
+                match job.glyph_key.key.blur_radius {
                     Au(0) => {
                         texture_width = result.width;
                         texture_height = result.height;
@@ -332,6 +358,7 @@ impl ResourceCache {
                 self.texture_cache.insert(image_id,
                                           texture_width,
                                           texture_height,
+                                          None,
                                           ImageFormat::RGBA8,
                                           TextureFilter::Linear,
                                           insert_op,
@@ -366,15 +393,17 @@ impl ResourceCache {
                          size: Au,
                          blur_radius: Au,
                          glyph_indices: &[u32],
+                         render_mode: FontRenderMode,
                          mut f: F) -> TextureId where F: FnMut(usize, Point2D<f32>, Point2D<f32>) {
         debug_assert!(self.state == State::QueryResources);
-        let mut glyph_key = GlyphKey::new(font_key,
-                                          size,
-                                          blur_radius,
-                                          0);
+        let mut glyph_key = RenderedGlyphKey::new(font_key,
+                                                  size,
+                                                  blur_radius,
+                                                  0,
+                                                  render_mode);
         let mut texture_id = TextureId::invalid();
         for (loop_index, glyph_index) in glyph_indices.iter().enumerate() {
-            glyph_key.index = *glyph_index;
+            glyph_key.key.index = *glyph_index;
             let image_id = self.cached_glyphs.get(&glyph_key, self.current_frame_id);
             let cache_item = image_id.map(|image_id| self.texture_cache.get(image_id));
             if let Some(cache_item) = cache_item {
@@ -494,6 +523,7 @@ impl ResourceCache {
                                 self.texture_cache.update(image_id,
                                                           image_template.width,
                                                           image_template.height,
+                                                          image_template.stride,
                                                           image_template.format,
                                                           image_template.bytes.clone());
 
@@ -516,6 +546,7 @@ impl ResourceCache {
                             self.texture_cache.insert(image_id,
                                                       image_template.width,
                                                       image_template.height,
+                                                      image_template.stride,
                                                       image_template.format,
                                                       filter,
                                                       TextureInsertOp::Blit(image_template.bytes.clone()),
@@ -530,10 +561,11 @@ impl ResourceCache {
                 }
                 ResourceRequest::TextRun(ref text_run) => {
                     for glyph_index in &text_run.glyph_indices {
-                        let glyph_key = GlyphKey::new(text_run.key,
-                                                      text_run.size,
-                                                      text_run.blur_radius,
-                                                      *glyph_index);
+                        let glyph_key = RenderedGlyphKey::new(text_run.key,
+                                                              text_run.size,
+                                                              text_run.blur_radius,
+                                                              *glyph_index,
+                                                              text_run.render_mode);
 
                         self.cached_glyphs.mark_as_needed(&glyph_key, self.current_frame_id);
                         if !self.cached_glyphs.contains_key(&glyph_key) {
@@ -564,28 +596,27 @@ fn run_raster_jobs(pending_raster_jobs: &mut Vec<GlyphRasterJob>,
         return
     }
 
-    let render_mode = if enable_aa {
-        FontRenderMode::Alpha
-    } else {
-        FontRenderMode::Mono
-    };
-
     pending_raster_jobs.par_iter_mut().weight_max().for_each(|job| {
-        let font_template = &font_templates[&job.glyph_key.font_key];
+        let font_template = &font_templates[&job.glyph_key.key.font_key];
         FONT_CONTEXT.with(move |font_context| {
             let mut font_context = font_context.borrow_mut();
             match *font_template {
                 FontTemplate::Raw(ref bytes) => {
-                    font_context.add_raw_font(&job.glyph_key.font_key, &**bytes);
+                    font_context.add_raw_font(&job.glyph_key.key.font_key, &**bytes);
                 }
                 FontTemplate::Native(ref native_font_handle) => {
-                    font_context.add_native_font(&job.glyph_key.font_key,
+                    font_context.add_native_font(&job.glyph_key.key.font_key,
                                                  (*native_font_handle).clone());
                 }
             }
-            job.result = font_context.rasterize_glyph(job.glyph_key.font_key,
-                                                      job.glyph_key.size,
-                                                      job.glyph_key.index,
+            let render_mode = if enable_aa {
+                job.glyph_key.render_mode
+            } else {
+                FontRenderMode::Mono
+            };
+            job.result = font_context.rasterize_glyph(job.glyph_key.key.font_key,
+                                                      job.glyph_key.key.size,
+                                                      job.glyph_key.key.index,
                                                       device_pixel_ratio,
                                                       render_mode);
         });
