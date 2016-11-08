@@ -19,11 +19,15 @@ use tiling::{AuxiliaryListsMap, FrameBuilder, FrameBuilderConfig, PrimitiveFlags
 use util::MatrixHelpers;
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
 use webrender_traits::{ClipRegion, ColorF, DisplayItem, StackingContext, FilterOp, MixBlendMode};
+<<<<<<< 22aefa1b9daa4ae0b8e8d161d9d0173bb2117c9b
 use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, ScrollLocation, SpecificDisplayItem, ScrollLayerState};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
 use webrender_traits::{ServoScrollRootId, ScrollLayerRect, as_scroll_parent_rect, ScrollLayerPixel};
 use webrender_traits::WorldPoint4D;
 use webrender_traits::{LayerTransform, LayerToScrollTransform, ScrollToWorldTransform};
+=======
+use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, SpecificDisplayItem, ScrollLayerState, ScrollLocation};
+>>>>>>> Implement home end key scrolling support.
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
@@ -335,7 +339,6 @@ impl Frame {
                   cursor: Point2D<f32>,
                   phase: ScrollEventPhase)
                   -> bool {
-
         let root_scroll_layer_id = match self.root_scroll_layer_id {
             Some(root_scroll_layer_id) => root_scroll_layer_id,
             None => return false,
@@ -351,37 +354,6 @@ impl Frame {
             ScrollLayerInfo::Fixed => unreachable!("Tried to scroll a fixed position layer."),
         };
 
-        let mut delta:Point2D<f32> = match scroll_location {
-            ScrollLocation::Delta(delta) => delta,
-            ScrollLocation::Start => {
-                if layer.scrolling.offset.y.round() == 0.0 {
-                    // Nothing to do.
-                    return false;
-                }
-
-                layer.scrolling.offset.y = 0.0;
-                return true;
-            },
-            ScrollLocation::End => {
-                let end_pos = -layer.content_size.height +
-                                                 (layer.local_viewport_rect.size.height);
-
-                if layer.scrolling.offset.y.round() == end_pos {
-                    // Nothing to do.
-                    return false;
-                }
-                
-                layer.scrolling.offset.y = end_pos;
-                return true;
-            },
-        };
-
-        let overscroll_amount = layer.overscroll_amount();
-        let overscrolling = CAN_OVERSCROLL && (overscroll_amount.width != 0.0 ||
-                                               overscroll_amount.height != 0.0);
-        if overscrolling {
-            if overscroll_amount.width != 0.0 {
-                delta.x /= overscroll_amount.width.abs()
         let mut scrolled_a_layer = false;
         for (layer_id, layer) in self.layers.iter_mut() {
             if layer_id.pipeline_id != scroll_layer_id.pipeline_id {
@@ -397,6 +369,31 @@ impl Frame {
             if layer.scrolling.started_bouncing_back && phase == ScrollEventPhase::Move(false) {
                 continue;
             }
+
+            let mut delta:Point2D<f32> = match scroll_location {
+                ScrollLocation::Delta(delta) => delta,
+                ScrollLocation::Start => {
+                    if layer.scrolling.offset.y.round() == 0.0 {
+                        // Nothing to do.
+                        return false;
+                    }
+
+                    layer.scrolling.offset.y = 0.0;
+                    return true;
+                },
+                ScrollLocation::End => {
+                    let end_pos = -layer.content_size.height +
+                                  layer.local_viewport_rect.size.height;
+
+                    if layer.scrolling.offset.y.round() == end_pos {
+                        // Nothing to do.
+                        return false;
+                    }
+                
+                    layer.scrolling.offset.y = end_pos;
+                    return true;
+                },
+            };
 
             let overscroll_amount = layer.overscroll_amount();
             let overscrolling = CAN_OVERSCROLL && (overscroll_amount.width != 0.0 ||
