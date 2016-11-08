@@ -18,7 +18,7 @@ use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{ImagePrimitiveCpu, ImagePrimitiveGpu, ImagePrimitiveKind};
 use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata};
-use prim_store::PrimitiveClipSource;
+use prim_store::{CLIP_DATA_GPU_SIZE, PrimitiveClipSource};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
 use prim_store::{PrimitiveCacheKey, TextRunPrimitiveGpu, TextRunPrimitiveCpu};
 use prim_store::{PrimitiveStore, GpuBlock16, GpuBlock32, GpuBlock64, GpuBlock128};
@@ -590,6 +590,7 @@ struct RenderTargetContext<'a> {
     layer_store: &'a [StackingContext],
     prim_store: &'a PrimitiveStore,
     _clip_stack: &'a ClipRegionStack,
+    dummy_mask_texture_id: TextureId,
 }
 
 /// A render target represents a number of rendering operations on a surface.
@@ -728,13 +729,13 @@ impl RenderTarget {
                     _ => unreachable!()
                 };
                 let items = self.clip_cache_items
-                                .entry(key.mask_texture_id)
+                                .entry(ctx.dummy_mask_texture_id)
                                 .or_insert(Vec::new());
-                items.extend((0 .. key.clip_range.count).map(|region_id| {
+                items.extend((0 .. key.clip_range.count as usize).map(|region_id| {
                     CacheClipInstance {
                         task_id: render_tasks.get_task_index(&task.id, pass_index).0 as i32,
                         layer_index: key.layer_id.0 as i32,
-                        clip_address: GpuStoreAddress(key.clip_range.start.0 + 6 * (region_id as i32)),
+                        clip_address: GpuStoreAddress(key.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * region_id) as i32)),
                         pad: 0,
                     }
                 }));
@@ -2534,6 +2535,11 @@ impl FrameBuilder {
                 layer_store: &self.layer_store,
                 prim_store: &self.prim_store,
                 _clip_stack: &self.clip_stack,
+                dummy_mask_texture_id: {
+                    let opaque_mask_id = self.dummy_resources.opaque_mask_image_id;
+                    let cache_item = resource_cache.get_image_by_cache_id(opaque_mask_id);
+                    cache_item.texture_id
+                },
             };
 
             // Do the allocations now, assigning each tile's tasks to a render
