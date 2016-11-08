@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashMap;
-use device::TextureId;
 use euclid::{Rect, Matrix4D};
 use gpu_store::{GpuStore, GpuStoreAddress};
 use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
@@ -30,7 +29,10 @@ pub struct MaskCacheKey {
 #[derive(Debug)]
 pub struct MaskCacheInfo {
     pub key: MaskCacheKey,
-    pub mask_texture_id: TextureId,
+    // this is needed to update the ImageMaskData after the
+    // ResourceCache allocates/load the actual data
+    // will be simplified after the TextureCache upgrade
+    pub image: Option<ImageMask>,
     // Vec<layer transforms>
     // Vec<layer mask images>
 }
@@ -95,8 +97,8 @@ impl ClipRegionStack {
             },
             image: None,
         };
-        match source {
-            &PrimitiveClipSource::NoClip => (),
+        let image = match source {
+            &PrimitiveClipSource::NoClip => None,
             &PrimitiveClipSource::Complex(rect, radius) => {
                 let address = clip_store.alloc(CLIP_DATA_GPU_SIZE);
                 let slice = clip_store.get_slice_mut(address, CLIP_DATA_GPU_SIZE);
@@ -104,6 +106,7 @@ impl ClipRegionStack {
                 PrimitiveStore::populate_clip_data(slice, data);
                 clip_key.clip_range.count = 1;
                 clip_key.clip_range.start = address;
+                None
             },
             &PrimitiveClipSource::Region(ref region) => {
                 let clips = aux_lists.complex_clip_regions(&region.complex);
@@ -121,6 +124,7 @@ impl ClipRegionStack {
                     let address = clip_store.alloc(MASK_DATA_GPU_SIZE);
                     clip_key.image = Some(address);
                 }
+                region.image_mask
             },
         };
         if self.need_mask() ||
@@ -128,7 +132,7 @@ impl ClipRegionStack {
            clip_key.image.is_some() {
             Some(MaskCacheInfo {
                 key: clip_key,
-                mask_texture_id: TextureId::invalid(),
+                image: image,
             })
         } else {
             None
