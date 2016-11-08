@@ -50,7 +50,7 @@ pub type AuxiliaryListsMap = HashMap<PipelineId,
 
 trait AlphaBatchHelpers {
     fn get_batch_kind(&self, metadata: &PrimitiveMetadata) -> AlphaBatchKind;
-    fn get_texture_id(&self, metadata: &PrimitiveMetadata) -> TextureId;
+    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [SourceTexture; 3];
     fn get_blend_mode(&self, needs_blending: bool, metadata: &PrimitiveMetadata) -> BlendMode;
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
@@ -90,20 +90,22 @@ impl AlphaBatchHelpers for PrimitiveStore {
         batch_kind
     }
 
-    fn get_texture_id(&self, metadata: &PrimitiveMetadata) -> TextureId {
+    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [SourceTexture; 3] {
+        let invalid = SourceTexture::invalid();
         match metadata.prim_kind {
             PrimitiveKind::Border |
             PrimitiveKind::BoxShadow |
             PrimitiveKind::Rectangle |
-            PrimitiveKind::Gradient => TextureId::invalid(),
+            PrimitiveKind::Gradient => [invalid; 3],
             PrimitiveKind::Image => {
                 let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
-                image_cpu.color_texture_id
+                [image_cpu.color_texture, invalid, invalid]
             }
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
-                text_run_cpu.color_texture_id
+                [SourceTexture::Id(text_run_cpu.color_texture_id), invalid, invalid]
             }
+            // TODO(nical): YuvImage will return 3 textures.
         }
     }
 
@@ -445,16 +447,10 @@ impl AlphaBatcher {
                         };
                         let invalid = SourceTexture::invalid();
                         let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
-                        // TODO(nical) SourceTexture instead of TextureId in the prim metadata.
-                        let color_0 = SourceTexture::Id(ctx.prim_store.get_texture_id(prim_metadata));
-                        let (color_1, mask) = match batch_kind {
-                            AlphaBatchKind::Blend => (SourceTexture::Id(prim_metadata.mask_texture_id), invalid),
-                            _ => (invalid, SourceTexture::Id(prim_metadata.mask_texture_id))
-                        };
 
                         let textures = PrimitiveBatchTextures {
-                            colors: [color_0, color_1, invalid],
-                            mask: mask,
+                            colors: ctx.prim_store.get_color_textures(prim_metadata),
+                            mask: SourceTexture::Id(prim_metadata.mask_texture_id),
                         };
 
                         batch_key = AlphaBatchKey::primitive(batch_kind,
@@ -1785,7 +1781,7 @@ impl FrameBuilder {
                                context_id: WebGLContextId) {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::WebGL(context_id),
-            color_texture_id: TextureId::invalid(),
+            color_texture: SourceTexture::invalid(),
         };
 
         let prim_gpu = ImagePrimitiveGpu {
@@ -1811,7 +1807,7 @@ impl FrameBuilder {
             kind: ImagePrimitiveKind::Image(image_key,
                                             image_rendering,
                                             *tile_spacing),
-            color_texture_id: TextureId::invalid(),
+            color_texture: SourceTexture::invalid(),
         };
 
         let prim_gpu = ImagePrimitiveGpu {
