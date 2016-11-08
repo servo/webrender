@@ -9,7 +9,7 @@ use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::cell::Cell;
 use {ApiMsg, AuxiliaryLists, BuiltDisplayList, ColorF, DisplayListId, Epoch};
 use {FontKey, IdNamespace, ImageFormat, ImageKey, NativeFontHandle, PipelineId};
-use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState};
+use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState, ScrollLocation};
 use {StackingContext, StackingContextId, WebGLContextId, WebGLCommand};
 use {GlyphKey, GlyphDimensions};
 
@@ -195,8 +195,8 @@ impl RenderApi {
     ///
     /// Webrender looks for the layer closest to the user
     /// which has `ScrollPolicy::Scrollable` set.
-    pub fn scroll(&self, delta: Point2D<f32>, cursor: Point2D<f32>, phase: ScrollEventPhase) {
-        let msg = ApiMsg::Scroll(delta, cursor, phase);
+    pub fn scroll(&self, scroll_location: ScrollLocation, cursor: Point2D<f32>, phase: ScrollEventPhase) {
+        let msg = ApiMsg::Scroll(scroll_location, cursor, phase);
         self.api_sender.send(msg).unwrap();
     }
 
