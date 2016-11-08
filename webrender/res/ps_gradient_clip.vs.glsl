@@ -66,6 +66,7 @@ void main(void) {
             break;
     }
 
-    ClipData clip = fetch_clip(prim.clip_index);
-    write_clip(clip);
+    //ClipData clip = fetch_clip(prim.clip_index);
+    //write_clip(clip);
+    write_clip_ext(vi.global_clamped_pos, prim.mask_tile);
 }
