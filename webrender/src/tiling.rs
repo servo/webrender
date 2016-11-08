@@ -11,7 +11,7 @@ use frame::FrameId;
 use gpu_store::GpuStoreAddress;
 use internal_types::{DeviceRect, DevicePoint, DeviceSize, DeviceLength, device_pixel, CompositionOp};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
-use internal_types::{PrimitiveBatchTextures};
+use internal_types::{BatchTextures};
 use layer::Layer;
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
@@ -99,7 +99,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::Gradient => [invalid; 3],
             PrimitiveKind::Image => {
                 let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
-                [image_cpu.color_texture, invalid, invalid]
+                [image_cpu.color_texture_id, invalid, invalid]
             }
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
@@ -447,7 +447,7 @@ impl AlphaBatcher {
                         };
                         let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
 
-                        let textures = PrimitiveBatchTextures {
+                        let textures = BatchTextures {
                             colors: ctx.prim_store.get_color_textures(prim_metadata),
                             mask: prim_metadata.mask_texture_id,
                         };
@@ -874,7 +874,7 @@ pub struct AlphaBatchKey {
     kind: AlphaBatchKind,
     pub flags: AlphaBatchKeyFlags,
     pub blend_mode: BlendMode,
-    pub textures: PrimitiveBatchTextures,
+    pub textures: BatchTextures,
 }
 
 impl AlphaBatchKey {
@@ -883,7 +883,7 @@ impl AlphaBatchKey {
             kind: AlphaBatchKind::Blend,
             flags: AXIS_ALIGNED,
             blend_mode: BlendMode::Alpha,
-            textures: PrimitiveBatchTextures::no_texture(),
+            textures: BatchTextures::no_texture(),
         }
     }
 
@@ -892,14 +892,14 @@ impl AlphaBatchKey {
             kind: AlphaBatchKind::Composite,
             flags: AXIS_ALIGNED,
             blend_mode: BlendMode::Alpha,
-            textures: PrimitiveBatchTextures::no_texture(),
+            textures: BatchTextures::no_texture(),
         }
     }
 
     fn primitive(kind: AlphaBatchKind,
                  flags: AlphaBatchKeyFlags,
                  blend_mode: BlendMode,
-                 textures: PrimitiveBatchTextures)
+                 textures: BatchTextures)
                  -> AlphaBatchKey {
         AlphaBatchKey {
             kind: kind,
@@ -913,13 +913,13 @@ impl AlphaBatchKey {
         self.kind == other.kind &&
             self.flags == other.flags &&
             self.blend_mode == other.blend_mode &&
-            (self.textures.colors[0].is_invalid() || other.textures.colors[0].is_invalid() ||
+            (!self.textures.colors[0].is_valid() || !other.textures.colors[0].is_valid() ||
                  self.textures.colors[0] == other.textures.colors[0]) &&
-            (self.textures.colors[1].is_invalid() || other.textures.colors[1].is_invalid() ||
+            (!self.textures.colors[1].is_valid() || !other.textures.colors[1].is_valid() ||
                  self.textures.colors[1] == other.textures.colors[1]) &&
-            (self.textures.colors[2].is_invalid() || other.textures.colors[2].is_invalid() ||
+            (!self.textures.colors[2].is_valid() || !other.textures.colors[2].is_valid() ||
                  self.textures.colors[2] == other.textures.colors[2]) &&
-            (self.textures.mask.is_invalid() || other.textures.mask.is_invalid() ||
+            (!self.textures.mask.is_valid() || !other.textures.mask.is_valid() ||
                  self.textures.mask == other.textures.mask)
     }
 }
@@ -1780,7 +1780,7 @@ impl FrameBuilder {
                                context_id: WebGLContextId) {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::WebGL(context_id),
-            color_texture: TextureId::invalid(),
+            color_texture_id: TextureId::invalid(),
         };
 
         let prim_gpu = ImagePrimitiveGpu {
@@ -1806,7 +1806,7 @@ impl FrameBuilder {
             kind: ImagePrimitiveKind::Image(image_key,
                                             image_rendering,
                                             *tile_spacing),
-            color_texture: TextureId::invalid(),
+            color_texture_id: TextureId::invalid(),
         };
 
         let prim_gpu = ImagePrimitiveGpu {

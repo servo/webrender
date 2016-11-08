@@ -93,7 +93,7 @@ pub enum ImagePrimitiveKind {
 #[derive(Debug)]
 pub struct ImagePrimitiveCpu {
     pub kind: ImagePrimitiveKind,
-    pub color_texture: TextureId,
+    pub color_texture_id: TextureId,
 }
 
 #[derive(Debug, Clone)]
@@ -613,7 +613,7 @@ impl PrimitiveStore {
                         }
                     };
 
-                    image_cpu.color_texture = cache_item.texture_id;
+                    image_cpu.color_texture_id = cache_item.texture_id;
                     image_gpu.uv0 = cache_item.uv0;
                     image_gpu.uv1 = cache_item.uv1;
                 }

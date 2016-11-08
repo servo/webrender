@@ -21,7 +21,7 @@ use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, Rend
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePoint};
 use internal_types::{PackedVertexForTextureCacheUpdate};
 use internal_types::{AxisDirection, TextureSampler, GLContextHandleWrapper};
-use internal_types::{PrimitiveBatchTextures};
+use internal_types::{BatchTextures};
 use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
@@ -1311,14 +1311,12 @@ impl Renderer {
                          ubo_data: &[T],
                          shader: ProgramId,
                          quads_per_item: usize,
-                         textures: &PrimitiveBatchTextures,
+                         textures: &BatchTextures,
                          max_prim_items: usize,
                          projection: &Matrix4D<f32>) {
         self.device.bind_program(shader, &projection);
         self.device.bind_vao(self.quad_vao_id);
 
-        // TODO(nical): This will force all unused slots to be bound to the invalid
-        // TextureId. Should we just leave them out?
         for i in 0..textures.colors.len() {
             self.device.bind_texture(TextureSampler::color(i), textures.colors[i]);
         }
@@ -1389,7 +1387,7 @@ impl Renderer {
             self.draw_ubo_batch(&target.box_shadow_cache_prims,
                                 shader,
                                 1,
-                                &PrimitiveBatchTextures::no_texture(),
+                                &BatchTextures::no_texture(),
                                 max_cache_instances,
                                 &projection);
         }
