@@ -35,7 +35,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
-use texture_cache::{BorderType, TextureCache, TextureInsertOp};
+use texture_cache::{TextureCache, TextureInsertOp};
 use tiling::{self, Frame, FrameBuilderConfig, PrimitiveBatchData};
 use tiling::{RenderTarget, ClearTile};
 use time::precise_time_ns;
@@ -536,8 +536,7 @@ impl Renderer {
                              None,
                              ImageFormat::RGBA8,
                              TextureFilter::Linear,
-                             TextureInsertOp::Blit(white_pixels),
-                             BorderType::SinglePixel);
+                             TextureInsertOp::Blit(white_pixels));
 
         let dummy_mask_image_id = texture_cache.new_item_id();
         texture_cache.insert(dummy_mask_image_id,
@@ -546,8 +545,7 @@ impl Renderer {
                              None,
                              ImageFormat::A8,
                              TextureFilter::Linear,
-                             TextureInsertOp::Blit(mask_pixels),
-                             BorderType::SinglePixel);
+                             TextureInsertOp::Blit(mask_pixels));
 
         let dummy_resources = DummyResources {
             white_image_id: white_image_id,
@@ -900,8 +898,7 @@ impl Renderer {
                                                        glyph_size,
                                                        radius,
                                                        unblurred_glyph_texture_image,
-                                                       horizontal_blur_texture_image,
-                                                       border_type) => {
+                                                       horizontal_blur_texture_image) => {
                                 let radius =
                                     f32::ceil(radius.to_f32_px() * self.device_pixel_ratio) as u32;
                                 self.device.update_texture(
@@ -930,7 +927,6 @@ impl Renderer {
                                                               Some(AxisDirection::Horizontal),
                                                               &Rect::new(horizontal_blur_texture_image.pixel_uv,
                                                                          Size2D::new(width as u32, height as u32)),
-                                                              border_type,
                                                               |texture_rect| {
                                     [
                                         PackedVertexForTextureCacheUpdate::new(
@@ -988,7 +984,6 @@ impl Renderer {
                                                               Some(AxisDirection::Vertical),
                                                               &Rect::new(Point2D::new(x as u32, y as u32),
                                                                          Size2D::new(width as u32, height as u32)),
-                                                              border_type,
                                                               |texture_rect| {
                                     [
                                         PackedVertexForTextureCacheUpdate::new(
@@ -1056,7 +1051,6 @@ impl Renderer {
                                    program_id: ProgramId,
                                    blur_direction: Option<AxisDirection>,
                                    dest_rect: &Rect<u32>,
-                                   border_type: BorderType,
                                    f: F)
                                    where F: Fn(&Rect<f32>) -> [PackedVertexForTextureCacheUpdate; 4] {
         // FIXME(pcwalton): Use a hash table if this linear search shows up in the profile.
@@ -1066,7 +1060,6 @@ impl Renderer {
                                           program_id,
                                           blur_direction,
                                           dest_rect,
-                                          border_type,
                                           &f) {
                 return;
             }
@@ -1090,7 +1083,6 @@ impl Renderer {
                                                       program_id,
                                                       blur_direction,
                                                       dest_rect,
-                                                      border_type,
                                                       &f);
         debug_assert!(added);
         self.raster_batches.push(raster_batch);
@@ -1201,78 +1193,72 @@ impl Renderer {
                                               blit_job.size.width as i32,
                                               blit_job.size.height as i32);
 
-            match blit_job.border_type {
-                BorderType::SinglePixel => {
-                    // Single pixel corners
-                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                                      blit_job.dest_origin.x as i32 - 1,
-                                                      blit_job.dest_origin.y as i32 - 1,
-                                                      blit_job.src_origin.x as i32,
-                                                      blit_job.src_origin.y as i32,
-                                                      1,
-                                                      1);
+            // Single pixel corners
+            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                              blit_job.dest_origin.x as i32 - 1,
+                                              blit_job.dest_origin.y as i32 - 1,
+                                              blit_job.src_origin.x as i32,
+                                              blit_job.src_origin.y as i32,
+                                              1,
+                                              1);
 
-                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                                      (blit_job.dest_origin.x + blit_job.size.width) as i32,
-                                                      blit_job.dest_origin.y as i32 - 1,
-                                                      (blit_job.src_origin.x + blit_job.size.width) as i32 - 1,
-                                                      blit_job.src_origin.y as i32,
-                                                      1,
-                                                      1);
+            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                              (blit_job.dest_origin.x + blit_job.size.width) as i32,
+                                              blit_job.dest_origin.y as i32 - 1,
+                                              (blit_job.src_origin.x + blit_job.size.width) as i32 - 1,
+                                              blit_job.src_origin.y as i32,
+                                              1,
+                                              1);
 
-                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                                      blit_job.dest_origin.x as i32 - 1,
-                                                      (blit_job.dest_origin.y + blit_job.size.height) as i32,
-                                                      blit_job.src_origin.x as i32,
-                                                      (blit_job.src_origin.y + blit_job.size.height) as i32 - 1,
-                                                      1,
-                                                      1);
+            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                              blit_job.dest_origin.x as i32 - 1,
+                                              (blit_job.dest_origin.y + blit_job.size.height) as i32,
+                                              blit_job.src_origin.x as i32,
+                                              (blit_job.src_origin.y + blit_job.size.height) as i32 - 1,
+                                              1,
+                                              1);
 
-                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                                      (blit_job.dest_origin.x + blit_job.size.width) as i32,
-                                                      (blit_job.dest_origin.y + blit_job.size.height) as i32,
-                                                      (blit_job.src_origin.x + blit_job.size.width) as i32 - 1,
-                                                      (blit_job.src_origin.y + blit_job.size.height) as i32 - 1,
-                                                      1,
-                                                      1);
+            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                              (blit_job.dest_origin.x + blit_job.size.width) as i32,
+                                              (blit_job.dest_origin.y + blit_job.size.height) as i32,
+                                              (blit_job.src_origin.x + blit_job.size.width) as i32 - 1,
+                                              (blit_job.src_origin.y + blit_job.size.height) as i32 - 1,
+                                              1,
+                                              1);
 
-                    // Horizontal edges
-                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                                      blit_job.dest_origin.x as i32,
-                                                      blit_job.dest_origin.y as i32 - 1,
-                                                      blit_job.src_origin.x as i32,
-                                                      blit_job.src_origin.y as i32,
-                                                      blit_job.size.width as i32,
-                                                      1);
+            // Horizontal edges
+            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                              blit_job.dest_origin.x as i32,
+                                              blit_job.dest_origin.y as i32 - 1,
+                                              blit_job.src_origin.x as i32,
+                                              blit_job.src_origin.y as i32,
+                                              blit_job.size.width as i32,
+                                              1);
 
-                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                                      blit_job.dest_origin.x as i32,
-                                                      (blit_job.dest_origin.y + blit_job.size.height) as i32,
-                                                      blit_job.src_origin.x as i32,
-                                                      (blit_job.src_origin.y + blit_job.size.height) as i32 - 1,
-                                                      blit_job.size.width as i32,
-                                                      1);
+            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                              blit_job.dest_origin.x as i32,
+                                              (blit_job.dest_origin.y + blit_job.size.height) as i32,
+                                              blit_job.src_origin.x as i32,
+                                              (blit_job.src_origin.y + blit_job.size.height) as i32 - 1,
+                                              blit_job.size.width as i32,
+                                              1);
 
-                    // Vertical edges
-                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                                      blit_job.dest_origin.x as i32 - 1,
-                                                      blit_job.dest_origin.y as i32,
-                                                      blit_job.src_origin.x as i32,
-                                                      blit_job.src_origin.y as i32,
-                                                      1,
-                                                      blit_job.size.height as i32);
+            // Vertical edges
+            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                              blit_job.dest_origin.x as i32 - 1,
+                                              blit_job.dest_origin.y as i32,
+                                              blit_job.src_origin.x as i32,
+                                              blit_job.src_origin.y as i32,
+                                              1,
+                                              blit_job.size.height as i32);
 
-                    self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                                      (blit_job.dest_origin.x + blit_job.size.width) as i32,
-                                                      blit_job.dest_origin.y as i32,
-                                                      (blit_job.src_origin.x + blit_job.size.width) as i32 - 1,
-                                                      blit_job.src_origin.y as i32,
-                                                      1,
-                                                      blit_job.size.height as i32);
-
-                }
-                BorderType::_NoBorder => {}
-            }
+            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
+                                              (blit_job.dest_origin.x + blit_job.size.width) as i32,
+                                              blit_job.dest_origin.y as i32,
+                                              (blit_job.src_origin.x + blit_job.size.width) as i32 - 1,
+                                              blit_job.src_origin.y as i32,
+                                              1,
+                                              blit_job.size.height as i32);
         }
     }
 

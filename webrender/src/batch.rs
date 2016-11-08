@@ -8,7 +8,7 @@ use internal_types::{AxisDirection};
 use internal_types::{PackedVertexForTextureCacheUpdate};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT};
-use texture_cache::{BorderType, TexturePage};
+use texture_cache::TexturePage;
 
 static ID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
@@ -23,7 +23,6 @@ pub struct BlitJob {
     pub size: Size2D<u32>,
     pub src_origin: Point2D<u32>,
     pub dest_origin: Point2D<u32>,
-    pub border_type: BorderType,
 }
 
 /// A batch for raster jobs.
@@ -64,7 +63,6 @@ impl RasterBatch {
                                    program_id: ProgramId,
                                    blur_direction: Option<AxisDirection>,
                                    dest_rect: &Rect<u32>,
-                                   border_type: BorderType,
                                    f: &F) -> bool
                                    where F: Fn(&Rect<f32>) -> [PackedVertexForTextureCacheUpdate; 4] {
         // TODO(gw): How to detect / handle if border type is single pixel but not in an atlas!?
@@ -102,7 +100,6 @@ impl RasterBatch {
                     size: dest_rect.size,
                     dest_origin: dest_rect.origin,
                     src_origin: origin,
-                    border_type: border_type,
                 });
 
                 return true;

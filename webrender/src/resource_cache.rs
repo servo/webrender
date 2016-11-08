@@ -20,7 +20,7 @@ use std::fmt::Debug;
 use std::hash::BuildHasherDefault;
 use std::hash::Hash;
 use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
-use texture_cache::{BorderType, TextureInsertOp};
+use texture_cache::TextureInsertOp;
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, DisplayItem, ImageRendering};
 use webrender_traits::{FontRenderMode, GlyphDimensions, PipelineId, WebGLContextId};
 
@@ -361,8 +361,7 @@ impl ResourceCache {
                                           None,
                                           ImageFormat::RGBA8,
                                           TextureFilter::Linear,
-                                          insert_op,
-                                          BorderType::SinglePixel);
+                                          insert_op);
                 Some(image_id)
             } else {
                 None
@@ -549,8 +548,7 @@ impl ResourceCache {
                                                       image_template.stride,
                                                       image_template.format,
                                                       filter,
-                                                      TextureInsertOp::Blit(image_template.bytes.clone()),
-                                                      BorderType::SinglePixel);
+                                                      TextureInsertOp::Blit(image_template.bytes.clone()));
 
                             entry.insert(CachedImageInfo {
                                 texture_cache_id: image_id,

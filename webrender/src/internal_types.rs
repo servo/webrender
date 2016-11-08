@@ -18,7 +18,6 @@ use std::hash::BuildHasherDefault;
 use std::i32;
 use std::path::PathBuf;
 use std::sync::Arc;
-use texture_cache::BorderType;
 use tiling;
 use webrender_traits::{Epoch, ColorF, PipelineId};
 use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem};
@@ -327,7 +326,7 @@ pub enum RenderTargetMode {
 pub enum TextureUpdateDetails {
     Raw,
     Blit(Vec<u8>, Option<u32>),
-    Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage, BorderType),
+    Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage),
 }
 
 #[derive(Clone, Copy, Debug)]
