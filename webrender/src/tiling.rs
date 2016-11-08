@@ -11,6 +11,7 @@ use frame::FrameId;
 use gpu_store::GpuStoreAddress;
 use internal_types::{DeviceRect, DevicePoint, DeviceSize, DeviceLength, device_pixel, CompositionOp};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
+use internal_types::{SourceTexture, PrimitiveBatchTextures};
 use layer::Layer;
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
@@ -435,13 +436,24 @@ impl AlphaBatcher {
                         let flags = AlphaBatchKeyFlags::new(transform_kind,
                                                             needs_clipping);
                         let blend_mode = ctx.prim_store.get_blend_mode(needs_blending, prim_metadata);
+                        let invalid = SourceTexture::invalid();
                         let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
-                        let color_texture_id = ctx.prim_store.get_texture_id(prim_metadata);
+                        // TODO(nical) SourceTexture instead of TextureId in the prim metadata.
+                        let color_0 = SourceTexture::Id(ctx.prim_store.get_texture_id(prim_metadata));
+                        let (color_1, mask) = match batch_kind {
+                            AlphaBatchKind::Blend => (SourceTexture::Id(prim_metadata.mask_texture_id), invalid),
+                            _ => (invalid, SourceTexture::Id(prim_metadata.mask_texture_id))
+                        };
+
+                        let textures = PrimitiveBatchTextures {
+                            colors: [color_0, color_1, invalid],
+                            mask: mask,
+                        };
+
                         batch_key = AlphaBatchKey::primitive(batch_kind,
                                                              flags,
                                                              blend_mode,
-                                                             color_texture_id,
-                                                             prim_metadata.mask_texture_id);
+                                                             textures);
                     }
                 }
 
@@ -839,30 +851,7 @@ pub struct AlphaBatchKey {
     kind: AlphaBatchKind,
     pub flags: AlphaBatchKeyFlags,
     pub blend_mode: BlendMode,
-    pub texture_0: SourceTexture,
-    pub texture_1: SourceTexture,
-}
-
-/// A reference to a texture, either an id assigned by the render backend or an
-/// indirect key resolved to an id later by the renderer.
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum SourceTexture {
-    Id(TextureId),
-    External(u32), // TODO(nical) ExternalImageKey
-    // TODO(nical): should this have a None variant to better separate the cases
-    // where the batch does not use all its texture slots and cases where a slot
-    // will be used but the texture hasn't been assigned yet?
-}
-
-impl SourceTexture {
-    pub fn invalid() -> SourceTexture { SourceTexture::Id(TextureId::invalid()) }
-
-    pub fn is_invalid(&self) -> bool {
-        match *self {
-            SourceTexture::Id(id) => { id == TextureId::invalid() }
-            SourceTexture::External(_) => { false }
-        }
-    }
+    pub textures: PrimitiveBatchTextures,
 }
 
 impl AlphaBatchKey {
@@ -872,8 +861,7 @@ impl AlphaBatchKey {
             flags: AlphaBatchKeyFlags::new(TransformedRectKind::AxisAligned,
                                            false),
             blend_mode: BlendMode::Alpha,
-            texture_0: SourceTexture::invalid(),
-            texture_1: SourceTexture::invalid(),
+            textures: PrimitiveBatchTextures::no_texture(),
         }
     }
 
@@ -883,23 +871,20 @@ impl AlphaBatchKey {
             flags: AlphaBatchKeyFlags::new(TransformedRectKind::AxisAligned,
                                            false),
             blend_mode: BlendMode::Alpha,
-            texture_0: SourceTexture::invalid(),
-            texture_1: SourceTexture::invalid(),
+            textures: PrimitiveBatchTextures::no_texture(),
         }
     }
 
     fn primitive(kind: AlphaBatchKind,
                  flags: AlphaBatchKeyFlags,
                  blend_mode: BlendMode,
-                 texture_id_0: TextureId,
-                 texture_id_1: TextureId)
+                 textures: PrimitiveBatchTextures)
                  -> AlphaBatchKey {
         AlphaBatchKey {
             kind: kind,
             flags: flags,
             blend_mode: blend_mode,
-            texture_0: SourceTexture::Id(texture_id_0),
-            texture_1: SourceTexture::Id(texture_id_1),
+            textures: textures,
         }
     }
 
@@ -907,10 +892,14 @@ impl AlphaBatchKey {
         self.kind == other.kind &&
             self.flags == other.flags &&
             self.blend_mode == other.blend_mode &&
-        (self.texture_0.is_invalid() || other.texture_0.is_invalid() ||
-             self.texture_0 == other.texture_0) &&
-            (self.texture_1.is_invalid() || other.texture_1.is_invalid() ||
-             self.texture_1 == other.texture_1)
+            (self.textures.colors[0].is_invalid() || other.textures.colors[0].is_invalid() ||
+                 self.textures.colors[0] == other.textures.colors[0]) &&
+            (self.textures.colors[1].is_invalid() || other.textures.colors[1].is_invalid() ||
+                 self.textures.colors[1] == other.textures.colors[1]) &&
+            (self.textures.colors[2].is_invalid() || other.textures.colors[2].is_invalid() ||
+                 self.textures.colors[2] == other.textures.colors[2]) &&
+            (self.textures.mask.is_invalid() || other.textures.mask.is_invalid() ||
+                 self.textures.mask == other.textures.mask)
     }
 }
 

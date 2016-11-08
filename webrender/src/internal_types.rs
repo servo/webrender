@@ -168,8 +168,10 @@ pub type DrawListId = FreeListItemId;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TextureSampler {
-    Slot0,
-    Slot1,
+    Color0,
+    Color1,
+    Color2,
+    Mask,
     Cache,
     Data16,
     Data32,
@@ -180,11 +182,58 @@ pub enum TextureSampler {
     Geometry,
 }
 
-// Aliases that can be used when it is clearer to refer to the texture slots as
-// what they are used for in a given context (instead of the generic slot names).
-pub const SAMPLER_COLOR_0: TextureSampler = TextureSampler::Slot0;
-//pub const SAMPLER_COLOR_1: TextureSampler = TextureSampler::Slot1;
-//pub const SAMPLER_MASK: TextureSampler = TextureSampler::Slot1;
+impl TextureSampler {
+    pub fn color(n: usize) -> TextureSampler {
+        match n {
+            0 => TextureSampler::Color0,
+            1 => TextureSampler::Color1,
+            2 => TextureSampler::Color2,
+            _ => {
+                panic!("There are only 3 color samplers.");
+            }
+        }
+    }
+}
+
+/// A reference to a texture, either an id assigned by the render backend or an
+/// indirect key resolved to an id later by the renderer.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum SourceTexture {
+    Id(TextureId),
+    External(u32), // TODO(nical) ExternalImageKey
+    // TODO(nical): should this have a None variant to better separate the cases
+    // where the batch does not use all its texture slots and cases where a slot
+    // will be used but the texture hasn't been assigned yet?
+}
+
+impl SourceTexture {
+    pub fn invalid() -> SourceTexture { SourceTexture::Id(TextureId::invalid()) }
+
+    pub fn is_invalid(&self) -> bool {
+        match *self {
+            SourceTexture::Id(id) => { id == TextureId::invalid() }
+            SourceTexture::External(_) => { false }
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct PrimitiveBatchTextures {
+    pub colors: [SourceTexture; 3],
+    pub mask: SourceTexture,
+}
+
+impl PrimitiveBatchTextures {
+    pub fn no_texture() -> Self {
+        PrimitiveBatchTextures {
+            colors: [SourceTexture::invalid(); 3],
+            mask: SourceTexture::invalid(),
+        }
+    }
+}
+
+// In some places we need to temporarily bind a texture to any slot.
+pub const DEFAULT_SAMPLER: TextureSampler = TextureSampler::Color0;
 
 pub enum VertexAttribute {
     Position,
