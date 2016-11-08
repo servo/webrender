@@ -252,8 +252,8 @@ struct PrimitiveInstance {
     int global_prim_index;
     int specific_prim_index;
     int render_task_index;
+    int clip_task_index;
     int layer_index;
-    int clip_address;
     int sub_index;
     ivec2 user_data;
 };
@@ -269,8 +269,8 @@ PrimitiveInstance fetch_instance(int index) {
     pi.global_prim_index = data0.x;
     pi.specific_prim_index = data0.y;
     pi.render_task_index = data0.z;
-    pi.layer_index = data0.w;
-    pi.clip_address = data1.x;
+    pi.clip_task_index = data0.w;
+    pi.layer_index = data1.x;
     pi.sub_index = data1.y;
     pi.user_data = data1.zw;
 
@@ -322,10 +322,10 @@ CachePrimitiveInstance fetch_cache_instance(int index) {
 struct Primitive {
     Layer layer;
     Tile tile;
+    Tile mask_tile;
     vec4 local_rect;
     vec4 local_clip_rect;
     int prim_index;
-    int clip_index;
     // when sending multiple primitives of the same type (e.g. border segments)
     // this index allows the vertex shader to recognize the difference
     int sub_index;
@@ -339,13 +339,13 @@ Primitive load_primitive(int index) {
 
     prim.layer = fetch_layer(pi.layer_index);
     prim.tile = fetch_tile(pi.render_task_index);
+    prim.mask_tile = fetch_tile(pi.clip_task_index);
 
     PrimitiveGeometry pg = fetch_prim_geometry(pi.global_prim_index);
     prim.local_rect = pg.local_rect;
     prim.local_clip_rect = pg.local_clip_rect;
 
     prim.prim_index = pi.specific_prim_index;
-    prim.clip_index = pi.clip_address;
     prim.sub_index = pi.sub_index;
     prim.user_data = pi.user_data;
 
@@ -521,6 +521,7 @@ VertexInfo write_vertex(vec4 instance_rect,
 
 struct TransformVertexInfo {
     vec3 local_pos;
+    vec2 global_clamped_pos;
     vec4 clipped_local_rect;
 };
 
@@ -579,7 +580,7 @@ TransformVertexInfo write_transform_vertex(vec4 instance_rect,
 
     gl_Position = uTransform * vec4(final_pos, 0, 1);
 
-    return TransformVertexInfo(layer_pos.xyw, clipped_local_rect);
+    return TransformVertexInfo(layer_pos.xyw, clamped_pos, clipped_local_rect);
 }
 
 #endif //WR_FEATURE_TRANSFORM
