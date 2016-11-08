@@ -215,6 +215,13 @@ impl SourceTexture {
             SourceTexture::External(_) => { false }
         }
     }
+
+    pub fn is_external(&self) -> bool {
+        match *self {
+            SourceTexture::Id(_) => { false }
+            SourceTexture::External(_) => { true }
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug)]

@@ -6,7 +6,7 @@ use app_units::Au;
 use device::TextureId;
 use euclid::{Point2D, Matrix4D, Rect, Size2D};
 use gpu_store::{GpuStore, GpuStoreAddress};
-use internal_types::{DeviceRect, DeviceSize};
+use internal_types::{DeviceRect, DeviceSize, SourceTexture};
 use renderer::BLUR_INFLATION_FACTOR;
 use resource_cache::ResourceCache;
 use std::mem;
@@ -93,7 +93,7 @@ pub enum ImagePrimitiveKind {
 #[derive(Debug)]
 pub struct ImagePrimitiveCpu {
     pub kind: ImagePrimitiveKind,
-    pub color_texture_id: TextureId,
+    pub color_texture: SourceTexture,
 }
 
 #[derive(Debug, Clone)]
@@ -613,7 +613,7 @@ impl PrimitiveStore {
                         }
                     };
 
-                    image_cpu.color_texture_id = cache_item.texture_id;
+                    image_cpu.color_texture = SourceTexture::Id(cache_item.texture_id);
                     image_gpu.uv0 = cache_item.uv0;
                     image_gpu.uv1 = cache_item.uv1;
                 }
@@ -794,22 +794,24 @@ impl PrimitiveStore {
             }
             PrimitiveKind::Image => {
                 let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
-                prim_needs_resolve = true;
 
-                match image_cpu.kind {
-                    ImagePrimitiveKind::Image(image_key, image_rendering, tile_spacing) => {
-                        resource_cache.request_image(image_key, image_rendering);
+                if !image_cpu.color_texture.is_external() {
+                    prim_needs_resolve = true;
+                    match image_cpu.kind {
+                        ImagePrimitiveKind::Image(image_key, image_rendering, tile_spacing) => {
+                            resource_cache.request_image(image_key, image_rendering);
 
-                        // TODO(gw): This doesn't actually need to be calculated each frame.
-                        // It's cheap enough that it's not worth introducing a cache for images
-                        // right now, but if we introduce a cache for images for some other
-                        // reason then we might as well cache this with it.
-                        let image_properties = resource_cache.get_image_properties(image_key);
-                        metadata.is_opaque = image_properties.is_opaque &&
-                                             tile_spacing.width == 0.0 &&
-                                             tile_spacing.height == 0.0;
+                            // TODO(gw): This doesn't actually need to be calculated each frame.
+                            // It's cheap enough that it's not worth introducing a cache for images
+                            // right now, but if we introduce a cache for images for some other
+                            // reason then we might as well cache this with it.
+                            let image_properties = resource_cache.get_image_properties(image_key);
+                            metadata.is_opaque = image_properties.is_opaque &&
+                                                 tile_spacing.width == 0.0 &&
+                                                 tile_spacing.height == 0.0;
+                        }
+                        ImagePrimitiveKind::WebGL(..) => {}
                     }
-                    ImagePrimitiveKind::WebGL(..) => {}
                 }
             }
             PrimitiveKind::Gradient => {
