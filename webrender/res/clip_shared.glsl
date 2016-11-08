@@ -65,7 +65,8 @@ float do_clip(vec2 pos) {
     vec2 clamped_mask_uv = repeat_mask ? fract(vMaskUv) :
         clamp(vMaskUv, vec2(0.0, 0.0), vec2(1.0, 1.0));
     vec2 source_uv = clamped_mask_uv * vClipMaskUvRect.zw + vClipMaskUvRect.xy;
-    float mask_alpha = texture(sMask, source_uv).r; //careful: texture has type A8
+    //float mask_alpha = texture(sMask, source_uv).r; //careful: texture has type A8
+    float mask_alpha = 1.0; //CLIP TODO: separate shader
 
     return border_alpha * mask_alpha;
 }

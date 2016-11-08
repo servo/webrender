@@ -187,7 +187,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                 let cache_task_index = render_tasks.get_task_index(&cache_task_id, child_pass_index);
                 cache_task_index.0 as i32
             },
-            None => 0, //TODO
+            None => 0, //CLIP TODO: default clip task
         };
 
         match &mut batch.data {
@@ -577,7 +577,6 @@ struct RenderTargetContext<'a> {
     layer_store: &'a [StackingContext],
     prim_store: &'a PrimitiveStore,
     _clip_stack: &'a ClipRegionStack,
-    dummy_mask_texture_id: TextureId,
 }
 
 /// A render target represents a number of rendering operations on a surface.
@@ -606,7 +605,8 @@ impl RenderTarget {
         RenderTarget {
             alpha_batcher: AlphaBatcher::new(),
             box_shadow_cache_prims: Vec::new(),
-            clip_cache_items: Vec::new(),
+            clip_rectangles: Vec::new(),
+            clip_images: HashMap::new(),
             text_run_cache_prims: Vec::new(),
             text_run_textures: BatchTextures::no_texture(),
             vertical_blurs: Vec::new(),
@@ -714,17 +714,16 @@ impl RenderTarget {
                     RenderTaskId::Dynamic(RenderTaskKey::CacheMask(ref key)) => key,
                     _ => unreachable!()
                 };
-                let items = self.clip_cache_items
-                                .entry(ctx.dummy_mask_texture_id)
-                                .or_insert(Vec::new());
-                items.extend((0 .. key.clip_range.count as usize).map(|region_id| {
+                self.clip_rectangles.extend((0 .. key.clip_range.count as usize)
+                                    .map(|region_id| {
                     CacheClipInstance {
                         task_id: render_tasks.get_task_index(&task.id, pass_index).0 as i32,
                         layer_index: key.layer_id.0 as i32,
-                        clip_address: GpuStoreAddress(key.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * region_id) as i32)),
+                        address: GpuStoreAddress(key.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * region_id) as i32)),
                         pad: 0,
                     }
                 }));
+                //CLIP TODO: mask image
             }
         }
     }
@@ -1198,13 +1197,14 @@ pub struct CachePrimitiveInstance {
     sub_index: i32,
 }
 
-/// An instance drawn into the clipping mask, typically
-/// a transformed rectangle with rounded corners.
+/// A clipping primitive drawn into the clipping mask.
+/// Could be an image or a rectangle, which defines the
+/// way `address` is treated.
 #[derive(Debug)]
 pub struct CacheClipInstance {
     task_id: i32,
     layer_index: i32,
-    clip_address: GpuStoreAddress,
+    address: GpuStoreAddress,
     pad: i32,
 }
 
@@ -2520,11 +2520,6 @@ impl FrameBuilder {
                 layer_store: &self.layer_store,
                 prim_store: &self.prim_store,
                 _clip_stack: &self.clip_stack,
-                dummy_mask_texture_id: {
-                    let opaque_mask_id = self.dummy_resources.opaque_mask_image_id;
-                    let cache_item = resource_cache.get_image_by_cache_id(opaque_mask_id);
-                    cache_item.texture_id
-                },
             };
 
             // Do the allocations now, assigning each tile's tasks to a render
