@@ -432,9 +432,16 @@ impl AlphaBatcher {
                         let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                              !prim_metadata.is_opaque ||
                                              needs_clipping;
-                        let flags = AlphaBatchKeyFlags::new(transform_kind,
-                                                            needs_clipping);
                         let blend_mode = ctx.prim_store.get_blend_mode(needs_blending, prim_metadata);
+                        let needs_clipping_flag = if needs_clipping {
+                            NEEDS_CLIPPING
+                        } else {
+                            AlphaBatchKeyFlags::empty()
+                        };
+                        let flags = match transform_kind {
+                            TransformedRectKind::AxisAligned => AXIS_ALIGNED | needs_clipping_flag,
+                            _ => needs_clipping_flag,
+                        };
                         let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
                         let color_texture_id = ctx.prim_store.get_texture_id(prim_metadata);
                         batch_key = AlphaBatchKey::primitive(batch_kind,
@@ -834,6 +841,27 @@ enum AlphaBatchKind {
     BoxShadow,
 }
 
+bitflags! {
+    pub flags AlphaBatchKeyFlags: u8 {
+        const NEEDS_CLIPPING  = 0b00000001,
+        const AXIS_ALIGNED    = 0b00000010,
+    }
+}
+
+impl AlphaBatchKeyFlags {
+    pub fn transform_kind(&self) -> TransformedRectKind {
+        if self.contains(AXIS_ALIGNED) {
+            TransformedRectKind::AxisAligned
+        } else {
+            TransformedRectKind::Complex
+        }
+    }
+
+    pub fn needs_clipping(&self) -> bool {
+        self.contains(NEEDS_CLIPPING)
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct AlphaBatchKey {
     kind: AlphaBatchKind,
@@ -847,8 +875,7 @@ impl AlphaBatchKey {
     fn blend() -> AlphaBatchKey {
         AlphaBatchKey {
             kind: AlphaBatchKind::Blend,
-            flags: AlphaBatchKeyFlags::new(TransformedRectKind::AxisAligned,
-                                           false),
+            flags: AXIS_ALIGNED,
             blend_mode: BlendMode::Alpha,
             color_texture_id: TextureId::invalid(),
             mask_texture_id: TextureId::invalid(),
@@ -858,8 +885,7 @@ impl AlphaBatchKey {
     fn composite() -> AlphaBatchKey {
         AlphaBatchKey {
             kind: AlphaBatchKind::Composite,
-            flags: AlphaBatchKeyFlags::new(TransformedRectKind::AxisAligned,
-                                           false),
+            flags: AXIS_ALIGNED,
             blend_mode: BlendMode::Alpha,
             color_texture_id: TextureId::invalid(),
             mask_texture_id: TextureId::invalid(),
@@ -889,31 +915,6 @@ impl AlphaBatchKey {
              self.color_texture_id == other.color_texture_id) &&
             (self.mask_texture_id == TextureId::invalid() || other.mask_texture_id == TextureId::invalid() ||
              self.mask_texture_id == other.mask_texture_id)
-    }
-}
-
-// FIXME(gw): Change these to use the bitflags!()
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct AlphaBatchKeyFlags(u8);
-
-impl AlphaBatchKeyFlags {
-    fn new(transform_kind: TransformedRectKind,
-           needs_clipping: bool) -> AlphaBatchKeyFlags {
-        AlphaBatchKeyFlags( ((transform_kind as u8) << 1) |
-                            ((needs_clipping as u8) << 0) )
-    }
-
-    pub fn transform_kind(&self) -> TransformedRectKind {
-        if ((self.0 >> 1) & 1) == 0 {
-            TransformedRectKind::AxisAligned
-        } else {
-            TransformedRectKind::Complex
-        }
-    }
-
-    pub fn needs_clipping(&self) -> bool {
-        (self.0 & 1) != 0
     }
 }
 

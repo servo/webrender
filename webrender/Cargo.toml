@@ -26,6 +26,7 @@ offscreen_gl_context = {version = "0.4", features = ["serde_serialization", "osm
 rayon = "0.5"
 time = "0.1"
 webrender_traits = {path = "../webrender_traits", default-features = false}
+bitflags = "0.7"
 
 [target.'cfg(any(target_os = "android", target_os = "windows", all(unix, not(target_os = "macos"))))'.dependencies]
 freetype = {git = "https://github.com/servo/rust-freetype"}
