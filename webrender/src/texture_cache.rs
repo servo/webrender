@@ -790,6 +790,7 @@ impl TextureCache {
                   image_id: TextureCacheItemId,
                   width: u32,
                   height: u32,
+                  stride: Option<u32>,
                   _format: ImageFormat,
                   bytes: Vec<u8>) {
         let existing_item = self.items.get(image_id);
@@ -802,7 +803,7 @@ impl TextureCache {
                                          existing_item.requested_rect.origin.y,
                                          width,
                                          height,
-                                         TextureUpdateDetails::Blit(bytes));
+                                         TextureUpdateDetails::Blit(bytes, stride));
 
         let update_op = TextureUpdate {
             id: existing_item.texture_id,
@@ -816,6 +817,7 @@ impl TextureCache {
                   image_id: TextureCacheItemId,
                   width: u32,
                   height: u32,
+                  stride: Option<u32>,
                   format: ImageFormat,
                   filter: TextureFilter,
                   insert_op: TextureInsertOp,
@@ -865,7 +867,7 @@ impl TextureCache {
                                                         result.item.allocated_rect.origin.y,
                                                         result.item.allocated_rect.size.width,
                                                         1,
-                                                        TextureUpdateDetails::Blit(top_row_bytes))
+                                                        TextureUpdateDetails::Blit(top_row_bytes, None))
                         };
 
                         let border_update_op_bottom = TextureUpdate {
@@ -876,7 +878,7 @@ impl TextureCache {
                                     result.item.requested_rect.size.height + 1,
                                 result.item.allocated_rect.size.width,
                                 1,
-                                TextureUpdateDetails::Blit(bottom_row_bytes))
+                                TextureUpdateDetails::Blit(bottom_row_bytes, None))
                         };
 
                         let border_update_op_left = TextureUpdate {
@@ -886,7 +888,7 @@ impl TextureCache {
                                 result.item.requested_rect.origin.y,
                                 1,
                                 result.item.requested_rect.size.height,
-                                TextureUpdateDetails::Blit(left_column_bytes))
+                                TextureUpdateDetails::Blit(left_column_bytes, None))
                         };
 
                         let border_update_op_right = TextureUpdate {
@@ -895,7 +897,7 @@ impl TextureCache {
                                                         result.item.requested_rect.origin.y,
                                                         1,
                                                         result.item.requested_rect.size.height,
-                                                        TextureUpdateDetails::Blit(right_column_bytes))
+                                                        TextureUpdateDetails::Blit(right_column_bytes, None))
                         };
 
                         self.pending_updates.push(border_update_op_top);
@@ -909,7 +911,7 @@ impl TextureCache {
                                         result.item.requested_rect.origin.y,
                                         width,
                                         height,
-                                        TextureUpdateDetails::Blit(bytes))
+                                        TextureUpdateDetails::Blit(bytes,stride))
             }
             (AllocationKind::TexturePage,
              TextureInsertOp::Blur(bytes, glyph_size, blur_radius)) => {

@@ -334,7 +334,7 @@ pub enum RenderTargetMode {
 #[derive(Debug)]
 pub enum TextureUpdateDetails {
     Raw,
-    Blit(Vec<u8>),
+    Blit(Vec<u8>, Option<u32>),
     Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage, BorderType),
 }
 
