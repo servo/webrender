@@ -7,6 +7,7 @@ flat varying vec4 vClipRect;
 flat varying vec4 vClipRadius;
 flat varying vec4 vClipMaskUvRect;
 flat varying vec4 vClipMaskScreenRect;
+varying vec3 vClipMaskUv;
 
 #ifdef WR_VERTEX_SHADER
 void write_clip(ClipData clip) {
@@ -20,9 +21,15 @@ void write_clip(ClipData clip) {
     vClipMaskUvRect = clip.mask_data.uv_rect / texture_size.xyxy;
     vClipMaskScreenRect = clip.mask_data.screen_rect;
 }
+void write_clip_ext(vec2 global_pos, Tile tile) {
+    vec2 texture_size = textureSize(sCache, 0).xy;
+    vec2 uv = global_pos + tile.screen_origin_task_origin.zw - tile.screen_origin_task_origin.xy;
+    vClipMaskUv = vec3(uv / texture_size, tile.size_target_index.z);
+}
 #endif
 
 #ifdef WR_FRAGMENT_SHADER
+
 float do_clip(vec2 pos) {
     vec2 ref_tl = vClipRect.xy + vec2( vClipRadius.x,  vClipRadius.x);
     vec2 ref_tr = vClipRect.zy + vec2(-vClipRadius.y,  vClipRadius.y);
@@ -61,5 +68,9 @@ float do_clip(vec2 pos) {
     float mask_alpha = texture(sMask, source_uv).r; //careful: texture has type A8
 
     return border_alpha * mask_alpha;
+}
+
+float do_clip_ext() {
+    return 1.0 - textureLod(sCache, vClipMaskUv, 0).a;
 }
 #endif

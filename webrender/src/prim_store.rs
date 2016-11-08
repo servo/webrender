@@ -65,7 +65,7 @@ pub enum PrimitiveClipSource {
 pub struct PrimitiveMetadata {
     pub is_opaque: bool,
     pub mask_texture_id: SourceTexture,
-    pub clip_index: Option<GpuStoreAddress>,
+    pub clip_index: Option<GpuStoreAddress>, //TODO: remove
     pub clip_source: Box<PrimitiveClipSource>,
     pub clip_cache_info: Option<MaskCacheInfo>, //TODO: merge with clip_source
     pub prim_kind: PrimitiveKind,
