@@ -6,7 +6,7 @@
 flat varying vec4 vClipRect;
 flat varying vec4 vClipRadius;
 flat varying vec4 vClipMaskUvRect;
-flat varying vec4 vClipMaskScreenRect;
+flat varying vec4 vClipMaskLocalRect;
 varying vec3 vClipMaskUv;
 
 #ifdef WR_VERTEX_SHADER
@@ -19,12 +19,34 @@ void write_clip(ClipData clip) {
     //TODO: interpolate the final mask UV
     vec2 texture_size = textureSize(sMask, 0);
     vClipMaskUvRect = clip.mask_data.uv_rect / texture_size.xyxy;
-    vClipMaskScreenRect = clip.mask_data.screen_rect;
+    vClipMaskLocalRect = clip.mask_data.local_rect;
 }
 void write_clip_ext(vec2 global_pos, Tile tile) {
     vec2 texture_size = textureSize(sCache, 0).xy;
     vec2 uv = global_pos + tile.screen_origin_task_origin.zw - tile.screen_origin_task_origin.xy;
     vClipMaskUv = vec3(uv / texture_size, tile.size_target_index.z);
+}
+
+struct CacheClipInstance {
+    int render_task_index;
+    int layer_index;
+    int address;
+    int pad;
+};
+
+CacheClipInstance fetch_clip_item(int index) {
+    CacheClipInstance cci;
+
+    int offset = index * 1;
+
+    ivec4 data0 = int_data[offset + 0];
+
+    cci.render_task_index = data0.x;
+    cci.layer_index = data0.y;
+    cci.address = data0.z;
+    cci.pad = 0;
+
+    return cci;
 }
 #endif
 
@@ -61,7 +83,7 @@ float do_clip(vec2 pos) {
     float border_alpha = 1.0 - smoothstep(0.0, 1.0, distance_from_border);
 
     bool repeat_mask = false; //TODO
-    vec2 vMaskUv = (pos - vClipMaskScreenRect.xy) / vClipMaskScreenRect.zw;
+    vec2 vMaskUv = (pos - vClipMaskLocalRect.xy) / vClipMaskLocalRect.zw;
     vec2 clamped_mask_uv = repeat_mask ? fract(vMaskUv) :
         clamp(vMaskUv, vec2(0.0, 0.0), vec2(1.0, 1.0));
     vec2 source_uv = clamped_mask_uv * vClipMaskUvRect.zw + vClipMaskUvRect.xy;

@@ -7,8 +7,8 @@ void main(void) {
     CacheClipInstance cci = fetch_clip_item(gl_InstanceID);
     Tile tile = fetch_tile(cci.render_task_index);
     Layer layer = fetch_layer(cci.layer_index);
-    ClipData clip = fetch_clip(cci.address);
-    vec4 local_rect = clip.rect.rect;
+    ImageMaskData mask = fetch_mask_data(cci.address);
+    vec4 local_rect = mask.local_rect;
 
     TransformVertexInfo vi = write_transform_vertex(local_rect,
                                                     local_rect,
@@ -16,5 +16,8 @@ void main(void) {
                                                     tile);
     vLocalRect = vi.clipped_local_rect;
     vPos = vi.local_pos;
-    write_clip(clip);
+
+    vClipMaskUv = vec3((vPos.xy / vPos.z - local_rect.xy) / local_rect.zw, 0.0);
+    vec2 texture_size = textureSize(sMask, 0);
+    vClipMaskUvRect = mask.uv_rect / texture_size.xyxy;
 }
