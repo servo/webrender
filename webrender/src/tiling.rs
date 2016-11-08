@@ -438,10 +438,7 @@ impl AlphaBatcher {
                         } else {
                             AlphaBatchKeyFlags::empty()
                         };
-                        let flags = match transform_kind {
-                            TransformedRectKind::AxisAligned => AXIS_ALIGNED | needs_clipping_flag,
-                            TransformedRectKind::Complex     => COMPLEX | needs_clipping_flag,
-                        };
+                        let flags = AXIS_ALIGNED | needs_clipping_flag;
                         let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
                         let color_texture_id = ctx.prim_store.get_texture_id(prim_metadata);
                         batch_key = AlphaBatchKey::primitive(batch_kind,
@@ -845,7 +842,6 @@ bitflags! {
     pub flags AlphaBatchKeyFlags: u8 {
         const NEEDS_CLIPPING  = 0b00000001,
         const AXIS_ALIGNED    = 0b00000010,
-        const COMPLEX         = 0b00000100,
     }
 }
 
