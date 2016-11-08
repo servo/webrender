@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use clip_stack::{ClipRegionStack, MaskCacheInfo};
+use clip_stack::{ClipRegionStack, MaskCacheInfo, MaskCacheKey};
 use device::TextureId;
 use euclid::{Point2D, Matrix4D, Rect, Size2D};
 use gpu_store::{GpuStore, GpuStoreAddress};
@@ -15,8 +15,8 @@ use texture_cache::TextureCacheItem;
 use tiling::RenderTask;
 use util::TransformedRect;
 use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering};
-use webrender_traits::{FontRenderMode, WebGLContextId};
-use webrender_traits::{ClipRegion, FontKey, ItemRange, ComplexClipRegion, GlyphKey};
+use webrender_traits::{ClipRegion, ComplexClipRegion, ItemRange, GlyphKey};
+use webrender_traits::{FontKey, FontRenderMode, WebGLContextId};
 
 pub const CLIP_DATA_GPU_SIZE: usize = 6;
 pub const MASK_DATA_GPU_SIZE: usize = 1;
@@ -237,7 +237,7 @@ impl ClipCorner {
 #[derive(Debug, Clone)]
 pub struct ImageMaskData {
     uv_rect: Rect<f32>,
-    screen_rect: Rect<f32>,
+    local_rect: Rect<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -294,7 +294,7 @@ impl ClipData {
             },
             mask_data: ImageMaskData {
                 uv_rect: Rect::zero(),
-                screen_rect: Rect::zero(),
+                local_rect: Rect::zero(),
             },
         }
     }
@@ -327,7 +327,7 @@ impl ClipData {
                                               0.0),
             mask_data: ImageMaskData {
                 uv_rect: Rect::zero(),
-                screen_rect: Rect::zero(),
+                local_rect: Rect::zero(),
             },
         }
     }
@@ -570,7 +570,8 @@ impl PrimitiveStore {
         for prim_index in self.prims_to_resolve.drain(..) {
             let metadata = &mut self.cpu_metadata[prim_index.0];
 
-            if let &PrimitiveClipSource::Region(ClipRegion { image_mask: Some(mask), .. }) = metadata.clip_source.as_ref() {
+            //CLIP TODO: remove this
+            if let &PrimitiveClipSource::Region(ClipRegion { image_mask: Some(ref mask), .. }) = metadata.clip_source.as_ref() {
                 let tex_cache = resource_cache.get_image(mask.image, ImageRendering::Auto);
                 metadata.mask_texture_id = tex_cache.texture_id;
                 if let Some(address) = metadata.clip_index {
@@ -579,23 +580,20 @@ impl PrimitiveStore {
                         uv_rect: Rect::new(tex_cache.uv0,
                                            Size2D::new(tex_cache.uv1.x - tex_cache.uv0.x,
                                                        tex_cache.uv1.y - tex_cache.uv0.y)),
-                        screen_rect: mask.rect,
+                        local_rect: mask.rect,
                     });
                 }
-                if let Some(ref mut cache_info) = metadata.clip_cache_info {
-                    if let Some(address) = cache_info.key.image {
-                        cache_info.mask_texture_id = tex_cache.texture_id;
-                        let mask_data = self.gpu_data32.get_slice_mut(address, MASK_DATA_GPU_SIZE);
-                        mask_data[0] = GpuBlock32::from(ImageMaskData {
-                            uv_rect: Rect::new(tex_cache.uv0,
-                                               Size2D::new(tex_cache.uv1.x - tex_cache.uv0.x,
-                                                           tex_cache.uv1.y - tex_cache.uv0.y)),
-                            screen_rect: mask.rect,
-                        })
-                    } else {
-                        panic!("Unexpected mask cache for the image-masked primitive");
-                    }
-                }
+            }
+
+            if let Some(MaskCacheInfo{ key: MaskCacheKey { image: Some(gpu_address), .. }, image: Some(ref mask) }) = metadata.clip_cache_info {
+                let cache_item = resource_cache.get_image(mask.image, ImageRendering::Auto);
+                let mask_data = self.gpu_data32.get_slice_mut(gpu_address, MASK_DATA_GPU_SIZE);
+                mask_data[0] = GpuBlock32::from(ImageMaskData {
+                    uv_rect: Rect::new(cache_item.uv0,
+                                       Size2D::new(cache_item.uv1.x - cache_item.uv0.x,
+                                                   cache_item.uv1.y - cache_item.uv0.y)),
+                    local_rect: mask.rect,
+                });
             }
 
             match metadata.prim_kind {
@@ -705,13 +703,6 @@ impl PrimitiveStore {
                                    device_pixel_ratio: f32,
                                    dummy_mask_cache_item: &TextureCacheItem,
                                    auxiliary_lists: &AuxiliaryLists) -> bool {
-        /*
-        if let ClipMask::Image(image_mask) = self.cpu_metadata[prim_index.0].clip_mask {
-            let tex_cache = resource_cache.get_image(image_mask.image,
-                                                     ImageRendering::Auto,
-                                                     frame_id);
-            self.update_mask_info(prim_index, image_mask.rect, tex_cache);
-        }*/
 
         let metadata = &mut self.cpu_metadata[prim_index.0];
         let mut prim_needs_resolve = false;
@@ -726,10 +717,11 @@ impl PrimitiveStore {
                 }
                 &PrimitiveClipSource::Region(ref clip_region) => {
                     let clips = auxiliary_lists.complex_clip_regions(&clip_region.complex);
-                    //if let Some(ref mask) = clip_region.image_mask { //CLIP TODO: remove
-                    //    prim_needs_resolve = true;
-                    //    resource_cache.request_image(mask.image, ImageRendering::Auto);
-                    //}
+                    //CLIP TODO: remove
+                    if let Some(ref mask) = clip_region.image_mask {
+                        prim_needs_resolve = true;
+                        resource_cache.request_image(mask.image, ImageRendering::Auto);
+                    }
                     //TODO: proper solution to multiple complex clips
                     match clips.len() {
                         0 if clip_region.image_mask.is_none() => None,
@@ -762,10 +754,7 @@ impl PrimitiveStore {
             metadata.clip_cache_info = clip_stack.generate(&metadata.clip_source,
                                                            &mut self.gpu_data32,
                                                            auxiliary_lists);
-            if let &PrimitiveClipSource::Region(ClipRegion { image_mask: Some(ref mask), .. }) = metadata.clip_source.as_ref() {
-                resource_cache.request_image(mask.image, ImageRendering::Auto);
-                prim_needs_resolve = true;
-            }
+            prim_needs_resolve = true;
         }
 
         match metadata.prim_kind {
