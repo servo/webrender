@@ -7,6 +7,7 @@ use device::TextureId;
 use euclid::{Rect, Matrix4D};
 use gpu_store::{GpuStore, GpuStoreAddress};
 use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
+use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
 use tiling::StackingContextIndex;
 use util::{TransformedRect, TransformedRectKind};
 use webrender_traits::{AuxiliaryLists, ImageMask};
@@ -23,13 +24,13 @@ type ImageMaskIndex = u16;
 pub struct MaskCacheKey {
     pub layer_id: StackingContextIndex,
     pub clip_range: ClipAddressRange,
-    pub mask_texture_id: TextureId,
-    //pub image: Option<(TextureId, GpuStoreAddress)>,
+    pub image: Option<GpuStoreAddress>,
 }
 
 #[derive(Debug)]
 pub struct MaskCacheInfo {
     pub key: MaskCacheKey,
+    pub mask_texture_id: TextureId,
     // Vec<layer transforms>
     // Vec<layer mask images>
 }
@@ -81,23 +82,24 @@ impl ClipRegionStack {
     pub fn generate(&mut self,
                     source: &PrimitiveClipSource,
                     clip_store: &mut GpuStore<GpuBlock32>,
-                    dummy_texture_id: TextureId,
                     aux_lists: &AuxiliaryLists)
                     -> Option<MaskCacheInfo> {
         let mut clip_key = MaskCacheKey {
-            layer_id: self.current_layer_id
-                          .expect("Unexpected primitive outisde of a stacking context"),
+            layer_id: match self.current_layer_id {
+                Some(lid) => lid,
+                None => return None,
+            },
             clip_range: ClipAddressRange {
                 start: GpuStoreAddress(0),
                 count: 0,
             },
-            mask_texture_id: dummy_texture_id,
+            image: None,
         };
         match source {
             &PrimitiveClipSource::NoClip => (),
             &PrimitiveClipSource::Complex(rect, radius) => {
-                let address = clip_store.alloc(6);
-                let slice = clip_store.get_slice_mut(address, 6);
+                let address = clip_store.alloc(CLIP_DATA_GPU_SIZE);
+                let slice = clip_store.get_slice_mut(address, CLIP_DATA_GPU_SIZE);
                 let data = ClipData::uniform(rect, radius);
                 PrimitiveStore::populate_clip_data(slice, data);
                 clip_key.clip_range.count = 1;
@@ -105,26 +107,28 @@ impl ClipRegionStack {
             },
             &PrimitiveClipSource::Region(ref region) => {
                 let clips = aux_lists.complex_clip_regions(&region.complex);
-                let address = clip_store.alloc(6 * clips.len());
-                let slice = clip_store.get_slice_mut(address, 6 * clips.len());
-                for (clip, chunk) in clips.iter().zip(slice.chunks_mut(6)) {
-                    let data = ClipData::from_clip_region(clip);
-                    PrimitiveStore::populate_clip_data(chunk, data);
+                if !clips.is_empty() {
+                    let address = clip_store.alloc(CLIP_DATA_GPU_SIZE * clips.len());
+                    let slice = clip_store.get_slice_mut(address, CLIP_DATA_GPU_SIZE * clips.len());
+                    for (clip, chunk) in clips.iter().zip(slice.chunks_mut(CLIP_DATA_GPU_SIZE)) {
+                        let data = ClipData::from_clip_region(clip);
+                        PrimitiveStore::populate_clip_data(chunk, data);
+                    }
+                    clip_key.clip_range.count = clips.len() as u32;
+                    clip_key.clip_range.start = address;
                 }
-                clip_key.clip_range.count = clips.len() as u32;
-                clip_key.clip_range.start = address;
-                /* //CLIP TODO
-                if let Some(ref mask) = region.image_mask {
-                    clip_key.mask_id = Some(self.image_masks.len() as ImageMaskIndex);
-                    self.image_masks.push(mask.clone());
-                }*/
+                if region.image_mask.is_some() {
+                    let address = clip_store.alloc(MASK_DATA_GPU_SIZE);
+                    clip_key.image = Some(address);
+                }
             },
         };
         if self.need_mask() ||
-           clip_key.mask_texture_id != TextureId::invalid() ||
-           clip_key.clip_range.count != 0 {
+           clip_key.clip_range.count != 0 ||
+           clip_key.image.is_some() {
             Some(MaskCacheInfo {
                 key: clip_key,
+                mask_texture_id: TextureId::invalid(),
             })
         } else {
             None
