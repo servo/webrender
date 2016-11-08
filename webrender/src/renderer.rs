@@ -269,7 +269,7 @@ fn create_prim_shader(name: &'static str,
 
     let includes_base = ["prim_shared"];
     let includes_clip = ["prim_shared", "clip_shared"];
-    let includes: &[&str] = if name.ends_with("_clip") {
+    let includes: &[&str] = if name.contains("_clip") {
         &includes_clip
     } else {
         &includes_base
@@ -429,12 +429,12 @@ impl Renderer {
                                                       &[],
                                                       &mut device,
                                                       options.precache_shaders);
-        let cs_clip = LazilyCompiledShader::new(ShaderKind::Cache,
-                                                "cs_clip",
-                                                max_cache_instances,
-                                                TRANSFORM_FEATURE,
-                                                &mut device,
-                                                options.precache_shaders);
+        let cs_clip_rectangle = LazilyCompiledShader::new(ShaderKind::Cache,
+                                                          "cs_clip_rectangle",
+                                                          max_cache_instances,
+                                                          &[ TRANSFORM_FEATURE ],
+                                                          &mut device,
+                                                          options.precache_shaders);
         let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache,
                                                     "cs_text_run",
                                                     max_cache_instances,
@@ -666,7 +666,7 @@ impl Renderer {
             device_pixel_ratio: options.device_pixel_ratio,
             tile_clear_shader: tile_clear_shader,
             cs_box_shadow: cs_box_shadow,
-            cs_clip: cs_clip,
+            cs_clip_rectangle: cs_clip_rectangle,
             cs_text_run: cs_text_run,
             cs_blur: cs_blur,
             ps_rectangle: ps_rectangle,
@@ -1072,7 +1072,7 @@ impl Renderer {
             self.device.set_blend(true);
             self.device.set_blend_mode_multiply();
             self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
-            let shader = self.cs_clip.get(&mut self.device);
+            let shader = self.cs_clip_rectangle.get(&mut self.device);
             let max_prim_items = self.max_cache_instances;
             for (&mask_texture_id, items) in target.clip_cache_items.iter() {
                 self.draw_ubo_batch(items,
