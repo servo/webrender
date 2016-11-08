@@ -18,6 +18,8 @@ use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering};
 use webrender_traits::{FontRenderMode, WebGLContextId};
 use webrender_traits::{ClipRegion, FontKey, ItemRange, ComplexClipRegion, GlyphKey};
 
+pub const CLIP_DATA_GPU_SIZE: usize = 6;
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct SpecificPrimitiveIndex(pub usize);
 
@@ -64,10 +66,10 @@ pub enum PrimitiveClipSource {
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
     pub is_opaque: bool,
-    pub mask_texture_id: TextureId, //TODO: remove
-    pub clip_index: Option<GpuStoreAddress>, //TODO: remove
+    pub mask_texture_id: TextureId, //CLIP_TODO: remove
+    pub clip_index: Option<GpuStoreAddress>, //CLIP_TODO: remove
     pub clip_source: Box<PrimitiveClipSource>,
-    pub clip_cache_info: Option<MaskCacheInfo>, //TODO: merge with clip_source
+    pub clip_cache_info: Option<MaskCacheInfo>, //CLIP_TODO: merge with clip_source
     pub prim_kind: PrimitiveKind,
     pub cpu_prim_index: SpecificPrimitiveIndex,
     pub gpu_prim_index: GpuStoreAddress,
@@ -644,7 +646,7 @@ impl PrimitiveStore {
             self.gpu_geometry.get_mut(GpuStoreAddress(index.0 as i32))
                 .local_clip_rect = rect;
             if is_complex && metadata.clip_index.is_none() {
-                metadata.clip_index = Some(self.gpu_data32.alloc(6))
+                metadata.clip_index = Some(self.gpu_data32.alloc(CLIP_DATA_GPU_SIZE))
             }
         }
         *metadata.clip_source.as_mut() = source;
@@ -701,6 +703,9 @@ impl PrimitiveStore {
         let mut rebuild_bounding_rect = false;
 
         if metadata.clip_index.is_none() {
+            if let &PrimitiveClipSource::Region(ClipRegion { image_mask: Some(ref mask), .. }) = metadata.clip_source.as_ref() {
+                resource_cache.request_image(mask.image, ImageRendering::Auto);
+            }
             // if the `clip_index` already exist, we consider the contents up to date
             let clip_data = match metadata.clip_source.as_ref() {
                 &PrimitiveClipSource::NoClip => None,
@@ -708,9 +713,6 @@ impl PrimitiveStore {
                     Some(ClipData::uniform(rect, radius))
                 }
                 &PrimitiveClipSource::Region(ref clip_region) => {
-                    if let Some(mask) = clip_region.image_mask {
-                        resource_cache.request_image(mask.image, ImageRendering::Auto);
-                    }
                     let clips = auxiliary_lists.complex_clip_regions(&clip_region.complex);
                     //TODO: proper solution to multiple complex clips
                     match clips.len() {
@@ -732,8 +734,8 @@ impl PrimitiveStore {
 
             if let Some(data) = clip_data {
                 prim_needs_resolve = true;
-                let gpu_address = self.gpu_data32.alloc(6);
-                let gpu_data = self.gpu_data32.get_slice_mut(gpu_address, 6);
+                let gpu_address = self.gpu_data32.alloc(CLIP_DATA_GPU_SIZE);
+                let gpu_data = self.gpu_data32.get_slice_mut(gpu_address, CLIP_DATA_GPU_SIZE);
                 Self::populate_clip_data(gpu_data, data);
                 metadata.clip_index = Some(gpu_address);
                 metadata.mask_texture_id = dummy_mask_cache_item.texture_id;
