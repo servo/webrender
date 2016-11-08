@@ -11,7 +11,7 @@ use frame::FrameId;
 use gpu_store::GpuStoreAddress;
 use internal_types::{DeviceRect, DevicePoint, DeviceSize, DeviceLength, device_pixel, CompositionOp};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
-use internal_types::{SourceTexture, PrimitiveBatchTextures};
+use internal_types::{PrimitiveBatchTextures};
 use layer::Layer;
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
@@ -50,7 +50,7 @@ pub type AuxiliaryListsMap = HashMap<PipelineId,
 
 trait AlphaBatchHelpers {
     fn get_batch_kind(&self, metadata: &PrimitiveMetadata) -> AlphaBatchKind;
-    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [SourceTexture; 3];
+    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [TextureId; 3];
     fn get_blend_mode(&self, needs_blending: bool, metadata: &PrimitiveMetadata) -> BlendMode;
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
@@ -90,8 +90,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
         batch_kind
     }
 
-    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [SourceTexture; 3] {
-        let invalid = SourceTexture::invalid();
+    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [TextureId; 3] {
+        let invalid = TextureId::invalid();
         match metadata.prim_kind {
             PrimitiveKind::Border |
             PrimitiveKind::BoxShadow |
@@ -103,7 +103,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
             }
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
-                [SourceTexture::Id(text_run_cpu.color_texture_id), invalid, invalid]
+                [text_run_cpu.color_texture_id, invalid, invalid]
             }
             // TODO(nical): YuvImage will return 3 textures.
         }
@@ -445,12 +445,11 @@ impl AlphaBatcher {
                             TransformedRectKind::AxisAligned => AXIS_ALIGNED | needs_clipping_flag,
                             _ => needs_clipping_flag,
                         };
-                        let invalid = SourceTexture::invalid();
                         let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
 
                         let textures = PrimitiveBatchTextures {
                             colors: ctx.prim_store.get_color_textures(prim_metadata),
-                            mask: SourceTexture::Id(prim_metadata.mask_texture_id),
+                            mask: prim_metadata.mask_texture_id,
                         };
 
                         batch_key = AlphaBatchKey::primitive(batch_kind,
@@ -1781,7 +1780,7 @@ impl FrameBuilder {
                                context_id: WebGLContextId) {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::WebGL(context_id),
-            color_texture: SourceTexture::invalid(),
+            color_texture: TextureId::invalid(),
         };
 
         let prim_gpu = ImagePrimitiveGpu {
@@ -1807,7 +1806,7 @@ impl FrameBuilder {
             kind: ImagePrimitiveKind::Image(image_key,
                                             image_rendering,
                                             *tile_spacing),
-            color_texture: SourceTexture::invalid(),
+            color_texture: TextureId::invalid(),
         };
 
         let prim_gpu = ImagePrimitiveGpu {

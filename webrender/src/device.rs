@@ -341,6 +341,8 @@ impl TextureId {
             target: gl::TEXTURE_2D,
         }
     }
+
+    pub fn is_invalid(&self) -> bool { *self == TextureId::invalid() }
 }
 
 impl ProgramId {
