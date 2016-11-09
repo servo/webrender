@@ -59,8 +59,14 @@ fn copy_pixels(src: &[u8],
                y: u32,
                count: u32,
                width: u32,
+               stride: Option<u32>,
                bpp: u32) {
-    let pixel_index = (y * width + x) * bpp;
+    let row_length = match stride {
+      Some(value) => value / bpp,
+      None => width,
+    };
+
+    let pixel_index = (y * row_length + x) * bpp;
     for byte in src.iter().skip(pixel_index as usize).take((count * bpp) as usize) {
         target.push(*byte);
     }
@@ -763,17 +769,17 @@ impl TextureCache {
                 let mut left_column_bytes = Vec::new();
                 let mut right_column_bytes = Vec::new();
 
-                copy_pixels(&bytes, &mut top_row_bytes, 0, 0, 1, width, bpp);
-                copy_pixels(&bytes, &mut top_row_bytes, 0, 0, width, width, bpp);
-                copy_pixels(&bytes, &mut top_row_bytes, width-1, 0, 1, width, bpp);
+                copy_pixels(&bytes, &mut top_row_bytes, 0, 0, 1, width, stride, bpp);
+                copy_pixels(&bytes, &mut top_row_bytes, 0, 0, width, width, stride, bpp);
+                copy_pixels(&bytes, &mut top_row_bytes, width-1, 0, 1, width, stride, bpp);
 
-                copy_pixels(&bytes, &mut bottom_row_bytes, 0, height-1, 1, width, bpp);
-                copy_pixels(&bytes, &mut bottom_row_bytes, 0, height-1, width, width, bpp);
-                copy_pixels(&bytes, &mut bottom_row_bytes, width-1, height-1, 1, width, bpp);
+                copy_pixels(&bytes, &mut bottom_row_bytes, 0, height-1, 1, width, stride, bpp);
+                copy_pixels(&bytes, &mut bottom_row_bytes, 0, height-1, width, width, stride, bpp);
+                copy_pixels(&bytes, &mut bottom_row_bytes, width-1, height-1, 1, width, stride, bpp);
 
                 for y in 0..height {
-                    copy_pixels(&bytes, &mut left_column_bytes, 0, y, 1, width, bpp);
-                    copy_pixels(&bytes, &mut right_column_bytes, width-1, y, 1, width, bpp);
+                    copy_pixels(&bytes, &mut left_column_bytes, 0, y, 1, width, stride, bpp);
+                    copy_pixels(&bytes, &mut right_column_bytes, width-1, y, 1, width, stride, bpp);
                 }
 
                 let border_update_op_top = TextureUpdate {
@@ -782,7 +788,7 @@ impl TextureCache {
                                                 result.item.allocated_rect.origin.y,
                                                 result.item.allocated_rect.size.width,
                                                 1,
-                                                TextureUpdateDetails::Blit(top_row_bytes, stride))
+                                                TextureUpdateDetails::Blit(top_row_bytes, None))
                 };
 
                 let border_update_op_bottom = TextureUpdate {
@@ -793,7 +799,7 @@ impl TextureCache {
                             result.item.requested_rect.size.height + 1,
                         result.item.allocated_rect.size.width,
                         1,
-                        TextureUpdateDetails::Blit(bottom_row_bytes, stride))
+                        TextureUpdateDetails::Blit(bottom_row_bytes, None))
                 };
 
                 let border_update_op_left = TextureUpdate {
@@ -803,7 +809,7 @@ impl TextureCache {
                         result.item.requested_rect.origin.y,
                         1,
                         result.item.requested_rect.size.height,
-                        TextureUpdateDetails::Blit(left_column_bytes, stride))
+                        TextureUpdateDetails::Blit(left_column_bytes, None))
                 };
 
                 let border_update_op_right = TextureUpdate {
@@ -812,7 +818,7 @@ impl TextureCache {
                                                 result.item.requested_rect.origin.y,
                                                 1,
                                                 result.item.requested_rect.size.height,
-                                                TextureUpdateDetails::Blit(right_column_bytes, stride))
+                                                TextureUpdateDetails::Blit(right_column_bytes, None))
                 };
 
                 self.pending_updates.push(border_update_op_top);
