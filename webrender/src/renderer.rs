@@ -9,18 +9,16 @@
 //!
 //! [renderer]: struct.Renderer.html
 
-use batch::RasterBatch;
 use debug_colors;
 use debug_render::DebugRenderer;
-use device::{Device, ProgramId, TextureId, UniformLocation, VertexFormat, GpuProfiler};
+use device::{Device, ProgramId, TextureId, VertexFormat, GpuProfiler};
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
-use euclid::{Matrix4D, Point2D, Rect, Size2D};
+use euclid::{Matrix4D, Size2D};
 use fnv::FnvHasher;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePoint};
-use internal_types::{PackedVertexForTextureCacheUpdate};
-use internal_types::{AxisDirection, TextureSampler, GLContextHandleWrapper};
+use internal_types::{TextureSampler, GLContextHandleWrapper};
 use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
@@ -35,7 +33,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
-use texture_cache::{TextureCache, TextureInsertOp};
+use texture_cache::TextureCache;
 use tiling::{self, Frame, FrameBuilderConfig, PrimitiveBatchData};
 use tiling::{RenderTarget, ClearTile};
 use time::precise_time_ns;
@@ -43,13 +41,12 @@ use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ImageFormat, RenderApiSender, RendererKind};
 
-pub const BLUR_INFLATION_FACTOR: u32 = 3;
-pub const MAX_RASTER_OP_SIZE: u32 = 2048;
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
 const UBO_BIND_DATA: u32 = 1;
 
 const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: debug_colors::BLACK };
+const GPU_TAG_CACHE_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "C_TextRun", color: debug_colors::MISTYROSE };
 const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: debug_colors::WHITE };
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: debug_colors::SLATEGREY };
 const GPU_TAG_CLEAR_TILES: GpuProfileTag = GpuProfileTag { label: "Clear Tiles", color: debug_colors::BROWN };
@@ -65,6 +62,8 @@ const GPU_TAG_PRIM_GRADIENT_CLIP: GpuProfileTag = GpuProfileTag { label: "Gradie
 const GPU_TAG_PRIM_ANGLE_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AngleGradient", color: debug_colors::POWDERBLUE };
 const GPU_TAG_PRIM_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "BoxShadow", color: debug_colors::CYAN };
 const GPU_TAG_PRIM_BORDER: GpuProfileTag = GpuProfileTag { label: "Border", color: debug_colors::ORANGE };
+const GPU_TAG_PRIM_CACHE_IMAGE: GpuProfileTag = GpuProfileTag { label: "CacheImage", color: debug_colors::SILVER };
+const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag { label: "Blur", color: debug_colors::VIOLET };
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BlendMode {
@@ -310,14 +309,21 @@ pub struct Renderer {
     pending_shader_updates: Vec<PathBuf>,
     current_frame: Option<RendererFrame>,
     device_pixel_ratio: f32,
-    raster_batches: Vec<RasterBatch>,
-    raster_op_vao: Option<VAOId>,
 
-    blur_program_id: ProgramId,
-    u_direction: UniformLocation,
-
+    // These are "cache shaders". These shaders are used to
+    // draw intermediate results to cache targets. The results
+    // of these shaders are then used by the primitive shaders.
     cs_box_shadow: LazilyCompiledShader,
+    cs_text_run: LazilyCompiledShader,
+    cs_blur: LazilyCompiledShader,
 
+    // The are "primitive shaders". These shaders draw and blend
+    // final results on screen. They are aware of tile boundaries.
+    // Most draw directly to the framebuffer, but some use inputs
+    // from the cache shaders to draw. Specifically, the box
+    // shadow primitive shader stretches the box shadow cache
+    // output, and the cache_image shader blits the results of
+    // a cache shader (e.g. blur) to the screen.
     ps_rectangle: PrimitiveShader,
     ps_text_run: PrimitiveShader,
     ps_text_run_subpixel: PrimitiveShader,
@@ -329,6 +335,7 @@ pub struct Renderer {
     ps_box_shadow: PrimitiveShader,
     ps_rectangle_clip: PrimitiveShader,
     ps_image_clip: PrimitiveShader,
+    ps_cache_image: PrimitiveShader,
 
     ps_blend: LazilyCompiledShader,
     ps_composite: LazilyCompiledShader,
@@ -339,6 +346,7 @@ pub struct Renderer {
     max_prim_blends: usize,
     max_prim_composites: usize,
     max_cache_instances: usize,
+    max_blurs: usize,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
@@ -349,9 +357,6 @@ pub struct Renderer {
     profiler: Profiler,
     last_time: u64,
 
-    max_raster_op_size: u32,
-    raster_op_target_a8: TextureId,
-    raster_op_target_rgba8: TextureId,
     render_targets: Vec<TextureId>,
 
     gpu_profile: GpuProfiler<GpuProfileTag>,
@@ -407,9 +412,6 @@ impl Renderer {
                                      Box::new(file_watch_handler));
         device.begin_frame();
 
-        let blur_program_id = device.create_program("blur", "shared_other");
-        let max_raster_op_size = MAX_RASTER_OP_SIZE * options.device_pixel_ratio as u32;
-
         let max_ubo_size = device.get_capabilities().max_ubo_size;
         let max_ubo_vectors = max_ubo_size / 16;
 
@@ -417,6 +419,7 @@ impl Renderer {
         let max_cache_instances = get_ubo_max_len::<tiling::CachePrimitiveInstance>(max_ubo_size);
         let max_prim_blends = get_ubo_max_len::<tiling::PackedBlendPrimitive>(max_ubo_size);
         let max_prim_composites = get_ubo_max_len::<tiling::PackedCompositePrimitive>(max_ubo_size);
+        let max_blurs = get_ubo_max_len::<tiling::BlurCommand>(max_ubo_size);
 
         let cs_box_shadow = LazilyCompiledShader::new(ShaderKind::Cache,
                                                       "cs_box_shadow",
@@ -424,6 +427,18 @@ impl Renderer {
                                                       &[],
                                                       &mut device,
                                                       options.precache_shaders);
+        let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache,
+                                                    "cs_text_run",
+                                                    max_cache_instances,
+                                                    &[],
+                                                    &mut device,
+                                                    options.precache_shaders);
+        let cs_blur = LazilyCompiledShader::new(ShaderKind::Cache,
+                                                "cs_blur",
+                                                 max_blurs,
+                                                 &[],
+                                                 &mut device,
+                                                 options.precache_shaders);
 
         let ps_rectangle = PrimitiveShader::new("ps_rectangle",
                                                 max_ubo_vectors,
@@ -493,6 +508,12 @@ impl Renderer {
                                                      &mut device,
                                                      &[],
                                                      options.precache_shaders);
+        let ps_cache_image = PrimitiveShader::new("ps_cache_image",
+                                                  max_ubo_vectors,
+                                                  max_prim_instances,
+                                                  &mut device,
+                                                  &[],
+                                                  options.precache_shaders);
 
         let ps_blend = LazilyCompiledShader::new(ShaderKind::Primitive,
                                                  "ps_blend",
@@ -536,7 +557,7 @@ impl Renderer {
                              None,
                              ImageFormat::RGBA8,
                              TextureFilter::Linear,
-                             TextureInsertOp::Blit(white_pixels));
+                             white_pixels);
 
         let dummy_mask_image_id = texture_cache.new_item_id();
         texture_cache.insert(dummy_mask_image_id,
@@ -545,7 +566,7 @@ impl Renderer {
                              None,
                              ImageFormat::A8,
                              TextureFilter::Linear,
-                             TextureInsertOp::Blit(mask_pixels));
+                             mask_pixels);
 
         let dummy_resources = DummyResources {
             white_image_id: white_image_id,
@@ -553,24 +574,6 @@ impl Renderer {
         };
 
         let debug_renderer = DebugRenderer::new(&mut device);
-
-        let raster_op_target_a8 = device.create_texture_ids(1, TextureTarget::Default)[0];
-        device.init_texture(raster_op_target_a8,
-                            max_raster_op_size,
-                            max_raster_op_size,
-                            ImageFormat::A8,
-                            TextureFilter::Nearest,
-                            RenderTargetMode::SimpleRenderTarget,
-                            None);
-
-        let raster_op_target_rgba8 = device.create_texture_ids(1, TextureTarget::Default)[0];
-        device.init_texture(raster_op_target_rgba8,
-                            max_raster_op_size,
-                            max_raster_op_size,
-                            ImageFormat::RGBA8,
-                            TextureFilter::Nearest,
-                            RenderTargetMode::SimpleRenderTarget,
-                            None);
 
         let layer_texture = VertexDataTexture::new(&mut device);
         let render_task_texture = VertexDataTexture::new(&mut device);
@@ -646,18 +649,17 @@ impl Renderer {
             backend.run();
         });
 
-        let mut renderer = Renderer {
+        let renderer = Renderer {
             result_rx: result_rx,
             device: device,
             current_frame: None,
-            raster_batches: Vec::new(),
-            raster_op_vao: None,
             pending_texture_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
             device_pixel_ratio: options.device_pixel_ratio,
-            blur_program_id: blur_program_id,
             tile_clear_shader: tile_clear_shader,
             cs_box_shadow: cs_box_shadow,
+            cs_text_run: cs_text_run,
+            cs_blur: cs_blur,
             ps_rectangle: ps_rectangle,
             ps_text_run: ps_text_run,
             ps_text_run_subpixel: ps_text_run_subpixel,
@@ -669,13 +671,14 @@ impl Renderer {
             ps_gradient: ps_gradient,
             ps_gradient_clip: ps_gradient_clip,
             ps_angle_gradient: ps_angle_gradient,
+            ps_cache_image: ps_cache_image,
             ps_blend: ps_blend,
             ps_composite: ps_composite,
             max_clear_tiles: max_clear_tiles,
             max_prim_blends: max_prim_blends,
             max_prim_composites: max_prim_composites,
             max_cache_instances: max_cache_instances,
-            u_direction: UniformLocation::invalid(),
+            max_blurs: max_blurs,
             notifier: notifier,
             debug: debug_renderer,
             backend_profile_counters: BackendProfileCounters::new(),
@@ -683,10 +686,7 @@ impl Renderer {
             profiler: Profiler::new(),
             enable_profiler: options.enable_profiler,
             last_time: 0,
-            raster_op_target_a8: raster_op_target_a8,
-            raster_op_target_rgba8: raster_op_target_rgba8,
             render_targets: Vec::new(),
-            max_raster_op_size: max_raster_op_size,
             gpu_profile: GpuProfiler::new(),
             quad_vao_id: quad_vao_id,
             layer_texture: layer_texture,
@@ -700,14 +700,8 @@ impl Renderer {
             main_thread_dispatcher: main_thread_dispatcher,
         };
 
-        renderer.update_uniform_locations();
-
         let sender = RenderApiSender::new(api_tx, payload_tx);
         (renderer, sender)
-    }
-
-    fn update_uniform_locations(&mut self) {
-        self.u_direction = self.device.get_uniform_location(self.blur_program_id, "uDirection");
     }
 
     /// Sets the new RenderNotifier.
@@ -894,145 +888,6 @@ impl Renderer {
                                     width, height, stride,
                                     bytes.as_slice());
                             }
-                            TextureUpdateDetails::Blur(bytes,
-                                                       glyph_size,
-                                                       radius,
-                                                       unblurred_glyph_texture_image,
-                                                       horizontal_blur_texture_image) => {
-                                let radius =
-                                    f32::ceil(radius.to_f32_px() * self.device_pixel_ratio) as u32;
-                                self.device.update_texture(
-                                    unblurred_glyph_texture_image.texture_id,
-                                    unblurred_glyph_texture_image.pixel_uv.x,
-                                    unblurred_glyph_texture_image.pixel_uv.y,
-                                    glyph_size.width,
-                                    glyph_size.height,
-                                    None,
-                                    bytes.as_slice());
-
-                                let blur_program_id = self.blur_program_id;
-
-                                let white = ColorF::new(1.0, 1.0, 1.0, 1.0);
-                                let (width, height) = (width as f32, height as f32);
-
-                                let zero_point = Point2D::new(0.0, 0.0);
-                                let dest_texture_size = Size2D::new(width as f32, height as f32);
-                                let source_texture_size = Size2D::new(glyph_size.width as f32,
-                                                                      glyph_size.height as f32);
-                                let blur_radius = radius as f32;
-
-                                self.add_rect_to_raster_batch(horizontal_blur_texture_image.texture_id,
-                                                              unblurred_glyph_texture_image.texture_id,
-                                                              blur_program_id,
-                                                              Some(AxisDirection::Horizontal),
-                                                              &Rect::new(horizontal_blur_texture_image.pixel_uv,
-                                                                         Size2D::new(width as u32, height as u32)),
-                                                              |texture_rect| {
-                                    [
-                                        PackedVertexForTextureCacheUpdate::new(
-                                            &texture_rect.origin,
-                                            &white,
-                                            &Point2D::new(0.0, 0.0),
-                                            &zero_point,
-                                            &zero_point,
-                                            &unblurred_glyph_texture_image.texel_uv.origin,
-                                            &unblurred_glyph_texture_image.texel_uv.bottom_right(),
-                                            &dest_texture_size,
-                                            &source_texture_size,
-                                            blur_radius),
-                                        PackedVertexForTextureCacheUpdate::new(
-                                            &texture_rect.top_right(),
-                                            &white,
-                                            &Point2D::new(1.0, 0.0),
-                                            &zero_point,
-                                            &zero_point,
-                                            &unblurred_glyph_texture_image.texel_uv.origin,
-                                            &unblurred_glyph_texture_image.texel_uv.bottom_right(),
-                                            &dest_texture_size,
-                                            &source_texture_size,
-                                            blur_radius),
-                                        PackedVertexForTextureCacheUpdate::new(
-                                            &texture_rect.bottom_left(),
-                                            &white,
-                                            &Point2D::new(0.0, 1.0),
-                                            &zero_point,
-                                            &zero_point,
-                                            &unblurred_glyph_texture_image.texel_uv.origin,
-                                            &unblurred_glyph_texture_image.texel_uv.bottom_right(),
-                                            &dest_texture_size,
-                                            &source_texture_size,
-                                            blur_radius),
-                                        PackedVertexForTextureCacheUpdate::new(
-                                            &texture_rect.bottom_right(),
-                                            &white,
-                                            &Point2D::new(1.0, 1.0),
-                                            &zero_point,
-                                            &zero_point,
-                                            &unblurred_glyph_texture_image.texel_uv.origin,
-                                            &unblurred_glyph_texture_image.texel_uv.bottom_right(),
-                                            &dest_texture_size,
-                                            &source_texture_size,
-                                            blur_radius),
-                                    ]
-                                });
-
-                                let source_texture_size = Size2D::new(width as f32, height as f32);
-
-                                self.add_rect_to_raster_batch(update.id,
-                                                              horizontal_blur_texture_image.texture_id,
-                                                              blur_program_id,
-                                                              Some(AxisDirection::Vertical),
-                                                              &Rect::new(Point2D::new(x as u32, y as u32),
-                                                                         Size2D::new(width as u32, height as u32)),
-                                                              |texture_rect| {
-                                    [
-                                        PackedVertexForTextureCacheUpdate::new(
-                                            &texture_rect.origin,
-                                            &white,
-                                            &Point2D::new(0.0, 0.0),
-                                            &zero_point,
-                                            &zero_point,
-                                            &horizontal_blur_texture_image.texel_uv.origin,
-                                            &horizontal_blur_texture_image.texel_uv.bottom_right(),
-                                            &dest_texture_size,
-                                            &source_texture_size,
-                                            blur_radius),
-                                        PackedVertexForTextureCacheUpdate::new(
-                                            &texture_rect.top_right(),
-                                            &white,
-                                            &Point2D::new(1.0, 0.0),
-                                            &zero_point,
-                                            &zero_point,
-                                            &horizontal_blur_texture_image.texel_uv.origin,
-                                            &horizontal_blur_texture_image.texel_uv.bottom_right(),
-                                            &dest_texture_size,
-                                            &source_texture_size,
-                                            blur_radius),
-                                        PackedVertexForTextureCacheUpdate::new(
-                                            &texture_rect.bottom_left(),
-                                            &white,
-                                            &Point2D::new(0.0, 1.0),
-                                            &zero_point,
-                                            &zero_point,
-                                            &horizontal_blur_texture_image.texel_uv.origin,
-                                            &horizontal_blur_texture_image.texel_uv.bottom_right(),
-                                            &dest_texture_size,
-                                            &source_texture_size,
-                                            blur_radius),
-                                        PackedVertexForTextureCacheUpdate::new(
-                                            &texture_rect.bottom_right(),
-                                            &white,
-                                            &Point2D::new(1.0, 1.0),
-                                            &zero_point,
-                                            &zero_point,
-                                            &horizontal_blur_texture_image.texel_uv.origin,
-                                            &horizontal_blur_texture_image.texel_uv.bottom_right(),
-                                            &dest_texture_size,
-                                            &source_texture_size,
-                                            blur_radius),
-                                    ]
-                                });
-                            }
                         }
                     }
                     TextureUpdateOp::Remove => {
@@ -1040,225 +895,6 @@ impl Renderer {
                     }
                 }
             }
-        }
-
-        self.flush_raster_batches();
-    }
-
-    fn add_rect_to_raster_batch<F>(&mut self,
-                                   dest_texture_id: TextureId,
-                                   color_texture_id: TextureId,
-                                   program_id: ProgramId,
-                                   blur_direction: Option<AxisDirection>,
-                                   dest_rect: &Rect<u32>,
-                                   f: F)
-                                   where F: Fn(&Rect<f32>) -> [PackedVertexForTextureCacheUpdate; 4] {
-        // FIXME(pcwalton): Use a hash table if this linear search shows up in the profile.
-        for batch in &mut self.raster_batches {
-            if batch.add_rect_if_possible(dest_texture_id,
-                                          color_texture_id,
-                                          program_id,
-                                          blur_direction,
-                                          dest_rect,
-                                          &f) {
-                return;
-            }
-        }
-
-        let raster_op_target = if self.device.texture_has_alpha(dest_texture_id) {
-            self.raster_op_target_rgba8
-        } else {
-            self.raster_op_target_a8
-        };
-
-        let mut raster_batch = RasterBatch::new(raster_op_target,
-                                                self.max_raster_op_size,
-                                                program_id,
-                                                blur_direction,
-                                                color_texture_id,
-                                                dest_texture_id);
-
-        let added = raster_batch.add_rect_if_possible(dest_texture_id,
-                                                      color_texture_id,
-                                                      program_id,
-                                                      blur_direction,
-                                                      dest_rect,
-                                                      &f);
-        debug_assert!(added);
-        self.raster_batches.push(raster_batch);
-    }
-
-    fn flush_raster_batches(&mut self) {
-        let batches = mem::replace(&mut self.raster_batches, vec![]);
-        if !batches.is_empty() {
-            //println!("flushing {:?} raster batches", batches.len());
-
-            self.device.disable_depth();
-            self.device.disable_scissor();
-            // Disable MSAA here for raster ops
-            self.device.set_multisample(false);
-
-            let projection = Matrix4D::ortho(0.0,
-                                             self.max_raster_op_size as f32,
-                                             0.0,
-                                             self.max_raster_op_size as f32,
-                                             ORTHO_NEAR_PLANE,
-                                             ORTHO_FAR_PLANE);
-
-            // All horizontal blurs must complete before anything else.
-            let mut remaining_batches = vec![];
-            for batch in batches.into_iter() {
-                if batch.blur_direction != Some(AxisDirection::Horizontal) {
-                    remaining_batches.push(batch);
-                    continue
-                }
-
-                self.set_up_gl_state_for_texture_cache_update(batch.page_allocator.texture_id(),
-                                                              batch.color_texture_id,
-                                                              batch.program_id,
-                                                              batch.blur_direction,
-                                                              &projection);
-                self.perform_gl_texture_cache_update(batch);
-            }
-
-            // Flush the remaining batches.
-            for batch in remaining_batches.into_iter() {
-                self.set_up_gl_state_for_texture_cache_update(batch.page_allocator.texture_id(),
-                                                              batch.color_texture_id,
-                                                              batch.program_id,
-                                                              batch.blur_direction,
-                                                              &projection);
-                self.perform_gl_texture_cache_update(batch);
-            }
-        }
-    }
-
-    fn set_up_gl_state_for_texture_cache_update(&mut self,
-                                                target_texture_id: TextureId,
-                                                color_texture_id: TextureId,
-                                                program_id: ProgramId,
-                                                blur_direction: Option<AxisDirection>,
-                                                projection: &Matrix4D<f32>) {
-
-        self.device.set_blend(!self.device.texture_has_alpha(target_texture_id));
-        self.device.set_blend_mode_premultiplied_alpha();
-
-        let dimensions = [self.max_raster_op_size, self.max_raster_op_size];
-        self.device.bind_render_target(Some((target_texture_id, 0)), Some(dimensions));
-
-        self.device.bind_program(program_id, &projection);
-
-        self.device.bind_texture(TextureSampler::Color, color_texture_id);
-        self.device.bind_texture(TextureSampler::Mask, TextureId::invalid());
-
-        match blur_direction {
-            Some(AxisDirection::Horizontal) => {
-                self.device.set_uniform_2f(self.u_direction, 1.0, 0.0)
-            }
-            Some(AxisDirection::Vertical) => {
-                self.device.set_uniform_2f(self.u_direction, 0.0, 1.0)
-            }
-            None => {}
-        }
-    }
-
-    fn perform_gl_texture_cache_update(&mut self, batch: RasterBatch) {
-        let vao_id = match self.raster_op_vao {
-            Some(ref mut vao_id) => *vao_id,
-            None => {
-                let vao_id = self.device.create_vao(VertexFormat::RasterOp, None);
-                self.raster_op_vao = Some(vao_id);
-                vao_id
-            }
-        };
-        self.device.bind_vao(vao_id);
-
-        self.device.update_vao_indices(vao_id, &batch.indices[..], VertexUsageHint::Dynamic);
-        self.device.update_vao_main_vertices(vao_id,
-                                             &batch.vertices[..],
-                                             VertexUsageHint::Dynamic);
-
-        self.profile_counters.vertices.add(batch.indices.len());
-        self.profile_counters.draw_calls.inc();
-
-        //println!("drawing triangles due to GL texture cache update");
-        self.device.draw_triangles_u16(0, batch.indices.len() as i32);
-
-        for blit_job in batch.blit_jobs {
-            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                              blit_job.dest_origin.x as i32,
-                                              blit_job.dest_origin.y as i32,
-                                              blit_job.src_origin.x as i32,
-                                              blit_job.src_origin.y as i32,
-                                              blit_job.size.width as i32,
-                                              blit_job.size.height as i32);
-
-            // Single pixel corners
-            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                              blit_job.dest_origin.x as i32 - 1,
-                                              blit_job.dest_origin.y as i32 - 1,
-                                              blit_job.src_origin.x as i32,
-                                              blit_job.src_origin.y as i32,
-                                              1,
-                                              1);
-
-            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                              (blit_job.dest_origin.x + blit_job.size.width) as i32,
-                                              blit_job.dest_origin.y as i32 - 1,
-                                              (blit_job.src_origin.x + blit_job.size.width) as i32 - 1,
-                                              blit_job.src_origin.y as i32,
-                                              1,
-                                              1);
-
-            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                              blit_job.dest_origin.x as i32 - 1,
-                                              (blit_job.dest_origin.y + blit_job.size.height) as i32,
-                                              blit_job.src_origin.x as i32,
-                                              (blit_job.src_origin.y + blit_job.size.height) as i32 - 1,
-                                              1,
-                                              1);
-
-            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                              (blit_job.dest_origin.x + blit_job.size.width) as i32,
-                                              (blit_job.dest_origin.y + blit_job.size.height) as i32,
-                                              (blit_job.src_origin.x + blit_job.size.width) as i32 - 1,
-                                              (blit_job.src_origin.y + blit_job.size.height) as i32 - 1,
-                                              1,
-                                              1);
-
-            // Horizontal edges
-            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                              blit_job.dest_origin.x as i32,
-                                              blit_job.dest_origin.y as i32 - 1,
-                                              blit_job.src_origin.x as i32,
-                                              blit_job.src_origin.y as i32,
-                                              blit_job.size.width as i32,
-                                              1);
-
-            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                              blit_job.dest_origin.x as i32,
-                                              (blit_job.dest_origin.y + blit_job.size.height) as i32,
-                                              blit_job.src_origin.x as i32,
-                                              (blit_job.src_origin.y + blit_job.size.height) as i32 - 1,
-                                              blit_job.size.width as i32,
-                                              1);
-
-            // Vertical edges
-            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                              blit_job.dest_origin.x as i32 - 1,
-                                              blit_job.dest_origin.y as i32,
-                                              blit_job.src_origin.x as i32,
-                                              blit_job.src_origin.y as i32,
-                                              1,
-                                              blit_job.size.height as i32);
-
-            self.device.read_framebuffer_rect(blit_job.dest_texture_id,
-                                              (blit_job.dest_origin.x + blit_job.size.width) as i32,
-                                              blit_job.dest_origin.y as i32,
-                                              (blit_job.src_origin.x + blit_job.size.width) as i32 - 1,
-                                              blit_job.src_origin.y as i32,
-                                              1,
-                                              blit_job.size.height as i32);
         }
     }
 
@@ -1372,7 +1008,43 @@ impl Renderer {
             self.device.clear_color(color);
         }
 
-        // Draw any cache primitives for this target.
+        // Draw any blurs for this target.
+        // Blurs are rendered as a standard 2-pass
+        // separable implementation.
+        // TODO(gw): In the future, consider having
+        //           fast path blur shaders for common
+        //           blur radii with fixed weights.
+        if !target.vertical_blurs.is_empty() {
+            self.device.set_blend(false);
+
+            self.gpu_profile.add_marker(GPU_TAG_BLUR);
+            let shader = self.cs_blur.get(&mut self.device);
+            let max_blurs = self.max_blurs;
+            self.draw_ubo_batch(&target.vertical_blurs,
+                                shader,
+                                1,
+                                TextureId::invalid(),
+                                TextureId::invalid(),
+                                max_blurs,
+                                &projection);
+        }
+
+        if !target.horizontal_blurs.is_empty() {
+            self.device.set_blend(false);
+
+            self.gpu_profile.add_marker(GPU_TAG_BLUR);
+            let shader = self.cs_blur.get(&mut self.device);
+            let max_blurs = self.max_blurs;
+            self.draw_ubo_batch(&target.horizontal_blurs,
+                                shader,
+                                1,
+                                TextureId::invalid(),
+                                TextureId::invalid(),
+                                max_blurs,
+                                &projection);
+        }
+
+        // Draw any box-shadow caches for this target.
         if !target.box_shadow_cache_prims.is_empty() {
             self.device.set_blend(false);
 
@@ -1383,6 +1055,28 @@ impl Renderer {
                                 shader,
                                 1,
                                 TextureId::invalid(),
+                                TextureId::invalid(),
+                                max_cache_instances,
+                                &projection);
+        }
+
+        // Draw any textrun caches for this target. For now, this
+        // is only used to cache text runs that are to be blurred
+        // for text-shadow support. In the future it may be worth
+        // considering using this for (some) other text runs, since
+        // it removes the overhead of submitting many small glyphs
+        // to multiple tiles in the normal text run case.
+        if !target.text_run_cache_prims.is_empty() {
+            self.device.set_blend(true);
+            self.device.set_blend_mode_alpha();
+
+            self.gpu_profile.add_marker(GPU_TAG_CACHE_TEXT_RUN);
+            let shader = self.cs_text_run.get(&mut self.device);
+            let max_cache_instances = self.max_cache_instances;
+            self.draw_ubo_batch(&target.text_run_cache_prims,
+                                shader,
+                                1,
+                                target.text_run_color_texture_id,
                                 TextureId::invalid(),
                                 max_cache_instances,
                                 &projection);
@@ -1411,6 +1105,18 @@ impl Renderer {
             }
 
             match &batch.data {
+                &PrimitiveBatchData::CacheImage(ref ubo_data) => {
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_CACHE_IMAGE);
+                    let (shader, max_prim_items) = self.ps_cache_image.get(&mut self.device,
+                                                                           transform_kind);
+                    self.draw_ubo_batch(ubo_data,
+                                        shader,
+                                        1,
+                                        color_texture_id,
+                                        mask_texture_id,
+                                        max_prim_items,
+                                        &projection);
+                }
                 &PrimitiveBatchData::Blend(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_BLEND);
                     let shader = self.ps_blend.get(&mut self.device);

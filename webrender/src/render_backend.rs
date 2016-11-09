@@ -17,7 +17,6 @@ use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
 use webrender_traits::{RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
-use batch::new_id;
 use device::TextureId;
 use record;
 use tiling::FrameBuilderConfig;
@@ -47,7 +46,9 @@ pub struct RenderBackend {
     webgl_contexts: HashMap<WebGLContextId, GLContextWrapper>,
     current_bound_webgl_context_id: Option<WebGLContextId>,
     enable_recording: bool,
-    main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>
+    main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
+
+    next_webgl_id: usize,
 }
 
 impl RenderBackend {
@@ -86,7 +87,8 @@ impl RenderBackend {
             webgl_contexts: HashMap::new(),
             current_bound_webgl_context_id: None,
             enable_recording:enable_recording,
-            main_thread_dispatcher: main_thread_dispatcher
+            main_thread_dispatcher: main_thread_dispatcher,
+            next_webgl_id: 0,
         }
     }
 
@@ -285,7 +287,8 @@ impl RenderBackend {
 
                                 match result {
                                     Ok(ctx) => {
-                                        let id = WebGLContextId(new_id());
+                                        let id = WebGLContextId(self.next_webgl_id);
+                                        self.next_webgl_id += 1;
 
                                         let (real_size, texture_id, limits) = ctx.get_info();
 

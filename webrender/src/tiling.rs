@@ -15,7 +15,7 @@ use layer::Layer;
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{ImagePrimitiveCpu, ImagePrimitiveGpu, ImagePrimitiveKind};
-use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata, PrimitiveCacheInfo};
+use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata};
 use prim_store::PrimitiveClipSource;
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
 use prim_store::{PrimitiveCacheKey, TextRunPrimitiveGpu, TextRunPrimitiveCpu};
@@ -72,7 +72,17 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::BoxShadow => AlphaBatchKind::BoxShadow,
             PrimitiveKind::Image => AlphaBatchKind::Image,
             PrimitiveKind::Rectangle => AlphaBatchKind::Rectangle,
-            PrimitiveKind::TextRun => AlphaBatchKind::TextRun,
+            PrimitiveKind::TextRun => {
+                let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
+                if text_run_cpu.blur_radius.0 == 0 {
+                    AlphaBatchKind::TextRun
+                } else {
+                    // Select a generic primitive shader that can blit the
+                    // results of the cached text blur to the framebuffer,
+                    // applying tile clipping etc.
+                    AlphaBatchKind::CacheImage
+                }
+            }
             PrimitiveKind::Gradient => {
                 let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
                 match gradient.kind {
@@ -110,9 +120,14 @@ impl AlphaBatchHelpers for PrimitiveStore {
         match metadata.prim_kind {
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
-                match text_run_cpu.render_mode {
-                    FontRenderMode::Subpixel => BlendMode::Subpixel(text_run_cpu.color),
-                    FontRenderMode::Alpha | FontRenderMode::Mono => BlendMode::Alpha,
+                if text_run_cpu.blur_radius.0 == 0 {
+                    match text_run_cpu.render_mode {
+                        FontRenderMode::Subpixel => BlendMode::Subpixel(text_run_cpu.color),
+                        FontRenderMode::Alpha | FontRenderMode::Mono => BlendMode::Alpha,
+                    }
+                } else {
+                    // Text runs drawn to blur never get drawn with subpixel AA.
+                    BlendMode::Alpha
                 }
             }
             _ => {
@@ -240,10 +255,28 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     user_data: [ metadata.gpu_data_count, 0 ],
                 });
             }
-             &mut PrimitiveBatchData::BoxShadow(ref mut data) => {
-                let cache_key = metadata.cache_info.as_ref().unwrap().key;
-                let cache_task_id = RenderTaskId::Dynamic(RenderTaskKey::CachePrimitive(cache_key));
-                let cache_task_index = render_tasks.get_task_index(&cache_task_id,
+            &mut PrimitiveBatchData::CacheImage(ref mut data) => {
+                // Find the render task index for the render task
+                // that this primitive depends on. Pass it to the
+                // shader so that it can sample from the cache texture
+                // at the correct location.
+                let cache_task_id = &metadata.render_task.as_ref().unwrap().id;
+                let cache_task_index = render_tasks.get_task_index(cache_task_id,
+                                                                   child_pass_index);
+
+                data.push(PrimitiveInstance {
+                    task_id: task_id,
+                    layer_index: layer_index,
+                    global_prim_id: global_prim_id,
+                    prim_address: prim_address,
+                    clip_address: clip_address,
+                    sub_index: 0,
+                    user_data: [ cache_task_index.0 as i32, 0 ],
+                });
+            }
+            &mut PrimitiveBatchData::BoxShadow(ref mut data) => {
+                let cache_task_id = &metadata.render_task.as_ref().unwrap().id;
+                let cache_task_index = render_tasks.get_task_index(cache_task_id,
                                                                    child_pass_index);
 
                 for rect_index in 0..metadata.gpu_data_count {
@@ -281,22 +314,34 @@ pub enum PrimitiveFlags {
     Scrollbar(ScrollLayerId, f32)
 }
 
+// TODO(gw): I've had to make several of these types below public
+//           with the changes for text-shadow. The proper solution
+//           is to split the render task and render target code into
+//           its own module. However, I'm avoiding that for now since
+//           this PR is large enough already, and other people are working
+//           on PRs that make use of render tasks.
+
 #[derive(Debug, Copy, Clone)]
-struct RenderTargetIndex(usize);
+pub struct RenderTargetIndex(usize);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 struct RenderPassIndex(isize);
 
 #[derive(Debug, Copy, Clone)]
-struct RenderTaskIndex(usize);
+pub struct RenderTaskIndex(usize);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-enum RenderTaskKey {
+pub enum RenderTaskKey {
+    // Draw this primitive to a cache target.
     CachePrimitive(PrimitiveCacheKey),
+    // Apply a vertical blur pass of given radius for this primitive.
+    VerticalBlur(i32, PrimitiveIndex),
+    // Apply a horizontal blur pass of given radius for this primitive.
+    HorizontalBlur(i32, PrimitiveIndex),
 }
 
 #[derive(Debug, Copy, Clone)]
-enum RenderTaskId {
+pub enum RenderTaskId {
     Static(RenderTaskIndex),
     Dynamic(RenderTaskKey),
 }
@@ -521,6 +566,19 @@ struct RenderTargetContext<'a> {
 pub struct RenderTarget {
     pub alpha_batcher: AlphaBatcher,
     pub box_shadow_cache_prims: Vec<CachePrimitiveInstance>,
+    // List of text runs to be cached to this render target.
+    // TODO(gw): For now, assume that these all come from
+    //           the same source texture id. This is almost
+    //           always true except for pathological test
+    //           cases with more than 4k x 4k of unique
+    //           glyphs visible. Once the future glyph / texture
+    //           cache changes land, this restriction will
+    //           be removed anyway.
+    pub text_run_cache_prims: Vec<CachePrimitiveInstance>,
+    pub text_run_color_texture_id: TextureId,
+    // List of blur operations to apply for this render target.
+    pub vertical_blurs: Vec<BlurCommand>,
+    pub horizontal_blurs: Vec<BlurCommand>,
     page_allocator: TexturePage,
 }
 
@@ -529,6 +587,10 @@ impl RenderTarget {
         RenderTarget {
             alpha_batcher: AlphaBatcher::new(),
             box_shadow_cache_prims: Vec::new(),
+            text_run_cache_prims: Vec::new(),
+            text_run_color_texture_id: TextureId::invalid(),
+            vertical_blurs: Vec::new(),
+            horizontal_blurs: Vec::new(),
             page_allocator: TexturePage::new(TextureId::invalid(), RENDERABLE_CACHE_SIZE as u32),
         }
     }
@@ -554,6 +616,34 @@ impl RenderTarget {
                     items: info.items,
                 });
             }
+            RenderTaskKind::VerticalBlur(_, prim_index) => {
+                // Find the child render task that we are applying
+                // a vertical blur on.
+                // TODO(gw): Consider a simpler way for render tasks to find
+                //           their child tasks than having to construct the
+                //           correct id here.
+                let child_pass_index = RenderPassIndex(pass_index.0 - 1);
+                let task_key = RenderTaskKey::CachePrimitive(PrimitiveCacheKey::TextShadow(prim_index));
+                let src_id = RenderTaskId::Dynamic(task_key);
+                self.vertical_blurs.push(BlurCommand {
+                    task_id: render_tasks.get_task_index(&task.id, pass_index).0 as i32,
+                    src_task_id: render_tasks.get_task_index(&src_id, child_pass_index).0 as i32,
+                    blur_direction: BlurDirection::Vertical as i32,
+                    padding: 0,
+                });
+            }
+            RenderTaskKind::HorizontalBlur(blur_radius, prim_index) => {
+                // Find the child render task that we are applying
+                // a horizontal blur on.
+                let child_pass_index = RenderPassIndex(pass_index.0 - 1);
+                let src_id = RenderTaskId::Dynamic(RenderTaskKey::VerticalBlur(blur_radius.0, prim_index));
+                self.horizontal_blurs.push(BlurCommand {
+                    task_id: render_tasks.get_task_index(&task.id, pass_index).0 as i32,
+                    src_task_id: render_tasks.get_task_index(&src_id, child_pass_index).0 as i32,
+                    blur_direction: BlurDirection::Horizontal as i32,
+                    padding: 0,
+                });
+            }
             RenderTaskKind::CachePrimitive(prim_index) => {
                 let prim_metadata = ctx.prim_store.get_metadata(prim_index);
 
@@ -563,8 +653,31 @@ impl RenderTarget {
                             task_id: render_tasks.get_task_index(&task.id, pass_index).0 as i32,
                             global_prim_id: prim_index.0 as i32,
                             prim_address: prim_metadata.gpu_prim_index,
-                            padding: 0,
+                            sub_index: 0,
                         });
+                    }
+                    PrimitiveKind::TextRun => {
+                        let text = &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
+                        // We only cache text runs with a text-shadow (for now).
+                        debug_assert!(text.blur_radius.0 != 0);
+
+                        // TODO(gw): This should always be fine for now, since the texture
+                        // atlas grows to 4k. However, it won't be a problem soon, once
+                        // we switch the texture atlas to use texture layers!
+                        let color_texture_id = ctx.prim_store.get_texture_id(prim_metadata);
+                        debug_assert!(color_texture_id != TextureId::invalid());
+                        debug_assert!(self.text_run_color_texture_id == TextureId::invalid() ||
+                                      self.text_run_color_texture_id == color_texture_id);
+                        self.text_run_color_texture_id = color_texture_id;
+
+                        for glyph_index in 0..prim_metadata.gpu_data_count {
+                            self.text_run_cache_prims.push(CachePrimitiveInstance {
+                                task_id: render_tasks.get_task_index(&task.id, pass_index).0 as i32,
+                                global_prim_id: prim_index.0 as i32,
+                                prim_address: prim_metadata.gpu_prim_index,
+                                sub_index: prim_metadata.gpu_data_address.0 + glyph_index,
+                            });
+                        }
                     }
                     _ => {
                         // No other primitives make use of primitive caching yet!
@@ -670,37 +783,42 @@ impl RenderPass {
     }
 }
 
-#[derive(Debug)]
-enum RenderTaskLocation {
+#[derive(Debug, Clone)]
+pub enum RenderTaskLocation {
     Fixed(DeviceRect),
     Dynamic(Option<(DevicePoint, RenderTargetIndex)>, DeviceSize),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum AlphaRenderItem {
     Primitive(StackingContextIndex, PrimitiveIndex),
     Blend(RenderTaskId, LowLevelFilterOp),
     Composite(RenderTaskId, RenderTaskId, MixBlendMode),
 }
 
-#[derive(Debug)]
-struct AlphaRenderTask {
+#[derive(Debug, Clone)]
+pub struct AlphaRenderTask {
     actual_rect: DeviceRect,
     items: Vec<AlphaRenderItem>,
 }
 
-#[derive(Debug)]
-enum RenderTaskKind {
+#[derive(Debug, Clone)]
+pub enum RenderTaskKind {
     Alpha(AlphaRenderTask),
     CachePrimitive(PrimitiveIndex),
+    VerticalBlur(DeviceLength, PrimitiveIndex),
+    HorizontalBlur(DeviceLength, PrimitiveIndex),
 }
 
-#[derive(Debug)]
-struct RenderTask {
-    id: RenderTaskId,
-    location: RenderTaskLocation,
-    children: Vec<RenderTask>,
-    kind: RenderTaskKind,
+// TODO(gw): Consider storing these in a separate array and having
+//           primitives hold indices - this could avoid cloning
+//           when adding them as child tasks to tiles.
+#[derive(Debug, Clone)]
+pub struct RenderTask {
+    pub id: RenderTaskId,
+    pub location: RenderTaskLocation,
+    pub children: Vec<RenderTask>,
+    pub kind: RenderTaskKind,
 }
 
 impl RenderTask {
@@ -718,23 +836,72 @@ impl RenderTask {
         }
     }
 
-    fn new_prim_cache(cache_info: &PrimitiveCacheInfo,
+    pub fn new_prim_cache(key: PrimitiveCacheKey,
+                      size: DeviceSize,
                       prim_index: PrimitiveIndex) -> RenderTask {
         RenderTask {
-            id: RenderTaskId::Dynamic(RenderTaskKey::CachePrimitive(cache_info.key)),
+            id: RenderTaskId::Dynamic(RenderTaskKey::CachePrimitive(key)),
             children: Vec::new(),
-            location: RenderTaskLocation::Dynamic(None, cache_info.size),
+            location: RenderTaskLocation::Dynamic(None, size),
             kind: RenderTaskKind::CachePrimitive(prim_index),
         }
+    }
+
+    // Construct a render task to apply a blur to a primitive. For now,
+    // this is only used for text runs, but we can probably extend this
+    // to handle general blurs to any render task in the future.
+    // The render task chain that is constructed looks like:
+    //
+    //    PrimitiveCacheTask: Draw the text run.
+    //           ^
+    //           |
+    //    VerticalBlurTask: Apply the separable vertical blur to the primitive.
+    //           ^
+    //           |
+    //    HorizontalBlurTask: Apply the separable horizontal blur to the vertical blur.
+    //           |
+    //           +---- This is stored as the input task to the primitive shader.
+    //
+    pub fn new_blur(key: PrimitiveCacheKey,
+                    size: DeviceSize,
+                    blur_radius: DeviceLength,
+                    prim_index: PrimitiveIndex) -> RenderTask {
+        let prim_cache_task = RenderTask::new_prim_cache(key,
+                                                         size,
+                                                         prim_index);
+
+        let blur_target_size = size + DeviceSize::new(2 * blur_radius.0,
+                                                      2 * blur_radius.0);
+
+        let blur_task_v = RenderTask {
+            id: RenderTaskId::Dynamic(RenderTaskKey::VerticalBlur(blur_radius.0, prim_index)),
+            children: vec![prim_cache_task],
+            location: RenderTaskLocation::Dynamic(None, blur_target_size),
+            kind: RenderTaskKind::VerticalBlur(blur_radius, prim_index),
+        };
+
+        let blur_task_h = RenderTask {
+            id: RenderTaskId::Dynamic(RenderTaskKey::HorizontalBlur(blur_radius.0, prim_index)),
+            children: vec![blur_task_v],
+            location: RenderTaskLocation::Dynamic(None, blur_target_size),
+            kind: RenderTaskKind::HorizontalBlur(blur_radius, prim_index),
+        };
+
+        blur_task_h
     }
 
     fn as_alpha_batch<'a>(&'a mut self) -> &'a mut AlphaRenderTask {
         match self.kind {
             RenderTaskKind::Alpha(ref mut task) => task,
-            RenderTaskKind::CachePrimitive(..) => unreachable!(),
+            RenderTaskKind::CachePrimitive(..) |
+            RenderTaskKind::VerticalBlur(..) |
+            RenderTaskKind::HorizontalBlur(..) => unreachable!(),
         }
     }
 
+    // Write (up to) 8 floats of data specific to the type
+    // of render task that is provided to the GPU shaders
+    // via a vertex texture.
     fn write_task_data(&self) -> RenderTaskData {
         match self.kind {
             RenderTaskKind::Alpha(ref task) => {
@@ -769,6 +936,23 @@ impl RenderTask {
                         0.0,
                         0.0,
                     ],
+                }
+            }
+            RenderTaskKind::VerticalBlur(blur_radius, _) |
+            RenderTaskKind::HorizontalBlur(blur_radius, _) => {
+                let (target_rect, target_index) = self.get_target_rect();
+
+                RenderTaskData {
+                    data: [
+                        target_rect.origin.x as f32,
+                        target_rect.origin.y as f32,
+                        target_rect.size.width as f32,
+                        target_rect.size.height as f32,
+                        target_index.0 as f32,
+                        blur_radius.0 as f32,
+                        0.0,
+                        0.0,
+                    ]
                 }
             }
         }
@@ -839,6 +1023,7 @@ enum AlphaBatchKind {
     AlignedGradient,
     AngleGradient,
     BoxShadow,
+    CacheImage,
 }
 
 bitflags! {
@@ -918,13 +1103,28 @@ impl AlphaBatchKey {
     }
 }
 
+#[repr(C)]
+#[derive(Debug)]
+pub enum BlurDirection {
+    Horizontal = 0,
+    Vertical,
+}
+
 // All Packed Primitives below must be 16 byte aligned.
+#[derive(Debug)]
+pub struct BlurCommand {
+    task_id: i32,
+    src_task_id: i32,
+    blur_direction: i32,
+    padding: i32,
+}
+
 #[derive(Debug)]
 pub struct CachePrimitiveInstance {
     global_prim_id: i32,
     prim_address: GpuStoreAddress,
     task_id: i32,
-    padding: i32,
+    sub_index: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -963,6 +1163,7 @@ pub enum PrimitiveBatchData {
     AlignedGradient(Vec<PrimitiveInstance>),
     AngleGradient(Vec<PrimitiveInstance>),
     BoxShadow(Vec<PrimitiveInstance>),
+    CacheImage(Vec<PrimitiveInstance>),
     Blend(Vec<PackedBlendPrimitive>),
     Composite(Vec<PackedCompositePrimitive>),
 }
@@ -1050,6 +1251,7 @@ impl PrimitiveBatch {
             AlphaBatchKind::AngleGradient => PrimitiveBatchData::AngleGradient(Vec::new()),
             AlphaBatchKind::BoxShadow => PrimitiveBatchData::BoxShadow(Vec::new()),
             AlphaBatchKind::Blend | AlphaBatchKind::Composite => unreachable!(),
+            AlphaBatchKind::CacheImage => PrimitiveBatchData::CacheImage(Vec::new()),
         };
 
         PrimitiveBatch {
@@ -1382,9 +1584,8 @@ impl ScreenTile {
                     }
 
                     // Add any dynamic render tasks needed to render this primitive
-                    if let Some(ref cache_info) = prim_metadata.cache_info {
-                        let cache_task = RenderTask::new_prim_cache(cache_info, prim_index);
-                        current_task.children.push(cache_task);
+                    if let Some(ref render_task) = prim_metadata.render_task {
+                        current_task.children.push(render_task.clone());
                     }
 
                     actual_prim_count += 1;
@@ -1663,19 +1864,28 @@ impl FrameBuilder {
             return
         }
 
-        // TODO(gw): Use a proper algorithm to select
-        // whether this item should be rendered with
-        // subpixel AA!
-        let render_mode = if self.config.enable_subpixel_aa {
-            FontRenderMode::Subpixel
+        let (render_mode, glyphs_per_run) = if blur_radius == Au(0) {
+            // TODO(gw): Use a proper algorithm to select
+            // whether this item should be rendered with
+            // subpixel AA!
+            let render_mode = if self.config.enable_subpixel_aa {
+                FontRenderMode::Subpixel
+            } else {
+                FontRenderMode::Alpha
+            };
+
+            (render_mode, 8)
         } else {
-            FontRenderMode::Alpha
+            // TODO(gw): Support breaking up text shadow when
+            // the size of the text run exceeds the dimensions
+            // of the render target texture.
+            (FontRenderMode::Alpha, glyph_range.length)
         };
 
-        let text_run_count = (glyph_range.length + 7) / 8;
+        let text_run_count = (glyph_range.length + glyphs_per_run - 1) / glyphs_per_run;
         for run_index in 0..text_run_count {
-            let start = run_index * 8;
-            let end = cmp::min(start + 8, glyph_range.length);
+            let start = run_index * glyphs_per_run;
+            let end = cmp::min(start + glyphs_per_run, glyph_range.length);
             let sub_range = ItemRange {
                 start: glyph_range.start + start,
                 length: end - start,

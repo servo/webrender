@@ -2,14 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use app_units::Au;
 use device::{MAX_TEXTURE_SIZE, TextureId, TextureFilter};
 use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
-use frame::FrameId;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
-use internal_types::{RenderTargetMode, TextureImage, TextureUpdateList};
+use internal_types::{RenderTargetMode, TextureUpdateList};
 use internal_types::{RectUv, DevicePixel, DevicePoint};
 use std::cmp::{self, Ordering};
 use std::collections::HashMap;
@@ -95,10 +93,6 @@ impl TexturePage {
         };
         page.clear();
         page
-    }
-
-    pub fn texture_id(&self) -> TextureId {
-        self.texture_id
     }
 
     fn find_index_of_best_rect_in_bin(&self, bin: FreeListBin, requested_dimensions: &Size2D<u32>)
@@ -490,38 +484,6 @@ impl TextureCacheItem {
             requested_rect: requested_rect,
         }
     }
-
-    pub fn uv_rect(&self) -> RectUv<f32> {
-        let (width, height) = (self.texture_size.width as f32, self.texture_size.height as f32);
-        RectUv {
-            top_left: Point2D::new(self.pixel_rect.top_left.x as f32 / width,
-                                   self.pixel_rect.top_left.y as f32 / height),
-            top_right: Point2D::new(self.pixel_rect.top_right.x as f32 / width,
-                                    self.pixel_rect.top_right.y as f32 / height),
-            bottom_left: Point2D::new(self.pixel_rect.bottom_left.x as f32 / width,
-                                      self.pixel_rect.bottom_left.y as f32 / height),
-            bottom_right: Point2D::new(self.pixel_rect.bottom_right.x as f32 / width,
-                                       self.pixel_rect.bottom_right.y as f32 / height),
-        }
-    }
-
-    pub fn aligned_uv_rect(&self) -> Rect<f32> {
-        let uv = self.uv_rect();
-        Rect::new(Point2D::new(uv.top_left.x, uv.top_left.y),
-                  Size2D::new(uv.bottom_right.x - uv.top_left.x,
-                              uv.bottom_right.y - uv.top_left.y))
-    }
-
-    fn to_image(&self) -> TextureImage {
-        let texture_size = self.texture_size;
-        TextureImage {
-            texture_id: self.texture_id,
-            texel_uv: self.aligned_uv_rect(),
-            pixel_uv:
-                Point2D::new((self.uv_rect().top_left.x * texture_size.width as f32) as u32,
-                             (self.uv_rect().top_left.y * texture_size.height as f32) as u32),
-        }
-    }
 }
 
 struct TextureCacheArena {
@@ -530,7 +492,6 @@ struct TextureCacheArena {
     pages_rgba8: Vec<TexturePage>,
     alternate_pages_a8: Vec<TexturePage>,
     alternate_pages_rgba8: Vec<TexturePage>,
-    //render_target_pages: Vec<TexturePage>,
 }
 
 impl TextureCacheArena {
@@ -561,12 +522,6 @@ impl TextureCacheArena {
 pub struct TextureCache {
     free_texture_ids: Vec<TextureId>,
     free_texture_levels: HashMap<ImageFormat, Vec<FreeTextureLevel>, BuildHasherDefault<FnvHasher>>,
-    alternate_free_texture_levels: HashMap<ImageFormat,
-                                           Vec<FreeTextureLevel>,
-                                           BuildHasherDefault<FnvHasher>>,
-    //render_target_free_texture_levels: HashMap<ImageFormat,
-    //                                           Vec<FreeTextureLevel>,
-    //                                           BuildHasherDefault<FnvHasher>>,
     items: FreeList<TextureCacheItem>,
     arena: TextureCacheArena,
     pending_updates: TextureUpdateList,
@@ -589,7 +544,6 @@ impl TextureCache {
         TextureCache {
             free_texture_ids: free_texture_ids,
             free_texture_levels: HashMap::with_hasher(Default::default()),
-            alternate_free_texture_levels: HashMap::with_hasher(Default::default()),
             items: FreeList::new(),
             pending_updates: TextureUpdateList::new(),
             arena: TextureCacheArena::new(),
@@ -624,7 +578,6 @@ impl TextureCache {
                     requested_width: u32,
                     requested_height: u32,
                     format: ImageFormat,
-                    kind: TextureCacheItemKind,
                     filter: TextureFilter)
                     -> AllocationResult {
         let requested_size = Size2D::new(requested_width, requested_height);
@@ -652,25 +605,12 @@ impl TextureCache {
             }
         }
 
-        let (page_list, mode) = match (format, kind) {
-            (ImageFormat::A8, TextureCacheItemKind::Standard) => {
-                (&mut self.arena.pages_a8, RenderTargetMode::SimpleRenderTarget)
-            }
-            (ImageFormat::A8, TextureCacheItemKind::Alternate) => {
-                (&mut self.arena.alternate_pages_a8, RenderTargetMode::SimpleRenderTarget)
-            }
-            (ImageFormat::RGBA8, TextureCacheItemKind::Standard) => {
-                (&mut self.arena.pages_rgba8, RenderTargetMode::SimpleRenderTarget)
-            }
-            (ImageFormat::RGBA8, TextureCacheItemKind::Alternate) => {
-                (&mut self.arena.alternate_pages_rgba8, RenderTargetMode::SimpleRenderTarget)
-            }
-            (ImageFormat::RGB8, TextureCacheItemKind::Standard) => {
-                (&mut self.arena.pages_rgb8, RenderTargetMode::SimpleRenderTarget)
-            }
-            (ImageFormat::Invalid, TextureCacheItemKind::Standard) |
-            (ImageFormat::RGBAF32, TextureCacheItemKind::Standard) |
-            (_, TextureCacheItemKind::Alternate) => unreachable!(),
+        let mode = RenderTargetMode::SimpleRenderTarget;
+        let page_list = match format {
+            ImageFormat::A8 => &mut self.arena.pages_a8,
+            ImageFormat::RGBA8 => &mut self.arena.pages_rgba8,
+            ImageFormat::RGB8 => &mut self.arena.pages_rgb8,
+            ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
         };
 
         let border_size = 1;
@@ -730,15 +670,7 @@ impl TextureCache {
 
             // We need a new page.
             let texture_size = initial_texture_size();
-            let free_texture_levels_entry = match kind {
-                TextureCacheItemKind::Standard => self.free_texture_levels.entry(format),
-                TextureCacheItemKind::Alternate => {
-                    self.alternate_free_texture_levels.entry(format)
-                }
-                //TextureCacheItemKind::RenderTarget => {
-                //    self.render_target_free_texture_levels.entry(format)
-                //}
-            };
+            let free_texture_levels_entry = self.free_texture_levels.entry(format);
             let mut free_texture_levels = match free_texture_levels_entry {
                 Entry::Vacant(entry) => entry.insert(Vec::new()),
                 Entry::Occupied(entry) => entry.into_mut(),
@@ -810,17 +742,15 @@ impl TextureCache {
                   stride: Option<u32>,
                   format: ImageFormat,
                   filter: TextureFilter,
-                  insert_op: TextureInsertOp) {
+                  bytes: Vec<u8>) {
         let result = self.allocate(image_id,
                                    width,
                                    height,
                                    format,
-                                   TextureCacheItemKind::Standard,
                                    filter);
 
-        let op = match (result.kind, insert_op) {
-            (AllocationKind::TexturePage, TextureInsertOp::Blit(bytes)) => {
-
+        let op = match result.kind {
+            AllocationKind::TexturePage => {
                 let bpp = match format {
                     ImageFormat::A8 => 1,
                     ImageFormat::RGB8 => 3,
@@ -896,45 +826,13 @@ impl TextureCache {
                                         height,
                                         TextureUpdateDetails::Blit(bytes,stride))
             }
-            (AllocationKind::TexturePage,
-             TextureInsertOp::Blur(bytes, glyph_size, blur_radius)) => {
-                let unblurred_glyph_image_id = self.new_item_id();
-                let horizontal_blur_image_id = self.new_item_id();
-                // TODO(pcwalton): Destroy these!
-                self.allocate(unblurred_glyph_image_id,
-                              glyph_size.width, glyph_size.height,
-                              ImageFormat::RGBA8,
-                              TextureCacheItemKind::Standard,
-                              TextureFilter::Linear);
-                self.allocate(horizontal_blur_image_id,
-                              width, height,
-                              ImageFormat::RGBA8,
-                              TextureCacheItemKind::Alternate,
-                              TextureFilter::Linear);
-                let unblurred_glyph_item = self.get(unblurred_glyph_image_id);
-                let horizontal_blur_item = self.get(horizontal_blur_image_id);
-                TextureUpdateOp::Update(
-                    result.item.requested_rect.origin.x,
-                    result.item.requested_rect.origin.y,
-                    width,
-                    height,
-                    TextureUpdateDetails::Blur(bytes,
-                                               glyph_size,
-                                               blur_radius,
-                                               unblurred_glyph_item.to_image(),
-                                               horizontal_blur_item.to_image()))
-            }
-            (AllocationKind::Standalone, TextureInsertOp::Blit(bytes)) => {
+            AllocationKind::Standalone => {
                 TextureUpdateOp::Create(width,
                                         height,
                                         format,
                                         filter,
                                         RenderTargetMode::None,
                                         Some(bytes))
-            }
-            (AllocationKind::Standalone, TextureInsertOp::Blur(_, _, _)) => {
-                println!("ERROR: Can't blur with a standalone texture yet!");
-                return
             }
         };
 
@@ -981,11 +879,6 @@ fn texture_grow_op(texture_size: u32,
                           format,
                           TextureFilter::Linear,
                           mode)
-}
-
-pub enum TextureInsertOp {
-    Blit(Vec<u8>),
-    Blur(Vec<u8>, Size2D<u32>, Au),
 }
 
 trait FitsInside {
@@ -1041,20 +934,3 @@ fn max_texture_size() -> u32 {
         max_hardware_texture_size
     }
 }
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum TextureCacheItemKind {
-    Standard,
-    Alternate,
-    //RenderTarget,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CachedRenderTarget {
-    texture_id: TextureId,
-    width: u32,
-    height: u32,
-    format: ImageFormat,
-    frame_id: FrameId,
-}
-
