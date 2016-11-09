@@ -19,7 +19,6 @@ use std::fmt::Debug;
 use std::hash::BuildHasherDefault;
 use std::hash::Hash;
 use texture_cache::{TextureCache, TextureCacheItemId};
-use texture_cache::{BorderType, TextureInsertOp};
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, DisplayItem, ImageRendering};
 use webrender_traits::{FontRenderMode, GlyphDimensions, PipelineId, WebGLContextId};
 

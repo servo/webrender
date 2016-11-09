@@ -309,7 +309,8 @@ pub struct Renderer {
     // draw intermediate results to cache targets. The results
     // of these shaders are then used by the primitive shaders.
     cs_box_shadow: LazilyCompiledShader,
-    cs_clip: LazilyCompiledShader,
+    cs_clip_rectangle: LazilyCompiledShader,
+    cs_clip_image: LazilyCompiledShader,
     cs_text_run: LazilyCompiledShader,
     cs_blur: LazilyCompiledShader,
 
@@ -432,7 +433,7 @@ impl Renderer {
         let cs_clip_image = LazilyCompiledShader::new(ShaderKind::Cache,
                                                       "cs_clip_image",
                                                       max_cache_instances,
-                                                      TRANSFORM_FEATURE,
+                                                      &[ TRANSFORM_FEATURE ],
                                                       &mut device,
                                                       options.precache_shaders);
         let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache,
@@ -1068,7 +1069,7 @@ impl Renderer {
                                 &projection);
         }
 
-        // Draw the clip items into the tiled alpha mask.        
+        // Draw the clip items into the tiled alpha mask.
         if !target.clip_batcher.is_empty() {
             self.device.set_blend(true);
             self.device.set_blend_mode_multiply();
