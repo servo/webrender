@@ -42,22 +42,6 @@ ClipRect fetch_clip_rect(int index) {
     return rect;
 }
 
-struct ImageMaskData {
-    vec4 uv_rect;
-    vec4 local_rect;
-};
-
-ImageMaskData fetch_mask_data(int index) {
-    ImageMaskData info;
-
-    ivec2 uv = get_fetch_uv_2(index);
-
-    info.uv_rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    info.local_rect = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
-
-    return info;
-}
-
 struct ClipCorner {
     vec4 rect;
     vec4 outer_inner_radius;
@@ -80,7 +64,6 @@ struct ClipData {
     ClipCorner top_right;
     ClipCorner bottom_left;
     ClipCorner bottom_right;
-    ImageMaskData mask_data;
 };
 
 ClipData fetch_clip(int index) {
@@ -91,7 +74,6 @@ ClipData fetch_clip(int index) {
     clip.top_right = fetch_clip_corner(index + 2);
     clip.bottom_left = fetch_clip_corner(index + 3);
     clip.bottom_right = fetch_clip_corner(index + 4);
-    clip.mask_data = fetch_mask_data(index + 5);
 
     return clip;
 }
