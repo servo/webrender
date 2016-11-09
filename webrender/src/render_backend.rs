@@ -7,7 +7,7 @@ use frame::Frame;
 use internal_types::{FontTemplate, GLContextHandleWrapper, GLContextWrapper, ResultMsg, RendererFrame};
 use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
 use profiler::BackendProfileCounters;
-use resource_cache::{DummyResources, ResourceCache};
+use resource_cache::ResourceCache;
 use scene::Scene;
 use std::collections::HashMap;
 use std::fs;
@@ -363,7 +363,6 @@ impl RenderBackend {
 
         self.frame.create(&self.scene,
                           &mut self.resource_cache,
-                          &self.dummy_resources,
                           &mut new_pipeline_sizes,
                           self.device_pixel_ratio);
 
