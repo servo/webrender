@@ -1570,8 +1570,8 @@ impl Device {
 
         assert!(data.len() as u32 == bpp * row_length * height);
 
-        if let Some(stride) = stride {
-          gl::pixel_store_i(gl::UNPACK_ROW_LENGTH, row_length as gl::GLint);
+        if let Some(..) = stride {
+            gl::pixel_store_i(gl::UNPACK_ROW_LENGTH, row_length as gl::GLint);
         }
 
         self.bind_texture(TextureSampler::Color, texture_id);
@@ -1584,8 +1584,8 @@ impl Device {
                                          data);
 
         // Reset row length to 0, otherwise the stride would apply to all texture uploads.
-        if let Some(stride) = stride {
-          gl::pixel_store_i(gl::UNPACK_ROW_LENGTH, 0 as gl::GLint);
+        if let Some(..) = stride {
+            gl::pixel_store_i(gl::UNPACK_ROW_LENGTH, 0 as gl::GLint);
         }
     }
 
