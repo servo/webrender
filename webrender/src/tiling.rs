@@ -62,7 +62,8 @@ trait AlphaBatchHelpers {
                          prim_index: PrimitiveIndex,
                          batch: &mut PrimitiveBatch,
                          layer_index: StackingContextIndex,
-                         task_id: i32,
+                         task_index: i32,
+                         empty_mask_task_index: i32,
                          render_tasks: &RenderTaskCollection,
                          pass_index: RenderPassIndex);
 }
@@ -175,6 +176,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                          batch: &mut PrimitiveBatch,
                          layer_index: StackingContextIndex,
                          task_index: i32,
+                         empty_mask_task_index: i32,
                          render_tasks: &RenderTaskCollection,
                          child_pass_index: RenderPassIndex) {
         let metadata = self.get_metadata(prim_index);
@@ -187,7 +189,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                 let cache_task_index = render_tasks.get_task_index(&cache_task_id, child_pass_index);
                 cache_task_index.0 as i32
             },
-            None => 0, //CLIP TODO: default clip task
+            None => empty_mask_task_index,
         };
 
         match &mut batch.data {
@@ -377,10 +379,11 @@ impl RenderTaskCollection {
         }
     }
 
-    fn add(&mut self, task: &RenderTask, pass: RenderPassIndex) {
+    fn add(&mut self, task: &RenderTask, pass: RenderPassIndex) -> RenderTaskIndex {
         match task.id {
             RenderTaskId::Static(index) => {
                 self.render_task_data[index.0] = task.write_task_data();
+                index
             }
             RenderTaskId::Dynamic(key) => {
                 let index = RenderTaskIndex(self.render_task_data.len());
@@ -395,6 +398,7 @@ impl RenderTaskCollection {
                     },
                 });
                 self.render_task_data.push(task.write_task_data());
+                index
             }
         }
     }
@@ -478,11 +482,11 @@ impl AlphaBatcher {
     fn build(&mut self,
              ctx: &RenderTargetContext,
              render_tasks: &RenderTaskCollection,
+             empty_mask_task_index: i32,
              child_pass_index: RenderPassIndex) {
         let mut batches: Vec<PrimitiveBatch> = vec![];
         for task in &mut self.tasks {
-            let task_index = render_tasks.get_static_task_index(&task.task_id);
-            let task_index = task_index.0 as i32;
+            let task_index = render_tasks.get_static_task_index(&task.task_id).0 as i32;
 
             let mut existing_batch_index = 0;
             for item in task.items.drain(..) {
@@ -569,6 +573,7 @@ impl AlphaBatcher {
                                                          batch,
                                                          sc_index,
                                                          task_index,
+                                                         empty_mask_task_index,
                                                          render_tasks,
                                                          child_pass_index);
                     }
@@ -632,9 +637,11 @@ impl RenderTarget {
     fn build(&mut self,
              ctx: &RenderTargetContext,
              render_tasks: &mut RenderTaskCollection,
+             empty_mask_task_index: i32,
              child_pass_index: RenderPassIndex) {
         self.alpha_batcher.build(ctx,
                                  render_tasks,
+                                 empty_mask_task_index,
                                  child_pass_index);
     }
 
@@ -763,16 +770,28 @@ pub struct RenderPass {
     pass_index: RenderPassIndex,
     pub is_framebuffer: bool,
     tasks: Vec<RenderTask>,
+    empty_mask_task_id: RenderTaskId,
     pub targets: Vec<RenderTarget>,
 }
 
 impl RenderPass {
     fn new(pass_index: isize, is_framebuffer: bool) -> RenderPass {
+        let empty_mask_task = {
+            let dummy_rect = DeviceRect::new(DevicePoint::new(0, 0),
+                                             DeviceSize::new(1, 1));
+            let mask_info = MaskCacheInfo {
+                key: MaskCacheKey::empty(StackingContextIndex(0)), //CLIP TODO?
+                image: None,
+            };
+            RenderTask::new_mask(dummy_rect, &mask_info)
+        };
+        let empty_mask_task_id = empty_mask_task.id;
         RenderPass {
             pass_index: RenderPassIndex(pass_index),
             is_framebuffer: is_framebuffer,
             targets: vec![ RenderTarget::new() ],
-            tasks: Vec::new(),
+            tasks: vec![empty_mask_task],
+            empty_mask_task_id: empty_mask_task_id,
         }
     }
 
@@ -842,9 +861,12 @@ impl RenderPass {
                                                       self.pass_index);
         }
 
+        let empty_mask_task_index = render_tasks.get_task_index(&self.empty_mask_task_id,
+                                                                self.pass_index);
+
         for target in &mut self.targets {
             let child_pass_index = RenderPassIndex(self.pass_index.0 - 1);
-            target.build(ctx, render_tasks, child_pass_index);
+            target.build(ctx, render_tasks, empty_mask_task_index.0 as i32, child_pass_index);
         }
     }
 }
