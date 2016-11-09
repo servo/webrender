@@ -79,6 +79,7 @@ fn main() {
     let resource_path = &args[1];
     let ref dir = args[2];
     let window = glutin::WindowBuilder::new()
+        .with_title("WebRender Replay")
         .with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGl, (3,2)))
         .build()
         .unwrap();
