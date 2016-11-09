@@ -179,7 +179,7 @@ fn main() {
     let clip_region = {
         let rect = Rect::new(Point2D::new(100.0, 100.0), Size2D::new(100.0, 100.0));
         let mask = webrender_traits::ImageMask {
-            image: api.add_image(2, 2, ImageFormat::A8, vec![0,80, 180, 255]),
+            image: api.add_image(2, 2, None, ImageFormat::A8, vec![0,80, 180, 255]),
             rect: rect,
             repeat: false,
         };

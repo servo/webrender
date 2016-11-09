@@ -533,6 +533,7 @@ impl Renderer {
         texture_cache.insert(white_image_id,
                              2,
                              2,
+                             None,
                              ImageFormat::RGBA8,
                              TextureFilter::Linear,
                              TextureInsertOp::Blit(white_pixels),
@@ -542,6 +543,7 @@ impl Renderer {
         texture_cache.insert(dummy_mask_image_id,
                              2,
                              2,
+                             None,
                              ImageFormat::A8,
                              TextureFilter::Linear,
                              TextureInsertOp::Blit(mask_pixels),
@@ -886,12 +888,12 @@ impl Renderer {
                             TextureUpdateDetails::Raw => {
                                 self.device.update_raw_texture(update.id, x, y, width, height);
                             }
-                            TextureUpdateDetails::Blit(bytes) => {
+                            TextureUpdateDetails::Blit(bytes, stride) => {
                                 self.device.update_texture(
                                     update.id,
                                     x,
                                     y,
-                                    width, height,
+                                    width, height, stride,
                                     bytes.as_slice());
                             }
                             TextureUpdateDetails::Blur(bytes,
@@ -908,6 +910,7 @@ impl Renderer {
                                     unblurred_glyph_texture_image.pixel_uv.y,
                                     glyph_size.width,
                                     glyph_size.height,
+                                    None,
                                     bytes.as_slice());
 
                                 let blur_program_id = self.blur_program_id;
