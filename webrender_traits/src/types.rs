@@ -258,19 +258,16 @@ pub enum FontRenderMode {
 pub struct GlyphKey {
     pub font_key: FontKey,
     pub size: Au,
-    pub blur_radius: Au,
     pub index: u32,
 }
 
 impl GlyphKey {
     pub fn new(font_key: FontKey,
                size: Au,
-               blur_radius: Au,
                index: u32) -> GlyphKey {
         GlyphKey {
             font_key: font_key,
             size: size,
-            blur_radius: blur_radius,
             index: index,
         }
     }

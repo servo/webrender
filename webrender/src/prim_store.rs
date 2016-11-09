@@ -6,12 +6,12 @@ use app_units::Au;
 use device::TextureId;
 use euclid::{Point2D, Matrix4D, Rect, Size2D};
 use gpu_store::{GpuStore, GpuStoreAddress};
-use internal_types::{DeviceRect, DeviceSize};
-use renderer::BLUR_INFLATION_FACTOR;
+use internal_types::{device_pixel, DeviceRect, DeviceSize};
 use resource_cache::ResourceCache;
 use std::mem;
 use std::usize;
 use texture_cache::TextureCacheItem;
+use tiling::RenderTask;
 use util::TransformedRect;
 use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering};
 use webrender_traits::{FontRenderMode, WebGLContextId};
@@ -49,12 +49,7 @@ pub struct PrimitiveGeometry {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum PrimitiveCacheKey {
     BoxShadow(BoxShadowPrimitiveCacheKey),
-}
-
-#[derive(Debug)]
-pub struct PrimitiveCacheInfo {
-    pub size: DeviceSize,
-    pub key: PrimitiveCacheKey,
+    TextShadow(PrimitiveIndex),
 }
 
 #[derive(Debug)]
@@ -76,7 +71,15 @@ pub struct PrimitiveMetadata {
     pub gpu_prim_index: GpuStoreAddress,
     pub gpu_data_address: GpuStoreAddress,
     pub gpu_data_count: i32,
-    pub cache_info: Option<PrimitiveCacheInfo>,
+    // An optional render task that is a dependency of
+    // drawing this primitive. For instance, box shadows
+    // use this to draw a portion of the box shadow to
+    // a render target to reduce the number of pixels
+    // that the box-shadow shader needs to run on. For
+    // text-shadow, this creates a render task chain
+    // that implements a 2-pass separable blur on a
+    // text run.
+    pub render_task: Option<RenderTask>,
 }
 
 #[derive(Debug, Clone)]
@@ -418,7 +421,7 @@ impl PrimitiveStore {
                     gpu_prim_index: gpu_address,
                     gpu_data_address: GpuStoreAddress(0),
                     gpu_data_count: 0,
-                    cache_info: None,
+                    render_task: None,
                 };
 
                 metadata
@@ -437,7 +440,7 @@ impl PrimitiveStore {
                     gpu_prim_index: gpu_address,
                     gpu_data_address: gpu_glyphs_address,
                     gpu_data_count: text_cpu.glyph_range.length as i32,
-                    cache_info: None,
+                    render_task: None,
                 };
 
                 self.cpu_text_runs.push(text_cpu);
@@ -456,7 +459,7 @@ impl PrimitiveStore {
                     gpu_prim_index: gpu_address,
                     gpu_data_address: GpuStoreAddress(0),
                     gpu_data_count: 0,
-                    cache_info: None,
+                    render_task: None,
                 };
 
                 self.cpu_images.push(image_cpu);
@@ -475,7 +478,7 @@ impl PrimitiveStore {
                     gpu_prim_index: gpu_address,
                     gpu_data_address: GpuStoreAddress(0),
                     gpu_data_count: 0,
-                    cache_info: None,
+                    render_task: None,
                 };
 
                 self.cpu_borders.push(border_cpu);
@@ -495,7 +498,7 @@ impl PrimitiveStore {
                     gpu_prim_index: gpu_address,
                     gpu_data_address: gpu_stops_address,
                     gpu_data_count: gradient_cpu.stops_range.length as i32,
-                    cache_info: None,
+                    render_task: None,
                 };
 
                 self.cpu_gradients.push(gradient_cpu);
@@ -520,6 +523,17 @@ impl PrimitiveStore {
                                                   Au::from_f32_px(box_shadow_gpu.bs_rect.size.height)),
                 });
 
+                // Create a render task for this box shadow primitive. This renders a small
+                // portion of the box shadow to a render target. That portion is then
+                // stretched over the actual primitive rect by the box shadow primitive
+                // shader, to reduce the number of pixels that the expensive box
+                // shadow shader needs to run on.
+                // TODO(gw): In the future, we can probably merge the box shadow
+                // primitive (stretch) shader with the generic cached primitive shader.
+                let render_task = RenderTask::new_prim_cache(cache_key,
+                                                             cache_size,
+                                                             PrimitiveIndex(prim_index));
+
                 let gpu_prim_address = self.gpu_data64.push(box_shadow_gpu);
                 let gpu_data_address = self.gpu_data16.get_next_address();
 
@@ -533,10 +547,7 @@ impl PrimitiveStore {
                     gpu_prim_index: gpu_prim_address,
                     gpu_data_address: gpu_data_address,
                     gpu_data_count: instance_rects.len() as i32,
-                    cache_info: Some(PrimitiveCacheInfo {
-                        size: cache_size,
-                        key: cache_key,
-                    }),
+                    render_task: Some(render_task),
                 };
 
                 for rect in instance_rects {
@@ -585,7 +596,6 @@ impl PrimitiveStore {
 
                     let texture_id = resource_cache.get_glyphs(text.font_key,
                                                                text.font_size,
-                                                               text.blur_radius,
                                                                &text.glyph_indices,
                                                                text.render_mode, |index, uv0, uv1| {
                         let dest_glyph = &mut dest_glyphs[index];
@@ -742,10 +752,7 @@ impl PrimitiveStore {
                                                                     text.glyph_range.length);
                     let mut glyph_key = GlyphKey::new(text.font_key,
                                                       text.font_size,
-                                                      text.blur_radius,
                                                       src_glyphs[0].index);
-                    let blur_offset = text.blur_radius.to_f32_px() *
-                        (BLUR_INFLATION_FACTOR as f32) / 2.0;
                     let mut local_rect = Rect::zero();
                     let mut actual_glyph_count = 0;
 
@@ -760,8 +767,8 @@ impl PrimitiveStore {
                         // TODO(gw): Check for this and ensure platforms return None in this case!!!
                         debug_assert!(dimensions.width > 0 && dimensions.height > 0);
 
-                        let x = src.x + dimensions.left as f32 / device_pixel_ratio - blur_offset;
-                        let y = src.y - dimensions.top as f32 / device_pixel_ratio - blur_offset;
+                        let x = src.x + dimensions.left as f32 / device_pixel_ratio;
+                        let y = src.y - dimensions.top as f32 / device_pixel_ratio;
 
                         let width = dimensions.width as f32 / device_pixel_ratio;
                         let height = dimensions.height as f32 / device_pixel_ratio;
@@ -782,13 +789,36 @@ impl PrimitiveStore {
                         actual_glyph_count += 1;
                     }
 
+                    // Expand the rectangle of the text run by the blur radius.
+                    let local_rect = local_rect.inflate(text.blur_radius.to_f32_px(),
+                                                        text.blur_radius.to_f32_px());
+
+                    let render_task = if text.blur_radius.0 == 0 {
+                        None
+                    } else {
+                        // This is a text-shadow element. Create a render task that will
+                        // render the text run to a target, and then apply a gaussian
+                        // blur to that text run in order to build the actual primitive
+                        // which will be blitted to the framebuffer.
+                        let cache_width = (local_rect.size.width * self.device_pixel_ratio).ceil() as i32;
+                        let cache_height = (local_rect.size.height * self.device_pixel_ratio).ceil() as i32;
+                        let cache_size = DeviceSize::new(cache_width, cache_height);
+                        let cache_key = PrimitiveCacheKey::TextShadow(prim_index);
+                        let blur_radius = device_pixel(text.blur_radius.to_f32_px(),
+                                                       self.device_pixel_ratio);
+                        Some(RenderTask::new_blur(cache_key,
+                                                  cache_size,
+                                                  blur_radius,
+                                                  prim_index))
+                    };
+
                     metadata.gpu_data_count = actual_glyph_count as i32;
+                    metadata.render_task = render_task;
                     self.gpu_geometry.get_mut(GpuStoreAddress(prim_index.0 as i32)).local_rect = local_rect;
                 }
 
                 resource_cache.request_glyphs(text.font_key,
                                               text.font_size,
-                                              text.blur_radius,
                                               &text.glyph_indices,
                                               text.render_mode);
             }

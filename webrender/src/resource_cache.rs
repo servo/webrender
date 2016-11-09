@@ -12,7 +12,6 @@ use internal_types::FontTemplate;
 use internal_types::{TextureUpdateList, DrawListId, DrawList};
 use platform::font::{FontContext, RasterizedGlyph};
 use rayon::prelude::*;
-use renderer::BLUR_INFLATION_FACTOR;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
@@ -20,7 +19,6 @@ use std::fmt::Debug;
 use std::hash::BuildHasherDefault;
 use std::hash::Hash;
 use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
-use texture_cache::TextureInsertOp;
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, DisplayItem, ImageRendering};
 use webrender_traits::{FontRenderMode, GlyphDimensions, PipelineId, WebGLContextId};
 
@@ -50,11 +48,10 @@ pub struct RenderedGlyphKey {
 impl RenderedGlyphKey {
     pub fn new(font_key: FontKey,
                size: Au,
-               blur_radius: Au,
                index: u32,
                render_mode: FontRenderMode) -> RenderedGlyphKey {
         RenderedGlyphKey {
-            key: GlyphKey::new(font_key, size, blur_radius, index),
+            key: GlyphKey::new(font_key, size, index),
             render_mode: render_mode,
         }
     }
@@ -162,7 +159,6 @@ impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resourc
 struct TextRunResourceRequest {
     key: FontKey,
     size: Au,
-    blur_radius: Au,
     glyph_indices: Vec<u32>,
     render_mode: FontRenderMode,
 }
@@ -311,14 +307,12 @@ impl ResourceCache {
     pub fn request_glyphs(&mut self,
                           key: FontKey,
                           size: Au,
-                          blur_radius: Au,
                           glyph_indices: &[u32],
                           render_mode: FontRenderMode) {
         debug_assert!(self.state == State::AddResources);
         self.pending_requests.push(ResourceRequest::TextRun(TextRunResourceRequest {
             key: key,
             size: size,
-            blur_radius: blur_radius,
             glyph_indices: glyph_indices.to_vec(),
             render_mode: render_mode,
         }));
@@ -336,32 +330,15 @@ impl ResourceCache {
             let result = job.result.expect("Failed to rasterize the glyph?");
             let image_id = if result.width > 0 && result.height > 0 {
                 let image_id = self.texture_cache.new_item_id();
-                let texture_width;
-                let texture_height;
-                let insert_op;
-                match job.glyph_key.key.blur_radius {
-                    Au(0) => {
-                        texture_width = result.width;
-                        texture_height = result.height;
-                        insert_op = TextureInsertOp::Blit(result.bytes);
-                    }
-                    blur_radius => {
-                        let blur_radius_px = f32::ceil(blur_radius.to_f32_px() * self.device_pixel_ratio)
-                            as u32;
-                        texture_width = result.width + blur_radius_px * BLUR_INFLATION_FACTOR;
-                        texture_height = result.height + blur_radius_px * BLUR_INFLATION_FACTOR;
-                        insert_op = TextureInsertOp::Blur(result.bytes,
-                                                          Size2D::new(result.width, result.height),
-                                                          blur_radius);
-                    }
-                }
+                let texture_width = result.width;
+                let texture_height = result.height;
                 self.texture_cache.insert(image_id,
                                           texture_width,
                                           texture_height,
                                           None,
                                           ImageFormat::RGBA8,
                                           TextureFilter::Linear,
-                                          insert_op);
+                                          result.bytes);
                 Some(image_id)
             } else {
                 None
@@ -390,14 +367,12 @@ impl ResourceCache {
     pub fn get_glyphs<F>(&self,
                          font_key: FontKey,
                          size: Au,
-                         blur_radius: Au,
                          glyph_indices: &[u32],
                          render_mode: FontRenderMode,
                          mut f: F) -> TextureId where F: FnMut(usize, Point2D<f32>, Point2D<f32>) {
         debug_assert!(self.state == State::QueryResources);
         let mut glyph_key = RenderedGlyphKey::new(font_key,
                                                   size,
-                                                  blur_radius,
                                                   0,
                                                   render_mode);
         let mut texture_id = TextureId::invalid();
@@ -548,7 +523,7 @@ impl ResourceCache {
                                                       image_template.stride,
                                                       image_template.format,
                                                       filter,
-                                                      TextureInsertOp::Blit(image_template.bytes.clone()));
+                                                      image_template.bytes.clone());
 
                             entry.insert(CachedImageInfo {
                                 texture_cache_id: image_id,
@@ -561,7 +536,6 @@ impl ResourceCache {
                     for glyph_index in &text_run.glyph_indices {
                         let glyph_key = RenderedGlyphKey::new(text_run.key,
                                                               text_run.size,
-                                                              text_run.blur_radius,
                                                               *glyph_index,
                                                               text_run.render_mode);
 

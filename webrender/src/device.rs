@@ -6,7 +6,7 @@ use euclid::Matrix4D;
 use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{PackedVertex, PackedVertexForQuad};
-use internal_types::{PackedVertexForTextureCacheUpdate, RenderTargetMode, TextureSampler};
+use internal_types::{RenderTargetMode, TextureSampler};
 use internal_types::{VertexAttribute, DebugFontVertex, DebugColorVertex};
 //use notify::{self, Watcher};
 use std::collections::HashMap;
@@ -65,7 +65,6 @@ pub enum VertexFormat {
     Rectangles,
     DebugFont,
     DebugColor,
-    RasterOp,
 }
 
 pub trait FileWatcherHandler : Send {
@@ -233,78 +232,6 @@ impl VertexFormat {
                                           false,
                                           vertex_stride as gl::GLint,
                                           0 + vertex_stride * offset);
-            }
-            VertexFormat::RasterOp => {
-                gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
-                gl::enable_vertex_attrib_array(VertexAttribute::ColorRectTL as gl::GLuint);
-                gl::enable_vertex_attrib_array(VertexAttribute::ColorTexCoordRectTop as
-                                               gl::GLuint);
-                gl::enable_vertex_attrib_array(VertexAttribute::BorderRadii as gl::GLuint);
-                gl::enable_vertex_attrib_array(VertexAttribute::BorderPosition as gl::GLuint);
-                gl::enable_vertex_attrib_array(VertexAttribute::BlurRadius as gl::GLuint);
-                gl::enable_vertex_attrib_array(VertexAttribute::DestTextureSize as gl::GLuint);
-                gl::enable_vertex_attrib_array(VertexAttribute::SourceTextureSize as gl::GLuint);
-                gl::enable_vertex_attrib_array(VertexAttribute::Misc as gl::GLuint);
-
-                self.set_divisors(0);
-
-                let vertex_stride = mem::size_of::<PackedVertexForTextureCacheUpdate>() as
-                    gl::GLuint;
-
-                gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint,
-                                          2,
-                                          gl::FLOAT,
-                                          false,
-                                          vertex_stride as gl::GLint,
-                                          0);
-                gl::vertex_attrib_pointer(VertexAttribute::ColorRectTL as gl::GLuint,
-                                          4,
-                                          gl::UNSIGNED_BYTE,
-                                          true,
-                                          vertex_stride as gl::GLint,
-                                          8);
-                gl::vertex_attrib_pointer(VertexAttribute::ColorTexCoordRectTop as gl::GLuint,
-                                          2,
-                                          gl::UNSIGNED_SHORT,
-                                          true,
-                                          vertex_stride as gl::GLint,
-                                          12);
-                gl::vertex_attrib_pointer(VertexAttribute::BorderRadii as gl::GLuint,
-                                          4,
-                                          gl::FLOAT,
-                                          false,
-                                          vertex_stride as gl::GLint,
-                                          16);
-                gl::vertex_attrib_pointer(VertexAttribute::BorderPosition as gl::GLuint,
-                                          4,
-                                          gl::FLOAT,
-                                          false,
-                                          vertex_stride as gl::GLint,
-                                          32);
-                gl::vertex_attrib_pointer(VertexAttribute::DestTextureSize as gl::GLuint,
-                                          2,
-                                          gl::FLOAT,
-                                          false,
-                                          vertex_stride as gl::GLint,
-                                          48);
-                gl::vertex_attrib_pointer(VertexAttribute::SourceTextureSize as gl::GLuint,
-                                          2,
-                                          gl::FLOAT,
-                                          false,
-                                          vertex_stride as gl::GLint,
-                                          56);
-                gl::vertex_attrib_pointer(VertexAttribute::BlurRadius as gl::GLuint,
-                                          1,
-                                          gl::FLOAT,
-                                          false,
-                                          vertex_stride as gl::GLint,
-                                          64);
-                gl::vertex_attrib_pointer(VertexAttribute::Misc as gl::GLuint,
-                                          4,
-                                          gl::UNSIGNED_BYTE,
-                                          false,
-                                          vertex_stride as gl::GLint,
-                                          68);
             }
         }
     }
