@@ -913,15 +913,15 @@ impl AlphaBatchKey {
         self.kind == other.kind &&
             self.flags == other.flags &&
             self.blend_mode == other.blend_mode &&
-            (!self.textures.colors[0].is_valid() || !other.textures.colors[0].is_valid() ||
-                 self.textures.colors[0] == other.textures.colors[0]) &&
-            (!self.textures.colors[1].is_valid() || !other.textures.colors[1].is_valid() ||
-                 self.textures.colors[1] == other.textures.colors[1]) &&
-            (!self.textures.colors[2].is_valid() || !other.textures.colors[2].is_valid() ||
-                 self.textures.colors[2] == other.textures.colors[2]) &&
-            (!self.textures.mask.is_valid() || !other.textures.mask.is_valid() ||
-                 self.textures.mask == other.textures.mask)
+            textures_compatible(self.textures.colors[0], other.textures.colors[0]) &&
+            textures_compatible(self.textures.colors[1], other.textures.colors[1]) &&
+            textures_compatible(self.textures.colors[2], other.textures.colors[2]) &&
+            textures_compatible(self.textures.mask, other.textures.mask)
     }
+}
+
+fn textures_compatible(t1: TextureId, t2: TextureId) -> bool {
+    !t1.is_valid() || !t2.is_valid() || t1 == t2
 }
 
 // All Packed Primitives below must be 16 byte aligned.
