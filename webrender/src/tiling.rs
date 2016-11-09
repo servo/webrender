@@ -278,11 +278,11 @@ impl AlphaBatchHelpers for PrimitiveStore {
                                                                    child_pass_index);
 
                 data.push(PrimitiveInstance {
-                    task_id: task_id,
+                    task_index: task_index,
+                    clip_task_index: clip_task_index,
                     layer_index: layer_index,
                     global_prim_id: global_prim_id,
                     prim_address: prim_address,
-                    clip_address: clip_address,
                     sub_index: 0,
                     user_data: [ cache_task_index.0 as i32, 0 ],
                 });
@@ -673,8 +673,6 @@ impl RenderTarget {
             alpha_batcher: AlphaBatcher::new(),
             clip_batcher: ClipBatcher::new(),
             box_shadow_cache_prims: Vec::new(),
-            clip_rectangles: Vec::new(),
-            clip_images: HashMap::new(),
             text_run_cache_prims: Vec::new(),
             text_run_textures: BatchTextures::no_texture(),
             vertical_blurs: Vec::new(),
@@ -920,8 +918,8 @@ pub struct AlphaRenderTask {
     items: Vec<AlphaRenderItem>,
 }
 
-#[derive(Debug)]
-struct CacheMaskTask {
+#[derive(Debug, Clone)]
+pub struct CacheMaskTask {
     actual_rect: DeviceRect,
     image: Option<ImageKey>,
 }
@@ -1789,8 +1787,7 @@ impl FrameBuilder {
             debug: debug,
             packed_layers: Vec::new(),
             scrollbar_prims: Vec::new(),
-            clip_stack: ClipRegionStack::new(device_pixel_ratio,
-                                             dummy_mask_texture_id),
+            clip_stack: ClipRegionStack::new(device_pixel_ratio),
             config: config,
         }
     }
