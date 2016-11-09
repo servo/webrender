@@ -51,7 +51,6 @@ varying vec3 vClipMaskUv;
 uniform sampler2D sLayers;
 uniform sampler2D sRenderTasks;
 uniform sampler2D sPrimGeometry;
-uniform sampler2D sClips;
 
 uniform sampler2D sData16;
 uniform sampler2D sData32;
@@ -352,77 +351,6 @@ Primitive load_primitive(int index) {
     prim.user_data = pi.user_data;
 
     return prim;
-}
-
-struct ClipRect {
-    vec4 rect;
-    vec4 dummy;
-};
-
-ClipRect fetch_clip_rect(int index) {
-    ClipRect rect;
-
-    ivec2 uv = get_fetch_uv_2(index);
-
-    rect.rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    //rect.dummy = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
-    rect.dummy = vec4(0.0, 0.0, 0.0, 0.0);
-
-    return rect;
-}
-
-struct ImageMaskData {
-    vec4 uv_rect;
-    vec4 local_rect;
-};
-
-ImageMaskData fetch_mask_data(int index) {
-    ImageMaskData info;
-
-    ivec2 uv = get_fetch_uv_2(index);
-
-    info.uv_rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    info.local_rect = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
-
-    return info;
-}
-
-struct ClipCorner {
-    vec4 rect;
-    vec4 outer_inner_radius;
-};
-
-ClipCorner fetch_clip_corner(int index) {
-    ClipCorner corner;
-
-    ivec2 uv = get_fetch_uv_2(index);
-
-    corner.rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    corner.outer_inner_radius = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
-
-    return corner;
-}
-
-struct ClipData {
-    ClipRect rect;
-    ClipCorner top_left;
-    ClipCorner top_right;
-    ClipCorner bottom_left;
-    ClipCorner bottom_right;
-    ImageMaskData mask_data;
-};
-
-ClipData fetch_clip(int index) {
-    ClipData clip;
-
-    clip.rect = fetch_clip_rect(index + 0);
-    clip.top_left = fetch_clip_corner(index + 1);
-    clip.top_right = fetch_clip_corner(index + 2);
-    clip.bottom_left = fetch_clip_corner(index + 3);
-    clip.bottom_right = fetch_clip_corner(index + 4);
-    clip.mask_data = fetch_mask_data(index + 5);
-
-    return clip;
 }
 
 // Return the intersection of the plane (set up by "normal" and "point")
