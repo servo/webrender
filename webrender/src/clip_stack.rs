@@ -26,6 +26,19 @@ pub struct MaskCacheKey {
     pub image: Option<GpuStoreAddress>,
 }
 
+impl MaskCacheKey {
+    pub fn empty(layer_id: StackingContextIndex) -> MaskCacheKey {
+        MaskCacheKey {
+            layer_id: layer_id,
+            clip_range: ClipAddressRange {
+                start: GpuStoreAddress(0),
+                count: 0,
+            },
+            image: None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct MaskCacheInfo {
     pub key: MaskCacheKey,
@@ -72,17 +85,11 @@ impl ClipRegionStack {
                     clip_store: &mut GpuStore<GpuBlock32>,
                     aux_lists: &AuxiliaryLists)
                     -> Option<MaskCacheInfo> {
-        let mut clip_key = MaskCacheKey {
-            layer_id: match self.current_layer_id {
-                Some(lid) => lid,
-                None => return None,
-            },
-            clip_range: ClipAddressRange {
-                start: GpuStoreAddress(0),
-                count: 0,
-            },
-            image: None,
-        };
+        let mut clip_key = MaskCacheKey::empty(match self.current_layer_id {
+            Some(lid) => lid,
+            None => return None,
+        });
+
         let image = match source {
             &PrimitiveClipSource::NoClip => None,
             &PrimitiveClipSource::Complex(rect, radius) => {
@@ -113,6 +120,7 @@ impl ClipRegionStack {
                 region.image_mask
             },
         };
+
         if clip_key.clip_range.count != 0 ||
            clip_key.image.is_some() {
             Some(MaskCacheInfo {
