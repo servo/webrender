@@ -267,13 +267,7 @@ fn create_prim_shader(name: &'static str,
         prefix.push_str(&format!("#define WR_FEATURE_{}\n", feature));
     }
 
-    let includes_base = ["prim_shared"];
-    let includes_clip = ["prim_shared", "clip_shared"];
-    let includes: &[&str] = if name.contains("_clip") {
-        &includes_clip
-    } else {
-        &includes_base
-    };
+    let includes = &["prim_shared"];
     let program_id = device.create_program_with_prefix(name,
                                                        includes,
                                                        Some(prefix));
