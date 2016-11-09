@@ -8,7 +8,7 @@ use internal_types::{FontTemplate, GLContextHandleWrapper, GLContextWrapper};
 use internal_types::{SourceTexture, ResultMsg, RendererFrame};
 use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
 use profiler::BackendProfileCounters;
-use resource_cache::ResourceCache;
+use resource_cache::{DummyResources, ResourceCache};
 use scene::Scene;
 use std::collections::HashMap;
 use std::fs;
@@ -36,7 +36,7 @@ pub struct RenderBackend {
     next_namespace_id: IdNamespace,
 
     resource_cache: ResourceCache,
-    dummy_resources: DummyResources,
+    _dummy_resources: DummyResources,
 
     scene: Scene,
     frame: Frame,
@@ -78,7 +78,7 @@ impl RenderBackend {
             result_tx: result_tx,
             device_pixel_ratio: device_pixel_ratio,
             resource_cache: resource_cache,
-            dummy_resources: dummy_resources,
+            _dummy_resources: dummy_resources,
             scene: Scene::new(),
             frame: Frame::new(debug, config),
             next_namespace_id: IdNamespace(1),
