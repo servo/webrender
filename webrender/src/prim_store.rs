@@ -11,7 +11,6 @@ use internal_types::{device_pixel, DeviceRect, DeviceSize, SourceTexture};
 use resource_cache::ResourceCache;
 use std::mem;
 use std::usize;
-use texture_cache::TextureCacheItem;
 use tiling::RenderTask;
 use util::TransformedRect;
 use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering};
