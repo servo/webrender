@@ -8,7 +8,7 @@ use internal_types::{FontTemplate, GLContextHandleWrapper, GLContextWrapper};
 use internal_types::{SourceTexture, ResultMsg, RendererFrame};
 use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
 use profiler::BackendProfileCounters;
-use resource_cache::{DummyResources, ResourceCache};
+use resource_cache::ResourceCache;
 use scene::Scene;
 use std::collections::HashMap;
 use std::fs;
