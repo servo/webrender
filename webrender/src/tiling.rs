@@ -572,6 +572,54 @@ impl AlphaBatcher {
     }
 }
 
+pub struct ClipBatcher {
+    pub rectangles: Vec<CacheClipInstance>,
+    pub images: HashMap<TextureId, Vec<CacheClipInstance>>,
+}
+
+impl ClipBatcher {
+    fn new() -> ClipBatcher {
+        ClipBatcher {
+            rectangles: Vec::new(),
+            images: HashMap::new(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rectangles.is_empty() && self.images.is_empty()
+    }
+
+    fn add(&mut self,
+           task_index: i32,
+           key: &MaskCacheKey,
+           task_info: &CacheMaskTask,
+           resource_cache: &ResourceCache) {
+        // TODO: cull clipping instances to their tiles
+        // TODO: don't draw clipping instances covering the whole tile
+        self.rectangles.extend((0 .. key.clip_range.count as usize)
+                       .map(|region_id| {
+            CacheClipInstance {
+                task_id: task_index,
+                layer_index: key.layer_id.0 as i32,
+                address: GpuStoreAddress(key.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * region_id) as i32)),
+                pad: 0,
+            }
+        }));
+        if let (Some(address), Some(mask_key)) = (key.image, task_info.image) {
+            let cache_item = resource_cache.get_image(mask_key, ImageRendering::Auto);
+            self.images.entry(cache_item.texture_id)
+                        .or_insert(Vec::new())
+                        .push(CacheClipInstance {
+                task_id: task_index,
+                layer_index: key.layer_id.0 as i32,
+                address: address,
+                pad: 0,
+            })
+        }
+    }
+}
+
+
 struct CompileTileContext<'a> {
     layer_store: &'a [StackingContext],
     prim_store: &'a PrimitiveStore,
@@ -588,8 +636,8 @@ struct RenderTargetContext<'a> {
 /// A render target represents a number of rendering operations on a surface.
 pub struct RenderTarget {
     pub alpha_batcher: AlphaBatcher,
+    pub clip_batcher: ClipBatcher,
     pub box_shadow_cache_prims: Vec<CachePrimitiveInstance>,
-    pub clip_cache_items: HashMap<TextureId, Vec<CacheClipInstance>>,
     // List of text runs to be cached to this render target.
     // TODO(gw): For now, assume that these all come from
     //           the same source texture id. This is almost
@@ -610,6 +658,7 @@ impl RenderTarget {
     fn new() -> RenderTarget {
         RenderTarget {
             alpha_batcher: AlphaBatcher::new(),
+            clip_batcher: ClipBatcher::new(),
             box_shadow_cache_prims: Vec::new(),
             clip_rectangles: Vec::new(),
             clip_images: HashMap::new(),
@@ -722,27 +771,8 @@ impl RenderTarget {
                     RenderTaskId::Dynamic(RenderTaskKey::CacheMask(ref key)) => key,
                     _ => unreachable!()
                 };
-                let task_id = render_tasks.get_task_index(&task.id, pass_index).0 as i32;
-                self.clip_rectangles.extend((0 .. key.clip_range.count as usize)
-                                    .map(|region_id| {
-                    CacheClipInstance {
-                        task_id: task_id,
-                        layer_index: key.layer_id.0 as i32,
-                        address: GpuStoreAddress(key.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * region_id) as i32)),
-                        pad: 0,
-                    }
-                }));
-                if let (Some(address), Some(mask_key)) = (key.image, task_info.image) {
-                    let cache_item = ctx.resource_cache.get_image(mask_key, ImageRendering::Auto);
-                    self.clip_images.entry(cache_item.texture_id)
-                                    .or_insert(Vec::new())
-                                    .push(CacheClipInstance {
-                        task_id: task_id,
-                        layer_index: key.layer_id.0 as i32,
-                        address: address,
-                        pad: 0,
-                    })
-                }
+                let task_index = render_tasks.get_task_index(&task.id, pass_index).0 as i32;
+                self.clip_batcher.add(task_index, key, task_info, ctx.resource_cache);
             }
         }
     }
