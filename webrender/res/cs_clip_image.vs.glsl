@@ -25,6 +25,22 @@ CacheClipInstance fetch_clip_item(int index) {
     return cci;
 }
 
+struct ImageMaskData {
+    vec4 uv_rect;
+    vec4 local_rect;
+};
+
+ImageMaskData fetch_mask_data(int index) {
+    ImageMaskData info;
+
+    ivec2 uv = get_fetch_uv_2(index);
+
+    info.uv_rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
+    info.local_rect = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
+
+    return info;
+}
+
 void main(void) {
     CacheClipInstance cci = fetch_clip_item(gl_InstanceID);
     Tile tile = fetch_tile(cci.render_task_index);
