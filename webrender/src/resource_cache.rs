@@ -435,12 +435,6 @@ impl ResourceCache {
     }
 
     #[inline]
-    pub fn get_image_by_cache_id(&self, texture_cache_id: TextureCacheItemId)
-                                 -> &TextureCacheItem {
-        self.texture_cache.get(texture_cache_id)
-    }
-
-    #[inline]
     pub fn get_webgl_texture(&self, context_id: &WebGLContextId) -> CacheItem {
         let webgl_texture = &self.webgl_textures[context_id];
         CacheItem {

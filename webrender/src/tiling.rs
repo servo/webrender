@@ -24,7 +24,7 @@ use prim_store::{PrimitiveCacheKey, TextRunPrimitiveGpu, TextRunPrimitiveCpu};
 use prim_store::{PrimitiveStore, GpuBlock16, GpuBlock32, GpuBlock64, GpuBlock128};
 use profiler::FrameProfileCounters;
 use renderer::BlendMode;
-use resource_cache::{DummyResources, ResourceCache};
+use resource_cache::ResourceCache;
 use std::cmp;
 use std::collections::{HashMap};
 use std::f32;
@@ -498,7 +498,7 @@ impl AlphaBatcher {
                         let layer = &ctx.layer_store[sc_index.0];
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
                         let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
-                        let needs_clipping = prim_metadata.clip_index.is_some();
+                        let needs_clipping = prim_metadata.clip_cache_info.is_some(); //CLIP TODO: remove
                         let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                              !prim_metadata.is_opaque ||
                                              needs_clipping;
@@ -1490,7 +1490,6 @@ pub struct FrameBuilder {
     prim_store: PrimitiveStore,
     cmds: Vec<PrimitiveRunCmd>,
     device_pixel_ratio: f32,
-    dummy_resources: DummyResources,
     debug: bool,
     config: FrameBuilderConfig,
 
@@ -1686,7 +1685,7 @@ impl ScreenTile {
                         // If an opaque primitive covers a tile entirely, we can discard
                         // all primitives underneath it.
                         if layer.xf_rect.as_ref().unwrap().kind == TransformedRectKind::AxisAligned &&
-                           prim_metadata.clip_index.is_none() &&
+                           prim_metadata.clip_cache_info.is_none() &&
                            prim_metadata.is_opaque &&
                            prim_bounding_rect.as_ref().unwrap().contains_rect(&self.rect) {
                             current_task.as_alpha_batch().items.clear();
@@ -1726,7 +1725,6 @@ impl ScreenTile {
 impl FrameBuilder {
     pub fn new(viewport_size: Size2D<f32>,
                device_pixel_ratio: f32,
-               dummy_resources: DummyResources,
                debug: bool,
                config: FrameBuilderConfig) -> FrameBuilder {
         let viewport_size = Size2D::new(viewport_size.width as i32, viewport_size.height as i32);
@@ -1736,7 +1734,6 @@ impl FrameBuilder {
             prim_store: PrimitiveStore::new(device_pixel_ratio),
             cmds: Vec::new(),
             device_pixel_ratio: device_pixel_ratio,
-            dummy_resources: dummy_resources,
             debug: debug,
             packed_layers: Vec::new(),
             scrollbar_prims: Vec::new(),
@@ -2170,10 +2167,6 @@ impl FrameBuilder {
         // TODO(gw): Remove this stack once the layers refactor is done!
         let mut layer_stack: Vec<StackingContextIndex> = Vec::new();
 
-        let dummy_mask_cache_item = {
-            let opaque_mask_id = self.dummy_resources.opaque_mask_image_id;
-            resource_cache.get_image_by_cache_id(opaque_mask_id).clone()
-        };
         self.clip_stack.reset();
 
         for cmd in &self.cmds {
@@ -2266,7 +2259,6 @@ impl FrameBuilder {
                                                                        resource_cache,
                                                                        &mut self.clip_stack,
                                                                        self.device_pixel_ratio,
-                                                                       &dummy_mask_cache_item,
                                                                        auxiliary_lists) {
                                 self.prim_store.build_bounding_rect(prim_index,
                                                                     screen_rect,
