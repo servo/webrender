@@ -15,7 +15,8 @@ float gauss(float x, float sigma) {
 }
 
 void main(void) {
-    vec4 color = texture(sCache, vUv) * gauss(0.0, vSigma);
+    vec4 sample = texture(sCache, vUv);
+    vec4 color = vec4(sample.rgb * sample.a, sample.a) * gauss(0.0, vSigma);
 
     for (int i=1 ; i < vBlurRadius ; ++i) {
         vec2 offset = vec2(float(i)) * vOffsetScale;
@@ -33,7 +34,7 @@ void main(void) {
     }
 
     // Unpremultiply the alpha.
-    color = vec4(color.rgb / color.a, color.a);
+    color.rgb /= color.a;
 
     oFragColor = color;
 }

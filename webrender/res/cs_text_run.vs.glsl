@@ -26,8 +26,8 @@ void main(void) {
     vec2 st1 = glyph.uv_rect.zw / texture_size;
 
     vec2 pos = mix(local_rect.xy,
-    			   local_rect.xy + local_rect.zw,
-    			   aPosition.xy);
+                   local_rect.xy + local_rect.zw,
+                   aPosition.xy);
 	vUv = mix(st0, st1, aPosition.xy);
 	vColor = text.color;
 

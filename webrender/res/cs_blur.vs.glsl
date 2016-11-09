@@ -17,35 +17,28 @@ void main(void) {
     vec4 local_rect = task.data0;
 
     vec2 pos = mix(local_rect.xy,
-    			   local_rect.xy + local_rect.zw,
-    			   aPosition.xy);
+                   local_rect.xy + local_rect.zw,
+                   aPosition.xy);
 
     vec2 texture_size = textureSize(sCache, 0).xy;
     vUv.z = src_task.data1.x;
     vBlurRadius = int(task.data1.y);
     vSigma = task.data1.y * 0.5;
 
-    vec4 src_rect;
-    vec2 uv0, uv1;
-
     switch (cmd.dir) {
         case DIR_HORIZONTAL:
             vOffsetScale = vec2(1.0 / texture_size.x, 0.0);
-            vUvRect = vec4(src_task.data0.xy, src_task.data0.xy + src_task.data0.zw);
-            uv0 = src_task.data0.xy;
-            uv1 = src_task.data0.xy + src_task.data0.zw;
             break;
         case DIR_VERTICAL:
             vOffsetScale = vec2(0.0, 1.0 / texture_size.y);
-            vUvRect = vec4(src_task.data0.xy, src_task.data0.xy + src_task.data0.zw);
-            uv0 = src_task.data0.xy;
-            uv1 = src_task.data0.xy + src_task.data0.zw;
             break;
     }
 
-    uv0 /= texture_size;
-    uv1 /= texture_size;
+    vUvRect = vec4(src_task.data0.xy, src_task.data0.xy + src_task.data0.zw);
     vUvRect /= texture_size.xyxy;
+
+    vec2 uv0 = src_task.data0.xy / texture_size;
+    vec2 uv1 = (src_task.data0.xy + src_task.data0.zw) / texture_size;
     vUv.xy = mix(uv0, uv1, aPosition.xy);
 
     gl_Position = uTransform * vec4(pos, 0.0, 1.0);
