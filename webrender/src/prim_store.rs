@@ -18,7 +18,7 @@ use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering};
 use webrender_traits::{ClipRegion, ComplexClipRegion, ItemRange, GlyphKey};
 use webrender_traits::{FontKey, FontRenderMode, WebGLContextId};
 
-pub const CLIP_DATA_GPU_SIZE: usize = 6;
+pub const CLIP_DATA_GPU_SIZE: usize = 5;
 pub const MASK_DATA_GPU_SIZE: usize = 1;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -247,7 +247,6 @@ pub struct ClipData {
     top_right: ClipCorner,
     bottom_left: ClipCorner,
     bottom_right: ClipCorner,
-    mask_data: ImageMaskData, //CLIP TODO: remove this
 }
 
 impl ClipData {
@@ -292,10 +291,6 @@ impl ClipData {
                 inner_radius_x: 0.0,
                 inner_radius_y: 0.0,
             },
-            mask_data: ImageMaskData {
-                uv_rect: Rect::zero(),
-                local_rect: Rect::zero(),
-            },
         }
     }
 
@@ -325,10 +320,6 @@ impl ClipData {
                                                         Size2D::new(radius, radius)),
                                               radius,
                                               0.0),
-            mask_data: ImageMaskData {
-                uv_rect: Rect::zero(),
-                local_rect: Rect::zero(),
-            },
         }
     }
 }
@@ -389,7 +380,6 @@ impl PrimitiveStore {
         data[2] = GpuBlock32::from(clip.top_right);
         data[3] = GpuBlock32::from(clip.bottom_left);
         data[4] = GpuBlock32::from(clip.bottom_right);
-        data[5] = GpuBlock32::from(clip.mask_data);
     }
 
     pub fn add_primitive(&mut self,
@@ -574,15 +564,6 @@ impl PrimitiveStore {
             if let &PrimitiveClipSource::Region(ClipRegion { image_mask: Some(ref mask), .. }) = metadata.clip_source.as_ref() {
                 let tex_cache = resource_cache.get_image(mask.image, ImageRendering::Auto);
                 metadata.mask_texture_id = tex_cache.texture_id;
-                if let Some(address) = metadata.clip_index {
-                    let clip_data = self.gpu_data32.get_slice_mut(address, CLIP_DATA_GPU_SIZE);
-                    clip_data[5] = GpuBlock32::from(ImageMaskData {
-                        uv_rect: Rect::new(tex_cache.uv0,
-                                           Size2D::new(tex_cache.uv1.x - tex_cache.uv0.x,
-                                                       tex_cache.uv1.y - tex_cache.uv0.y)),
-                        local_rect: mask.rect,
-                    });
-                }
             }
 
             if let Some(MaskCacheInfo{ key: MaskCacheKey { image: Some(gpu_address), .. }, image: Some(ref mask) }) = metadata.clip_cache_info {
