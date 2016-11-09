@@ -4,6 +4,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 void main(void) {
-    float a = texture(sDiffuse, vUv).a;
+    float a = texture(sColor0, vUv).a;
     oFragColor = vec4(vColor.rgb, vColor.a * a);
 }

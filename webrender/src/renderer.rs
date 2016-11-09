@@ -18,7 +18,7 @@ use fnv::FnvHasher;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePoint};
-use internal_types::{TextureSampler, GLContextHandleWrapper};
+use internal_types::{BatchTextures, TextureSampler, GLContextHandleWrapper};
 use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
@@ -1025,8 +1025,7 @@ impl Renderer {
             self.draw_ubo_batch(&target.vertical_blurs,
                                 shader,
                                 1,
-                                TextureId::invalid(),
-                                TextureId::invalid(),
+                                &BatchTextures::no_texture(),
                                 max_blurs,
                                 &projection);
         }
@@ -1040,8 +1039,7 @@ impl Renderer {
             self.draw_ubo_batch(&target.horizontal_blurs,
                                 shader,
                                 1,
-                                TextureId::invalid(),
-                                TextureId::invalid(),
+                                &BatchTextures::no_texture(),
                                 max_blurs,
                                 &projection);
         }
@@ -1077,8 +1075,7 @@ impl Renderer {
             self.draw_ubo_batch(&target.text_run_cache_prims,
                                 shader,
                                 1,
-                                target.text_run_color_texture_id,
-                                TextureId::invalid(),
+                                &target.text_run_textures,
                                 max_cache_instances,
                                 &projection);
         }
@@ -1111,8 +1108,7 @@ impl Renderer {
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
-                                        color_texture_id,
-                                        mask_texture_id,
+                                        &batch.key.textures,
                                         max_prim_items,
                                         &projection);
                 }

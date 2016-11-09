@@ -582,7 +582,7 @@ pub struct RenderTarget {
     //           cache changes land, this restriction will
     //           be removed anyway.
     pub text_run_cache_prims: Vec<CachePrimitiveInstance>,
-    pub text_run_color_texture_id: TextureId,
+    pub text_run_textures: BatchTextures,
     // List of blur operations to apply for this render target.
     pub vertical_blurs: Vec<BlurCommand>,
     pub horizontal_blurs: Vec<BlurCommand>,
@@ -595,7 +595,7 @@ impl RenderTarget {
             alpha_batcher: AlphaBatcher::new(),
             box_shadow_cache_prims: Vec::new(),
             text_run_cache_prims: Vec::new(),
-            text_run_color_texture_id: TextureId::invalid(),
+            text_run_textures: BatchTextures::no_texture(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
             page_allocator: TexturePage::new(TextureId::invalid(), RENDERABLE_CACHE_SIZE as u32),
@@ -671,11 +671,15 @@ impl RenderTarget {
                         // TODO(gw): This should always be fine for now, since the texture
                         // atlas grows to 4k. However, it won't be a problem soon, once
                         // we switch the texture atlas to use texture layers!
-                        let color_texture_id = ctx.prim_store.get_texture_id(prim_metadata);
-                        debug_assert!(color_texture_id != TextureId::invalid());
-                        debug_assert!(self.text_run_color_texture_id == TextureId::invalid() ||
-                                      self.text_run_color_texture_id == color_texture_id);
-                        self.text_run_color_texture_id = color_texture_id;
+                        let textures = BatchTextures {
+                            colors: ctx.prim_store.get_color_textures(prim_metadata),
+                            mask: prim_metadata.mask_texture_id,
+                        };
+
+                        debug_assert!(textures.colors[0] != TextureId::invalid());
+                        debug_assert!(self.text_run_textures.colors[0] == TextureId::invalid() ||
+                                      self.text_run_textures.colors[0] == textures.colors[0]);
+                        self.text_run_textures = textures;
 
                         for glyph_index in 0..prim_metadata.gpu_data_count {
                             self.text_run_cache_prims.push(CachePrimitiveInstance {
