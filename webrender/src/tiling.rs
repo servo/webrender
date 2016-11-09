@@ -2194,8 +2194,7 @@ impl FrameBuilder {
 
                     self.clip_stack.push_layer(sc_index,
                                                &packed_layer.transform,
-                                               &scroll_layer.combined_local_viewport_rect,
-                                               None);
+                                               &scroll_layer.combined_local_viewport_rect);
 
                     if !layer.can_contribute_to_scene() {
                         continue;

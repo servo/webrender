@@ -20,7 +20,7 @@ void main(void) {
 #endif
 
     //alpha = min(alpha, do_clip(local_pos));
-    alpha = min(alpha, do_clip_ext());
+    alpha = min(alpha, do_clip());
 
     // We calculate the particular tile this fragment belongs to, taking into
     // account the spacing in between tiles. We only paint if our fragment does
