@@ -54,12 +54,6 @@ const COALESCING_TIMEOUT_CHECKING_INTERVAL: usize = 256;
 
 pub type TextureCacheItemId = FreeListItemId;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum BorderType {
-    _NoBorder,
-    SinglePixel,
-}
-
 #[inline]
 fn copy_pixels(src: &[u8],
                target: &mut Vec<u8>,
@@ -631,7 +625,6 @@ impl TextureCache {
                     requested_height: u32,
                     format: ImageFormat,
                     kind: TextureCacheItemKind,
-                    border_type: BorderType,
                     filter: TextureFilter)
                     -> AllocationResult {
         let requested_size = Size2D::new(requested_width, requested_height);
@@ -680,10 +673,7 @@ impl TextureCache {
             (_, TextureCacheItemKind::Alternate) => unreachable!(),
         };
 
-        let border_size = match border_type {
-            BorderType::_NoBorder => 0,
-            BorderType::SinglePixel => 1,
-        };
+        let border_size = 1;
         let allocation_size = Size2D::new(requested_width + border_size * 2,
                                           requested_height + border_size * 2);
 
@@ -820,92 +810,85 @@ impl TextureCache {
                   stride: Option<u32>,
                   format: ImageFormat,
                   filter: TextureFilter,
-                  insert_op: TextureInsertOp,
-                  border_type: BorderType) {
+                  insert_op: TextureInsertOp) {
         let result = self.allocate(image_id,
                                    width,
                                    height,
                                    format,
                                    TextureCacheItemKind::Standard,
-                                   border_type,
                                    filter);
 
         let op = match (result.kind, insert_op) {
             (AllocationKind::TexturePage, TextureInsertOp::Blit(bytes)) => {
 
-                match border_type {
-                    BorderType::_NoBorder => {}
-                    BorderType::SinglePixel => {
-                        let bpp = match format {
-                            ImageFormat::A8 => 1,
-                            ImageFormat::RGB8 => 3,
-                            ImageFormat::RGBA8 => 4,
-                            ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
-                        };
+                let bpp = match format {
+                    ImageFormat::A8 => 1,
+                    ImageFormat::RGB8 => 3,
+                    ImageFormat::RGBA8 => 4,
+                    ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
+                };
 
-                        let mut top_row_bytes = Vec::new();
-                        let mut bottom_row_bytes = Vec::new();
-                        let mut left_column_bytes = Vec::new();
-                        let mut right_column_bytes = Vec::new();
+                let mut top_row_bytes = Vec::new();
+                let mut bottom_row_bytes = Vec::new();
+                let mut left_column_bytes = Vec::new();
+                let mut right_column_bytes = Vec::new();
 
-                        copy_pixels(&bytes, &mut top_row_bytes, 0, 0, 1, width, bpp);
-                        copy_pixels(&bytes, &mut top_row_bytes, 0, 0, width, width, bpp);
-                        copy_pixels(&bytes, &mut top_row_bytes, width-1, 0, 1, width, bpp);
+                copy_pixels(&bytes, &mut top_row_bytes, 0, 0, 1, width, bpp);
+                copy_pixels(&bytes, &mut top_row_bytes, 0, 0, width, width, bpp);
+                copy_pixels(&bytes, &mut top_row_bytes, width-1, 0, 1, width, bpp);
 
-                        copy_pixels(&bytes, &mut bottom_row_bytes, 0, height-1, 1, width, bpp);
-                        copy_pixels(&bytes, &mut bottom_row_bytes, 0, height-1, width, width, bpp);
-                        copy_pixels(&bytes, &mut bottom_row_bytes, width-1, height-1, 1, width, bpp);
+                copy_pixels(&bytes, &mut bottom_row_bytes, 0, height-1, 1, width, bpp);
+                copy_pixels(&bytes, &mut bottom_row_bytes, 0, height-1, width, width, bpp);
+                copy_pixels(&bytes, &mut bottom_row_bytes, width-1, height-1, 1, width, bpp);
 
-                        for y in 0..height {
-                            copy_pixels(&bytes, &mut left_column_bytes, 0, y, 1, width, bpp);
-                            copy_pixels(&bytes, &mut right_column_bytes, width-1, y, 1, width, bpp);
-                        }
-
-                        let border_update_op_top = TextureUpdate {
-                            id: result.item.texture_id,
-                            op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x,
-                                                        result.item.allocated_rect.origin.y,
-                                                        result.item.allocated_rect.size.width,
-                                                        1,
-                                                        TextureUpdateDetails::Blit(top_row_bytes, None))
-                        };
-
-                        let border_update_op_bottom = TextureUpdate {
-                            id: result.item.texture_id,
-                            op: TextureUpdateOp::Update(
-                                result.item.allocated_rect.origin.x,
-                                result.item.allocated_rect.origin.y +
-                                    result.item.requested_rect.size.height + 1,
-                                result.item.allocated_rect.size.width,
-                                1,
-                                TextureUpdateDetails::Blit(bottom_row_bytes, None))
-                        };
-
-                        let border_update_op_left = TextureUpdate {
-                            id: result.item.texture_id,
-                            op: TextureUpdateOp::Update(
-                                result.item.allocated_rect.origin.x,
-                                result.item.requested_rect.origin.y,
-                                1,
-                                result.item.requested_rect.size.height,
-                                TextureUpdateDetails::Blit(left_column_bytes, None))
-                        };
-
-                        let border_update_op_right = TextureUpdate {
-                            id: result.item.texture_id,
-                            op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x + result.item.requested_rect.size.width + 1,
-                                                        result.item.requested_rect.origin.y,
-                                                        1,
-                                                        result.item.requested_rect.size.height,
-                                                        TextureUpdateDetails::Blit(right_column_bytes, None))
-                        };
-
-                        self.pending_updates.push(border_update_op_top);
-                        self.pending_updates.push(border_update_op_bottom);
-                        self.pending_updates.push(border_update_op_left);
-                        self.pending_updates.push(border_update_op_right);
-                    }
+                for y in 0..height {
+                    copy_pixels(&bytes, &mut left_column_bytes, 0, y, 1, width, bpp);
+                    copy_pixels(&bytes, &mut right_column_bytes, width-1, y, 1, width, bpp);
                 }
+
+                let border_update_op_top = TextureUpdate {
+                    id: result.item.texture_id,
+                    op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x,
+                                                result.item.allocated_rect.origin.y,
+                                                result.item.allocated_rect.size.width,
+                                                1,
+                                                TextureUpdateDetails::Blit(top_row_bytes, stride))
+                };
+
+                let border_update_op_bottom = TextureUpdate {
+                    id: result.item.texture_id,
+                    op: TextureUpdateOp::Update(
+                        result.item.allocated_rect.origin.x,
+                        result.item.allocated_rect.origin.y +
+                            result.item.requested_rect.size.height + 1,
+                        result.item.allocated_rect.size.width,
+                        1,
+                        TextureUpdateDetails::Blit(bottom_row_bytes, stride))
+                };
+
+                let border_update_op_left = TextureUpdate {
+                    id: result.item.texture_id,
+                    op: TextureUpdateOp::Update(
+                        result.item.allocated_rect.origin.x,
+                        result.item.requested_rect.origin.y,
+                        1,
+                        result.item.requested_rect.size.height,
+                        TextureUpdateDetails::Blit(left_column_bytes, stride))
+                };
+
+                let border_update_op_right = TextureUpdate {
+                    id: result.item.texture_id,
+                    op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x + result.item.requested_rect.size.width + 1,
+                                                result.item.requested_rect.origin.y,
+                                                1,
+                                                result.item.requested_rect.size.height,
+                                                TextureUpdateDetails::Blit(right_column_bytes, stride))
+                };
+
+                self.pending_updates.push(border_update_op_top);
+                self.pending_updates.push(border_update_op_bottom);
+                self.pending_updates.push(border_update_op_left);
+                self.pending_updates.push(border_update_op_right);
 
                 TextureUpdateOp::Update(result.item.requested_rect.origin.x,
                                         result.item.requested_rect.origin.y,
@@ -922,13 +905,11 @@ impl TextureCache {
                               glyph_size.width, glyph_size.height,
                               ImageFormat::RGBA8,
                               TextureCacheItemKind::Standard,
-                              BorderType::SinglePixel,
                               TextureFilter::Linear);
                 self.allocate(horizontal_blur_image_id,
                               width, height,
                               ImageFormat::RGBA8,
                               TextureCacheItemKind::Alternate,
-                              BorderType::SinglePixel,
                               TextureFilter::Linear);
                 let unblurred_glyph_item = self.get(unblurred_glyph_image_id);
                 let horizontal_blur_item = self.get(horizontal_blur_image_id);
@@ -941,8 +922,7 @@ impl TextureCache {
                                                glyph_size,
                                                blur_radius,
                                                unblurred_glyph_item.to_image(),
-                                               horizontal_blur_item.to_image(),
-                                               BorderType::SinglePixel))
+                                               horizontal_blur_item.to_image()))
             }
             (AllocationKind::Standalone, TextureInsertOp::Blit(bytes)) => {
                 TextureUpdateOp::Create(width,

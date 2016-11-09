@@ -18,7 +18,6 @@ use std::hash::BuildHasherDefault;
 use std::i32;
 use std::path::PathBuf;
 use std::sync::Arc;
-use texture_cache::BorderType;
 use tiling;
 use webrender_traits::{Epoch, ColorF, PipelineId};
 use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem};
@@ -220,18 +219,6 @@ impl PackedColor {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct WorkVertex {
-    pub x: f32,
-    pub y: f32,
-    pub r: f32,
-    pub g: f32,
-    pub b: f32,
-    pub a: f32,
-    pub u: f32,
-    pub v: f32,
-}
-
-#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct PackedVertexForQuad {
     pub x: f32,
@@ -268,15 +255,6 @@ pub struct PackedVertexForQuad {
 #[repr(C)]
 pub struct PackedVertex {
     pub pos: [f32; 2],
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-pub struct FontVertex {
-    pub x: f32,
-    pub y: f32,
-    pub s: f32,
-    pub t: f32,
 }
 
 #[derive(Debug)]
@@ -327,7 +305,7 @@ pub enum RenderTargetMode {
 pub enum TextureUpdateDetails {
     Raw,
     Blit(Vec<u8>, Option<u32>),
-    Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage, BorderType),
+    Blur(Vec<u8>, Size2D<u32>, Au, TextureImage, TextureImage),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -437,34 +415,12 @@ impl FreeListItem for DrawList {
     }
 }
 
-#[derive(Clone, Copy, Debug, Ord, PartialOrd, PartialEq, Eq)]
-pub struct DrawListItemIndex(pub u32);
-
-#[derive(Clone, Copy, Debug)]
-pub struct RectPolygon<Varyings> {
-    pub pos: Rect<f32>,
-    pub varyings: Varyings,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct RectColors {
-    pub top_left: ColorF,
-    pub top_right: ColorF,
-    pub bottom_right: ColorF,
-    pub bottom_left: ColorF,
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct RectUv<T, U = UnknownUnit> {
     pub top_left: TypedPoint2D<T, U>,
     pub top_right: TypedPoint2D<T, U>,
     pub bottom_left: TypedPoint2D<T, U>,
     pub bottom_right: TypedPoint2D<T, U>,
-}
-
-#[derive(Clone, Debug)]
-pub struct PolygonPosColorUv {
-    pub vertices: Vec<WorkVertex>,
 }
 
 #[derive(Debug, Clone)]
