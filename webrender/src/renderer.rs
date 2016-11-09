@@ -1101,22 +1101,22 @@ impl Renderer {
                                 &projection);
         }
 
-        // Draw the clip items into the tiled alpha mask.
-        if !target.clip_rectangles.is_empty() || !target.clip_images.is_empty() {
+        // Draw the clip items into the tiled alpha mask.        
+        if !target.clip_batcher.is_empty() {
             self.device.set_blend(true);
             self.device.set_blend_mode_multiply();
             self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
             let max_prim_items = self.max_cache_instances;
-            if !target.clip_rectangles.is_empty() {
+            if !target.clip_batcher.rectangles.is_empty() {
                 let shader = self.cs_clip_rectangle.get(&mut self.device);
-                self.draw_ubo_batch(&target.clip_rectangles,
+                self.draw_ubo_batch(&target.clip_batcher.rectangles,
                                     shader,
                                     1,
                                     TextureId::invalid(),
                                     max_prim_items,
                                     &projection);
             }
-            for (&mask_texture_id, items) in target.clip_images.iter() {
+            for (&mask_texture_id, items) in target.clip_batcher.images.iter() {
                 self.device.bind_texture(TextureSampler::Mask, mask_texture_id);
                 let shader = self.cs_clip_image.get(&mut self.device);
                 self.draw_ubo_batch(items,
