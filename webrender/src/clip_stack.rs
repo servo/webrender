@@ -8,7 +8,7 @@ use gpu_store::{GpuStore, GpuStoreAddress};
 use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
 use tiling::StackingContextIndex;
-use util::{TransformedRect, TransformedRectKind};
+use util::TransformedRect;
 use webrender_traits::{AuxiliaryLists, ImageMask};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -39,8 +39,7 @@ pub struct MaskCacheInfo {
 
 struct LayerInfo {
     world_transform: Matrix4D<f32>,
-    transformed_rect: TransformedRect,
-    mask_image: Option<ImageMask>,
+    _transformed_rect: TransformedRect,
     //mask_texture_id: TextureId,
     parent_id: Option<StackingContextIndex>,
 }
@@ -66,19 +65,6 @@ impl ClipRegionStack {
         self.layers.clear();
         self.image_masks.clear();
         self.current_layer_id = None;
-    }
-
-    fn need_mask(&self) -> bool {
-        let mut layer_id = self.current_layer_id;
-        while let Some(lid) = layer_id {
-            let layer = &self.layers[&lid];
-            if layer.transformed_rect.kind == TransformedRectKind::Complex ||
-               layer.mask_image.is_some() {
-                return true
-            }
-            layer_id = layer.parent_id;
-        }
-        false
     }
 
     pub fn generate(&mut self,
@@ -127,8 +113,7 @@ impl ClipRegionStack {
                 region.image_mask
             },
         };
-        if self.need_mask() ||
-           clip_key.clip_range.count != 0 ||
+        if clip_key.clip_range.count != 0 ||
            clip_key.image.is_some() {
             Some(MaskCacheInfo {
                 key: clip_key,
@@ -142,9 +127,8 @@ impl ClipRegionStack {
     pub fn push_layer(&mut self,
                       sc_index: StackingContextIndex,
                       local_transform: &Matrix4D<f32>,
-                      rect: &Rect<f32>,
-                      mask_image: Option<ImageMask>) {
-                      //CLIP TODO: -> Option<MaskCacheInfo> ?
+                      rect: &Rect<f32>) {
+
         let (world_transform, transformed_rect) = {
             let indentity_transform = Matrix4D::identity();
             let current_transform = match self.current_layer_id {
@@ -160,8 +144,7 @@ impl ClipRegionStack {
 
         self.layers.insert(sc_index, LayerInfo {
             world_transform: world_transform,
-            transformed_rect: transformed_rect,
-            mask_image: mask_image,
+            _transformed_rect: transformed_rect,
             parent_id: self.current_layer_id,
         });
 

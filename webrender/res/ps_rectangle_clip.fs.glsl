@@ -11,6 +11,6 @@ void main(void) {
 #endif
 
     //alpha = min(alpha, do_clip(local_pos));
-    alpha = min(alpha, do_clip_ext());
+    alpha = min(alpha, do_clip());
     oFragColor = vColor * vec4(1, 1, 1, alpha);
 }

@@ -36,6 +36,8 @@
 
 uniform sampler2DArray sCache;
 
+varying vec3 vClipMaskUv;
+
 #ifdef WR_VERTEX_SHADER
 
 #define VECS_PER_LAYER             13
@@ -676,7 +678,13 @@ Composite fetch_composite(int index) {
 
     return composite;
 }
-#endif
+
+void write_clip(vec2 global_pos, Tile tile) {
+    vec2 texture_size = textureSize(sCache, 0).xy;
+    vec2 uv = global_pos + tile.screen_origin_task_origin.zw - tile.screen_origin_task_origin.xy;
+    vClipMaskUv = vec3(uv / texture_size, tile.size_target_index.z);
+}
+#endif //WR_VERTEX_SHADER
 
 #ifdef WR_FRAGMENT_SHADER
 float distance_from_rect(vec2 p, vec2 origin, vec2 size) {
@@ -696,4 +704,8 @@ vec2 init_transform_fs(vec3 local_pos, vec4 local_rect, out float fragment_alpha
 
     return pos;
 }
-#endif
+
+float do_clip() {
+    return 1.0 - textureLod(sCache, vClipMaskUv, 0).a;
+}
+#endif //WR_FRAGMENT_SHADER
