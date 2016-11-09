@@ -109,6 +109,7 @@ fn main() {
     let res_path = &args[1];
 
     let window = glutin::WindowBuilder::new()
+                .with_title("WebRender Sample")
                 .with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGl, (3, 2)))
                 .build()
                 .unwrap();
