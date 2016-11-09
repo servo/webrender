@@ -23,8 +23,11 @@ serde = "0.8"
 serde_derive = {version = "0.8", optional = true}
 ipc-channel = "0.6"
 
-[target.x86_64-apple-darwin.dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.4"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+dwrote = {git = "https://github.com/vvuk/dwrote-rs"}
 
 [build-dependencies.serde_codegen]
 version = "0.8"
