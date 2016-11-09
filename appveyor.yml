@@ -1,10 +1,10 @@
 environment:
-  PATH: '%PATH%;C:\msys64\mingw64\bin;C:\Rust\bin'
+  PATH: 'C:\msys64\mingw64\bin;C:\msys64\usr\bin;%PATH%;C:\Rust\bin'
 
 install:
   - ps: Start-FileDownload "https://static.rust-lang.org/dist/rust-nightly-x86_64-pc-windows-gnu.msi"
   - msiexec /passive /i "rust-nightly-x86_64-pc-windows-gnu.msi" ADDLOCAL=Rustc,Cargo,Std INSTALLDIR=C:\Rust
-  - C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm mingw-w64-x86_64-freetype"
+  - bash -lc "pacman -S --noconfirm mingw-w64-x86_64-freetype mingw-w64-x86_64-cmake"
   - rustc -V
   - cargo -V
 
