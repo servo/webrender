@@ -220,6 +220,13 @@ impl SourceTexture {
             SourceTexture::Id(_) => { false }
         }
     }
+
+    pub fn to_external(&self) -> Option<ExternalImageKey> {
+        match *self {
+            SourceTexture::External(key) => Some(key),
+            SourceTexture::Id(_) => None,
+        }
+    }
 }
 
 /// Optional textures that can be used as a source in the shaders.

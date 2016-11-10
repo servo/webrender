@@ -13,7 +13,7 @@ use std::usize;
 use texture_cache::TextureCacheItem;
 use tiling::RenderTask;
 use util::TransformedRect;
-use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering};
+use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ExternalImageKey, ImageRendering};
 use webrender_traits::{FontRenderMode, WebGLContextId};
 use webrender_traits::{ClipRegion, FontKey, ItemRange, ComplexClipRegion, GlyphKey};
 
@@ -90,7 +90,6 @@ pub struct RectanglePrimitive {
 #[derive(Debug)]
 pub enum ImagePrimitiveKind {
     Image(ImageKey, ImageRendering, Size2D<f32>),
-    ExternalImage(ImageRendering, Size2D<f32>),
     WebGL(WebGLContextId),
 }
 
@@ -347,6 +346,9 @@ pub struct PrimitiveStore {
     pub cpu_gradients: Vec<GradientPrimitiveCpu>,
     pub cpu_metadata: Vec<PrimitiveMetadata>,
     pub cpu_borders: Vec<BorderPrimitiveCpu>,
+    // the indices witihin gpu_data_32 of the image primitives to be resolved by
+    // the renderer instead of the render backend.
+    pub deferred_image_primitives: Vec<(ExternalImageKey, GpuStoreAddress)>,
 
     // Gets uploaded directly to GPU via vertex texture
     pub gpu_geometry: GpuStore<PrimitiveGeometry>,
@@ -376,6 +378,7 @@ impl PrimitiveStore {
             gpu_data128: GpuStore::new(),
             device_pixel_ratio: device_pixel_ratio,
             prims_to_resolve: Vec::new(),
+            deferred_image_primitives: Vec::new(),
         }
     }
 
@@ -611,12 +614,11 @@ impl PrimitiveStore {
                 }
                 PrimitiveKind::Image => {
                     let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
-                    // If the image primitive uses externally allocated textures, it
-                    // is already resolved and doesn't not use the resource cache.
-                    // TODO(nical): choose whether to use the source texture or the kind
-                    // to differentiate between external and regular images, and stick to
-                    // it more concistently.
-                    if !image_cpu.color_texture_id.is_external() {
+                    if let Some(key) = image_cpu.color_texture_id.to_external() {
+                        // If the image primitive uses externally allocated textures,
+                        // we resolve it on the renderer.
+                        self.deferred_image_primitives.push((key, metadata.gpu_prim_index));
+                    } else {
                         let image_gpu: &mut ImagePrimitiveGpu = unsafe {
                             mem::transmute(self.gpu_data32.get_mut(metadata.gpu_prim_index))
                         };
@@ -626,9 +628,6 @@ impl PrimitiveStore {
                             }
                             ImagePrimitiveKind::WebGL(context_id) => {
                                 resource_cache.get_webgl_texture(&context_id)
-                            }
-                            ImagePrimitiveKind::ExternalImage(..) => {
-                                panic!("image_cpu.color_texture_id should have been external");
                             }
                         };
 
@@ -850,7 +849,6 @@ impl PrimitiveStore {
                                                  tile_spacing.width == 0.0 &&
                                                  tile_spacing.height == 0.0;
                         }
-                        ImagePrimitiveKind::ExternalImage(..) => {}
                         ImagePrimitiveKind::WebGL(..) => {}
                     }
                 }
