@@ -586,6 +586,7 @@ impl AlphaBatcher {
 }
 
 pub struct ClipBatcher {
+    pub clears: Vec<ClearTile>,
     pub rectangles: Vec<CacheClipInstance>,
     pub images: HashMap<TextureId, Vec<CacheClipInstance>>,
 }
@@ -593,13 +594,10 @@ pub struct ClipBatcher {
 impl ClipBatcher {
     fn new() -> ClipBatcher {
         ClipBatcher {
+            clears: Vec::new(),
             rectangles: Vec::new(),
             images: HashMap::new(),
         }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.rectangles.is_empty() && self.images.is_empty()
     }
 
     fn add(&mut self,
@@ -609,6 +607,9 @@ impl ClipBatcher {
            resource_cache: &ResourceCache) {
         // TODO: cull clipping instances to their tiles
         // TODO: don't draw clipping instances covering the whole tile
+        self.clears.push(ClearTile {
+            rect: task_info.actual_rect,
+        });
         self.rectangles.extend((0 .. key.clip_range.count as usize)
                        .map(|region_id| {
             CacheClipInstance {
@@ -807,18 +808,24 @@ impl RenderPass {
         let empty_mask_task = {
             let dummy_rect = DeviceRect::new(DevicePoint::new(0, 0),
                                              DeviceSize::new(1, 1));
-            let mask_info = MaskCacheInfo {
-                key: MaskCacheKey::empty(StackingContextIndex(0)), //CLIP TODO?
-                image: None,
-            };
-            RenderTask::new_mask(dummy_rect, &mask_info)
+            let mask_key = MaskCacheKey::empty(StackingContextIndex(0)); //CLIP TODO?
+            RenderTask {
+                id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(mask_key)),
+                children: Vec::new(),
+                location: RenderTaskLocation::Dynamic(None, dummy_rect.size),
+                kind: RenderTaskKind::CacheMask(CacheMaskTask {
+                    actual_rect: dummy_rect,
+                    clipped_rect: dummy_rect,
+                    image: None,
+                })
+            }
         };
         let empty_mask_task_id = empty_mask_task.id;
         RenderPass {
             pass_index: RenderPassIndex(pass_index),
             is_framebuffer: is_framebuffer,
             targets: vec![ RenderTarget::new() ],
-            tasks: vec![empty_mask_task],
+            tasks: vec![ empty_mask_task ],
             empty_mask_task_id: empty_mask_task_id,
         }
     }
@@ -921,6 +928,7 @@ pub struct AlphaRenderTask {
 #[derive(Debug, Clone)]
 pub struct CacheMaskTask {
     actual_rect: DeviceRect,
+    clipped_rect: DeviceRect,
     image: Option<ImageKey>,
 }
 
@@ -970,17 +978,22 @@ impl RenderTask {
         }
     }
 
-    fn new_mask(actual_rect: DeviceRect, cache_info: &MaskCacheInfo) -> RenderTask {
+    fn new_mask(actual_rect: DeviceRect, cache_info: &MaskCacheInfo) -> Option<RenderTask> {
+        let intersection = match actual_rect.intersection(&cache_info.device_rect) {
+            Some(rect) => rect,
+            None => return None,
+        };
         let size = DeviceSize::new(SCREEN_TILE_SIZE, SCREEN_TILE_SIZE);
-        RenderTask {
+        Some(RenderTask {
             id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(cache_info.key)),
             children: Vec::new(),
             location: RenderTaskLocation::Dynamic(None, size),
             kind: RenderTaskKind::CacheMask(CacheMaskTask {
                 actual_rect: actual_rect,
+                clipped_rect: intersection,
                 image: cache_info.image.map(|mask| mask.image),
             }),
-        }
+        })
     }
 
     // Construct a render task to apply a blur to a primitive. For now,
@@ -1744,8 +1757,9 @@ impl ScreenTile {
 
                     // Add a task to render the updated image mask
                     if let Some(ref clip_info) = prim_metadata.clip_cache_info {
-                        let mask_task = RenderTask::new_mask(self.rect, clip_info);
-                        current_task.children.push(mask_task);
+                        if let Some(mask_task) = RenderTask::new_mask(self.rect, clip_info) {
+                            current_task.children.push(mask_task);
+                        }
                     }
 
                     // Add any dynamic render tasks needed to render this primitive

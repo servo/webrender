@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use euclid::{Rect, Matrix4D};
 use gpu_store::{GpuStore, GpuStoreAddress};
+use internal_types::DeviceRect;
 use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
 use tiling::StackingContextIndex;
@@ -46,6 +47,7 @@ pub struct MaskCacheInfo {
     // ResourceCache allocates/load the actual data
     // will be simplified after the TextureCache upgrade
     pub image: Option<ImageMask>,
+    pub device_rect: DeviceRect,
     // Vec<layer transforms>
     // Vec<layer mask images>
 }
@@ -53,7 +55,7 @@ pub struct MaskCacheInfo {
 struct LayerInfo {
     world_transform: Matrix4D<f32>,
     _transformed_rect: TransformedRect,
-    //mask_texture_id: TextureId,
+    local_rect: Rect<f32>,
     parent_id: Option<StackingContextIndex>,
 }
 
@@ -89,6 +91,8 @@ impl ClipRegionStack {
             Some(lid) => lid,
             None => return None,
         });
+        let layer = &self.layers[&clip_key.layer_id];
+        let mut local_rect = Some(layer.local_rect);
 
         let image = match source {
             &PrimitiveClipSource::NoClip => None,
@@ -99,8 +103,9 @@ impl ClipRegionStack {
                 PrimitiveStore::populate_clip_data(slice, data);
                 clip_key.clip_range.count = 1;
                 clip_key.clip_range.start = address;
+                local_rect = local_rect.and_then(|r| r.intersection(&rect));
                 None
-            },
+            }
             &PrimitiveClipSource::Region(ref region) => {
                 let clips = aux_lists.complex_clip_regions(&region.complex);
                 if !clips.is_empty() {
@@ -109,23 +114,29 @@ impl ClipRegionStack {
                     for (clip, chunk) in clips.iter().zip(slice.chunks_mut(CLIP_DATA_GPU_SIZE)) {
                         let data = ClipData::from_clip_region(clip);
                         PrimitiveStore::populate_clip_data(chunk, data);
+                        local_rect = local_rect.and_then(|r| r.intersection(&clip.rect));
                     }
                     clip_key.clip_range.count = clips.len() as u32;
                     clip_key.clip_range.start = address;
                 }
-                if region.image_mask.is_some() {
+                if let Some(ref mask) = region.image_mask {
                     let address = clip_store.alloc(MASK_DATA_GPU_SIZE);
                     clip_key.image = Some(address);
+                    local_rect = local_rect.and_then(|r| r.intersection(&mask.rect));
                 }
                 region.image_mask
-            },
+            }
         };
 
-        if clip_key.clip_range.count != 0 ||
-           clip_key.image.is_some() {
+        if clip_key.clip_range.count != 0 || clip_key.image.is_some() {
+            let rect = local_rect.unwrap_or(Rect::zero());
+            let transformed = TransformedRect::new(&rect,
+                                                   &layer.world_transform,
+                                                   self.device_pixel_ratio);
             Some(MaskCacheInfo {
                 key: clip_key,
                 image: image,
+                device_rect: transformed.bounding_rect,
             })
         } else {
             None
@@ -153,6 +164,7 @@ impl ClipRegionStack {
         self.layers.insert(sc_index, LayerInfo {
             world_transform: world_transform,
             _transformed_rect: transformed_rect,
+            local_rect: rect.clone(),
             parent_id: self.current_layer_id,
         });
 
