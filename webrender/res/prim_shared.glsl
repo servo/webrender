@@ -634,6 +634,6 @@ vec2 init_transform_fs(vec3 local_pos, vec4 local_rect, out float fragment_alpha
 }
 
 float do_clip() {
-    return 1.0 - textureLod(sCache, vClipMaskUv, 0).a;
+    return textureLod(sCache, vClipMaskUv, 0).a;
 }
 #endif //WR_FRAGMENT_SHADER

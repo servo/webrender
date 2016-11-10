@@ -79,6 +79,7 @@ ClipData fetch_clip(int index) {
 }
 
 void main(void) {
+    //TODO: cover the whole target rect
     CacheClipInstance cci = fetch_clip_item(gl_InstanceID);
     Tile tile = fetch_tile(cci.render_task_index);
     Layer layer = fetch_layer(cci.layer_index);
