@@ -36,6 +36,7 @@
 
 uniform sampler2DArray sCache;
 
+flat varying vec4 vClipMaskUvBounds;
 varying vec3 vClipMaskUv;
 
 #ifdef WR_VERTEX_SHADER
@@ -513,6 +514,34 @@ TransformVertexInfo write_transform_vertex(vec4 instance_rect,
     return TransformVertexInfo(layer_pos.xyw, clamped_pos, clipped_local_rect);
 }
 
+//TODO: move to a separate header?
+// The transformed vertex function that always covers the whole tile with the primitive
+TransformVertexInfo write_clip_tile_vertex(vec4 local_clip_rect,
+                                           Layer layer,
+                                           Tile tile) {
+    vec2 lp0_base = local_clip_rect.xy;
+    vec2 lp1_base = local_clip_rect.xy + local_clip_rect.zw;
+
+    vec2 lp0 = clamp_rect(lp0_base, layer.local_clip_rect);
+    vec2 lp1 = clamp_rect(lp1_base, layer.local_clip_rect);
+    vec4 clipped_local_rect = vec4(lp0, lp1 - lp0);
+
+    // always cover the whole tile
+    // compute the device space position of this vertex
+    vec2 clamped_pos = tile.screen_origin_task_origin.xy +
+                       tile.size_target_index.xy * aPosition.xy;
+
+    // compute the point position in side the layer, in CSS space
+    vec4 layer_pos = get_layer_pos(clamped_pos / uDevicePixelRatio, layer);
+
+    // apply the task offset
+    vec2 final_pos = clamped_pos + tile.screen_origin_task_origin.zw - tile.screen_origin_task_origin.xy;
+
+    gl_Position = uTransform * vec4(final_pos, 0, 1);
+
+    return TransformVertexInfo(layer_pos.xyw, clamped_pos, clipped_local_rect);
+}
+
 #endif //WR_FEATURE_TRANSFORM
 
 struct Rectangle {
@@ -610,6 +639,9 @@ Composite fetch_composite(int index) {
 void write_clip(vec2 global_pos, Tile tile) {
     vec2 texture_size = textureSize(sCache, 0).xy;
     vec2 uv = global_pos + tile.screen_origin_task_origin.zw - tile.screen_origin_task_origin.xy;
+    vClipMaskUvBounds = vec4(tile.screen_origin_task_origin.zw,
+                             tile.screen_origin_task_origin.zw + tile.size_target_index.xy)
+                             / texture_size.xyxy;
     vClipMaskUv = vec3(uv / texture_size, tile.size_target_index.z);
 }
 #endif //WR_VERTEX_SHADER
@@ -634,6 +666,10 @@ vec2 init_transform_fs(vec3 local_pos, vec4 local_rect, out float fragment_alpha
 }
 
 float do_clip() {
-    return textureLod(sCache, vClipMaskUv, 0).a;
+    // anything outside of the mask is considered transparent
+    bvec4 inside = lessThanEqual(
+        vec4(vClipMaskUvBounds.xy, vClipMaskUv.xy),
+        vec4(vClipMaskUv.xy, vClipMaskUvBounds.zw));
+    return all(inside) ? textureLod(sCache, vClipMaskUv, 0).a : 0.0;
 }
 #endif //WR_FRAGMENT_SHADER

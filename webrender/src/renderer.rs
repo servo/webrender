@@ -309,6 +309,7 @@ pub struct Renderer {
     // draw intermediate results to cache targets. The results
     // of these shaders are then used by the primitive shaders.
     cs_box_shadow: LazilyCompiledShader,
+    cs_clip_clear: LazilyCompiledShader,
     cs_clip_rectangle: LazilyCompiledShader,
     cs_clip_image: LazilyCompiledShader,
     cs_text_run: LazilyCompiledShader,
@@ -420,6 +421,12 @@ impl Renderer {
 
         let cs_box_shadow = LazilyCompiledShader::new(ShaderKind::Cache,
                                                       "cs_box_shadow",
+                                                      max_cache_instances,
+                                                      &[],
+                                                      &mut device,
+                                                      options.precache_shaders);
+        let cs_clip_clear = LazilyCompiledShader::new(ShaderKind::Cache,
+                                                      "cs_clip_clear",
                                                       max_cache_instances,
                                                       &[],
                                                       &mut device,
@@ -667,6 +674,7 @@ impl Renderer {
             device_pixel_ratio: options.device_pixel_ratio,
             tile_clear_shader: tile_clear_shader,
             cs_box_shadow: cs_box_shadow,
+            cs_clip_clear: cs_clip_clear,
             cs_clip_rectangle: cs_clip_rectangle,
             cs_clip_image: cs_clip_image,
             cs_text_run: cs_text_run,
@@ -997,7 +1005,7 @@ impl Renderer {
 
         let (color, projection) = match render_target {
             Some(..) => (
-                [0.0, 0.0, 0.0, 1.0],
+                [0.0, 0.0, 0.0, 0.0],
                 Matrix4D::ortho(0.0,
                                target_size.width,
                                0.0,
@@ -1076,7 +1084,7 @@ impl Renderer {
             //Note: not needed if we know the target is cleared with opaque
             self.device.set_blend(false);
             if !target.clip_batcher.clears.is_empty() {
-                let shader = self.tile_clear_shader.get(&mut self.device);
+                let shader = self.cs_clip_clear.get(&mut self.device);
                 let max_prim_items = self.max_clear_tiles;
                 self.draw_ubo_batch(&target.clip_batcher.clears,
                                     shader,
