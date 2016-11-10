@@ -79,15 +79,13 @@ ClipData fetch_clip(int index) {
 }
 
 void main(void) {
-    //TODO: cover the whole target rect
     CacheClipInstance cci = fetch_clip_item(gl_InstanceID);
     Tile tile = fetch_tile(cci.render_task_index);
     Layer layer = fetch_layer(cci.layer_index);
     ClipData clip = fetch_clip(cci.clip_index);
     vec4 local_rect = clip.rect.rect;
 
-    TransformVertexInfo vi = write_transform_vertex(local_rect,
-                                                    local_rect,
+    TransformVertexInfo vi = write_clip_tile_vertex(local_rect,
                                                     layer,
                                                     tile);
     vLocalRect = vi.clipped_local_rect;

@@ -178,14 +178,15 @@ fn main() {
     let mut builder = webrender_traits::DisplayListBuilder::new();
 
     let clip_region = {
-        let rect = Rect::new(Point2D::new(100.0, 100.0), Size2D::new(100.0, 100.0));
         let mask = webrender_traits::ImageMask {
             image: api.add_image(2, 2, None, ImageFormat::A8, vec![0,80, 180, 255]),
-            rect: rect,
+            rect: Rect::new(Point2D::new(75.0, 75.0), Size2D::new(100.0, 100.0)),
             repeat: false,
         };
         let radius = webrender_traits::BorderRadius::uniform(20.0);
-        let complex = webrender_traits::ComplexClipRegion::new(rect, radius);
+        let complex = webrender_traits::ComplexClipRegion::new(
+            Rect::new(Point2D::new(50.0, 50.0), Size2D::new(100.0, 100.0)),
+            radius);
 
         webrender_traits::ClipRegion::new(&bounds,
                                           vec![complex],
