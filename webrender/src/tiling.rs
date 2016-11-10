@@ -586,7 +586,7 @@ impl AlphaBatcher {
 }
 
 pub struct ClipBatcher {
-    pub clears: Vec<ClearTile>,
+    pub clears: Vec<CacheClipInstance>,
     pub rectangles: Vec<CacheClipInstance>,
     pub images: HashMap<TextureId, Vec<CacheClipInstance>>,
 }
@@ -607,8 +607,11 @@ impl ClipBatcher {
            resource_cache: &ResourceCache) {
         // TODO: cull clipping instances to their tiles
         // TODO: don't draw clipping instances covering the whole tile
-        self.clears.push(ClearTile {
-            rect: task_info.actual_rect,
+        self.clears.push(CacheClipInstance {
+            task_id: task_index,
+            layer_index: key.layer_id.0 as i32,
+            address: GpuStoreAddress(0),
+            pad: 0,
         });
         self.rectangles.extend((0 .. key.clip_range.count as usize)
                        .map(|region_id| {
@@ -807,7 +810,7 @@ pub struct RenderPass {
 impl RenderPass {
     fn new(pass_index: isize, is_framebuffer: bool) -> RenderPass {
         let empty_mask_task = {
-            let dummy_rect = DeviceRect::new(DevicePoint::new(0, 0),
+            let dummy_rect = DeviceRect::new(DevicePoint::new(-1, -1),
                                              DeviceSize::new(1, 1));
             let mask_key = MaskCacheKey::empty(StackingContextIndex(0)); //CLIP TODO?
             RenderTask {
@@ -816,7 +819,6 @@ impl RenderPass {
                 location: RenderTaskLocation::Dynamic(None, dummy_rect.size),
                 kind: RenderTaskKind::CacheMask(CacheMaskTask {
                     actual_rect: dummy_rect,
-                    clipped_rect: dummy_rect,
                     image: None,
                 })
             }
@@ -929,7 +931,6 @@ pub struct AlphaRenderTask {
 #[derive(Debug, Clone)]
 pub struct CacheMaskTask {
     actual_rect: DeviceRect,
-    clipped_rect: DeviceRect,
     image: Option<ImageKey>,
 }
 
@@ -984,14 +985,12 @@ impl RenderTask {
             Some(rect) => rect,
             None => return None,
         };
-        let size = DeviceSize::new(SCREEN_TILE_SIZE, SCREEN_TILE_SIZE);
         Some(RenderTask {
             id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(cache_info.key)),
             children: Vec::new(),
-            location: RenderTaskLocation::Dynamic(None, size),
+            location: RenderTaskLocation::Dynamic(None, intersection.size),
             kind: RenderTaskKind::CacheMask(CacheMaskTask {
-                actual_rect: actual_rect,
-                clipped_rect: intersection,
+                actual_rect: intersection,
                 image: cache_info.image.map(|mask| mask.image),
             }),
         })
@@ -1057,8 +1056,7 @@ impl RenderTask {
         let (target_rect, target_index) = self.get_target_rect();
         match self.kind {
             RenderTaskKind::Alpha(ref task) => {
-                debug_assert!(target_rect.size.width == task.actual_rect.size.width);
-                debug_assert!(target_rect.size.height == task.actual_rect.size.height);
+                debug_assert_eq!(target_rect.size, task.actual_rect.size);
                 RenderTaskData {
                     data: [
                         task.actual_rect.origin.x as f32,
@@ -1087,6 +1085,7 @@ impl RenderTask {
                 }
             }
             RenderTaskKind::CacheMask(ref task) => {
+                debug_assert_eq!(target_rect.size, task.actual_rect.size);
                 RenderTaskData {
                     data: [
                         task.actual_rect.origin.x as f32,
@@ -1102,8 +1101,6 @@ impl RenderTask {
             }
             RenderTaskKind::VerticalBlur(blur_radius, _) |
             RenderTaskKind::HorizontalBlur(blur_radius, _) => {
-                let (target_rect, target_index) = self.get_target_rect();
-
                 RenderTaskData {
                     data: [
                         target_rect.origin.x as f32,
