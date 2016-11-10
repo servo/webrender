@@ -824,8 +824,8 @@ impl PrimitiveStore {
             }
             PrimitiveKind::Image => {
                 let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
-                prim_needs_resolve = true;
 
+                prim_needs_resolve = true;
                 match image_cpu.kind {
                     ImagePrimitiveKind::Image(image_key, image_rendering, tile_spacing) => {
                         resource_cache.request_image(image_key, image_rendering);

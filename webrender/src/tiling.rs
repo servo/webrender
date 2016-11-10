@@ -11,6 +11,7 @@ use frame::FrameId;
 use gpu_store::GpuStoreAddress;
 use internal_types::{DeviceRect, DevicePoint, DeviceSize, DeviceLength, device_pixel, CompositionOp};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
+use internal_types::{BatchTextures};
 use layer::Layer;
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
@@ -49,7 +50,7 @@ pub type AuxiliaryListsMap = HashMap<PipelineId,
 
 trait AlphaBatchHelpers {
     fn get_batch_kind(&self, metadata: &PrimitiveMetadata) -> AlphaBatchKind;
-    fn get_texture_id(&self, metadata: &PrimitiveMetadata) -> TextureId;
+    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [TextureId; 3];
     fn get_blend_mode(&self, needs_blending: bool, metadata: &PrimitiveMetadata) -> BlendMode;
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
@@ -99,20 +100,22 @@ impl AlphaBatchHelpers for PrimitiveStore {
         batch_kind
     }
 
-    fn get_texture_id(&self, metadata: &PrimitiveMetadata) -> TextureId {
+    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [TextureId; 3] {
+        let invalid = TextureId::invalid();
         match metadata.prim_kind {
             PrimitiveKind::Border |
             PrimitiveKind::BoxShadow |
             PrimitiveKind::Rectangle |
-            PrimitiveKind::Gradient => TextureId::invalid(),
+            PrimitiveKind::Gradient => [invalid; 3],
             PrimitiveKind::Image => {
                 let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
-                image_cpu.color_texture_id
+                [image_cpu.color_texture_id, invalid, invalid]
             }
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
-                text_run_cpu.color_texture_id
+                [text_run_cpu.color_texture_id, invalid, invalid]
             }
+            // TODO(nical): YuvImage will return 3 textures.
         }
     }
 
@@ -488,12 +491,16 @@ impl AlphaBatcher {
                             _ => needs_clipping_flag,
                         };
                         let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
-                        let color_texture_id = ctx.prim_store.get_texture_id(prim_metadata);
+
+                        let textures = BatchTextures {
+                            colors: ctx.prim_store.get_color_textures(prim_metadata),
+                            mask: prim_metadata.mask_texture_id,
+                        };
+
                         batch_key = AlphaBatchKey::primitive(batch_kind,
                                                              flags,
                                                              blend_mode,
-                                                             color_texture_id,
-                                                             prim_metadata.mask_texture_id);
+                                                             textures);
                     }
                 }
 
@@ -575,7 +582,7 @@ pub struct RenderTarget {
     //           cache changes land, this restriction will
     //           be removed anyway.
     pub text_run_cache_prims: Vec<CachePrimitiveInstance>,
-    pub text_run_color_texture_id: TextureId,
+    pub text_run_textures: BatchTextures,
     // List of blur operations to apply for this render target.
     pub vertical_blurs: Vec<BlurCommand>,
     pub horizontal_blurs: Vec<BlurCommand>,
@@ -588,7 +595,7 @@ impl RenderTarget {
             alpha_batcher: AlphaBatcher::new(),
             box_shadow_cache_prims: Vec::new(),
             text_run_cache_prims: Vec::new(),
-            text_run_color_texture_id: TextureId::invalid(),
+            text_run_textures: BatchTextures::no_texture(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
             page_allocator: TexturePage::new(TextureId::invalid(), RENDERABLE_CACHE_SIZE as u32),
@@ -664,11 +671,15 @@ impl RenderTarget {
                         // TODO(gw): This should always be fine for now, since the texture
                         // atlas grows to 4k. However, it won't be a problem soon, once
                         // we switch the texture atlas to use texture layers!
-                        let color_texture_id = ctx.prim_store.get_texture_id(prim_metadata);
-                        debug_assert!(color_texture_id != TextureId::invalid());
-                        debug_assert!(self.text_run_color_texture_id == TextureId::invalid() ||
-                                      self.text_run_color_texture_id == color_texture_id);
-                        self.text_run_color_texture_id = color_texture_id;
+                        let textures = BatchTextures {
+                            colors: ctx.prim_store.get_color_textures(prim_metadata),
+                            mask: prim_metadata.mask_texture_id,
+                        };
+
+                        debug_assert!(textures.colors[0] != TextureId::invalid());
+                        debug_assert!(self.text_run_textures.colors[0] == TextureId::invalid() ||
+                                      self.text_run_textures.colors[0] == textures.colors[0]);
+                        self.text_run_textures = textures;
 
                         for glyph_index in 0..prim_metadata.gpu_data_count {
                             self.text_run_cache_prims.push(CachePrimitiveInstance {
@@ -1052,8 +1063,7 @@ pub struct AlphaBatchKey {
     kind: AlphaBatchKind,
     pub flags: AlphaBatchKeyFlags,
     pub blend_mode: BlendMode,
-    pub color_texture_id: TextureId,
-    pub mask_texture_id: TextureId,
+    pub textures: BatchTextures,
 }
 
 impl AlphaBatchKey {
@@ -1062,8 +1072,7 @@ impl AlphaBatchKey {
             kind: AlphaBatchKind::Blend,
             flags: AXIS_ALIGNED,
             blend_mode: BlendMode::Alpha,
-            color_texture_id: TextureId::invalid(),
-            mask_texture_id: TextureId::invalid(),
+            textures: BatchTextures::no_texture(),
         }
     }
 
@@ -1072,23 +1081,20 @@ impl AlphaBatchKey {
             kind: AlphaBatchKind::Composite,
             flags: AXIS_ALIGNED,
             blend_mode: BlendMode::Alpha,
-            color_texture_id: TextureId::invalid(),
-            mask_texture_id: TextureId::invalid(),
+            textures: BatchTextures::no_texture(),
         }
     }
 
     fn primitive(kind: AlphaBatchKind,
                  flags: AlphaBatchKeyFlags,
                  blend_mode: BlendMode,
-                 color_texture_id: TextureId,
-                 mask_texture_id: TextureId)
+                 textures: BatchTextures)
                  -> AlphaBatchKey {
         AlphaBatchKey {
             kind: kind,
             flags: flags,
             blend_mode: blend_mode,
-            color_texture_id: color_texture_id,
-            mask_texture_id: mask_texture_id,
+            textures: textures,
         }
     }
 
@@ -1096,10 +1102,10 @@ impl AlphaBatchKey {
         self.kind == other.kind &&
             self.flags == other.flags &&
             self.blend_mode == other.blend_mode &&
-        (self.color_texture_id == TextureId::invalid() || other.color_texture_id == TextureId::invalid() ||
-             self.color_texture_id == other.color_texture_id) &&
-            (self.mask_texture_id == TextureId::invalid() || other.mask_texture_id == TextureId::invalid() ||
-             self.mask_texture_id == other.mask_texture_id)
+            textures_compatible(self.textures.colors[0], other.textures.colors[0]) &&
+            textures_compatible(self.textures.colors[1], other.textures.colors[1]) &&
+            textures_compatible(self.textures.colors[2], other.textures.colors[2]) &&
+            textures_compatible(self.textures.mask, other.textures.mask)
     }
 }
 
@@ -1108,6 +1114,11 @@ impl AlphaBatchKey {
 pub enum BlurDirection {
     Horizontal = 0,
     Vertical,
+}
+
+#[inline]
+fn textures_compatible(t1: TextureId, t2: TextureId) -> bool {
+    !t1.is_valid() || !t2.is_valid() || t1 == t2
 }
 
 // All Packed Primitives below must be 16 byte aligned.

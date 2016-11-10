@@ -21,7 +21,7 @@ void main(void) {
     vec2 origin = task.data0.xy + uDevicePixelRatio * (glyph.offset.xy - pg.local_rect.xy);
     vec4 local_rect = vec4(origin, size);
 
-    vec2 texture_size = vec2(textureSize(sDiffuse, 0));
+    vec2 texture_size = vec2(textureSize(sColor0, 0));
     vec2 st0 = glyph.uv_rect.xy / texture_size;
     vec2 st1 = glyph.uv_rect.zw / texture_size;
 

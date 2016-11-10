@@ -7,7 +7,7 @@ use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{PackedVertex, PackedVertexForQuad};
 use internal_types::{RenderTargetMode, TextureSampler};
-use internal_types::{VertexAttribute, DebugFontVertex, DebugColorVertex};
+use internal_types::{VertexAttribute, DebugFontVertex, DebugColorVertex, DEFAULT_TEXTURE};
 //use notify::{self, Watcher};
 use std::collections::HashMap;
 use std::fs::File;
@@ -268,6 +268,8 @@ impl TextureId {
             target: gl::TEXTURE_2D,
         }
     }
+
+    pub fn is_valid(&self) -> bool { *self != TextureId::invalid() }
 }
 
 impl ProgramId {
@@ -1032,7 +1034,7 @@ impl Device {
 
         match mode {
             RenderTargetMode::SimpleRenderTarget => {
-                self.bind_texture(TextureSampler::Color, texture_id);
+                self.bind_texture(DEFAULT_TEXTURE, texture_id);
                 self.set_texture_parameters(texture_id.target, filter);
                 self.upload_texture_image(texture_id.target,
                                           width,
@@ -1044,12 +1046,12 @@ impl Device {
                 self.create_fbo_for_texture_if_necessary(texture_id, None);
             }
             RenderTargetMode::LayerRenderTarget(layer_count) => {
-                self.bind_texture(TextureSampler::Color, texture_id);
+                self.bind_texture(DEFAULT_TEXTURE, texture_id);
                 self.set_texture_parameters(texture_id.target, filter);
                 self.create_fbo_for_texture_if_necessary(texture_id, Some(layer_count));
             }
             RenderTargetMode::None => {
-                self.bind_texture(TextureSampler::Color, texture_id);
+                self.bind_texture(DEFAULT_TEXTURE, texture_id);
                 self.set_texture_parameters(texture_id.target, filter);
                 self.upload_texture_image(texture_id.target,
                                           width,
@@ -1143,7 +1145,7 @@ impl Device {
         self.create_fbo_for_texture_if_necessary(temp_texture_id, None);
 
         self.bind_render_target(Some((texture_id, 0)), None);
-        self.bind_texture(TextureSampler::Color, temp_texture_id);
+        self.bind_texture(DEFAULT_TEXTURE, temp_texture_id);
 
         gl::copy_tex_sub_image_2d(temp_texture_id.target,
                                   0,
@@ -1158,7 +1160,7 @@ impl Device {
         self.init_texture(texture_id, new_width, new_height, format, filter, mode, None);
         self.create_fbo_for_texture_if_necessary(texture_id, None);
         self.bind_render_target(Some((temp_texture_id, 0)), None);
-        self.bind_texture(TextureSampler::Color, texture_id);
+        self.bind_texture(DEFAULT_TEXTURE, texture_id);
 
         gl::copy_tex_sub_image_2d(texture_id.target,
                                   0,
@@ -1176,7 +1178,7 @@ impl Device {
     pub fn deinit_texture(&mut self, texture_id: TextureId) {
         debug_assert!(self.inside_frame);
 
-        self.bind_texture(TextureSampler::Color, texture_id);
+        self.bind_texture(DEFAULT_TEXTURE, texture_id);
 
         let texture = self.textures.get_mut(&texture_id).unwrap();
         let (internal_format, gl_format) = gl_texture_formats_for_image_format(texture.format);
@@ -1331,9 +1333,17 @@ impl Device {
                 program.u_transform = gl::get_uniform_location(program.id, "uTransform");
 
                 program_id.bind();
-                let u_diffuse = gl::get_uniform_location(program.id, "sDiffuse");
-                if u_diffuse != -1 {
-                    gl::uniform_1i(u_diffuse, TextureSampler::Color as i32);
+                let u_color_0 = gl::get_uniform_location(program.id, "sColor0");
+                if u_color_0 != -1 {
+                    gl::uniform_1i(u_color_0, TextureSampler::Color0 as i32);
+                }
+                let u_color1 = gl::get_uniform_location(program.id, "sColor1");
+                if u_color1 != -1 {
+                    gl::uniform_1i(u_color1, TextureSampler::Color1 as i32);
+                }
+                let u_color_2 = gl::get_uniform_location(program.id, "sColor2");
+                if u_color_2 != -1 {
+                    gl::uniform_1i(u_color_2, TextureSampler::Color2 as i32);
                 }
                 let u_mask = gl::get_uniform_location(program.id, "sMask");
                 if u_mask != -1 {
@@ -1501,7 +1511,7 @@ impl Device {
             gl::pixel_store_i(gl::UNPACK_ROW_LENGTH, row_length as gl::GLint);
         }
 
-        self.bind_texture(TextureSampler::Color, texture_id);
+        self.bind_texture(DEFAULT_TEXTURE, texture_id);
         self.update_image_for_2d_texture(texture_id.target,
                                          x0 as gl::GLint,
                                          y0 as gl::GLint,
@@ -1524,7 +1534,7 @@ impl Device {
                                  src_y: i32,
                                  width: i32,
                                  height: i32) {
-        self.bind_texture(TextureSampler::Color, texture_id);
+        self.bind_texture(DEFAULT_TEXTURE, texture_id);
         gl::copy_tex_sub_image_2d(texture_id.target,
                                   0,
                                   dest_x,
