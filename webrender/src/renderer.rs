@@ -127,6 +127,7 @@ enum ShaderKind {
     Primitive,
     Clear,
     Cache,
+    ClipCache,
 }
 
 struct LazilyCompiledShader {
@@ -172,6 +173,11 @@ impl LazilyCompiledShader {
                                        device,
                                        self.max_ubo_vectors,
                                        &self.features)
+                }
+                ShaderKind::ClipCache => {
+                    create_clip_shader(self.name,
+                                       device,
+                                       self.max_ubo_vectors)
                 }
             };
             self.id = Some(id);
@@ -274,6 +280,26 @@ fn create_prim_shader(name: &'static str,
     let data_index = device.assign_ubo_binding(program_id, "Data", UBO_BIND_DATA);
 
     debug!("PrimShader {}: data={} max={}", name, data_index, max_ubo_vectors);
+
+    program_id
+}
+
+fn create_clip_shader(name: &'static str,
+                      device: &mut Device,
+                      max_ubo_vectors: usize) -> ProgramId {
+    let prefix = format!("#define WR_MAX_UBO_VECTORS {}\n\
+                          #define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n
+                          #define WR_FEATURE_TRANSFORM",
+                          max_ubo_vectors,
+                          MAX_VERTEX_TEXTURE_WIDTH);
+
+    let includes = &["prim_shared", "clip_shared"];
+    let program_id = device.create_program_with_prefix(name,
+                                                       includes,
+                                                       Some(prefix));
+    let data_index = device.assign_ubo_binding(program_id, "Data", UBO_BIND_DATA);
+
+    debug!("ClipShader {}: data={} max={}", name, data_index, max_ubo_vectors);
 
     program_id
 }
@@ -423,6 +449,7 @@ impl Renderer {
 
         let max_prim_instances = get_ubo_max_len::<tiling::PrimitiveInstance>(max_ubo_size);
         let max_cache_instances = get_ubo_max_len::<tiling::CachePrimitiveInstance>(max_ubo_size);
+        let max_clip_instances = get_ubo_max_len::<tiling::CacheClipInstance>(max_ubo_size);
         let max_prim_blends = get_ubo_max_len::<tiling::PackedBlendPrimitive>(max_ubo_size);
         let max_prim_composites = get_ubo_max_len::<tiling::PackedCompositePrimitive>(max_ubo_size);
         let max_blurs = get_ubo_max_len::<tiling::BlurCommand>(max_ubo_size);
@@ -433,22 +460,22 @@ impl Renderer {
                                                       &[],
                                                       &mut device,
                                                       options.precache_shaders);
-        let cs_clip_clear = LazilyCompiledShader::new(ShaderKind::Cache,
+        let cs_clip_clear = LazilyCompiledShader::new(ShaderKind::ClipCache,
                                                       "cs_clip_clear",
-                                                      max_cache_instances,
+                                                      max_clip_instances,
                                                       &[],
                                                       &mut device,
                                                       options.precache_shaders);
-        let cs_clip_rectangle = LazilyCompiledShader::new(ShaderKind::Cache,
+        let cs_clip_rectangle = LazilyCompiledShader::new(ShaderKind::ClipCache,
                                                           "cs_clip_rectangle",
-                                                          max_cache_instances,
-                                                          &[ TRANSFORM_FEATURE ],
+                                                          max_clip_instances,
+                                                          &[],
                                                           &mut device,
                                                           options.precache_shaders);
-        let cs_clip_image = LazilyCompiledShader::new(ShaderKind::Cache,
+        let cs_clip_image = LazilyCompiledShader::new(ShaderKind::ClipCache,
                                                       "cs_clip_image",
-                                                      max_cache_instances,
-                                                      &[ TRANSFORM_FEATURE ],
+                                                      max_clip_instances,
+                                                      &[],
                                                       &mut device,
                                                       options.precache_shaders);
         let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache,

@@ -3,28 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-struct CacheClipInstance {
-    int render_task_index;
-    int layer_index;
-    int image_data_index;
-    int pad;
-};
-
-CacheClipInstance fetch_clip_item(int index) {
-    CacheClipInstance cci;
-
-    int offset = index * 1;
-
-    ivec4 data0 = int_data[offset + 0];
-
-    cci.render_task_index = data0.x;
-    cci.layer_index = data0.y;
-    cci.image_data_index = data0.z;
-    cci.pad = 0;
-
-    return cci;
-}
-
 struct ImageMaskData {
     vec4 uv_rect;
     vec4 local_rect;
@@ -45,7 +23,7 @@ void main(void) {
     CacheClipInstance cci = fetch_clip_item(gl_InstanceID);
     Tile tile = fetch_tile(cci.render_task_index);
     Layer layer = fetch_layer(cci.layer_index);
-    ImageMaskData mask = fetch_mask_data(cci.image_data_index);
+    ImageMaskData mask = fetch_mask_data(cci.data_index);
     vec4 local_rect = mask.local_rect;
 
     TransformVertexInfo vi = write_clip_tile_vertex(local_rect,
