@@ -372,8 +372,8 @@ pub enum MixBlendMode {
 pub type NativeFontHandle = CGFont;
 
 /// Native fonts are not used on Linux; all fonts are raw.
-#[cfg(all(unix, not(target_os="macos")))]
-#[cfg_attr(all(unix, not(target_os="macos")), derive(Clone, Serialize, Deserialize))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), derive(Clone, Serialize, Deserialize))]
 pub struct NativeFontHandle;
 
 #[cfg(target_os = "windows")]
