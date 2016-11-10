@@ -74,15 +74,21 @@ mod util;
 mod platform {
     #[cfg(target_os="macos")]
     pub use platform::macos::font;
-    #[cfg(any(target_os = "android", target_os = "windows", all(unix, not(target_os = "macos"))))]
+    #[cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))]
     pub use platform::unix::font;
+    #[cfg(target_os = "windows")]
+    pub use platform::windows::font;
 
     #[cfg(target_os="macos")]
     pub mod macos {
         pub mod font;
     }
-    #[cfg(any(target_os = "android", target_os = "windows", all(unix, not(target_os = "macos"))))]
+    #[cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))]
     pub mod unix {
+        pub mod font;
+    }
+    #[cfg(target_os = "windows")]
+    pub mod windows {
         pub mod font;
     }
 }
@@ -94,8 +100,11 @@ extern crate core_graphics;
 #[cfg(target_os="macos")]
 extern crate core_text;
 
-#[cfg(not(target_os="macos"))]
+#[cfg(all(unix, not(target_os="macos")))]
 extern crate freetype;
+
+#[cfg(target_os = "windows")]
+extern crate dwrote;
 
 extern crate app_units;
 extern crate bincode;

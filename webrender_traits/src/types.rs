@@ -13,6 +13,7 @@ use ipc_channel::ipc::{IpcBytesSender, IpcSender};
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
+#[cfg(target_os = "windows")] use dwrote::FontDescriptor;
 
 #[derive(Debug, Copy, Clone)]
 pub enum RendererKind {
@@ -368,9 +369,12 @@ pub enum MixBlendMode {
 pub type NativeFontHandle = CGFont;
 
 /// Native fonts are not used on Linux; all fonts are raw.
-#[cfg(not(target_os = "macos"))]
-#[cfg_attr(not(target_os = "macos"), derive(Clone, Serialize, Deserialize))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), derive(Clone, Serialize, Deserialize))]
 pub struct NativeFontHandle;
+
+#[cfg(target_os = "windows")]
+pub type NativeFontHandle = FontDescriptor;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct PipelineId(pub u32, pub u32);
