@@ -1032,17 +1032,17 @@ impl Renderer {
             Some(..) => (
                 [0.0, 0.0, 0.0, 1.0],
                 Matrix4D::ortho(0.0,
-                               target_size.width as f32,
+                               target_size.width,
                                0.0,
-                               target_size.height as f32,
+                               target_size.height,
                                ORTHO_NEAR_PLANE,
                                ORTHO_FAR_PLANE)
             ),
             None => (
                 [1.0, 1.0, 1.0, 1.0],
                 Matrix4D::ortho(0.0,
-                               target_size.width as f32,
-                               target_size.height as f32,
+                               target_size.width,
+                               target_size.height,
                                0.0,
                                ORTHO_NEAR_PLANE,
                                ORTHO_FAR_PLANE)
@@ -1103,11 +1103,26 @@ impl Renderer {
         }
 
         // Draw the clip items into the tiled alpha mask.
-        if !target.clip_batcher.is_empty() {
+        if true {
+            self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
+            // first, mark the target area as opaque
+            //Note: not needed if we know the target is cleared with opaque
+            self.device.set_blend(false);
+            if !target.clip_batcher.clears.is_empty() {
+                let shader = self.tile_clear_shader.get(&mut self.device);
+                let max_prim_items = self.max_clear_tiles;
+                self.draw_ubo_batch(&target.clip_batcher.clears,
+                                    shader,
+                                    1,
+                                    TextureId::invalid(),
+                                    max_prim_items,
+                                    &projection);
+            }
+            // now switch to multiplicative blending
             self.device.set_blend(true);
             self.device.set_blend_mode_multiply();
-            self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
             let max_prim_items = self.max_cache_instances;
+            // draw rounded cornered rectangles
             if !target.clip_batcher.rectangles.is_empty() {
                 let shader = self.cs_clip_rectangle.get(&mut self.device);
                 self.draw_ubo_batch(&target.clip_batcher.rectangles,
@@ -1117,6 +1132,7 @@ impl Renderer {
                                     max_prim_items,
                                     &projection);
             }
+            // draw image masks
             for (&mask_texture_id, items) in target.clip_batcher.images.iter() {
                 self.device.bind_texture(TextureSampler::Mask, mask_texture_id);
                 let shader = self.cs_clip_image.get(&mut self.device);
@@ -1127,7 +1143,6 @@ impl Renderer {
                                     max_prim_items,
                                     &projection);
             }
-            self.device.set_blend(false);
         }
 
         // Draw any textrun caches for this target. For now, this
@@ -1151,6 +1166,7 @@ impl Renderer {
                                 &projection);
         }
 
+        self.device.set_blend(false);
         let mut prev_blend_mode = BlendMode::None;
 
         for batch in &target.alpha_batcher.batches {
@@ -1403,19 +1419,15 @@ impl Renderer {
 
         // Clear tiles with no items
         if !frame.clear_tiles.is_empty() {
-            let tile_clear_shader = self.tile_clear_shader.get(&mut self.device);
-            self.device.bind_program(tile_clear_shader, &projection);
-            self.device.bind_vao(self.quad_vao_id);
-
-            for chunk in frame.clear_tiles.chunks(self.max_clear_tiles) {
-                let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
-
-                self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
-                self.profile_counters.vertices.add(6 * chunk.len());
-                self.profile_counters.draw_calls.inc();
-
-                self.device.delete_buffer(ubo);
-            }
+            self.device.set_blend(false);
+            let shader = self.tile_clear_shader.get(&mut self.device);
+            let max_prim_items = self.max_clear_tiles;
+            self.draw_ubo_batch(&frame.clear_tiles,
+                                shader,
+                                1,
+                                TextureId::invalid(),
+                                max_prim_items,
+                                &projection);
         }
     }
 

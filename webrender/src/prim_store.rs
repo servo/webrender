@@ -545,7 +545,7 @@ impl PrimitiveStore {
         for prim_index in self.prims_to_resolve.drain(..) {
             let metadata = &mut self.cpu_metadata[prim_index.0];
 
-            if let Some(MaskCacheInfo{ key: MaskCacheKey { image: Some(gpu_address), .. }, image: Some(ref mask) }) = metadata.clip_cache_info {
+            if let Some(MaskCacheInfo{ key: MaskCacheKey { image: Some(gpu_address), .. }, image: Some(ref mask), .. }) = metadata.clip_cache_info {
                 let cache_item = resource_cache.get_image(mask.image, ImageRendering::Auto);
                 let mask_data = self.gpu_data32.get_slice_mut(gpu_address, MASK_DATA_GPU_SIZE);
                 mask_data[0] = GpuBlock32::from(ImageMaskData {

@@ -12,6 +12,5 @@ void main(void) {
     vec2 source_uv = clamped_mask_uv * vClipMaskUvRect.zw + vClipMaskUvRect.xy;
     float clip_alpha = texture(sMask, source_uv).r; //careful: texture has type A8
 
-    float inv_alpha = 1.0 - min(alpha, clip_alpha);
-    oFragColor = vec4(1, 1, 1, inv_alpha);
+    oFragColor = vec4(1, 1, 1, min(alpha, clip_alpha));
 }
