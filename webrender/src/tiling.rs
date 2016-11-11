@@ -520,13 +520,12 @@ impl AlphaBatcher {
 
                         let textures = BatchTextures {
                             colors: ctx.prim_store.get_color_textures(prim_metadata),
-                            mask: prim_metadata.mask_texture_id,
                         };
 
-                        batch_key = AlphaBatchKey::primitive(batch_kind,
-                                                             flags,
-                                                             blend_mode,
-                                                             textures);
+                        AlphaBatchKey::primitive(batch_kind,
+                                                 flags,
+                                                 blend_mode,
+                                                 textures)
                     }
                 };
 
@@ -758,7 +757,6 @@ impl RenderTarget {
                         // we switch the texture atlas to use texture layers!
                         let textures = BatchTextures {
                             colors: ctx.prim_store.get_color_textures(prim_metadata),
-                            mask: prim_metadata.mask_texture_id,
                         };
 
                         debug_assert!(textures.colors[0] != TextureId::invalid());
@@ -1252,8 +1250,7 @@ impl AlphaBatchKey {
             self.blend_mode == other.blend_mode &&
             textures_compatible(self.textures.colors[0], other.textures.colors[0]) &&
             textures_compatible(self.textures.colors[1], other.textures.colors[1]) &&
-            textures_compatible(self.textures.colors[2], other.textures.colors[2]) &&
-            textures_compatible(self.textures.mask, other.textures.mask)
+            textures_compatible(self.textures.colors[2], other.textures.colors[2])
     }
 }
 
