@@ -3,12 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use device::{TextureFilter, TextureId};
+use device::TextureFilter;
 use euclid::{Point2D, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
 use freelist::FreeList;
-use internal_types::FontTemplate;
+use internal_types::{CacheTextureId, FontTemplate, SourceTexture};
 use internal_types::{TextureUpdateList, DrawListId, DrawList};
 use platform::font::{FontContext, RasterizedGlyph};
 use rayon::prelude::*;
@@ -34,7 +34,7 @@ thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontC
 // we don't need to go through and update
 // various CPU-side structures.
 pub struct CacheItem {
-    pub texture_id: TextureId,
+    pub texture_id: SourceTexture,
     pub uv0: Point2D<f32>,
     pub uv1: Point2D<f32>,
 }
@@ -169,7 +169,7 @@ enum ResourceRequest {
 }
 
 struct WebGLTexture {
-    id: TextureId,
+    id: SourceTexture,
     size: Size2D<i32>,
 }
 
@@ -275,26 +275,19 @@ impl ResourceCache {
         self.image_templates.remove(&image_key);
     }
 
-    pub fn add_webgl_texture(&mut self, id: WebGLContextId, texture_id: TextureId, size: Size2D<i32>) {
+    pub fn add_webgl_texture(&mut self, id: WebGLContextId, texture_id: SourceTexture, size: Size2D<i32>) {
         self.webgl_textures.insert(id, WebGLTexture {
             id: texture_id,
             size: size,
         });
-        self.texture_cache.add_raw_update(texture_id, size);
     }
 
-    pub fn update_webgl_texture(&mut self, id: WebGLContextId, texture_id: TextureId, size: Size2D<i32>) {
+    pub fn update_webgl_texture(&mut self, id: WebGLContextId, texture_id: SourceTexture, size: Size2D<i32>) {
         let webgl_texture = self.webgl_textures.get_mut(&id).unwrap();
 
-        // Remove existing cache if texture id has changed
-        if webgl_texture.id != texture_id {
-            self.texture_cache.add_raw_remove(webgl_texture.id);
-        }
         // Update new texture id and size
         webgl_texture.id = texture_id;
         webgl_texture.size = size;
-
-        self.texture_cache.add_raw_update(texture_id, size);
     }
 
     pub fn request_image(&mut self,
@@ -369,13 +362,13 @@ impl ResourceCache {
                          size: Au,
                          glyph_indices: &[u32],
                          render_mode: FontRenderMode,
-                         mut f: F) -> TextureId where F: FnMut(usize, Point2D<f32>, Point2D<f32>) {
+                         mut f: F) -> SourceTexture where F: FnMut(usize, Point2D<f32>, Point2D<f32>) {
         debug_assert!(self.state == State::QueryResources);
         let mut glyph_key = RenderedGlyphKey::new(font_key,
                                                   size,
                                                   0,
                                                   render_mode);
-        let mut texture_id = TextureId::invalid();
+        let mut texture_id = CacheTextureId::invalid();
         for (loop_index, glyph_index) in glyph_indices.iter().enumerate() {
             glyph_key.key.index = *glyph_index;
             let image_id = self.cached_glyphs.get(&glyph_key, self.current_frame_id);
@@ -386,12 +379,13 @@ impl ResourceCache {
                 let uv1 = Point2D::new(cache_item.pixel_rect.bottom_right.x as f32,
                                        cache_item.pixel_rect.bottom_right.y as f32);
                 f(loop_index, uv0, uv1);
-                debug_assert!(texture_id == TextureId::invalid() ||
+                debug_assert!(texture_id == CacheTextureId::invalid() ||
                               texture_id == cache_item.texture_id);
                 texture_id = cache_item.texture_id;
             }
         }
-        texture_id
+
+        SourceTexture::TextureCache(texture_id)
     }
 
     pub fn get_glyph_dimensions(&mut self, glyph_key: &GlyphKey) -> Option<GlyphDimensions> {
@@ -434,7 +428,7 @@ impl ResourceCache {
                                                  self.current_frame_id);
         let item = self.texture_cache.get(image_info.texture_cache_id);
         CacheItem {
-            texture_id: item.texture_id,
+            texture_id: SourceTexture::TextureCache(item.texture_id),
             uv0: Point2D::new(item.pixel_rect.top_left.x as f32,
                               item.pixel_rect.top_left.y as f32),
             uv1: Point2D::new(item.pixel_rect.bottom_right.x as f32,

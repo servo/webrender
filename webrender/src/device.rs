@@ -735,7 +735,6 @@ pub struct Device {
     // resources
     resource_path: PathBuf,
     textures: HashMap<TextureId, Texture, BuildHasherDefault<FnvHasher>>,
-    raw_textures: HashMap<TextureId, (u32, u32, u32, u32), BuildHasherDefault<FnvHasher>>,
     programs: HashMap<ProgramId, Program, BuildHasherDefault<FnvHasher>>,
     vaos: HashMap<VAOId, VAO, BuildHasherDefault<FnvHasher>>,
 
@@ -778,7 +777,6 @@ impl Device {
             default_fbo: 0,
 
             textures: HashMap::with_hasher(Default::default()),
-            raw_textures: HashMap::with_hasher(Default::default()),
             programs: HashMap::with_hasher(Default::default()),
             vaos: HashMap::with_hasher(Default::default()),
 
@@ -946,33 +944,8 @@ impl Device {
     }
 
     pub fn get_texture_dimensions(&self, texture_id: TextureId) -> (u32, u32) {
-        if let Some(texture) = self.textures.get(&texture_id) {
-            (texture.width, texture.height)
-        } else {
-            let dimensions = self.raw_textures.get(&texture_id).unwrap();
-            (dimensions.2, dimensions.3)
-        }
-    }
-
-    pub fn texture_has_alpha(&self, texture_id: TextureId) -> bool {
-        if let Some(texture) = self.textures.get(&texture_id) {
-            texture.format == ImageFormat::RGBA8
-        } else {
-            true
-        }
-    }
-
-    pub fn update_raw_texture(&mut self,
-                              texture_id: TextureId,
-                              x0: u32,
-                              y0: u32,
-                              width: u32,
-                              height: u32) {
-        self.raw_textures.insert(texture_id, (x0, y0, width, height));
-    }
-
-    pub fn remove_raw_texture(&mut self, texture_id: TextureId) {
-        self.raw_textures.remove(&texture_id);
+        let texture = &self.textures[&texture_id];
+        (texture.width, texture.height)
     }
 
     fn set_texture_parameters(&mut self, target: gl::GLuint, filter: TextureFilter) {
@@ -1524,25 +1497,6 @@ impl Device {
         if let Some(..) = stride {
             gl::pixel_store_i(gl::UNPACK_ROW_LENGTH, 0 as gl::GLint);
         }
-    }
-
-    pub fn read_framebuffer_rect(&mut self,
-                                 texture_id: TextureId,
-                                 dest_x: i32,
-                                 dest_y: i32,
-                                 src_x: i32,
-                                 src_y: i32,
-                                 width: i32,
-                                 height: i32) {
-        self.bind_texture(DEFAULT_TEXTURE, texture_id);
-        gl::copy_tex_sub_image_2d(texture_id.target,
-                                  0,
-                                  dest_x,
-                                  dest_y,
-                                  src_x as gl::GLint,
-                                  src_y as gl::GLint,
-                                  width as gl::GLint,
-                                  height as gl::GLint);
     }
 
     fn clear_vertex_array(&mut self) {
