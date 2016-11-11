@@ -4,14 +4,13 @@
 
 use app_units::Au;
 use batch_builder::BorderSideHelpers;
-use device::{TextureId};
 use euclid::{Point2D, Point4D, Rect, Matrix4D, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
 use gpu_store::GpuStoreAddress;
 use internal_types::{DeviceRect, DevicePoint, DeviceSize, DeviceLength, device_pixel, CompositionOp};
 use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
-use internal_types::{BatchTextures};
+use internal_types::{BatchTextures, CacheTextureId, SourceTexture};
 use layer::Layer;
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
@@ -50,7 +49,7 @@ pub type AuxiliaryListsMap = HashMap<PipelineId,
 
 trait AlphaBatchHelpers {
     fn get_batch_kind(&self, metadata: &PrimitiveMetadata) -> AlphaBatchKind;
-    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [TextureId; 3];
+    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [SourceTexture; 3];
     fn get_blend_mode(&self, needs_blending: bool, metadata: &PrimitiveMetadata) -> BlendMode;
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
@@ -100,8 +99,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
         batch_kind
     }
 
-    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [TextureId; 3] {
-        let invalid = TextureId::invalid();
+    fn get_color_textures(&self, metadata: &PrimitiveMetadata) -> [SourceTexture; 3] {
+        let invalid = SourceTexture::Invalid;
         match metadata.prim_kind {
             PrimitiveKind::Border |
             PrimitiveKind::BoxShadow |
@@ -611,7 +610,8 @@ impl RenderTarget {
             text_run_textures: BatchTextures::no_texture(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
-            page_allocator: TexturePage::new(TextureId::invalid(), RENDERABLE_CACHE_SIZE as u32),
+            page_allocator: TexturePage::new(CacheTextureId::invalid(),
+                                             RENDERABLE_CACHE_SIZE as u32),
         }
     }
 
@@ -689,8 +689,8 @@ impl RenderTarget {
                             mask: prim_metadata.mask_texture_id,
                         };
 
-                        debug_assert!(textures.colors[0] != TextureId::invalid());
-                        debug_assert!(self.text_run_textures.colors[0] == TextureId::invalid() ||
+                        debug_assert!(textures.colors[0] != SourceTexture::Invalid);
+                        debug_assert!(self.text_run_textures.colors[0] == SourceTexture::Invalid ||
                                       self.text_run_textures.colors[0] == textures.colors[0]);
                         self.text_run_textures = textures;
 
@@ -1131,8 +1131,8 @@ pub enum BlurDirection {
 }
 
 #[inline]
-fn textures_compatible(t1: TextureId, t2: TextureId) -> bool {
-    !t1.is_valid() || !t2.is_valid() || t1 == t2
+fn textures_compatible(t1: SourceTexture, t2: SourceTexture) -> bool {
+    t1 == SourceTexture::Invalid || t2 == SourceTexture::Invalid || t1 == t2
 }
 
 // All Packed Primitives below must be 16 byte aligned.
@@ -1923,7 +1923,7 @@ impl FrameBuilder {
                 glyph_range: sub_range,
                 cache_dirty: true,
                 glyph_indices: Vec::new(),
-                color_texture_id: TextureId::invalid(),
+                color_texture_id: SourceTexture::Invalid,
                 color: *color,
                 render_mode: render_mode,
             };
@@ -2009,7 +2009,7 @@ impl FrameBuilder {
                                context_id: WebGLContextId) {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::WebGL(context_id),
-            color_texture_id: TextureId::invalid(),
+            color_texture_id: SourceTexture::Invalid,
         };
 
         let prim_gpu = ImagePrimitiveGpu {
@@ -2035,7 +2035,7 @@ impl FrameBuilder {
             kind: ImagePrimitiveKind::Image(image_key,
                                             image_rendering,
                                             *tile_spacing),
-            color_texture_id: TextureId::invalid(),
+            color_texture_id: SourceTexture::Invalid,
         };
 
         let prim_gpu = ImagePrimitiveGpu {

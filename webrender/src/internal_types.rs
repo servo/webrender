@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use device::{TextureId, TextureFilter};
-use euclid::{Point2D, Rect, Size2D, TypedRect, TypedPoint2D, TypedSize2D, Length, UnknownUnit};
+use device::TextureFilter;
+use euclid::{Size2D, TypedRect, TypedPoint2D, TypedSize2D, Length, UnknownUnit};
 use fnv::FnvHasher;
 use offscreen_gl_context::{NativeGLContext, NativeGLContextHandle};
 use offscreen_gl_context::{GLContext, NativeGLContextMethods, GLContextDispatcher};
@@ -17,10 +17,45 @@ use std::hash::BuildHasherDefault;
 use std::i32;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::usize;
 use tiling;
 use webrender_traits::{Epoch, ColorF, PipelineId};
 use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle};
 use webrender_traits::{ScrollLayerId, WebGLCommand};
+
+// An ID for a texture that is owned by the
+// texture cache module. This can include atlases
+// or standalone textures allocated via the
+// texture cache (e.g. if an image is too large
+// to be added to an atlas). The texture cache
+// manages the allocation and freeing of these
+// IDs, and the rendering thread maintains a
+// map from cache texture ID to native texture.
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct CacheTextureId(pub usize);
+
+impl CacheTextureId {
+    pub fn invalid() -> CacheTextureId {
+        CacheTextureId(usize::MAX)
+    }
+}
+
+// Represents the source for a texture.
+// These are passed from throughout the
+// pipeline until they reach the rendering
+// thread, where they are resolved to a
+// native texture ID.
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum SourceTexture {
+    Invalid,
+    TextureCache(CacheTextureId),
+    WebGL(u32),                         // Is actually a gl::GLuint
+
+    // TODO(gw): Implement external image support via callback
+    //External(i32),
+}
 
 pub enum GLContextHandleWrapper {
     Native(NativeGLContextHandle),
@@ -194,15 +229,15 @@ impl TextureSampler {
 /// Textures that are not used by the batch are equal to TextureId::invalid().
 #[derive(Copy, Clone, Debug)]
 pub struct BatchTextures {
-    pub colors: [TextureId; 3],
-    pub mask: TextureId,
+    pub colors: [SourceTexture; 3],
+    pub mask: SourceTexture,
 }
 
 impl BatchTextures {
     pub fn no_texture() -> Self {
         BatchTextures {
-            colors: [TextureId::invalid(); 3],
-            mask: TextureId::invalid(),
+            colors: [SourceTexture::Invalid; 3],
+            mask: SourceTexture::Invalid,
         }
     }
 }
@@ -334,26 +369,17 @@ pub enum RenderTargetMode {
 
 #[derive(Debug)]
 pub enum TextureUpdateDetails {
-    Raw,
     Blit(Vec<u8>, Option<u32>),
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct TextureImage {
-    pub texture_id: TextureId,
-    pub texel_uv: Rect<f32>,
-    pub pixel_uv: Point2D<u32>,
 }
 
 pub enum TextureUpdateOp {
     Create(u32, u32, ImageFormat, TextureFilter, RenderTargetMode, Option<Vec<u8>>),
     Update(u32, u32, u32, u32, TextureUpdateDetails),
     Grow(u32, u32, ImageFormat, TextureFilter, RenderTargetMode),
-    Remove
 }
 
 pub struct TextureUpdate {
-    pub id: TextureId,
+    pub id: CacheTextureId,
     pub op: TextureUpdateOp,
 }
 
