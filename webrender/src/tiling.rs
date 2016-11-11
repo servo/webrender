@@ -981,16 +981,17 @@ impl RenderTask {
     }
 
     fn new_mask(actual_rect: DeviceRect, cache_info: &MaskCacheInfo) -> Option<RenderTask> {
-        let intersection = match actual_rect.intersection(&cache_info.device_rect) {
-            Some(rect) => rect,
-            None => return None,
+        //CLIP TODO: handle a case where the tile is completely inside the intersection
+        if !actual_rect.intersects(&cache_info.device_rect) {
+            return None
         };
+        let task_rect = cache_info.device_rect;
         Some(RenderTask {
             id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(cache_info.key)),
             children: Vec::new(),
-            location: RenderTaskLocation::Dynamic(None, intersection.size),
+            location: RenderTaskLocation::Dynamic(None, task_rect.size),
             kind: RenderTaskKind::CacheMask(CacheMaskTask {
-                actual_rect: intersection,
+                actual_rect: task_rect,
                 image: cache_info.image.map(|mask| mask.image),
             }),
         })
@@ -1757,6 +1758,10 @@ impl ScreenTile {
                     if let Some(ref clip_info) = prim_metadata.clip_cache_info {
                         if let Some(mask_task) = RenderTask::new_mask(self.rect, clip_info) {
                             current_task.children.push(mask_task);
+                        } else {
+                            // The primitive has clip items but their intersection is empty
+                            // meaning, no pixels will be visible, we can skip it entirely
+                            continue;
                         }
                     }
 
