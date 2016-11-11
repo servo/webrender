@@ -282,7 +282,7 @@ impl Frame {
         result
     }
 
-      /// Returns true if any layers actually changed position or false otherwise.
+    /// Returns true if any layers actually changed position or false otherwise.
     pub fn scroll(&mut self,
                   scroll_location: ScrollLocation,
                   cursor: Point2D<f32>,
@@ -319,31 +319,30 @@ impl Frame {
                 continue;
             }
 
-           let mut delta:Point2D<f32> = match scroll_location {
-            ScrollLocation::Delta(delta) => delta,
-            ScrollLocation::Start => {
-                if layer.scrolling.offset.y.round() == 0.0 {
-                    // Nothing to do.
-                    return false;
-                }
+            let mut delta:Point2D<f32> = match scroll_location {
+                ScrollLocation::Delta(delta) => delta,
+                ScrollLocation::Start => {
+                    if layer.scrolling.offset.y.round() == 0.0 {
+                        // Nothing to do.
+                        return false;
+                    }
 
-                layer.scrolling.offset.y = 0.0;
-                return true;
-            },
-            ScrollLocation::End => {
-                let end_pos = -layer.content_size.height +
+                    layer.scrolling.offset.y = 0.0;
+                    return true;
+                },
+                ScrollLocation::End => {
+                    let end_pos = -layer.content_size.height +
                                                  (layer.local_viewport_rect.size.height);
 
-                if layer.scrolling.offset.y.round() == end_pos {
-                    // Nothing to do.
-                    return false;
-                }
+                    if layer.scrolling.offset.y.round() == end_pos {
+                        // Nothing to do.
+                        return false;
+                    }
                 
-                layer.scrolling.offset.y = end_pos;
-                return true;
-            },
-        };
-
+                    layer.scrolling.offset.y = end_pos;
+                    return true;
+                },
+            };
 
             let overscroll_amount = layer.overscroll_amount();
             let overscrolling = CAN_OVERSCROLL && (overscroll_amount.width != 0.0 ||
@@ -404,7 +403,7 @@ impl Frame {
         }
 
         scrolled_a_layer
-}
+    }
 
     pub fn tick_scrolling_bounce_animations(&mut self) {
         for (_, layer) in &mut self.layers {
