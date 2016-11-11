@@ -19,15 +19,11 @@ use tiling::{AuxiliaryListsMap, FrameBuilder, FrameBuilderConfig, PrimitiveFlags
 use util::MatrixHelpers;
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
 use webrender_traits::{ClipRegion, ColorF, DisplayItem, StackingContext, FilterOp, MixBlendMode};
-<<<<<<< 22aefa1b9daa4ae0b8e8d161d9d0173bb2117c9b
 use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, ScrollLocation, SpecificDisplayItem, ScrollLayerState};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
 use webrender_traits::{ServoScrollRootId, ScrollLayerRect, as_scroll_parent_rect, ScrollLayerPixel};
 use webrender_traits::WorldPoint4D;
 use webrender_traits::{LayerTransform, LayerToScrollTransform, ScrollToWorldTransform};
-=======
-use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, SpecificDisplayItem, ScrollLayerState, ScrollLocation};
->>>>>>> Implement home end key scrolling support.
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
@@ -302,6 +298,7 @@ impl Frame {
     }
 
     /// Returns true if any layers actually changed position or false otherwise.
+<<<<<<< efdaeb1c18aea2be3172aea2af309298b2f54402
     pub fn scroll_layers(&mut self,
                          origin: Point2D<f32>,
                          pipeline_id: PipelineId,
