@@ -1031,8 +1031,6 @@ impl Renderer {
             let texture_id = self.resolve_source_texture(&textures.colors[i]);
             self.device.bind_texture(TextureSampler::color(i), texture_id);
         }
-        let mask_texture_id = self.resolve_source_texture(&textures.mask);
-        self.device.bind_texture(TextureSampler::Mask, mask_texture_id);
 
         for chunk in ubo_data.chunks(max_prim_items) {
             let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
@@ -1133,13 +1131,14 @@ impl Renderer {
                                 shader,
                                 1,
                                 &BatchTextures::no_texture(),
-                                max_cache_instances,
+                                max_prim_items,
                                 &projection);
         }
 
         // Draw the clip items into the tiled alpha mask.
         if true {
             self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
+            let textures = BatchTextures::no_texture();
             // first, mark the target area as opaque
             //Note: not needed if we know the target is cleared with opaque
             self.device.set_blend(false);
@@ -1149,7 +1148,7 @@ impl Renderer {
                 self.draw_ubo_batch(&target.clip_batcher.clears,
                                     shader,
                                     1,
-                                    TextureId::invalid(),
+                                    &textures,
                                     max_prim_items,
                                     &projection);
             }
@@ -1163,7 +1162,7 @@ impl Renderer {
                 self.draw_ubo_batch(&target.clip_batcher.rectangles,
                                     shader,
                                     1,
-                                    TextureId::invalid(),
+                                    &textures,
                                     max_prim_items,
                                     &projection);
             }
@@ -1174,7 +1173,7 @@ impl Renderer {
                 self.draw_ubo_batch(items,
                                     shader,
                                     1,
-                                    TextureId::invalid(),
+                                    &textures,
                                     max_prim_items,
                                     &projection);
             }
@@ -1460,7 +1459,7 @@ impl Renderer {
             self.draw_ubo_batch(&frame.clear_tiles,
                                 shader,
                                 1,
-                                TextureId::invalid(),
+                                &BatchTextures::no_texture(),
                                 max_prim_items,
                                 &projection);
         }
