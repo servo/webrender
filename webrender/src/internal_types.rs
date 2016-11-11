@@ -195,14 +195,12 @@ impl TextureSampler {
 #[derive(Copy, Clone, Debug)]
 pub struct BatchTextures {
     pub colors: [TextureId; 3],
-    pub mask: TextureId,
 }
 
 impl BatchTextures {
     pub fn no_texture() -> Self {
         BatchTextures {
             colors: [TextureId::invalid(); 3],
-            mask: TextureId::invalid(),
         }
     }
 }
