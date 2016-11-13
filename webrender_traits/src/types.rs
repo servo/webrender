@@ -332,6 +332,11 @@ pub enum ImageFormat {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ImageKey(u32, u32);
 
+// TODO(nical) in order to not split the API, ExternalImageKey is just an alias
+// for ImageKey. The downside is that in places where we expect only one of the
+// two types, we have to check at runtime.
+pub type ExternalImageKey = ImageKey;
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ImageRendering {
     Auto,

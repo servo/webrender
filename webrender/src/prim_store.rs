@@ -6,14 +6,14 @@ use app_units::Au;
 use device::TextureId;
 use euclid::{Point2D, Matrix4D, Rect, Size2D};
 use gpu_store::{GpuStore, GpuStoreAddress};
-use internal_types::{device_pixel, DeviceRect, DeviceSize};
+use internal_types::{SourceTexture, device_pixel, DeviceRect, DeviceSize};
 use resource_cache::ResourceCache;
 use std::mem;
 use std::usize;
 use texture_cache::TextureCacheItem;
 use tiling::RenderTask;
 use util::TransformedRect;
-use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering};
+use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ExternalImageKey, ImageRendering};
 use webrender_traits::{FontRenderMode, WebGLContextId};
 use webrender_traits::{ClipRegion, FontKey, ItemRange, ComplexClipRegion, GlyphKey};
 
@@ -96,7 +96,7 @@ pub enum ImagePrimitiveKind {
 #[derive(Debug)]
 pub struct ImagePrimitiveCpu {
     pub kind: ImagePrimitiveKind,
-    pub color_texture_id: TextureId,
+    pub color_texture_id: SourceTexture,
 }
 
 #[derive(Debug, Clone)]
@@ -346,6 +346,9 @@ pub struct PrimitiveStore {
     pub cpu_gradients: Vec<GradientPrimitiveCpu>,
     pub cpu_metadata: Vec<PrimitiveMetadata>,
     pub cpu_borders: Vec<BorderPrimitiveCpu>,
+    // the indices witihin gpu_data_32 of the image primitives to be resolved by
+    // the renderer instead of the render backend.
+    pub deferred_image_primitives: Vec<(ExternalImageKey, GpuStoreAddress)>,
 
     // Gets uploaded directly to GPU via vertex texture
     pub gpu_geometry: GpuStore<PrimitiveGeometry>,
@@ -375,6 +378,7 @@ impl PrimitiveStore {
             gpu_data128: GpuStore::new(),
             device_pixel_ratio: device_pixel_ratio,
             prims_to_resolve: Vec::new(),
+            deferred_image_primitives: Vec::new(),
         }
     }
 
@@ -610,22 +614,27 @@ impl PrimitiveStore {
                 }
                 PrimitiveKind::Image => {
                     let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
-                    let image_gpu: &mut ImagePrimitiveGpu = unsafe {
-                        mem::transmute(self.gpu_data32.get_mut(metadata.gpu_prim_index))
-                    };
+                    if let Some(key) = image_cpu.color_texture_id.to_external() {
+                        // If the image primitive uses externally allocated textures,
+                        // we resolve it on the renderer.
+                        self.deferred_image_primitives.push((key, metadata.gpu_prim_index));
+                    } else {
+                        let image_gpu: &mut ImagePrimitiveGpu = unsafe {
+                            mem::transmute(self.gpu_data32.get_mut(metadata.gpu_prim_index))
+                        };
+                        let cache_item = match image_cpu.kind {
+                            ImagePrimitiveKind::Image(image_key, image_rendering, _) => {
+                                resource_cache.get_image(image_key, image_rendering)
+                            }
+                            ImagePrimitiveKind::WebGL(context_id) => {
+                                resource_cache.get_webgl_texture(&context_id)
+                            }
+                        };
 
-                    let cache_item = match image_cpu.kind {
-                        ImagePrimitiveKind::Image(image_key, image_rendering, _) => {
-                            resource_cache.get_image(image_key, image_rendering)
-                        }
-                        ImagePrimitiveKind::WebGL(context_id) => {
-                            resource_cache.get_webgl_texture(&context_id)
-                        }
-                    };
-
-                    image_cpu.color_texture_id = cache_item.texture_id;
-                    image_gpu.uv0 = cache_item.uv0;
-                    image_gpu.uv1 = cache_item.uv1;
+                        image_cpu.color_texture_id = SourceTexture::Id(cache_item.texture_id);
+                        image_gpu.uv0 = cache_item.uv0;
+                        image_gpu.uv1 = cache_item.uv1;
+                    }
                 }
             }
         }
@@ -825,21 +834,23 @@ impl PrimitiveStore {
             PrimitiveKind::Image => {
                 let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
 
-                prim_needs_resolve = true;
-                match image_cpu.kind {
-                    ImagePrimitiveKind::Image(image_key, image_rendering, tile_spacing) => {
-                        resource_cache.request_image(image_key, image_rendering);
+                if !image_cpu.color_texture_id.is_external() {
+                    prim_needs_resolve = true;
+                    match image_cpu.kind {
+                        ImagePrimitiveKind::Image(image_key, image_rendering, tile_spacing) => {
+                            resource_cache.request_image(image_key, image_rendering);
 
-                        // TODO(gw): This doesn't actually need to be calculated each frame.
-                        // It's cheap enough that it's not worth introducing a cache for images
-                        // right now, but if we introduce a cache for images for some other
-                        // reason then we might as well cache this with it.
-                        let image_properties = resource_cache.get_image_properties(image_key);
-                        metadata.is_opaque = image_properties.is_opaque &&
-                                             tile_spacing.width == 0.0 &&
-                                             tile_spacing.height == 0.0;
+                            // TODO(gw): This doesn't actually need to be calculated each frame.
+                            // It's cheap enough that it's not worth introducing a cache for images
+                            // right now, but if we introduce a cache for images for some other
+                            // reason then we might as well cache this with it.
+                            let image_properties = resource_cache.get_image_properties(image_key);
+                            metadata.is_opaque = image_properties.is_opaque &&
+                                                 tile_spacing.width == 0.0 &&
+                                                 tile_spacing.height == 0.0;
+                        }
+                        ImagePrimitiveKind::WebGL(..) => {}
                     }
-                    ImagePrimitiveKind::WebGL(..) => {}
                 }
             }
             PrimitiveKind::Gradient => {

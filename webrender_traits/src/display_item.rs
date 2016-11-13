@@ -5,7 +5,7 @@
 use display_list::AuxiliaryListsBuilder;
 use euclid::{Rect, Size2D};
 use {BorderRadius, BorderDisplayItem, ClipRegion, ColorF, ComplexClipRegion};
-use {FontKey, ImageKey, PipelineId, ScrollLayerId, ScrollLayerInfo, ServoScrollRootId};
+use {FontKey, ImageKey, ExternalImageKey, PipelineId, ScrollLayerId, ScrollLayerInfo, ServoScrollRootId};
 use {ImageMask, ItemRange};
 
 impl BorderDisplayItem {
@@ -107,9 +107,23 @@ impl FontKey {
     }
 }
 
+// hijack the last highest bit of the namespace to store whether or not the key
+// is external.
+const IMAGE_KEY_EXTERNAL_BIT: u32 = 0x80000000;
+
 impl ImageKey {
-    pub fn new(key0: u32, key1: u32) -> ImageKey {
-        ImageKey(key0, key1)
+    pub fn new(namespace: u32, key: u32) -> ImageKey {
+        assert!(namespace & IMAGE_KEY_EXTERNAL_BIT == 0);
+        ImageKey(namespace, key)
+    }
+
+    pub fn new_external(namespace: u32, key: u32) -> ExternalImageKey {
+        assert!(namespace & IMAGE_KEY_EXTERNAL_BIT == 0);
+        ImageKey(namespace | IMAGE_KEY_EXTERNAL_BIT, key)
+    }
+
+    pub fn is_external(&self) -> bool {
+        self.0 & IMAGE_KEY_EXTERNAL_BIT != 0
     }
 }
 

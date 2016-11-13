@@ -18,8 +18,9 @@ use fnv::FnvHasher;
 use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePoint};
-use internal_types::{BatchTextures, TextureSampler, GLContextHandleWrapper};
+use internal_types::{SourceTexture, BatchTextures, TextureSampler, GLContextHandleWrapper};
 use ipc_channel::ipc;
+use prim_store::{ImagePrimitiveGpu};
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use render_backend::RenderBackend;
@@ -951,9 +952,11 @@ impl Renderer {
         self.device.bind_vao(self.quad_vao_id);
 
         for i in 0..textures.colors.len() {
-            self.device.bind_texture(TextureSampler::color(i), textures.colors[i]);
+            let color_id = self.resolve_texture_id(textures.colors[i]);
+            self.device.bind_texture(TextureSampler::color(i), color_id);
         }
-        self.device.bind_texture(TextureSampler::Mask, textures.mask);
+        let mask_id = self.resolve_texture_id(textures.mask);
+        self.device.bind_texture(TextureSampler::Mask, mask_id);
 
         for chunk in ubo_data.chunks(max_prim_items) {
             let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
@@ -964,6 +967,30 @@ impl Renderer {
             self.profile_counters.draw_calls.inc();
 
             self.device.delete_buffer(ubo);
+        }
+    }
+
+    fn resolve_texture_id(&self, texture: SourceTexture) -> TextureId {
+        match texture {
+            SourceTexture::Id(id) => { id }
+            SourceTexture::External(_key) => {
+                //TODO[nical]
+                unimplemented!();
+            }
+        }
+    }
+
+    fn resolve_external_image_data(&self, frame: &mut Frame) {
+        for &(key, prim_index) in &frame.deferred_image_primitives[..] {
+            let image_gpu: &mut ImagePrimitiveGpu = unsafe {
+                mem::transmute(frame.gpu_data32.get_mut(prim_index.0 as usize))
+            };
+
+            // TODO: fetch the external UV and and texture id using a callback API
+            // or some such, and patch up the image_gpu.
+
+            // image_gpu.uv0 =
+            // image_gpu.uv1 =
         }
     }
 
@@ -1284,6 +1311,8 @@ impl Renderer {
                                          RenderTargetMode::LayerRenderTarget(pass.targets.len() as i32),
                                          None);
             }
+
+            self.resolve_external_image_data(frame);
 
             self.layer_texture.init(&mut self.device, &mut frame.layer_texture_data);
             self.render_task_texture.init(&mut self.device, &mut frame.render_task_data);

@@ -8,7 +8,7 @@ use ipc_channel::ipc::{self, IpcBytesSender, IpcSender};
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::cell::Cell;
 use {ApiMsg, AuxiliaryLists, BuiltDisplayList, ColorF, DisplayListId, Epoch};
-use {FontKey, IdNamespace, ImageFormat, ImageKey, NativeFontHandle, PipelineId};
+use {FontKey, IdNamespace, ImageFormat, ImageKey, ExternalImageKey, NativeFontHandle, PipelineId};
 use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState};
 use {StackingContext, StackingContextId, WebGLContextId, WebGLCommand};
 use {GlyphKey, GlyphDimensions};
@@ -87,6 +87,12 @@ impl RenderApi {
         ImageKey::new(new_id.0, new_id.1)
     }
 
+    /// Creates an `ExternalImageKey`.
+    pub fn alloc_external_image(&self) -> ExternalImageKey {
+        let new_id = self.next_unique_id();
+        ImageKey::new_external(new_id.0, new_id.1)
+    }
+
     /// Adds an image and returns the corresponding `ImageKey`.
     pub fn add_image(&self,
                      width: u32,
@@ -94,8 +100,7 @@ impl RenderApi {
                      stride: Option<u32>,
                      format: ImageFormat,
                      bytes: Vec<u8>) -> ImageKey {
-        let new_id = self.next_unique_id();
-        let key = ImageKey::new(new_id.0, new_id.1);
+        let key = self.alloc_image();
         let msg = ApiMsg::AddImage(key, width, height, stride, format, bytes);
         self.api_sender.send(msg).unwrap();
         key
@@ -111,12 +116,14 @@ impl RenderApi {
                         height: u32,
                         format: ImageFormat,
                         bytes: Vec<u8>) {
+        assert!(!key.is_external());
         let msg = ApiMsg::UpdateImage(key, width, height, format, bytes);
         self.api_sender.send(msg).unwrap();
     }
 
     /// Deletes the specific image.
     pub fn delete_image(&self, key: ImageKey) {
+        assert!(!key.is_external());
         let msg = ApiMsg::DeleteImage(key);
         self.api_sender.send(msg).unwrap();
     }

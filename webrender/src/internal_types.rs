@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tiling;
 use webrender_traits::{Epoch, ColorF, PipelineId};
-use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem};
+use webrender_traits::{ExternalImageKey, ImageFormat, MixBlendMode, NativeFontHandle, DisplayItem};
 use webrender_traits::{ScrollLayerId, WebGLCommand};
 
 pub enum GLContextHandleWrapper {
@@ -193,19 +193,55 @@ impl TextureSampler {
     }
 }
 
+/// A reference to a texture, either an id assigned by the render backend or an
+/// indirect key resolved to an id later by the renderer.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum SourceTexture {
+    Id(TextureId),
+    External(ExternalImageKey),
+    // TODO(nical): should this have a None variant to better separate the cases
+    // where the batch does not use all its texture slots and cases where a slot
+    // will be used but the texture hasn't been assigned yet?
+}
+
+impl SourceTexture {
+    pub fn invalid() -> SourceTexture { SourceTexture::Id(TextureId::invalid()) }
+
+    pub fn is_valid(&self) -> bool {
+        match *self {
+            SourceTexture::Id(id) => { id.is_valid() }
+            SourceTexture::External(_) => { true }
+        }
+    }
+
+    pub fn is_external(&self) -> bool {
+        match *self {
+            SourceTexture::External(_) => { true }
+            SourceTexture::Id(_) => { false }
+        }
+    }
+
+    pub fn to_external(&self) -> Option<ExternalImageKey> {
+        match *self {
+            SourceTexture::External(key) => Some(key),
+            SourceTexture::Id(_) => None,
+        }
+    }
+}
+
 /// Optional textures that can be used as a source in the shaders.
-/// Textures that are not used by the batch are equal to TextureId::invalid().
+/// Textures that are not used by the batch are equal to SourceTexture::invalid().
 #[derive(Copy, Clone, Debug)]
 pub struct BatchTextures {
-    pub colors: [TextureId; 3],
-    pub mask: TextureId,
+    pub colors: [SourceTexture; 3],
+    pub mask: SourceTexture,
 }
 
 impl BatchTextures {
     pub fn no_texture() -> Self {
         BatchTextures {
-            colors: [TextureId::invalid(); 3],
-            mask: TextureId::invalid(),
+            colors: [SourceTexture::invalid(); 3],
+            mask: SourceTexture::invalid(),
         }
     }
 }
