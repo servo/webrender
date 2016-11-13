@@ -610,7 +610,7 @@ impl RenderTarget {
             text_run_textures: BatchTextures::no_texture(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
-            page_allocator: TexturePage::new(CacheTextureId::invalid(),
+            page_allocator: TexturePage::new(CacheTextureId(0),
                                              RENDERABLE_CACHE_SIZE as u32),
         }
     }

@@ -7,10 +7,7 @@ use device::TextureFilter;
 use euclid::{Point2D, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
-use internal_types::{FontTemplate, TextureUpdateList};
-use freelist::FreeList;
-use internal_types::{CacheTextureId, FontTemplate, SourceTexture};
-use internal_types::{TextureUpdateList, DrawListId, DrawList};
+use internal_types::{FontTemplate, SourceTexture, TextureUpdateList};
 use platform::font::{FontContext, RasterizedGlyph};
 use rayon::prelude::*;
 use std::cell::RefCell;
@@ -354,7 +351,7 @@ impl ResourceCache {
                                                   size,
                                                   0,
                                                   render_mode);
-        let mut texture_id = CacheTextureId::invalid();
+        let mut texture_id = None;
         for (loop_index, glyph_index) in glyph_indices.iter().enumerate() {
             glyph_key.key.index = *glyph_index;
             let image_id = self.cached_glyphs.get(&glyph_key, self.current_frame_id);
@@ -365,13 +362,13 @@ impl ResourceCache {
                 let uv1 = Point2D::new(cache_item.pixel_rect.bottom_right.x as f32,
                                        cache_item.pixel_rect.bottom_right.y as f32);
                 f(loop_index, uv0, uv1);
-                debug_assert!(texture_id == CacheTextureId::invalid() ||
-                              texture_id == cache_item.texture_id);
-                texture_id = cache_item.texture_id;
+                debug_assert!(texture_id == None ||
+                              texture_id == Some(cache_item.texture_id));
+                texture_id = Some(cache_item.texture_id);
             }
         }
 
-        SourceTexture::TextureCache(texture_id)
+        texture_id.map_or(SourceTexture::Invalid, SourceTexture::TextureCache)
     }
 
     pub fn get_glyph_dimensions(&mut self, glyph_key: &GlyphKey) -> Option<GlyphDimensions> {

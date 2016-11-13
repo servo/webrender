@@ -6,7 +6,7 @@ use device::{MAX_TEXTURE_SIZE, TextureFilter};
 use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
-use internal_types::{TextureUpdate, TextureUpdateOp, TextureUpdateDetails};
+use internal_types::{TextureUpdate, TextureUpdateOp};
 use internal_types::{CacheTextureId, RenderTargetMode, TextureUpdateList};
 use internal_types::{RectUv, DevicePixel, DevicePoint};
 use std::cmp::{self, Ordering};
@@ -597,7 +597,7 @@ impl TextureCache {
             allocated_rect: Rect::zero(),
             requested_rect: Rect::zero(),
             texture_size: Size2D::zero(),
-            texture_id: CacheTextureId::invalid(),
+            texture_id: CacheTextureId(0),
         };
         self.items.insert(new_item)
     }
@@ -740,7 +740,8 @@ impl TextureCache {
                                          existing_item.requested_rect.origin.y,
                                          width,
                                          height,
-                                         TextureUpdateDetails::Blit(bytes, stride));
+                                         bytes,
+                                         stride);
 
         let update_op = TextureUpdate {
             id: existing_item.texture_id,
@@ -797,7 +798,8 @@ impl TextureCache {
                                                 result.item.allocated_rect.origin.y,
                                                 result.item.allocated_rect.size.width,
                                                 1,
-                                                TextureUpdateDetails::Blit(top_row_bytes, None))
+                                                top_row_bytes,
+                                                None)
                 };
 
                 let border_update_op_bottom = TextureUpdate {
@@ -808,7 +810,8 @@ impl TextureCache {
                             result.item.requested_rect.size.height + 1,
                         result.item.allocated_rect.size.width,
                         1,
-                        TextureUpdateDetails::Blit(bottom_row_bytes, None))
+                        bottom_row_bytes,
+                        None)
                 };
 
                 let border_update_op_left = TextureUpdate {
@@ -818,7 +821,8 @@ impl TextureCache {
                         result.item.requested_rect.origin.y,
                         1,
                         result.item.requested_rect.size.height,
-                        TextureUpdateDetails::Blit(left_column_bytes, None))
+                        left_column_bytes,
+                        None)
                 };
 
                 let border_update_op_right = TextureUpdate {
@@ -827,7 +831,8 @@ impl TextureCache {
                                                 result.item.requested_rect.origin.y,
                                                 1,
                                                 result.item.requested_rect.size.height,
-                                                TextureUpdateDetails::Blit(right_column_bytes, None))
+                                                right_column_bytes,
+                                                None)
                 };
 
                 self.pending_updates.push(border_update_op_top);
@@ -839,7 +844,8 @@ impl TextureCache {
                                         result.item.requested_rect.origin.y,
                                         width,
                                         height,
-                                        TextureUpdateDetails::Blit(bytes,stride))
+                                        bytes,
+                                        stride)
             }
             AllocationKind::Standalone => {
                 TextureUpdateOp::Create(width,

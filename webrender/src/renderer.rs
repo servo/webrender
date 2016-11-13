@@ -16,7 +16,7 @@ use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureT
 use euclid::{Matrix4D, Size2D};
 use fnv::FnvHasher;
 use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
-use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
+use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePoint, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler, GLContextHandleWrapper};
 use ipc_channel::ipc;
@@ -374,8 +374,12 @@ pub struct Renderer {
     /// Required to allow GLContext sharing in some implementations like WGL.
     main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
 
-    // A vectors for fast resolves of texture cache IDs to
-    // native texture IDs.
+    /// A vector for fast resolves of texture cache IDs to
+    /// native texture IDs. This maps to a free-list managed
+    /// by the backend thread / texture cache. Because of this,
+    /// items in this array may be None if they have been
+    /// freed by the backend thread. This saves having to
+    /// use a hashmap, and allows a flat vector for performance.
     cache_texture_id_map: Vec<Option<TextureId>>,
 }
 
@@ -769,7 +773,8 @@ impl Renderer {
             &SourceTexture::Invalid => TextureId::invalid(),
             &SourceTexture::WebGL(id) => TextureId::new(id),
             &SourceTexture::TextureCache(index) => {
-                self.cache_texture_id_map[index.0].unwrap()
+                self.cache_texture_id_map[index.0]
+                    .expect("BUG: Texture should exist in texture cache map!")
             }
         }
     }
@@ -911,18 +916,13 @@ impl Renderer {
                                                    filter,
                                                    mode);
                     }
-                    TextureUpdateOp::Update(x, y, width, height, details) => {
+                    TextureUpdateOp::Update(x, y, width, height, bytes, stride) => {
                         let texture_id = self.cache_texture_id_map[update.id.0].unwrap();
-                        match details {
-                            TextureUpdateDetails::Blit(bytes, stride) => {
-                                self.device.update_texture(
-                                    texture_id,
-                                    x,
-                                    y,
-                                    width, height, stride,
-                                    bytes.as_slice());
-                            }
-                        }
+                        self.device.update_texture(texture_id,
+                                                   x,
+                                                   y,
+                                                   width, height, stride,
+                                                   bytes.as_slice());
                     }
                 }
             }

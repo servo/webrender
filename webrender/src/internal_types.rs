@@ -14,10 +14,9 @@ use profiler::BackendProfileCounters;
 use std::collections::{HashMap, HashSet};
 use std::f32;
 use std::hash::BuildHasherDefault;
-use std::i32;
+use std::{i32, usize};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::usize;
 use tiling;
 use webrender_traits::{Epoch, ColorF, PipelineId};
 use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle};
@@ -34,12 +33,6 @@ use webrender_traits::{ScrollLayerId, WebGLCommand};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct CacheTextureId(pub usize);
-
-impl CacheTextureId {
-    pub fn invalid() -> CacheTextureId {
-        CacheTextureId(usize::MAX)
-    }
-}
 
 // Represents the source for a texture.
 // These are passed from throughout the
@@ -367,14 +360,9 @@ pub enum RenderTargetMode {
     LayerRenderTarget(i32),      // Number of texture layers
 }
 
-#[derive(Debug)]
-pub enum TextureUpdateDetails {
-    Blit(Vec<u8>, Option<u32>),
-}
-
 pub enum TextureUpdateOp {
     Create(u32, u32, ImageFormat, TextureFilter, RenderTargetMode, Option<Vec<u8>>),
-    Update(u32, u32, u32, u32, TextureUpdateDetails),
+    Update(u32, u32, u32, u32, Vec<u8>, Option<u32>),
     Grow(u32, u32, ImageFormat, TextureFilter, RenderTargetMode),
 }
 
