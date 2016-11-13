@@ -349,9 +349,14 @@ pub enum RenderTaskId {
     Dynamic(RenderTaskKey),
 }
 
+struct DynamicTaskInfo {
+    index: RenderTaskIndex,
+    rect: DeviceRect,
+}
+
 struct RenderTaskCollection {
     render_task_data: Vec<RenderTaskData>,
-    dynamic_tasks: HashMap<(RenderTaskKey, RenderPassIndex), RenderTaskIndex, BuildHasherDefault<FnvHasher>>,
+    dynamic_tasks: HashMap<(RenderTaskKey, RenderPassIndex), DynamicTaskInfo, BuildHasherDefault<FnvHasher>>,
 }
 
 impl RenderTaskCollection {
@@ -371,15 +376,23 @@ impl RenderTaskCollection {
                 let index = RenderTaskIndex(self.render_task_data.len());
                 let key = (key, pass);
                 debug_assert!(self.dynamic_tasks.contains_key(&key) == false);
-                self.dynamic_tasks.insert(key, index);
+                self.dynamic_tasks.insert(key, DynamicTaskInfo {
+                    index: index,
+                    rect: match task.location {
+                        RenderTaskLocation::Fixed(rect) => rect,
+                        RenderTaskLocation::Dynamic(Some((origin, _)), size) => DeviceRect::new(origin, size),
+                        RenderTaskLocation::Dynamic(None, _) => panic!("Expect the task to be already allocated here"),
+                    },
+                });
                 self.render_task_data.push(task.write_task_data());
             }
         }
     }
 
-    fn task_exists(&self, pass_index: RenderPassIndex, key: RenderTaskKey) -> bool {
+    fn get_dynamic_allocation(&self, pass_index: RenderPassIndex, key: RenderTaskKey) -> Option<&DeviceRect> {
         let key = (key, pass_index);
-        self.dynamic_tasks.contains_key(&key)
+        self.dynamic_tasks.get(&key)
+                          .map(|task| &task.rect)
     }
 
     fn get_static_task_index(&self, id: &RenderTaskId) -> RenderTaskIndex {
@@ -393,7 +406,7 @@ impl RenderTaskCollection {
         match id {
             &RenderTaskId::Static(index) => index,
             &RenderTaskId::Dynamic(key) => {
-                self.dynamic_tasks[&(key, pass_index)]
+                self.dynamic_tasks[&(key, pass_index)].index
             }
         }
     }
@@ -764,7 +777,8 @@ impl RenderPass {
                             // task data array. If a matching key exists
                             // (that is in this pass) there is no need
                             // to draw it again!
-                            if render_tasks.task_exists(self.pass_index, key) {
+                            if let Some(rect) = render_tasks.get_dynamic_allocation(self.pass_index, key) {
+                                debug_assert_eq!(rect.size, *size);
                                 continue;
                             }
                         }
