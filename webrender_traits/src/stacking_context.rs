@@ -25,7 +25,6 @@ impl StackingContext {
             bounds: bounds,
             overflow: overflow,
             z_index: z_index,
-            display_lists: Vec::new(),
             transform: transform.clone(),
             perspective: perspective.clone(),
             establishes_3d_context: establishes_3d_context,
