@@ -4,7 +4,6 @@
 
 use app_units::Au;
 use batch_builder::BorderSideHelpers;
-use clip_stack::{ClipRegionStack, MaskCacheKey, MaskCacheInfo};
 use device::{TextureId};
 use euclid::{Point2D, Point4D, Rect, Matrix4D, Size2D};
 use fnv::FnvHasher;
@@ -14,6 +13,7 @@ use internal_types::{DeviceRect, DevicePoint, DeviceSize, DeviceLength, device_p
 use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
 use internal_types::{BatchTextures};
 use layer::Layer;
+use mask_cache::{MaskCacheKey, MaskCacheInfo};
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{ImagePrimitiveCpu, ImagePrimitiveGpu, ImagePrimitiveKind};
@@ -1533,7 +1533,6 @@ pub struct FrameBuilder {
     packed_layers: Vec<PackedStackingContext>,
 
     scrollbar_prims: Vec<ScrollbarPrimitive>,
-    clip_stack: ClipRegionStack,
 }
 
 /// A rendering-oriented representation of frame::Frame built by the render backend
@@ -1795,7 +1794,6 @@ impl FrameBuilder {
             debug: debug,
             packed_layers: Vec::new(),
             scrollbar_prims: Vec::new(),
-            clip_stack: ClipRegionStack::new(device_pixel_ratio),
             config: config,
         }
     }
@@ -1805,18 +1803,22 @@ impl FrameBuilder {
                      clip_region: &ClipRegion,
                      container: PrimitiveContainer) -> PrimitiveIndex {
 
+        let geometry = PrimitiveGeometry {
+            local_rect: *rect,
+            local_clip_rect: clip_region.main,
+        };
         let clip_source = if clip_region.is_complex() {
             PrimitiveClipSource::Region(clip_region.clone())
         } else {
             PrimitiveClipSource::NoClip
         };
-        let geometry = PrimitiveGeometry {
-            local_rect: *rect,
-            local_clip_rect: clip_region.main,
-        };
+        let clip_info = MaskCacheInfo::new(&clip_source,
+                                           StackingContextIndex(self.layer_store.len() - 1),
+                                           &mut self.prim_store.gpu_data32);
 
         let prim_index = self.prim_store.add_primitive(geometry,
                                                        Box::new(clip_source),
+                                                       clip_info,
                                                        container);
 
         match self.cmds.last_mut().unwrap() {
@@ -2224,8 +2226,6 @@ impl FrameBuilder {
         // TODO(gw): Remove this stack once the layers refactor is done!
         let mut layer_stack: Vec<StackingContextIndex> = Vec::new();
 
-        self.clip_stack.reset();
-
         for cmd in &self.cmds {
             match cmd {
                 &PrimitiveRunCmd::PushStackingContext(sc_index) => {
@@ -2240,10 +2240,6 @@ impl FrameBuilder {
                     packed_layer.transform = scroll_layer.world_content_transform
                                                          .pre_mul(&layer.local_transform);
                     packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
-
-                    self.clip_stack.push_layer(sc_index,
-                                               &packed_layer.transform,
-                                               &scroll_layer.combined_local_viewport_rect);
 
                     if !layer.can_contribute_to_scene() {
                         continue;
@@ -2314,7 +2310,8 @@ impl FrameBuilder {
 
                             if self.prim_store.prepare_prim_for_render(prim_index,
                                                                        resource_cache,
-                                                                       &mut self.clip_stack,
+                                                                       &packed_layer.transform,
+                                                                       &packed_layer.local_clip_rect,
                                                                        self.device_pixel_ratio,
                                                                        auxiliary_lists) {
                                 self.prim_store.build_bounding_rect(prim_index,
@@ -2328,7 +2325,6 @@ impl FrameBuilder {
                 }
                 &PrimitiveRunCmd::PopStackingContext => {
                     layer_stack.pop().unwrap();
-                    self.clip_stack.pop_layer();
                 }
             }
         }
