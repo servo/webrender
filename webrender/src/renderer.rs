@@ -23,7 +23,6 @@ use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use render_backend::RenderBackend;
-use resource_cache::DummyResources;
 use std::cmp;
 use std::collections::HashMap;
 use std::f32;
@@ -587,11 +586,6 @@ impl Renderer {
                              TextureFilter::Linear,
                              mask_pixels);
 
-        let dummy_resources = DummyResources {
-            white_image_id: white_image_id,
-            opaque_mask_image_id: dummy_mask_image_id,
-        };
-
         let debug_renderer = DebugRenderer::new(&mut device);
 
         let layer_texture = VertexDataTexture::new(&mut device);
@@ -657,7 +651,6 @@ impl Renderer {
                                                  result_tx,
                                                  device_pixel_ratio,
                                                  texture_cache,
-                                                 dummy_resources,
                                                  enable_aa,
                                                  backend_notifier,
                                                  context_handle,

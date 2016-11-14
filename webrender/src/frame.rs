@@ -11,7 +11,7 @@ use internal_types::{CompositionOp};
 use internal_types::{LowLevelFilterOp};
 use internal_types::{RendererFrame};
 use layer::{Layer, ScrollingState};
-use resource_cache::{DummyResources, ResourceCache};
+use resource_cache::ResourceCache;
 use scene::Scene;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
@@ -397,7 +397,6 @@ impl Frame {
 
     pub fn create(&mut self,
                   scene: &Scene,
-                  dummy_resources: &DummyResources,
                   pipeline_sizes: &mut HashMap<PipelineId, Size2D<f32>>,
                   device_pixel_ratio: f32) {
         let root_pipeline_id = match scene.root_pipeline_id {
@@ -447,7 +446,6 @@ impl Frame {
 
         let mut frame_builder = FrameBuilder::new(root_pipeline.viewport_size,
                                                   device_pixel_ratio,
-                                                  dummy_resources.clone(),
                                                   self.debug,
                                                   self.frame_builder_config);
 
