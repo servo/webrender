@@ -160,11 +160,16 @@ struct ClipArea {
 };
 
 ClipArea fetch_clip_area(int index) {
-    RenderTaskData task = fetch_render_task(index);
-
     ClipArea area;
-    area.task_bounds = task.data0;
-    area.screen_origin_target_index = task.data1;
+
+    if (index == 0x7FFFFFFF) { //special sentinel task index
+        area.task_bounds = vec4(0.0, 0.0, 0.0, 0.0);
+        area.screen_origin_target_index = vec4(0.0, 0.0, 0.0, 0.0);
+    } else {
+        RenderTaskData task = fetch_render_task(index);
+        area.task_bounds = task.data0;
+        area.screen_origin_target_index = task.data1;
+    }
 
     return area;
 }

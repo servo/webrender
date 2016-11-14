@@ -27,7 +27,7 @@ use renderer::BlendMode;
 use resource_cache::ResourceCache;
 use std::cmp;
 use std::collections::{HashMap};
-use std::f32;
+use std::{i32, f32};
 use std::mem;
 use std::hash::{BuildHasherDefault};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -186,14 +186,13 @@ impl AlphaBatchHelpers for PrimitiveStore {
         let layer_index = layer_index.0 as i32;
         let global_prim_id = prim_index.0 as i32;
         let prim_address = metadata.gpu_prim_index;
-        let clip_task_index = {
-            let mask_key = match metadata.clip_cache_info {
-                Some(ref clip_info) => clip_info.key,
-                None => MaskCacheKey::empty(StackingContextIndex(0)),
-            };
-            let cache_task_id = RenderTaskId::Dynamic(RenderTaskKey::CacheMask(mask_key));
-            let cache_task_index = render_tasks.get_task_index(&cache_task_id, child_pass_index);
-            cache_task_index.0 as i32
+        let clip_task_index = match metadata.clip_cache_info {
+            Some(ref clip_info) => {
+                let cache_task_id = RenderTaskId::Dynamic(RenderTaskKey::CacheMask(clip_info.key));
+                let cache_task_index = render_tasks.get_task_index(&cache_task_id, child_pass_index);
+                cache_task_index.0 as i32
+            },
+            None => i32::MAX, //sentinel value for the dummy mask
         };
 
         match &mut batch.data {
@@ -946,8 +945,8 @@ impl RenderTask {
     }
 
     pub fn new_prim_cache(key: PrimitiveCacheKey,
-                      size: DeviceSize,
-                      prim_index: PrimitiveIndex) -> RenderTask {
+                          size: DeviceSize,
+                          prim_index: PrimitiveIndex) -> RenderTask {
         RenderTask {
             id: RenderTaskId::Dynamic(RenderTaskKey::CachePrimitive(key)),
             children: Vec::new(),
@@ -1660,19 +1659,6 @@ impl ScreenTile {
         let mut sc_stack = Vec::new();
         let mut current_task = RenderTask::new_alpha_batch(self.rect, ctx);
         let mut alpha_task_stack = Vec::new();
-        let mut empty_mask_task = Some(RenderTask {
-            id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(
-                MaskCacheKey::empty(StackingContextIndex(0)) //CLIP TODO
-            )),
-            children: Vec::new(),
-            location: RenderTaskLocation::Dynamic(None,
-                                                  DeviceSize::new(0, 0)),
-            kind: RenderTaskKind::CacheMask(CacheMaskTask {
-                actual_rect: DeviceRect::new(DevicePoint::new(0, 0),
-                                             DeviceSize::new(0, 0)),
-                image: None,
-            })
-        });
 
         for cmd in self.cmds {
             match cmd {
@@ -1749,10 +1735,6 @@ impl ScreenTile {
                             // The primitive has clip items but their intersection is empty
                             // meaning, no pixels will be visible, we can skip it entirely
                             continue;
-                        }
-                    } else {
-                        if let Some(mask_task) = empty_mask_task.take() {
-                            current_task.children.push(mask_task);
                         }
                     }
 
