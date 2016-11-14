@@ -40,6 +40,7 @@ use time::precise_time_ns;
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ImageFormat, RenderApiSender, RendererKind};
+use webrender_traits::{ExternalImage, ExternalImageCallback, ExternalImageKey};
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
@@ -373,6 +374,10 @@ pub struct Renderer {
     /// Used to dispatch functions to the main thread's event loop.
     /// Required to allow GLContext sharing in some implementations like WGL.
     main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
+
+    // Used for accessing the external texture/buffer through FFI.
+    // E.g. We could use this callback function to access the texture/buffer in C++.
+    external_image_callback: Option<ExternalImageCallback>,
 }
 
 impl Renderer {
@@ -698,6 +703,7 @@ impl Renderer {
             data128_texture: data128_texture,
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
             main_thread_dispatcher: main_thread_dispatcher,
+            external_image_callback: options.external_image_callback
         };
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
@@ -1374,4 +1380,5 @@ pub struct RendererOptions {
     pub precache_shaders: bool,
     pub renderer_kind: RendererKind,
     pub enable_subpixel_aa: bool,
+    pub external_image_callback: Option<ExternalImageCallback>,
 }

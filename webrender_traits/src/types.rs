@@ -716,3 +716,55 @@ pub enum WebGLShaderParameter {
     Bool(bool),
     Invalid,
 }
+
+#[repr(C)]
+pub struct ExternalImageKey(pub u32);
+
+pub enum ExternalImage<'i> {
+    TextureHandle {
+        handle: u32,
+    },
+    MemoryBuff {
+        buff: &'i [u8],
+    }
+}
+
+#[repr(C)]
+pub enum ExternalImageType {
+    TEXTURE_HANDLE,
+    MEM_OR_SHMEM,
+}
+
+#[repr(C)]
+pub struct ExternalImageStruct {
+    image_type: ExternalImageType,
+
+    // external buffer handle
+    handle: u32,
+
+    // shmem or memory buffer
+    buff: *const u8,
+    size: usize,
+}
+
+impl ExternalImageStruct {
+    pub fn get_image(&self) -> ExternalImage {
+        match self.image_type {
+            ExternalImageType::TEXTURE_HANDLE =>
+                ExternalImage::TextureHandle { handle: self.handle },
+            ExternalImageType::MEM_OR_SHMEM =>
+                ExternalImage::MemoryBuff { buff: unsafe { std::slice::from_raw_parts(self.buff, self.size)} },
+        }
+    }
+}
+
+pub type GetExternalImageCallback = fn(ExternalImageKey) -> ExternalImageStruct;
+
+pub type ReleaseExternalImageCallback = fn(ExternalImageKey);
+
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub struct ExternalImageCallback {
+    pub get_func: GetExternalImageCallback,
+    pub release_func: ReleaseExternalImageCallback,
+}
