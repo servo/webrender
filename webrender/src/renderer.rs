@@ -52,14 +52,11 @@ const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: debug_
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: debug_colors::SLATEGREY };
 const GPU_TAG_CLEAR_TILES: GpuProfileTag = GpuProfileTag { label: "Clear Tiles", color: debug_colors::BROWN };
 const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: debug_colors::RED };
-const GPU_TAG_PRIM_RECT_CLIP: GpuProfileTag = GpuProfileTag { label: "RectClip", color: debug_colors::DARKRED };
 const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: debug_colors::GREEN };
-const GPU_TAG_PRIM_IMAGE_CLIP: GpuProfileTag = GpuProfileTag { label: "ImageClip", color: debug_colors::DARKGREEN };
 const GPU_TAG_PRIM_BLEND: GpuProfileTag = GpuProfileTag { label: "Blend", color: debug_colors::LIGHTBLUE };
 const GPU_TAG_PRIM_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "Composite", color: debug_colors::MAGENTA };
 const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "TextRun", color: debug_colors::BLUE };
 const GPU_TAG_PRIM_GRADIENT: GpuProfileTag = GpuProfileTag { label: "Gradient", color: debug_colors::YELLOW };
-const GPU_TAG_PRIM_GRADIENT_CLIP: GpuProfileTag = GpuProfileTag { label: "GradientClip", color: debug_colors::YELLOWGREEN };
 const GPU_TAG_PRIM_ANGLE_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AngleGradient", color: debug_colors::POWDERBLUE };
 const GPU_TAG_PRIM_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "BoxShadow", color: debug_colors::CYAN };
 const GPU_TAG_PRIM_BORDER: GpuProfileTag = GpuProfileTag { label: "Border", color: debug_colors::ORANGE };
@@ -354,11 +351,8 @@ pub struct Renderer {
     ps_image: PrimitiveShader,
     ps_border: PrimitiveShader,
     ps_gradient: PrimitiveShader,
-    ps_gradient_clip: PrimitiveShader,
     ps_angle_gradient: PrimitiveShader,
     ps_box_shadow: PrimitiveShader,
-    ps_rectangle_clip: PrimitiveShader,
-    ps_image_clip: PrimitiveShader,
     ps_cache_image: PrimitiveShader,
 
     ps_blend: LazilyCompiledShader,
@@ -521,18 +515,6 @@ impl Renderer {
                                              &mut device,
                                              &[],
                                              options.precache_shaders);
-        let ps_rectangle_clip = PrimitiveShader::new("ps_rectangle_clip",
-                                                     max_ubo_vectors,
-                                                     max_prim_instances,
-                                                     &mut device,
-                                                     &[],
-                                                     options.precache_shaders);
-        let ps_image_clip = PrimitiveShader::new("ps_image_clip",
-                                                 max_ubo_vectors,
-                                                 max_prim_instances,
-                                                 &mut device,
-                                                 &[],
-                                                 options.precache_shaders);
 
         let ps_box_shadow = PrimitiveShader::new("ps_box_shadow",
                                                  max_ubo_vectors,
@@ -547,12 +529,6 @@ impl Renderer {
                                                &mut device,
                                                &[],
                                                options.precache_shaders);
-        let ps_gradient_clip = PrimitiveShader::new("ps_gradient_clip",
-                                                    max_ubo_vectors,
-                                                    max_prim_instances,
-                                                    &mut device,
-                                                    &[],
-                                                    options.precache_shaders);
         let ps_angle_gradient = PrimitiveShader::new("ps_angle_gradient",
                                                      max_ubo_vectors,
                                                      max_prim_instances,
@@ -718,11 +694,8 @@ impl Renderer {
             ps_text_run_subpixel: ps_text_run_subpixel,
             ps_image: ps_image,
             ps_border: ps_border,
-            ps_rectangle_clip: ps_rectangle_clip,
-            ps_image_clip: ps_image_clip,
             ps_box_shadow: ps_box_shadow,
             ps_gradient: ps_gradient,
-            ps_gradient_clip: ps_gradient_clip,
             ps_angle_gradient: ps_angle_gradient,
             ps_cache_image: ps_cache_image,
             ps_blend: ps_blend,
@@ -1205,12 +1178,16 @@ impl Renderer {
 
         for batch in &target.alpha_batcher.batches {
             let transform_kind = batch.key.flags.transform_kind();
-            let has_complex_clip = batch.key.flags.needs_clipping();
+            let needs_clipping = batch.key.flags.needs_clipping();
+            assert!(!needs_clipping || batch.key.blend_mode == BlendMode::Alpha);
 
             if batch.key.blend_mode != prev_blend_mode {
                 match batch.key.blend_mode {
-                    BlendMode::None | BlendMode::Alpha => {
-                        self.device.set_blend(batch.key.blend_mode == BlendMode::Alpha);
+                    BlendMode::None => {
+                        self.device.set_blend(false);
+                    }
+                    BlendMode::Alpha => {
+                        self.device.set_blend(true);
                         self.device.set_blend_mode_alpha();
                     }
                     BlendMode::Subpixel(color) => {
@@ -1259,13 +1236,8 @@ impl Renderer {
 
                 }
                 &PrimitiveBatchData::Rectangles(ref ubo_data) => {
-                    let (shader, max_prim_items) = if has_complex_clip {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT_CLIP);
-                        self.ps_rectangle_clip.get(&mut self.device, transform_kind)
-                    } else {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT);
-                        self.ps_rectangle.get(&mut self.device, transform_kind)
-                    };
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT);
+                    let (shader, max_prim_items) = self.ps_rectangle.get(&mut self.device, transform_kind);
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
@@ -1274,13 +1246,8 @@ impl Renderer {
                                         &projection);
                 }
                 &PrimitiveBatchData::Image(ref ubo_data) => {
-                    let (shader, max_prim_items) = if has_complex_clip {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE_CLIP);
-                        self.ps_image_clip.get(&mut self.device, transform_kind)
-                    } else {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE);
-                        self.ps_image.get(&mut self.device, transform_kind)
-                    };
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE);
+                    let (shader, max_prim_items) = self.ps_image.get(&mut self.device, transform_kind);
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
@@ -1322,13 +1289,8 @@ impl Renderer {
                                         &projection);
                 }
                 &PrimitiveBatchData::AlignedGradient(ref ubo_data) => {
-                    let (shader, max_prim_items) = if has_complex_clip {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_GRADIENT_CLIP);
-                        self.ps_gradient_clip.get(&mut self.device, transform_kind)
-                    } else {
-                        self.gpu_profile.add_marker(GPU_TAG_PRIM_GRADIENT);
-                        self.ps_gradient.get(&mut self.device, transform_kind)
-                    };
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_GRADIENT);
+                    let (shader, max_prim_items) = self.ps_gradient.get(&mut self.device, transform_kind);
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
