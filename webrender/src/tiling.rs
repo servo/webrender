@@ -63,7 +63,6 @@ trait AlphaBatchHelpers {
                          batch: &mut PrimitiveBatch,
                          layer_index: StackingContextIndex,
                          task_index: i32,
-                         empty_mask_task_index: i32,
                          render_tasks: &RenderTaskCollection,
                          pass_index: RenderPassIndex);
 }
@@ -158,8 +157,13 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::TextRun |
             PrimitiveKind::Image |
             PrimitiveKind::Gradient |
-            PrimitiveKind::BoxShadow => true,
-
+            PrimitiveKind::BoxShadow => {
+                if let Some(ref clip_info) = metadata.clip_cache_info {
+                    clip_info.device_rect.intersects(tile_rect)
+                } else {
+                    true
+                }
+            }
             PrimitiveKind::Border => {
                 let border = &self.cpu_borders[metadata.cpu_prim_index.0];
                 let inner_rect = TransformedRect::new(&border.inner_rect,
@@ -176,20 +180,20 @@ impl AlphaBatchHelpers for PrimitiveStore {
                          batch: &mut PrimitiveBatch,
                          layer_index: StackingContextIndex,
                          task_index: i32,
-                         empty_mask_task_index: i32,
                          render_tasks: &RenderTaskCollection,
                          child_pass_index: RenderPassIndex) {
         let metadata = self.get_metadata(prim_index);
         let layer_index = layer_index.0 as i32;
         let global_prim_id = prim_index.0 as i32;
         let prim_address = metadata.gpu_prim_index;
-        let clip_task_index = match metadata.clip_cache_info {
-            Some(ref clip_info) => {
-                let cache_task_id = RenderTaskId::Dynamic(RenderTaskKey::CacheMask(clip_info.key));
-                let cache_task_index = render_tasks.get_task_index(&cache_task_id, child_pass_index);
-                cache_task_index.0 as i32
-            },
-            None => empty_mask_task_index,
+        let clip_task_index = {
+            let mask_key = match metadata.clip_cache_info {
+                Some(ref clip_info) => clip_info.key,
+                None => MaskCacheKey::empty(StackingContextIndex(0)),
+            };
+            let cache_task_id = RenderTaskId::Dynamic(RenderTaskKey::CacheMask(mask_key));
+            let cache_task_index = render_tasks.get_task_index(&cache_task_id, child_pass_index);
+            cache_task_index.0 as i32
         };
 
         match &mut batch.data {
@@ -482,7 +486,6 @@ impl AlphaBatcher {
     fn build(&mut self,
              ctx: &RenderTargetContext,
              render_tasks: &RenderTaskCollection,
-             empty_mask_task_index: i32,
              child_pass_index: RenderPassIndex) {
         let mut batches: Vec<PrimitiveBatch> = vec![];
         for task in &mut self.tasks {
@@ -502,7 +505,7 @@ impl AlphaBatcher {
                         let layer = &ctx.layer_store[sc_index.0];
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
                         let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
-                        let needs_clipping = prim_metadata.clip_cache_info.is_some(); //CLIP TODO: remove
+                        let needs_clipping = prim_metadata.clip_cache_info.is_some();
                         let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                              !prim_metadata.is_opaque ||
                                              needs_clipping;
@@ -572,7 +575,6 @@ impl AlphaBatcher {
                                                          batch,
                                                          sc_index,
                                                          task_index,
-                                                         empty_mask_task_index,
                                                          render_tasks,
                                                          child_pass_index);
                     }
@@ -584,6 +586,7 @@ impl AlphaBatcher {
     }
 }
 
+#[derive(Debug)]
 pub struct ClipBatcher {
     pub clears: Vec<CacheClipInstance>,
     pub rectangles: Vec<CacheClipInstance>,
@@ -687,11 +690,9 @@ impl RenderTarget {
     fn build(&mut self,
              ctx: &RenderTargetContext,
              render_tasks: &mut RenderTaskCollection,
-             empty_mask_task_index: i32,
              child_pass_index: RenderPassIndex) {
         self.alpha_batcher.build(ctx,
                                  render_tasks,
-                                 empty_mask_task_index,
                                  child_pass_index);
     }
 
@@ -800,33 +801,16 @@ pub struct RenderPass {
     pass_index: RenderPassIndex,
     pub is_framebuffer: bool,
     tasks: Vec<RenderTask>,
-    empty_mask_task_id: RenderTaskId,
     pub targets: Vec<RenderTarget>,
 }
 
 impl RenderPass {
     fn new(pass_index: isize, is_framebuffer: bool) -> RenderPass {
-        let empty_mask_task = {
-            let dummy_rect = DeviceRect::new(DevicePoint::new(-1, -1),
-                                             DeviceSize::new(1, 1));
-            let mask_key = MaskCacheKey::empty(StackingContextIndex(0)); //CLIP TODO?
-            RenderTask {
-                id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(mask_key)),
-                children: Vec::new(),
-                location: RenderTaskLocation::Dynamic(None, dummy_rect.size),
-                kind: RenderTaskKind::CacheMask(CacheMaskTask {
-                    actual_rect: dummy_rect,
-                    image: None,
-                })
-            }
-        };
-        let empty_mask_task_id = empty_mask_task.id;
         RenderPass {
             pass_index: RenderPassIndex(pass_index),
             is_framebuffer: is_framebuffer,
             targets: vec![ RenderTarget::new() ],
-            tasks: vec![ empty_mask_task ],
-            empty_mask_task_id: empty_mask_task_id,
+            tasks: vec![],
         }
     }
 
@@ -862,7 +846,6 @@ impl RenderPass {
             match task.location {
                 RenderTaskLocation::Fixed(..) => {}
                 RenderTaskLocation::Dynamic(ref mut origin, ref size) => {
-
                     // See if this task is a duplicate from another tile.
                     // If so, just skip adding it!
                     match task.id {
@@ -896,12 +879,9 @@ impl RenderPass {
                                                       self.pass_index);
         }
 
-        let empty_mask_task_index = render_tasks.get_task_index(&self.empty_mask_task_id,
-                                                                self.pass_index);
-
         for target in &mut self.targets {
             let child_pass_index = RenderPassIndex(self.pass_index.0 - 1);
-            target.build(ctx, render_tasks, empty_mask_task_index.0 as i32, child_pass_index);
+            target.build(ctx, render_tasks, child_pass_index);
         }
     }
 }
@@ -1682,6 +1662,19 @@ impl ScreenTile {
         let mut sc_stack = Vec::new();
         let mut current_task = RenderTask::new_alpha_batch(self.rect, ctx);
         let mut alpha_task_stack = Vec::new();
+        let mut empty_mask_task = Some(RenderTask {
+            id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(
+                MaskCacheKey::empty(StackingContextIndex(0)) //CLIP TODO
+            )),
+            children: Vec::new(),
+            location: RenderTaskLocation::Dynamic(None,
+                                                  DeviceSize::new(0, 0)),
+            kind: RenderTaskKind::CacheMask(CacheMaskTask {
+                actual_rect: DeviceRect::new(DevicePoint::new(0, 0),
+                                             DeviceSize::new(0, 0)),
+                image: None,
+            })
+        });
 
         for cmd in self.cmds {
             match cmd {
@@ -1758,6 +1751,10 @@ impl ScreenTile {
                             // The primitive has clip items but their intersection is empty
                             // meaning, no pixels will be visible, we can skip it entirely
                             continue;
+                        }
+                    } else {
+                        if let Some(mask_task) = empty_mask_task.take() {
+                            current_task.children.push(mask_task);
                         }
                     }
 
