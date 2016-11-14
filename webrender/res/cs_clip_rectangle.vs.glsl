@@ -58,14 +58,14 @@ ClipData fetch_clip(int index) {
 
 void main(void) {
     CacheClipInstance cci = fetch_clip_item(gl_InstanceID);
-    Tile tile = fetch_tile(cci.render_task_index);
+    ClipArea area = fetch_clip_area(cci.render_task_index);
     Layer layer = fetch_layer(cci.layer_index);
     ClipData clip = fetch_clip(cci.data_index);
     vec4 local_rect = clip.rect.rect;
 
     TransformVertexInfo vi = write_clip_tile_vertex(local_rect,
                                                     layer,
-                                                    tile);
+                                                    area);
     vLocalRect = vi.clipped_local_rect;
     vPos = vi.local_pos;
 

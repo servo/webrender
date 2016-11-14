@@ -14,8 +14,8 @@ use webrender_traits::{AuxiliaryLists, ImageMask};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ClipAddressRange {
-    pub start: GpuStoreAddress, // start GPU address
-    pub count: u32, // number of items, not bytes
+    pub start: GpuStoreAddress,
+    pub item_count: u32,
 }
 
 type ImageMaskIndex = u16;
@@ -33,7 +33,7 @@ impl MaskCacheKey {
             layer_id: layer_id,
             clip_range: ClipAddressRange {
                 start: GpuStoreAddress(0),
-                count: 0,
+                item_count: 0,
             },
             image: None,
         }
@@ -101,7 +101,7 @@ impl ClipRegionStack {
                 let slice = clip_store.get_slice_mut(address, CLIP_DATA_GPU_SIZE);
                 let data = ClipData::uniform(rect, radius);
                 PrimitiveStore::populate_clip_data(slice, data);
-                clip_key.clip_range.count = 1;
+                clip_key.clip_range.item_count = 1;
                 clip_key.clip_range.start = address;
                 local_rect = local_rect.and_then(|r| r.intersection(&rect));
                 None
@@ -116,7 +116,7 @@ impl ClipRegionStack {
                         PrimitiveStore::populate_clip_data(chunk, data);
                         local_rect = local_rect.and_then(|r| r.intersection(&clip.rect));
                     }
-                    clip_key.clip_range.count = clips.len() as u32;
+                    clip_key.clip_range.item_count = clips.len() as u32;
                     clip_key.clip_range.start = address;
                 }
                 if let Some(ref mask) = region.image_mask {
@@ -128,7 +128,7 @@ impl ClipRegionStack {
             }
         };
 
-        if clip_key.clip_range.count != 0 || clip_key.image.is_some() {
+        if clip_key.clip_range.item_count != 0 || clip_key.image.is_some() {
             let rect = local_rect.unwrap_or(Rect::zero());
             let transformed = TransformedRect::new(&rect,
                                                    &layer.world_transform,

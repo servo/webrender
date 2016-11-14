@@ -154,6 +154,21 @@ Tile fetch_tile(int index) {
     return tile;
 }
 
+struct ClipArea {
+    vec4 task_bounds;
+    vec4 screen_origin_target_index;
+};
+
+ClipArea fetch_clip_area(int index) {
+    RenderTaskData task = fetch_render_task(index);
+
+    ClipArea area;
+    area.task_bounds = task.data0;
+    area.screen_origin_target_index = task.data1;
+
+    return area;
+}
+
 struct Gradient {
     vec4 start_end_point;
     vec4 kind;
@@ -324,7 +339,7 @@ CachePrimitiveInstance fetch_cache_instance(int index) {
 struct Primitive {
     Layer layer;
     Tile tile;
-    Tile mask_tile;
+    ClipArea clip_area;
     vec4 local_rect;
     vec4 local_clip_rect;
     int prim_index;
@@ -341,7 +356,7 @@ Primitive load_primitive(int index) {
 
     prim.layer = fetch_layer(pi.layer_index);
     prim.tile = fetch_tile(pi.render_task_index);
-    prim.mask_tile = fetch_tile(pi.clip_task_index);
+    prim.clip_area = fetch_clip_area(pi.clip_task_index);
 
     PrimitiveGeometry pg = fetch_prim_geometry(pi.global_prim_index);
     prim.local_rect = pg.local_rect;
@@ -608,13 +623,11 @@ Composite fetch_composite(int index) {
     return composite;
 }
 
-void write_clip(vec2 global_pos, Tile tile) {
+void write_clip(vec2 global_pos, ClipArea area) {
     vec2 texture_size = textureSize(sCache, 0).xy;
-    vec2 uv = global_pos + tile.screen_origin_task_origin.zw - tile.screen_origin_task_origin.xy;
-    vClipMaskUvBounds = vec4(tile.screen_origin_task_origin.zw,
-                             tile.screen_origin_task_origin.zw + tile.size_target_index.xy)
-                             / texture_size.xyxy;
-    vClipMaskUv = vec3(uv / texture_size, tile.size_target_index.z);
+    vec2 uv = global_pos + area.task_bounds.xy - area.screen_origin_target_index.xy;
+    vClipMaskUvBounds = area.task_bounds / texture_size.xyxy;
+    vClipMaskUv = vec3(uv / texture_size, area.screen_origin_target_index.z);
 }
 #endif //WR_VERTEX_SHADER
 

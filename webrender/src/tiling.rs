@@ -607,7 +607,6 @@ impl ClipBatcher {
            key: &MaskCacheKey,
            task_info: &CacheMaskTask,
            resource_cache: &ResourceCache) {
-        // TODO: cull clipping instances to their tiles
         // TODO: don't draw clipping instances covering the whole tile
         self.clears.push(CacheClipInstance {
             task_id: task_index,
@@ -615,7 +614,7 @@ impl ClipBatcher {
             address: GpuStoreAddress(0),
             pad: 0,
         });
-        self.rectangles.extend((0 .. key.clip_range.count as usize)
+        self.rectangles.extend((0 .. key.clip_range.item_count as usize)
                        .map(|region_id| {
             CacheClipInstance {
                 task_id: task_index,
@@ -649,7 +648,6 @@ struct RenderTargetContext<'a> {
     layer_store: &'a [StackingContext],
     prim_store: &'a PrimitiveStore,
     resource_cache: &'a ResourceCache,
-    _clip_stack: &'a ClipRegionStack,
 }
 
 /// A render target represents a number of rendering operations on a surface.
@@ -1067,12 +1065,12 @@ impl RenderTask {
                 debug_assert_eq!(target_rect.size, task.actual_rect.size);
                 RenderTaskData {
                     data: [
-                        task.actual_rect.origin.x as f32,
-                        task.actual_rect.origin.y as f32,
                         target_rect.origin.x as f32,
                         target_rect.origin.y as f32,
-                        task.actual_rect.size.width as f32,
-                        task.actual_rect.size.height as f32,
+                        (target_rect.origin.x + target_rect.size.width) as f32,
+                        (target_rect.origin.y + target_rect.size.height) as f32,
+                        task.actual_rect.origin.x as f32,
+                        task.actual_rect.origin.y as f32,
                         target_index.0 as f32,
                         0.0,
                     ],
@@ -2599,7 +2597,6 @@ impl FrameBuilder {
                 layer_store: &self.layer_store,
                 prim_store: &self.prim_store,
                 resource_cache: resource_cache,
-                _clip_stack: &self.clip_stack,
             };
 
             // Do the allocations now, assigning each tile's tasks to a render
