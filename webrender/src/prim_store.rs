@@ -3,10 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use device::TextureId;
 use euclid::{Point2D, Matrix4D, Rect, Size2D};
 use gpu_store::{GpuStore, GpuStoreAddress};
-use internal_types::{device_pixel, DeviceRect, DeviceSize};
+use internal_types::{device_pixel, DeviceRect, DeviceSize, SourceTexture};
 use resource_cache::ResourceCache;
 use std::mem;
 use std::usize;
@@ -63,7 +62,7 @@ pub enum PrimitiveClipSource {
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
     pub is_opaque: bool,
-    pub mask_texture_id: TextureId,
+    pub mask_texture_id: SourceTexture,
     pub clip_index: Option<GpuStoreAddress>,
     pub clip_source: Box<PrimitiveClipSource>,
     pub prim_kind: PrimitiveKind,
@@ -96,7 +95,7 @@ pub enum ImagePrimitiveKind {
 #[derive(Debug)]
 pub struct ImagePrimitiveCpu {
     pub kind: ImagePrimitiveKind,
-    pub color_texture_id: TextureId,
+    pub color_texture_id: SourceTexture,
 }
 
 #[derive(Debug, Clone)]
@@ -189,7 +188,7 @@ pub struct TextRunPrimitiveCpu {
     pub cache_dirty: bool,
     // TODO(gw): Maybe make this an Arc for sharing with resource cache
     pub glyph_indices: Vec<u32>,
-    pub color_texture_id: TextureId,
+    pub color_texture_id: SourceTexture,
     pub color: ColorF,
     pub render_mode: FontRenderMode,
 }
@@ -413,7 +412,7 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: is_opaque,
-                    mask_texture_id: TextureId::invalid(),
+                    mask_texture_id: SourceTexture::Invalid,
                     clip_index: None,
                     clip_source: clip_source,
                     prim_kind: PrimitiveKind::Rectangle,
@@ -432,7 +431,7 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
-                    mask_texture_id: TextureId::invalid(),
+                    mask_texture_id: SourceTexture::Invalid,
                     clip_index: None,
                     clip_source: clip_source,
                     prim_kind: PrimitiveKind::TextRun,
@@ -451,7 +450,7 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
-                    mask_texture_id: TextureId::invalid(),
+                    mask_texture_id: SourceTexture::Invalid,
                     clip_index: None,
                     clip_source: clip_source,
                     prim_kind: PrimitiveKind::Image,
@@ -470,7 +469,7 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
-                    mask_texture_id: TextureId::invalid(),
+                    mask_texture_id: SourceTexture::Invalid,
                     clip_index: None,
                     clip_source: clip_source,
                     prim_kind: PrimitiveKind::Border,
@@ -490,7 +489,7 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
-                    mask_texture_id: TextureId::invalid(),
+                    mask_texture_id: SourceTexture::Invalid,
                     clip_index: None,
                     clip_source: clip_source,
                     prim_kind: PrimitiveKind::Gradient,
@@ -539,7 +538,7 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
-                    mask_texture_id: TextureId::invalid(),
+                    mask_texture_id: SourceTexture::Invalid,
                     clip_index: None,
                     clip_source: clip_source,
                     prim_kind: PrimitiveKind::BoxShadow,
@@ -729,7 +728,7 @@ impl PrimitiveStore {
                 let gpu_data = self.gpu_data32.get_slice_mut(gpu_address, 6);
                 Self::populate_clip_data(gpu_data, data);
                 metadata.clip_index = Some(gpu_address);
-                metadata.mask_texture_id = dummy_mask_cache_item.texture_id;
+                metadata.mask_texture_id = SourceTexture::TextureCache(dummy_mask_cache_item.texture_id);
             }
         }
 

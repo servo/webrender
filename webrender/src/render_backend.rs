@@ -4,7 +4,8 @@
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use frame::Frame;
-use internal_types::{FontTemplate, GLContextHandleWrapper, GLContextWrapper, ResultMsg, RendererFrame};
+use internal_types::{FontTemplate, GLContextHandleWrapper, GLContextWrapper};
+use internal_types::{SourceTexture, ResultMsg, RendererFrame};
 use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
 use profiler::BackendProfileCounters;
 use resource_cache::{DummyResources, ResourceCache};
@@ -17,7 +18,6 @@ use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
 use webrender_traits::{RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
-use device::TextureId;
 use record;
 use tiling::FrameBuilderConfig;
 use offscreen_gl_context::GLContextDispatcher;
@@ -275,7 +275,7 @@ impl RenderBackend {
                                         self.webgl_contexts.insert(id, ctx);
 
                                         self.resource_cache
-                                            .add_webgl_texture(id, TextureId::new(texture_id), real_size);
+                                            .add_webgl_texture(id, SourceTexture::WebGL(texture_id), real_size);
 
                                         tx.send(Ok((id, limits))).unwrap();
                                     },
@@ -295,7 +295,7 @@ impl RenderBackend {
                                     // Update webgl texture size. Texture id may change too.
                                     let (real_size, texture_id, _) = ctx.get_info();
                                     self.resource_cache
-                                        .update_webgl_texture(context_id, TextureId::new(texture_id), real_size);
+                                        .update_webgl_texture(context_id, SourceTexture::WebGL(texture_id), real_size);
                                 },
                                 Err(msg) => {
                                     error!("Error resizing WebGLContext: {}", msg);

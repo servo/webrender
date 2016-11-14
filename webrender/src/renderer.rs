@@ -15,9 +15,9 @@ use device::{Device, ProgramId, TextureId, VertexFormat, GpuProfiler};
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
 use euclid::{Matrix4D, Size2D};
 use fnv::FnvHasher;
-use internal_types::{RendererFrame, ResultMsg, TextureUpdateOp};
-use internal_types::{TextureUpdateDetails, TextureUpdateList, PackedVertex, RenderTargetMode};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePoint};
+use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
+use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePoint, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler, GLContextHandleWrapper};
 use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
@@ -373,6 +373,14 @@ pub struct Renderer {
     /// Used to dispatch functions to the main thread's event loop.
     /// Required to allow GLContext sharing in some implementations like WGL.
     main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
+
+    /// A vector for fast resolves of texture cache IDs to
+    /// native texture IDs. This maps to a free-list managed
+    /// by the backend thread / texture cache. Because of this,
+    /// items in this array may be None if they have been
+    /// freed by the backend thread. This saves having to
+    /// use a hashmap, and allows a flat vector for performance.
+    cache_texture_id_map: Vec<Option<TextureId>>,
 }
 
 impl Renderer {
@@ -536,8 +544,7 @@ impl Renderer {
                                                            &mut device,
                                                            options.precache_shaders);
 
-        let texture_ids = device.create_texture_ids(1024, TextureTarget::Default);
-        let mut texture_cache = TextureCache::new(texture_ids);
+        let mut texture_cache = TextureCache::new();
 
         let white_pixels: Vec<u8> = vec![
             0xff, 0xff, 0xff, 0xff,
@@ -698,6 +705,7 @@ impl Renderer {
             data128_texture: data128_texture,
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
             main_thread_dispatcher: main_thread_dispatcher,
+            cache_texture_id_map: Vec::new(),
         };
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
@@ -750,6 +758,23 @@ impl Renderer {
                 ResultMsg::RefreshShader(path) => {
                     self.pending_shader_updates.push(path);
                 }
+            }
+        }
+    }
+
+    // Get the real (OpenGL) texture ID for a given source texture.
+    // For a texture cache texture, the IDs are stored in a vector
+    // map for fast access. For WebGL textures, the native texture ID
+    // is stored inline. When we add support for external textures,
+    // we will add a callback here that is able to ask the caller
+    // for the image data.
+    fn resolve_source_texture(&mut self, texture_id: &SourceTexture) -> TextureId {
+        match texture_id {
+            &SourceTexture::Invalid => TextureId::invalid(),
+            &SourceTexture::WebGL(id) => TextureId::new(id),
+            &SourceTexture::TextureCache(index) => {
+                self.cache_texture_id_map[index.0]
+                    .expect("BUG: Texture should exist in texture cache map!")
             }
         }
     }
@@ -841,10 +866,25 @@ impl Renderer {
             for update in update_list.updates {
                 match update.op {
                     TextureUpdateOp::Create(width, height, format, filter, mode, maybe_bytes) => {
+                        // Create a new native texture, as requested by the texture cache.
+                        let texture_id = self.device
+                                             .create_texture_ids(1, TextureTarget::Default)[0];
+
+                        let CacheTextureId(cache_texture_index) = update.id;
+                        if self.cache_texture_id_map.len() == cache_texture_index {
+                            // It was a new texture, so add to end of the map.
+                            self.cache_texture_id_map.push(Some(texture_id));
+                        } else {
+                            // It was re-using an item from the free-list, so store
+                            // the new ID there.
+                            debug_assert!(self.cache_texture_id_map[cache_texture_index].is_none());
+                            self.cache_texture_id_map[cache_texture_index] = Some(texture_id);
+                        }
+
                         // TODO: clean up match
                         match maybe_bytes {
                             Some(bytes) => {
-                                self.device.init_texture(update.id,
+                                self.device.init_texture(texture_id,
                                                          width,
                                                          height,
                                                          format,
@@ -853,7 +893,7 @@ impl Renderer {
                                                          Some(bytes.as_slice()));
                             }
                             None => {
-                                self.device.init_texture(update.id,
+                                self.device.init_texture(texture_id,
                                                          width,
                                                          height,
                                                          format,
@@ -868,30 +908,21 @@ impl Renderer {
                                           format,
                                           filter,
                                           mode) => {
-                        self.device.resize_texture(update.id,
+                        let texture_id = self.cache_texture_id_map[update.id.0].unwrap();
+                        self.device.resize_texture(texture_id,
                                                    new_width,
                                                    new_height,
                                                    format,
                                                    filter,
                                                    mode);
                     }
-                    TextureUpdateOp::Update(x, y, width, height, details) => {
-                        match details {
-                            TextureUpdateDetails::Raw => {
-                                self.device.update_raw_texture(update.id, x, y, width, height);
-                            }
-                            TextureUpdateDetails::Blit(bytes, stride) => {
-                                self.device.update_texture(
-                                    update.id,
-                                    x,
-                                    y,
-                                    width, height, stride,
-                                    bytes.as_slice());
-                            }
-                        }
-                    }
-                    TextureUpdateOp::Remove => {
-                        self.device.remove_raw_texture(update.id);
+                    TextureUpdateOp::Update(x, y, width, height, bytes, stride) => {
+                        let texture_id = self.cache_texture_id_map[update.id.0].unwrap();
+                        self.device.update_texture(texture_id,
+                                                   x,
+                                                   y,
+                                                   width, height, stride,
+                                                   bytes.as_slice());
                     }
                 }
             }
@@ -951,9 +982,11 @@ impl Renderer {
         self.device.bind_vao(self.quad_vao_id);
 
         for i in 0..textures.colors.len() {
-            self.device.bind_texture(TextureSampler::color(i), textures.colors[i]);
+            let texture_id = self.resolve_source_texture(&textures.colors[i]);
+            self.device.bind_texture(TextureSampler::color(i), texture_id);
         }
-        self.device.bind_texture(TextureSampler::Mask, textures.mask);
+        let mask_texture_id = self.resolve_source_texture(&textures.mask);
+        self.device.bind_texture(TextureSampler::Mask, mask_texture_id);
 
         for chunk in ubo_data.chunks(max_prim_items) {
             let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
