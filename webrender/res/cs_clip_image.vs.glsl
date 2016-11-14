@@ -21,14 +21,14 @@ ImageMaskData fetch_mask_data(int index) {
 
 void main(void) {
     CacheClipInstance cci = fetch_clip_item(gl_InstanceID);
-    Tile tile = fetch_tile(cci.render_task_index);
+    ClipArea area = fetch_clip_area(cci.render_task_index);
     Layer layer = fetch_layer(cci.layer_index);
     ImageMaskData mask = fetch_mask_data(cci.data_index);
     vec4 local_rect = mask.local_rect;
 
     TransformVertexInfo vi = write_clip_tile_vertex(local_rect,
                                                     layer,
-                                                    tile);
+                                                    area);
     vLocalRect = vi.clipped_local_rect;
     vPos = vi.local_pos;
 

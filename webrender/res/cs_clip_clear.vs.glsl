@@ -5,10 +5,9 @@
 
 void main(void) {
     CacheClipInstance cci = fetch_clip_item(gl_InstanceID);
-    Tile tile = fetch_tile(cci.render_task_index);
+    ClipArea area = fetch_clip_area(cci.render_task_index);
 
-    vec2 final_pos = tile.screen_origin_task_origin.zw +
-                     tile.size_target_index.xy * aPosition.xy;
+    vec2 final_pos = mix(area.task_bounds.xy, area.task_bounds.zw, aPosition.xy);
 
     gl_Position = uTransform * vec4(final_pos, 0, 1);
 }

@@ -22,7 +22,7 @@ void main(void) {
     vLocalPos = vi.local_clamped_pos - vi.local_rect.p0;
 #endif
 
-    write_clip(vi.global_clamped_pos, prim.mask_tile);
+    write_clip(vi.global_clamped_pos, prim.clip_area);
 
     // vUv will contain how many times this image has wrapped around the image size.
     vec2 texture_size = vec2(textureSize(sColor0, 0));

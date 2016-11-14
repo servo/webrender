@@ -1070,47 +1070,44 @@ impl Renderer {
         }
 
         // Draw the clip items into the tiled alpha mask.
-        if true {
-            self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
-            let textures = BatchTextures::no_texture();
-            // first, mark the target area as opaque
-            //Note: not needed if we know the target is cleared with opaque
-            self.device.set_blend(false);
-            if !target.clip_batcher.clears.is_empty() {
-                let shader = self.cs_clip_clear.get(&mut self.device);
-                let max_prim_items = self.max_clear_tiles;
-                self.draw_ubo_batch(&target.clip_batcher.clears,
-                                    shader,
-                                    1,
-                                    &textures,
-                                    max_prim_items,
-                                    &projection);
-            }
-            // now switch to multiplicative blending
-            self.device.set_blend(true);
-            self.device.set_blend_mode_multiply();
-            let max_prim_items = self.max_cache_instances;
-            // draw rounded cornered rectangles
-            if !target.clip_batcher.rectangles.is_empty() {
-                let shader = self.cs_clip_rectangle.get(&mut self.device);
-                self.draw_ubo_batch(&target.clip_batcher.rectangles,
-                                    shader,
-                                    1,
-                                    &textures,
-                                    max_prim_items,
-                                    &projection);
-            }
-            // draw image masks
-            for (&mask_texture_id, items) in target.clip_batcher.images.iter() {
-                self.device.bind_texture(TextureSampler::Mask, mask_texture_id);
-                let shader = self.cs_clip_image.get(&mut self.device);
-                self.draw_ubo_batch(items,
-                                    shader,
-                                    1,
-                                    &textures,
-                                    max_prim_items,
-                                    &projection);
-            }
+        self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
+        // first, mark the target area as opaque
+        //Note: not needed if we know the target is cleared with opaque
+        self.device.set_blend(false);
+        if !target.clip_batcher.clears.is_empty() {
+            let shader = self.cs_clip_clear.get(&mut self.device);
+            let max_prim_items = self.max_clear_tiles;
+            self.draw_ubo_batch(&target.clip_batcher.clears,
+                                shader,
+                                1,
+                                &BatchTextures::no_texture(),
+                                max_prim_items,
+                                &projection);
+        }
+        // now switch to multiplicative blending
+        self.device.set_blend(true);
+        self.device.set_blend_mode_multiply();
+        let max_prim_items = self.max_cache_instances;
+        // draw rounded cornered rectangles
+        if !target.clip_batcher.rectangles.is_empty() {
+            let shader = self.cs_clip_rectangle.get(&mut self.device);
+            self.draw_ubo_batch(&target.clip_batcher.rectangles,
+                                shader,
+                                1,
+                                &BatchTextures::no_texture(),
+                                max_prim_items,
+                                &projection);
+        }
+        // draw image masks
+        for (&mask_texture_id, items) in target.clip_batcher.images.iter() {
+            self.device.bind_texture(TextureSampler::Mask, mask_texture_id);
+            let shader = self.cs_clip_image.get(&mut self.device);
+            self.draw_ubo_batch(items,
+                                shader,
+                                1,
+                                &BatchTextures::no_texture(),
+                                max_prim_items,
+                                &projection);
         }
 
         // Draw any textrun caches for this target. For now, this

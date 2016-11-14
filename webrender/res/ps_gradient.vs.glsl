@@ -54,7 +54,7 @@ void main(void) {
     vPos = vi.local_clamped_pos;
 #endif
 
-    write_clip(vi.global_clamped_pos, prim.mask_tile);
+    write_clip(vi.global_clamped_pos, prim.clip_area);
 
     switch (int(gradient.kind.x)) {
         case GRADIENT_HORIZONTAL:

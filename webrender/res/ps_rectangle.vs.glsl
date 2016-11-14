@@ -21,5 +21,5 @@ void main(void) {
                                  prim.tile);
 #endif
 
-    write_clip(vi.global_clamped_pos, prim.mask_tile);
+    write_clip(vi.global_clamped_pos, prim.clip_area);
 }
