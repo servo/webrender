@@ -443,7 +443,7 @@ VertexInfo write_vertex(vec4 instance_rect,
 
     local_pos = clamp_rect(local_pos, layer.local_clip_rect);
 
-    vec4 world_pos = layer.transform * vec4(local_pos, 0, 1);
+    vec4 world_pos = layer.transform * vec4(local_pos, 0.0, 1.0);
     world_pos.xyz /= world_pos.w;
 
     vec2 device_pos = world_pos.xy * uDevicePixelRatio;
@@ -524,7 +524,7 @@ TransformVertexInfo write_transform_vertex(vec4 instance_rect,
     // apply the task offset
     vec2 final_pos = clamped_pos + tile.screen_origin_task_origin.zw - tile.screen_origin_task_origin.xy;
 
-    gl_Position = uTransform * vec4(final_pos, 0, 1);
+    gl_Position = uTransform * vec4(final_pos, 0.0, 1.0);
 
     return TransformVertexInfo(layer_pos.xyw, clamped_pos, clipped_local_rect);
 }

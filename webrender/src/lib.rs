@@ -50,7 +50,6 @@ extern crate log;
 extern crate bitflags;
 
 mod batch_builder;
-mod clip_stack;
 mod debug_colors;
 mod debug_font_data;
 mod debug_render;
@@ -61,6 +60,7 @@ mod geometry;
 mod gpu_store;
 mod internal_types;
 mod layer;
+mod mask_cache;
 mod prim_store;
 mod profiler;
 mod record;

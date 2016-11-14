@@ -9,5 +9,5 @@ void main(void) {
 
     vec2 final_pos = mix(area.task_bounds.xy, area.task_bounds.zw, aPosition.xy);
 
-    gl_Position = uTransform * vec4(final_pos, 0, 1);
+    gl_Position = uTransform * vec4(final_pos, 0.0, 1.0);
 }

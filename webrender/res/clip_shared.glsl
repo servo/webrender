@@ -43,7 +43,7 @@ TransformVertexInfo write_clip_tile_vertex(vec4 local_clip_rect,
     vec2 clamped_pos = final_pos + area.screen_origin_target_index.xy - area.task_bounds.xy;
     vec4 layer_pos = get_layer_pos(clamped_pos / uDevicePixelRatio, layer);
 
-    gl_Position = uTransform * vec4(final_pos, 0, 1);
+    gl_Position = uTransform * vec4(final_pos, 0.0, 1);
 
     return TransformVertexInfo(layer_pos.xyw, clamped_pos, clipped_local_rect);
 }
