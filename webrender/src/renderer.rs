@@ -13,7 +13,7 @@ use debug_colors;
 use debug_render::DebugRenderer;
 use device::{Device, ProgramId, TextureId, VertexFormat, GpuProfiler};
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
-use euclid::{Matrix4D, Size2D};
+use euclid::{Matrix4D, Point2D, Size2D};
 use fnv::FnvHasher;
 use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
@@ -25,10 +25,11 @@ use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use render_backend::RenderBackend;
 use resource_cache::DummyResources;
 use std::cmp;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::f32;
 use std::hash::BuildHasherDefault;
-use std::mem;
+use std::{mem, slice};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -39,7 +40,7 @@ use tiling::{RenderTarget, ClearTile};
 use time::precise_time_ns;
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
-use webrender_traits::{ImageFormat, RenderApiSender, RendererKind};
+use webrender_traits::{ExternalImageId, ImageFormat, RenderApiSender, RendererKind};
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
@@ -64,6 +65,13 @@ const GPU_TAG_PRIM_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "BoxShadow
 const GPU_TAG_PRIM_BORDER: GpuProfileTag = GpuProfileTag { label: "Border", color: debug_colors::ORANGE };
 const GPU_TAG_PRIM_CACHE_IMAGE: GpuProfileTag = GpuProfileTag { label: "CacheImage", color: debug_colors::SILVER };
 const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag { label: "Blur", color: debug_colors::VIOLET };
+
+/// Internal details regarding external textures that the
+/// renderer knows about.
+struct ExternalTexture {
+    timestamp: u64,
+    texture_id: TextureId,
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BlendMode {
@@ -369,6 +377,8 @@ pub struct Renderer {
     data32_texture: VertexDataTexture,
     data64_texture: VertexDataTexture,
     data128_texture: VertexDataTexture,
+    resource_rects_texture: VertexDataTexture,
+
     pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
     /// Used to dispatch functions to the main thread's event loop.
     /// Required to allow GLContext sharing in some implementations like WGL.
@@ -381,6 +391,13 @@ pub struct Renderer {
     /// freed by the backend thread. This saves having to
     /// use a hashmap, and allows a flat vector for performance.
     cache_texture_id_map: Vec<Option<TextureId>>,
+
+    /// Optional trait object that allows the client
+    /// application to provide external buffers for image data.
+    external_image_handler: Option<Box<ExternalImageHandler>>,
+
+    /// Map of external image IDs to native textures.
+    external_images: HashMap<ExternalImageId, ExternalTexture, BuildHasherDefault<FnvHasher>>,
 }
 
 impl Renderer {
@@ -590,6 +607,7 @@ impl Renderer {
         let data32_texture = VertexDataTexture::new(&mut device);
         let data64_texture = VertexDataTexture::new(&mut device);
         let data128_texture = VertexDataTexture::new(&mut device);
+        let resource_rects_texture = VertexDataTexture::new(&mut device);
 
         let x0 = 0.0;
         let y0 = 0.0;
@@ -703,9 +721,12 @@ impl Renderer {
             data32_texture: data32_texture,
             data64_texture: data64_texture,
             data128_texture: data128_texture,
+            resource_rects_texture: resource_rects_texture,
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
             main_thread_dispatcher: main_thread_dispatcher,
             cache_texture_id_map: Vec::new(),
+            external_image_handler: None,
+            external_images: HashMap::with_hasher(Default::default()),
         };
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
@@ -772,11 +793,22 @@ impl Renderer {
         match texture_id {
             &SourceTexture::Invalid => TextureId::invalid(),
             &SourceTexture::WebGL(id) => TextureId::new(id),
+            &SourceTexture::External(ref key) => {
+                self.external_images
+                    .get(key)
+                    .expect("BUG: External image should be resolved by now!")
+                    .texture_id
+            }
             &SourceTexture::TextureCache(index) => {
                 self.cache_texture_id_map[index.0]
                     .expect("BUG: Texture should exist in texture cache map!")
             }
         }
+    }
+
+    /// Set a callback for handling external images.
+    pub fn set_external_image_handler(&mut self, handler: Box<ExternalImageHandler>) {
+        self.external_image_handler = Some(handler);
     }
 
     /// Renders the current frame.
@@ -1267,6 +1299,77 @@ impl Renderer {
     fn draw_tile_frame(&mut self,
                        frame: &mut Frame,
                        framebuffer_size: &Size2D<u32>) {
+        // The first thing we do is run through any pending deferred
+        // resolves, and use a callback to get the UV rect for this
+        // custom item. Then we patch the resource_rects structure
+        // here before it's uploaded to the GPU.
+        if !frame.deferred_resolves.is_empty() {
+            let handler = self.external_image_handler
+                              .as_mut()
+                              .expect("Found external image, but no handler set!");
+
+            for deferred_resolve in &frame.deferred_resolves {
+                // First, check if we need to update this external image.
+                // If we haven't got this image previously, or if the
+                // version of the image has changed, then we will ask
+                // for the image and upload it to the GPU.
+                let props = &deferred_resolve.image_properties;
+                let external_id = props.external_id
+                                       .expect("BUG: Deferred resolves must be external images!");
+                let image_info = handler.lock_image(external_id);
+                let texture_id = match self.external_images.entry(external_id) {
+                    Entry::Occupied(mut entry) => {
+                        let current_info = entry.get_mut();
+                        if image_info.timestamp != current_info.timestamp {
+                            current_info.timestamp = image_info.timestamp;
+                            Some(current_info.texture_id)
+                        } else {
+                            None
+                        }
+                    }
+                    Entry::Vacant(entry) => {
+                        let texture_id = self.device
+                                             .create_texture_ids(1, TextureTarget::Default)[0];
+                        self.device.init_texture(texture_id,
+                                                 props.width,
+                                                 props.height,
+                                                 props.format,
+                                                 TextureFilter::Linear,
+                                                 RenderTargetMode::None,
+                                                 None);
+                        entry.insert(ExternalTexture {
+                            texture_id: texture_id,
+                            timestamp: image_info.timestamp,
+                        });
+                        Some(texture_id)
+                    }
+                };
+
+                if let Some(texture_id) = texture_id {
+                    let resource_rect_index = deferred_resolve.resource_address.0 as usize;
+                    let resource_rect = &mut frame.gpu_resource_rects[resource_rect_index];
+                    resource_rect.uv0 = Point2D::new(image_info.u0, image_info.v0);
+                    resource_rect.uv1 = Point2D::new(image_info.u1, image_info.v1);
+
+                    let data = unsafe {
+                        slice::from_raw_parts(image_info.data, image_info.len)
+                    };
+
+                    // TODO(gw): This is not going to be the most efficient way to
+                    // upload an external image on each platform. But it works for
+                    // now and we can profile and optimize later.
+                    self.device.update_texture(texture_id,
+                                               0,
+                                               0,
+                                               props.width,
+                                               props.height,
+                                               props.stride,
+                                               data);
+                }
+                handler.unlock_image(external_id);
+            }
+        }
+
         // Some tests use a restricted viewport smaller than the main screen size.
         // Ensure we clear the framebuffer in these tests.
         // TODO(gw): Find a better solution for this?
@@ -1325,6 +1428,7 @@ impl Renderer {
             self.data64_texture.init(&mut self.device, &mut frame.gpu_data64);
             self.data128_texture.init(&mut self.device, &mut frame.gpu_data128);
             self.prim_geom_texture.init(&mut self.device, &mut frame.gpu_geometry);
+            self.resource_rects_texture.init(&mut self.device, &mut frame.gpu_resource_rects);
 
             self.device.bind_texture(TextureSampler::Layers, self.layer_texture.id);
             self.device.bind_texture(TextureSampler::RenderTasks, self.render_task_texture.id);
@@ -1333,6 +1437,7 @@ impl Renderer {
             self.device.bind_texture(TextureSampler::Data32, self.data32_texture.id);
             self.device.bind_texture(TextureSampler::Data64, self.data64_texture.id);
             self.device.bind_texture(TextureSampler::Data128, self.data128_texture.id);
+            self.device.bind_texture(TextureSampler::ResourceRects, self.resource_rects_texture.id);
 
             let mut src_id = None;
 
@@ -1392,6 +1497,32 @@ impl Renderer {
     pub fn set_profiler_enabled(&mut self, enabled: bool) {
         self.enable_profiler = enabled;
     }
+}
+
+/// The data that an external client should provide about
+/// an external image. The timestamp is used to test if
+/// the renderer should upload new texture data this
+/// frame. For instance, if providing video frames, the
+/// application could call wr.render() whenever a new
+/// video frame is ready. If the callback increments
+/// the returned timestamp for a given image, the renderer
+/// will know to re-upload the image data to the GPU.
+/// Note that the UV coords are supplied in texel-space!
+pub struct ExternalImage {
+    pub timestamp: u64,
+    pub u0: f32,
+    pub v0: f32,
+    pub u1: f32,
+    pub v1: f32,
+    pub data: *const u8,
+    pub len: usize,
+}
+
+/// Interface that an application can implement
+/// to support providing external image buffers.
+pub trait ExternalImageHandler {
+    fn lock_image(&mut self, key: ExternalImageId) -> ExternalImage;
+    fn unlock_image(&mut self, key: ExternalImageId);
 }
 
 #[derive(Clone, Debug)]

@@ -9,8 +9,8 @@ use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::cell::Cell;
 use {ApiMsg, AuxiliaryLists, BuiltDisplayList, ColorF, Epoch};
 use {FontKey, IdNamespace, ImageFormat, ImageKey, NativeFontHandle, PipelineId};
-use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState, WebGLContextId, WebGLCommand};
-use {GlyphKey, GlyphDimensions};
+use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState};
+use {GlyphKey, GlyphDimensions, ImageData, WebGLContextId, WebGLCommand};
 
 impl RenderApiSender {
     pub fn new(api_sender: IpcSender<ApiMsg>,
@@ -92,10 +92,10 @@ impl RenderApi {
                      height: u32,
                      stride: Option<u32>,
                      format: ImageFormat,
-                     bytes: Vec<u8>) -> ImageKey {
+                     data: ImageData) -> ImageKey {
         let new_id = self.next_unique_id();
         let key = ImageKey::new(new_id.0, new_id.1);
-        let msg = ApiMsg::AddImage(key, width, height, stride, format, bytes);
+        let msg = ApiMsg::AddImage(key, width, height, stride, format, data);
         self.api_sender.send(msg).unwrap();
         key
     }
