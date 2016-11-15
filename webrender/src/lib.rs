@@ -60,6 +60,7 @@ mod geometry;
 mod gpu_store;
 mod internal_types;
 mod layer;
+mod mask_cache;
 mod prim_store;
 mod profiler;
 mod record;

@@ -16,7 +16,7 @@ use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::fmt::Debug;
 use std::hash::BuildHasherDefault;
 use std::hash::Hash;
-use texture_cache::{TextureCache, TextureCacheItem, TextureCacheItemId};
+use texture_cache::{TextureCache, TextureCacheItemId};
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRendering};
 use webrender_traits::{FontRenderMode, GlyphDimensions, WebGLContextId};
 
@@ -65,12 +65,6 @@ enum State {
     Idle,
     AddResources,
     QueryResources,
-}
-
-#[derive(Clone, Debug)]
-pub struct DummyResources {
-    pub white_image_id: TextureCacheItemId,
-    pub opaque_mask_image_id: TextureCacheItemId,
 }
 
 struct ImageResource {
@@ -426,12 +420,6 @@ impl ResourceCache {
             format: image_template.format,
             is_opaque: image_template.is_opaque,
         }
-    }
-
-    #[inline]
-    pub fn get_image_by_cache_id(&self, texture_cache_id: TextureCacheItemId)
-                                 -> &TextureCacheItem {
-        self.texture_cache.get(texture_cache_id)
     }
 
     #[inline]
