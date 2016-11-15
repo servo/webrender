@@ -20,7 +20,7 @@ use std::sync::Arc;
 use tiling;
 use webrender_traits::{Epoch, ColorF, PipelineId};
 use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle};
-use webrender_traits::{ScrollLayerId, WebGLCommand};
+use webrender_traits::{ExternalImageId, ScrollLayerId, WebGLCommand};
 
 // An ID for a texture that is owned by the
 // texture cache module. This can include atlases
@@ -45,9 +45,7 @@ pub enum SourceTexture {
     Invalid,
     TextureCache(CacheTextureId),
     WebGL(u32),                         // Is actually a gl::GLuint
-
-    // TODO(gw): Implement external image support via callback
-    //External(i32),
+    External(ExternalImageId),
 }
 
 pub enum GLContextHandleWrapper {
@@ -203,6 +201,7 @@ pub enum TextureSampler {
     Layers,
     RenderTasks,
     Geometry,
+    ResourceRects,
 }
 
 impl TextureSampler {

@@ -8,8 +8,9 @@ use euclid::{Size2D, Point2D, Rect, Matrix4D};
 use gleam::gl;
 use std::path::PathBuf;
 use std::ffi::CStr;
-use webrender_traits::{AuxiliaryListsBuilder, ColorF, Epoch, GlyphInstance};
-use webrender_traits::{ImageFormat, PipelineId, RendererKind};
+use webrender::{ExternalImage, ExternalImageHandler};
+use webrender_traits::{AuxiliaryListsBuilder, ColorF, Epoch, GlyphInstance, ExternalImageId};
+use webrender_traits::{ImageData, ImageFormat, PipelineId, RendererKind, ImageRendering};
 use std::fs::File;
 use std::io::Read;
 use std::env;
@@ -50,6 +51,49 @@ impl webrender_traits::RenderNotifier for Notifier {
     fn pipeline_size_changed(&mut self,
                              _: PipelineId,
                              _: Option<Size2D<f32>>) {
+    }
+}
+
+struct ImageHandler {
+    data: Vec<u8>,
+    frame: u64,
+}
+
+impl ImageHandler {
+    fn new() -> ImageHandler {
+        ImageHandler {
+            frame: 0,
+            data: vec![ 0xff, 0x00, 0x00, 0xff,
+                        0x00, 0xff, 0x00, 0xff,
+                        0x00, 0x00, 0xff, 0xff,
+                        0x00, 0xff, 0xff, 0xff ],
+        }
+    }
+}
+
+impl ExternalImageHandler for ImageHandler {
+    fn lock_image(&mut self, _: ExternalImageId) -> ExternalImage {
+        self.frame += 1;
+
+        if self.frame == 10 {
+            self.data = vec![ 0x00, 0x00, 0x00, 0xff,
+                              0xff, 0xff, 0xff, 0xff,
+                              0xff, 0xff, 0xff, 0xff,
+                              0x00, 0x00, 0x00, 0xff ];
+        }
+
+        ExternalImage {
+            timestamp: self.frame,
+            u0: 0.0,
+            v0: 0.0,
+            u1: 2.0,
+            v1: 2.0,
+            data: self.data.as_ptr(),
+            len: self.data.len(),
+        }
+    }
+
+    fn unlock_image(&mut self, _: ExternalImageId) {
     }
 }
 
@@ -107,6 +151,7 @@ fn main() {
 
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));
     renderer.set_render_notifier(notifier);
+    renderer.set_external_image_handler(Box::new(ImageHandler::new()));
 
     let pipeline_id = PipelineId(0, 0);
     let epoch = Epoch(0);
@@ -135,7 +180,7 @@ fn main() {
 
     let clip_region = {
         let mask = webrender_traits::ImageMask {
-            image: api.add_image(2, 2, None, ImageFormat::A8, vec![0,80, 180, 255]),
+            image: api.add_image(2, 2, None, ImageFormat::A8, ImageData::Raw(vec![0,80, 180, 255])),
             rect: Rect::new(Point2D::new(75.0, 75.0), Size2D::new(100.0, 100.0)),
             repeat: false,
         };
@@ -155,6 +200,22 @@ fn main() {
                       ColorF::new(0.0, 1.0, 0.0, 1.0));
 
     let _text_bounds = Rect::new(Point2D::new(100.0, 200.0), Size2D::new(700.0, 300.0));
+
+    let ext_id = ExternalImageId(0);
+    let image_key = api.add_image(2, 2, None, ImageFormat::RGBA8, ImageData::External(ext_id));
+
+    let ext_image_rect = Rect::new(Point2D::new(300.0, 100.0), Size2D::new(100.0, 100.0));
+    let ext_image_clip_region = webrender_traits::ClipRegion::new(&ext_image_rect,
+                                                                  vec![],
+                                                                  None,
+                                                                  &mut auxiliary_lists_builder);
+
+    builder.push_image(ext_image_rect,
+                       ext_image_clip_region,
+                       Size2D::new(100.0, 100.0),
+                       Size2D::zero(),
+                       ImageRendering::Auto,
+                       image_key);
 
     let _glyphs = vec![
         GlyphInstance {

@@ -124,14 +124,19 @@ impl RenderBackend {
                             };
                             tx.send(glyph_dimensions).unwrap();
                         }
-                        ApiMsg::AddImage(id, width, height, stride, format, bytes) => {
-                            profile_counters.image_templates.inc(bytes.len());
+                        ApiMsg::AddImage(id, width, height, stride, format, data) => {
+                            match data {
+                                ImageData::Raw(ref bytes) => {
+                                    profile_counters.image_templates.inc(bytes.len());
+                                }
+                                ImageData::External(..) => {}
+                            }
                             self.resource_cache.add_image_template(id,
                                                                    width,
                                                                    height,
                                                                    stride,
                                                                    format,
-                                                                   bytes);
+                                                                   data);
                         }
                         ApiMsg::Flush => {
                             let mut flush_notifier = self.flush_notifier.lock();
