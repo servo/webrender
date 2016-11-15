@@ -1131,8 +1131,9 @@ impl Renderer {
                                 &projection);
         }
         // draw image masks
-        for (&mask_texture_id, items) in target.clip_batcher.images.iter() {
-            self.device.bind_texture(TextureSampler::Mask, mask_texture_id);
+        for (mask_texture_id, items) in target.clip_batcher.images.iter() {
+            let texture_id = self.resolve_source_texture(mask_texture_id);
+            self.device.bind_texture(TextureSampler::Mask, texture_id);
             let shader = self.cs_clip_image.get(&mut self.device);
             self.draw_ubo_batch(items,
                                 shader,

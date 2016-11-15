@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use device::TextureId;
 use euclid::{Point2D, Matrix4D, Rect, Size2D};
 use gpu_store::{GpuStore, GpuStoreAddress};
 use internal_types::{device_pixel, DeviceRect, DeviceSize, SourceTexture};

@@ -4,7 +4,6 @@
 
 use app_units::Au;
 use batch_builder::BorderSideHelpers;
-use device::{TextureId};
 use euclid::{Point2D, Point4D, Rect, Matrix4D, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
@@ -152,18 +151,19 @@ impl AlphaBatchHelpers for PrimitiveStore {
                          device_pixel_ratio: f32) -> bool {
         let metadata = self.get_metadata(prim_index);
 
+        // bail out if the clip rectangle is outside of the tile
+        if let Some(ref clip_info) = metadata.clip_cache_info {
+            if !clip_info.device_rect.intersects(tile_rect) {
+                return false;
+            }
+        }
+
         match metadata.prim_kind {
             PrimitiveKind::Rectangle |
             PrimitiveKind::TextRun |
             PrimitiveKind::Image |
             PrimitiveKind::Gradient |
-            PrimitiveKind::BoxShadow => {
-                if let Some(ref clip_info) = metadata.clip_cache_info {
-                    clip_info.device_rect.intersects(tile_rect)
-                } else {
-                    true
-                }
-            }
+            PrimitiveKind::BoxShadow => true,
             PrimitiveKind::Border => {
                 let border = &self.cpu_borders[metadata.cpu_prim_index.0];
                 let inner_rect = TransformedRect::new(&border.inner_rect,
@@ -589,7 +589,7 @@ impl AlphaBatcher {
 pub struct ClipBatcher {
     pub clears: Vec<CacheClipInstance>,
     pub rectangles: Vec<CacheClipInstance>,
-    pub images: HashMap<TextureId, Vec<CacheClipInstance>>,
+    pub images: HashMap<SourceTexture, Vec<CacheClipInstance>>,
 }
 
 impl ClipBatcher {
@@ -1729,13 +1729,9 @@ impl ScreenTile {
 
                     // Add a task to render the updated image mask
                     if let Some(ref clip_info) = prim_metadata.clip_cache_info {
-                        if let Some(mask_task) = RenderTask::new_mask(self.rect, clip_info) {
-                            current_task.children.push(mask_task);
-                        } else {
-                            // The primitive has clip items but their intersection is empty
-                            // meaning, no pixels will be visible, we can skip it entirely
-                            continue;
-                        }
+                        let mask_task = RenderTask::new_mask(self.rect, clip_info)
+                                                   .expect("Primitive be culled by `prim_affects_tile` already");
+                        current_task.children.push(mask_task);
                     }
 
                     // Add any dynamic render tasks needed to render this primitive
