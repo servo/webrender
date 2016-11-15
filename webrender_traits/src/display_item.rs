@@ -70,6 +70,10 @@ impl ClipRegion {
             image_mask: None,
         }
     }
+
+    pub fn is_complex(&self) -> bool {
+        self.complex.length !=0 || self.image_mask.is_some()
+    }
 }
 
 impl ColorF {

@@ -12,12 +12,12 @@ use internal_types::{DeviceRect, DevicePoint, DeviceSize, DeviceLength, device_p
 use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
 use internal_types::{BatchTextures, CacheTextureId, SourceTexture};
 use layer::Layer;
-use mask_cache::{OPAQUE_TASK_INDEX, MaskCacheKey, MaskCacheInfo};
+use mask_cache::{OPAQUE_TASK_INDEX, ClipSource, MaskCacheKey, MaskCacheInfo};
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{ImagePrimitiveCpu, ImagePrimitiveGpu, ImagePrimitiveKind};
 use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata, TexelRect};
-use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve, PrimitiveClipSource};
+use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
 use prim_store::{PrimitiveCacheKey, TextRunPrimitiveGpu, TextRunPrimitiveCpu};
 use prim_store::{PrimitiveStore, GpuBlock16, GpuBlock32, GpuBlock64, GpuBlock128};
@@ -1466,7 +1466,7 @@ struct StackingContext {
     scroll_layer_id: ScrollLayerId,
     xf_rect: Option<TransformedRect>,
     composite_kind: CompositeKind,
-    local_clip_rect: Rect<f32>,
+    clip_region: ClipRegion,
     tile_range: Option<TileRange>,
 }
 
@@ -1835,11 +1835,7 @@ impl FrameBuilder {
             local_rect: *rect,
             local_clip_rect: clip_region.main,
         };
-        let clip_source = if clip_region.is_complex() {
-            PrimitiveClipSource::Region(clip_region.clone())
-        } else {
-            PrimitiveClipSource::NoClip
-        };
+        let clip_source = clip_region.into();
         let clip_info = MaskCacheInfo::new(&clip_source,
                                            StackingContextIndex(self.layer_store.len() - 1),
                                            &mut self.prim_store.gpu_data32);
@@ -1866,7 +1862,7 @@ impl FrameBuilder {
 
     pub fn push_layer(&mut self,
                       rect: Rect<f32>,
-                      clip_rect: Rect<f32>,
+                      clip_region: ClipRegion,
                       transform: Matrix4D<f32>,
                       pipeline_id: PipelineId,
                       scroll_layer_id: ScrollLayerId,
@@ -1880,7 +1876,7 @@ impl FrameBuilder {
             pipeline_id: pipeline_id,
             xf_rect: None,
             composite_kind: CompositeKind::new(composition_operations),
-            local_clip_rect: clip_rect,
+            clip_region: clip_region,
             tile_range: None,
         };
         self.layer_store.push(sc);
@@ -2279,7 +2275,7 @@ impl FrameBuilder {
                     let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
                     let layer_local_rect = layer.local_rect
                                                 .intersection(&viewport_rect)
-                                                .and_then(|rect| rect.intersection(&layer.local_clip_rect));
+                                                .and_then(|rect| rect.intersection(&layer.clip_region.main));
 
                     if let Some(layer_local_rect) = layer_local_rect {
                         let layer_xf_rect = TransformedRect::new(&layer_local_rect,
@@ -2514,10 +2510,9 @@ impl FrameBuilder {
             geom.local_clip_rect = geom.local_rect;
 
             let clip_source = if scrollbar_prim.border_radius == 0.0 {
-                PrimitiveClipSource::NoClip
+                ClipSource::NoClip
             } else {
-                PrimitiveClipSource::Complex(geom.local_rect,
-                                             scrollbar_prim.border_radius)
+                ClipSource::Complex(geom.local_rect, scrollbar_prim.border_radius)
             };
             self.prim_store.set_clip_source(scrollbar_prim.prim_index, clip_source);
             *self.prim_store.gpu_geometry.get_mut(GpuStoreAddress(scrollbar_prim.prim_index.0 as i32)) = geom;

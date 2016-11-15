@@ -19,7 +19,6 @@ impl StackingContext {
                -> StackingContext {
         StackingContext {
             scroll_policy: scroll_policy,
-            bounds: bounds,
             overflow: overflow,
             z_index: z_index,
             transform: transform.clone(),

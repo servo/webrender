@@ -3,8 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::{Matrix4D, Point2D, Rect, Size2D};
+use mask_cache::ClipSource;
 use spring::{DAMPING, STIFFNESS, Spring};
-use webrender_traits::{PipelineId, ScrollLayerId};
+use webrender_traits::{ClipRegion, PipelineId, ScrollLayerId};
 
 /// Contains scroll and transform information for scrollable and root stacking contexts.
 #[derive(Clone)]
@@ -20,6 +21,9 @@ pub struct Layer {
 
     /// Viewing rectangle clipped against parent layer(s)
     pub combined_local_viewport_rect: Rect<f32>,
+
+    /// Local clip source
+    pub clip_source: ClipSource,
 
     /// World transform for the viewport rect itself.
     pub world_viewport_transform: Matrix4D<f32>,
@@ -38,7 +42,7 @@ pub struct Layer {
 }
 
 impl Layer {
-    pub fn new(local_viewport_rect: &Rect<f32>,
+    pub fn new(clip_region: &ClipRegion,
                content_size: Size2D<f32>,
                local_transform: &Matrix4D<f32>,
                pipeline_id: PipelineId)
@@ -46,8 +50,9 @@ impl Layer {
         Layer {
             scrolling: ScrollingState::new(),
             content_size: content_size,
-            local_viewport_rect: *local_viewport_rect,
-            combined_local_viewport_rect: *local_viewport_rect,
+            local_viewport_rect: clip_region.main,
+            combined_local_viewport_rect: clip_region.main,
+            clip_source: clip_region.into(),
             world_viewport_transform: Matrix4D::identity(),
             world_content_transform: Matrix4D::identity(),
             local_transform: *local_transform,

@@ -6,7 +6,7 @@ use app_units::Au;
 use euclid::{Point2D, Matrix4D, Rect, Size2D};
 use gpu_store::{GpuStore, GpuStoreAddress};
 use internal_types::{device_pixel, DeviceRect, DeviceSize, SourceTexture};
-use mask_cache::{MaskCacheInfo, MaskCacheKey};
+use mask_cache::{ClipSource, MaskCacheInfo, MaskCacheKey};
 use resource_cache::{ImageProperties, ResourceCache};
 use std::mem;
 use std::usize;
@@ -87,18 +87,11 @@ pub enum PrimitiveCacheKey {
     TextShadow(PrimitiveIndex),
 }
 
-#[derive(Debug)]
-pub enum PrimitiveClipSource {
-    NoClip,
-    Complex(Rect<f32>, f32),
-    Region(ClipRegion),
-}
-
 // TODO(gw): Pack the fields here better!
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
     pub is_opaque: bool,
-    pub clip_source: Box<PrimitiveClipSource>,
+    pub clip_source: Box<ClipSource>,
     pub clip_cache_info: Option<MaskCacheInfo>,
     pub prim_kind: PrimitiveKind,
     pub cpu_prim_index: SpecificPrimitiveIndex,
@@ -415,7 +408,7 @@ impl PrimitiveStore {
 
     pub fn add_primitive(&mut self,
                          geometry: PrimitiveGeometry,
-                         clip_source: Box<PrimitiveClipSource>,
+                         clip_source: Box<ClipSource>,
                          clip_info: Option<MaskCacheInfo>,
                          container: PrimitiveContainer) -> PrimitiveIndex {
         let prim_index = self.cpu_metadata.len();
@@ -667,12 +660,12 @@ impl PrimitiveStore {
         &self.cpu_bounding_rects[index.0]
     }
 
-    pub fn set_clip_source(&mut self, index: PrimitiveIndex, source: PrimitiveClipSource) {
+    pub fn set_clip_source(&mut self, index: PrimitiveIndex, source: ClipSource) {
         let metadata = &mut self.cpu_metadata[index.0];
         let (rect, is_complex) = match source {
-            PrimitiveClipSource::NoClip => (None, false),
-            PrimitiveClipSource::Complex(rect, radius) => (Some(rect), radius > 0.0),
-            PrimitiveClipSource::Region(ref region) => (Some(region.main), region.is_complex()),
+            ClipSource::NoClip => (None, false),
+            ClipSource::Complex(rect, radius) => (Some(rect), radius > 0.0),
+            ClipSource::Region(ref region) => (Some(region.main), region.is_complex()),
         };
         if let Some(rect) = rect {
             self.gpu_geometry.get_mut(GpuStoreAddress(index.0 as i32))
@@ -732,7 +725,7 @@ impl PrimitiveStore {
                              &mut self.gpu_data32,
                              device_pixel_ratio,
                              auxiliary_lists);
-            if let &PrimitiveClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }) = metadata.clip_source.as_ref() {
+            if let &ClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }) = metadata.clip_source.as_ref() {
                 resource_cache.request_image(mask.image, ImageRendering::Auto);
                 prim_needs_resolve = true;
             }

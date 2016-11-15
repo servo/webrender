@@ -118,13 +118,13 @@ fn main() {
     builder.push_stacking_context(
         webrender_traits::StackingContext::new(webrender_traits::ScrollPolicy::Scrollable,
                                                bounds,
-                                               bounds,
                                                0,
                                                &Matrix4D::identity(),
                                                &Matrix4D::identity(),
                                                webrender_traits::MixBlendMode::Normal,
                                                Vec::new(),
-                                               &mut auxiliary_lists_builder));
+                                               &mut auxiliary_lists_builder),
+        webrender_traits::ClipRegion::simple(&bounds));
 
     let clip_region = {
         let mask = webrender_traits::ImageMask {
