@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
-use webrender_traits::{RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
+use webrender_traits::{FlushNotifier, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
 use record;
 use tiling::FrameBuilderConfig;
 use offscreen_gl_context::GLContextDispatcher;
@@ -42,6 +42,7 @@ pub struct RenderBackend {
     frame: Frame,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
+    flush_notifier: Arc<Mutex<Option<Box<FlushNotifier>>>>,
     webrender_context_handle: Option<GLContextHandleWrapper>,
     webgl_contexts: HashMap<WebGLContextId, GLContextWrapper>,
     current_bound_webgl_context_id: Option<WebGLContextId>,
@@ -61,6 +62,7 @@ impl RenderBackend {
                dummy_resources: DummyResources,
                enable_aa: bool,
                notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
+               flush_notifier: Arc<Mutex<Option<Box<FlushNotifier>>>>,
                webrender_context_handle: Option<GLContextHandleWrapper>,
                config: FrameBuilderConfig,
                debug: bool,
@@ -83,6 +85,7 @@ impl RenderBackend {
             frame: Frame::new(debug, config),
             next_namespace_id: IdNamespace(1),
             notifier: notifier,
+            flush_notifier: flush_notifier,
             webrender_context_handle: webrender_context_handle,
             webgl_contexts: HashMap::new(),
             current_bound_webgl_context_id: None,
@@ -98,6 +101,7 @@ impl RenderBackend {
         if self.enable_recording {
             fs::create_dir("record").ok();
         }
+
         loop {
             let msg = self.api_rx.recv();
             match msg {
@@ -131,6 +135,10 @@ impl RenderBackend {
                                                                    stride,
                                                                    format,
                                                                    bytes);
+                        }
+                        ApiMsg::Flush => {
+                            let mut flush_notifier = self.flush_notifier.lock();
+                            flush_notifier.as_mut().unwrap().as_mut().unwrap().all_messages_flushed();
                         }
                         ApiMsg::UpdateImage(id, width, height, format, bytes) => {
                             self.resource_cache.update_image_template(id,

@@ -100,6 +100,11 @@ impl RenderApi {
         key
     }
 
+    pub fn flush(&self) {
+        let msg = ApiMsg::Flush;
+        self.api_sender.send(msg).unwrap();
+    }
+
     /// Updates a specific image.
     ///
     /// Currently doesn't support changing dimensions or format by updating.
