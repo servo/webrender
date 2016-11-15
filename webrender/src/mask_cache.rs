@@ -3,16 +3,40 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use gpu_store::{GpuStore, GpuStoreAddress};
-use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
+use prim_store::{ClipData, GpuBlock32, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
-use std::i32;
 use tiling::StackingContextIndex;
 use util::{rect_from_points_f, TransformedRect};
-use webrender_traits::{AuxiliaryLists, BorderRadius, ComplexClipRegion, ImageMask};
+use webrender_traits::{AuxiliaryLists, BorderRadius, ClipRegion, ComplexClipRegion, ImageMask};
 use webrender_traits::{DeviceIntRect, DeviceIntSize, LayerRect, LayerToWorldTransform};
 
 const MAX_COORD: f32 = 1.0e+16;
-pub const OPAQUE_TASK_INDEX: i32 = i32::MAX;
+
+#[derive(Clone, Debug)]
+pub enum ClipSource {
+    NoClip,
+    Complex(LayerRect, f32),
+    Region(ClipRegion),
+}
+
+impl ClipSource {
+    pub fn to_rect(&self) -> Option<LayerRect> {
+        match self {
+            &ClipSource::NoClip => None,
+            &ClipSource::Complex(rect, _) => Some(rect),
+            &ClipSource::Region(ref region) => Some(LayerRect::from_untyped(&region.main)),
+        }
+    }
+}
+impl<'a> From<&'a ClipRegion> for ClipSource {
+    fn from(clip_region: &'a ClipRegion) -> ClipSource {
+        if clip_region.is_complex() {
+            ClipSource::Region(clip_region.clone())
+        } else {
+            ClipSource::NoClip
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ClipAddressRange {
@@ -58,20 +82,20 @@ pub struct MaskCacheInfo {
 impl MaskCacheInfo {
     /// Create a new mask cache info. It allocates the GPU store data but leaves
     /// it unitialized for the following `update()` call to deal with.
-    pub fn new(source: &PrimitiveClipSource,
+    pub fn new(source: &ClipSource,
                layer_id: StackingContextIndex,
                clip_store: &mut GpuStore<GpuBlock32>)
                -> Option<MaskCacheInfo> {
         let mut clip_key = MaskCacheKey::empty(layer_id);
 
         let image = match source {
-            &PrimitiveClipSource::NoClip => None,
-            &PrimitiveClipSource::Complex(..) => {
+            &ClipSource::NoClip => None,
+            &ClipSource::Complex(..) => {
                 clip_key.clip_range.item_count = 1;
                 clip_key.clip_range.start = clip_store.alloc(CLIP_DATA_GPU_SIZE);
                 None
             }
-            &PrimitiveClipSource::Region(ref region) => {
+            &ClipSource::Region(ref region) => {
                 let num = region.complex.length;
                 if num != 0 {
                     clip_key.clip_range.item_count = num as u32;
@@ -100,7 +124,7 @@ impl MaskCacheInfo {
     }
 
     pub fn update(&mut self,
-                  source: &PrimitiveClipSource,
+                  source: &ClipSource,
                   transform: &LayerToWorldTransform,
                   clip_store: &mut GpuStore<GpuBlock32>,
                   device_pixel_ratio: f32,
@@ -110,8 +134,8 @@ impl MaskCacheInfo {
             let mut local_rect;
             let mut local_inner: Option<LayerRect>;
             match source {
-                &PrimitiveClipSource::NoClip => unreachable!(),
-                &PrimitiveClipSource::Complex(rect, radius) => {
+                &ClipSource::NoClip => unreachable!(),
+                &ClipSource::Complex(rect, radius) => {
                     let slice = clip_store.get_slice_mut(self.key.clip_range.start, CLIP_DATA_GPU_SIZE);
                     let data = ClipData::uniform(rect, radius);
                     PrimitiveStore::populate_clip_data(slice, data);
@@ -121,7 +145,7 @@ impl MaskCacheInfo {
                                                          BorderRadius::uniform(radius))
                                                     .get_inner_rect().map(|r|{ LayerRect::from_untyped(&r) });
                 }
-                &PrimitiveClipSource::Region(ref region) => {
+                &ClipSource::Region(ref region) => {
                     local_rect = Some(LayerRect::from_untyped(&rect_from_points_f(-MAX_COORD, -MAX_COORD, MAX_COORD, MAX_COORD)));
                     local_inner = match region.image_mask {
                         Some(ref mask) if !mask.repeat => {
