@@ -186,12 +186,6 @@ pub struct ClipRegion {
     pub image_mask: Option<ImageMask>,
 }
 
-impl ClipRegion {
-    pub fn is_complex(&self) -> bool {
-        self.complex.length !=0 || self.image_mask.is_some()
-    }
-}
-
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ComplexClipRegion {
     /// The boundaries of the rectangle.
@@ -493,7 +487,6 @@ pub enum SpecificDisplayItem {
 pub struct StackingContext {
     pub scroll_policy: ScrollPolicy,
     pub bounds: Rect<f32>,
-    pub overflow: Rect<f32>,
     pub z_index: i32,
     pub transform: Matrix4D<f32>,
     pub perspective: Matrix4D<f32>,

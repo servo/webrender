@@ -15,7 +15,7 @@ use resource_cache::ResourceCache;
 use scene::Scene;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
-use tiling::{AuxiliaryListsMap, FrameBuilder, FrameBuilderConfig, PrimitiveFlags};
+use tiling::{AuxiliaryListsMap, FrameBuilder, FrameBuilderConfig, LayerMap, PrimitiveFlags};
 use util::MatrixHelpers;
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
 use webrender_traits::{ClipRegion, ColorF, DisplayItem, StackingContext, FilterOp, MixBlendMode};
@@ -42,15 +42,11 @@ struct FlattenContext<'a> {
     builder: &'a mut FrameBuilder,
 }
 
-pub type LayerMap = HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>;
-
 // TODO: doc
 pub struct Frame {
     pub layers: LayerMap,
     pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
-    pub pipeline_auxiliary_lists: HashMap<PipelineId,
-                                          AuxiliaryLists,
-                                          BuildHasherDefault<FnvHasher>>,
+    pub pipeline_auxiliary_lists: AuxiliaryListsMap,
     pub root_scroll_layer_id: Option<ScrollLayerId>,
     id: FrameId,
     debug: bool,
@@ -59,13 +55,15 @@ pub struct Frame {
 }
 
 trait DisplayListHelpers {
-    fn starting_stacking_context<'a>(&'a self) -> Option<&'a StackingContext>;
+    fn starting_stacking_context<'a>(&'a self) -> Option<(&'a StackingContext, &'a ClipRegion)>;
 }
 
 impl DisplayListHelpers for Vec<DisplayItem> {
-    fn starting_stacking_context<'a>(&'a self) -> Option<&'a StackingContext> {
+    fn starting_stacking_context<'a>(&'a self) -> Option<(&'a StackingContext, &'a ClipRegion)> {
         self.first().and_then(|item| match item.item {
-            SpecificDisplayItem::PushStackingContext(ref item) => Some(&item.stacking_context),
+            SpecificDisplayItem::PushStackingContext(ref specific_item) => {
+                Some((&specific_item.stacking_context, &item.clip))
+            },
             _ => None,
         })
     }
@@ -424,8 +422,8 @@ impl Frame {
 
         self.pipeline_epoch_map.insert(root_pipeline_id, root_pipeline.epoch);
 
-        let root_stacking_context = match display_list.starting_stacking_context() {
-            Some(stacking_context) => stacking_context,
+        let (root_stacking_context, root_clip) = match display_list.starting_stacking_context() {
+            Some(some) => some,
             None => {
                 warn!("Pipeline display list does not start with a stacking context.");
                 return;
@@ -440,7 +438,7 @@ impl Frame {
         let root_fixed_layer_id = ScrollLayerId::create_fixed(root_pipeline_id);
         let root_viewport = LayerRect::new(LayerPoint::zero(), LayerSize::from_untyped(&root_pipeline.viewport_size));
         let layer = Layer::new(&root_viewport,
-                               LayerSize::from_untyped(&root_stacking_context.overflow.size),
+                               LayerSize::from_untyped(&root_clip.main.size),
                                &LayerToScrollTransform::identity(),
                                root_pipeline_id);
         self.layers.insert(root_fixed_layer_id, layer.clone());
@@ -466,7 +464,8 @@ impl Frame {
                                           root_scroll_layer_id,
                                           LayerToScrollTransform::identity(),
                                           0,
-                                          &root_stacking_context);
+                                          &root_stacking_context,
+                                          root_clip);
         }
 
         self.frame_builder = Some(frame_builder);
@@ -517,7 +516,7 @@ impl Frame {
                                         LayerSize::new(content_size.width + clip.origin.x,
                                                        content_size.height + clip.origin.y));
         context.builder.push_layer(layer_rect,
-                                   layer_rect,
+                                   &ClipRegion::simple(&layer_rect.to_untyped()),
                                    LayerToScrollTransform::identity(),
                                    pipeline_id,
                                    current_scroll_layer_id,
@@ -542,7 +541,8 @@ impl Frame {
                                     current_scroll_layer_id: ScrollLayerId,
                                     layer_relative_transform: LayerToScrollTransform,
                                     level: i32,
-                                    stacking_context: &StackingContext) {
+                                    stacking_context: &StackingContext,
+                                    clip_region: &ClipRegion) {
         // Avoid doing unnecessary work for empty stacking contexts.
         if traversal.current_stacking_context_empty() {
             traversal.skip_current_stacking_context();
@@ -582,14 +582,6 @@ impl Frame {
             ScrollPolicy::Scrollable => current_scroll_layer_id,
         };
 
-        // TODO(gw): Int with overflow etc
-        context.builder.push_layer(LayerRect::from_untyped(&stacking_context.overflow),
-                                   LayerRect::from_untyped(&stacking_context.overflow),
-                                   transform,
-                                   pipeline_id,
-                                   scroll_layer_id,
-                                   &composition_operations);
-
         if level == 0 {
             // Add a large white rectangle as the root display item if there is no root stacking
             // context background color. This is removed by the occlusion culling for most tiles,
@@ -609,11 +601,32 @@ impl Frame {
                 root_background_color = ColorF::new(1.0, 1.0, 1.0, 1.0);
             }
 
-            context.builder.add_solid_rectangle(&LayerRect::from_untyped(&stacking_context.bounds),
-                                                &ClipRegion::simple(&stacking_context.bounds),
+            // Adding a dummy layer for this rectangle in order to disable clipping.
+            let no_clip = ClipRegion::simple(&clip_region.main);
+            context.builder.push_layer(LayerRect::from_untyped(&clip_region.main),
+                                       &no_clip,
+                                       transform,
+                                       pipeline_id,
+                                       scroll_layer_id,
+                                       &composition_operations);
+
+            //Note: we don't use the original clip region here,
+            // it's already processed by the layer we just pushed.
+            context.builder.add_solid_rectangle(&LayerRect::from_untyped(&clip_region.main),
+                                                &no_clip,
                                                 &root_background_color,
                                                 PrimitiveFlags::None);
+
+            context.builder.pop_layer();
         }
+
+         // TODO(gw): Int with overflow etc
+        context.builder.push_layer(LayerRect::from_untyped(&clip_region.main),
+                                   &clip_region,
+                                   transform,
+                                   pipeline_id,
+                                   scroll_layer_id,
+                                   &composition_operations);
 
         self.flatten_items(traversal,
                            pipeline_id,
@@ -654,8 +667,8 @@ impl Frame {
             None => return,
         };
 
-        let iframe_stacking_context = match display_list.starting_stacking_context() {
-            Some(stacking_context) => stacking_context,
+        let (iframe_stacking_context, iframe_clip) = match display_list.starting_stacking_context() {
+            Some(some) => some,
             None => {
                 warn!("Pipeline display list does not start with a stacking context.");
                 return;
@@ -672,8 +685,8 @@ impl Frame {
         let iframe_fixed_layer_id = ScrollLayerId::create_fixed(pipeline_id);
         let iframe_scroll_layer_id = ScrollLayerId::root(pipeline_id);
 
-        let layer = Layer::new(&iframe_rect,
-                               LayerSize::from_untyped(&iframe_stacking_context.overflow.size),
+        let layer = Layer::new(iframe_rect,
+                               LayerSize::from_untyped(&iframe_clip.main.size),
                                &transform,
                                pipeline_id);
         self.layers.insert(iframe_fixed_layer_id, layer.clone());
@@ -689,7 +702,8 @@ impl Frame {
                                       iframe_scroll_layer_id,
                                       LayerToScrollTransform::identity(),
                                       0,
-                                      &iframe_stacking_context);
+                                      &iframe_stacking_context,
+                                      iframe_clip);
     }
 
     fn flatten_items<'a>(&mut self,
@@ -757,7 +771,8 @@ impl Frame {
                                                   current_scroll_layer_id,
                                                   layer_relative_transform,
                                                   level + 1,
-                                                  &info.stacking_context);
+                                                  &info.stacking_context,
+                                                  &item.clip);
                 }
                 SpecificDisplayItem::PushScrollLayer(ref info) => {
                     self.flatten_scroll_layer(traversal,
