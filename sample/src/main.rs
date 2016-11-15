@@ -8,7 +8,7 @@ use euclid::{Size2D, Point2D, Rect, Matrix4D};
 use gleam::gl;
 use std::path::PathBuf;
 use std::ffi::CStr;
-use webrender::{ExternalImage, ExternalImageHandler};
+use webrender::{ExternalImage, ExternalImageData, ExternalImageHandler};
 use webrender_traits::{AuxiliaryListsBuilder, ColorF, Epoch, GlyphInstance, ExternalImageId};
 use webrender_traits::{ImageData, ImageFormat, PipelineId, RendererKind, ImageRendering};
 use std::fs::File;
@@ -72,7 +72,7 @@ impl ImageHandler {
 }
 
 impl ExternalImageHandler for ImageHandler {
-    fn lock_image(&mut self, _: ExternalImageId) -> ExternalImage {
+    fn get(&mut self, _: ExternalImageId) -> ExternalImage {
         self.frame += 1;
 
         if self.frame == 10 {
@@ -88,12 +88,13 @@ impl ExternalImageHandler for ImageHandler {
             v0: 0.0,
             u1: 2.0,
             v1: 2.0,
-            data: self.data.as_ptr(),
-            len: self.data.len(),
+            data: ExternalImageData::Buffer(self.data.as_ptr(),
+                                            self.data.len())
         }
     }
 
-    fn unlock_image(&mut self, _: ExternalImageId) {
+    fn release(&mut self, _: ExternalImageId) {
+
     }
 }
 
