@@ -55,12 +55,11 @@ impl webrender_traits::RenderNotifier for Notifier {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        println!("{} <shader path>", args[0]);
-        return;
-    }
-
-    let res_path = &args[1];
+    let res_path = if args.len() > 1 {
+        Some(PathBuf::from(&args[1]))
+    } else {
+        None
+    };
 
     let window = glutin::WindowBuilder::new()
                 .with_title("WebRender Sample")
@@ -80,13 +79,13 @@ fn main() {
     };
 
     println!("OpenGL version {}", version);
-    println!("Shader resource path: {}", res_path);
+    println!("Shader resource path: {:?}", res_path);
 
     let (width, height) = window.get_inner_size().unwrap();
 
     let opts = webrender::RendererOptions {
         device_pixel_ratio: 1.0,
-        resource_path: PathBuf::from(res_path),
+        resource_override_path: res_path,
         enable_aa: false,
         enable_msaa: false,
         enable_profiler: false,

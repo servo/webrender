@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::hash::BuildHasherDefault;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::mem;
 //use std::sync::mpsc::{channel, Sender};
 //use std::thread;
@@ -68,8 +68,8 @@ pub enum VertexFormat {
     DebugColor,
 }
 
-fn get_optional_shader_source(shader_name: &str, base_path: Option<&Path>) -> Option<String> {
-    if let Some(base) = base_path {
+fn get_optional_shader_source(shader_name: &str, base_path: &Option<PathBuf>) -> Option<String> {
+    if let Some(ref base) = *base_path {
         let shader_path = base.join(shader_name).with_extension("glsl");
         if shader_path.exists() {
             let mut source = String::new();
@@ -85,7 +85,7 @@ fn get_optional_shader_source(shader_name: &str, base_path: Option<&Path>) -> Op
     }
 }
 
-fn get_shader_source(shader_name: &str, base_path: Option<&Path>) -> String {
+fn get_shader_source(shader_name: &str, base_path: &Option<PathBuf>) -> String {
     get_optional_shader_source(shader_name, base_path).unwrap_or_else(|| {
         panic!("Couldn't get required shader: {}", shader_name);
     })
@@ -758,7 +758,7 @@ pub struct Device {
     inside_frame: bool,
 
     // resources
-    resource_path: PathBuf,
+    resource_override_path: Option<PathBuf>,
     textures: HashMap<TextureId, Texture, BuildHasherDefault<FnvHasher>>,
     programs: HashMap<ProgramId, Program, BuildHasherDefault<FnvHasher>>,
     vaos: HashMap<VAOId, VAO, BuildHasherDefault<FnvHasher>>,
@@ -773,16 +773,16 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn new(resource_path: PathBuf,
+    pub fn new(resource_override_path: Option<PathBuf>,
                device_pixel_ratio: f32,
                _file_changed_handler: Box<FileWatcherHandler>) -> Device {
         //let file_watcher = FileWatcherThread::new(file_changed_handler);
 
-        let shader_preamble = get_shader_source(SHADER_PREAMBLE, Some(&resource_path));
+        let shader_preamble = get_shader_source(SHADER_PREAMBLE, &resource_override_path);
         //file_watcher.add_watch(resource_path);
 
         Device {
-            resource_path: resource_path,
+            resource_override_path: resource_override_path,
             device_pixel_ratio: device_pixel_ratio,
             inside_frame: false,
 
@@ -1220,11 +1220,11 @@ impl Device {
 
         let mut include = format!("// Base shader: {}\n", base_filename);
         for inc_filename in include_filenames {
-            let src = get_shader_source(inc_filename, Some(&self.resource_path));
+            let src = get_shader_source(inc_filename, &self.resource_override_path);
             include.push_str(&src);
         }
 
-        if let Some(shared_src) = get_optional_shader_source(base_filename, Some(&self.resource_path)) {
+        if let Some(shared_src) = get_optional_shader_source(base_filename, &self.resource_override_path) {
             include.push_str(&shared_src);
         }    
 
@@ -1232,8 +1232,8 @@ impl Device {
             name: base_filename.to_owned(),
             id: pid,
             u_transform: -1,
-            vs_source: get_shader_source(&vs_name, Some(&self.resource_path)),
-            fs_source: get_shader_source(&fs_name, Some(&self.resource_path)),
+            vs_source: get_shader_source(&vs_name, &self.resource_override_path),
+            fs_source: get_shader_source(&fs_name, &self.resource_override_path),
             prefix: prefix,
             vs_id: None,
             fs_id: None,

@@ -12,7 +12,7 @@ use euclid::Size2D;
 use gleam::gl;
 use std::io::Read;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::env;
 use webrender_traits::{RenderApi, PipelineId};
 use glutin::{Event, ElementState, VirtualKeyCode as Key};
@@ -44,8 +44,9 @@ impl webrender_traits::RenderNotifier for Notifier {
     }
 }
 
-fn read_file(dir: &str, frame: i32, api: &RenderApi) -> bool {
-    let filename = format!("{}/frame_{}.bin", dir, frame);
+fn read_file(dir: &Path, frame: i32, api: &RenderApi) -> bool {
+    let mut filename = PathBuf::from(dir);
+    filename.push(format!("frame_{}.bin", frame));
     let mut file = match File::open(&filename) {
         Ok(file) => file,
         Err(_e) => {
@@ -72,12 +73,17 @@ fn read_file(dir: &str, frame: i32, api: &RenderApi) -> bool {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() != 3 {
-        println!("{} <resources_path> <directory>", args[0]);
+    if args.len() != 2 && args.len() != 3 {
+        println!("{} [<resources_path>] <directory>", args[0]);
         return;
     }
-    let resource_path = &args[1];
-    let ref dir = args[2];
+
+    let (resource_path, dir) = if args.len() == 2 {
+        (Some(PathBuf::from(&args[1])), PathBuf::from(&args[2]))
+    } else {
+        (None, PathBuf::from(&args[1]))
+    };
+
     let window = glutin::WindowBuilder::new()
         .with_title("WebRender Replay")
         .with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGl, (3,2)))
@@ -91,7 +97,7 @@ fn main() {
 
     let opts = webrender::RendererOptions {
         device_pixel_ratio: window.hidpi_factor(),
-        resource_path: PathBuf::from(resource_path),
+        resource_override_path: resource_path,
         enable_aa: false,
         enable_msaa: false,
         enable_profiler: false,
@@ -111,7 +117,7 @@ fn main() {
 
     //read and send the resources file
     let mut frame_num = 0;
-    read_file(dir, frame_num, &api);
+    read_file(&dir, frame_num, &api);
 
     for event in window.wait_events() {
         match event {
@@ -131,14 +137,14 @@ fn main() {
             }
             Event::KeyboardInput(ElementState::Pressed, _, Some(Key::Right)) =>{
                 frame_num += 1;
-                if !read_file(dir, frame_num, &api) {
+                if !read_file(&dir, frame_num, &api) {
                     frame_num -= 1;
                     println!("At last frame.");
                 }
             }
             Event::KeyboardInput(ElementState::Pressed, _, Some(Key::Left)) => {
                 frame_num -= 1;
-                if frame_num < 0 || !read_file(dir, frame_num, &api) {
+                if frame_num < 0 || !read_file(&dir, frame_num, &api) {
                     frame_num +=1;
                     println!("At first frame.");
                 }
