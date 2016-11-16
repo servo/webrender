@@ -9,7 +9,7 @@ use gleam::gl;
 use std::path::PathBuf;
 use std::ffi::CStr;
 use webrender_traits::{AuxiliaryListsBuilder, ColorF, Epoch, GlyphInstance};
-use webrender_traits::{ImageFormat, PipelineId, RendererKind};
+use webrender_traits::{ImageData, ImageFormat, PipelineId, RendererKind};
 use std::fs::File;
 use std::io::Read;
 use std::env;
@@ -134,7 +134,7 @@ fn main() {
 
     let clip_region = {
         let mask = webrender_traits::ImageMask {
-            image: api.add_image(2, 2, None, ImageFormat::A8, vec![0,80, 180, 255]),
+            image: api.add_image(2, 2, None, ImageFormat::A8, ImageData::Raw(vec![0,80, 180, 255])),
             rect: Rect::new(Point2D::new(75.0, 75.0), Size2D::new(100.0, 100.0)),
             repeat: false,
         };

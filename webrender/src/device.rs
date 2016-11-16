@@ -1366,6 +1366,11 @@ impl Device {
                 if u_data128 != -1 {
                     gl::uniform_1i(u_data128, TextureSampler::Data128    as i32);
                 }
+
+                let u_resource_rects = gl::get_uniform_location(program.id, "sResourceRects");
+                if u_resource_rects != -1 {
+                    gl::uniform_1i(u_resource_rects, TextureSampler::ResourceRects as i32);
+                }
             }
         }
     }

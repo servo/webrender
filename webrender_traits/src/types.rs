@@ -28,7 +28,7 @@ pub enum ApiMsg {
     /// Gets the glyph dimensions
     GetGlyphDimensions(Vec<GlyphKey>, IpcSender<Vec<Option<GlyphDimensions>>>),
     /// Adds an image from the resource cache.
-    AddImage(ImageKey, u32, u32, Option<u32>, ImageFormat, Vec<u8>),
+    AddImage(ImageKey, u32, u32, Option<u32>, ImageFormat, ImageData),
     /// Updates the the resource cache with the new image data.
     UpdateImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
     /// Drops an image from the resource cache.
@@ -314,6 +314,18 @@ pub enum ImageFormat {
     RGB8,
     RGBA8,
     RGBAF32,
+}
+
+/// An arbitrary identifier for an external image provided by the
+/// application. It must be a unique identifier for each external
+/// image.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct ExternalImageId(pub u64);
+
+#[derive(Serialize, Deserialize)]
+pub enum ImageData {
+    Raw(Vec<u8>),
+    External(ExternalImageId),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]

@@ -16,8 +16,8 @@ use mask_cache::{MaskCacheKey, MaskCacheInfo};
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{ImagePrimitiveCpu, ImagePrimitiveGpu, ImagePrimitiveKind};
-use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata};
-use prim_store::{CLIP_DATA_GPU_SIZE, PrimitiveClipSource};
+use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata, TexelRect};
+use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve, PrimitiveClipSource};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
 use prim_store::{PrimitiveCacheKey, TextRunPrimitiveGpu, TextRunPrimitiveCpu};
 use prim_store::{PrimitiveStore, GpuBlock16, GpuBlock32, GpuBlock64, GpuBlock128};
@@ -211,6 +211,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
                 });
             }
             &mut PrimitiveBatchData::TextRun(ref mut data) => {
+                let text_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
+
                 for glyph_index in 0..metadata.gpu_data_count {
                     data.push(PrimitiveInstance {
                         task_index: task_index,
@@ -219,11 +221,13 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         global_prim_id: global_prim_id,
                         prim_address: prim_address,
                         sub_index: metadata.gpu_data_address.0 + glyph_index,
-                        user_data: [ 0, 0 ],
+                        user_data: [ text_cpu.resource_address.0 + glyph_index, 0 ],
                     });
                 }
             }
             &mut PrimitiveBatchData::Image(ref mut data) => {
+                let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
+
                 data.push(PrimitiveInstance {
                     task_index: task_index,
                     clip_task_index: clip_task_index,
@@ -231,7 +235,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     global_prim_id: global_prim_id,
                     prim_address: prim_address,
                     sub_index: 0,
-                    user_data: [ 0, 0 ],
+                    user_data: [ image_cpu.resource_address.0, 0 ],
                 });
             }
             &mut PrimitiveBatchData::Borders(ref mut data) => {
@@ -623,7 +627,7 @@ impl ClipBatcher {
             }
         }));
         if let (Some(address), Some(mask_key)) = (key.image, task_info.image) {
-            let cache_item = resource_cache.get_image(mask_key, ImageRendering::Auto);
+            let cache_item = resource_cache.get_cached_image(mask_key, ImageRendering::Auto);
             self.images.entry(cache_item.texture_id)
                         .or_insert(Vec::new())
                         .push(CacheClipInstance {
@@ -744,6 +748,7 @@ impl RenderTarget {
                             global_prim_id: prim_index.0 as i32,
                             prim_address: prim_metadata.gpu_prim_index,
                             sub_index: 0,
+                            user_data: [0; 4],
                         });
                     }
                     PrimitiveKind::TextRun => {
@@ -769,6 +774,7 @@ impl RenderTarget {
                                 global_prim_id: prim_index.0 as i32,
                                 prim_address: prim_metadata.gpu_prim_index,
                                 sub_index: prim_metadata.gpu_data_address.0 + glyph_index,
+                                user_data: [ text.resource_address.0 + glyph_index, 0, 0, 0 ],
                             });
                         }
                     }
@@ -1259,6 +1265,7 @@ pub struct CachePrimitiveInstance {
     prim_address: GpuStoreAddress,
     task_id: i32,
     sub_index: i32,
+    user_data: [i32; 4],
 }
 
 /// A clipping primitive drawn into the clipping mask.
@@ -1552,6 +1559,13 @@ pub struct Frame {
     pub gpu_data64: Vec<GpuBlock64>,
     pub gpu_data128: Vec<GpuBlock128>,
     pub gpu_geometry: Vec<PrimitiveGeometry>,
+    pub gpu_resource_rects: Vec<TexelRect>,
+
+    // List of textures that we don't know about yet
+    // from the backend thread. The render thread
+    // will use a callback to resolve these and
+    // patch the data structures.
+    pub deferred_resolves: Vec<DeferredResolve>,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -2065,6 +2079,7 @@ impl FrameBuilder {
                 color_texture_id: SourceTexture::Invalid,
                 color: *color,
                 render_mode: render_mode,
+                resource_address: GpuStoreAddress(0),
             };
 
             let prim_gpu = TextRunPrimitiveGpu {
@@ -2149,11 +2164,10 @@ impl FrameBuilder {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::WebGL(context_id),
             color_texture_id: SourceTexture::Invalid,
+            resource_address: GpuStoreAddress(0),
         };
 
         let prim_gpu = ImagePrimitiveGpu {
-            uv0: Point2D::zero(),
-            uv1: Point2D::zero(),
             stretch_size: rect.size,
             tile_spacing: Size2D::zero(),
         };
@@ -2175,11 +2189,10 @@ impl FrameBuilder {
                                             image_rendering,
                                             *tile_spacing),
             color_texture_id: SourceTexture::Invalid,
+            resource_address: GpuStoreAddress(0),
         };
 
         let prim_gpu = ImagePrimitiveGpu {
-            uv0: Point2D::zero(),
-            uv1: Point2D::zero(),
             stretch_size: *stretch_size,
             tile_spacing: *tile_spacing,
         };
@@ -2562,7 +2575,7 @@ impl FrameBuilder {
 
         resource_cache.block_until_all_resources_added();
 
-        self.prim_store.resolve_primitives(resource_cache);
+        let deferred_resolves = self.prim_store.resolve_primitives(resource_cache);
 
         let mut passes = Vec::new();
 
@@ -2609,6 +2622,8 @@ impl FrameBuilder {
             gpu_data64: self.prim_store.gpu_data64.build(),
             gpu_data128: self.prim_store.gpu_data128.build(),
             gpu_geometry: self.prim_store.gpu_geometry.build(),
+            gpu_resource_rects: self.prim_store.gpu_resource_rects.build(),
+            deferred_resolves: deferred_resolves,
         }
     }
 }
