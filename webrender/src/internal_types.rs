@@ -223,14 +223,12 @@ impl TextureSampler {
 #[derive(Copy, Clone, Debug)]
 pub struct BatchTextures {
     pub colors: [SourceTexture; 3],
-    pub mask: SourceTexture,
 }
 
 impl BatchTextures {
     pub fn no_texture() -> Self {
         BatchTextures {
             colors: [SourceTexture::Invalid; 3],
-            mask: SourceTexture::Invalid,
         }
     }
 }
@@ -426,7 +424,7 @@ pub enum AxisDirection {
     Vertical,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
 pub struct StackingContextIndex(pub usize);
 
 #[derive(Clone, Copy, Debug)]
