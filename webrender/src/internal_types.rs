@@ -358,8 +358,8 @@ pub enum RenderTargetMode {
 }
 
 pub enum TextureUpdateOp {
-    Create(u32, u32, ImageFormat, TextureFilter, RenderTargetMode, Option<Vec<u8>>),
-    Update(u32, u32, u32, u32, Vec<u8>, Option<u32>),
+    Create(u32, u32, ImageFormat, TextureFilter, RenderTargetMode, Option<Arc<Vec<u8>>>),
+    Update(u32, u32, u32, u32, Arc<Vec<u8>>, Option<u32>),
     Grow(u32, u32, ImageFormat, TextureFilter, RenderTargetMode),
 }
 
