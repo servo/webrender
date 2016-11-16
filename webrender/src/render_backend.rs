@@ -16,7 +16,7 @@ use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
-use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace};
+use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, ImageData};
 use webrender_traits::{FlushNotifier, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
 use record;
 use tiling::FrameBuilderConfig;
@@ -124,14 +124,16 @@ impl RenderBackend {
                             };
                             tx.send(glyph_dimensions).unwrap();
                         }
-                        ApiMsg::AddImage(id, width, height, stride, format, bytes) => {
-                            profile_counters.image_templates.inc(bytes.len());
+                        ApiMsg::AddImage(id, width, height, stride, format, data) => {
+                            if let ImageData::Raw(ref bytes) = data {
+                                profile_counters.image_templates.inc(bytes.len());
+                            }
                             self.resource_cache.add_image_template(id,
                                                                    width,
                                                                    height,
                                                                    stride,
                                                                    format,
-                                                                   bytes);
+                                                                   data);
                         }
                         ApiMsg::Flush => {
                             let mut flush_notifier = self.flush_notifier.lock();
