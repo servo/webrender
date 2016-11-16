@@ -128,7 +128,6 @@ fn main() {
                                                0,
                                                &Matrix4D::identity(),
                                                &Matrix4D::identity(),
-                                               true,
                                                webrender_traits::MixBlendMode::Normal,
                                                Vec::new(),
                                                &mut auxiliary_lists_builder));

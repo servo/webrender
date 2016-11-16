@@ -14,7 +14,6 @@ impl StackingContext {
                z_index: i32,
                transform: &Matrix4D<f32>,
                perspective: &Matrix4D<f32>,
-               establishes_3d_context: bool,
                mix_blend_mode: MixBlendMode,
                filters: Vec<FilterOp>,
                auxiliary_lists_builder: &mut AuxiliaryListsBuilder)
@@ -27,7 +26,6 @@ impl StackingContext {
             z_index: z_index,
             transform: transform.clone(),
             perspective: perspective.clone(),
-            establishes_3d_context: establishes_3d_context,
             mix_blend_mode: mix_blend_mode,
             filters: auxiliary_lists_builder.add_filters(&filters),
         }
