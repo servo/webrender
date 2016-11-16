@@ -16,7 +16,7 @@ use mask_cache::{MaskCacheKey, MaskCacheInfo};
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{ImagePrimitiveCpu, ImagePrimitiveGpu, ImagePrimitiveKind};
-use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata};
+use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata, TexelRect};
 use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve, PrimitiveClipSource};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
 use prim_store::{PrimitiveCacheKey, TextRunPrimitiveGpu, TextRunPrimitiveCpu};
@@ -627,7 +627,7 @@ impl ClipBatcher {
             }
         }));
         if let (Some(address), Some(mask_key)) = (key.image, task_info.image) {
-            let cache_item = resource_cache.get_image(mask_key, ImageRendering::Auto);
+            let cache_item = resource_cache.get_cached_image(mask_key, ImageRendering::Auto);
             self.images.entry(cache_item.texture_id)
                         .or_insert(Vec::new())
                         .push(CacheClipInstance {

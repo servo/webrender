@@ -620,7 +620,7 @@ impl PrimitiveStore {
                 PrimitiveKind::Image => {
                     let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
 
-                    match image_cpu.kind {
+                    let (texture_id, cache_item) = match image_cpu.kind {
                         ImagePrimitiveKind::Image(image_key, image_rendering, _) => {
                             // Check if an external image that needs to be resolved
                             // by the render thread.
@@ -635,25 +635,27 @@ impl PrimitiveStore {
                                         resource_address: image_cpu.resource_address,
                                         image_properties: image_properties,
                                     });
-                                    image_cpu.color_texture_id = SourceTexture::External(external_id);
+
+                                    (SourceTexture::External(external_id), None)
                                 }
                                 None => {
                                     let cache_item = resource_cache.get_cached_image(image_key, image_rendering);
-                                    let resource_rect = self.gpu_resource_rects.get_mut(image_cpu.resource_address);
-                                    resource_rect.uv0 = cache_item.uv0;
-                                    resource_rect.uv1 = cache_item.uv1;
-                                    image_cpu.color_texture_id = cache_item.texture_id;
+                                    (cache_item.texture_id, Some(cache_item))
                                 }
                             }
                         }
                         ImagePrimitiveKind::WebGL(context_id) => {
                             let cache_item = resource_cache.get_webgl_texture(&context_id);
-                            let resource_rect = self.gpu_resource_rects.get_mut(image_cpu.resource_address);
-                            resource_rect.uv0 = cache_item.uv0;
-                            resource_rect.uv1 = cache_item.uv1;
-                            image_cpu.color_texture_id = cache_item.texture_id;
+                            (cache_item.texture_id, Some(cache_item))
                         }
+                    };
+
+                    if let Some(cache_item) = cache_item {
+                        let resource_rect = self.gpu_resource_rects.get_mut(image_cpu.resource_address);
+                        resource_rect.uv0 = cache_item.uv0;
+                        resource_rect.uv1 = cache_item.uv1;
                     }
+                    image_cpu.color_texture_id = texture_id;
                 }
             }
         }
