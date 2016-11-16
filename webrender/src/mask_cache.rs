@@ -7,13 +7,12 @@ use gpu_store::{GpuStore, GpuStoreAddress};
 use internal_types::{DeviceRect, DeviceSize};
 use prim_store::{ClipData, GpuBlock32, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
-use std::i32;
 use tiling::StackingContextIndex;
 use util::{rect_from_points_f, TransformedRect};
-use webrender_traits::{AuxiliaryLists, BorderRadius, ComplexClipRegion, ImageMask};
+use webrender_traits::{AuxiliaryLists, BorderRadius, ClipRegion, ComplexClipRegion, ImageMask};
 
 const MAX_COORD: f32 = 1.0e+16;
-pub const OPAQUE_TASK_INDEX: i32 = i32::MAX;
+
 #[derive(Clone, Debug)]
 pub enum ClipSource {
     NoClip,
@@ -21,6 +20,15 @@ pub enum ClipSource {
     Region(ClipRegion),
 }
 
+impl ClipSource {
+    pub fn to_rect(&self) -> Option<Rect<f32>> {
+        match self {
+            &ClipSource::NoClip => None,
+            &ClipSource::Complex(rect, _) => Some(rect),
+            &ClipSource::Region(ref region) => Some(region.main),
+        }
+    }
+}
 impl<'a> From<&'a ClipRegion> for ClipSource {
     fn from(clip_region: &'a ClipRegion) -> ClipSource {
         if clip_region.is_complex() {

@@ -432,7 +432,8 @@ impl Frame {
         // Insert global position: fixed elements layer
         debug_assert!(self.layers.is_empty());
         let root_fixed_layer_id = ScrollLayerId::create_fixed(root_pipeline_id);
-        let layer = Layer::new(root_clip,
+        let root_viewport = Rect::new(Point2D::zero(), root_pipeline.viewport_size);
+        let layer = Layer::new(&root_viewport,
                                root_stacking_context.overflow.size,
                                &Matrix4D::identity(),
                                root_pipeline_id);
@@ -656,6 +657,7 @@ impl Frame {
 
         self.pipeline_epoch_map.insert(pipeline_id, pipeline.epoch);
 
+        let iframe_rect = &Rect::new(Point2D::zero(), bounds.size);
         let transform = layer_relative_transform.pre_translated(bounds.origin.x,
                                                                 bounds.origin.y,
                                                                 0.0);
@@ -663,7 +665,7 @@ impl Frame {
         let iframe_fixed_layer_id = ScrollLayerId::create_fixed(pipeline_id);
         let iframe_scroll_layer_id = ScrollLayerId::root(pipeline_id);
 
-        let layer = Layer::new(iframe_clip,
+        let layer = Layer::new(iframe_rect,
                                iframe_stacking_context.overflow.size,
                                &transform,
                                pipeline_id);
