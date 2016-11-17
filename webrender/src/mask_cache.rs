@@ -2,15 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use euclid::{Rect, Matrix4D};
 use gpu_store::{GpuStore, GpuStoreAddress};
-use internal_types::{DeviceRect, DeviceSize};
 use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
 use std::i32;
 use tiling::StackingContextIndex;
 use util::{rect_from_points_f, TransformedRect};
 use webrender_traits::{AuxiliaryLists, BorderRadius, ComplexClipRegion, ImageMask};
+use webrender_traits::{DeviceIntRect, DeviceIntSize, LayerRect, LayerToWorldTransform};
 
 const MAX_COORD: f32 = 1.0e+16;
 pub const OPAQUE_TASK_INDEX: i32 = i32::MAX;
@@ -50,10 +49,10 @@ pub struct MaskCacheInfo {
     // ResourceCache allocates/load the actual data
     // will be simplified after the TextureCache upgrade
     pub image: Option<ImageMask>,
-    pub local_rect: Option<Rect<f32>>,
-    pub local_inner: Option<Rect<f32>>,
-    pub inner_rect: DeviceRect,
-    pub outer_rect: DeviceRect,
+    pub local_rect: Option<LayerRect>,
+    pub local_inner: Option<LayerRect>,
+    pub inner_rect: DeviceIntRect,
+    pub outer_rect: DeviceIntRect,
 }
 
 impl MaskCacheInfo {
@@ -92,8 +91,8 @@ impl MaskCacheInfo {
                 image: image,
                 local_rect: None,
                 local_inner: None,
-                inner_rect: DeviceRect::zero(),
-                outer_rect: DeviceRect::zero(),
+                inner_rect: DeviceIntRect::zero(),
+                outer_rect: DeviceIntRect::zero(),
             })
         } else {
             None
@@ -102,13 +101,14 @@ impl MaskCacheInfo {
 
     pub fn update(&mut self,
                   source: &PrimitiveClipSource,
-                  transform: &Matrix4D<f32>,
+                  transform: &LayerToWorldTransform,
                   clip_store: &mut GpuStore<GpuBlock32>,
                   device_pixel_ratio: f32,
                   aux_lists: &AuxiliaryLists) {
 
         if self.local_rect.is_none() {
-            let (mut local_rect, mut local_inner);
+            let mut local_rect;
+            let mut local_inner: Option<LayerRect>;
             match source {
                 &PrimitiveClipSource::NoClip => unreachable!(),
                 &PrimitiveClipSource::Complex(rect, radius) => {
@@ -117,15 +117,15 @@ impl MaskCacheInfo {
                     PrimitiveStore::populate_clip_data(slice, data);
                     debug_assert_eq!(self.key.clip_range.item_count, 1);
                     local_rect = Some(rect);
-                    local_inner = ComplexClipRegion::new(rect,
+                    local_inner = ComplexClipRegion::new(rect.to_untyped(),
                                                          BorderRadius::uniform(radius))
-                                                    .get_inner_rect();
+                                                    .get_inner_rect().map(|r|{ LayerRect::from_untyped(&r) });
                 }
                 &PrimitiveClipSource::Region(ref region) => {
-                    local_rect = Some(rect_from_points_f(-MAX_COORD, -MAX_COORD, MAX_COORD, MAX_COORD));
+                    local_rect = Some(LayerRect::from_untyped(&rect_from_points_f(-MAX_COORD, -MAX_COORD, MAX_COORD, MAX_COORD)));
                     local_inner = match region.image_mask {
                         Some(ref mask) if !mask.repeat => {
-                            local_rect = local_rect.and_then(|r| r.intersection(&mask.rect));
+                            local_rect = local_rect.and_then(|r| r.intersection(&LayerRect::from_untyped(&mask.rect)));
                             None
                         },
                         Some(_) => None,
@@ -137,13 +137,13 @@ impl MaskCacheInfo {
                     for (clip, chunk) in clips.iter().zip(slice.chunks_mut(CLIP_DATA_GPU_SIZE)) {
                         let data = ClipData::from_clip_region(clip);
                         PrimitiveStore::populate_clip_data(chunk, data);
-                        local_rect = local_rect.and_then(|r| r.intersection(&clip.rect));
+                        local_rect = local_rect.and_then(|r| r.intersection(&LayerRect::from_untyped(&clip.rect)));
                         local_inner = local_inner.and_then(|r| clip.get_inner_rect()
-                                                                   .and_then(|ref inner| r.intersection(inner)));
+                                                                   .and_then(|ref inner| r.intersection(&LayerRect::from_untyped(&inner))));
                     }
                 }
             };
-            self.local_rect = Some(local_rect.unwrap_or(Rect::zero()));
+            self.local_rect = Some(local_rect.unwrap_or(LayerRect::zero()));
             self.local_inner = local_inner;
         }
 
@@ -158,7 +158,7 @@ impl MaskCacheInfo {
                                                    device_pixel_ratio);
             transformed.inner_rect
         } else {
-            DeviceRect::new(self.outer_rect.origin, DeviceSize::zero())
+            DeviceIntRect::new(self.outer_rect.origin, DeviceIntSize::zero())
         }
     }
 }
