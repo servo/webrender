@@ -15,6 +15,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::env;
 use webrender_traits::{RenderApi, PipelineId};
+use webrender_traits::channel::PayloadHelperMethods;
 use glutin::{Event, ElementState, VirtualKeyCode as Key};
 
 
@@ -64,7 +65,7 @@ fn read_file(dir: &Path, frame: i32, api: &RenderApi) -> bool {
             len = file.read_u32::<LittleEndian>().unwrap();
             let mut buffer = vec![0; len as usize];
             file.read_exact(&mut buffer).unwrap();
-            api.payload_sender.send(&buffer[..]).unwrap();
+            api.payload_sender.send_vec(buffer).unwrap();
         }
     }
     true

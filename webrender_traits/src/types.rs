@@ -6,10 +6,10 @@
 // for the serde implementations.
 
 use app_units::Au;
+use channel::{PayloadSender, MsgSender};
 #[cfg(feature = "nightly")]
 use core::nonzero::NonZero;
 use euclid::{Matrix4D, Point2D, Rect, Size2D};
-use ipc_channel::ipc::{IpcBytesSender, IpcSender};
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
@@ -21,19 +21,19 @@ pub enum RendererKind {
     OSMesa,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>),
     AddNativeFont(FontKey, NativeFontHandle),
     /// Gets the glyph dimensions
-    GetGlyphDimensions(Vec<GlyphKey>, IpcSender<Vec<Option<GlyphDimensions>>>),
+    GetGlyphDimensions(Vec<GlyphKey>, MsgSender<Vec<Option<GlyphDimensions>>>),
     /// Adds an image from the resource cache.
     AddImage(ImageKey, u32, u32, Option<u32>, ImageFormat, ImageData),
     /// Updates the the resource cache with the new image data.
     UpdateImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
     /// Drops an image from the resource cache.
     DeleteImage(ImageKey),
-    CloneApi(IpcSender<IdNamespace>),
+    CloneApi(MsgSender<IdNamespace>),
     // Flushes all messages
     Flush,
     /// Supplies a new frame to WebRender.
@@ -49,9 +49,9 @@ pub enum ApiMsg {
     SetRootPipeline(PipelineId),
     Scroll(Point2D<f32>, Point2D<f32>, ScrollEventPhase),
     TickScrollingBounce,
-    TranslatePointToLayerSpace(Point2D<f32>, IpcSender<(Point2D<f32>, PipelineId)>),
-    GetScrollLayerState(IpcSender<Vec<ScrollLayerState>>),
-    RequestWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<(WebGLContextId, GLLimits), String>>),
+    TranslatePointToLayerSpace(Point2D<f32>, MsgSender<(Point2D<f32>, PipelineId)>),
+    GetScrollLayerState(MsgSender<Vec<ScrollLayerState>>),
+    RequestWebGLContext(Size2D<i32>, GLContextAttributes, MsgSender<Result<(WebGLContextId, GLLimits), String>>),
     ResizeWebGLContext(WebGLContextId, Size2D<i32>),
     WebGLCommand(WebGLContextId, WebGLCommand),
 }
@@ -322,7 +322,7 @@ pub enum ImageFormat {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ExternalImageId(pub u64);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum ImageData {
     Raw(Vec<u8>),
     External(ExternalImageId),
@@ -385,8 +385,8 @@ pub struct RectangleDisplayItem {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct RenderApiSender {
-    api_sender: IpcSender<ApiMsg>,
-    payload_sender: IpcBytesSender,
+    api_sender: MsgSender<ApiMsg>,
+    payload_sender: PayloadSender,
 }
 
 pub trait RenderNotifier: Send {
@@ -484,7 +484,7 @@ pub struct TextDisplayItem {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub enum WebGLCommand {
-    GetContextAttributes(IpcSender<GLContextAttributes>),
+    GetContextAttributes(MsgSender<GLContextAttributes>),
     ActiveTexture(u32),
     BlendColor(f32, f32, f32, f32),
     BlendEquation(u32),
@@ -511,12 +511,12 @@ pub enum WebGLCommand {
     CompileShader(WebGLShaderId, String),
     CopyTexImage2D(u32, i32, u32, i32, i32, i32, i32, i32),
     CopyTexSubImage2D(u32, i32, i32, i32, i32, i32, i32, i32),
-    CreateBuffer(IpcSender<Option<WebGLBufferId>>),
-    CreateFramebuffer(IpcSender<Option<WebGLFramebufferId>>),
-    CreateRenderbuffer(IpcSender<Option<WebGLRenderbufferId>>),
-    CreateTexture(IpcSender<Option<WebGLTextureId>>),
-    CreateProgram(IpcSender<Option<WebGLProgramId>>),
-    CreateShader(u32, IpcSender<Option<WebGLShaderId>>),
+    CreateBuffer(MsgSender<Option<WebGLBufferId>>),
+    CreateFramebuffer(MsgSender<Option<WebGLFramebufferId>>),
+    CreateRenderbuffer(MsgSender<Option<WebGLRenderbufferId>>),
+    CreateTexture(MsgSender<Option<WebGLTextureId>>),
+    CreateProgram(MsgSender<Option<WebGLProgramId>>),
+    CreateShader(u32, MsgSender<Option<WebGLShaderId>>),
     DeleteBuffer(WebGLBufferId),
     DeleteFramebuffer(WebGLFramebufferId),
     DeleteRenderbuffer(WebGLRenderbufferId),
@@ -533,20 +533,20 @@ pub enum WebGLCommand {
     EnableVertexAttribArray(u32),
     FramebufferRenderbuffer(u32, u32, u32, Option<WebGLRenderbufferId>),
     FramebufferTexture2D(u32, u32, u32, Option<WebGLTextureId>, i32),
-    GetBufferParameter(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
-    GetParameter(u32, IpcSender<WebGLResult<WebGLParameter>>),
-    GetProgramParameter(WebGLProgramId, u32, IpcSender<WebGLResult<WebGLParameter>>),
-    GetShaderParameter(WebGLShaderId, u32, IpcSender<WebGLResult<WebGLParameter>>),
-    GetActiveAttrib(WebGLProgramId, u32, IpcSender<WebGLResult<(i32, u32, String)>>),
-    GetActiveUniform(WebGLProgramId, u32, IpcSender<WebGLResult<(i32, u32, String)>>),
-    GetAttribLocation(WebGLProgramId, String, IpcSender<Option<i32>>),
-    GetUniformLocation(WebGLProgramId, String, IpcSender<Option<i32>>),
-    GetVertexAttrib(u32, u32, IpcSender<WebGLResult<WebGLParameter>>),
-    GetShaderInfoLog(WebGLShaderId, IpcSender<String>),
-    GetProgramInfoLog(WebGLProgramId, IpcSender<String>),
+    GetBufferParameter(u32, u32, MsgSender<WebGLResult<WebGLParameter>>),
+    GetParameter(u32, MsgSender<WebGLResult<WebGLParameter>>),
+    GetProgramParameter(WebGLProgramId, u32, MsgSender<WebGLResult<WebGLParameter>>),
+    GetShaderParameter(WebGLShaderId, u32, MsgSender<WebGLResult<WebGLParameter>>),
+    GetActiveAttrib(WebGLProgramId, u32, MsgSender<WebGLResult<(i32, u32, String)>>),
+    GetActiveUniform(WebGLProgramId, u32, MsgSender<WebGLResult<(i32, u32, String)>>),
+    GetAttribLocation(WebGLProgramId, String, MsgSender<Option<i32>>),
+    GetUniformLocation(WebGLProgramId, String, MsgSender<Option<i32>>),
+    GetVertexAttrib(u32, u32, MsgSender<WebGLResult<WebGLParameter>>),
+    GetShaderInfoLog(WebGLShaderId, MsgSender<String>),
+    GetProgramInfoLog(WebGLProgramId, MsgSender<String>),
     PolygonOffset(f32, f32),
     RenderbufferStorage(u32, u32, i32, i32),
-    ReadPixels(i32, i32, i32, i32, u32, u32, IpcSender<Vec<u8>>),
+    ReadPixels(i32, i32, i32, i32, u32, u32, MsgSender<Vec<u8>>),
     SampleCoverage(f32, bool),
     Scissor(i32, i32, i32, i32),
     StencilFunc(u32, i32, u32),
@@ -556,7 +556,7 @@ pub enum WebGLCommand {
     StencilOp(u32, u32, u32),
     StencilOpSeparate(u32, u32, u32, u32),
     Hint(u32, u32),
-    IsEnabled(u32, IpcSender<bool>),
+    IsEnabled(u32, MsgSender<bool>),
     LineWidth(f32),
     PixelStorei(u32, i32),
     LinkProgram(WebGLProgramId),
@@ -589,9 +589,9 @@ pub enum WebGLCommand {
     TexParameteri(u32, u32, i32),
     TexParameterf(u32, u32, f32),
     TexSubImage2D(u32, i32, i32, i32, i32, i32, u32, u32, Vec<u8>),
-    DrawingBufferWidth(IpcSender<i32>),
-    DrawingBufferHeight(IpcSender<i32>),
-    Finish(IpcSender<()>),
+    DrawingBufferWidth(MsgSender<i32>),
+    DrawingBufferHeight(MsgSender<i32>),
+    Finish(MsgSender<()>),
     Flush,
     GenerateMipmap(u32),
 }
