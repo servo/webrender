@@ -8,8 +8,10 @@ use internal_types::DeviceRect;
 use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
 use tiling::StackingContextIndex;
-use util::TransformedRect;
+use util::{rect_from_points_f, TransformedRect};
 use webrender_traits::{AuxiliaryLists, ImageMask};
+
+const MAX_COORD: f32 = 1.0e+16;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ClipAddressRange {
@@ -95,15 +97,14 @@ impl MaskCacheInfo {
     pub fn update(&mut self,
                   source: &PrimitiveClipSource,
                   transform: &Matrix4D<f32>,
-                  clip_rect: &Rect<f32>,
                   clip_store: &mut GpuStore<GpuBlock32>,
                   device_pixel_ratio: f32,
                   aux_lists: &AuxiliaryLists) {
 
         if self.local_rect.is_none() {
-            let mut local_rect = Some(clip_rect.clone());
+            let mut local_rect = Some(rect_from_points_f(-MAX_COORD, -MAX_COORD, MAX_COORD, MAX_COORD));
             match source {
-                &PrimitiveClipSource::NoClip => (),
+                &PrimitiveClipSource::NoClip => unreachable!(),
                 &PrimitiveClipSource::Complex(rect, radius) => {
                     let slice = clip_store.get_slice_mut(self.key.clip_range.start, CLIP_DATA_GPU_SIZE);
                     let data = ClipData::uniform(rect, radius);
