@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use euclid::{Matrix4D, Size2D};
+use euclid::Matrix4D;
 use spring::{DAMPING, STIFFNESS, Spring};
 use webrender_traits::{PipelineId, ScrollLayerId};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
@@ -13,9 +13,8 @@ pub struct Layer {
     /// Manages scrolling offset, overscroll state etc.
     pub scrolling: ScrollingState,
 
-    // TODO: units - "in logical pixels" is that different from LayerSize?
     /// Size of the content inside the scroll region (in logical pixels)
-    pub content_size: Size2D<f32>,
+    pub content_size: LayerSize,
 
     /// Viewing rectangle
     pub local_viewport_rect: LayerRect,
@@ -41,7 +40,7 @@ pub struct Layer {
 
 impl Layer {
     pub fn new(local_viewport_rect: &LayerRect,
-               content_size: Size2D<f32>,
+               content_size: LayerSize,
                local_transform: &Matrix4D<f32>,
                pipeline_id: PipelineId)
                -> Layer {

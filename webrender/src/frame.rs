@@ -439,7 +439,7 @@ impl Frame {
         let root_fixed_layer_id = ScrollLayerId::create_fixed(root_pipeline_id);
         let root_viewport = LayerRect::new(LayerPoint::zero(), LayerSize::from_untyped(&root_pipeline.viewport_size));
         let layer = Layer::new(&root_viewport,
-                               root_stacking_context.overflow.size,
+                               LayerSize::from_untyped(&root_stacking_context.overflow.size),
                                &Matrix4D::identity(),
                                root_pipeline_id);
         self.layers.insert(root_fixed_layer_id, layer.clone());
@@ -502,7 +502,7 @@ impl Frame {
                 debug_assert!(!self.layers.contains_key(&inner_scroll_layer_id));
 
                 let layer = Layer::new(&LayerRect::from_untyped(&stacking_context.bounds),
-                                       stacking_context.overflow.size,
+                                       LayerSize::from_untyped(&stacking_context.overflow.size),
                                        &layer_relative_transform,
                                        pipeline_id);
 
@@ -657,7 +657,7 @@ impl Frame {
         let iframe_scroll_layer_id = iframe_stacking_context.scroll_layer_id.unwrap();
 
         let layer = Layer::new(&iframe_rect,
-                               iframe_stacking_context.overflow.size,
+                               LayerSize::from_untyped(&iframe_stacking_context.overflow.size),
                                &transform,
                                pipeline_id);
         self.layers.insert(iframe_fixed_layer_id, layer.clone());
