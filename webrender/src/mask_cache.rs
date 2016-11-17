@@ -2,14 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use euclid::Matrix4D;
 use gpu_store::{GpuStore, GpuStoreAddress};
 use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
 use tiling::StackingContextIndex;
 use util::{rect_from_points_f, TransformedRect};
 use webrender_traits::{AuxiliaryLists, ImageMask};
-use webrender_traits::{DeviceIntRect, LayerRect};
+use webrender_traits::{DeviceIntRect, LayerRect, LayerToWorldTransform};
 
 const MAX_COORD: f32 = 1.0e+16;
 
@@ -96,7 +95,7 @@ impl MaskCacheInfo {
 
     pub fn update(&mut self,
                   source: &PrimitiveClipSource,
-                  transform: &Matrix4D<f32>,
+                  transform: &LayerToWorldTransform,
                   clip_store: &mut GpuStore<GpuBlock32>,
                   device_pixel_ratio: f32,
                   aux_lists: &AuxiliaryLists) {

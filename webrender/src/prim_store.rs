@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use euclid::{Matrix4D, Size2D};
+use euclid::Size2D;
 use gpu_store::{GpuStore, GpuStoreAddress};
 use internal_types::SourceTexture;
 use mask_cache::{MaskCacheInfo, MaskCacheKey};
@@ -18,6 +18,7 @@ use webrender_traits::{FontKey, FontRenderMode, WebGLContextId};
 use webrender_traits::{device_pixel, DeviceIntRect, DeviceIntSize};
 use webrender_traits::{DeviceRect, DevicePoint, DeviceSize};
 use webrender_traits::{LayerRect, LayerSize, LayerPoint};
+use webrender_traits::LayerToWorldTransform;
 
 pub const CLIP_DATA_GPU_SIZE: usize = 5;
 pub const MASK_DATA_GPU_SIZE: usize = 1;
@@ -700,7 +701,7 @@ impl PrimitiveStore {
     pub fn build_bounding_rect(&mut self,
                                prim_index: PrimitiveIndex,
                                screen_rect: &DeviceIntRect,
-                               layer_transform: &Matrix4D<f32>,
+                               layer_transform: &LayerToWorldTransform,
                                layer_combined_local_clip_rect: &LayerRect,
                                device_pixel_ratio: f32) -> bool {
         let geom = &self.gpu_geometry.get(GpuStoreAddress(prim_index.0 as i32));
@@ -723,7 +724,7 @@ impl PrimitiveStore {
     pub fn prepare_prim_for_render(&mut self,
                                    prim_index: PrimitiveIndex,
                                    resource_cache: &mut ResourceCache,
-                                   layer_transform: &Matrix4D<f32>,
+                                   layer_transform: &LayerToWorldTransform,
                                    device_pixel_ratio: f32,
                                    auxiliary_lists: &AuxiliaryLists) -> bool {
 

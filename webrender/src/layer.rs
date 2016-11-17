@@ -2,10 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use euclid::Matrix4D;
 use spring::{DAMPING, STIFFNESS, Spring};
 use webrender_traits::{PipelineId, ScrollLayerId};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
+use webrender_traits::{LayerToParentTransform, LayerToWorldTransform};
 
 /// Contains scroll and transform information for scrollable and root stacking contexts.
 #[derive(Clone)]
@@ -23,13 +23,13 @@ pub struct Layer {
     pub combined_local_viewport_rect: LayerRect,
 
     /// World transform for the viewport rect itself.
-    pub world_viewport_transform: Matrix4D<f32>,
+    pub world_viewport_transform: LayerToWorldTransform,
 
     /// World transform for content within this layer
-    pub world_content_transform: Matrix4D<f32>,
+    pub world_content_transform: LayerToWorldTransform,
 
     /// Transform for this layer, relative to parent layer.
-    pub local_transform: Matrix4D<f32>,
+    pub local_transform: LayerToParentTransform,
 
     /// Pipeline that this layer belongs to
     pub pipeline_id: PipelineId,
@@ -41,7 +41,7 @@ pub struct Layer {
 impl Layer {
     pub fn new(local_viewport_rect: &LayerRect,
                content_size: LayerSize,
-               local_transform: &Matrix4D<f32>,
+               local_transform: &LayerToParentTransform,
                pipeline_id: PipelineId)
                -> Layer {
         Layer {
@@ -49,8 +49,8 @@ impl Layer {
             content_size: content_size,
             local_viewport_rect: *local_viewport_rect,
             combined_local_viewport_rect: *local_viewport_rect,
-            world_viewport_transform: Matrix4D::identity(),
-            world_content_transform: Matrix4D::identity(),
+            world_viewport_transform: LayerToWorldTransform::identity(),
+            world_content_transform: LayerToWorldTransform::identity(),
             local_transform: *local_transform,
             children: Vec::new(),
             pipeline_id: pipeline_id,

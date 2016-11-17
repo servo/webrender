@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use batch_builder::BorderSideHelpers;
-use euclid::{Point2D, Point4D, Rect, Matrix4D, Size2D};
+use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
 use gpu_store::GpuStoreAddress;
@@ -40,6 +40,8 @@ use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId, FontRenderMode
 use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize, DeviceIntLength, device_pixel};
 use webrender_traits::{DeviceUintSize, DeviceUintPoint, DeviceSize};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
+use webrender_traits::{LayerToParentTransform, LayerToWorldTransform, WorldToLayerTransform};
+use webrender_traits::{WorldPoint4D, ParentLayerPixel, as_parent_rect};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
 
@@ -57,7 +59,7 @@ trait AlphaBatchHelpers {
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
                          tile_rect: &DeviceIntRect,
-                         transform: &Matrix4D<f32>,
+                         transform: &LayerToWorldTransform,
                          device_pixel_ratio: f32) -> bool;
     fn add_prim_to_batch(&self,
                          prim_index: PrimitiveIndex,
@@ -149,7 +151,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
                          tile_rect: &DeviceIntRect,
-                         transform: &Matrix4D<f32>,
+                         transform: &LayerToWorldTransform,
                          device_pixel_ratio: f32) -> bool {
         let metadata = self.get_metadata(prim_index);
 
@@ -1430,7 +1432,7 @@ struct TileRange {
 
 struct StackingContext {
     pipeline_id: PipelineId,
-    local_transform: Matrix4D<f32>,
+    local_transform: LayerToParentTransform,
     local_rect: LayerRect,
     scroll_layer_id: ScrollLayerId,
     xf_rect: Option<TransformedRect>,
@@ -1441,19 +1443,19 @@ struct StackingContext {
 
 #[derive(Debug, Clone)]
 pub struct PackedStackingContext {
-    transform: Matrix4D<f32>,
-    inv_transform: Matrix4D<f32>,
+    transform: LayerToWorldTransform,
+    inv_transform: WorldToLayerTransform,
     local_clip_rect: LayerRect,
-    screen_vertices: [Point4D<f32>; 4],
+    screen_vertices: [WorldPoint4D; 4],
 }
 
 impl Default for PackedStackingContext {
     fn default() -> PackedStackingContext {
         PackedStackingContext {
-            transform: Matrix4D::identity(),
-            inv_transform: Matrix4D::identity(),
+            transform: LayerToWorldTransform::identity(),
+            inv_transform: WorldToLayerTransform::identity(),
             local_clip_rect: LayerRect::zero(),
-            screen_vertices: [Point4D::zero(); 4],
+            screen_vertices: [WorldPoint4D::zero(); 4],
         }
     }
 }
@@ -1833,7 +1835,7 @@ impl FrameBuilder {
     pub fn push_layer(&mut self,
                       rect: LayerRect,
                       clip_rect: LayerRect,
-                      transform: Matrix4D<f32>,
+                      transform: LayerToParentTransform,
                       pipeline_id: PipelineId,
                       scroll_layer_id: ScrollLayerId,
                       composition_operations: &[CompositionOp]) {
@@ -1852,9 +1854,9 @@ impl FrameBuilder {
         self.layer_store.push(sc);
 
         self.packed_layers.push(PackedStackingContext {
-            transform: Matrix4D::identity(),
-            inv_transform: Matrix4D::identity(),
-            screen_vertices: [Point4D::zero(); 4],
+            transform: LayerToWorldTransform::identity(),
+            inv_transform: WorldToLayerTransform::identity(),
+            screen_vertices: [WorldPoint4D::zero(); 4],
             local_clip_rect: LayerRect::zero(),
         });
 
@@ -2231,6 +2233,7 @@ impl FrameBuilder {
 
                     let scroll_layer = &layer_map[&layer.scroll_layer_id];
                     packed_layer.transform = scroll_layer.world_content_transform
+                                                         .with_source::<ParentLayerPixel>() // the scroll layer is considered a parent of layer
                                                          .pre_mul(&layer.local_transform);
                     packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
 
@@ -2239,10 +2242,10 @@ impl FrameBuilder {
                     }
 
                     let inv_layer_transform = layer.local_transform.inverse().unwrap();
-                    let local_viewport_rect = scroll_layer.combined_local_viewport_rect;
-                    let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect.to_untyped());
+                    let local_viewport_rect = as_parent_rect(&scroll_layer.combined_local_viewport_rect);
+                    let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
                     let layer_local_rect = layer.local_rect
-                                                .intersection(&LayerRect::from_untyped(&viewport_rect))
+                                                .intersection(&viewport_rect)
                                                 .and_then(|rect| rect.intersection(&layer.local_clip_rect));
 
                     if let Some(layer_local_rect) = layer_local_rect {

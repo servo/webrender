@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use euclid::{Matrix4D, Point2D, Point3D, Point4D, Rect, Size2D};
+use euclid::{Point2D, Point3D, Rect, Size2D};
 use fnv::FnvHasher;
 use geometry::ray_intersects_rect;
 use internal_types::{ANGLE_FLOAT_TO_FIXED, AxisDirection};
@@ -21,6 +21,9 @@ use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLa
 use webrender_traits::{ClipRegion, ColorF, DisplayItem, StackingContext, FilterOp, MixBlendMode};
 use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, SpecificDisplayItem, ScrollLayerState};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
+use webrender_traits::{ParentLayerRect, as_parent_rect, ParentLayerPixel};
+use webrender_traits::WorldPoint4D;
+use webrender_traits::{LayerTransform, LayerToParentTransform, ParentToWorldTransform};
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
@@ -249,11 +252,11 @@ impl Frame {
                     let z0 = -10000.0;
                     let z1 =  10000.0;
 
-                    let p0 = inv.transform_point4d(&Point4D::new(cursor.x, cursor.y, z0, 1.0));
+                    let p0 = inv.transform_point4d(&WorldPoint4D::new(cursor.x, cursor.y, z0, 1.0));
                     let p0 = Point3D::new(p0.x / p0.w,
                                           p0.y / p0.w,
                                           p0.z / p0.w);
-                    let p1 = inv.transform_point4d(&Point4D::new(cursor.x, cursor.y, z1, 1.0));
+                    let p1 = inv.transform_point4d(&WorldPoint4D::new(cursor.x, cursor.y, z1, 1.0));
                     let p1 = Point3D::new(p1.x / p1.w,
                                           p1.y / p1.w,
                                           p1.z / p1.w);
@@ -440,7 +443,7 @@ impl Frame {
         let root_viewport = LayerRect::new(LayerPoint::zero(), LayerSize::from_untyped(&root_pipeline.viewport_size));
         let layer = Layer::new(&root_viewport,
                                LayerSize::from_untyped(&root_stacking_context.overflow.size),
-                               &Matrix4D::identity(),
+                               &LayerToParentTransform::identity(),
                                root_pipeline_id);
         self.layers.insert(root_fixed_layer_id, layer.clone());
         self.layers.insert(root_scroll_layer_id, layer);
@@ -463,7 +466,7 @@ impl Frame {
                                           &mut context,
                                           root_fixed_layer_id,
                                           root_scroll_layer_id,
-                                          Matrix4D::identity(),
+                                          LayerToParentTransform::identity(),
                                           0,
                                           &root_stacking_context);
         }
@@ -488,7 +491,7 @@ impl Frame {
                                     context: &mut FlattenContext,
                                     current_fixed_layer_id: ScrollLayerId,
                                     mut current_scroll_layer_id: ScrollLayerId,
-                                    mut layer_relative_transform: Matrix4D<f32>,
+                                    mut layer_relative_transform: LayerToParentTransform,
                                     level: i32,
                                     stacking_context: &StackingContext) {
         // Avoid doing unnecessary work for empty stacking contexts.
@@ -514,7 +517,7 @@ impl Frame {
 
                 self.layers.insert(inner_scroll_layer_id, layer);
                 current_scroll_layer_id = inner_scroll_layer_id;
-                layer_relative_transform = Matrix4D::identity();
+                layer_relative_transform = LayerToParentTransform::identity();
             }
             _ => {}
         }
@@ -543,11 +546,14 @@ impl Frame {
         // to account for them and we expand the overflow region to include the area above
         // their origin in the parent context.
         let (transform, overflow) = if stacking_context.scroll_layer_id.is_none() {
+            // TODO(nical): make them LayerTransforms in the public API.
+            let sc_transform: LayerTransform = unsafe { ::std::mem::transmute(stacking_context.transform) };
+            let sc_perspective: LayerTransform = unsafe { ::std::mem::transmute(stacking_context.perspective) };
             (layer_relative_transform.pre_translated(stacking_context.bounds.origin.x,
                                                      stacking_context.bounds.origin.y,
                                                      0.0)
-                                     .pre_mul(&stacking_context.transform)
-                                     .pre_mul(&stacking_context.perspective),
+                                     .pre_mul(&sc_transform)
+                                     .pre_mul(&sc_perspective),
              LayerRect::from_untyped(&stacking_context.overflow))
         } else {
             let mut overflow = stacking_context.overflow;
@@ -624,7 +630,7 @@ impl Frame {
                           bounds: &Rect<f32>,
                           context: &mut FlattenContext,
                           current_scroll_layer_id: ScrollLayerId,
-                          layer_relative_transform: Matrix4D<f32>) {
+                          layer_relative_transform: LayerToParentTransform) {
         context.pipeline_sizes.insert(pipeline_id, bounds.size);
 
         let pipeline = match context.scene.pipeline_map.get(&pipeline_id) {
@@ -671,7 +677,7 @@ impl Frame {
                                       context,
                                       iframe_fixed_layer_id,
                                       iframe_scroll_layer_id,
-                                      Matrix4D::identity(),
+                                      LayerToParentTransform::identity(),
                                       0,
                                       &iframe_stacking_context);
     }
@@ -682,7 +688,7 @@ impl Frame {
                          context: &mut FlattenContext,
                          current_fixed_layer_id: ScrollLayerId,
                          current_scroll_layer_id: ScrollLayerId,
-                         layer_relative_transform: Matrix4D<f32>,
+                         layer_relative_transform: LayerToParentTransform,
                          level: i32) {
         while let Some(item) = traversal.next() {
             match item.item {
@@ -768,8 +774,8 @@ impl Frame {
 
     fn update_layer_transform(&mut self,
                               layer_id: ScrollLayerId,
-                              parent_world_transform: &Matrix4D<f32>,
-                              parent_viewport_rect: &Rect<f32>,
+                              parent_world_transform: &ParentToWorldTransform,
+                              parent_viewport_rect: &ParentLayerRect,
                               device_pixel_ratio: f32) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
         //           Restructure this to avoid the clones!
@@ -777,8 +783,8 @@ impl Frame {
             match self.layers.get_mut(&layer_id) {
                 Some(layer) => {
                     let inv_transform = layer.local_transform.inverse().unwrap();
-                    let parent_viewport_rect_in_local_space = LayerRect::from_untyped(
-                        &inv_transform.transform_rect(parent_viewport_rect).translate(&-layer.scrolling.offset.to_untyped()));
+                    let parent_viewport_rect_in_local_space = inv_transform.transform_rect(parent_viewport_rect)
+                                                                           .translate(&-layer.scrolling.offset);
                     let local_viewport_rect = layer.local_viewport_rect
                                                    .translate(&-layer.scrolling.offset);
                     let viewport_rect = parent_viewport_rect_in_local_space.intersection(&local_viewport_rect)
@@ -791,7 +797,7 @@ impl Frame {
                                                                          layer.scrolling.offset.y,
                                                                          0.0);
 
-                    (layer.world_content_transform,
+                    (layer.world_content_transform.with_source::<ParentLayerPixel>(),
                      viewport_rect,
                      layer.children.clone())
                 }
@@ -802,7 +808,7 @@ impl Frame {
         for child_layer_id in layer_children {
             self.update_layer_transform(child_layer_id,
                                         &layer_transform_for_children,
-                                        &viewport_rect.to_untyped(),
+                                        &as_parent_rect(&viewport_rect),
                                         device_pixel_ratio);
         }
     }
@@ -812,8 +818,8 @@ impl Frame {
             let root_viewport = self.layers[&root_scroll_layer_id].local_viewport_rect;
 
             self.update_layer_transform(root_scroll_layer_id,
-                                        &Matrix4D::identity(),
-                                        &root_viewport.to_untyped(),
+                                        &ParentToWorldTransform::identity(),
+                                        &as_parent_rect(&root_viewport),
                                         device_pixel_ratio);
 
             // Update any fixed layers
@@ -829,8 +835,8 @@ impl Frame {
 
             for layer_id in fixed_layers {
                 self.update_layer_transform(layer_id,
-                                            &Matrix4D::identity(),
-                                            &root_viewport.to_untyped(),
+                                            &ParentToWorldTransform::identity(),
+                                            &as_parent_rect(&root_viewport),
                                             device_pixel_ratio);
             }
         }

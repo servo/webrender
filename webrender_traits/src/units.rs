@@ -9,7 +9,7 @@
 //! don't have the device pixel ratio applied which means they are agnostic to the usage
 //! of hidpi screens and the like.
 
-use euclid::{TypedRect, TypedPoint2D, TypedSize2D, Length};
+use euclid::{TypedMatrix4D, TypedRect, TypedPoint2D, TypedSize2D, TypedPoint4D, Length};
 
 /// Geometry in screen-space in physical pixels.
 #[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -35,6 +35,7 @@ pub struct LayerPixel;
 pub type LayerRect = TypedRect<f32, LayerPixel>;
 pub type LayerPoint = TypedPoint2D<f32, LayerPixel>;
 pub type LayerSize = TypedSize2D<f32, LayerPixel>;
+pub type LayerPoint4D = TypedPoint4D<f32, LayerPixel>;
 
 /// Geometry in a stacking context's parent coordinate space (logical pixels).
 #[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -52,9 +53,20 @@ pub struct WorldPixel;
 pub type WorldRect = TypedRect<f32, WorldPixel>;
 pub type WorldPoint = TypedPoint2D<f32, WorldPixel>;
 pub type WorldSize = TypedSize2D<f32, WorldPixel>;
+pub type WorldPoint4D = TypedPoint4D<f32, WorldPixel>;
 
 
 pub fn device_pixel(value: f32, device_pixel_ratio: f32) -> DeviceIntLength {
     DeviceIntLength::new((value * device_pixel_ratio).round() as i32)
 }
 
+pub type LayerTransform = TypedMatrix4D<f32, LayerPixel, LayerPixel>;
+pub type LayerToParentTransform = TypedMatrix4D<f32, LayerPixel, ParentLayerPixel>;
+pub type ParentToLayerTransform = TypedMatrix4D<f32, ParentLayerPixel, LayerPixel>;
+pub type LayerToWorldTransform = TypedMatrix4D<f32, LayerPixel, WorldPixel>;
+pub type WorldToLayerTransform = TypedMatrix4D<f32, WorldPixel, LayerPixel>;
+pub type ParentToWorldTransform = TypedMatrix4D<f32, ParentLayerPixel, WorldPixel>;
+
+pub fn as_parent_rect(rect: &LayerRect) -> ParentLayerRect {
+    ParentLayerRect::from_untyped(&rect.to_untyped())
+}
