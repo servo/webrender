@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use euclid::{Matrix4D, Point2D, Point4D, Rect, Size2D};
-use webrender_traits::{DeviceRect, DevicePoint, DeviceSize, DeviceLength};
+use euclid::{Matrix4D, Point2D, Point4D, Rect, Size2D, TypedRect};
+use webrender_traits::{DeviceRect, DevicePoint, DeviceSize, DeviceLength, LayerRect};
 use num_traits::Zero;
 use time::precise_time_ns;
 
@@ -167,9 +167,9 @@ pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
     (b - a) * t + a
 }
 
-pub fn subtract_rect(rect: &Rect<f32>,
-                     other: &Rect<f32>,
-                     results: &mut Vec<Rect<f32>>) {
+pub fn subtract_rect<U>(rect: &TypedRect<f32, U>,
+                        other: &TypedRect<f32, U>,
+                        results: &mut Vec<TypedRect<f32, U>>) {
     results.clear();
 
     let int = rect.intersection(other);
@@ -185,19 +185,19 @@ pub fn subtract_rect(rect: &Rect<f32>,
             let ox1 = ox0 + int.size.width;
             let oy1 = oy0 + int.size.height;
 
-            let r = rect_from_points_f(rx0, ry0, ox0, ry1);
+            let r = TypedRect::from_untyped(&rect_from_points_f(rx0, ry0, ox0, ry1));
             if r.size.width > 0.0 && r.size.height > 0.0 {
                 results.push(r);
             }
-            let r = rect_from_points_f(ox0, ry0, ox1, oy0);
+            let r = TypedRect::from_untyped(&rect_from_points_f(ox0, ry0, ox1, oy0));
             if r.size.width > 0.0 && r.size.height > 0.0 {
                 results.push(r);
             }
-            let r = rect_from_points_f(ox0, oy1, ox1, ry1);
+            let r = TypedRect::from_untyped(&rect_from_points_f(ox0, oy1, ox1, ry1));
             if r.size.width > 0.0 && r.size.height > 0.0 {
                 results.push(r);
             }
-            let r = rect_from_points_f(ox1, ry0, rx1, ry1);
+            let r = TypedRect::from_untyped(&rect_from_points_f(ox1, ry0, rx1, ry1));
             if r.size.width > 0.0 && r.size.height > 0.0 {
                 results.push(r);
             }
@@ -216,14 +216,14 @@ pub enum TransformedRectKind {
 
 #[derive(Debug, Clone)]
 pub struct TransformedRect {
-    pub local_rect: Rect<f32>,
+    pub local_rect: LayerRect,
     pub bounding_rect: DeviceRect,
     pub vertices: [Point4D<f32>; 4],
     pub kind: TransformedRectKind,
 }
 
 impl TransformedRect {
-    pub fn new(rect: &Rect<f32>,
+    pub fn new(rect: &LayerRect,
            transform: &Matrix4D<f32>,
            device_pixel_ratio: f32) -> TransformedRect {
 

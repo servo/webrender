@@ -16,6 +16,7 @@ use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering};
 use webrender_traits::{ClipRegion, ComplexClipRegion, ItemRange, GlyphKey};
 use webrender_traits::{FontKey, FontRenderMode, WebGLContextId};
 use webrender_traits::{device_pixel, DeviceRect, DeviceSize};
+use webrender_traits::{LayerRect, LayerSize, LayerPoint};
 
 pub const CLIP_DATA_GPU_SIZE: usize = 5;
 pub const MASK_DATA_GPU_SIZE: usize = 1;
@@ -78,8 +79,8 @@ pub enum PrimitiveKind {
 /// Geometry description for simple rectangular primitives, uploaded to the GPU.
 #[derive(Debug, Clone)]
 pub struct PrimitiveGeometry {
-    pub local_rect: Rect<f32>,
-    pub local_clip_rect: Rect<f32>,
+    pub local_rect: LayerRect,
+    pub local_clip_rect: LayerRect,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -124,7 +125,7 @@ pub struct RectanglePrimitive {
 
 #[derive(Debug)]
 pub enum ImagePrimitiveKind {
-    Image(ImageKey, ImageRendering, Size2D<f32>),
+    Image(ImageKey, ImageRendering, LayerSize),
     WebGL(WebGLContextId),
 }
 
@@ -137,13 +138,13 @@ pub struct ImagePrimitiveCpu {
 
 #[derive(Debug, Clone)]
 pub struct ImagePrimitiveGpu {
-    pub stretch_size: Size2D<f32>,
-    pub tile_spacing: Size2D<f32>,
+    pub stretch_size: LayerSize,
+    pub tile_spacing: LayerSize,
 }
 
 #[derive(Debug, Clone)]
 pub struct BorderPrimitiveCpu {
-    pub inner_rect: Rect<f32>,
+    pub inner_rect: LayerRect,
 }
 
 #[derive(Debug, Clone)]
@@ -164,8 +165,8 @@ pub struct BoxShadowPrimitiveCacheKey {
 
 #[derive(Debug, Clone)]
 pub struct BoxShadowPrimitiveGpu {
-    pub src_rect: Rect<f32>,
-    pub bs_rect: Rect<f32>,
+    pub src_rect: LayerRect,
+    pub bs_rect: LayerRect,
     pub color: ColorF,
     pub border_radius: f32,
     pub edge_size: f32,
@@ -206,7 +207,7 @@ pub struct GradientPrimitiveCpu {
 
 #[derive(Debug, Clone)]
 struct InstanceRect {
-    rect: Rect<f32>,
+    rect: LayerRect,
 }
 
 #[derive(Debug, Clone)]
@@ -231,8 +232,8 @@ pub struct TextRunPrimitiveCpu {
 
 #[derive(Debug, Clone)]
 struct GlyphPrimitive {
-    offset: Point2D<f32>,
-    padding: Point2D<f32>,
+    offset: LayerPoint,
+    padding: LayerPoint,
 }
 
 #[derive(Debug, Clone)]
@@ -359,7 +360,7 @@ pub enum PrimitiveContainer {
     Image(ImagePrimitiveCpu, ImagePrimitiveGpu),
     Border(BorderPrimitiveCpu, BorderPrimitiveGpu),
     Gradient(GradientPrimitiveCpu, GradientPrimitiveGpu),
-    BoxShadow(BoxShadowPrimitiveGpu, Vec<Rect<f32>>),
+    BoxShadow(BoxShadowPrimitiveGpu, Vec<LayerRect>),
 }
 
 pub struct PrimitiveStore {
@@ -677,7 +678,7 @@ impl PrimitiveStore {
         };
         if let Some(rect) = rect {
             self.gpu_geometry.get_mut(GpuStoreAddress(index.0 as i32))
-                .local_clip_rect = rect;
+                .local_clip_rect = LayerRect::from_untyped(&rect);
             if is_complex {
                 metadata.clip_cache_info = None; //CLIP TODO: re-use the existing GPU allocation
             }
@@ -697,7 +698,7 @@ impl PrimitiveStore {
                                prim_index: PrimitiveIndex,
                                screen_rect: &DeviceRect,
                                layer_transform: &Matrix4D<f32>,
-                               layer_combined_local_clip_rect: &Rect<f32>,
+                               layer_combined_local_clip_rect: &LayerRect,
                                device_pixel_ratio: f32) -> bool {
         let geom = &self.gpu_geometry.get(GpuStoreAddress(prim_index.0 as i32));
 
@@ -759,7 +760,7 @@ impl PrimitiveStore {
                     let mut glyph_key = GlyphKey::new(text.font_key,
                                                       text.font_size,
                                                       src_glyphs[0].index);
-                    let mut local_rect = Rect::zero();
+                    let mut local_rect = LayerRect::zero();
                     let mut actual_glyph_count = 0;
 
                     for src in src_glyphs {
@@ -779,12 +780,12 @@ impl PrimitiveStore {
                         let width = dimensions.width as f32 / device_pixel_ratio;
                         let height = dimensions.height as f32 / device_pixel_ratio;
 
-                        let local_glyph_rect = Rect::new(Point2D::new(x, y),
-                                                         Size2D::new(width, height));
+                        let local_glyph_rect = LayerRect::new(LayerPoint::new(x, y),
+                                                              LayerSize::new(width, height));
                         local_rect = local_rect.union(&local_glyph_rect);
 
                         dest_glyphs[actual_glyph_count] = GpuBlock16::from(GlyphPrimitive {
-                            padding: Point2D::zero(),
+                            padding: LayerPoint::zero(),
                             offset: local_glyph_rect.origin,
                         });
 

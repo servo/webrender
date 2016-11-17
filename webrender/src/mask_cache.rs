@@ -2,14 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use euclid::{Rect, Matrix4D};
+use euclid::Matrix4D;
 use gpu_store::{GpuStore, GpuStoreAddress};
 use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
 use tiling::StackingContextIndex;
 use util::{rect_from_points_f, TransformedRect};
 use webrender_traits::{AuxiliaryLists, ImageMask};
-use webrender_traits::DeviceRect;
+use webrender_traits::{DeviceRect, LayerRect};
 
 const MAX_COORD: f32 = 1.0e+16;
 
@@ -49,7 +49,7 @@ pub struct MaskCacheInfo {
     // will be simplified after the TextureCache upgrade
     pub image: Option<ImageMask>,
     pub device_rect: DeviceRect,
-    pub local_rect: Option<Rect<f32>>,
+    pub local_rect: Option<LayerRect>,
 }
 
 impl MaskCacheInfo {
@@ -102,7 +102,8 @@ impl MaskCacheInfo {
                   aux_lists: &AuxiliaryLists) {
 
         if self.local_rect.is_none() {
-            let mut local_rect = Some(rect_from_points_f(-MAX_COORD, -MAX_COORD, MAX_COORD, MAX_COORD));
+            let mut local_rect = Some(LayerRect::from_untyped(
+                &rect_from_points_f(-MAX_COORD, -MAX_COORD, MAX_COORD, MAX_COORD)));
             match source {
                 &PrimitiveClipSource::NoClip => unreachable!(),
                 &PrimitiveClipSource::Complex(rect, radius) => {
@@ -110,7 +111,7 @@ impl MaskCacheInfo {
                     let data = ClipData::uniform(rect, radius);
                     PrimitiveStore::populate_clip_data(slice, data);
                     debug_assert_eq!(self.key.clip_range.item_count, 1);
-                    local_rect = local_rect.and_then(|r| r.intersection(&rect));
+                    local_rect = local_rect.and_then(|r| r.intersection(&LayerRect::from_untyped(&rect)));
                 }
                 &PrimitiveClipSource::Region(ref region) => {
                     let clips = aux_lists.complex_clip_regions(&region.complex);
@@ -120,18 +121,18 @@ impl MaskCacheInfo {
                         for (clip, chunk) in clips.iter().zip(slice.chunks_mut(CLIP_DATA_GPU_SIZE)) {
                             let data = ClipData::from_clip_region(clip);
                             PrimitiveStore::populate_clip_data(chunk, data);
-                            local_rect = local_rect.and_then(|r| r.intersection(&clip.rect));
+                            local_rect = local_rect.and_then(|r| r.intersection(&LayerRect::from_untyped(&clip.rect)));
                         }
                     }
                     match region.image_mask {
                         Some(ref mask) if !mask.repeat => {
-                            local_rect = local_rect.and_then(|r| r.intersection(&mask.rect));
+                            local_rect = local_rect.and_then(|r| r.intersection(&LayerRect::from_untyped(&mask.rect)));
                         },
                         _ => ()
                     }
                 }
             };
-            self.local_rect = Some(local_rect.unwrap_or(Rect::zero()));
+            self.local_rect = Some(local_rect.unwrap_or(LayerRect::zero()));
         }
 
         let transformed = TransformedRect::new(self.local_rect.as_ref().unwrap(),

@@ -20,6 +20,7 @@ use util::MatrixHelpers;
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
 use webrender_traits::{ClipRegion, ColorF, DisplayItem, StackingContext, FilterOp, MixBlendMode};
 use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, SpecificDisplayItem, ScrollLayerState};
+use webrender_traits::{LayerRect, LayerPoint, LayerSize};
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
@@ -262,7 +263,7 @@ impl Frame {
                     if is_unscrollable {
                         None
                     } else {
-                        let result = ray_intersects_rect(p0, p1, layer.local_viewport_rect);
+                        let result = ray_intersects_rect(p0, p1, layer.local_viewport_rect.to_untyped());
                         if result {
                             Some(scroll_layer_id)
                         } else {
@@ -282,7 +283,7 @@ impl Frame {
                     result.push(ScrollLayerState {
                         pipeline_id: scroll_layer.pipeline_id,
                         scroll_root_id: servo_scroll_root_id,
-                        scroll_offset: scroll_layer.scrolling.offset,
+                        scroll_offset: scroll_layer.scrolling.offset.to_untyped(),
                     })
                 }
                 ScrollLayerInfo::Fixed => {}
@@ -436,7 +437,7 @@ impl Frame {
         // Insert global position: fixed elements layer
         debug_assert!(self.layers.is_empty());
         let root_fixed_layer_id = ScrollLayerId::create_fixed(root_pipeline_id);
-        let root_viewport = Rect::new(Point2D::zero(), root_pipeline.viewport_size);
+        let root_viewport = LayerRect::new(LayerPoint::zero(), LayerSize::from_untyped(&root_pipeline.viewport_size));
         let layer = Layer::new(&root_viewport,
                                root_stacking_context.overflow.size,
                                &Matrix4D::identity(),
@@ -500,7 +501,7 @@ impl Frame {
             (ScrollPolicy::Scrollable, Some(inner_scroll_layer_id)) if level != 0 => {
                 debug_assert!(!self.layers.contains_key(&inner_scroll_layer_id));
 
-                let layer = Layer::new(&stacking_context.bounds,
+                let layer = Layer::new(&LayerRect::from_untyped(&stacking_context.bounds),
                                        stacking_context.overflow.size,
                                        &layer_relative_transform,
                                        pipeline_id);
@@ -547,12 +548,12 @@ impl Frame {
                                                      0.0)
                                      .pre_mul(&stacking_context.transform)
                                      .pre_mul(&stacking_context.perspective),
-             stacking_context.overflow)
+             LayerRect::from_untyped(&stacking_context.overflow))
         } else {
             let mut overflow = stacking_context.overflow;
             overflow.size.width += stacking_context.bounds.origin.x;
             overflow.size.height += stacking_context.bounds.origin.y;
-            (layer_relative_transform, overflow)
+            (layer_relative_transform, LayerRect::from_untyped(&overflow))
         };
 
         // Build world space transform
@@ -592,7 +593,7 @@ impl Frame {
                 root_background_color = ColorF::new(1.0, 1.0, 1.0, 1.0);
             }
 
-            context.builder.add_solid_rectangle(&stacking_context.bounds,
+            context.builder.add_solid_rectangle(&LayerRect::from_untyped(&stacking_context.bounds),
                                                 &ClipRegion::simple(&stacking_context.bounds),
                                                 &root_background_color,
                                                 PrimitiveFlags::None);
@@ -607,9 +608,9 @@ impl Frame {
                            level);
 
         if level == 0 && self.frame_builder_config.enable_scrollbars {
-            let scrollbar_rect = Rect::new(Point2D::zero(), Size2D::new(10.0, 70.0));
+            let scrollbar_rect = LayerRect::new(LayerPoint::zero(), LayerSize::new(10.0, 70.0));
             context.builder.add_solid_rectangle(&scrollbar_rect,
-                                                &ClipRegion::simple(&scrollbar_rect),
+                                                &ClipRegion::simple(&scrollbar_rect.to_untyped()),
                                                 &DEFAULT_SCROLLBAR_COLOR,
                                                 PrimitiveFlags::Scrollbar(self.root_scroll_layer_id.unwrap(),
                                                                           4.0));
@@ -647,7 +648,7 @@ impl Frame {
 
         self.pipeline_epoch_map.insert(pipeline_id, pipeline.epoch);
 
-        let iframe_rect = &Rect::new(Point2D::zero(), bounds.size);
+        let iframe_rect = &LayerRect::new(LayerPoint::zero(), LayerSize::from_untyped(&bounds.size));
         let transform = layer_relative_transform.pre_translated(bounds.origin.x,
                                                                 bounds.origin.y,
                                                                 0.0);
@@ -686,18 +687,19 @@ impl Frame {
         while let Some(item) = traversal.next() {
             match item.item {
                 SpecificDisplayItem::WebGL(ref info) => {
-                    context.builder.add_webgl_rectangle(item.rect, &item.clip, info.context_id);
+                    context.builder.add_webgl_rectangle(LayerRect::from_untyped(&item.rect),
+                                                        &item.clip, info.context_id);
                 }
                 SpecificDisplayItem::Image(ref info) => {
-                    context.builder.add_image(item.rect,
+                    context.builder.add_image(LayerRect::from_untyped(&item.rect),
                                               &item.clip,
-                                              &info.stretch_size,
-                                              &info.tile_spacing,
+                                              &LayerSize::from_untyped(&info.stretch_size),
+                                              &LayerSize::from_untyped(&info.tile_spacing),
                                               info.image_key,
                                               info.image_rendering);
                 }
                 SpecificDisplayItem::Text(ref text_info) => {
-                    context.builder.add_text(item.rect,
+                    context.builder.add_text(LayerRect::from_untyped(&item.rect),
                                              &item.clip,
                                              text_info.font_key,
                                              text_info.size,
@@ -706,22 +708,22 @@ impl Frame {
                                              text_info.glyphs);
                 }
                 SpecificDisplayItem::Rectangle(ref info) => {
-                    context.builder.add_solid_rectangle(&item.rect,
+                    context.builder.add_solid_rectangle(&LayerRect::from_untyped(&item.rect),
                                                         &item.clip,
                                                         &info.color,
                                                         PrimitiveFlags::None);
                 }
                 SpecificDisplayItem::Gradient(ref info) => {
-                    context.builder.add_gradient(item.rect,
+                    context.builder.add_gradient(LayerRect::from_untyped(&item.rect),
                                                  &item.clip,
                                                  info.start_point,
                                                  info.end_point,
                                                  info.stops);
                 }
                 SpecificDisplayItem::BoxShadow(ref box_shadow_info) => {
-                    context.builder.add_box_shadow(&box_shadow_info.box_bounds,
+                    context.builder.add_box_shadow(&LayerRect::from_untyped(&box_shadow_info.box_bounds),
                                                    &item.clip,
-                                                   &box_shadow_info.offset,
+                                                   &LayerPoint::from_untyped(&box_shadow_info.offset),
                                                    &box_shadow_info.color,
                                                    box_shadow_info.blur_radius,
                                                    box_shadow_info.spread_radius,
@@ -729,7 +731,7 @@ impl Frame {
                                                    box_shadow_info.clip_mode);
                 }
                 SpecificDisplayItem::Border(ref info) => {
-                    context.builder.add_border(item.rect, &item.clip, info);
+                    context.builder.add_border(LayerRect::from_untyped(&item.rect), &item.clip, info);
                 }
                 SpecificDisplayItem::PushStackingContext(ref info) => {
                     self.flatten_stacking_context(traversal,
@@ -775,12 +777,12 @@ impl Frame {
             match self.layers.get_mut(&layer_id) {
                 Some(layer) => {
                     let inv_transform = layer.local_transform.inverse().unwrap();
-                    let parent_viewport_rect_in_local_space = inv_transform.transform_rect(parent_viewport_rect)
-                                                                           .translate(&-layer.scrolling.offset);
+                    let parent_viewport_rect_in_local_space = LayerRect::from_untyped(
+                        &inv_transform.transform_rect(parent_viewport_rect).translate(&-layer.scrolling.offset.to_untyped()));
                     let local_viewport_rect = layer.local_viewport_rect
                                                    .translate(&-layer.scrolling.offset);
                     let viewport_rect = parent_viewport_rect_in_local_space.intersection(&local_viewport_rect)
-                                                                           .unwrap_or(Rect::new(Point2D::zero(), Size2D::zero()));
+                                                                           .unwrap_or(LayerRect::zero());
 
                     layer.combined_local_viewport_rect = viewport_rect;
                     layer.world_viewport_transform = parent_world_transform.pre_mul(&layer.local_transform);
@@ -800,7 +802,7 @@ impl Frame {
         for child_layer_id in layer_children {
             self.update_layer_transform(child_layer_id,
                                         &layer_transform_for_children,
-                                        &viewport_rect,
+                                        &viewport_rect.to_untyped(),
                                         device_pixel_ratio);
         }
     }
@@ -811,7 +813,7 @@ impl Frame {
 
             self.update_layer_transform(root_scroll_layer_id,
                                         &Matrix4D::identity(),
-                                        &root_viewport,
+                                        &root_viewport.to_untyped(),
                                         device_pixel_ratio);
 
             // Update any fixed layers
@@ -828,7 +830,7 @@ impl Frame {
             for layer_id in fixed_layers {
                 self.update_layer_transform(layer_id,
                                             &Matrix4D::identity(),
-                                            &root_viewport,
+                                            &root_viewport.to_untyped(),
                                             device_pixel_ratio);
             }
         }
