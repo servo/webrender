@@ -235,6 +235,11 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
     }
 
+    pub fn generate_frame(&self) {
+        let msg = ApiMsg::GenerateFrame;
+        self.api_sender.send(msg).unwrap();
+    }
+
     #[inline]
     fn next_unique_id(&self) -> (u32, u32) {
         let IdNamespace(namespace) = self.id_namespace;
