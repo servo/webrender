@@ -56,7 +56,7 @@ pub type WorldSize = TypedSize2D<f32, WorldPixel>;
 pub type WorldPoint4D = TypedPoint4D<f32, WorldPixel>;
 
 
-pub fn device_pixel(value: f32, device_pixel_ratio: f32) -> DeviceIntLength {
+pub fn device_length(value: f32, device_pixel_ratio: f32) -> DeviceIntLength {
     DeviceIntLength::new((value * device_pixel_ratio).round() as i32)
 }
 

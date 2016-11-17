@@ -37,7 +37,7 @@ use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, MixBlendMode};
 use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle};
 use webrender_traits::{AuxiliaryLists, ItemRange, BoxShadowClipMode, ClipRegion};
 use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId, FontRenderMode};
-use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize, DeviceIntLength, device_pixel};
+use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize, DeviceIntLength, device_length};
 use webrender_traits::{DeviceUintSize, DeviceUintPoint, DeviceSize};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
 use webrender_traits::{LayerToParentTransform, LayerToWorldTransform, WorldToLayerTransform};
@@ -2326,10 +2326,10 @@ impl FrameBuilder {
     }
 
     fn create_screen_tiles(&self) -> (i32, i32, Vec<ScreenTile>) {
-        let dp_size = DeviceIntSize::from_lengths(device_pixel(self.screen_rect.size.width as f32,
-                                                               self.device_pixel_ratio),
-                                                  device_pixel(self.screen_rect.size.height as f32,
-                                                               self.device_pixel_ratio));
+        let dp_size = DeviceIntSize::from_lengths(device_length(self.screen_rect.size.width as f32,
+                                                                self.device_pixel_ratio),
+                                                  device_length(self.screen_rect.size.height as f32,
+                                                                self.device_pixel_ratio));
 
         let x_tile_size = SCREEN_TILE_SIZE;
         let y_tile_size = SCREEN_TILE_SIZE;
@@ -2504,10 +2504,10 @@ impl FrameBuilder {
 
         let screen_rect = DeviceIntRect::new(
             DeviceIntPoint::zero(),
-            DeviceIntSize::from_lengths(device_pixel(self.screen_rect.size.width as f32,
-                                                     self.device_pixel_ratio),
-                                        device_pixel(self.screen_rect.size.height as f32,
-                                                     self.device_pixel_ratio)));
+            DeviceIntSize::from_lengths(device_length(self.screen_rect.size.width as f32,
+                                                      self.device_pixel_ratio),
+                                        device_length(self.screen_rect.size.height as f32,
+                                                      self.device_pixel_ratio)));
 
         let mut debug_rects = Vec::new();
 

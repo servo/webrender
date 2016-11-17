@@ -15,7 +15,7 @@ use util::TransformedRect;
 use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering};
 use webrender_traits::{ClipRegion, ComplexClipRegion, ItemRange, GlyphKey};
 use webrender_traits::{FontKey, FontRenderMode, WebGLContextId};
-use webrender_traits::{device_pixel, DeviceIntRect, DeviceIntSize};
+use webrender_traits::{device_length, DeviceIntRect, DeviceIntSize};
 use webrender_traits::{DeviceRect, DevicePoint, DeviceSize};
 use webrender_traits::{LayerRect, LayerSize, LayerPoint};
 use webrender_traits::LayerToWorldTransform;
@@ -813,7 +813,7 @@ impl PrimitiveStore {
                         let cache_height = (local_rect.size.height * self.device_pixel_ratio).ceil() as i32;
                         let cache_size = DeviceIntSize::new(cache_width, cache_height);
                         let cache_key = PrimitiveCacheKey::TextShadow(prim_index);
-                        let blur_radius = device_pixel(text.blur_radius.to_f32_px(),
+                        let blur_radius = device_length(text.blur_radius.to_f32_px(),
                                                        self.device_pixel_ratio);
                         Some(RenderTask::new_blur(cache_key,
                                                   cache_size,
