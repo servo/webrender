@@ -7,8 +7,7 @@ use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureUpdate, TextureUpdateOp};
-use internal_types::{CacheTextureId, RenderTargetMode, TextureUpdateList};
-use internal_types::{RectUv, DevicePixel, DevicePoint};
+use internal_types::{CacheTextureId, RenderTargetMode, TextureUpdateList, RectUv};
 use std::cmp::{self, Ordering};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -17,7 +16,7 @@ use std::mem;
 use std::slice::Iter;
 use time;
 use util;
-use webrender_traits::ImageFormat;
+use webrender_traits::{ImageFormat, DevicePixel, DevicePoint};
 
 /// The number of bytes we're allowed to use for a texture.
 const MAX_BYTES_PER_TEXTURE: u32 = 1024 * 1024 * 256;  // 256MB

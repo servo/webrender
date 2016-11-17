@@ -5,7 +5,7 @@
 use app_units::Au;
 use euclid::{Point2D, Matrix4D, Rect, Size2D};
 use gpu_store::{GpuStore, GpuStoreAddress};
-use internal_types::{device_pixel, DeviceRect, DeviceSize, SourceTexture};
+use internal_types::SourceTexture;
 use mask_cache::{MaskCacheInfo, MaskCacheKey};
 use resource_cache::{ImageProperties, ResourceCache};
 use std::mem;
@@ -15,6 +15,7 @@ use util::TransformedRect;
 use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering};
 use webrender_traits::{ClipRegion, ComplexClipRegion, ItemRange, GlyphKey};
 use webrender_traits::{FontKey, FontRenderMode, WebGLContextId};
+use webrender_traits::{device_pixel, DeviceRect, DeviceSize};
 
 pub const CLIP_DATA_GPU_SIZE: usize = 5;
 pub const MASK_DATA_GPU_SIZE: usize = 1;

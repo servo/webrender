@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::{Matrix4D, Point2D, Point4D, Rect, Size2D};
-use internal_types::{DeviceRect, DevicePoint, DeviceSize, DeviceLength};
+use webrender_traits::{DeviceRect, DevicePoint, DeviceSize, DeviceLength};
 use num_traits::Zero;
 use time::precise_time_ns;
 

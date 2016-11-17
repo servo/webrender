@@ -4,12 +4,12 @@
 
 use euclid::{Rect, Matrix4D};
 use gpu_store::{GpuStore, GpuStoreAddress};
-use internal_types::DeviceRect;
 use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
 use tiling::StackingContextIndex;
 use util::{rect_from_points_f, TransformedRect};
 use webrender_traits::{AuxiliaryLists, ImageMask};
+use webrender_traits::DeviceRect;
 
 const MAX_COORD: f32 = 1.0e+16;
 
