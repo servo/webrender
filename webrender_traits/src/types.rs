@@ -11,6 +11,7 @@ use channel::{PayloadSender, MsgSender};
 use core::nonzero::NonZero;
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
 #[cfg(target_os = "windows")] use dwrote::FontDescriptor;
@@ -425,7 +426,7 @@ pub struct NativeFontHandle;
 pub type NativeFontHandle = FontDescriptor;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct PipelineId(pub u32, pub u32);
+pub struct PipelineId(pub Uuid);
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RectangleDisplayItem {

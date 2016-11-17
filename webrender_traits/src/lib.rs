@@ -17,6 +17,7 @@ extern crate heapsize;
 extern crate ipc_channel;
 extern crate offscreen_gl_context;
 extern crate serde;
+extern crate uuid;
 #[cfg(feature = "serde_derive")]
 #[macro_use]
 extern crate serde_derive;
