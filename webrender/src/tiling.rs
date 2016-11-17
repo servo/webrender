@@ -2480,7 +2480,7 @@ impl FrameBuilder {
             let clip_source = if scrollbar_prim.border_radius == 0.0 {
                 PrimitiveClipSource::NoClip
             } else {
-                PrimitiveClipSource::Complex(geom.local_rect.to_untyped(),
+                PrimitiveClipSource::Complex(geom.local_rect,
                                              scrollbar_prim.border_radius)
             };
             self.prim_store.set_clip_source(scrollbar_prim.prim_index, clip_source);

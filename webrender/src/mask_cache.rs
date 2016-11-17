@@ -111,7 +111,7 @@ impl MaskCacheInfo {
                     let data = ClipData::uniform(rect, radius);
                     PrimitiveStore::populate_clip_data(slice, data);
                     debug_assert_eq!(self.key.clip_range.item_count, 1);
-                    local_rect = local_rect.and_then(|r| r.intersection(&LayerRect::from_untyped(&rect)));
+                    local_rect = local_rect.and_then(|r| r.intersection(&rect));
                 }
                 &PrimitiveClipSource::Region(ref region) => {
                     let clips = aux_lists.complex_clip_regions(&region.complex);

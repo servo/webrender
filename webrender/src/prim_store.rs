@@ -92,7 +92,7 @@ pub enum PrimitiveCacheKey {
 #[derive(Debug)]
 pub enum PrimitiveClipSource {
     NoClip,
-    Complex(Rect<f32>, f32),
+    Complex(LayerRect, f32),
     Region(ClipRegion),
 }
 
@@ -238,13 +238,13 @@ struct GlyphPrimitive {
 
 #[derive(Debug, Clone)]
 struct ClipRect {
-    rect: Rect<f32>,
+    rect: LayerRect,
     padding: [f32; 4],
 }
 
 #[derive(Debug, Clone)]
 struct ClipCorner {
-    rect: Rect<f32>,
+    rect: LayerRect,
     outer_radius_x: f32,
     outer_radius_y: f32,
     inner_radius_x: f32,
@@ -252,7 +252,7 @@ struct ClipCorner {
 }
 
 impl ClipCorner {
-    fn uniform(rect: Rect<f32>, outer_radius: f32, inner_radius: f32) -> ClipCorner {
+    fn uniform(rect: LayerRect, outer_radius: f32, inner_radius: f32) -> ClipCorner {
         ClipCorner {
             rect: rect,
             outer_radius_x: outer_radius,
@@ -266,7 +266,7 @@ impl ClipCorner {
 #[derive(Debug, Clone)]
 pub struct ImageMaskData {
     uv_rect: Rect<f32>,
-    local_rect: Rect<f32>,
+    local_rect: LayerRect,
 }
 
 #[derive(Debug, Clone)]
@@ -282,39 +282,41 @@ impl ClipData {
     pub fn from_clip_region(clip: &ComplexClipRegion) -> ClipData {
         ClipData {
             rect: ClipRect {
-                rect: clip.rect,
+                rect: LayerRect::from_untyped(&clip.rect),
                 padding: [0.0, 0.0, 0.0, 0.0],
             },
             top_left: ClipCorner {
-                rect: Rect::new(Point2D::new(clip.rect.origin.x, clip.rect.origin.y),
-                                Size2D::new(clip.radii.top_left.width, clip.radii.top_left.height)),
+                rect: LayerRect::new(
+                    LayerPoint::new(clip.rect.origin.x, clip.rect.origin.y),
+                    LayerSize::new(clip.radii.top_left.width, clip.radii.top_left.height)),
                 outer_radius_x: clip.radii.top_left.width,
                 outer_radius_y: clip.radii.top_left.height,
                 inner_radius_x: 0.0,
                 inner_radius_y: 0.0,
             },
             top_right: ClipCorner {
-                rect: Rect::new(Point2D::new(clip.rect.origin.x + clip.rect.size.width - clip.radii.top_right.width,
-                                             clip.rect.origin.y),
-                                Size2D::new(clip.radii.top_right.width, clip.radii.top_right.height)),
+                rect: LayerRect::new(
+                    LayerPoint::new(clip.rect.origin.x + clip.rect.size.width - clip.radii.top_right.width, clip.rect.origin.y),
+                    LayerSize::new(clip.radii.top_right.width, clip.radii.top_right.height)),
                 outer_radius_x: clip.radii.top_right.width,
                 outer_radius_y: clip.radii.top_right.height,
                 inner_radius_x: 0.0,
                 inner_radius_y: 0.0,
             },
             bottom_left: ClipCorner {
-                rect: Rect::new(Point2D::new(clip.rect.origin.x,
-                                             clip.rect.origin.y + clip.rect.size.height - clip.radii.bottom_left.height),
-                                Size2D::new(clip.radii.bottom_left.width, clip.radii.bottom_left.height)),
+                rect: LayerRect::new(
+                    LayerPoint::new(clip.rect.origin.x, clip.rect.origin.y + clip.rect.size.height - clip.radii.bottom_left.height),
+                    LayerSize::new(clip.radii.bottom_left.width, clip.radii.bottom_left.height)),
                 outer_radius_x: clip.radii.bottom_left.width,
                 outer_radius_y: clip.radii.bottom_left.height,
                 inner_radius_x: 0.0,
                 inner_radius_y: 0.0,
             },
             bottom_right: ClipCorner {
-                rect: Rect::new(Point2D::new(clip.rect.origin.x + clip.rect.size.width - clip.radii.bottom_right.width,
-                                             clip.rect.origin.y + clip.rect.size.height - clip.radii.bottom_right.height),
-                                Size2D::new(clip.radii.bottom_right.width, clip.radii.bottom_right.height)),
+                rect: LayerRect::new(
+                    LayerPoint::new(clip.rect.origin.x + clip.rect.size.width - clip.radii.bottom_right.width,
+                                    clip.rect.origin.y + clip.rect.size.height - clip.radii.bottom_right.height),
+                    LayerSize::new(clip.radii.bottom_right.width, clip.radii.bottom_right.height)),
                 outer_radius_x: clip.radii.bottom_right.width,
                 outer_radius_y: clip.radii.bottom_right.height,
                 inner_radius_x: 0.0,
@@ -323,32 +325,32 @@ impl ClipData {
         }
     }
 
-    pub fn uniform(rect: Rect<f32>, radius: f32) -> ClipData {
+    pub fn uniform(rect: LayerRect, radius: f32) -> ClipData {
         ClipData {
             rect: ClipRect {
                 rect: rect,
                 padding: [0.0; 4],
             },
-            top_left: ClipCorner::uniform(Rect::new(Point2D::new(rect.origin.x,
-                                                                 rect.origin.y),
-                                                    Size2D::new(radius, radius)),
-                                          radius,
-                                          0.0),
-            top_right: ClipCorner::uniform(Rect::new(Point2D::new(rect.origin.x + rect.size.width - radius,
-                                                                  rect.origin.y),
-                                                    Size2D::new(radius, radius)),
-                                           radius,
-                                           0.0),
-            bottom_left: ClipCorner::uniform(Rect::new(Point2D::new(rect.origin.x,
-                                                                    rect.origin.y + rect.size.height - radius),
-                                                       Size2D::new(radius, radius)),
-                                             radius,
-                                             0.0),
-            bottom_right: ClipCorner::uniform(Rect::new(Point2D::new(rect.origin.x + rect.size.width - radius,
-                                                                     rect.origin.y + rect.size.height - radius),
-                                                        Size2D::new(radius, radius)),
-                                              radius,
-                                              0.0),
+            top_left: ClipCorner::uniform(
+                LayerRect::new(
+                    LayerPoint::new(rect.origin.x, rect.origin.y),
+                    LayerSize::new(radius, radius)),
+                radius, 0.0),
+            top_right: ClipCorner::uniform(
+                LayerRect::new(
+                    LayerPoint::new(rect.origin.x + rect.size.width - radius, rect.origin.y),
+                    LayerSize::new(radius, radius)),
+                radius, 0.0),
+            bottom_left: ClipCorner::uniform(
+                LayerRect::new(
+                    LayerPoint::new(rect.origin.x, rect.origin.y + rect.size.height - radius),
+                    LayerSize::new(radius, radius)),
+                radius, 0.0),
+            bottom_right: ClipCorner::uniform(
+                LayerRect::new(
+                    LayerPoint::new(rect.origin.x + rect.size.width - radius, rect.origin.y + rect.size.height - radius),
+                    LayerSize::new(radius, radius)),
+                radius, 0.0),
         }
     }
 }
@@ -593,7 +595,7 @@ impl PrimitiveStore {
                     uv_rect: Rect::new(cache_item.uv0,
                                        Size2D::new(cache_item.uv1.x - cache_item.uv0.x,
                                                    cache_item.uv1.y - cache_item.uv0.y)),
-                    local_rect: mask.rect,
+                    local_rect: LayerRect::from_untyped(&mask.rect),
                 });
             }
 
@@ -674,11 +676,11 @@ impl PrimitiveStore {
         let (rect, is_complex) = match source {
             PrimitiveClipSource::NoClip => (None, false),
             PrimitiveClipSource::Complex(rect, radius) => (Some(rect), radius > 0.0),
-            PrimitiveClipSource::Region(ref region) => (Some(region.main), region.is_complex()),
+            PrimitiveClipSource::Region(ref region) => (Some(LayerRect::from_untyped(&region.main)), region.is_complex()),
         };
         if let Some(rect) = rect {
             self.gpu_geometry.get_mut(GpuStoreAddress(index.0 as i32))
-                .local_clip_rect = LayerRect::from_untyped(&rect);
+                .local_clip_rect = rect;
             if is_complex {
                 metadata.clip_cache_info = None; //CLIP TODO: re-use the existing GPU allocation
             }
