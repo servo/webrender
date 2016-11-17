@@ -33,6 +33,7 @@ include!(concat!(env!("OUT_DIR"), "/types.rs"));
 #[cfg(feature = "serde_derive")]
 include!("types.rs");
 
+mod units;
 mod api;
 pub mod channel;
 mod display_item;
@@ -42,3 +43,4 @@ mod webgl;
 
 pub use api::RenderApi;
 pub use display_list::{AuxiliaryListsBuilder, DisplayListBuilder};
+pub use units::*;
