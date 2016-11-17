@@ -37,7 +37,8 @@ use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, MixBlendMode};
 use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle};
 use webrender_traits::{AuxiliaryLists, ItemRange, BoxShadowClipMode, ClipRegion};
 use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId, FontRenderMode};
-use webrender_traits::{DeviceRect, DevicePoint, DeviceSize, DeviceLength, device_pixel};
+use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize, DeviceIntLength, device_pixel};
+use webrender_traits::{DeviceUintSize, DeviceUintPoint, DeviceSize};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
@@ -55,7 +56,7 @@ trait AlphaBatchHelpers {
     fn get_blend_mode(&self, needs_blending: bool, metadata: &PrimitiveMetadata) -> BlendMode;
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
-                         tile_rect: &DeviceRect,
+                         tile_rect: &DeviceIntRect,
                          transform: &Matrix4D<f32>,
                          device_pixel_ratio: f32) -> bool;
     fn add_prim_to_batch(&self,
@@ -147,7 +148,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
     // Optional narrow phase intersection test, depending on primitive type.
     fn prim_affects_tile(&self,
                          prim_index: PrimitiveIndex,
-                         tile_rect: &DeviceRect,
+                         tile_rect: &DeviceIntRect,
                          transform: &Matrix4D<f32>,
                          device_pixel_ratio: f32) -> bool {
         let metadata = self.get_metadata(prim_index);
@@ -371,7 +372,7 @@ pub enum RenderTaskId {
 
 struct DynamicTaskInfo {
     index: RenderTaskIndex,
-    rect: DeviceRect,
+    rect: DeviceIntRect,
 }
 
 struct RenderTaskCollection {
@@ -401,7 +402,7 @@ impl RenderTaskCollection {
                     index: index,
                     rect: match task.location {
                         RenderTaskLocation::Fixed(rect) => rect,
-                        RenderTaskLocation::Dynamic(Some((origin, _)), size) => DeviceRect::new(origin, size),
+                        RenderTaskLocation::Dynamic(Some((origin, _)), size) => DeviceIntRect::new(origin, size),
                         RenderTaskLocation::Dynamic(None, _) => panic!("Expect the task to be already allocated here"),
                     },
                 });
@@ -411,7 +412,7 @@ impl RenderTaskCollection {
         }
     }
 
-    fn get_dynamic_allocation(&self, pass_index: RenderPassIndex, key: RenderTaskKey) -> Option<&DeviceRect> {
+    fn get_dynamic_allocation(&self, pass_index: RenderPassIndex, key: RenderTaskKey) -> Option<&DeviceIntRect> {
         let key = (key, pass_index);
         self.dynamic_tasks.get(&key)
                           .map(|task| &task.rect)
@@ -823,7 +824,7 @@ impl RenderPass {
         self.tasks.push(task);
     }
 
-    fn allocate_target(targets: &mut Vec<RenderTarget>, size: Size2D<u32>) -> Point2D<u32> {
+    fn allocate_target(targets: &mut Vec<RenderTarget>, size: DeviceUintSize) -> DeviceUintPoint {
         let existing_origin = targets.last_mut()
                                      .unwrap()
                                      .page_allocator.allocate(&size);
@@ -867,11 +868,10 @@ impl RenderPass {
                         }
                     }
 
-                    let alloc_size = Size2D::new(size.width as u32,
-                                                 size.height as u32);
+                    let alloc_size = DeviceUintSize::new(size.width as u32, size.height as u32);
                     let alloc_origin = Self::allocate_target(&mut self.targets, alloc_size);
 
-                    *origin = Some((DevicePoint::new(alloc_origin.x as i32,
+                    *origin = Some((DeviceIntPoint::new(alloc_origin.x as i32,
                                                      alloc_origin.y as i32),
                                     RenderTargetIndex(self.targets.len() - 1)));
                 }
@@ -893,8 +893,8 @@ impl RenderPass {
 
 #[derive(Debug, Clone)]
 pub enum RenderTaskLocation {
-    Fixed(DeviceRect),
-    Dynamic(Option<(DevicePoint, RenderTargetIndex)>, DeviceSize),
+    Fixed(DeviceIntRect),
+    Dynamic(Option<(DeviceIntPoint, RenderTargetIndex)>, DeviceIntSize),
 }
 
 #[derive(Debug, Clone)]
@@ -906,13 +906,13 @@ enum AlphaRenderItem {
 
 #[derive(Debug, Clone)]
 pub struct AlphaRenderTask {
-    actual_rect: DeviceRect,
+    actual_rect: DeviceIntRect,
     items: Vec<AlphaRenderItem>,
 }
 
 #[derive(Debug, Clone)]
 pub struct CacheMaskTask {
-    actual_rect: DeviceRect,
+    actual_rect: DeviceIntRect,
     image: Option<ImageKey>,
 }
 
@@ -921,8 +921,8 @@ pub enum RenderTaskKind {
     Alpha(AlphaRenderTask),
     CachePrimitive(PrimitiveIndex),
     CacheMask(CacheMaskTask),
-    VerticalBlur(DeviceLength, PrimitiveIndex),
-    HorizontalBlur(DeviceLength, PrimitiveIndex),
+    VerticalBlur(DeviceIntLength, PrimitiveIndex),
+    HorizontalBlur(DeviceIntLength, PrimitiveIndex),
 }
 
 // TODO(gw): Consider storing these in a separate array and having
@@ -937,7 +937,7 @@ pub struct RenderTask {
 }
 
 impl RenderTask {
-    fn new_alpha_batch(actual_rect: DeviceRect, ctx: &CompileTileContext) -> RenderTask {
+    fn new_alpha_batch(actual_rect: DeviceIntRect, ctx: &CompileTileContext) -> RenderTask {
         let task_index = ctx.render_task_id_counter.fetch_add(1, Ordering::Relaxed);
 
         RenderTask {
@@ -952,7 +952,7 @@ impl RenderTask {
     }
 
     pub fn new_prim_cache(key: PrimitiveCacheKey,
-                          size: DeviceSize,
+                          size: DeviceIntSize,
                           prim_index: PrimitiveIndex) -> RenderTask {
         RenderTask {
             id: RenderTaskId::Dynamic(RenderTaskKey::CachePrimitive(key)),
@@ -962,7 +962,7 @@ impl RenderTask {
         }
     }
 
-    fn new_mask(actual_rect: DeviceRect, cache_info: &MaskCacheInfo) -> Option<RenderTask> {
+    fn new_mask(actual_rect: DeviceIntRect, cache_info: &MaskCacheInfo) -> Option<RenderTask> {
         //CLIP TODO: handle a case where the tile is completely inside the intersection
         if !actual_rect.intersects(&cache_info.device_rect) {
             return None
@@ -995,15 +995,15 @@ impl RenderTask {
     //           +---- This is stored as the input task to the primitive shader.
     //
     pub fn new_blur(key: PrimitiveCacheKey,
-                    size: DeviceSize,
-                    blur_radius: DeviceLength,
+                    size: DeviceIntSize,
+                    blur_radius: DeviceIntLength,
                     prim_index: PrimitiveIndex) -> RenderTask {
         let prim_cache_task = RenderTask::new_prim_cache(key,
                                                          size,
                                                          prim_index);
 
-        let blur_target_size = size + DeviceSize::new(2 * blur_radius.0,
-                                                      2 * blur_radius.0);
+        let blur_target_size = size + DeviceIntSize::new(2 * blur_radius.0,
+                                                         2 * blur_radius.0);
 
         let blur_task_v = RenderTask {
             id: RenderTaskId::Dynamic(RenderTaskKey::VerticalBlur(blur_radius.0, prim_index)),
@@ -1100,12 +1100,12 @@ impl RenderTask {
         }
     }
 
-    fn get_target_rect(&self) -> (DeviceRect, RenderTargetIndex) {
+    fn get_target_rect(&self) -> (DeviceIntRect, RenderTargetIndex) {
         match self.location {
             RenderTaskLocation::Fixed(rect) => (rect, RenderTargetIndex(0)),
             RenderTaskLocation::Dynamic(origin_and_target_index, size) => {
                 let (origin, target_index) = origin_and_target_index.expect("Should have been allocated by now!");
-                (DeviceRect::new(origin, size), target_index)
+                (DeviceIntRect::new(origin, size), target_index)
             }
         }
     }
@@ -1150,7 +1150,7 @@ pub const RENDERABLE_CACHE_SIZE: i32 = 2048;
 pub struct DebugRect {
     pub label: String,
     pub color: ColorF,
-    pub rect: DeviceRect,
+    pub rect: DeviceIntRect,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -1510,7 +1510,7 @@ impl StackingContext {
 
 #[derive(Debug, Clone)]
 pub struct ClearTile {
-    pub rect: DeviceRect,
+    pub rect: DeviceIntRect,
 }
 
 #[derive(Clone, Copy)]
@@ -1548,7 +1548,7 @@ pub struct FrameBuilder {
 pub struct Frame {
     pub viewport_size: Size2D<i32>,
     pub debug_rects: Vec<DebugRect>,
-    pub cache_size: Size2D<f32>,
+    pub cache_size: DeviceSize,
     pub passes: Vec<RenderPass>,
     pub clear_tiles: Vec<ClearTile>,
     pub profile_counters: FrameProfileCounters,
@@ -1614,14 +1614,14 @@ enum TileCommand {
 
 #[derive(Debug)]
 struct ScreenTile {
-    rect: DeviceRect,
+    rect: DeviceIntRect,
     cmds: Vec<TileCommand>,
     prim_count: usize,
     is_simple: bool,
 }
 
 impl ScreenTile {
-    fn new(rect: DeviceRect) -> ScreenTile {
+    fn new(rect: DeviceIntRect) -> ScreenTile {
         ScreenTile {
             rect: rect,
             cmds: Vec::new(),
@@ -1934,22 +1934,22 @@ impl FrameBuilder {
         let right_color     = right.border_color(2.0/3.0, 1.0, 0.7, 0.3);
         let bottom_color    = bottom.border_color(2.0/3.0, 1.0, 0.7, 0.3);
 
-        let tl_outer = Point2D::new(rect.origin.x, rect.origin.y);
-        let tl_inner = tl_outer + Point2D::new(radius.top_left.width.max(left.width),
-                                               radius.top_left.height.max(top.width));
+        let tl_outer = LayerPoint::new(rect.origin.x, rect.origin.y);
+        let tl_inner = tl_outer + LayerPoint::new(radius.top_left.width.max(left.width),
+                                                  radius.top_left.height.max(top.width));
 
-        let tr_outer = Point2D::new(rect.origin.x + rect.size.width, rect.origin.y);
-        let tr_inner = tr_outer + Point2D::new(-radius.top_right.width.max(right.width),
-                                               radius.top_right.height.max(top.width));
+        let tr_outer = LayerPoint::new(rect.origin.x + rect.size.width, rect.origin.y);
+        let tr_inner = tr_outer + LayerPoint::new(-radius.top_right.width.max(right.width),
+                                                  radius.top_right.height.max(top.width));
 
-        let bl_outer = Point2D::new(rect.origin.x, rect.origin.y + rect.size.height);
-        let bl_inner = bl_outer + Point2D::new(radius.bottom_left.width.max(left.width),
-                                               -radius.bottom_left.height.max(bottom.width));
+        let bl_outer = LayerPoint::new(rect.origin.x, rect.origin.y + rect.size.height);
+        let bl_inner = bl_outer + LayerPoint::new(radius.bottom_left.width.max(left.width),
+                                                  -radius.bottom_left.height.max(bottom.width));
 
-        let br_outer = Point2D::new(rect.origin.x + rect.size.width,
-                                    rect.origin.y + rect.size.height);
-        let br_inner = br_outer - Point2D::new(radius.bottom_right.width.max(right.width),
-                                               radius.bottom_right.height.max(bottom.width));
+        let br_outer = LayerPoint::new(rect.origin.x + rect.size.width,
+                                       rect.origin.y + rect.size.height);
+        let br_inner = br_outer - LayerPoint::new(radius.bottom_right.width.max(right.width),
+                                                  radius.bottom_right.height.max(bottom.width));
 
         let inner_rect = rect_from_points_f(tl_inner.x.max(bl_inner.x),
                                             tl_inner.y.max(tr_inner.y),
@@ -1970,10 +1970,10 @@ impl FrameBuilder {
                 pack_as_float(bottom.style as u32),
             ],
             radii: [
-                radius.top_left,
-                radius.top_right,
-                radius.bottom_right,
-                radius.bottom_left,
+                LayerSize::from_untyped(&radius.top_left),
+                LayerSize::from_untyped(&radius.top_right),
+                LayerSize::from_untyped(&radius.bottom_right),
+                LayerSize::from_untyped(&radius.bottom_left),
             ],
         };
 
@@ -1985,8 +1985,8 @@ impl FrameBuilder {
     pub fn add_gradient(&mut self,
                         rect: LayerRect,
                         clip_region: &ClipRegion,
-                        start_point: Point2D<f32>,
-                        end_point: Point2D<f32>,
+                        start_point: LayerPoint,
+                        end_point: LayerPoint,
                         stops: ItemRange) {
         // Fast paths for axis-aligned gradients:
         let mut reverse_stops = false;
@@ -2206,7 +2206,7 @@ impl FrameBuilder {
     /// Compute the contribution (bounding rectangles, and resources) of layers and their
     /// primitives in screen space.
     fn cull_layers(&mut self,
-                   screen_rect: &DeviceRect,
+                   screen_rect: &DeviceIntRect,
                    layer_map: &LayerMap,
                    auxiliary_lists_map: &AuxiliaryListsMap,
                    x_tile_count: i32,
@@ -2323,10 +2323,10 @@ impl FrameBuilder {
     }
 
     fn create_screen_tiles(&self) -> (i32, i32, Vec<ScreenTile>) {
-        let dp_size = DeviceSize::from_lengths(device_pixel(self.screen_rect.size.width as f32,
-                                                            self.device_pixel_ratio),
-                                               device_pixel(self.screen_rect.size.height as f32,
-                                                            self.device_pixel_ratio));
+        let dp_size = DeviceIntSize::from_lengths(device_pixel(self.screen_rect.size.width as f32,
+                                                               self.device_pixel_ratio),
+                                                  device_pixel(self.screen_rect.size.height as f32,
+                                                               self.device_pixel_ratio));
 
         let x_tile_size = SCREEN_TILE_SIZE;
         let y_tile_size = SCREEN_TILE_SIZE;
@@ -2343,10 +2343,10 @@ impl FrameBuilder {
                 let x0 = x * x_tile_size;
                 let x1 = x0 + x_tile_size;
 
-                let tile_rect = rect_from_points(DeviceLength::new(x0),
-                                                 DeviceLength::new(y0),
-                                                 DeviceLength::new(x1),
-                                                 DeviceLength::new(y1));
+                let tile_rect = rect_from_points(DeviceIntLength::new(x0),
+                                                 DeviceIntLength::new(y0),
+                                                 DeviceIntLength::new(x1),
+                                                 DeviceIntLength::new(y1));
 
                 screen_tiles.push(ScreenTile::new(tile_rect));
             }
@@ -2499,9 +2499,12 @@ impl FrameBuilder {
 
         resource_cache.begin_frame(frame_id);
 
-        let screen_rect = DeviceRect::new(DevicePoint::zero(),
-                                          DeviceSize::from_lengths(device_pixel(self.screen_rect.size.width as f32, self.device_pixel_ratio),
-                                                                   device_pixel(self.screen_rect.size.height as f32, self.device_pixel_ratio)));
+        let screen_rect = DeviceIntRect::new(
+            DeviceIntPoint::zero(),
+            DeviceIntSize::from_lengths(device_pixel(self.screen_rect.size.width as f32,
+                                                     self.device_pixel_ratio),
+                                        device_pixel(self.screen_rect.size.height as f32,
+                                                     self.device_pixel_ratio)));
 
         let mut debug_rects = Vec::new();
 
@@ -2613,8 +2616,8 @@ impl FrameBuilder {
             profile_counters: profile_counters,
             passes: passes,
             clear_tiles: clear_tiles,
-            cache_size: Size2D::new(RENDERABLE_CACHE_SIZE as f32,
-                                    RENDERABLE_CACHE_SIZE as f32),
+            cache_size: DeviceSize::new(RENDERABLE_CACHE_SIZE as f32,
+                                        RENDERABLE_CACHE_SIZE as f32),
             layer_texture_data: self.packed_layers.clone(),
             render_task_data: render_tasks.render_task_data,
             gpu_data16: self.prim_store.gpu_data16.build(),

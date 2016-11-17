@@ -4,7 +4,6 @@
 
 use app_units::Au;
 use device::TextureFilter;
-use euclid::{Point2D, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
 use internal_types::{FontTemplate, SourceTexture, TextureUpdateList};
@@ -19,6 +18,7 @@ use std::hash::Hash;
 use texture_cache::{TextureCache, TextureCacheItemId};
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRendering};
 use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
+use webrender_traits::{DevicePoint, DeviceIntSize};
 use webrender_traits::ExternalImageId;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
@@ -34,8 +34,8 @@ thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontC
 // various CPU-side structures.
 pub struct CacheItem {
     pub texture_id: SourceTexture,
-    pub uv0: Point2D<f32>,
-    pub uv1: Point2D<f32>,
+    pub uv0: DevicePoint,
+    pub uv1: DevicePoint,
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
@@ -167,7 +167,7 @@ enum ResourceRequest {
 
 struct WebGLTexture {
     id: SourceTexture,
-    size: Size2D<i32>,
+    size: DeviceIntSize,
 }
 
 pub struct ResourceCache {
@@ -274,14 +274,14 @@ impl ResourceCache {
         self.image_templates.remove(&image_key);
     }
 
-    pub fn add_webgl_texture(&mut self, id: WebGLContextId, texture_id: SourceTexture, size: Size2D<i32>) {
+    pub fn add_webgl_texture(&mut self, id: WebGLContextId, texture_id: SourceTexture, size: DeviceIntSize) {
         self.webgl_textures.insert(id, WebGLTexture {
             id: texture_id,
             size: size,
         });
     }
 
-    pub fn update_webgl_texture(&mut self, id: WebGLContextId, texture_id: SourceTexture, size: Size2D<i32>) {
+    pub fn update_webgl_texture(&mut self, id: WebGLContextId, texture_id: SourceTexture, size: DeviceIntSize) {
         let webgl_texture = self.webgl_textures.get_mut(&id).unwrap();
 
         // Update new texture id and size
@@ -348,7 +348,7 @@ impl ResourceCache {
                          size: Au,
                          glyph_indices: &[u32],
                          render_mode: FontRenderMode,
-                         mut f: F) -> SourceTexture where F: FnMut(usize, Point2D<f32>, Point2D<f32>) {
+                         mut f: F) -> SourceTexture where F: FnMut(usize, DevicePoint, DevicePoint) {
         debug_assert!(self.state == State::QueryResources);
         let mut glyph_key = RenderedGlyphKey::new(font_key,
                                                   size,
@@ -360,10 +360,10 @@ impl ResourceCache {
             let image_id = self.cached_glyphs.get(&glyph_key, self.current_frame_id);
             let cache_item = image_id.map(|image_id| self.texture_cache.get(image_id));
             if let Some(cache_item) = cache_item {
-                let uv0 = Point2D::new(cache_item.pixel_rect.top_left.x as f32,
-                                       cache_item.pixel_rect.top_left.y as f32);
-                let uv1 = Point2D::new(cache_item.pixel_rect.bottom_right.x as f32,
-                                       cache_item.pixel_rect.bottom_right.y as f32);
+                let uv0 = DevicePoint::new(cache_item.pixel_rect.top_left.x as f32,
+                                           cache_item.pixel_rect.top_left.y as f32);
+                let uv1 = DevicePoint::new(cache_item.pixel_rect.bottom_right.x as f32,
+                                           cache_item.pixel_rect.bottom_right.y as f32);
                 f(loop_index, uv0, uv1);
                 debug_assert!(texture_id == None ||
                               texture_id == Some(cache_item.texture_id));
@@ -416,10 +416,10 @@ impl ResourceCache {
         let item = self.texture_cache.get(image_info.texture_cache_id);
         CacheItem {
             texture_id: SourceTexture::TextureCache(item.texture_id),
-            uv0: Point2D::new(item.pixel_rect.top_left.x as f32,
-                              item.pixel_rect.top_left.y as f32),
-            uv1: Point2D::new(item.pixel_rect.bottom_right.x as f32,
-                              item.pixel_rect.bottom_right.y as f32),
+            uv0: DevicePoint::new(item.pixel_rect.top_left.x as f32,
+                                  item.pixel_rect.top_left.y as f32),
+            uv1: DevicePoint::new(item.pixel_rect.bottom_right.x as f32,
+                                  item.pixel_rect.bottom_right.y as f32),
         }
     }
 
@@ -446,8 +446,8 @@ impl ResourceCache {
         let webgl_texture = &self.webgl_textures[context_id];
         CacheItem {
             texture_id: webgl_texture.id,
-            uv0: Point2D::new(0.0, webgl_texture.size.height as f32),
-            uv1: Point2D::new(webgl_texture.size.width as f32, 0.0),
+            uv0: DevicePoint::new(0.0, webgl_texture.size.height as f32),
+            uv1: DevicePoint::new(webgl_texture.size.width as f32, 0.0),
         }
     }
 

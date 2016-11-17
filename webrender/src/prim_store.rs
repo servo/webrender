@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use euclid::{Point2D, Matrix4D, Rect, Size2D};
+use euclid::{Matrix4D, Size2D};
 use gpu_store::{GpuStore, GpuStoreAddress};
 use internal_types::SourceTexture;
 use mask_cache::{MaskCacheInfo, MaskCacheKey};
@@ -15,7 +15,8 @@ use util::TransformedRect;
 use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering};
 use webrender_traits::{ClipRegion, ComplexClipRegion, ItemRange, GlyphKey};
 use webrender_traits::{FontKey, FontRenderMode, WebGLContextId};
-use webrender_traits::{device_pixel, DeviceRect, DeviceSize};
+use webrender_traits::{device_pixel, DeviceIntRect, DeviceIntSize};
+use webrender_traits::{DeviceRect, DevicePoint, DeviceSize};
 use webrender_traits::{LayerRect, LayerSize, LayerPoint};
 
 pub const CLIP_DATA_GPU_SIZE: usize = 5;
@@ -28,15 +29,15 @@ pub const MASK_DATA_GPU_SIZE: usize = 1;
 /// updated on the CPU when the texture size changes.
 #[derive(Clone)]
 pub struct TexelRect {
-    pub uv0: Point2D<f32>,
-    pub uv1: Point2D<f32>,
+    pub uv0: DevicePoint,
+    pub uv1: DevicePoint,
 }
 
 impl Default for TexelRect {
     fn default() -> TexelRect {
         TexelRect {
-            uv0: Point2D::zero(),
-            uv1: Point2D::zero(),
+            uv0: DevicePoint::zero(),
+            uv1: DevicePoint::zero(),
         }
     }
 }
@@ -152,7 +153,7 @@ pub struct BorderPrimitiveGpu {
     pub style: [f32; 4],
     pub widths: [f32; 4],
     pub colors: [ColorF; 4],
-    pub radii: [Size2D<f32>; 4],
+    pub radii: [LayerSize; 4],
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -191,8 +192,8 @@ pub struct GradientStop {
 
 #[derive(Debug, Clone)]
 pub struct GradientPrimitiveGpu {
-    pub start_point: Point2D<f32>,
-    pub end_point: Point2D<f32>,
+    pub start_point: LayerPoint,
+    pub end_point: LayerPoint,
     pub kind: f32,
     pub padding: [f32; 3],
 }
@@ -265,7 +266,7 @@ impl ClipCorner {
 
 #[derive(Debug, Clone)]
 pub struct ImageMaskData {
-    uv_rect: Rect<f32>,
+    uv_rect: DeviceRect,
     local_rect: LayerRect,
 }
 
@@ -367,7 +368,7 @@ pub enum PrimitiveContainer {
 
 pub struct PrimitiveStore {
     // CPU side information only
-    pub cpu_bounding_rects: Vec<Option<DeviceRect>>,
+    pub cpu_bounding_rects: Vec<Option<DeviceIntRect>>,
     pub cpu_text_runs: Vec<TextRunPrimitiveCpu>,
     pub cpu_images: Vec<ImagePrimitiveCpu>,
     pub cpu_gradients: Vec<GradientPrimitiveCpu>,
@@ -532,7 +533,7 @@ impl PrimitiveStore {
                 // the patch is clamped / mirrored across the box shadow rect.
                 let edge_size = box_shadow_gpu.edge_size.ceil() * self.device_pixel_ratio;
                 let edge_size = edge_size as i32 + 2;   // Account for bilinear filtering
-                let cache_size = DeviceSize::new(edge_size, edge_size);
+                let cache_size = DeviceIntSize::new(edge_size, edge_size);
                 let cache_key = PrimitiveCacheKey::BoxShadow(BoxShadowPrimitiveCacheKey {
                     blur_radius: Au::from_f32_px(box_shadow_gpu.blur_radius),
                     border_radius: Au::from_f32_px(box_shadow_gpu.border_radius),
@@ -592,9 +593,9 @@ impl PrimitiveStore {
                 let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto);
                 let mask_data = self.gpu_data32.get_slice_mut(gpu_address, MASK_DATA_GPU_SIZE);
                 mask_data[0] = GpuBlock32::from(ImageMaskData {
-                    uv_rect: Rect::new(cache_item.uv0,
-                                       Size2D::new(cache_item.uv1.x - cache_item.uv0.x,
-                                                   cache_item.uv1.y - cache_item.uv0.y)),
+                    uv_rect: DeviceRect::new(cache_item.uv0,
+                                             DeviceSize::new(cache_item.uv1.x - cache_item.uv0.x,
+                                                             cache_item.uv1.y - cache_item.uv0.y)),
                     local_rect: LayerRect::from_untyped(&mask.rect),
                 });
             }
@@ -667,7 +668,7 @@ impl PrimitiveStore {
         deferred_resolves
     }
 
-    pub fn get_bounding_rect(&self, index: PrimitiveIndex) -> &Option<DeviceRect> {
+    pub fn get_bounding_rect(&self, index: PrimitiveIndex) -> &Option<DeviceIntRect> {
         &self.cpu_bounding_rects[index.0]
     }
 
@@ -698,7 +699,7 @@ impl PrimitiveStore {
 
     pub fn build_bounding_rect(&mut self,
                                prim_index: PrimitiveIndex,
-                               screen_rect: &DeviceRect,
+                               screen_rect: &DeviceIntRect,
                                layer_transform: &Matrix4D<f32>,
                                layer_combined_local_clip_rect: &LayerRect,
                                device_pixel_ratio: f32) -> bool {
@@ -809,7 +810,7 @@ impl PrimitiveStore {
                         // which will be blitted to the framebuffer.
                         let cache_width = (local_rect.size.width * self.device_pixel_ratio).ceil() as i32;
                         let cache_height = (local_rect.size.height * self.device_pixel_ratio).ceil() as i32;
-                        let cache_size = DeviceSize::new(cache_width, cache_height);
+                        let cache_size = DeviceIntSize::new(cache_width, cache_height);
                         let cache_key = PrimitiveCacheKey::TextShadow(prim_index);
                         let blur_radius = device_pixel(text.blur_radius.to_f32_px(),
                                                        self.device_pixel_ratio);

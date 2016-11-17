@@ -9,7 +9,7 @@ use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
 use tiling::StackingContextIndex;
 use util::{rect_from_points_f, TransformedRect};
 use webrender_traits::{AuxiliaryLists, ImageMask};
-use webrender_traits::{DeviceRect, LayerRect};
+use webrender_traits::{DeviceIntRect, LayerRect};
 
 const MAX_COORD: f32 = 1.0e+16;
 
@@ -48,7 +48,7 @@ pub struct MaskCacheInfo {
     // ResourceCache allocates/load the actual data
     // will be simplified after the TextureCache upgrade
     pub image: Option<ImageMask>,
-    pub device_rect: DeviceRect,
+    pub device_rect: DeviceIntRect,
     pub local_rect: Option<LayerRect>,
 }
 
@@ -87,7 +87,7 @@ impl MaskCacheInfo {
                 key: clip_key,
                 image: image,
                 local_rect: None,
-                device_rect: DeviceRect::zero(),
+                device_rect: DeviceIntRect::zero(),
             })
         } else {
             None

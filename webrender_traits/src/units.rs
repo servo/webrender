@@ -15,12 +15,18 @@ use euclid::{TypedRect, TypedPoint2D, TypedSize2D, Length};
 #[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct DevicePixel;
 
-// TODO: in gecko the convention is to be explicit in the name integer-based coordinates,
-// for example DeviceIntRect. It wouldn't hurt to do the same here.
-pub type DeviceRect = TypedRect<i32, DevicePixel>;
-pub type DevicePoint = TypedPoint2D<i32, DevicePixel>;
-pub type DeviceSize = TypedSize2D<i32, DevicePixel>;
-pub type DeviceLength = Length<i32, DevicePixel>;
+pub type DeviceIntRect = TypedRect<i32, DevicePixel>;
+pub type DeviceIntPoint = TypedPoint2D<i32, DevicePixel>;
+pub type DeviceIntSize = TypedSize2D<i32, DevicePixel>;
+pub type DeviceIntLength = Length<i32, DevicePixel>;
+
+pub type DeviceUintRect = TypedRect<u32, DevicePixel>;
+pub type DeviceUintPoint = TypedPoint2D<u32, DevicePixel>;
+pub type DeviceUintSize = TypedSize2D<u32, DevicePixel>;
+
+pub type DeviceRect = TypedRect<f32, DevicePixel>;
+pub type DevicePoint = TypedPoint2D<f32, DevicePixel>;
+pub type DeviceSize = TypedSize2D<f32, DevicePixel>;
 
 /// Geometry in a stacking context's local coordinate space (logical pixels).
 #[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -48,7 +54,7 @@ pub type WorldPoint = TypedPoint2D<f32, WorldPixel>;
 pub type WorldSize = TypedSize2D<f32, WorldPixel>;
 
 
-pub fn device_pixel(value: f32, device_pixel_ratio: f32) -> DeviceLength {
-    DeviceLength::new((value * device_pixel_ratio).round() as i32)
+pub fn device_pixel(value: f32, device_pixel_ratio: f32) -> DeviceIntLength {
+    DeviceIntLength::new((value * device_pixel_ratio).round() as i32)
 }
 

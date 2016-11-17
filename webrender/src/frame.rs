@@ -716,8 +716,8 @@ impl Frame {
                 SpecificDisplayItem::Gradient(ref info) => {
                     context.builder.add_gradient(LayerRect::from_untyped(&item.rect),
                                                  &item.clip,
-                                                 info.start_point,
-                                                 info.end_point,
+                                                 LayerPoint::from_untyped(&info.start_point),
+                                                 LayerPoint::from_untyped(&info.end_point),
                                                  info.stops);
                 }
                 SpecificDisplayItem::BoxShadow(ref box_shadow_info) => {

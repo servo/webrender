@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use device::{MAX_TEXTURE_SIZE, TextureFilter};
-use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureUpdate, TextureUpdateOp};
@@ -16,7 +15,8 @@ use std::mem;
 use std::slice::Iter;
 use time;
 use util;
-use webrender_traits::{ImageFormat, DevicePixel, DevicePoint};
+use webrender_traits::{ImageFormat, DevicePixel, DeviceIntPoint};
+use webrender_traits::{DeviceUintRect, DeviceUintSize, DeviceUintPoint};
 
 /// The number of bytes we're allowed to use for a texture.
 const MAX_BYTES_PER_TEXTURE: u32 = 1024 * 1024 * 256;  // 256MB
@@ -100,7 +100,7 @@ impl TexturePage {
         page
     }
 
-    fn find_index_of_best_rect_in_bin(&self, bin: FreeListBin, requested_dimensions: &Size2D<u32>)
+    fn find_index_of_best_rect_in_bin(&self, bin: FreeListBin, requested_dimensions: &DeviceUintSize)
                                       -> Option<FreeListIndex> {
         let mut smallest_index_and_area = None;
         for (candidate_index, candidate_rect) in self.free_list.iter(bin).enumerate() {
@@ -116,7 +116,7 @@ impl TexturePage {
         smallest_index_and_area.map(|(index, _)| FreeListIndex(bin, index))
     }
 
-    fn find_index_of_best_rect(&self, requested_dimensions: &Size2D<u32>)
+    fn find_index_of_best_rect(&self, requested_dimensions: &DeviceUintSize)
                                -> Option<FreeListIndex> {
         match FreeListBin::for_size(requested_dimensions) {
             FreeListBin::Large => {
@@ -152,7 +152,7 @@ impl TexturePage {
     }
 
     pub fn allocate(&mut self,
-                    requested_dimensions: &Size2D<u32>) -> Option<Point2D<u32>> {
+                    requested_dimensions: &DeviceUintSize) -> Option<DeviceUintPoint> {
         // First, try to find a suitable rect in the free list. We choose the smallest such rect
         // in terms of area (Best-Area-Fit, BAF).
         let mut index = self.find_index_of_best_rect(requested_dimensions);
@@ -173,15 +173,13 @@ impl TexturePage {
         // that results in the single largest area (Min Area Split Rule, MINAS).
         let chosen_rect = self.free_list.remove(index);
         let candidate_free_rect_to_right =
-            Rect::new(Point2D::new(chosen_rect.origin.x + requested_dimensions.width,
-                                   chosen_rect.origin.y),
-                      Size2D::new(chosen_rect.size.width - requested_dimensions.width,
-                                  requested_dimensions.height));
+            DeviceUintRect::new(
+                DeviceUintPoint::new(chosen_rect.origin.x + requested_dimensions.width, chosen_rect.origin.y),
+                DeviceUintSize::new(chosen_rect.size.width - requested_dimensions.width, requested_dimensions.height));
         let candidate_free_rect_to_bottom =
-            Rect::new(Point2D::new(chosen_rect.origin.x,
-                                   chosen_rect.origin.y + requested_dimensions.height),
-                      Size2D::new(requested_dimensions.width,
-                                  chosen_rect.size.height - requested_dimensions.height));
+            DeviceUintRect::new(
+                DeviceUintPoint::new(chosen_rect.origin.x, chosen_rect.origin.y + requested_dimensions.height),
+                DeviceUintSize::new(requested_dimensions.width, chosen_rect.size.height - requested_dimensions.height));
         let candidate_free_rect_to_right_area = candidate_free_rect_to_right.size.width *
             candidate_free_rect_to_right.size.height;
         let candidate_free_rect_to_bottom_area = candidate_free_rect_to_bottom.size.width *
@@ -191,16 +189,17 @@ impl TexturePage {
         let new_free_rect_to_right;
         let new_free_rect_to_bottom;
         if candidate_free_rect_to_right_area > candidate_free_rect_to_bottom_area {
-            new_free_rect_to_right = Rect::new(candidate_free_rect_to_right.origin,
-                                               Size2D::new(candidate_free_rect_to_right.size.width,
-                                                           chosen_rect.size.height));
+            new_free_rect_to_right = DeviceUintRect::new(
+                candidate_free_rect_to_right.origin,
+                DeviceUintSize::new(candidate_free_rect_to_right.size.width,
+                                    chosen_rect.size.height));
             new_free_rect_to_bottom = candidate_free_rect_to_bottom
         } else {
             new_free_rect_to_right = candidate_free_rect_to_right;
             new_free_rect_to_bottom =
-                Rect::new(candidate_free_rect_to_bottom.origin,
-                          Size2D::new(chosen_rect.size.width,
-                                      candidate_free_rect_to_bottom.size.height))
+                DeviceUintRect::new(candidate_free_rect_to_bottom.origin,
+                          DeviceUintSize::new(chosen_rect.size.width,
+                                              candidate_free_rect_to_bottom.size.height))
         }
 
         // Add the guillotined rects back to the free list. If any changes were made, we're now
@@ -308,13 +307,14 @@ impl TexturePage {
 
     pub fn clear(&mut self) {
         self.free_list = FreeRectList::new();
-        self.free_list.push(&Rect::new(Point2D::new(0, 0),
-                                       Size2D::new(self.texture_size, self.texture_size)));
+        self.free_list.push(&DeviceUintRect::new(
+            DeviceUintPoint::zero(),
+            DeviceUintSize::new(self.texture_size, self.texture_size)));
         self.allocations = 0;
         self.dirty = false;
     }
 
-    fn free(&mut self, rect: &Rect<u32>) {
+    fn free(&mut self, rect: &DeviceUintRect) {
         debug_assert!(self.allocations > 0);
         self.allocations -= 1;
         if self.allocations == 0 {
@@ -327,12 +327,12 @@ impl TexturePage {
     }
 
     fn grow(&mut self, new_texture_size: u32) {
-        self.free_list.push(&Rect::new(Point2D::new(self.texture_size, 0),
-                                       Size2D::new(new_texture_size - self.texture_size,
-                                                   new_texture_size)));
-        self.free_list.push(&Rect::new(Point2D::new(0, self.texture_size),
-                                       Size2D::new(self.texture_size,
-                                                   new_texture_size - self.texture_size)));
+        self.free_list.push(&DeviceUintRect::new(
+            DeviceUintPoint::new(self.texture_size, 0),
+            DeviceUintSize::new(new_texture_size - self.texture_size, new_texture_size)));
+        self.free_list.push(&DeviceUintRect::new(
+            DeviceUintPoint::new(0, self.texture_size),
+            DeviceUintSize::new(self.texture_size, new_texture_size - self.texture_size)));
         self.texture_size = new_texture_size
     }
 
@@ -344,9 +344,9 @@ impl TexturePage {
 /// A binning free list. Binning is important to avoid sifting through lots of small strips when
 /// allocating many texture items.
 struct FreeRectList {
-    small: Vec<Rect<u32>>,
-    medium: Vec<Rect<u32>>,
-    large: Vec<Rect<u32>>,
+    small: Vec<DeviceUintRect>,
+    medium: Vec<DeviceUintRect>,
+    large: Vec<DeviceUintRect>,
 }
 
 impl FreeRectList {
@@ -358,7 +358,7 @@ impl FreeRectList {
         }
     }
 
-    fn from_slice(vector: &[Rect<u32>]) -> FreeRectList {
+    fn from_slice(vector: &[DeviceUintRect]) -> FreeRectList {
         let mut free_list = FreeRectList::new();
         for rect in vector {
             free_list.push(rect)
@@ -366,7 +366,7 @@ impl FreeRectList {
         free_list
     }
 
-    fn push(&mut self, rect: &Rect<u32>) {
+    fn push(&mut self, rect: &DeviceUintRect) {
         match FreeListBin::for_size(&rect.size) {
             FreeListBin::Small => self.small.push(*rect),
             FreeListBin::Medium => self.medium.push(*rect),
@@ -374,7 +374,7 @@ impl FreeRectList {
         }
     }
 
-    fn remove(&mut self, index: FreeListIndex) -> Rect<u32> {
+    fn remove(&mut self, index: FreeListIndex) -> DeviceUintRect {
         match index.0 {
             FreeListBin::Small => self.small.swap_remove(index.1),
             FreeListBin::Medium => self.medium.swap_remove(index.1),
@@ -382,7 +382,7 @@ impl FreeRectList {
         }
     }
 
-    fn iter(&self, bin: FreeListBin) -> Iter<Rect<u32>> {
+    fn iter(&self, bin: FreeListBin) -> Iter<DeviceUintRect> {
         match bin {
             FreeListBin::Small => self.small.iter(),
             FreeListBin::Medium => self.medium.iter(),
@@ -390,7 +390,7 @@ impl FreeRectList {
         }
     }
 
-    fn into_vec(mut self) -> Vec<Rect<u32>> {
+    fn into_vec(mut self) -> Vec<DeviceUintRect> {
         self.small.extend(self.medium.drain(..));
         self.small.extend(self.large.drain(..));
         self.small
@@ -408,7 +408,7 @@ enum FreeListBin {
 }
 
 impl FreeListBin {
-    pub fn for_size(size: &Size2D<u32>) -> FreeListBin {
+    pub fn for_size(size: &DeviceUintSize) -> FreeListBin {
         if size.width >= MINIMUM_LARGE_RECT_SIZE && size.height >= MINIMUM_LARGE_RECT_SIZE {
             FreeListBin::Large
         } else if size.width >= MINIMUM_MEDIUM_RECT_SIZE &&
@@ -429,15 +429,15 @@ pub struct TextureCacheItem {
     pub pixel_rect: RectUv<i32, DevicePixel>,
 
     // The size of the entire texture (not just the allocated rectangle)
-    pub texture_size: Size2D<u32>,
+    pub texture_size: DeviceUintSize,
 
     // The size of the actual allocated rectangle,
     // and the requested size. The allocated size
     // is the same as the requested in most cases,
     // unless the item has a border added for
     // bilinear filtering / texture bleeding purposes.
-    pub allocated_rect: Rect<u32>,
-    pub requested_rect: Rect<u32>,
+    pub allocated_rect: DeviceUintRect,
+    pub requested_rect: DeviceUintRect,
 }
 
 // Structure squat the width/height fields to maintain the free list information :)
@@ -468,21 +468,21 @@ impl FreeListItem for TextureCacheItem {
 
 impl TextureCacheItem {
     fn new(texture_id: CacheTextureId,
-           allocated_rect: Rect<u32>,
-           requested_rect: Rect<u32>,
-           texture_size: &Size2D<u32>)
+           allocated_rect: DeviceUintRect,
+           requested_rect: DeviceUintRect,
+           texture_size: &DeviceUintSize)
            -> TextureCacheItem {
         TextureCacheItem {
             texture_id: texture_id,
             texture_size: *texture_size,
             pixel_rect: RectUv {
-                top_left: DevicePoint::new(requested_rect.origin.x as i32,
+                top_left: DeviceIntPoint::new(requested_rect.origin.x as i32,
                                            requested_rect.origin.y as i32),
-                top_right: DevicePoint::new((requested_rect.origin.x + requested_rect.size.width) as i32,
+                top_right: DeviceIntPoint::new((requested_rect.origin.x + requested_rect.size.width) as i32,
                                             requested_rect.origin.y as i32),
-                bottom_left: DevicePoint::new(requested_rect.origin.x as i32,
+                bottom_left: DeviceIntPoint::new(requested_rect.origin.x as i32,
                                               (requested_rect.origin.y + requested_rect.size.height) as i32),
-                bottom_right: DevicePoint::new((requested_rect.origin.x + requested_rect.size.width) as i32,
+                bottom_right: DeviceIntPoint::new((requested_rect.origin.x + requested_rect.size.width) as i32,
                                                (requested_rect.origin.y + requested_rect.size.height) as i32)
             },
             allocated_rect: allocated_rect,
@@ -588,14 +588,14 @@ impl TextureCache {
     pub fn new_item_id(&mut self) -> TextureCacheItemId {
         let new_item = TextureCacheItem {
             pixel_rect: RectUv {
-                top_left: DevicePoint::zero(),
-                top_right: DevicePoint::zero(),
-                bottom_left: DevicePoint::zero(),
-                bottom_right: DevicePoint::zero(),
+                top_left: DeviceIntPoint::zero(),
+                top_right: DeviceIntPoint::zero(),
+                bottom_left: DeviceIntPoint::zero(),
+                bottom_right: DeviceIntPoint::zero(),
             },
-            allocated_rect: Rect::zero(),
-            requested_rect: Rect::zero(),
-            texture_size: Size2D::zero(),
+            allocated_rect: DeviceUintRect::zero(),
+            requested_rect: DeviceUintRect::zero(),
+            texture_size: DeviceUintSize::zero(),
             texture_id: CacheTextureId(0),
         };
         self.items.insert(new_item)
@@ -608,7 +608,7 @@ impl TextureCache {
                     format: ImageFormat,
                     filter: TextureFilter)
                     -> AllocationResult {
-        let requested_size = Size2D::new(requested_width, requested_height);
+        let requested_size = DeviceUintSize::new(requested_width, requested_height);
 
         // TODO(gw): For now, anything that requests nearest filtering
         //           just fails to allocate in a texture page, and gets a standalone
@@ -620,8 +620,8 @@ impl TextureCache {
             let texture_id = self.cache_id_list.allocate();
             let cache_item = TextureCacheItem::new(
                 texture_id,
-                Rect::new(Point2D::zero(), requested_size),
-                Rect::new(Point2D::zero(), requested_size),
+                DeviceUintRect::new(DeviceUintPoint::zero(), requested_size),
+                DeviceUintRect::new(DeviceUintPoint::zero(), requested_size),
                 &requested_size);
             *self.items.get_mut(image_id) = cache_item;
 
@@ -640,7 +640,7 @@ impl TextureCache {
         };
 
         let border_size = 1;
-        let allocation_size = Size2D::new(requested_width + border_size * 2,
+        let allocation_size = DeviceUintSize::new(requested_width + border_size * 2,
                                           requested_height + border_size * 2);
 
         // TODO(gw): Handle this sensibly (support failing to render items that can't fit?)
@@ -657,15 +657,15 @@ impl TextureCache {
             if let Some(location) = location {
                 let page = page_list.last_mut().unwrap();
 
-                let allocated_rect = Rect::new(location, allocation_size);
-                let requested_rect = Rect::new(Point2D::new(location.x + border_size,
-                                                            location.y + border_size),
-                                               requested_size);
+                let allocated_rect = DeviceUintRect::new(location, allocation_size);
+                let requested_rect = DeviceUintRect::new(
+                    DeviceUintPoint::new(location.x + border_size, location.y + border_size),
+                    requested_size);
 
                 let cache_item = TextureCacheItem::new(page.texture_id,
                                                        allocated_rect,
                                                        requested_rect,
-                                                       &Size2D::new(page.texture_size, page.texture_size));
+                                                       &DeviceUintSize::new(page.texture_size, page.texture_size));
                 *self.items.get_mut(image_id) = cache_item;
 
                 return AllocationResult {
@@ -687,7 +687,7 @@ impl TextureCache {
 
                 self.items.for_each_item(|item| {
                     if item.texture_id == last_page.texture_id {
-                        item.texture_size = Size2D::new(texture_size, texture_size);
+                        item.texture_size = DeviceUintSize::new(texture_size, texture_size);
                     }
                 });
 
@@ -905,8 +905,8 @@ trait FitsInside {
     fn fits_inside(&self, other: &Self) -> bool;
 }
 
-impl FitsInside for Size2D<u32> {
-    fn fits_inside(&self, other: &Size2D<u32>) -> bool {
+impl FitsInside for DeviceUintSize {
+    fn fits_inside(&self, other: &DeviceUintSize) -> bool {
         self.width <= other.width && self.height <= other.height
     }
 }

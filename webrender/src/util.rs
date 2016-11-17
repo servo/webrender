@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::{Matrix4D, Point2D, Point4D, Rect, Size2D, TypedRect};
-use webrender_traits::{DeviceRect, DevicePoint, DeviceSize, DeviceLength, LayerRect};
+use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize, DeviceIntLength, LayerRect};
 use num_traits::Zero;
 use time::precise_time_ns;
 
@@ -141,17 +141,17 @@ impl RectHelpers for Rect<f32> {
 
 // Don't use `euclid`'s `is_empty` because that has effectively has an "and" in the conditional
 // below instead of an "or".
-pub fn rect_is_empty<N:PartialEq + Zero>(rect: &Rect<N>) -> bool {
+pub fn rect_is_empty<N:PartialEq + Zero, U>(rect: &TypedRect<N, U>) -> bool {
     rect.size.width == Zero::zero() || rect.size.height == Zero::zero()
 }
 
 #[inline]
-pub fn rect_from_points(x0: DeviceLength,
-                        y0: DeviceLength,
-                        x1: DeviceLength,
-                        y1: DeviceLength) -> DeviceRect {
-    DeviceRect::new(DevicePoint::from_lengths(x0, y0),
-                    DeviceSize::from_lengths(x1 - x0, y1 - y0))
+pub fn rect_from_points(x0: DeviceIntLength,
+                        y0: DeviceIntLength,
+                        x1: DeviceIntLength,
+                        y1: DeviceIntLength) -> DeviceIntRect {
+    DeviceIntRect::new(DeviceIntPoint::from_lengths(x0, y0),
+                       DeviceIntSize::from_lengths(x1 - x0, y1 - y0))
 }
 
 #[inline]
@@ -217,7 +217,7 @@ pub enum TransformedRectKind {
 #[derive(Debug, Clone)]
 pub struct TransformedRect {
     pub local_rect: LayerRect,
-    pub bounding_rect: DeviceRect,
+    pub bounding_rect: DeviceIntRect,
     pub vertices: [Point4D<f32>; 4],
     pub kind: TransformedRectKind,
 }
@@ -300,12 +300,12 @@ impl TransformedRect {
                     screen_max.y = screen_max.y.max(vy);
                 }
 
-                let screen_min_dp = DevicePoint::new((screen_min.x * device_pixel_ratio).floor() as i32,
+                let screen_min_dp = DeviceIntPoint::new((screen_min.x * device_pixel_ratio).floor() as i32,
                                                      (screen_min.y * device_pixel_ratio).floor() as i32);
-                let screen_max_dp = DevicePoint::new((screen_max.x * device_pixel_ratio).ceil() as i32,
+                let screen_max_dp = DeviceIntPoint::new((screen_max.x * device_pixel_ratio).ceil() as i32,
                                                      (screen_max.y * device_pixel_ratio).ceil() as i32);
 
-                let screen_rect_dp = DeviceRect::new(screen_min_dp, DeviceSize::new(screen_max_dp.x - screen_min_dp.x,
+                let screen_rect_dp = DeviceIntRect::new(screen_min_dp, DeviceIntSize::new(screen_max_dp.x - screen_min_dp.x,
                                                                                     screen_max_dp.y - screen_min_dp.y));
 
                 TransformedRect {
