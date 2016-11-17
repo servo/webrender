@@ -445,9 +445,12 @@ pub enum ScrollPolicy {
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum ScrollLocation {
-    Delta(Point2D<f32>), // Scroll by a certain amount.
-    Start, // Scroll to very top of element.
-    End // Scroll to very bottom of element.
+    /// Scroll by a certain amount.
+    Delta(Point2D<f32>), 
+    /// Scroll to very top of element.
+    Start,
+    /// Scroll to very bottom of element. 
+    End 
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
