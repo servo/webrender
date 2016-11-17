@@ -719,7 +719,6 @@ impl PrimitiveStore {
                                    prim_index: PrimitiveIndex,
                                    resource_cache: &mut ResourceCache,
                                    layer_transform: &Matrix4D<f32>,
-                                   layer_combined_local_clip_rect: &Rect<f32>,
                                    device_pixel_ratio: f32,
                                    auxiliary_lists: &AuxiliaryLists) -> bool {
 
@@ -730,7 +729,6 @@ impl PrimitiveStore {
         if let Some(ref mut clip_info) = metadata.clip_cache_info {
             clip_info.update(&metadata.clip_source,
                              layer_transform,
-                             layer_combined_local_clip_rect,
                              &mut self.gpu_data32,
                              device_pixel_ratio,
                              auxiliary_lists);

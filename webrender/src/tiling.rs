@@ -2303,7 +2303,6 @@ impl FrameBuilder {
                             if self.prim_store.prepare_prim_for_render(prim_index,
                                                                        resource_cache,
                                                                        &packed_layer.transform,
-                                                                       &packed_layer.local_clip_rect,
                                                                        self.device_pixel_ratio,
                                                                        auxiliary_lists) {
                                 self.prim_store.build_bounding_rect(prim_index,
