@@ -72,6 +72,10 @@ mod texture_cache;
 mod tiling;
 mod util;
 
+mod shader_source {
+    include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
+}
+
 mod platform {
     #[cfg(target_os="macos")]
     pub use platform::macos::font;

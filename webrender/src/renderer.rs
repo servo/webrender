@@ -424,7 +424,7 @@ impl Renderer {
     /// # use std::path::PathBuf;
     /// let opts = webrender::RendererOptions {
     ///    device_pixel_ratio: 1.0,
-    ///    resource_path: PathBuf::from("../webrender/res"),
+    ///    resource_override_path: None,
     ///    enable_aa: false,
     ///    enable_msaa: false,
     ///    enable_profiler: false,
@@ -444,7 +444,7 @@ impl Renderer {
             notifier: notifier.clone(),
         };
 
-        let mut device = Device::new(options.resource_path.clone(),
+        let mut device = Device::new(options.resource_override_path.clone(),
                                      options.device_pixel_ratio,
                                      Box::new(file_watch_handler));
         device.begin_frame();
@@ -1550,7 +1550,7 @@ pub trait ExternalImageHandler {
 #[derive(Clone, Debug)]
 pub struct RendererOptions {
     pub device_pixel_ratio: f32,
-    pub resource_path: PathBuf,
+    pub resource_override_path: Option<PathBuf>,
     pub enable_aa: bool,
     pub enable_msaa: bool,
     pub enable_profiler: bool,
