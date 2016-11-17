@@ -70,7 +70,7 @@ pub enum VertexFormat {
 
 fn get_optional_shader_source(shader_name: &str, base_path: &Option<PathBuf>) -> Option<String> {
     if let Some(ref base) = *base_path {
-        let shader_path = base.join(shader_name).with_extension("glsl");
+        let shader_path = base.join(&format!("{}.glsl", shader_name));
         if shader_path.exists() {
             let mut source = String::new();
             File::open(&shader_path).unwrap().read_to_string(&mut source).unwrap();
