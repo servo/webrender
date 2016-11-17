@@ -154,7 +154,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
 
         // bail out if the clip rectangle is outside of the tile
         if let Some(ref clip_info) = metadata.clip_cache_info {
-            if !clip_info.device_rect.intersects(tile_rect) {
+            if !clip_info.outer_rect.intersects(tile_rect) {
                 return false;
             }
         }
@@ -994,9 +994,9 @@ impl RenderTask {
                 cache_info: &MaskCacheInfo,
                 tile_id: TileUniqueId)
                 -> MaskResult {
-        let task_rect = match actual_rect.intersection(&cache_info.device_rect) {
+        let task_rect = match actual_rect.intersection(&cache_info.outer_rect) {
             None => return MaskResult::Outside,
-            Some(rect) if rect == actual_rect => return MaskResult::Covering,
+            Some(_) if cache_info.inner_rect.contains_rect(&actual_rect) => return MaskResult::Covering,
             Some(rect) => rect,
         };
         MaskResult::Inside(RenderTask {
@@ -1985,6 +1985,8 @@ impl FrameBuilder {
         let br_inner = br_outer - Point2D::new(radius.bottom_right.width.max(right.width),
                                                radius.bottom_right.height.max(bottom.width));
 
+        //Note: while similar to `ComplexClipRegion::get_inner_rect()` in spirit,
+        // this code is a bit more complex and can not there for be merged.
         let inner_rect = rect_from_points_f(tl_inner.x.max(bl_inner.x),
                                             tl_inner.y.max(tr_inner.y),
                                             tr_inner.x.min(br_inner.x),
