@@ -367,28 +367,30 @@ impl Frame {
                 continue;
             }
 
-            let mut delta:Point2D<f32> = match scroll_location {
+            let mut delta = match scroll_location {
                 ScrollLocation::Delta(delta) => delta,
                 ScrollLocation::Start => {
-                    if layer.scrolling.offset.y.round() == 0.0 {
-                        // Nothing to do.
-                        return false;
+                    if layer.scrolling.offset.y.round() <= 0.0 {
+                        // Nothing to do on this layer.
+                        continue;
                     }
 
                     layer.scrolling.offset.y = 0.0;
-                    return true;
+                    scrolled_a_layer = true;
+                    continue;
                 },
                 ScrollLocation::End => {
                     let end_pos = -layer.content_size.height +
                                   layer.local_viewport_rect.size.height;
 
-                    if layer.scrolling.offset.y.round() == end_pos {
-                        // Nothing to do.
-                        return false;
+                    if layer.scrolling.offset.y.round() >= end_pos {
+                        // Nothing to do on this layer.
+                        continue;
                     }
                 
                     layer.scrolling.offset.y = end_pos;
-                    return true;
+                    scrolled_a_layer = true;
+                    continue;
                 },
             };
 
