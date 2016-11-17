@@ -7,11 +7,13 @@ use gpu_store::{GpuStore, GpuStoreAddress};
 use internal_types::DeviceRect;
 use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
+use std::i32;
 use tiling::StackingContextIndex;
 use util::{rect_from_points_f, TransformedRect};
 use webrender_traits::{AuxiliaryLists, ImageMask};
 
 const MAX_COORD: f32 = 1.0e+16;
+pub const OPAQUE_TASK_INDEX: i32 = i32::MAX;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ClipAddressRange {
