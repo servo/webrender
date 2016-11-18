@@ -6,7 +6,6 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use frame::Frame;
 use internal_types::{FontTemplate, GLContextHandleWrapper, GLContextWrapper};
 use internal_types::{SourceTexture, ResultMsg, RendererFrame};
-use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcReceiver};
 use profiler::BackendProfileCounters;
 use resource_cache::ResourceCache;
 use scene::Scene;
@@ -18,6 +17,7 @@ use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, ImageData};
 use webrender_traits::{FlushNotifier, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
+use webrender_traits::channel::{PayloadHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
 use record;
 use tiling::FrameBuilderConfig;
 use offscreen_gl_context::GLContextDispatcher;
@@ -27,9 +27,9 @@ use offscreen_gl_context::GLContextDispatcher;
 ///
 /// The render backend operates on its own thread.
 pub struct RenderBackend {
-    api_rx: IpcReceiver<ApiMsg>,
-    payload_rx: IpcBytesReceiver,
-    payload_tx: IpcBytesSender,
+    api_rx: MsgReceiver<ApiMsg>,
+    payload_rx: PayloadReceiver,
+    payload_tx: PayloadSender,
     result_tx: Sender<ResultMsg>,
 
     device_pixel_ratio: f32,
@@ -52,9 +52,9 @@ pub struct RenderBackend {
 }
 
 impl RenderBackend {
-    pub fn new(api_rx: IpcReceiver<ApiMsg>,
-               payload_rx: IpcBytesReceiver,
-               payload_tx: IpcBytesSender,
+    pub fn new(api_rx: MsgReceiver<ApiMsg>,
+               payload_rx: PayloadReceiver,
+               payload_tx: PayloadSender,
                result_tx: Sender<ResultMsg>,
                device_pixel_ratio: f32,
                texture_cache: TextureCache,
@@ -178,7 +178,7 @@ impl RenderBackend {
                                 leftover_auxiliary_data.push(auxiliary_data)
                             }
                             for leftover_auxiliary_data in leftover_auxiliary_data {
-                                self.payload_tx.send(&leftover_auxiliary_data[..]).unwrap()
+                                self.payload_tx.send_vec(leftover_auxiliary_data).unwrap()
                             }
                             if self.enable_recording {
                                 record::write_payload(frame_counter, &auxiliary_data);

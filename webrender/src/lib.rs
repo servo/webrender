@@ -116,7 +116,6 @@ extern crate bincode;
 extern crate euclid;
 extern crate fnv;
 extern crate gleam;
-extern crate ipc_channel;
 extern crate num_traits;
 //extern crate notify;
 extern crate time;

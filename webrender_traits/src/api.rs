@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use byteorder::{LittleEndian, WriteBytesExt};
+use channel::{self, MsgSender, PayloadHelperMethods, PayloadSender};
 use euclid::{Point2D, Size2D};
-use ipc_channel::ipc::{self, IpcBytesSender, IpcSender};
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::cell::Cell;
 use {ApiMsg, AuxiliaryLists, BuiltDisplayList, ColorF, Epoch};
@@ -13,8 +13,8 @@ use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState};
 use {GlyphKey, GlyphDimensions, ImageData, WebGLContextId, WebGLCommand};
 
 impl RenderApiSender {
-    pub fn new(api_sender: IpcSender<ApiMsg>,
-               payload_sender: IpcBytesSender)
+    pub fn new(api_sender: MsgSender<ApiMsg>,
+               payload_sender: PayloadSender)
                -> RenderApiSender {
         RenderApiSender {
             api_sender: api_sender,
@@ -27,7 +27,7 @@ impl RenderApiSender {
             ref api_sender,
             ref payload_sender
         } = *self;
-        let (sync_tx, sync_rx) = ipc::channel().unwrap();
+        let (sync_tx, sync_rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::CloneApi(sync_tx);
         api_sender.send(msg).unwrap();
         RenderApi {
@@ -40,8 +40,8 @@ impl RenderApiSender {
 }
 
 pub struct RenderApi {
-    pub api_sender: IpcSender<ApiMsg>,
-    pub payload_sender: IpcBytesSender,
+    pub api_sender: MsgSender<ApiMsg>,
+    pub payload_sender: PayloadSender,
     pub id_namespace: IdNamespace,
     pub next_id: Cell<ResourceId>,
 }
@@ -74,7 +74,7 @@ impl RenderApi {
     /// This means that glyph dimensions e.g. for spaces (' ') will mostly be None.
     pub fn get_glyph_dimensions(&self, glyph_keys: Vec<GlyphKey>)
                                 -> Vec<Option<GlyphDimensions>> {
-        let (tx, rx) = ipc::channel().unwrap();
+        let (tx, rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::GetGlyphDimensions(glyph_keys, tx);
         self.api_sender.send(msg).unwrap();
         rx.recv().unwrap()
@@ -184,7 +184,7 @@ impl RenderApi {
         payload.write_u32::<LittleEndian>(epoch.0).unwrap();
         payload.extend_from_slice(display_list.data());
         payload.extend_from_slice(auxiliary_lists.data());
-        self.payload_sender.send(&payload[..]).unwrap();
+        self.payload_sender.send_vec(payload).unwrap();
     }
 
     /// Scrolls the scrolling layer under the `cursor`
@@ -204,14 +204,14 @@ impl RenderApi {
     /// Translates a point from viewport coordinates to layer space
     pub fn translate_point_to_layer_space(&self, point: &Point2D<f32>)
                                           -> (Point2D<f32>, PipelineId) {
-        let (tx, rx) = ipc::channel().unwrap();
+        let (tx, rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::TranslatePointToLayerSpace(*point, tx);
         self.api_sender.send(msg).unwrap();
         rx.recv().unwrap()
     }
 
     pub fn get_scroll_layer_state(&self) -> Vec<ScrollLayerState> {
-        let (tx, rx) = ipc::channel().unwrap();
+        let (tx, rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::GetScrollLayerState(tx);
         self.api_sender.send(msg).unwrap();
         rx.recv().unwrap()
@@ -219,7 +219,7 @@ impl RenderApi {
 
     pub fn request_webgl_context(&self, size: &Size2D<i32>, attributes: GLContextAttributes)
                                  -> Result<(WebGLContextId, GLLimits), String> {
-        let (tx, rx) = ipc::channel().unwrap();
+        let (tx, rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::RequestWebGLContext(*size, attributes, tx);
         self.api_sender.send(msg).unwrap();
         rx.recv().unwrap()

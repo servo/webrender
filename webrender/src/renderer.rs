@@ -19,7 +19,6 @@ use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePoint, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler, GLContextHandleWrapper};
-use ipc_channel::ipc;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use render_backend::RenderBackend;
@@ -39,6 +38,7 @@ use time::precise_time_ns;
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, FlushNotifier, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ExternalImageId, ImageFormat, RenderApiSender, RendererKind};
+use webrender_traits::channel;
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
@@ -432,8 +432,8 @@ impl Renderer {
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
     pub fn new(options: RendererOptions) -> (Renderer, RenderApiSender) {
-        let (api_tx, api_rx) = ipc::channel().unwrap();
-        let (payload_tx, payload_rx) = ipc::bytes_channel().unwrap();
+        let (api_tx, api_rx) = channel::msg_channel().unwrap();
+        let (payload_tx, payload_rx) = channel::payload_channel().unwrap();
         let (result_tx, result_rx) = channel();
 
         let notifier = Arc::new(Mutex::new(None));
