@@ -79,7 +79,7 @@ fn main() {
         return;
     }
 
-    let (resource_path, dir) = if args.len() == 2 {
+    let (resource_path, dir) = if args.len() == 3 {
         (Some(PathBuf::from(&args[1])), PathBuf::from(&args[2]))
     } else {
         (None, PathBuf::from(&args[1]))
