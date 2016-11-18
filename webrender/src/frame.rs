@@ -512,7 +512,7 @@ impl Frame {
                                    Size2D::new(content_size.width + clip.origin.x,
                                                content_size.height + clip.origin.y));
         context.builder.push_layer(layer_rect,
-                                   layer_rect,
+                                   &ClipRegion::simple(&layer_rect),
                                    Matrix4D::identity(),
                                    pipeline_id,
                                    current_scroll_layer_id,
@@ -563,8 +563,8 @@ impl Frame {
             }
         }
 
-        let transform = layer_relative_transform.pre_translated(stacking_context.bounds.origin.x,
-                                                                stacking_context.bounds.origin.y,
+        let transform = layer_relative_transform.pre_translated(clip_region.main.origin.x,
+                                                                clip_region.main.origin.y,
                                                                 0.0)
                                                 .pre_mul(&stacking_context.transform)
                                                 .pre_mul(&stacking_context.perspective);
@@ -577,7 +577,7 @@ impl Frame {
 
         // TODO(gw): Int with overflow etc
         context.builder.push_layer(stacking_context.overflow,
-                                   clip_region.clone(),
+                                   clip_region,
                                    transform,
                                    pipeline_id,
                                    scroll_layer_id,
@@ -750,7 +750,8 @@ impl Frame {
                                                   current_scroll_layer_id,
                                                   layer_relative_transform,
                                                   level + 1,
-                                                  &info.stacking_context);
+                                                  &info.stacking_context,
+                                                  &item.clip);
                 }
                 SpecificDisplayItem::PushScrollLayer(ref info) => {
                     self.flatten_scroll_layer(traversal,

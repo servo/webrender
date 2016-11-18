@@ -8,7 +8,6 @@ use {FilterOp, MixBlendMode, ScrollPolicy, StackingContext};
 
 impl StackingContext {
     pub fn new(scroll_policy: ScrollPolicy,
-               bounds: Rect<f32>,
                overflow: Rect<f32>,
                z_index: i32,
                transform: &Matrix4D<f32>,

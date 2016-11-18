@@ -614,10 +614,17 @@ impl AlphaBatcher {
     }
 }
 
+/// Batcher managing draw calls into the clip mask (in the RT cache).
 #[derive(Debug)]
 pub struct ClipBatcher {
+    /// Clear draws initialize the target area to full opacity (1.0)
+    /// So that the following primitive can be blended with MULtiplication.
     pub clears: Vec<CacheClipInstance>,
+    /// Copy draws get the existing mask from a parent layer.
+    pub copies: Vec<CacheClipInstance>,
+    /// Rectangle draws fill up the rectangles with rounded corners.
     pub rectangles: Vec<CacheClipInstance>,
+    /// Image draws apply the image masking.
     pub images: HashMap<SourceTexture, Vec<CacheClipInstance>>,
 }
 
@@ -625,6 +632,7 @@ impl ClipBatcher {
     fn new() -> ClipBatcher {
         ClipBatcher {
             clears: Vec::new(),
+            copies: Vec::new(),
             rectangles: Vec::new(),
             images: HashMap::new(),
         }
@@ -632,34 +640,45 @@ impl ClipBatcher {
 
     fn add(&mut self,
            task_index: i32,
+           base_task_index: Option<i32>,
            key: &MaskCacheKey,
-           task_info: &CacheMaskTask,
-           resource_cache: &ResourceCache) {
+           image: Option<SourceTexture>) {
+
         // TODO: don't draw clipping instances covering the whole tile
-        self.clears.push(CacheClipInstance {
-            task_id: task_index,
-            layer_index: key.layer_id.0 as i32,
-            address: GpuStoreAddress(0),
-            pad: 0,
-        });
+        if let Some(layer_task_id) = base_task_index {
+            self.copies.push(CacheClipInstance {
+                task_id: task_index,
+                layer_index: key.layer_id.0 as i32,
+                address: GpuStoreAddress(0),
+                base_task_id: layer_task_id,
+            });
+        } else {
+            self.clears.push(CacheClipInstance {
+                task_id: task_index,
+                layer_index: key.layer_id.0 as i32,
+                address: GpuStoreAddress(0),
+                base_task_id: 0,
+            });
+        }
+
         self.rectangles.extend((0 .. key.clip_range.item_count as usize)
                        .map(|region_id| {
             CacheClipInstance {
                 task_id: task_index,
                 layer_index: key.layer_id.0 as i32,
                 address: GpuStoreAddress(key.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * region_id) as i32)),
-                pad: 0,
+                base_task_id: 0,
             }
         }));
-        if let (Some(address), Some(mask_key)) = (key.image, task_info.image) {
-            let cache_item = resource_cache.get_cached_image(mask_key, ImageRendering::Auto);
-            self.images.entry(cache_item.texture_id)
-                        .or_insert(Vec::new())
-                        .push(CacheClipInstance {
+
+        if let (Some(address), Some(texture)) = (key.image, image) {
+            self.images.entry(texture)
+                       .or_insert(Vec::new())
+                       .push(CacheClipInstance {
                 task_id: task_index,
                 layer_index: key.layer_id.0 as i32,
                 address: address,
-                pad: 0,
+                base_task_id: 0,
             })
         }
     }
@@ -818,7 +837,14 @@ impl RenderTarget {
                     _ => unreachable!()
                 };
                 let task_index = render_tasks.get_task_index(&task.id, pass_index).0 as i32;
-                self.clip_batcher.add(task_index, key, task_info, ctx.resource_cache);
+                let base_task_id = task_info.base_task_id.map(|ref task_id|
+                    render_tasks.get_task_index(task_id, pass_index).0 as i32
+                );
+                let image = task_info.image.map(|image_key| {
+                    let cache_item = ctx.resource_cache.get_cached_image(image_key, ImageRendering::Auto);
+                    cache_item.texture_id
+                });
+                self.clip_batcher.add(task_index, base_task_id, key, image);
             }
         }
     }
@@ -942,6 +968,7 @@ pub struct AlphaRenderTask {
 pub struct CacheMaskTask {
     actual_rect: DeviceRect,
     image: Option<ImageKey>,
+    base_task_id: Option<RenderTaskId>,
 }
 
 enum MaskResult {
@@ -1020,6 +1047,7 @@ impl RenderTask {
             kind: RenderTaskKind::CacheMask(CacheMaskTask {
                 actual_rect: task_rect,
                 image: cache_info.image.map(|mask| mask.image),
+                base_task_id: dependant.map(|ref task| task.id),
             }),
         })
     }
@@ -1322,7 +1350,7 @@ pub struct CacheClipInstance {
     task_id: i32,
     layer_index: i32,
     address: GpuStoreAddress,
-    pad: i32,
+    base_task_id: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -2636,14 +2664,15 @@ impl FrameBuilder {
         let mut max_passes_needed = 0;
 
         let mut render_tasks = {
-            // This doesn't need to be atomic right now (all the screen tiles are
-            // compiled on a single thread). However, in the future each of the
-            // compile steps below will be run on a worker thread, which will
-            // require an atomic int here anyway.
             let mut ctx = CompileTileContext {
                 layer_store: &self.layer_store,
                 prim_store: &self.prim_store,
                 tile_id: 0,
+
+                // This doesn't need to be atomic right now (all the screen tiles are
+                // compiled on a single thread). However, in the future each of the
+                // compile steps below will be run on a worker thread, which will
+                // require an atomic int here anyway.
                 render_task_id_counter: AtomicUsize::new(0),
             };
 
