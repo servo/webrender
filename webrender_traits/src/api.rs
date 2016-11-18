@@ -147,7 +147,7 @@ impl RenderApi {
 
     /// Supplies a new frame to WebRender.
     ///
-    /// Non-blocking, it notifies a worker process which processes the stacking context.
+    /// Non-blocking, it notifies a worker process which processes the display list.
     /// When it's done and a RenderNotifier has been set in `webrender::renderer::Renderer`,
     /// [new_frame_ready()][notifier] gets called.
     ///
@@ -155,13 +155,11 @@ impl RenderApi {
     ///
     /// Arguments:
     ///
-    /// * `stacking_context_id`: The ID of the root stacking context.
     /// * `background_color`: The background color of this pipeline.
     /// * `epoch`: The unique Frame ID, monotonically increasing.
     /// * `pipeline_id`: The ID of the pipeline that is supplying this display list.
     /// * `viewport_size`: The size of the viewport for this frame.
-    /// * `stacking_contexts`: Stacking contexts used in this frame.
-    /// * `display_lists`: Display lists used in this frame.
+    /// * `display_list`: The root Display list used in this frame.
     /// * `auxiliary_lists`: Various items that the display lists and stacking contexts reference.
     ///
     /// [notifier]: trait.RenderNotifier.html#tymethod.new_frame_ready
