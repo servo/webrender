@@ -11,6 +11,7 @@ use core::nonzero::NonZero;
 use euclid::{Matrix4D, Point2D, Rect, Size2D};
 use ipc_channel::ipc::{IpcBytesSender, IpcSender};
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
+use std::sync::Arc;
 
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
 #[cfg(target_os = "windows")] use dwrote::FontDescriptor;
@@ -324,8 +325,18 @@ pub struct ExternalImageId(pub u64);
 
 #[derive(Serialize, Deserialize)]
 pub enum ImageData {
-    Raw(Vec<u8>),
+    Raw(Arc<Vec<u8>>),
     External(ExternalImageId),
+}
+
+impl ImageData {
+    pub fn new(bytes: Vec<u8>) -> ImageData {
+        ImageData::Raw(Arc::new(bytes))
+    }
+
+    pub fn new_shared(bytes: Arc<Vec<u8>>) -> ImageData {
+        ImageData::Raw(bytes)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]

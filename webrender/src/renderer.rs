@@ -594,7 +594,7 @@ impl Renderer {
                              None,
                              ImageFormat::RGBA8,
                              TextureFilter::Linear,
-                             white_pixels);
+                             Arc::new(white_pixels));
 
         let dummy_mask_image_id = texture_cache.new_item_id();
         texture_cache.insert(dummy_mask_image_id,
@@ -603,7 +603,7 @@ impl Renderer {
                              None,
                              ImageFormat::A8,
                              TextureFilter::Linear,
-                             mask_pixels);
+                             Arc::new(mask_pixels));
 
         let debug_renderer = DebugRenderer::new(&mut device);
 
@@ -932,27 +932,14 @@ impl Renderer {
                             self.cache_texture_id_map[cache_texture_index] = Some(texture_id);
                         }
 
-                        // TODO: clean up match
-                        match maybe_bytes {
-                            Some(bytes) => {
-                                self.device.init_texture(texture_id,
-                                                         width,
-                                                         height,
-                                                         format,
-                                                         filter,
-                                                         mode,
-                                                         Some(bytes.as_slice()));
-                            }
-                            None => {
-                                self.device.init_texture(texture_id,
-                                                         width,
-                                                         height,
-                                                         format,
-                                                         filter,
-                                                         mode,
-                                                         None);
-                            }
-                        }
+                        let maybe_slice = maybe_bytes.as_ref().map(|bytes|{ bytes.as_slice() });
+                        self.device.init_texture(texture_id,
+                                                 width,
+                                                 height,
+                                                 format,
+                                                 filter,
+                                                 mode,
+                                                 maybe_slice);
                     }
                     TextureUpdateOp::Grow(new_width,
                                           new_height,

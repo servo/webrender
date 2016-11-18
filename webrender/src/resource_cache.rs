@@ -16,6 +16,7 @@ use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::fmt::Debug;
 use std::hash::BuildHasherDefault;
 use std::hash::Hash;
+use std::sync::Arc;
 use texture_cache::{TextureCache, TextureCacheItemId};
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRendering};
 use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
@@ -263,7 +264,7 @@ impl ResourceCache {
             height: height,
             stride: None,
             format: format,
-            data: ImageData::Raw(bytes),
+            data: ImageData::new(bytes),
             epoch: next_epoch,
         };
 
@@ -330,7 +331,7 @@ impl ResourceCache {
                                           None,
                                           ImageFormat::RGBA8,
                                           TextureFilter::Linear,
-                                          result.bytes);
+                                          Arc::new(result.bytes));
                 Some(image_id)
             } else {
                 None
@@ -479,7 +480,6 @@ impl ResourceCache {
                                     let image_id = entry.get().texture_cache_id;
 
                                     if entry.get().epoch != image_template.epoch {
-                                        // TODO: Can we avoid the clone of the bytes here?
                                         self.texture_cache.update(image_id,
                                                                   image_template.width,
                                                                   image_template.height,
@@ -502,7 +502,6 @@ impl ResourceCache {
                                         ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
                                     };
 
-                                    // TODO: Can we avoid the clone of the bytes here?
                                     self.texture_cache.insert(image_id,
                                                               image_template.width,
                                                               image_template.height,
