@@ -176,20 +176,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "dwrite-sys"
-version = "0.2.0"
+name = "dwrote"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "winapi 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "winapi-build 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "dwrote"
-version = "0.1.0"
-source = "git+https://github.com/vvuk/dwrote-rs#7112cf6e4bb9f645217dacb5d7470178da13a544"
-dependencies = [
- "dwrite-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gdi32-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "kernel32-sys 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -218,8 +208,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "freetype"
-version = "0.1.1"
-source = "git+https://github.com/servo/rust-freetype#5b19cac13fc94130475efa0b4b72521af1a2bc80"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "libc 0.2.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "servo-freetype-sys 4.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -417,7 +407,7 @@ dependencies = [
 
 [[package]]
 name = "offscreen_gl_context"
-version = "0.4.5"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "cgl 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -798,15 +788,15 @@ dependencies = [
  "byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "core-graphics 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "core-text 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "dwrote 0.1.0 (git+https://github.com/vvuk/dwrote-rs)",
+ "dwrote 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "euclid 0.10.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "freetype 0.1.1 (git+https://github.com/servo/rust-freetype)",
+ "freetype 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.2.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-traits 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)",
- "offscreen_gl_context 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "offscreen_gl_context 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rayon 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.35 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender_traits 0.10.0",
@@ -819,12 +809,12 @@ dependencies = [
  "app_units 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "core-graphics 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "dwrote 0.1.0 (git+https://github.com/vvuk/dwrote-rs)",
+ "dwrote 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "euclid 0.10.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.2.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "heapsize 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "ipc-channel 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "offscreen_gl_context 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "offscreen_gl_context 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 0.8.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_codegen 0.8.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 0.8.17 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -902,11 +892,10 @@ dependencies = [
 "checksum dlib 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "148bce4ce1c36c4509f29cb54e62c2bd265551a9b00b38070fad551a851866ec"
 "checksum dtoa 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "0dd841b58510c9618291ffa448da2e4e0f699d984d436122372f446dae62263d"
 "checksum dwmapi-sys 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "07c4c7cc7b396419bc0a4d90371d0cee16cb5053b53647d287c0b728000c41fe"
-"checksum dwrite-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a7918280f33862bc8542212d74f2149b1a87ab402fd15f4ce9a1c56582958d6e"
-"checksum dwrote 0.1.0 (git+https://github.com/vvuk/dwrote-rs)" = "<none>"
+"checksum dwrote 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "c85f0fecf7e4d1f47b25a84adbdb5bfa9662e51c0d0fb59935a0147ace261216"
 "checksum euclid 0.10.2 (registry+https://github.com/rust-lang/crates.io-index)" = "44ef2a3e4a621518e488db36820a12b49a9d5004764b8daf1458bbe5d7c9b626"
 "checksum fnv 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)" = "6cc484842f1e2884faf56f529f960cc12ad8c71ce96cc7abba0a067c98fee344"
-"checksum freetype 0.1.1 (git+https://github.com/servo/rust-freetype)" = "<none>"
+"checksum freetype 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6a89563eaf185762cf495c56cb16277549d2aaa7b1240d93338e8429fa33acd1"
 "checksum fs2 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)" = "bcd414e5a1a979b931bb92f41b7a54106d3f6d2e6c253e9ce943b7cd468251ef"
 "checksum gcc 0.3.38 (registry+https://github.com/rust-lang/crates.io-index)" = "553f11439bdefe755bf366b264820f1da70f3aaf3924e594b886beb9c831bcf5"
 "checksum gdi32-sys 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "65256ec4dc2592e6f05bfc1ca3b956a4e0698aa90b1dff1f5687d55a5a3fd59a"
@@ -929,7 +918,7 @@ dependencies = [
 "checksum num-traits 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)" = "a16a42856a256b39c6d3484f097f6713e14feacd9bfb02290917904fae46c81c"
 "checksum num_cpus 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8890e6084723d57d0df8d2720b0d60c6ee67d6c93e7169630e4371e88765dcad"
 "checksum objc 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "877f30f37acef6749b1841cceab289707f211aecfc756553cd63976190e6cc2e"
-"checksum offscreen_gl_context 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)" = "000307b66855b01357765d9ac8d32a66aa09f3dcc3a7ccb272f74c76df475c9c"
+"checksum offscreen_gl_context 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "9da33a538d9c8fc81102e5d5c1ed844568b400d86c22413550a9b8474be62ba3"
 "checksum osmesa-sys 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "88cfece6e95d2e717e0872a7f53a8684712ad13822a7979bc760b9c77ec0013b"
 "checksum phf 0.7.19 (registry+https://github.com/rust-lang/crates.io-index)" = "95cb41511b13e592110b5c8323c1d489513b6db919148f909b8b804be73a74b5"
 "checksum phf_codegen 0.7.19 (registry+https://github.com/rust-lang/crates.io-index)" = "8b74506ea0ea5f6adbef815c1e964daa2d395e7c29b7196d390a67a31fa2a020"

@@ -22,17 +22,17 @@ gleam = "0.2"
 lazy_static = "0.2"
 log = "0.3"
 num-traits = "0.1.32"
-offscreen_gl_context = {version = "0.4", features = ["serde_serialization", "osmesa"]}
+offscreen_gl_context = {version = "0.5", features = ["serde_serialization", "osmesa"]}
 rayon = "0.5"
 time = "0.1"
 webrender_traits = {path = "../webrender_traits", default-features = false}
 bitflags = "0.7"
 
 [target.'cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))'.dependencies]
-freetype = {git = "https://github.com/servo/rust-freetype"}
+freetype = "0.1.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-dwrote = {git = "https://github.com/vvuk/dwrote-rs"}
+dwrote = "0.1.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.4.1"
