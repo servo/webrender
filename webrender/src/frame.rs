@@ -21,9 +21,9 @@ use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLa
 use webrender_traits::{ClipRegion, ColorF, DisplayItem, StackingContext, FilterOp, MixBlendMode};
 use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, SpecificDisplayItem, ScrollLayerState};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
-use webrender_traits::{ParentLayerRect, as_parent_rect, ParentLayerPixel};
+use webrender_traits::{ScrollLayerRect, as_scroll_parent_rect, ScrollLayerPixel};
 use webrender_traits::WorldPoint4D;
-use webrender_traits::{LayerTransform, LayerToParentTransform, ParentToWorldTransform};
+use webrender_traits::{LayerTransform, LayerToScrollTransform, ScrollToWorldTransform};
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
@@ -441,7 +441,7 @@ impl Frame {
         let root_viewport = LayerRect::new(LayerPoint::zero(), LayerSize::from_untyped(&root_pipeline.viewport_size));
         let layer = Layer::new(&root_viewport,
                                LayerSize::from_untyped(&root_stacking_context.overflow.size),
-                               &LayerToParentTransform::identity(),
+                               &LayerToScrollTransform::identity(),
                                root_pipeline_id);
         self.layers.insert(root_fixed_layer_id, layer.clone());
         self.layers.insert(root_scroll_layer_id, layer);
@@ -464,7 +464,7 @@ impl Frame {
                                           &mut context,
                                           root_fixed_layer_id,
                                           root_scroll_layer_id,
-                                          LayerToParentTransform::identity(),
+                                          LayerToScrollTransform::identity(),
                                           0,
                                           &root_stacking_context);
         }
@@ -489,7 +489,7 @@ impl Frame {
                                 context: &mut FlattenContext,
                                 current_fixed_layer_id: ScrollLayerId,
                                 mut current_scroll_layer_id: ScrollLayerId,
-                                layer_relative_transform: LayerToParentTransform,
+                                layer_relative_transform: LayerToScrollTransform,
                                 level: i32,
                                 clip: &LayerRect,
                                 content_size: &LayerSize,
@@ -518,7 +518,7 @@ impl Frame {
                                                        content_size.height + clip.origin.y));
         context.builder.push_layer(layer_rect,
                                    layer_rect,
-                                   LayerToParentTransform::identity(),
+                                   LayerToScrollTransform::identity(),
                                    pipeline_id,
                                    current_scroll_layer_id,
                                    &[]);
@@ -528,7 +528,7 @@ impl Frame {
                            context,
                            current_fixed_layer_id,
                            current_scroll_layer_id,
-                           LayerToParentTransform::identity(),
+                           LayerToScrollTransform::identity(),
                            level);
 
         context.builder.pop_layer();
@@ -540,7 +540,7 @@ impl Frame {
                                     context: &mut FlattenContext,
                                     current_fixed_layer_id: ScrollLayerId,
                                     current_scroll_layer_id: ScrollLayerId,
-                                    layer_relative_transform: LayerToParentTransform,
+                                    layer_relative_transform: LayerToScrollTransform,
                                     level: i32,
                                     stacking_context: &StackingContext) {
         // Avoid doing unnecessary work for empty stacking contexts.
@@ -640,7 +640,7 @@ impl Frame {
                           bounds: &Rect<f32>,
                           context: &mut FlattenContext,
                           current_scroll_layer_id: ScrollLayerId,
-                          layer_relative_transform: LayerToParentTransform) {
+                          layer_relative_transform: LayerToScrollTransform) {
         context.pipeline_sizes.insert(pipeline_id, bounds.size);
 
         let pipeline = match context.scene.pipeline_map.get(&pipeline_id) {
@@ -687,7 +687,7 @@ impl Frame {
                                       context,
                                       iframe_fixed_layer_id,
                                       iframe_scroll_layer_id,
-                                      LayerToParentTransform::identity(),
+                                      LayerToScrollTransform::identity(),
                                       0,
                                       &iframe_stacking_context);
     }
@@ -698,7 +698,7 @@ impl Frame {
                          context: &mut FlattenContext,
                          current_fixed_layer_id: ScrollLayerId,
                          current_scroll_layer_id: ScrollLayerId,
-                         layer_relative_transform: LayerToParentTransform,
+                         layer_relative_transform: LayerToScrollTransform,
                          level: i32) {
         while let Some(item) = traversal.next() {
             match item.item {
@@ -797,8 +797,8 @@ impl Frame {
 
     fn update_layer_transform(&mut self,
                               layer_id: ScrollLayerId,
-                              parent_world_transform: &ParentToWorldTransform,
-                              parent_viewport_rect: &ParentLayerRect,
+                              parent_world_transform: &ScrollToWorldTransform,
+                              parent_viewport_rect: &ScrollLayerRect,
                               device_pixel_ratio: f32) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
         //           Restructure this to avoid the clones!
@@ -820,7 +820,7 @@ impl Frame {
                                                                          layer.scrolling.offset.y,
                                                                          0.0);
 
-                    (layer.world_content_transform.with_source::<ParentLayerPixel>(),
+                    (layer.world_content_transform.with_source::<ScrollLayerPixel>(),
                      viewport_rect,
                      layer.children.clone())
                 }
@@ -831,7 +831,7 @@ impl Frame {
         for child_layer_id in layer_children {
             self.update_layer_transform(child_layer_id,
                                         &layer_transform_for_children,
-                                        &as_parent_rect(&viewport_rect),
+                                        &as_scroll_parent_rect(&viewport_rect),
                                         device_pixel_ratio);
         }
     }
@@ -841,8 +841,8 @@ impl Frame {
             let root_viewport = self.layers[&root_scroll_layer_id].local_viewport_rect;
 
             self.update_layer_transform(root_scroll_layer_id,
-                                        &ParentToWorldTransform::identity(),
-                                        &as_parent_rect(&root_viewport),
+                                        &ScrollToWorldTransform::identity(),
+                                        &as_scroll_parent_rect(&root_viewport),
                                         device_pixel_ratio);
 
             // Update any fixed layers
@@ -858,8 +858,8 @@ impl Frame {
 
             for layer_id in fixed_layers {
                 self.update_layer_transform(layer_id,
-                                            &ParentToWorldTransform::identity(),
-                                            &as_parent_rect(&root_viewport),
+                                            &ScrollToWorldTransform::identity(),
+                                            &as_scroll_parent_rect(&root_viewport),
                                             device_pixel_ratio);
             }
         }

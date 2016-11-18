@@ -5,9 +5,9 @@
 use spring::{DAMPING, STIFFNESS, Spring};
 use webrender_traits::{PipelineId, ScrollLayerId};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
-use webrender_traits::{LayerToParentTransform, LayerToWorldTransform};
+use webrender_traits::{LayerToScrollTransform, LayerToWorldTransform};
 
-/// Contains scroll and transform information for scrollable and root stacking contexts.
+/// Contains scrolling and transform information stacking contexts.
 #[derive(Clone)]
 pub struct Layer {
     /// Manages scrolling offset, overscroll state etc.
@@ -28,8 +28,8 @@ pub struct Layer {
     /// World transform for content within this layer
     pub world_content_transform: LayerToWorldTransform,
 
-    /// Transform for this layer, relative to parent layer.
-    pub local_transform: LayerToParentTransform,
+    /// Transform for this layer, relative to parent scrollable layer.
+    pub local_transform: LayerToScrollTransform,
 
     /// Pipeline that this layer belongs to
     pub pipeline_id: PipelineId,
@@ -41,7 +41,7 @@ pub struct Layer {
 impl Layer {
     pub fn new(local_viewport_rect: &LayerRect,
                content_size: LayerSize,
-               local_transform: &LayerToParentTransform,
+               local_transform: &LayerToScrollTransform,
                pipeline_id: PipelineId)
                -> Layer {
         Layer {

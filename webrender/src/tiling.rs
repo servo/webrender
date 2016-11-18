@@ -40,8 +40,8 @@ use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId, FontRenderMode
 use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize, DeviceIntLength, device_length};
 use webrender_traits::{DeviceUintSize, DeviceUintPoint, DeviceSize};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
-use webrender_traits::{LayerToParentTransform, LayerToWorldTransform, WorldToLayerTransform};
-use webrender_traits::{WorldPoint4D, ParentLayerPixel, as_parent_rect};
+use webrender_traits::{LayerToScrollTransform, LayerToWorldTransform, WorldToLayerTransform};
+use webrender_traits::{WorldPoint4D, ScrollLayerPixel, as_scroll_parent_rect};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
 
@@ -1464,7 +1464,7 @@ struct TileRange {
 
 struct StackingContext {
     pipeline_id: PipelineId,
-    local_transform: LayerToParentTransform,
+    local_transform: LayerToScrollTransform,
     local_rect: LayerRect,
     scroll_layer_id: ScrollLayerId,
     xf_rect: Option<TransformedRect>,
@@ -1870,7 +1870,7 @@ impl FrameBuilder {
     pub fn push_layer(&mut self,
                       rect: LayerRect,
                       clip_rect: LayerRect,
-                      transform: LayerToParentTransform,
+                      transform: LayerToScrollTransform,
                       pipeline_id: PipelineId,
                       scroll_layer_id: ScrollLayerId,
                       composition_operations: &[CompositionOp]) {
@@ -2270,7 +2270,7 @@ impl FrameBuilder {
 
                     let scroll_layer = &layer_map[&layer.scroll_layer_id];
                     packed_layer.transform = scroll_layer.world_content_transform
-                                                         .with_source::<ParentLayerPixel>() // the scroll layer is considered a parent of layer
+                                                         .with_source::<ScrollLayerPixel>() // the scroll layer is considered a parent of layer
                                                          .pre_mul(&layer.local_transform);
                     packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
 
@@ -2279,7 +2279,7 @@ impl FrameBuilder {
                     }
 
                     let inv_layer_transform = layer.local_transform.inverse().unwrap();
-                    let local_viewport_rect = as_parent_rect(&scroll_layer.combined_local_viewport_rect);
+                    let local_viewport_rect = as_scroll_parent_rect(&scroll_layer.combined_local_viewport_rect);
                     let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
                     let layer_local_rect = layer.local_rect
                                                 .intersection(&viewport_rect)
