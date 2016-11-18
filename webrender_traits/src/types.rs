@@ -55,6 +55,7 @@ pub enum ApiMsg {
     RequestWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<(WebGLContextId, GLLimits), String>>),
     ResizeWebGLContext(WebGLContextId, Size2D<i32>),
     WebGLCommand(WebGLContextId, WebGLCommand),
+    GenerateFrame,
 }
 
 #[derive(Copy, Clone, Deserialize, Serialize, Debug)]

@@ -317,6 +317,15 @@ impl RenderBackend {
                             ctx.apply_command(command);
                             self.current_bound_webgl_context_id = Some(context_id);
                         }
+                        ApiMsg::GenerateFrame => {
+                            let frame = profile_counters.total_time.profile(|| {
+                                self.render()
+                            });
+                            if self.scene.root_pipeline_id.is_some() {
+                                self.publish_frame_and_notify_compositor(frame, &mut profile_counters);
+                                frame_counter += 1;
+                            }
+                        }
                     }
                 }
                 Err(..) => {
