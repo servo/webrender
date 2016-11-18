@@ -12,7 +12,7 @@ use internal_types::{DeviceRect, DevicePoint, DeviceSize, DeviceLength, device_p
 use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
 use internal_types::{BatchTextures, CacheTextureId, SourceTexture};
 use layer::Layer;
-use mask_cache::{MaskCacheKey, MaskCacheInfo};
+use mask_cache::{OPAQUE_TASK_INDEX, MaskCacheKey, MaskCacheInfo};
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{ImagePrimitiveCpu, ImagePrimitiveGpu, ImagePrimitiveKind};
@@ -62,6 +62,7 @@ trait AlphaBatchHelpers {
                          batch: &mut PrimitiveBatch,
                          layer_index: StackingContextIndex,
                          task_index: i32,
+                         tile_id: TileUniqueId,
                          render_tasks: &RenderTaskCollection,
                          pass_index: RenderPassIndex);
 }
@@ -153,7 +154,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
 
         // bail out if the clip rectangle is outside of the tile
         if let Some(ref clip_info) = metadata.clip_cache_info {
-            if !clip_info.device_rect.intersects(tile_rect) {
+            if !clip_info.outer_rect.intersects(tile_rect) {
                 return false;
             }
         }
@@ -180,6 +181,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                          batch: &mut PrimitiveBatch,
                          layer_index: StackingContextIndex,
                          task_index: i32,
+                         tile_id: TileUniqueId,
                          render_tasks: &RenderTaskCollection,
                          child_pass_index: RenderPassIndex) {
         let metadata = self.get_metadata(prim_index);
@@ -188,11 +190,16 @@ impl AlphaBatchHelpers for PrimitiveStore {
         let prim_address = metadata.gpu_prim_index;
         let clip_task_index = match metadata.clip_cache_info {
             Some(ref clip_info) => {
-                let cache_task_id = RenderTaskId::Dynamic(RenderTaskKey::CacheMask(clip_info.key));
-                let cache_task_index = render_tasks.get_task_index(&cache_task_id, child_pass_index);
-                cache_task_index.0 as i32
+                let cache_task_key = RenderTaskKey::CacheMask(clip_info.key, tile_id);
+                if render_tasks.has_dynamic_task(&cache_task_key, child_pass_index) {
+                    let cache_task_id = RenderTaskId::Dynamic(cache_task_key);
+                    let cache_task_index = render_tasks.get_task_index(&cache_task_id, child_pass_index);
+                    cache_task_index.0 as i32
+                } else {
+                    OPAQUE_TASK_INDEX
+                }
             },
-            None => i32::MAX, //sentinel value for the dummy mask
+            None => OPAQUE_TASK_INDEX
         };
 
         match &mut batch.data {
@@ -350,12 +357,14 @@ struct RenderPassIndex(isize);
 #[derive(Debug, Copy, Clone)]
 pub struct RenderTaskIndex(usize);
 
+type TileUniqueId = usize;
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum RenderTaskKey {
     /// Draw this primitive to a cache target.
     CachePrimitive(PrimitiveCacheKey),
     /// Draw the tile alpha mask for a primitive.
-    CacheMask(MaskCacheKey),
+    CacheMask(MaskCacheKey, TileUniqueId),
     /// Apply a vertical blur pass of given radius for this primitive.
     VerticalBlur(i32, PrimitiveIndex),
     /// Apply a horizontal blur pass of given radius for this primitive.
@@ -431,6 +440,11 @@ impl RenderTaskCollection {
             }
         }
     }
+
+    fn has_dynamic_task(&self, key: &RenderTaskKey, pass_index: RenderPassIndex) -> bool {
+        //TODO: remove clone
+        self.dynamic_tasks.contains_key(&(key.clone(), pass_index))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -466,6 +480,7 @@ impl Default for PrimitiveGeometry {
 struct AlphaBatchTask {
     task_id: RenderTaskId,
     items: Vec<AlphaRenderItem>,
+    tile_id: TileUniqueId,
 }
 
 /// Encapsulates the logic of building batches for items that are blended.
@@ -578,6 +593,7 @@ impl AlphaBatcher {
                                                          batch,
                                                          sc_index,
                                                          task_index,
+                                                         task.tile_id,
                                                          render_tasks,
                                                          child_pass_index);
                     }
@@ -644,6 +660,7 @@ impl ClipBatcher {
 struct CompileTileContext<'a> {
     layer_store: &'a [StackingContext],
     prim_store: &'a PrimitiveStore,
+    tile_id: TileUniqueId,
     render_task_id_counter: AtomicUsize,
 }
 
@@ -708,6 +725,7 @@ impl RenderTarget {
                 self.alpha_batcher.add_task(AlphaBatchTask {
                     task_id: task.id,
                     items: info.items,
+                    tile_id: info.tile_id,
                 });
             }
             RenderTaskKind::VerticalBlur(_, prim_index) => {
@@ -786,7 +804,7 @@ impl RenderTarget {
             }
             RenderTaskKind::CacheMask(ref task_info) => {
                 let key = match task.id {
-                    RenderTaskId::Dynamic(RenderTaskKey::CacheMask(ref key)) => key,
+                    RenderTaskId::Dynamic(RenderTaskKey::CacheMask(ref key, _)) => key,
                     _ => unreachable!()
                 };
                 let task_index = render_tasks.get_task_index(&task.id, pass_index).0 as i32;
@@ -907,12 +925,22 @@ enum AlphaRenderItem {
 pub struct AlphaRenderTask {
     actual_rect: DeviceRect,
     items: Vec<AlphaRenderItem>,
+    tile_id: TileUniqueId,
 }
 
 #[derive(Debug, Clone)]
 pub struct CacheMaskTask {
     actual_rect: DeviceRect,
     image: Option<ImageKey>,
+}
+
+enum MaskResult {
+    /// The mask is completely outside the region
+    Outside,
+    /// The mask completely covers the region
+    Covering,
+    /// The mask is inside and needs to be processed
+    Inside(RenderTask),
 }
 
 #[derive(Debug, Clone)]
@@ -946,6 +974,7 @@ impl RenderTask {
             kind: RenderTaskKind::Alpha(AlphaRenderTask {
                 actual_rect: actual_rect,
                 items: Vec::new(),
+                tile_id: ctx.tile_id,
             }),
         }
     }
@@ -961,14 +990,17 @@ impl RenderTask {
         }
     }
 
-    fn new_mask(actual_rect: DeviceRect, cache_info: &MaskCacheInfo) -> Option<RenderTask> {
-        //CLIP TODO: handle a case where the tile is completely inside the intersection
-        if !actual_rect.intersects(&cache_info.device_rect) {
-            return None
+    fn new_mask(actual_rect: DeviceRect,
+                cache_info: &MaskCacheInfo,
+                tile_id: TileUniqueId)
+                -> MaskResult {
+        let task_rect = match actual_rect.intersection(&cache_info.outer_rect) {
+            None => return MaskResult::Outside,
+            Some(_) if cache_info.inner_rect.contains_rect(&actual_rect) => return MaskResult::Covering,
+            Some(rect) => rect,
         };
-        let task_rect = cache_info.device_rect;
-        Some(RenderTask {
-            id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(cache_info.key)),
+        MaskResult::Inside(RenderTask {
+            id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(cache_info.key, tile_id)),
             children: Vec::new(),
             location: RenderTaskLocation::Dynamic(None, task_rect.size),
             kind: RenderTaskKind::CacheMask(CacheMaskTask {
@@ -1686,7 +1718,8 @@ impl ScreenTile {
                             let layer_rect = layer.xf_rect.as_ref().unwrap().bounding_rect;
                             let needed_rect = layer_rect.intersection(&self.rect)
                                                         .expect("bug if these don't overlap");
-                            let prev_task = mem::replace(&mut current_task, RenderTask::new_alpha_batch(needed_rect, ctx));
+                            let prev_task = mem::replace(&mut current_task,
+                                                         RenderTask::new_alpha_batch(needed_rect, ctx));
                             alpha_task_stack.push(prev_task);
                         }
                     }
@@ -1743,9 +1776,11 @@ impl ScreenTile {
 
                     // Add a task to render the updated image mask
                     if let Some(ref clip_info) = prim_metadata.clip_cache_info {
-                        let mask_task = RenderTask::new_mask(self.rect, clip_info)
-                                                   .expect("Primitive be culled by `prim_affects_tile` already");
-                        current_task.children.push(mask_task);
+                        match RenderTask::new_mask(self.rect, clip_info, ctx.tile_id) {
+                            MaskResult::Outside => panic!("Primitive be culled by `prim_affects_tile` already"),
+                            MaskResult::Covering => (), //do nothing
+                            MaskResult::Inside(task) => current_task.children.push(task),
+                        }
                     }
 
                     // Add any dynamic render tasks needed to render this primitive
@@ -1950,6 +1985,8 @@ impl FrameBuilder {
         let br_inner = br_outer - Point2D::new(radius.bottom_right.width.max(right.width),
                                                radius.bottom_right.height.max(bottom.width));
 
+        //Note: while similar to `ComplexClipRegion::get_inner_rect()` in spirit,
+        // this code is a bit more complex and can not there for be merged.
         let inner_rect = rect_from_points_f(tl_inner.x.max(bl_inner.x),
                                             tl_inner.y.max(tr_inner.y),
                                             tr_inner.x.min(br_inner.x),
@@ -2521,9 +2558,10 @@ impl FrameBuilder {
         let mut max_passes_needed = 0;
 
         let mut render_tasks = {
-            let ctx = CompileTileContext {
+            let mut ctx = CompileTileContext {
                 layer_store: &self.layer_store,
                 prim_store: &self.prim_store,
+                tile_id: 0,
 
                 // This doesn't need to be atomic right now (all the screen tiles are
                 // compiled on a single thread). However, in the future each of the
@@ -2537,7 +2575,8 @@ impl FrameBuilder {
             }
 
             // Build list of passes, target allocs that each tile needs.
-            for screen_tile in screen_tiles {
+            for (tile_id, screen_tile) in screen_tiles.into_iter().enumerate() {
+                ctx.tile_id = tile_id;
                 let rect = screen_tile.rect;
                 match screen_tile.compile(&ctx) {
                     Some(compiled_screen_tile) => {
