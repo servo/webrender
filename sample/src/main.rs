@@ -114,14 +114,9 @@ fn main() {
     let mut auxiliary_lists_builder = AuxiliaryListsBuilder::new();
     let mut builder = webrender_traits::DisplayListBuilder::new();
 
-    let root_scroll_layer_id =
-        webrender_traits::ScrollLayerId::new(pipeline_id, 0,
-                                             webrender_traits::ServoScrollRootId(0));
-
     let bounds = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(width as f32, height as f32));
     builder.push_stacking_context(
-        webrender_traits::StackingContext::new(Some(root_scroll_layer_id),
-                                               webrender_traits::ScrollPolicy::Scrollable,
+        webrender_traits::StackingContext::new(webrender_traits::ScrollPolicy::Scrollable,
                                                bounds,
                                                bounds,
                                                0,
