@@ -13,7 +13,7 @@ use debug_colors;
 use debug_render::DebugRenderer;
 use device::{Device, ProgramId, TextureId, VertexFormat, GpuProfiler};
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
-use euclid::Matrix4D;
+use euclid::{Size2D, Matrix4D};
 use fnv::FnvHasher;
 use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
@@ -835,7 +835,8 @@ impl Renderer {
     ///
     /// A Frame is supplied by calling [set_root_stacking_context()][newframe].
     /// [newframe]: ../../webrender_traits/struct.RenderApi.html#method.set_root_stacking_context
-    pub fn render(&mut self, framebuffer_size: DeviceUintSize) {
+    pub fn render(&mut self, framebuffer_size: Size2D<u32>) {
+        let framebuffer_size = DeviceUintSize::from_untyped(&framebuffer_size);
         if let Some(mut frame) = self.current_frame.take() {
             if let Some(ref mut frame) = frame.frame {
                 let mut profile_timers = RendererProfileTimers::new();
