@@ -57,6 +57,12 @@ impl DisplayListBuilder {
         }
     }
 
+    pub fn print_display_list(&mut self) {
+        for item in &self.list {
+            println!("{:?}", item);
+        }
+    }
+
     pub fn push_rect(&mut self,
                      rect: Rect<f32>,
                      clip: ClipRegion,
