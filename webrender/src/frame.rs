@@ -434,7 +434,7 @@ impl Frame {
         let root_fixed_layer_id = ScrollLayerId::create_fixed(root_pipeline_id);
         let root_viewport = Rect::new(Point2D::zero(), root_pipeline.viewport_size);
         let layer = Layer::new(&root_viewport,
-                               root_stacking_context.overflow.size,
+                               root_clip.main.size,
                                &Matrix4D::identity(),
                                root_pipeline_id);
         self.layers.insert(root_fixed_layer_id, layer.clone());
@@ -563,8 +563,8 @@ impl Frame {
             }
         }
 
-        let transform = layer_relative_transform.pre_translated(clip_region.main.origin.x,
-                                                                clip_region.main.origin.y,
+        let transform = layer_relative_transform.pre_translated(stacking_context.bounds.origin.x,
+                                                                stacking_context.bounds.origin.y,
                                                                 0.0)
                                                 .pre_mul(&stacking_context.transform)
                                                 .pre_mul(&stacking_context.perspective);
@@ -576,8 +576,8 @@ impl Frame {
         };
 
         // TODO(gw): Int with overflow etc
-        context.builder.push_layer(stacking_context.overflow,
-                                   clip_region,
+        context.builder.push_layer(clip_region.main,
+                                   &clip_region,
                                    transform,
                                    pipeline_id,
                                    scroll_layer_id,
@@ -617,9 +617,8 @@ impl Frame {
                            level);
 
         if level == 0 && self.frame_builder_config.enable_scrollbars {
-            let scrollbar_rect = Rect::new(Point2D::zero(), Size2D::new(10.0, 70.0));
-            context.builder.add_solid_rectangle(&scrollbar_rect,
-                                                &ClipRegion::simple(&scrollbar_rect),
+            context.builder.add_solid_rectangle(&stacking_context.bounds,
+                                                &ClipRegion::simple(&stacking_context.bounds),
                                                 &DEFAULT_SCROLLBAR_COLOR,
                                                 PrimitiveFlags::Scrollbar(self.root_scroll_layer_id.unwrap(),
                                                                           4.0));
@@ -666,7 +665,7 @@ impl Frame {
         let iframe_scroll_layer_id = ScrollLayerId::root(pipeline_id);
 
         let layer = Layer::new(iframe_rect,
-                               iframe_stacking_context.overflow.size,
+                               iframe_clip.main.size,
                                &transform,
                                pipeline_id);
         self.layers.insert(iframe_fixed_layer_id, layer.clone());

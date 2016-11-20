@@ -486,7 +486,7 @@ pub enum SpecificDisplayItem {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StackingContext {
     pub scroll_policy: ScrollPolicy,
-    pub overflow: Rect<f32>,
+    pub bounds: Rect<f32>,
     pub z_index: i32,
     pub transform: Matrix4D<f32>,
     pub perspective: Matrix4D<f32>,
