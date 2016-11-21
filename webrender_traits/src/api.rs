@@ -93,8 +93,7 @@ impl RenderApi {
                      stride: Option<u32>,
                      format: ImageFormat,
                      data: ImageData) -> ImageKey {
-        let new_id = self.next_unique_id();
-        let key = ImageKey::new(new_id.0, new_id.1);
+        let key = self.alloc_image();
         let msg = ApiMsg::AddImage(key, width, height, stride, format, data);
         self.api_sender.send(msg).unwrap();
         key
