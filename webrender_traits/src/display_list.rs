@@ -45,6 +45,7 @@ impl BuiltDisplayList {
     }
 }
 
+#[derive(Clone)]
 pub struct DisplayListBuilder {
     pub mode: DisplayListMode,
     pub list: Vec<DisplayItem>,

@@ -4,4 +4,8 @@ members = [
 	"webrender_traits",
 	"sample",
 	"replay",
+	"wrench",
 ]
+
+[profile.release]
+debug = true

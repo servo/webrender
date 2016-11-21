@@ -1,0 +1,71 @@
+name: wrench
+version: "0.1"
+author: Vladimir Vukicevic <vladimir@pobox.com>
+about: WebRender testing and debugging utility
+
+args:
+  - debug:
+      short: d
+      long: debug
+      help: Enable debug renderer
+  - shaders:
+      long: shaders
+      help: Override path for shaders
+      takes_value: true
+  - rebuild:
+      short: r
+      long: rebuild
+      help: Rebuild display list from scratch every frame
+  - save:
+      long: save
+      help: 'Save frames, either "yaml" or "json"'
+      takes_value: true
+  - subpixel_aa:
+      short: a
+      long: subpixel-aa
+      help: Enable subpixel aa
+  - dp_ratio:
+      short: p
+      long: device-pixel-ratio
+      help: Device pixel ratio
+      takes_value: true
+  - size:
+      short: s
+      long: size
+      help: Window size, specified as widthxheight (e.g. 1024x768), in pixels
+      takes_value: true
+  - time:
+      short: t
+      long: time
+      help: Time limit (in seconds)
+      takes_value: true
+  - vsync:
+      long: vsync
+      help: Enable vsync for OpenGL window
+
+subcommands:
+    - show:
+        about: show frame(s) described by YAML
+        args:
+          - queue:
+              short: q
+              long: queue
+              help: How many frames to submit to WR ahead of time (default 1)
+              takes_value: true
+          - INPUT:
+              help: The input YAML file
+              required: true
+              index: 1
+    - replay:
+        about: replay binary recording
+        args:
+          - api:
+              long: api
+              help: Reissue Api messsages for each frame
+          - skip-uploads:
+              long: skip-uploads
+              help: Skip re-uploads while reissuing Api messages (BROKEN)
+          - INPUT:
+              help: The input binary file or directory
+              required: true
+              index: 1

@@ -4,9 +4,12 @@
 
 use bincode::serde::serialize;
 use bincode;
-use std::fs::OpenOptions;
+use std::mem;
+use std::any::TypeId;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::ops::DerefMut;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use webrender_traits::ApiMsg;
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -27,7 +30,18 @@ pub fn set_recording_detour(detour: Option<Box<ApiRecordingReceiver>>) {
 
 fn write_data(frame: u32, data: &[u8]) {
     let filename = format!("record/frame_{}.bin", frame);
-    let mut file = OpenOptions::new().append(true).create(true).open(filename).unwrap();
+    let mut file = if !PathBuf::from(&filename).exists() {
+        let mut file = File::create(filename).unwrap();
+
+        let apimsg_type_id = unsafe {
+            assert!(mem::size_of::<TypeId>() == mem::size_of::<u64>());
+            mem::transmute::<TypeId, u64>(TypeId::of::<ApiMsg>())
+        };
+        file.write_u64::<LittleEndian>(apimsg_type_id).ok();
+        file
+    } else {
+        OpenOptions::new().append(true).create(false).open(filename).unwrap()
+    };
     file.write_u32::<LittleEndian>(data.len() as u32).ok();
     file.write(data).ok();
 }
