@@ -8,7 +8,9 @@ build = "build.rs"
 workspace = ".."
 
 [features]
-default = ["webrender_traits/codegen"]
+default = ["codegen", "freetype-lib"]
+codegen = ["webrender_traits/codegen"]
+freetype-lib = ["freetype/servo-freetype-sys"]
 serde_derive = ["webrender_traits/serde_derive"]
 
 [dependencies]
@@ -29,7 +31,7 @@ webrender_traits = {path = "../webrender_traits", default-features = false}
 bitflags = "0.7"
 
 [target.'cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))'.dependencies]
-freetype = "0.1.2"
+freetype = {version = "0.1.2", default-features = false}
 
 [target.'cfg(target_os = "windows")'.dependencies]
 dwrote = "0.1.1"
