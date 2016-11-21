@@ -1,0 +1,7 @@
+root:
+  items:
+    - rect: 10 10 100 100
+      color: red
+    - text: "Servo is great!"
+      origin: 20 40
+      size: 32

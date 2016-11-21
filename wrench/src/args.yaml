@@ -1,0 +1,52 @@
+name: wrench
+version: "0.1"
+author: Vladimir Vukicevic <vladimir@pobox.com>
+about: WebRender testing and debugging utility
+
+args:
+  - debug:
+      short: d
+      long: debug
+      help: Enable debug renderer
+  - shaders:
+      long: shaders
+      help: Override path for shaders
+      takes_value: true
+  - rebuild:
+      short: r
+      long: rebuild
+      help: Rebuild display list from scratch every frame
+  - record:
+      long: record
+      help: Record frames to yaml
+  - subpixel_aa:
+      short: a
+      long: subpixel-aa
+      help: Enable subpixel aa
+  - dp_ratio:
+      short: p
+      long: device-pixel-ratio
+      help: Device pixel ratio
+      takes_value: true
+
+subcommands:
+    - show:
+        about: show frame(s) described by YAML
+        args:
+          - INPUT:
+              help: The input YAML file
+              required: true
+              index: 1
+    - replay:
+        about: replay binary recording
+        args:
+          - api:
+              long: api
+              help: Reissue Api messsages for each frame
+          - skip-uploads:
+              long: skip-uploads
+              help: Skip re-uploads while reissuing Api messages (BROKEN)
+          - INPUT:
+              help: The input binary file or directory
+              required: true
+              index: 1
