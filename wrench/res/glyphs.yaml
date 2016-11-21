@@ -1,0 +1,18 @@
+root:
+  items:
+  - text: "Servo is great!"
+    origin: 20 40
+    size: 32
+  - text: "Servo is great!"
+    origin: 20 90
+    size: 48
+  - text: "Servo is great!"
+    origin: 20 160
+    size: 64
+  - text: "Servo is great!"
+    origin: 20 240
+    size: 72
+  - text: "Servo is great!"
+    origin: 20 350
+    size: 98
+

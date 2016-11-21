@@ -1,0 +1,29 @@
+[package]
+name = "wrench"
+version = "0.1.0"
+authors = ["Vladimir Vukicevic <vladimir@pobox.com>"]
+build = "build.rs"
+workspace = ".."
+
+[dependencies]
+bincode = "0.6"
+byteorder = "0.5"
+euclid = "0.10"
+gleam = "0.2"
+glutin = "0.6"
+app_units = "0.3"
+image = "0.10"
+clap = { version = "2", features = ["yaml"] }
+lazy_static = "0.2"
+yaml-rust = { git = "https://github.com/vvuk/yaml-rust" }
+
+[dependencies.webrender]
+path = "../webrender"
+
+[dependencies.webrender_traits]
+path = "../webrender_traits"
+default_features = false
+
+[target.'cfg(target_os = "windows")'.dependencies]
+dwrote = "0.1.2"
+
