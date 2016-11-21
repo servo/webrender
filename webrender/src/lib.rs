@@ -76,6 +76,8 @@ mod shader_source {
     include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
 }
 
+pub use record::{ApiRecordingReceiver, set_recording_detour};
+
 mod platform {
     #[cfg(target_os="macos")]
     pub use platform::macos::font;
