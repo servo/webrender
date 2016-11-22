@@ -73,12 +73,7 @@ fn main() {
         gl::clear_color(0.3, 0.0, 0.0, 1.0);
     }
 
-    let version = unsafe {
-        let data = CStr::from_ptr(gl::GetString(gl::VERSION) as *const _).to_bytes().to_vec();
-        String::from_utf8(data).unwrap()
-    };
-
-    println!("OpenGL version {}", version);
+    println!("OpenGL version {}", gl::get_string(gl::VERSION));
     println!("Shader resource path: {:?}", res_path);
 
     let (width, height) = window.get_inner_size().unwrap();
