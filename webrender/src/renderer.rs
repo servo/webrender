@@ -13,7 +13,7 @@ use debug_colors;
 use debug_render::DebugRenderer;
 use device::{Device, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler};
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
-use euclid::{Size2D, Matrix4D};
+use euclid::Matrix4D;
 use fnv::FnvHasher;
 use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
@@ -864,8 +864,7 @@ impl Renderer {
     ///
     /// A Frame is supplied by calling [set_root_stacking_context()][newframe].
     /// [newframe]: ../../webrender_traits/struct.RenderApi.html#method.set_root_stacking_context
-    pub fn render(&mut self, framebuffer_size: Size2D<u32>) {
-        let framebuffer_size = DeviceUintSize::from_untyped(&framebuffer_size);
+    pub fn render(&mut self, framebuffer_size: DeviceUintSize) {
         if let Some(mut frame) = self.current_frame.take() {
             if let Some(ref mut frame) = frame.frame {
                 let mut profile_timers = RendererProfileTimers::new();
@@ -1456,8 +1455,8 @@ impl Renderer {
         // Some tests use a restricted viewport smaller than the main screen size.
         // Ensure we clear the framebuffer in these tests.
         // TODO(gw): Find a better solution for this?
-        let viewport_size = DeviceIntSize::new(frame.viewport_size.width * frame.device_pixel_ratio as i32,
-                                               frame.viewport_size.height * frame.device_pixel_ratio as i32);
+        let viewport_size = DeviceIntSize::new((frame.viewport_size.width * frame.device_pixel_ratio) as i32,
+                                               (frame.viewport_size.height * frame.device_pixel_ratio) as i32);
         let needs_clear = viewport_size.width < framebuffer_size.width as i32 ||
                           viewport_size.height < framebuffer_size.height as i32;
 
