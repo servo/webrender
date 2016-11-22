@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use device::TextureFilter;
-use euclid::{Size2D, TypedPoint2D, UnknownUnit};
+use euclid::{TypedPoint2D, UnknownUnit};
 use fnv::FnvHasher;
 use offscreen_gl_context::{NativeGLContext, NativeGLContextHandle};
 use offscreen_gl_context::{GLContext, NativeGLContextMethods, GLContextDispatcher};
@@ -18,7 +18,7 @@ use std::{i32, usize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tiling;
-use webrender_traits::{Epoch, ColorF, PipelineId};
+use webrender_traits::{Epoch, ColorF, PipelineId, DeviceIntSize};
 use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle};
 use webrender_traits::{ExternalImageId, ScrollLayerId, WebGLCommand};
 
@@ -63,12 +63,12 @@ impl GLContextHandleWrapper {
     }
 
     pub fn new_context(&self,
-                       size: Size2D<i32>,
+                       size: DeviceIntSize,
                        attributes: GLContextAttributes,
                        dispatcher: Option<Box<GLContextDispatcher>>) -> Result<GLContextWrapper, &'static str> {
         match *self {
             GLContextHandleWrapper::Native(ref handle) => {
-                let ctx = GLContext::<NativeGLContext>::new_shared_with_dispatcher(size,
+                let ctx = GLContext::<NativeGLContext>::new_shared_with_dispatcher(size.to_untyped(),
                                                                                    attributes,
                                                                                    ColorAttachmentType::Texture,
                                                                                    Some(handle),
@@ -76,7 +76,7 @@ impl GLContextHandleWrapper {
                 ctx.map(GLContextWrapper::Native)
             }
             GLContextHandleWrapper::OSMesa(ref handle) => {
-                let ctx = GLContext::<OSMesaContext>::new_shared_with_dispatcher(size,
+                let ctx = GLContext::<OSMesaContext>::new_shared_with_dispatcher(size.to_untyped(),
                                                                                  attributes,
                                                                                  ColorAttachmentType::Texture,
                                                                                  Some(handle),
@@ -126,7 +126,7 @@ impl GLContextWrapper {
         }
     }
 
-    pub fn get_info(&self) -> (Size2D<i32>, u32, GLLimits) {
+    pub fn get_info(&self) -> (DeviceIntSize, u32, GLLimits) {
         match *self {
             GLContextWrapper::Native(ref ctx) => {
                 let (real_size, texture_id) = {
@@ -136,7 +136,7 @@ impl GLContextWrapper {
 
                 let limits = ctx.borrow_limits().clone();
 
-                (real_size, texture_id, limits)
+                (DeviceIntSize::from_untyped(&real_size), texture_id, limits)
             }
             GLContextWrapper::OSMesa(ref ctx) => {
                 let (real_size, texture_id) = {
@@ -146,18 +146,18 @@ impl GLContextWrapper {
 
                 let limits = ctx.borrow_limits().clone();
 
-                (real_size, texture_id, limits)
+                (DeviceIntSize::from_untyped(&real_size), texture_id, limits)
             }
         }
     }
 
-    pub fn resize(&mut self, size: &Size2D<i32>) -> Result<(), &'static str> {
+    pub fn resize(&mut self, size: &DeviceIntSize) -> Result<(), &'static str> {
         match *self {
             GLContextWrapper::Native(ref mut ctx) => {
-                ctx.resize(*size)
+                ctx.resize(size.to_untyped())
             }
             GLContextWrapper::OSMesa(ref mut ctx) => {
-                ctx.resize(*size)
+                ctx.resize(size.to_untyped())
             }
         }
     }

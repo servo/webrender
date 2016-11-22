@@ -4,7 +4,6 @@
 
 use app_units::Au;
 use batch_builder::BorderSideHelpers;
-use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
 use gpu_store::GpuStoreAddress;
@@ -1583,7 +1582,7 @@ impl FrameBuilderConfig {
 }
 
 pub struct FrameBuilder {
-    screen_rect: Rect<i32>,
+    screen_rect: LayerRect,
     prim_store: PrimitiveStore,
     cmds: Vec<PrimitiveRunCmd>,
     device_pixel_ratio: f32,
@@ -1599,7 +1598,7 @@ pub struct FrameBuilder {
 /// A rendering-oriented representation of frame::Frame built by the render backend
 /// and presented to the renderer.
 pub struct Frame {
-    pub viewport_size: Size2D<i32>,
+    pub viewport_size: LayerSize,
     pub debug_rects: Vec<DebugRect>,
     pub cache_size: DeviceSize,
     pub passes: Vec<RenderPass>,
@@ -1830,13 +1829,12 @@ impl ScreenTile {
 }
 
 impl FrameBuilder {
-    pub fn new(viewport_size: Size2D<f32>,
+    pub fn new(viewport_size: LayerSize,
                device_pixel_ratio: f32,
                debug: bool,
                config: FrameBuilderConfig) -> FrameBuilder {
-        let viewport_size = Size2D::new(viewport_size.width as i32, viewport_size.height as i32);
         FrameBuilder {
-            screen_rect: Rect::new(Point2D::zero(), viewport_size),
+            screen_rect: LayerRect::new(LayerPoint::zero(), viewport_size),
             layer_store: Vec::new(),
             prim_store: PrimitiveStore::new(device_pixel_ratio),
             cmds: Vec::new(),
@@ -1855,7 +1853,7 @@ impl FrameBuilder {
 
         let geometry = PrimitiveGeometry {
             local_rect: *rect,
-            local_clip_rect: LayerRect::from_untyped(&clip_region.main),
+            local_clip_rect: clip_region.main,
         };
         let clip_source = if clip_region.is_complex() {
             PrimitiveClipSource::Region(clip_region.clone())
@@ -2028,10 +2026,10 @@ impl FrameBuilder {
                 pack_as_float(bottom.style as u32),
             ],
             radii: [
-                LayerSize::from_untyped(&radius.top_left),
-                LayerSize::from_untyped(&radius.top_right),
-                LayerSize::from_untyped(&radius.bottom_right),
-                LayerSize::from_untyped(&radius.bottom_left),
+                radius.top_left,
+                radius.top_right,
+                radius.bottom_right,
+                radius.bottom_left,
             ],
         };
 
@@ -2406,9 +2404,9 @@ impl FrameBuilder {
     }
 
     fn create_screen_tiles(&self) -> (i32, i32, Vec<ScreenTile>) {
-        let dp_size = DeviceIntSize::from_lengths(device_length(self.screen_rect.size.width as f32,
+        let dp_size = DeviceIntSize::from_lengths(device_length(self.screen_rect.size.width,
                                                                 self.device_pixel_ratio),
-                                                  device_length(self.screen_rect.size.height as f32,
+                                                  device_length(self.screen_rect.size.height,
                                                                 self.device_pixel_ratio));
 
         let x_tile_size = SCREEN_TILE_SIZE;
@@ -2584,9 +2582,9 @@ impl FrameBuilder {
 
         let screen_rect = DeviceIntRect::new(
             DeviceIntPoint::zero(),
-            DeviceIntSize::from_lengths(device_length(self.screen_rect.size.width as f32,
+            DeviceIntSize::from_lengths(device_length(self.screen_rect.size.width,
                                                       self.device_pixel_ratio),
-                                        device_length(self.screen_rect.size.height as f32,
+                                        device_length(self.screen_rect.size.height,
                                                       self.device_pixel_ratio)));
 
         let mut debug_rects = Vec::new();

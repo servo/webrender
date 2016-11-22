@@ -4,11 +4,11 @@ extern crate gleam;
 extern crate webrender_traits;
 extern crate euclid;
 
-use euclid::{Size2D, Point2D, Rect, Matrix4D};
 use gleam::gl;
 use std::path::PathBuf;
 use webrender_traits::{ColorF, Epoch, GlyphInstance};
 use webrender_traits::{ImageData, ImageFormat, PipelineId, RendererKind};
+use webrender_traits::{LayoutSize, LayoutPoint, LayoutRect, LayoutTransform, DeviceUintSize};
 use std::fs::File;
 use std::io::Read;
 use std::env;
@@ -43,7 +43,7 @@ impl webrender_traits::RenderNotifier for Notifier {
 
     fn pipeline_size_changed(&mut self,
                              _: PipelineId,
-                             _: Option<Size2D<f32>>) {
+                             _: Option<LayoutSize>) {
     }
 }
 
@@ -102,35 +102,35 @@ fn main() {
     let pipeline_id = PipelineId(0, 0);
     let mut builder = webrender_traits::DisplayListBuilder::new(pipeline_id);
 
-    let bounds = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(width as f32, height as f32));
+    let bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(width as f32, height as f32));
     builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
                                   bounds,
                                   bounds,
                                   0,
-                                  &Matrix4D::identity(),
-                                  &Matrix4D::identity(),
+                                  &LayoutTransform::identity(),
+                                  &LayoutTransform::identity(),
                                   webrender_traits::MixBlendMode::Normal,
                                   Vec::new());
 
     let clip_region = {
         let mask = webrender_traits::ImageMask {
             image: api.add_image(2, 2, None, ImageFormat::A8, ImageData::new(vec![0,80, 180, 255])),
-            rect: Rect::new(Point2D::new(75.0, 75.0), Size2D::new(100.0, 100.0)),
+            rect: LayoutRect::new(LayoutPoint::new(75.0, 75.0), LayoutSize::new(100.0, 100.0)),
             repeat: false,
         };
         let radius = webrender_traits::BorderRadius::uniform(20.0);
         let complex = webrender_traits::ComplexClipRegion::new(
-            Rect::new(Point2D::new(50.0, 50.0), Size2D::new(100.0, 100.0)),
+            LayoutRect::new(LayoutPoint::new(50.0, 50.0), LayoutSize::new(100.0, 100.0)),
             radius);
 
         builder.new_clip_region(&bounds, vec![complex], Some(mask))
     };
 
-    builder.push_rect(Rect::new(Point2D::new(100.0, 100.0), Size2D::new(100.0, 100.0)),
+    builder.push_rect(LayoutRect::new(LayoutPoint::new(100.0, 100.0), LayoutSize::new(100.0, 100.0)),
                       clip_region,
                       ColorF::new(0.0, 1.0, 0.0, 1.0));
 
-    let _text_bounds = Rect::new(Point2D::new(100.0, 200.0), Size2D::new(700.0, 300.0));
+    let _text_bounds = LayoutRect::new(LayoutPoint::new(100.0, 200.0), LayoutSize::new(700.0, 300.0));
 
     let _glyphs = vec![
         GlyphInstance {
@@ -200,7 +200,7 @@ fn main() {
     api.set_root_display_list(
         root_background_color,
         epoch,
-        Size2D::new(width as f32, height as f32),
+        LayoutSize::new(width as f32, height as f32),
         builder);
     api.set_root_pipeline(pipeline_id);
 
@@ -208,7 +208,7 @@ fn main() {
         gl::clear(gl::COLOR_BUFFER_BIT);
         renderer.update();
 
-        renderer.render(Size2D::new(width, height));
+        renderer.render(DeviceUintSize::new(width, height));
 
         window.swap_buffers().ok();
 

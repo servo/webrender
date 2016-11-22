@@ -8,13 +8,12 @@ extern crate webrender_traits;
 
 use bincode::serde::deserialize;
 use byteorder::{LittleEndian, ReadBytesExt};
-use euclid::Size2D;
 use gleam::gl;
 use std::io::Read;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::env;
-use webrender_traits::{RenderApi, PipelineId};
+use webrender_traits::{RenderApi, PipelineId, LayerSize, DeviceUintSize};
 use webrender_traits::channel::PayloadHelperMethods;
 use glutin::{Event, ElementState, VirtualKeyCode as Key};
 
@@ -38,7 +37,7 @@ impl webrender_traits::RenderNotifier for Notifier {
 
     fn pipeline_size_changed(&mut self,
                              _pid: PipelineId,
-                             _size: Option<Size2D<f32>>) {
+                             _size: Option<LayerSize>) {
     }
 
     fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {
@@ -133,7 +132,7 @@ fn main() {
                 println!("Rendering frame {}.", frame_num);
                 gl::clear(gl::COLOR_BUFFER_BIT);
                 renderer.update();
-                renderer.render(Size2D::new(width, height));
+                renderer.render(DeviceUintSize::new(width, height));
                 window.swap_buffers().unwrap();
             }
             Event::KeyboardInput(ElementState::Pressed, _, Some(Key::Right)) =>{

@@ -17,7 +17,6 @@ use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, ImageData};
 use webrender_traits::{FlushNotifier, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
-use webrender_traits::{DeviceIntSize};
 use webrender_traits::channel::{PayloadHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
 use record;
 use tiling::FrameBuilderConfig;
@@ -302,7 +301,7 @@ impl RenderBackend {
 
                                         self.resource_cache
                                             .add_webgl_texture(id, SourceTexture::WebGL(texture_id),
-                                                               DeviceIntSize::from_untyped(&real_size));
+                                                               real_size);
 
                                         tx.send(Ok((id, limits))).unwrap();
                                     },
@@ -323,7 +322,7 @@ impl RenderBackend {
                                     let (real_size, texture_id, _) = ctx.get_info();
                                     self.resource_cache
                                         .update_webgl_texture(context_id, SourceTexture::WebGL(texture_id),
-                                                              DeviceIntSize::from_untyped(&real_size));
+                                                              real_size);
                                 },
                                 Err(msg) => {
                                     error!("Error resizing WebGLContext: {}", msg);
