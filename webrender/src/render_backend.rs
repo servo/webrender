@@ -68,7 +68,6 @@ impl RenderBackend {
                main_thread_dispatcher:  Arc<Mutex<Option<Box<RenderDispatcher>>>>) -> RenderBackend {
 
         let resource_cache = ResourceCache::new(texture_cache,
-                                                device_pixel_ratio,
                                                 enable_aa);
 
         RenderBackend {

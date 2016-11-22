@@ -2108,7 +2108,7 @@ impl FrameBuilder {
 
             let prim_cpu = TextRunPrimitiveCpu {
                 font_key: font_key,
-                font_size: size,
+                logical_font_size: size,
                 blur_radius: blur_radius,
                 glyph_range: sub_range,
                 cache_dirty: true,
