@@ -13,11 +13,11 @@ use debug_colors;
 use debug_render::DebugRenderer;
 use device::{Device, ProgramId, TextureId, VertexFormat, GpuProfiler};
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
-use euclid::{Matrix4D, Point2D, Size2D};
+use euclid::{Size2D, Matrix4D};
 use fnv::FnvHasher;
 use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, DevicePoint, SourceTexture};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler, GLContextHandleWrapper};
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
@@ -38,6 +38,7 @@ use time::precise_time_ns;
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, FlushNotifier, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ExternalImageId, ImageFormat, RenderApiSender, RendererKind};
+use webrender_traits::{DeviceSize, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use webrender_traits::channel;
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
@@ -835,6 +836,7 @@ impl Renderer {
     /// A Frame is supplied by calling [set_root_stacking_context()][newframe].
     /// [newframe]: ../../webrender_traits/struct.RenderApi.html#method.set_root_stacking_context
     pub fn render(&mut self, framebuffer_size: Size2D<u32>) {
+        let framebuffer_size = DeviceUintSize::from_untyped(&framebuffer_size);
         if let Some(mut frame) = self.current_frame.take() {
             if let Some(ref mut frame) = frame.frame {
                 let mut profile_timers = RendererProfileTimers::new();
@@ -877,8 +879,8 @@ impl Renderer {
                 self.profile_counters.reset();
                 self.profile_counters.frame_counter.inc();
 
-                let debug_size = Size2D::new(framebuffer_size.width as u32,
-                                             framebuffer_size.height as u32);
+                let debug_size = DeviceUintSize::new(framebuffer_size.width as u32,
+                                                     framebuffer_size.height as u32);
                 self.debug.render(&mut self.device, &debug_size);
                 self.device.end_frame();
                 self.last_time = current_time;
@@ -968,8 +970,8 @@ impl Renderer {
     }
 
     fn add_debug_rect(&mut self,
-                      p0: DevicePoint,
-                      p1: DevicePoint,
+                      p0: DeviceIntPoint,
+                      p1: DeviceIntPoint,
                       label: &str,
                       c: &ColorF) {
         let tile_x0 = p0.x;
@@ -1039,7 +1041,7 @@ impl Renderer {
     fn draw_target(&mut self,
                    render_target: Option<(TextureId, i32)>,
                    target: &RenderTarget,
-                   target_size: &Size2D<f32>,
+                   target_size: &DeviceSize,
                    cache_texture: Option<TextureId>,
                    should_clear: bool) {
         self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
@@ -1354,8 +1356,8 @@ impl Renderer {
                 self.external_images.insert(external_id, texture_id);
                 let resource_rect_index = deferred_resolve.resource_address.0 as usize;
                 let resource_rect = &mut frame.gpu_resource_rects[resource_rect_index];
-                resource_rect.uv0 = Point2D::new(image.u0, image.v0);
-                resource_rect.uv1 = Point2D::new(image.u1, image.v1);
+                resource_rect.uv0 = DevicePoint::new(image.u0, image.v0);
+                resource_rect.uv1 = DevicePoint::new(image.u1, image.v1);
             }
         }
     }
@@ -1374,14 +1376,14 @@ impl Renderer {
 
     fn draw_tile_frame(&mut self,
                        frame: &mut Frame,
-                       framebuffer_size: &Size2D<u32>) {
+                       framebuffer_size: &DeviceUintSize) {
         self.update_deferred_resolves(frame);
 
         // Some tests use a restricted viewport smaller than the main screen size.
         // Ensure we clear the framebuffer in these tests.
         // TODO(gw): Find a better solution for this?
-        let viewport_size = Size2D::new(frame.viewport_size.width * self.device_pixel_ratio as i32,
-                                        frame.viewport_size.height * self.device_pixel_ratio as i32);
+        let viewport_size = DeviceIntSize::new(frame.viewport_size.width * self.device_pixel_ratio as i32,
+                                               frame.viewport_size.height * self.device_pixel_ratio as i32);
         let needs_clear = viewport_size.width < framebuffer_size.width as i32 ||
                           viewport_size.height < framebuffer_size.height as i32;
 
@@ -1451,7 +1453,7 @@ impl Renderer {
             for (pass_index, pass) in frame.passes.iter().enumerate() {
                 let (do_clear, size, target_id) = if pass.is_framebuffer {
                     (needs_clear,
-                     Size2D::new(framebuffer_size.width as f32, framebuffer_size.height as f32),
+                     DeviceSize::new(framebuffer_size.width as f32, framebuffer_size.height as f32),
                      None)
                 } else {
                     (true, frame.cache_size, Some(self.render_targets[pass_index]))

@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use device::TextureFilter;
-use euclid::{Size2D, TypedRect, TypedPoint2D, TypedSize2D, Length, UnknownUnit};
+use euclid::{Size2D, TypedPoint2D, UnknownUnit};
 use fnv::FnvHasher;
 use offscreen_gl_context::{NativeGLContext, NativeGLContextHandle};
 use offscreen_gl_context::{GLContext, NativeGLContextMethods, GLContextDispatcher};
@@ -161,18 +161,6 @@ impl GLContextWrapper {
             }
         }
     }
-}
-
-pub type DeviceRect = TypedRect<i32, DevicePixel>;
-pub type DevicePoint = TypedPoint2D<i32, DevicePixel>;
-pub type DeviceSize = TypedSize2D<i32, DevicePixel>;
-pub type DeviceLength = Length<i32, DevicePixel>;
-
-#[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct DevicePixel;
-
-pub fn device_pixel(value: f32, device_pixel_ratio: f32) -> DeviceLength {
-    DeviceLength::new((value * device_pixel_ratio).round() as i32)
 }
 
 const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
