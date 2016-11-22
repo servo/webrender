@@ -15,3 +15,4 @@ script:
   - (cd webrender && cargo test --verbose)
   - (cd sample && cargo test --verbose)
   - (cd replay && cargo test --verbose)
+  - (cd wrench && cargo test --verbose)

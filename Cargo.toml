@@ -6,3 +6,6 @@ members = [
 	"replay",
 	"wrench",
 ]
+
+[profile.release]
+debug = true

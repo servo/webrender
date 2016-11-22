@@ -19,3 +19,5 @@ test_script:
   - cargo test --verbose
   - cd ../replay
   - cargo test --verbose
+  - cd ../wrench
+  - cargo test --verbose
