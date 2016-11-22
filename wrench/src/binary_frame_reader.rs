@@ -99,7 +99,7 @@ impl BinaryFrameReader {
             };
             let written_apimsg_type_id = file.read_u64::<LittleEndian>().unwrap();
             if written_apimsg_type_id != apimsg_type_id {
-                panic!("Binary file ApiMsg enum type mismatch: expected 0x{:x}, found 0x{:x}", apimsg_type_id, written_apimsg_type_id);
+                println!("Binary file ApiMsg enum type mismatch: expected 0x{:x}, found 0x{:x}", apimsg_type_id, written_apimsg_type_id);
             }
 
             self.frame_data.clear();
