@@ -10,11 +10,13 @@ use bincode::serde::deserialize;
 use byteorder::{LittleEndian, ReadBytesExt};
 use euclid::Size2D;
 use gleam::gl;
+use std::any::TypeId;
+use std::mem;
 use std::io::Read;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::env;
-use webrender_traits::{RenderApi, PipelineId};
+use webrender_traits::{ApiMsg, RenderApi, PipelineId};
 use webrender_traits::channel::PayloadHelperMethods;
 use glutin::{Event, ElementState, VirtualKeyCode as Key};
 
@@ -55,6 +57,16 @@ fn read_file(dir: &Path, frame: i32, api: &RenderApi) -> bool {
             return false
         }
     };
+
+    let apimsg_type_id = unsafe {
+        assert!(mem::size_of::<TypeId>() == mem::size_of::<u64>());
+        mem::transmute::<TypeId, u64>(TypeId::of::<ApiMsg>())
+    };
+    let written_apimsg_type_id = file.read_u64::<LittleEndian>().unwrap();
+    if written_apimsg_type_id != apimsg_type_id {
+        panic!("Binary file ApiMsg enum type mismatch: expected 0x{:x}, found 0x{:x}", apimsg_type_id, written_apimsg_type_id);
+    }
+
     while let Ok(mut len) = file.read_u32::<LittleEndian>() {
         if len > 0 {
             let mut buffer = vec![0; len as usize];

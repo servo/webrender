@@ -3,6 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use clap;
+use std::mem;
+use std::any::TypeId;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -90,6 +92,15 @@ impl BinaryFrameReader {
             } else {
                 File::open(&self.file_base).expect("Couldn't open file!")
             };
+
+            let apimsg_type_id = unsafe {
+                assert!(mem::size_of::<TypeId>() == mem::size_of::<u64>());
+                mem::transmute::<TypeId, u64>(TypeId::of::<ApiMsg>())
+            };
+            let written_apimsg_type_id = file.read_u64::<LittleEndian>().unwrap();
+            if written_apimsg_type_id != apimsg_type_id {
+                panic!("Binary file ApiMsg enum type mismatch: expected 0x{:x}, found 0x{:x}", apimsg_type_id, written_apimsg_type_id);
+            }
 
             self.frame_data.clear();
             while let Ok(mut len) = file.read_u32::<LittleEndian>() {
