@@ -16,6 +16,8 @@ image = "0.10"
 clap = { version = "2", features = ["yaml"] }
 lazy_static = "0.2"
 yaml-rust = { git = "https://github.com/vvuk/yaml-rust" }
+serde = "0.8"
+serde_json = "0.8"
 
 [dependencies.webrender]
 path = "../webrender"

@@ -3,5 +3,5 @@ target/
 *#
 *~
 yaml_frames/
-record/
+json_frames/
 bin_frames/

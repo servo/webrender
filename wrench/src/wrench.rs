@@ -19,8 +19,14 @@ use webrender;
 use webrender_traits::*;
 use yaml_rust::Yaml;
 use yaml_frame_writer::YamlFrameWriter;
+use json_frame_writer::JsonFrameWriter;
 
 use {WHITE_COLOR, BLACK_COLOR};
+
+pub enum SaveType {
+    Yaml,
+    Json,
+}
 
 struct Notifier {
     window_proxy: WindowProxy,
@@ -106,8 +112,8 @@ pub struct Wrench {
 impl Wrench {
     pub fn new(shader_override_path: Option<PathBuf>,
                dp_ratio: Option<f32>,
+               save_type: Option<SaveType>,
                subpixel_aa: bool,
-               record: bool,
                debug: bool)
            -> Wrench
     {
@@ -139,8 +145,13 @@ impl Wrench {
         println!("Shader override path: {:?}", shader_override_path);
         println!("hidpi factor: {} (native {})", dp_ratio, window.hidpi_factor());
 
-        if record {
-            let recorder = Box::new(YamlFrameWriter::new(&PathBuf::from("yaml_frames"))) as Box<webrender::ApiRecordingReceiver>;
+        if let Some(ref save_type) = save_type {
+            let recorder = match save_type {
+                &SaveType::Yaml => Box::new(YamlFrameWriter::new(&PathBuf::from("yaml_frames")))
+                    as Box<webrender::ApiRecordingReceiver>,
+                &SaveType::Json => Box::new(JsonFrameWriter::new(&PathBuf::from("json_frames")))
+                    as Box<webrender::ApiRecordingReceiver>,
+            };
             webrender::set_recording_detour(Some(recorder));
         }
 
@@ -154,7 +165,7 @@ impl Wrench {
             enable_aa: false,
             enable_msaa: false,
             enable_profiler: false,
-            enable_recording: record,
+            enable_recording: save_type.is_some(),
             enable_scrollbars: false,
             enable_subpixel_aa: subpixel_aa,
             debug: debug,

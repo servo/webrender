@@ -16,9 +16,10 @@ args:
       short: r
       long: rebuild
       help: Rebuild display list from scratch every frame
-  - record:
-      long: record
-      help: Record frames to yaml
+  - save:
+      long: save
+      help: 'Save frames, either "yaml" or "json"'
+      takes_value: true
   - subpixel_aa:
       short: a
       long: subpixel-aa

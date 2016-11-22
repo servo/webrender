@@ -16,6 +16,8 @@ extern crate image;
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
+extern crate serde;
+extern crate serde_json;
 
 #[cfg(target_os = "windows")]
 extern crate dwrote;
@@ -33,6 +35,7 @@ mod yaml_frame_reader;
 use yaml_frame_reader::YamlFrameReader;
 
 mod yaml_frame_writer;
+mod json_frame_writer;
 
 mod binary_frame_reader;
 use binary_frame_reader::BinaryFrameReader;
@@ -74,8 +77,14 @@ fn main() {
     // handle some global arguments
     let res_path = args.value_of("shaders").map(|s| PathBuf::from(s));
     let dp_ratio = args.value_of("dp_ratio").map(|v| v.parse::<f32>().unwrap());
+    let save_type = args.value_of("save").map(|s| {
+        if s == "yaml" { wrench::SaveType::Yaml }
+        else if s == "json" { wrench::SaveType::Json }
+        else { panic!("Save type must be json or yaml"); }
+    });
 
     let mut wrench = Wrench::new(res_path, dp_ratio,
+                                 save_type,
                                  args.is_present("subpixel-aa"),
                                  args.is_present("record"),
                                  args.is_present("debug"));
