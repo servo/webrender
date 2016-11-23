@@ -246,6 +246,24 @@ impl RenderBackend {
                                 None => self.notify_compositor_of_new_scroll_frame(false),
                             }
                         }
+                        ApiMsg::ScrollLayersWithScrollId(origin, pipeline_id, scroll_root_id) => {
+                            let frame = profile_counters.total_time.profile(|| {
+                                if self.frame.scroll_layers(origin, pipeline_id, scroll_root_id) {
+                                    Some(self.render())
+                                } else {
+                                    None
+                                }
+                            });
+
+                            match frame {
+                                Some(frame) => {
+                                    self.publish_frame(frame, &mut profile_counters);
+                                    self.notify_compositor_of_new_scroll_frame(true)
+                                }
+                                None => self.notify_compositor_of_new_scroll_frame(false),
+                            }
+
+                        }
                         ApiMsg::TickScrollingBounce => {
                             let frame = profile_counters.total_time.profile(|| {
                                 self.frame.tick_scrolling_bounce_animations();
