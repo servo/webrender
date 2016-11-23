@@ -9,7 +9,7 @@ use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::cell::Cell;
 use {ApiMsg, AuxiliaryLists, BuiltDisplayList, ColorF, Epoch};
 use {FontKey, IdNamespace, ImageFormat, ImageKey, NativeFontHandle, PipelineId};
-use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState};
+use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState, ServoScrollRootId};
 use {GlyphKey, GlyphDimensions, ImageData, WebGLContextId, WebGLCommand};
 
 impl RenderApiSender {
@@ -190,6 +190,14 @@ impl RenderApi {
     /// which has `ScrollPolicy::Scrollable` set.
     pub fn scroll(&self, delta: Point2D<f32>, cursor: Point2D<f32>, phase: ScrollEventPhase) {
         let msg = ApiMsg::Scroll(delta, cursor, phase);
+        self.api_sender.send(msg).unwrap();
+    }
+
+    pub fn scroll_layers_with_scroll_root_id(&self,
+                                             new_scroll_origin: Point2D<f32>,
+                                             pipeline_id: PipelineId,
+                                             scroll_root_id: ServoScrollRootId) {
+        let msg = ApiMsg::ScrollLayersWithScrollId(new_scroll_origin, pipeline_id, scroll_root_id);
         self.api_sender.send(msg).unwrap();
     }
 

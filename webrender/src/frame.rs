@@ -21,7 +21,7 @@ use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLa
 use webrender_traits::{ClipRegion, ColorF, DisplayItem, StackingContext, FilterOp, MixBlendMode};
 use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, SpecificDisplayItem, ScrollLayerState};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
-use webrender_traits::{ScrollLayerRect, as_scroll_parent_rect, ScrollLayerPixel};
+use webrender_traits::{ServoScrollRootId, ScrollLayerRect, as_scroll_parent_rect, ScrollLayerPixel};
 use webrender_traits::WorldPoint4D;
 use webrender_traits::{LayerTransform, LayerToScrollTransform, ScrollToWorldTransform};
 
@@ -52,6 +52,7 @@ pub struct Frame {
                                           AuxiliaryLists,
                                           BuildHasherDefault<FnvHasher>>,
     pub root_scroll_layer_id: Option<ScrollLayerId>,
+    pending_scroll_offsets: HashMap<PipelineId, HashMap<ServoScrollRootId, LayerPoint>>,
     id: FrameId,
     debug: bool,
     frame_builder_config: FrameBuilderConfig,
@@ -210,6 +211,7 @@ impl Frame {
             pipeline_auxiliary_lists: HashMap::with_hasher(Default::default()),
             layers: HashMap::with_hasher(Default::default()),
             root_scroll_layer_id: None,
+            pending_scroll_offsets: HashMap::new(),
             id: FrameId(0),
             debug: debug,
             frame_builder: None,
@@ -293,6 +295,40 @@ impl Frame {
             }
         }
         result
+    }
+
+    /// Returns true if any layers actually changed position or false otherwise.
+    pub fn scroll_layers(&mut self,
+                         origin: Point2D<f32>,
+                         pipeline_id: PipelineId,
+                         scroll_root_id: ServoScrollRootId)
+                          -> bool {
+        let origin = LayerPoint::new(origin.x.max(0.0), origin.y.max(0.0));
+
+        let mut scrolled_a_layer = false;
+        let mut found_layer = false;
+        for (layer_id, layer) in self.layers.iter_mut() {
+            if layer_id.pipeline_id != pipeline_id {
+                continue;
+            }
+
+            match layer_id.info {
+                ScrollLayerInfo::Scrollable(_, id) if id != scroll_root_id => continue,
+                ScrollLayerInfo::Fixed => continue,
+                _ => {}
+            }
+
+            found_layer = true;
+            scrolled_a_layer = layer.set_scroll_origin(&origin);
+        }
+
+        if !found_layer {
+            let scroll_offsets =
+                self.pending_scroll_offsets.entry(pipeline_id).or_insert(HashMap::new());
+            scroll_offsets.insert(scroll_root_id, origin);
+        }
+
+        scrolled_a_layer
     }
 
     /// Returns true if any layers actually changed position or false otherwise.
@@ -480,6 +516,19 @@ impl Frame {
             };
 
             layer.finalize(&scrolling_state);
+
+            let scroll_root_id = match scroll_layer_id.info {
+                ScrollLayerInfo::Scrollable(_, scroll_root_id) => scroll_root_id,
+                _ => continue,
+            };
+
+
+            let pipeline_id = scroll_layer_id.pipeline_id;
+            if let Some(pending_offsets) = self.pending_scroll_offsets.get_mut(&pipeline_id) {
+                if let Some(ref offset) = pending_offsets.remove(&scroll_root_id) {
+                    layer.set_scroll_origin(offset);
+                }
+            }
         }
     }
 
