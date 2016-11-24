@@ -641,7 +641,7 @@ impl PrimitiveStore {
     fn resolve_clip_cache_internal(gpu_data32: &mut GpuStore<GpuBlock32>,
                                    clip_info: &MaskCacheInfo,
                                    resource_cache: &ResourceCache) {
-        if let (Some(gpu_address), Some(ref mask)) = (clip_info.key.image, clip_info.image) {
+        if let Some((ref mask, gpu_address)) = clip_info.image {
             let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto);
             let mask_data = gpu_data32.get_slice_mut(gpu_address, MASK_DATA_GPU_SIZE);
             mask_data[0] = GpuBlock32::from(ImageMaskData {
