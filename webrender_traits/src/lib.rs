@@ -42,5 +42,5 @@ mod stacking_context;
 mod webgl;
 
 pub use api::RenderApi;
-pub use display_list::{AuxiliaryListsBuilder, DisplayListBuilder};
+pub use display_list::DisplayListBuilder;
 pub use units::*;
