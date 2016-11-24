@@ -119,6 +119,7 @@ impl VertexDataTexture {
 
 const TRANSFORM_FEATURE: &'static str = "TRANSFORM";
 const SUBPIXEL_AA_FEATURE: &'static str = "SUBPIXEL_AA";
+const CLIP_FEATURE: &'static str = "CLIP";
 
 enum ShaderKind {
     Primitive,
@@ -346,6 +347,7 @@ pub struct Renderer {
     // output, and the cache_image shader blits the results of
     // a cache shader (e.g. blur) to the screen.
     ps_rectangle: PrimitiveShader,
+    ps_rectangle_clip: PrimitiveShader,
     ps_text_run: PrimitiveShader,
     ps_text_run_subpixel: PrimitiveShader,
     ps_image: PrimitiveShader,
@@ -503,6 +505,12 @@ impl Renderer {
                                                 &mut device,
                                                 &[],
                                                 options.precache_shaders);
+        let ps_rectangle_clip = PrimitiveShader::new("ps_rectangle",
+                                                     max_ubo_vectors,
+                                                     max_prim_instances,
+                                                     &mut device,
+                                                     &[ CLIP_FEATURE ],
+                                                     options.precache_shaders);
         let ps_text_run = PrimitiveShader::new("ps_text_run",
                                                max_ubo_vectors,
                                                max_prim_instances,
@@ -699,6 +707,7 @@ impl Renderer {
             cs_text_run: cs_text_run,
             cs_blur: cs_blur,
             ps_rectangle: ps_rectangle,
+            ps_rectangle_clip: ps_rectangle_clip,
             ps_text_run: ps_text_run,
             ps_text_run_subpixel: ps_text_run_subpixel,
             ps_image: ps_image,
@@ -1198,7 +1207,7 @@ impl Renderer {
         for batch in &target.alpha_batcher.batches {
             let transform_kind = batch.key.flags.transform_kind();
             let needs_clipping = batch.key.flags.needs_clipping();
-            assert!(!needs_clipping || batch.key.blend_mode == BlendMode::Alpha);
+            debug_assert!(!needs_clipping || batch.key.blend_mode == BlendMode::Alpha);
 
             if batch.key.blend_mode != prev_blend_mode {
                 match batch.key.blend_mode {
@@ -1256,7 +1265,11 @@ impl Renderer {
                 }
                 &PrimitiveBatchData::Rectangles(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT);
-                    let (shader, max_prim_items) = self.ps_rectangle.get(&mut self.device, transform_kind);
+                    let (shader, max_prim_items) = if needs_clipping {
+                        self.ps_rectangle_clip.get(&mut self.device, transform_kind)
+                    } else {
+                        self.ps_rectangle.get(&mut self.device, transform_kind)
+                    };
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
