@@ -43,6 +43,9 @@ use webrender_traits::{LayerRect, LayerPoint, LayerSize};
 use webrender_traits::{LayerToScrollTransform, LayerToWorldTransform, WorldToLayerTransform};
 use webrender_traits::{WorldPoint4D, ScrollLayerPixel, as_scroll_parent_rect};
 
+// Removes the clip task dependencies and instead
+// draws all the clip instances that affect a primitive
+const CLIP_TASK_COLLAPSE: bool = true;
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
 
 pub type LayerMap = HashMap<ScrollLayerId,
@@ -659,51 +662,55 @@ impl ClipBatcher {
     fn add(&mut self,
            task_index: RenderTaskIndex,
            base_task_index: Option<RenderTaskIndex>,
-           layer_id: StackingContextIndex,
-           clip_info: &MaskCacheInfo,
+           clips: &[(StackingContextIndex, MaskCacheInfo)],
            resource_cache: &ResourceCache) {
 
-        let mut start_rect_id = 0;
-        let instance = CacheClipInstance {
-            task_id: task_index.0 as i32,
-            layer_index: layer_id.0 as i32,
-            address: GpuStoreAddress(0),
-            base_task_id: 0,
-        };
         // TODO: don't draw clipping instances covering the whole tile
-        if let Some(layer_task_id) = base_task_index {
-            self.copies.push(CacheClipInstance {
-                base_task_id: layer_task_id.0 as i32,
-                ..instance
-            });
-        } else if clip_info.clip_range.item_count > 0 {
-            // draw the first rectangle without blending in order
-            // to avoid clearing the area first
-            start_rect_id = 1;
-            self.rectangles_noblend.push(CacheClipInstance {
-                address: clip_info.clip_range.start,
-                ..instance
-            })
-        } else {
-            self.clears.push(instance);
-        }
-
-        self.rectangles.extend((start_rect_id .. clip_info.clip_range.item_count as usize)
-                       .map(|region_id| {
-            let offset = clip_info.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * region_id) as i32);
-            CacheClipInstance {
-                address: GpuStoreAddress(offset),
-                ..instance
+        for &(layer_id, ref info) in clips.iter() {
+            let instance = CacheClipInstance {
+                task_id: task_index.0 as i32,
+                layer_index: layer_id.0 as i32,
+                address: GpuStoreAddress(0),
+                base_task_id: 0,
+            };
+            let mut start_rect_id = 0;
+            // clear/copy on the first clip only
+            if info as *const _ == &clips[0].1 as *const _ {
+                if let Some(layer_task_id) = base_task_index {
+                    self.copies.push(CacheClipInstance {
+                        base_task_id: layer_task_id.0 as i32,
+                        ..instance
+                    });
+                } else if info.clip_range.item_count > 0 {
+                    // draw the first rectangle without blending in order
+                    // to avoid clearing the area first
+                    start_rect_id = 1;
+                    self.rectangles_noblend.push(CacheClipInstance {
+                        address: info.clip_range.start,
+                        ..instance
+                    })
+                } else {
+                    self.clears.push(instance);
+                }
             }
-        }));
-        if let Some((ref mask, address)) = clip_info.image {
-            let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto);
-            self.images.entry(cache_item.texture_id)
-                       .or_insert(Vec::new())
-                       .push(CacheClipInstance {
-                address: address,
-                ..instance
-            })
+
+            self.rectangles.extend((start_rect_id .. info.clip_range.item_count as usize)
+                           .map(|region_id| {
+                let offset = info.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * region_id) as i32);
+                CacheClipInstance {
+                    address: GpuStoreAddress(offset),
+                    ..instance
+                }
+            }));
+            if let Some((ref mask, address)) = info.image {
+                let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto);
+                self.images.entry(cache_item.texture_id)
+                           .or_insert(Vec::new())
+                           .push(CacheClipInstance {
+                    address: address,
+                    ..instance
+                })
+            }
         }
     }
 }
@@ -861,7 +868,7 @@ impl RenderTarget {
                     render_tasks.get_task_index(task_id, pass_index)
                 );
                 self.clip_batcher.add(task_index, base_task_id,
-                                      task_info.layer_id, &task_info.clip_info,
+                                      &task_info.clips,
                                       &ctx.resource_cache);
             }
         }
@@ -984,9 +991,8 @@ pub struct AlphaRenderTask {
 #[derive(Debug, Clone)]
 pub struct CacheMaskTask {
     actual_rect: DeviceIntRect,
-    layer_id: StackingContextIndex,
-    clip_info: MaskCacheInfo,
     base_task_id: Option<RenderTaskId>,
+    clips: Vec<(StackingContextIndex, MaskCacheInfo)>,
 }
 
 #[derive(Debug)]
@@ -1047,17 +1053,25 @@ impl RenderTask {
     }
 
     fn new_mask(actual_rect: DeviceIntRect,
-                cache_info: &MaskCacheInfo,
                 dependent: Option<&RenderTask>,
+                mask_key: MaskCacheKey,
+                top_clip: (StackingContextIndex, &MaskCacheInfo),
+                layer_clips: &[(StackingContextIndex, MaskCacheInfo)],
                 tile_id: TileUniqueId)
                 -> MaskResult {
-        let task_rect = match actual_rect.intersection(&clip_info.outer_rect) {
+        //CLIP_TODO: combine the clip stack rectangles, not just use the last one
+        let task_rect = match actual_rect.intersection(&top_clip.1.outer_rect) {
             None => return MaskResult::Outside,
-            Some(_) if clip_info.inner_rect.contains_rect(&actual_rect) => return MaskResult::Covering,
+            Some(_) if top_clip.1.inner_rect.contains_rect(&actual_rect) => return MaskResult::Covering,
             Some(rect) => rect,
         };
+        let extra = (top_clip.0, top_clip.1.clone());
+        let clips = layer_clips.iter()
+                               .map(|lc| lc.clone())
+                               .chain(Some(extra))
+                               .collect();
         MaskResult::Inside(RenderTask {
-            id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(cache_info.key, tile_id)),
+            id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(mask_key, tile_id)),
             children: match dependent {
                 Some(task) => vec![task.clone()],
                 None => Vec::new(),
@@ -1065,8 +1079,8 @@ impl RenderTask {
             location: RenderTaskLocation::Dynamic(None, task_rect.size),
             kind: RenderTaskKind::CacheMask(CacheMaskTask {
                 actual_rect: task_rect,
-                image: cache_info.image.map(|mask| mask.image),
                 base_task_id: dependent.map(|task| task.id),
+                clips: clips,
             }),
         })
     }
@@ -1796,6 +1810,7 @@ impl ScreenTile {
         let mut sc_stack = Vec::new();
         let mut current_task = RenderTask::new_alpha_batch(self.rect, ctx);
         let mut alpha_task_stack = Vec::new();
+        let mut clip_info_stack = Vec::new();
         let mut clip_task_stack = Vec::new();
         let mut num_clips_to_skip = 0;
         let mut layer_masks_tasks = LayerMasksTasks::new();
@@ -1821,19 +1836,23 @@ impl ScreenTile {
                     // Create a task for the layer mask, if needed,
                     // i.e. if there are rounded corners or image masks for the layer.
                     if let Some(ref clip_info) = layer.clip_cache_info {
-                        let mask_opt = RenderTask::new_mask(self.rect,
-                                                            clip_info,
-                                                            clip_task_stack.last(),
-                                                            MaskCacheKey::Layer(sc_index),
-                                                            sc_index,
-                                                            ctx.tile_id);
-                        match mask_opt {
-                            MaskResult::Inside(mask_task) => {
-                                current_task.children.push(mask_task.clone());
-                                clip_task_stack.push(mask_task);
-                                num_clips_to_skip = 0;
+                        if CLIP_TASK_COLLAPSE {
+                            clip_info_stack.push((sc_index, clip_info.clone()));
+                        } else {
+                            let mask_opt = RenderTask::new_mask(self.rect,
+                                                                clip_task_stack.last(),
+                                                                MaskCacheKey::Layer(sc_index),
+                                                                (sc_index, clip_info),
+                                                                &clip_info_stack,
+                                                                ctx.tile_id);
+                            match mask_opt {
+                                MaskResult::Inside(mask_task) => {
+                                    current_task.children.push(mask_task.clone());
+                                    clip_task_stack.push(mask_task);
+                                    num_clips_to_skip = 0;
+                                }
+                                _ => num_clips_to_skip += 1,
                             }
-                            _ => num_clips_to_skip += 1,
                         }
                     }
                     // Register the layer mask task within the context
@@ -1871,10 +1890,14 @@ impl ScreenTile {
                     }
 
                     if layer.clip_cache_info.is_some() {
-                        if num_clips_to_skip > 0 {
-                            num_clips_to_skip -= 1;
+                        if CLIP_TASK_COLLAPSE {
+                            clip_info_stack.pop().unwrap();
                         } else {
-                            clip_task_stack.pop().unwrap();
+                            if num_clips_to_skip > 0 {
+                                num_clips_to_skip -= 1;
+                            } else {
+                                clip_task_stack.pop().unwrap();
+                            }
                         }
                     }
                 }
@@ -1902,10 +1925,10 @@ impl ScreenTile {
                     // Add a task to render the updated image mask
                     if let Some(ref clip_info) = prim_metadata.clip_cache_info {
                         let mask_opt = RenderTask::new_mask(self.rect,
-                                                            clip_info,
                                                             clip_task_stack.last(),
                                                             MaskCacheKey::Primitive(prim_index),
-                                                            sc_index,
+                                                            (sc_index, clip_info),
+                                                            &clip_info_stack,
                                                             ctx.tile_id);
                         match mask_opt {
                             MaskResult::Outside => panic!("Primitive be culled by `assign_prims_to_screen_tiles` already"),
