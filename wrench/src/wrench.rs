@@ -54,9 +54,10 @@ impl RenderNotifier for Notifier {
         match self.timing_receiver.steal() {
             chase_lev::Steal::Data(last_timing) => {
                 self.frames_notified += 1;
-                if self.frames_notified == 60 {
+                if self.frames_notified == 600 {
                     let elapsed = time::SteadyTime::now() - last_timing;
-                    println!("{:3.6} ms", elapsed.num_microseconds().unwrap() as f64 / 1000.);
+                    println!("frame latency (consider queue depth when looking at this number): {:3.6} ms",
+                             elapsed.num_microseconds().unwrap() as f64 / 1000.);
                     self.frames_notified = 0;
                 }
             }
