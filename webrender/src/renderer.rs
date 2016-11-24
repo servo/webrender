@@ -53,6 +53,7 @@ const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", col
 const GPU_TAG_CLEAR_TILES: GpuProfileTag = GpuProfileTag { label: "Clear Tiles", color: debug_colors::BROWN };
 const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: debug_colors::RED };
 const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: debug_colors::GREEN };
+const GPU_TAG_PRIM_YUV_IMAGE: GpuProfileTag = GpuProfileTag { label: "YuvImage", color: debug_colors::DARKGREEN };
 const GPU_TAG_PRIM_BLEND: GpuProfileTag = GpuProfileTag { label: "Blend", color: debug_colors::LIGHTBLUE };
 const GPU_TAG_PRIM_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "Composite", color: debug_colors::MAGENTA };
 const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "TextRun", color: debug_colors::BLUE };
@@ -351,6 +352,7 @@ pub struct Renderer {
     ps_text_run: PrimitiveShader,
     ps_text_run_subpixel: PrimitiveShader,
     ps_image: PrimitiveShader,
+    ps_yuv_image: PrimitiveShader,
     ps_border: PrimitiveShader,
     ps_gradient: PrimitiveShader,
     ps_angle_gradient: PrimitiveShader,
@@ -529,6 +531,12 @@ impl Renderer {
                                             &mut device,
                                             &[],
                                             options.precache_shaders);
+        let ps_yuv_image = PrimitiveShader::new("ps_yuv_image",
+                                                max_ubo_vectors,
+                                                max_prim_instances,
+                                                &mut device,
+                                                &[],
+                                                options.precache_shaders);
         let ps_border = PrimitiveShader::new("ps_border",
                                              max_ubo_vectors,
                                              max_prim_instances,
@@ -711,6 +719,7 @@ impl Renderer {
             ps_text_run: ps_text_run,
             ps_text_run_subpixel: ps_text_run_subpixel,
             ps_image: ps_image,
+            ps_yuv_image: ps_yuv_image,
             ps_border: ps_border,
             ps_box_shadow: ps_box_shadow,
             ps_gradient: ps_gradient,
@@ -1280,6 +1289,18 @@ impl Renderer {
                 &PrimitiveBatchData::Image(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE);
                     let (shader, max_prim_items) = self.ps_image.get(&mut self.device, transform_kind);
+                    self.draw_ubo_batch(ubo_data,
+                                        shader,
+                                        1,
+                                        &batch.key.textures,
+                                        max_prim_items,
+                                        &projection);
+                }
+                &PrimitiveBatchData::YuvImage(ref ubo_data) => {
+                    self.gpu_profile.add_marker(GPU_TAG_PRIM_YUV_IMAGE);
+                    let (shader, max_prim_items) = self.ps_yuv_image.get(
+                        &mut self.device, transform_kind
+                    );
                     self.draw_ubo_batch(ubo_data,
                                         shader,
                                         1,
