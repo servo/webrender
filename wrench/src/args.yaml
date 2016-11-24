@@ -42,6 +42,11 @@ subcommands:
     - show:
         about: show frame(s) described by YAML
         args:
+          - queue:
+              short: q
+              long: queue
+              help: How many frames to submit to WR ahead of time (default 1)
+              takes_value: true
           - INPUT:
               help: The input YAML file
               required: true

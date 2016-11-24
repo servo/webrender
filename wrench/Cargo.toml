@@ -19,6 +19,7 @@ yaml-rust = { git = "https://github.com/vvuk/yaml-rust" }
 serde = "0.8"
 serde_json = "0.8"
 time = "0.1"
+crossbeam = "0.2"
 
 [dependencies.webrender]
 path = "../webrender"

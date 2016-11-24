@@ -26,6 +26,8 @@ pub struct YamlFrameReader {
 
     built_data: Option<BuiltDisplayList>,
     built_aux_data: Option<AuxiliaryLists>,
+
+    queue_depth: u32,
 }
 
 impl YamlFrameReader {
@@ -41,13 +43,17 @@ impl YamlFrameReader {
 
             built_data: None,
             built_aux_data: None,
+
+            queue_depth: 1,
         }
     }
 
     pub fn new_from_args(args: &clap::ArgMatches) -> YamlFrameReader {
         let yaml_file = args.value_of("INPUT").map(|s| PathBuf::from(s)).unwrap();
 
-        YamlFrameReader::new(&yaml_file)
+        let mut y = YamlFrameReader::new(&yaml_file);
+        y.queue_depth = args.value_of("queue").map(|s| s.parse::<u32>().unwrap()).unwrap_or(1);
+        y
     }
 
     pub fn builder<'a>(&'a mut self) -> &'a mut DisplayListBuilder {
@@ -278,17 +284,10 @@ impl WrenchThing for YamlFrameReader {
             self.frame_built = true;
         }
 
-        let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
-        self.frame_count = self.frame_count + 1;
-
-        wrench.api.set_root_display_list(root_background_color,
-                                         Epoch(self.frame_count),
-                                         wrench.root_pipeline_id,
-                                         wrench.window_size_f32(),
-                                         self.built_data.as_ref().unwrap().clone(),
-                                         self.built_aux_data.as_ref().unwrap().clone());
-        wrench.api.set_root_pipeline(wrench.root_pipeline_id);
-
+        self.frame_count += 1;
+        wrench.send_lists(self.frame_count,
+                          self.built_data.as_ref().unwrap().clone(),
+                          self.built_aux_data.as_ref().unwrap().clone());
         self.frame_count
     }
 
@@ -296,5 +295,9 @@ impl WrenchThing for YamlFrameReader {
     }
 
     fn prev_frame(&mut self) {
+    }
+
+    fn queue_frames(&self) -> u32 {
+        self.queue_depth
     }
 }

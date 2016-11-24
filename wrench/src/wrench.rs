@@ -11,7 +11,7 @@ use font_loader::system_fonts;
 use euclid::Size2D;
 use gleam::gl;
 use glutin;
-use glutin::WindowProxy;
+use glutin::{WindowProxy, ElementState, VirtualKeyCode};
 use image;
 use image::GenericImage;
 use std::collections::HashMap;
@@ -24,8 +24,9 @@ use yaml_rust::Yaml;
 use yaml_frame_writer::YamlFrameWriter;
 use json_frame_writer::JsonFrameWriter;
 use time;
+use crossbeam::sync::chase_lev;
 
-use {WHITE_COLOR, BLACK_COLOR};
+use {CURRENT_FRAME_NUMBER, WHITE_COLOR, BLACK_COLOR};
 
 pub enum SaveType {
     Yaml,
@@ -34,18 +35,35 @@ pub enum SaveType {
 
 struct Notifier {
     window_proxy: WindowProxy,
+    frames_notified: u32,
+    timing_receiver: chase_lev::Stealer<time::SteadyTime>,
 }
 
 impl Notifier {
-    fn new(window_proxy: WindowProxy) -> Notifier {
+    fn new(window_proxy: WindowProxy, timing_receiver: chase_lev::Stealer<time::SteadyTime>) -> Notifier {
         Notifier {
             window_proxy: window_proxy,
+            frames_notified: 0,
+            timing_receiver: timing_receiver,
         }
     }
 }
 
 impl RenderNotifier for Notifier {
     fn new_frame_ready(&mut self) {
+        match self.timing_receiver.steal() {
+            chase_lev::Steal::Data(last_timing) => {
+                self.frames_notified += 1;
+                if self.frames_notified == 60 {
+                    let elapsed = time::SteadyTime::now() - last_timing;
+                    println!("{:3.6} ms", elapsed.num_microseconds().unwrap() as f64 / 1000.);
+                    self.frames_notified = 0;
+                }
+            }
+            _ => {
+                println!("Notified of frame, but no frame was ready?");
+            }
+        }
         self.window_proxy.wakeup_event_loop();
     }
 
@@ -88,10 +106,10 @@ pub trait WrenchThing {
     fn next_frame(&mut self);
     fn prev_frame(&mut self);
     fn do_frame(&mut self, &mut Wrench) -> u32;
+    fn queue_frames(&self) -> u32 { 0 }
 }
 
 pub struct Wrench {
-    pub window: glutin::Window,
     pub window_size: Size2D<u32>,
     pub device_pixel_ratio: f32,
 
@@ -105,13 +123,16 @@ pub struct Wrench {
     pub root_pipeline_id: PipelineId,
     pub next_scroll_layer_id: usize,
 
-    pub gl_renderer: String,
-    pub gl_version: String,
+    //pub gl_renderer: String,
+    //pub gl_version: String,
+
+    pub frame_start_sender: chase_lev::Worker<time::SteadyTime>,
 }
 
 impl Wrench {
-    pub fn new(shader_override_path: Option<PathBuf>,
-               dp_ratio: Option<f32>,
+    pub fn new(window: &mut glutin::Window,
+               shader_override_path: Option<PathBuf>,
+               dp_ratio: f32,
                save_type: Option<SaveType>,
                size: Size2D<u32>,
                subpixel_aa: bool,
@@ -119,32 +140,7 @@ impl Wrench {
                vsync: bool)
            -> Wrench
     {
-        let mut window = glutin::WindowBuilder::new()
-            .with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGl, (3, 2)))
-            .with_dimensions(size.width, size.height);
-        window.opengl.vsync = vsync;
-        let window = window.build().unwrap();
-
-        unsafe {
-            window.make_current().ok();
-            gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
-            gl::clear_color(0.3, 0.0, 0.0, 1.0);
-        }
-
-        let gl_version = unsafe {
-            let data = CStr::from_ptr(gl::GetString(gl::VERSION) as *const _).to_bytes().to_vec();
-            String::from_utf8(data).unwrap()
-        };
-
-        let gl_renderer = unsafe {
-            let data = CStr::from_ptr(gl::GetString(gl::RENDERER) as *const _).to_bytes().to_vec();
-            String::from_utf8(data).unwrap()
-        };
-
-        let dp_ratio = dp_ratio.unwrap_or(window.hidpi_factor());
-        println!("OpenGL version {}, {}", gl_version, gl_renderer);
         println!("Shader override path: {:?}", shader_override_path);
-        println!("hidpi factor: {} (native {})", dp_ratio, window.hidpi_factor());
 
         if let Some(ref save_type) = save_type {
             let recorder = match save_type {
@@ -173,11 +169,11 @@ impl Wrench {
         let (renderer, sender) = webrender::renderer::Renderer::new(opts);
         let api = sender.create_api();
 
-        let notifier = Box::new(Notifier::new(window.create_window_proxy()));
+        let (timing_sender, timing_receiver) = chase_lev::deque();
+        let notifier = Box::new(Notifier::new(window.create_window_proxy(), timing_receiver));
         renderer.set_render_notifier(notifier);
 
         let mut wrench = Wrench {
-            window: window,
             window_size: size,
 
             renderer: renderer,
@@ -191,18 +187,21 @@ impl Wrench {
             root_pipeline_id: PipelineId(0, 0),
             next_scroll_layer_id: 0,
 
-            gl_renderer: gl_renderer,
-            gl_version: gl_version,
+            //gl_renderer: gl_renderer,
+            //gl_version: gl_version,
+
+            frame_start_sender: timing_sender,
         };
 
         wrench.set_title("start");
+        wrench.api.set_root_pipeline(wrench.root_pipeline_id);
 
         wrench
     }
 
     pub fn set_title(&mut self, extra: &str) {
-        self.window.set_title(&format!("Wrench: {} ({}x) - {} - {}", extra,
-            self.device_pixel_ratio, self.gl_renderer, self.gl_version));
+        //self.window.set_title(&format!("Wrench: {} ({}x) - {} - {}", extra,
+        //    self.device_pixel_ratio, self.gl_renderer, self.gl_version));
     }
 
     pub fn window_size_f32(&self) -> Size2D<f32> {
@@ -302,26 +301,30 @@ impl Wrench {
         val
     }
 
-    pub fn update(&mut self) {
-        let (width, height) = self.window.get_inner_size().unwrap();
-        let dim = Size2D::new(width, height);
+    pub fn update(&mut self, dim: Size2D<u32>) {
         if dim != self.window_size {
-            gl::viewport(0, 0, width as i32, height as i32);
+            gl::viewport(0, 0, dim.width as i32, dim.height as i32);
             self.window_size = dim;
         }
 
         gl::clear(gl::COLOR_BUFFER_BIT);
     }
 
-    pub fn render(&mut self) -> time::Duration {
-        let start = time::SteadyTime::now();
+    pub fn send_lists(&mut self, frame_number: u32, display_list: BuiltDisplayList, auxiliary_lists: AuxiliaryLists) {
+        self.frame_start_sender.push(time::SteadyTime::now());
 
+        let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
+        self.api.set_root_display_list(root_background_color,
+                                       Epoch(frame_number),
+                                       self.root_pipeline_id,
+                                       self.window_size_f32(),
+                                       display_list,
+                                       auxiliary_lists);
+    }
+
+    pub fn render(&mut self) {
         self.renderer.update();
         self.renderer.render(self.window_size);
-        //gl::flush();
-        self.window.swap_buffers().ok();
-
-        time::SteadyTime::now() - start
     }
 
     pub fn show_onscreen_help(&mut self) {
