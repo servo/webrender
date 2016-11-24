@@ -9,7 +9,6 @@ use app_units::Au;
 use euclid::{Size2D, Point2D, Rect, Matrix4D};
 use gleam::gl;
 use std::path::PathBuf;
-use std::ffi::CStr;
 use webrender_traits::{AuxiliaryListsBuilder, ColorF, Epoch, GlyphInstance};
 use webrender_traits::{ImageData, ImageFormat, PipelineId, RendererKind};
 use std::fs::File;

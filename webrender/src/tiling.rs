@@ -539,7 +539,8 @@ impl AlphaBatcher {
                         let layer = &ctx.layer_store[sc_index.0];
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
                         let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
-                        let needs_clipping = prim_metadata.clip_cache_info.is_some() || true; //TODO
+                        let needs_clipping = prim_metadata.clip_cache_info.is_some() ||
+                                             ctx.layer_masks_tasks.get(&(task.tile_id, sc_index)).is_some();
                         let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                              !prim_metadata.is_opaque ||
                                              needs_clipping;
@@ -634,6 +635,8 @@ pub struct ClipBatcher {
     pub clears: Vec<CacheClipInstance>,
     /// Copy draws get the existing mask from a parent layer.
     pub copies: Vec<CacheClipInstance>,
+    /// A fast path for masks that only have clear + rectangle.
+    pub rectangles_noblend: Vec<CacheClipInstance>,
     /// Rectangle draws fill up the rectangles with rounded corners.
     pub rectangles: Vec<CacheClipInstance>,
     /// Image draws apply the image masking.
@@ -645,6 +648,7 @@ impl ClipBatcher {
         ClipBatcher {
             clears: Vec::new(),
             copies: Vec::new(),
+            rectangles_noblend: Vec::new(),
             rectangles: Vec::new(),
             images: HashMap::new(),
         }
@@ -656,6 +660,7 @@ impl ClipBatcher {
            key: &MaskCacheKey,
            image: Option<SourceTexture>) {
 
+        let mut start_rect_id = 0;
         // TODO: don't draw clipping instances covering the whole tile
         if let Some(layer_task_id) = base_task_index {
             self.copies.push(CacheClipInstance {
@@ -664,6 +669,16 @@ impl ClipBatcher {
                 address: GpuStoreAddress(0),
                 base_task_id: layer_task_id.0 as i32,
             });
+        } else if key.clip_range.item_count > 0 {
+            // draw the first rectangle without blending in order
+            // to avoid clearing the area first
+            start_rect_id = 1;
+            self.rectangles_noblend.push(CacheClipInstance {
+                task_id: task_index.0 as i32,
+                layer_index: key.layer_id.0 as i32,
+                address: key.clip_range.start,
+                base_task_id: 0,
+            })
         } else {
             self.clears.push(CacheClipInstance {
                 task_id: task_index.0 as i32,
@@ -673,7 +688,7 @@ impl ClipBatcher {
             });
         }
 
-        self.rectangles.extend((0 .. key.clip_range.item_count as usize)
+        self.rectangles.extend((start_rect_id .. key.clip_range.item_count as usize)
                        .map(|region_id| {
             let offset = key.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * region_id) as i32);
             CacheClipInstance {
@@ -1041,7 +1056,7 @@ impl RenderTask {
 
     fn new_mask(actual_rect: DeviceIntRect,
                 cache_info: &MaskCacheInfo,
-                dependant: Option<&RenderTask>,
+                dependent: Option<&RenderTask>,
                 tile_id: TileUniqueId)
                 -> MaskResult {
         let task_rect = match actual_rect.intersection(&cache_info.outer_rect) {
@@ -1051,7 +1066,7 @@ impl RenderTask {
         };
         MaskResult::Inside(RenderTask {
             id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(cache_info.key, tile_id)),
-            children: match dependant {
+            children: match dependent {
                 Some(task) => vec![task.clone()],
                 None => Vec::new(),
             },
@@ -1059,7 +1074,7 @@ impl RenderTask {
             kind: RenderTaskKind::CacheMask(CacheMaskTask {
                 actual_rect: task_rect,
                 image: cache_info.image.map(|mask| mask.image),
-                base_task_id: dependant.map(|task| task.id),
+                base_task_id: dependent.map(|task| task.id),
             }),
         })
     }

@@ -1187,6 +1187,17 @@ impl Renderer {
                                 max_prim_items,
                                 &projection);
         }
+        // the fast path for clear + rect, which is just the rectangle without blending
+        if !target.clip_batcher.rectangles_noblend.is_empty() {
+            let shader = self.cs_clip_rectangle.get(&mut self.device);
+            let max_prim_items = self.max_clip_instances;
+            self.draw_ubo_batch(&target.clip_batcher.rectangles_noblend,
+                                shader,
+                                1,
+                                &BatchTextures::no_texture(),
+                                max_prim_items,
+                                &projection);
+        }
         // now switch to multiplicative blending
         self.device.set_blend(true);
         self.device.set_blend_mode_multiply();
