@@ -12,6 +12,8 @@ dependencies = [
  "glutin 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "image 0.10.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 0.8.18 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender 0.10.0",
  "webrender_traits 0.10.0",
  "yaml-rust 0.3.4 (git+https://github.com/vvuk/yaml-rust)",
