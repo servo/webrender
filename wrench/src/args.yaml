@@ -34,6 +34,9 @@ args:
       long: size
       help: Window size, specified as widthxheight (e.g. 1024x768), in pixels
       takes_value: true
+  - vsync:
+      long: vsync
+      help: Enable vsync for OpenGL window
 
 subcommands:
     - show:

@@ -5,6 +5,9 @@
 use app_units::Au;
 #[cfg(windows)]
 use dwrote;
+#[cfg(target_os = "linux")]
+use font_loader::system_fonts;
+
 use euclid::Size2D;
 use gleam::gl;
 use glutin;
@@ -20,6 +23,7 @@ use webrender_traits::*;
 use yaml_rust::Yaml;
 use yaml_frame_writer::YamlFrameWriter;
 use json_frame_writer::JsonFrameWriter;
+use time;
 
 use {WHITE_COLOR, BLACK_COLOR};
 
@@ -108,16 +112,18 @@ pub struct Wrench {
 impl Wrench {
     pub fn new(shader_override_path: Option<PathBuf>,
                dp_ratio: Option<f32>,
-               win_size: Option<&str>,
                save_type: Option<SaveType>,
+               size: Size2D<u32>,
                subpixel_aa: bool,
-               debug: bool)
+               debug: bool,
+               vsync: bool)
            -> Wrench
     {
-        // First create our GL window
-        let window = glutin::WindowBuilder::new()
+        let mut window = glutin::WindowBuilder::new()
             .with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGl, (3, 2)))
-            .build().unwrap();
+            .with_dimensions(size.width, size.height);
+        window.opengl.vsync = vsync;
+        let window = window.build().unwrap();
 
         unsafe {
             window.make_current().ok();
@@ -135,16 +141,7 @@ impl Wrench {
             String::from_utf8(data).unwrap()
         };
 
-        let size = win_size.map(|s| {
-            let x = s.find('x').expect("Size must be specified exactly as widthxheight");
-            let w = s[0..x].parse::<u32>().expect("Invalid size width");
-            let h = s[x+1..].parse::<u32>().expect("Invalid size height");
-            Size2D::new(w, h)
-        }).unwrap_or(Size2D::<u32>::new(1920, 1080));
-
-        let dp_ratio = dp_ratio.unwrap_or(1.0);
-        let win_size_mult = 1.0; //dp_ratio / window.hidpi_factor();
-
+        let dp_ratio = dp_ratio.unwrap_or(window.hidpi_factor());
         println!("OpenGL version {}, {}", gl_version, gl_renderer);
         println!("Shader override path: {:?}", shader_override_path);
         println!("hidpi factor: {} (native {})", dp_ratio, window.hidpi_factor());
@@ -158,9 +155,6 @@ impl Wrench {
             };
             webrender::set_recording_detour(Some(recorder));
         }
-
-        window.set_inner_size((size.width as f32 * win_size_mult) as u32,
-                              (size.height as f32 * win_size_mult) as u32);
 
         let opts = webrender::RendererOptions {
             device_pixel_ratio: dp_ratio,
@@ -256,6 +250,15 @@ impl Wrench {
         (self.font_key_from_native_handle(&desc), Some(desc))
     }
 
+    #[cfg(target_os = "linux")]
+    pub fn font_key_from_yaml_table(&mut self, item: &Yaml) -> (FontKey, Option<NativeFontHandle>) {
+        let family = item["family"].as_str().unwrap();
+        let property = system_fonts::FontPropertyBuilder::new().family(family).build();
+        let (font, _) = system_fonts::get(&property).unwrap();
+        self.font_key_from_bytes(font)
+    }
+
+
     #[cfg(not(target_os = "windows"))]
     pub fn font_key_from_native_handle(&mut self, descriptor: &NativeFontHandle) -> FontKey {
         panic!("Can't font_key_from_native_handle on this platform");
@@ -266,7 +269,7 @@ impl Wrench {
         panic!("Can't font_key_from_name on this platform");
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     pub fn font_key_from_yaml_table(&mut self, item: &Yaml) -> (FontKey, Option<NativeFontHandle>) {
         panic!("Can't font_key_from_yaml_table on this platform");
     }
@@ -310,14 +313,16 @@ impl Wrench {
         gl::clear(gl::COLOR_BUFFER_BIT);
     }
 
-    pub fn render(&mut self) {
+    pub fn render(&mut self) -> time::Duration {
+        let start = time::SteadyTime::now();
+
         self.renderer.update();
         self.renderer.render(self.window_size);
+        //gl::flush();
         self.window.swap_buffers().ok();
-    }
 
-    //pub fn set_recorder<T>(&mut self, r: Box<webrender_traits::AppMsgReceiver>) {
-    //}
+        time::SteadyTime::now() - start
+    }
 
     pub fn show_onscreen_help(&mut self) {
         let help_lines = [

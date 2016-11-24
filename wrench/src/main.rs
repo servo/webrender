@@ -11,6 +11,7 @@ extern crate gleam;
 extern crate webrender_traits;
 extern crate euclid;
 extern crate yaml_rust;
+extern crate time;
 extern crate image;
 #[macro_use]
 extern crate clap;
@@ -21,9 +22,13 @@ extern crate serde_json;
 
 #[cfg(target_os = "windows")]
 extern crate dwrote;
+#[cfg(target_os = "linux")]
+extern crate font_loader;
 
+use euclid::Size2D;
 use glutin::{ElementState, VirtualKeyCode};
 use std::path::PathBuf;
+use std::cmp::{min, max};
 use webrender_traits::*;
 
 mod wrench;
@@ -77,18 +82,25 @@ fn main() {
     // handle some global arguments
     let res_path = args.value_of("shaders").map(|s| PathBuf::from(s));
     let dp_ratio = args.value_of("dp_ratio").map(|v| v.parse::<f32>().unwrap());
-    let size = args.value_of("size");
     let save_type = args.value_of("save").map(|s| {
         if s == "yaml" { wrench::SaveType::Yaml }
         else if s == "json" { wrench::SaveType::Json }
         else { panic!("Save type must be json or yaml"); }
     });
+    let size = args.value_of("size").map(|s| {
+        let x = s.find('x').expect("Size must be specified exactly as widthxheight");
+        let w = s[0..x].parse::<u32>().expect("Invalid size width");
+        let h = s[x+1..].parse::<u32>().expect("Invalid size height");
+        Size2D::new(w, h)
+    }).unwrap_or(Size2D::<u32>::new(1920, 1080));
 
-    let mut wrench = Wrench::new(res_path, dp_ratio,
-                                 size,
+    let mut wrench = Wrench::new(res_path,
+                                 dp_ratio,
                                  save_type,
+                                 size,
                                  args.is_present("subpixel-aa"),
-                                 args.is_present("debug"));
+                                 args.is_present("debug"),
+                                 args.is_present("vsync"));
 
     let mut show_help = false;
     let mut profiler = false;
@@ -105,6 +117,15 @@ fn main() {
         };
 
     let mut do_loop = false;
+    let mut last = time::SteadyTime::now();
+    let mut frame_count = 0;
+
+    let mut min_time = time::Duration::max_value();
+    let mut min_min_time = time::Duration::max_value();
+    let mut max_time = time::Duration::min_value();
+    let mut max_max_time = time::Duration::min_value();
+    let mut sum_time = time::Duration::zero();
+
     while !done {
         let mut thing = thing.thing();
 
@@ -120,6 +141,31 @@ fn main() {
         }
 
         wrench.render();
+
+        let now = time::SteadyTime::now();
+        let dur = now - last;
+
+        min_time = min(min_time, dur);
+        min_min_time = min(min_min_time, dur);
+        max_time = max(max_time, dur);
+        max_max_time = max(max_max_time, dur);
+        sum_time = sum_time + dur;
+
+        let as_ms = |f: time::Duration| { f.num_microseconds().unwrap() as f64 / 1000. };
+
+        frame_count += 1;
+        if frame_count == 60 {
+            let avg_time = sum_time / frame_count;
+            println!("{:3.6} [{:3.6} .. {:3.6}]  -- {:4.7} fps  -- (global {:3.6} .. {:3.6})",
+                     as_ms(avg_time), as_ms(min_time), as_ms(max_time),
+                     1000.0 / as_ms(avg_time), as_ms(min_min_time), as_ms(max_max_time));
+            min_time = time::Duration::max_value();
+            max_time = time::Duration::min_value();
+            sum_time = time::Duration::zero();
+            frame_count = 0;
+        }
+
+        last = now;
 
         if do_loop {
             thing.next_frame();
