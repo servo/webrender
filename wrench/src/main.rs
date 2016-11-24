@@ -77,6 +77,7 @@ fn main() {
     // handle some global arguments
     let res_path = args.value_of("shaders").map(|s| PathBuf::from(s));
     let dp_ratio = args.value_of("dp_ratio").map(|v| v.parse::<f32>().unwrap());
+    let size = args.value_of("size");
     let save_type = args.value_of("save").map(|s| {
         if s == "yaml" { wrench::SaveType::Yaml }
         else if s == "json" { wrench::SaveType::Json }
@@ -84,9 +85,9 @@ fn main() {
     });
 
     let mut wrench = Wrench::new(res_path, dp_ratio,
+                                 size,
                                  save_type,
                                  args.is_present("subpixel-aa"),
-                                 args.is_present("record"),
                                  args.is_present("debug"));
 
     let mut show_help = false;

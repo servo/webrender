@@ -112,6 +112,7 @@ pub struct Wrench {
 impl Wrench {
     pub fn new(shader_override_path: Option<PathBuf>,
                dp_ratio: Option<f32>,
+               win_size: Option<&str>,
                save_type: Option<SaveType>,
                subpixel_aa: bool,
                debug: bool)
@@ -138,8 +139,15 @@ impl Wrench {
             String::from_utf8(data).unwrap()
         };
 
+        let size = win_size.map(|s| {
+            let x = s.find('x').expect("Size must be specified exactly as widthxheight");
+            let w = s[0..x].parse::<u32>().expect("Invalid size width");
+            let h = s[x+1..].parse::<u32>().expect("Invalid size height");
+            Size2D::new(w, h)
+        }).unwrap_or(Size2D::<u32>::new(1920, 1080));
+
         let dp_ratio = dp_ratio.unwrap_or(1.0);
-        let win_size_mult = dp_ratio / window.hidpi_factor();
+        let win_size_mult = 1.0; //dp_ratio / window.hidpi_factor();
 
         println!("OpenGL version {}, {}", gl_version, gl_renderer);
         println!("Shader override path: {:?}", shader_override_path);
@@ -155,9 +163,8 @@ impl Wrench {
             webrender::set_recording_detour(Some(recorder));
         }
 
-        let (width, height) = window.get_inner_size().unwrap();
-        window.set_inner_size((width as f32 * win_size_mult) as u32,
-                              (height as f32 * win_size_mult) as u32);
+        window.set_inner_size((size.width as f32 * win_size_mult) as u32,
+                              (size.height as f32 * win_size_mult) as u32);
 
         let opts = webrender::RendererOptions {
             device_pixel_ratio: dp_ratio,
@@ -181,7 +188,7 @@ impl Wrench {
 
         let mut wrench = Wrench {
             window: window,
-            window_size: Size2D::new(width, height),
+            window_size: size,
 
             renderer: renderer,
             sender: sender,

@@ -29,6 +29,11 @@ args:
       long: device-pixel-ratio
       help: Device pixel ratio
       takes_value: true
+  - size:
+      short: s
+      long: size
+      help: Window size, specified as widthxheight (e.g. 1024x768), in pixels
+      takes_value: true
 
 subcommands:
     - show:
