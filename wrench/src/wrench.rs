@@ -97,13 +97,9 @@ pub struct Wrench {
 
     pub image_map: HashMap<PathBuf, (ImageKey, Size2D<f32>)>,
 
-    pub builder: Option<DisplayListBuilder>,
-    pub aux_builder: Option<AuxiliaryListsBuilder>,
-
     // internal housekeeping
     pub root_pipeline_id: PipelineId,
     pub next_scroll_layer_id: usize,
-    pub frame_count: u32,
 
     pub gl_renderer: String,
     pub gl_version: String,
@@ -198,12 +194,8 @@ impl Wrench {
 
             image_map: HashMap::new(),
 
-            builder: None,
-            aux_builder: None,
-
             root_pipeline_id: PipelineId(0, 0),
             next_scroll_layer_id: 0,
-            frame_count: 0,
 
             gl_renderer: gl_renderer,
             gl_version: gl_version,
@@ -217,15 +209,6 @@ impl Wrench {
     pub fn set_title(&mut self, extra: &str) {
         self.window.set_title(&format!("Wrench: {} ({}x) - {} - {}", extra,
             self.device_pixel_ratio, self.gl_renderer, self.gl_version));
-    }
-
-    pub fn builder<'a>(&'a mut self) -> &'a mut DisplayListBuilder {
-        self.builder.as_mut().unwrap()
-    }
-
-    pub fn both_builders<'a>(&'a mut self) -> (&'a mut DisplayListBuilder, &'a mut AuxiliaryListsBuilder) {
-        (self.builder.as_mut().unwrap(),
-        self.aux_builder.as_mut().unwrap())
     }
 
     pub fn window_size_f32(&self) -> Size2D<f32> {
@@ -314,26 +297,6 @@ impl Wrench {
         let val = (image_key, Size2D::new(image_dims.0 as f32, image_dims.1 as f32));
         self.image_map.insert(key, val);
         val
-    }
-
-
-    pub fn begin_frame(&mut self) {
-        self.builder = Some(DisplayListBuilder::new());
-        self.aux_builder = Some(AuxiliaryListsBuilder::new());
-    }
-
-    pub fn finish_frame(&mut self) {
-        let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
-        let builder = self.builder.take().unwrap();
-        let aux_builder = self.aux_builder.take().unwrap();
-        self.frame_count = self.frame_count + 1;
-        self.api.set_root_display_list(root_background_color,
-                                       Epoch(self.frame_count),
-                                       self.root_pipeline_id,
-                                       self.window_size_f32(),
-                                       builder.finalize(),
-                                       aux_builder.finalize());
-        self.api.set_root_pipeline(self.root_pipeline_id);
     }
 
     pub fn update(&mut self) {

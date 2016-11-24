@@ -17,25 +17,30 @@ use {WHITE_COLOR, PLATFORM_DEFAULT_FACE_NAME};
 
 pub struct YamlFrameReader {
     frame_built: bool,
-    yaml: Yaml,
+    yaml_path: PathBuf,
     aux_dir: PathBuf,
+    frame_count: u32,
+
+    builder: Option<DisplayListBuilder>,
+    aux_builder: Option<AuxiliaryListsBuilder>,
+
+    built_data: Option<BuiltDisplayList>,
+    built_aux_data: Option<AuxiliaryLists>,
 }
 
 impl YamlFrameReader {
     pub fn new(yaml_path: &Path) -> YamlFrameReader {
-        let mut file = File::open(yaml_path).unwrap();
-        let mut src = String::new();
-        file.read_to_string(&mut src).unwrap();
-
-        let mut yaml_doc = YamlLoader::load_from_str(&src).expect("Failed to parse YAML file");
-        assert!(yaml_doc.len() == 1);
-
-        let yaml = yaml_doc.pop().unwrap();
-
         YamlFrameReader {
             frame_built: false,
-            yaml: yaml,
+            yaml_path: yaml_path.to_owned(),
             aux_dir: yaml_path.parent().unwrap().to_owned(),
+            frame_count: 0,
+
+            builder: None,
+            aux_builder: None,
+
+            built_data: None,
+            built_aux_data: None,
         }
     }
 
@@ -45,25 +50,42 @@ impl YamlFrameReader {
         YamlFrameReader::new(&yaml_file)
     }
 
-    pub fn build(&self, wrench: &mut Wrench) {
-        if self.yaml["root"].is_badvalue() {
-            panic!("Missing root stacking context");
-        }
-        self.add_stacking_context_from_yaml(wrench, &self.yaml["root"]);
+    pub fn builder<'a>(&'a mut self) -> &'a mut DisplayListBuilder {
+        self.builder.as_mut().unwrap()
     }
 
-    fn handle_rect(&self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
+    pub fn both_builders<'a>(&'a mut self) -> (&'a mut DisplayListBuilder, &'a mut AuxiliaryListsBuilder) {
+        (self.builder.as_mut().unwrap(),
+        self.aux_builder.as_mut().unwrap())
+    }
+
+    pub fn build(&mut self, wrench: &mut Wrench) {
+        let mut file = File::open(&self.yaml_path).unwrap();
+        let mut src = String::new();
+        file.read_to_string(&mut src).unwrap();
+
+        let mut yaml_doc = YamlLoader::load_from_str(&src).expect("Failed to parse YAML file");
+        assert!(yaml_doc.len() == 1);
+
+        let yaml = yaml_doc.pop().unwrap();
+        if yaml["root"].is_badvalue() {
+            panic!("Missing root stacking context");
+        }
+        self.add_stacking_context_from_yaml(wrench, &yaml["root"]);
+    }
+
+    fn handle_rect(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
     {
         let rect = item[if item["type"].is_badvalue() { "rect" } else { "bounds" }]
             .as_rect().expect("rect type must have bounds");
         let color = item["color"].as_colorf().unwrap_or(*WHITE_COLOR);
 
-        let (builder, aux_builder) = wrench.both_builders();
+        let (builder, aux_builder) = self.both_builders();
         let clip = item["clip"].as_clip_region(aux_builder).unwrap_or(*clip_region);
         builder.push_rect(rect, clip, color);
     }
 
-    fn handle_image(&self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
+    fn handle_image(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
     {
         let filename = item[if item["type"].is_badvalue() { "image" } else { "src" }].as_str().unwrap();
         let mut file = self.aux_dir.clone();
@@ -81,7 +103,7 @@ impl YamlFrameReader {
             panic!("image expected 2 or 4 values in bounds, got '{:?}'", item["bounds"]);
         };
 
-        let clip = item["clip"].as_clip_region(wrench.aux_builder.as_mut().unwrap())
+        let clip = item["clip"].as_clip_region(self.aux_builder.as_mut().unwrap())
             .unwrap_or(*clip_region);
         let stretch_size = item["stretch_size"].as_size()
             .unwrap_or(image_dims);
@@ -93,10 +115,10 @@ impl YamlFrameReader {
             Some("pixelated") => ImageRendering::Pixelated,
             Some(_) => panic!("ImageRendering can be auto, crisp_edges, or pixelated -- got {:?}", item),
         };
-        wrench.builder().push_image(bounds, clip, stretch_size, tile_spacing, rendering, image_key);
+        self.builder().push_image(bounds, clip, stretch_size, tile_spacing, rendering, image_key);
     }
 
-    fn handle_text(&self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
+    fn handle_text(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
     {
         let size = item["size"].as_pt_to_au().unwrap_or(Au::from_f32_px(16.0));
         let color = item["color"].as_colorf().unwrap_or(*WHITE_COLOR);
@@ -155,16 +177,16 @@ impl YamlFrameReader {
 
         let rect = Rect::new(Point2D::new(0.0, 0.0), wrench.window_size_f32());
 
-        let (builder, aux_builder) = wrench.both_builders();
+        let (builder, aux_builder) = self.both_builders();
         let clip = item["clip"].as_clip_region(aux_builder).unwrap_or(*clip_region);
         // FIXME this is the full bounds of the glyphs; we should calculate this more accurately
         builder.push_text(rect, clip, glyphs, font_key, color, size, blur_radius, aux_builder);
     }
 
-    pub fn add_display_list_items_from_yaml(&self, wrench: &mut Wrench, yaml: &Yaml) {
+    pub fn add_display_list_items_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
         let full_clip_region = {
             let win_size = wrench.window_size_f32();
-            let (_, aux_builder) = wrench.both_builders();
+            let (_, aux_builder) = self.both_builders();
             ClipRegion::new(&Rect::new(Point2D::new(0.0, 0.0), win_size),
                                        Vec::new(),
                                        None, // mask
@@ -206,7 +228,7 @@ impl YamlFrameReader {
         }
     }
 
-    pub fn add_stacking_context_from_yaml(&self, wrench: &mut Wrench, yaml: &Yaml) {
+    pub fn add_stacking_context_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
         let bounds = yaml["bounds"].as_rect().unwrap_or(Rect::new(Point2D::new(0.0, 0.0), wrench.window_size_f32()));
         let overflow_bounds = yaml["overflow"].as_rect().unwrap_or(bounds);
         let z_index = yaml["z_index"].as_i64().unwrap_or(0);
@@ -218,7 +240,7 @@ impl YamlFrameReader {
         let filters: Vec<FilterOp> = Vec::new();
 
         {
-            let (builder, aux_builder) = wrench.both_builders();
+            let (builder, aux_builder) = self.both_builders();
             let sc = StackingContext::new(ScrollPolicy::Scrollable,
                                           bounds,
                                           overflow_bounds,
@@ -235,20 +257,39 @@ impl YamlFrameReader {
             self.add_display_list_items_from_yaml(wrench, &yaml["items"]);
         }
 
-        wrench.builder().pop_stacking_context();
+        self.builder().pop_stacking_context();
     }
 }
 
 impl WrenchThing for YamlFrameReader {
     fn do_frame(&mut self, wrench: &mut Wrench) -> u32 {
         if !self.frame_built {
-            wrench.begin_frame();
+            self.builder = Some(DisplayListBuilder::new());
+            self.aux_builder = Some(AuxiliaryListsBuilder::new());
+
             self.build(wrench);
-            wrench.finish_frame();
+
+            let builder = self.builder.take().unwrap();
+            let aux_builder = self.aux_builder.take().unwrap();
+
+            self.built_data = Some(builder.finalize());
+            self.built_aux_data = Some(aux_builder.finalize());
+
             self.frame_built = true;
         }
 
-        0
+        let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
+        self.frame_count = self.frame_count + 1;
+
+        wrench.api.set_root_display_list(root_background_color,
+                                         Epoch(self.frame_count),
+                                         wrench.root_pipeline_id,
+                                         wrench.window_size_f32(),
+                                         self.built_data.as_ref().unwrap().clone(),
+                                         self.built_aux_data.as_ref().unwrap().clone());
+        wrench.api.set_root_pipeline(wrench.root_pipeline_id);
+
+        self.frame_count
     }
 
     fn next_frame(&mut self) {
