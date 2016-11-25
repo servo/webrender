@@ -1059,17 +1059,29 @@ impl RenderTask {
                 layer_clips: &[(StackingContextIndex, MaskCacheInfo)],
                 tile_id: TileUniqueId)
                 -> MaskResult {
-        //CLIP_TODO: combine the clip stack rectangles, not just use the last one
-        let task_rect = match actual_rect.intersection(&top_clip.1.outer_rect) {
-            None => return MaskResult::Outside,
-            Some(_) if top_clip.1.inner_rect.contains_rect(&actual_rect) => return MaskResult::Covering,
-            Some(rect) => rect,
-        };
+
         let extra = (top_clip.0, top_clip.1.clone());
+
+        // We scan through the clip stack and detect if our actual rectangle
+        // is in the intersection of all of all the outer bounds,
+        // and if it's completely inside the intersection of all of the inner bounds.
+        let result = layer_clips.iter().chain(Some(&extra))
+                                .fold(Some((actual_rect, true)), |current, clip| {
+            current.and_then(|(rect, covering)|
+                rect.intersection(&clip.1.outer_rect)
+                    .map(|r| (r, covering & clip.1.inner_rect.contains_rect(&actual_rect))))
+        });
+
+        let task_rect = match result {
+            None => return MaskResult::Outside,
+            Some((_, true)) => return MaskResult::Covering,
+            Some((rect, false)) => rect,
+        };
         let clips = layer_clips.iter()
                                .map(|lc| lc.clone())
                                .chain(Some(extra))
                                .collect();
+
         MaskResult::Inside(RenderTask {
             id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(mask_key, tile_id)),
             children: match dependent {
