@@ -32,11 +32,6 @@ impl Notifier {
     }
 }
 
-pub struct WebRenderFrameBuilder {
-    pub root_pipeline_id: PipelineId,
-    pub next_scroll_layer_id: usize,
-}
-
 impl webrender_traits::RenderNotifier for Notifier {
     fn new_frame_ready(&mut self) {
         self.window_proxy.wakeup_event_loop();
@@ -101,11 +96,11 @@ fn main() {
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));
     renderer.set_render_notifier(notifier);
 
-    let pipeline_id = PipelineId(0, 0);
     let epoch = Epoch(0);
     let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
 
-    let mut builder = webrender_traits::DisplayListBuilder::new();
+    let pipeline_id = PipelineId(0, 0);
+    let mut builder = webrender_traits::DisplayListBuilder::new(pipeline_id);
 
     let bounds = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(width as f32, height as f32));
     builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
@@ -205,7 +200,6 @@ fn main() {
     api.set_root_display_list(
         root_background_color,
         epoch,
-        pipeline_id,
         Size2D::new(width as f32, height as f32),
         builder);
     api.set_root_pipeline(pipeline_id);

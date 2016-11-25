@@ -13,8 +13,8 @@ use {DisplayItem, DisplayListMode, FilterOp, YuvColorSpace};
 use {FontKey, GlyphInstance, GradientDisplayItem, GradientStop, IframeDisplayItem};
 use {ImageDisplayItem, ImageKey, ImageMask, ImageRendering, ItemRange, MixBlendMode, PipelineId};
 use {PushScrollLayerItem, PushStackingContextDisplayItem, RectangleDisplayItem, ScrollLayerId};
-use {ScrollPolicy, SpecificDisplayItem, StackingContext, TextDisplayItem, WebGLContextId};
-use {WebGLDisplayItem, YuvImageDisplayItem};
+use {ScrollPolicy, ServoScrollRootId, SpecificDisplayItem, StackingContext, TextDisplayItem};
+use {WebGLContextId, WebGLDisplayItem, YuvImageDisplayItem};
 
 impl BuiltDisplayListDescriptor {
     pub fn size(&self) -> usize {
@@ -49,14 +49,18 @@ pub struct DisplayListBuilder {
     pub mode: DisplayListMode,
     pub list: Vec<DisplayItem>,
     auxiliary_lists_builder: AuxiliaryListsBuilder,
+    pub pipeline_id: PipelineId,
+    next_scroll_layer_id: usize,
 }
 
 impl DisplayListBuilder {
-    pub fn new() -> DisplayListBuilder {
+    pub fn new(pipeline_id: PipelineId) -> DisplayListBuilder {
         DisplayListBuilder {
             mode: DisplayListMode::Default,
             list: Vec::new(),
             auxiliary_lists_builder: AuxiliaryListsBuilder::new(),
+            pipeline_id: pipeline_id,
+            next_scroll_layer_id: 0,
         }
     }
 
@@ -292,10 +296,13 @@ impl DisplayListBuilder {
     pub fn push_scroll_layer(&mut self,
                              clip: Rect<f32>,
                              content_size: Size2D<f32>,
-                             id: ScrollLayerId) {
+                             scroll_root_id: ServoScrollRootId) {
+        let scroll_layer_id = self.next_scroll_layer_id;
+        self.next_scroll_layer_id += 1;
+
         let item = PushScrollLayerItem {
             content_size: content_size,
-            id: id,
+            id: ScrollLayerId::new(self.pipeline_id, scroll_layer_id, scroll_root_id),
         };
 
         let item = DisplayItem {

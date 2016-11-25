@@ -165,9 +165,9 @@ impl RenderApi {
     pub fn set_root_display_list(&self,
                                  background_color: ColorF,
                                  epoch: Epoch,
-                                 pipeline_id: PipelineId,
                                  viewport_size: Size2D<f32>,
                                  builder: DisplayListBuilder) {
+        let pipeline_id = builder.pipeline_id;
         let (display_list, auxiliary_lists) = builder.finalize();
         let msg = ApiMsg::SetRootDisplayList(background_color,
                                              epoch,
