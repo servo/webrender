@@ -86,6 +86,26 @@ impl Layer {
         LayerSize::new(overscroll_x, overscroll_y)
     }
 
+    pub fn set_scroll_origin(&mut self, origin: &LayerPoint) -> bool {
+        if self.content_size.width <= self.local_viewport_rect.size.width &&
+           self.content_size.height <= self.local_viewport_rect.size.height {
+            return false;
+        }
+
+        let new_offset = LayerPoint::new(
+            (-origin.x).max(-self.content_size.width + self.local_viewport_rect.size.width),
+            (-origin.y).max(-self.content_size.height + self.local_viewport_rect.size.height));
+        let new_offset = LayerPoint::new(new_offset.x.min(0.0).round(), new_offset.y.min(0.0).round());
+        if new_offset == self.scrolling.offset {
+            return false;
+        }
+
+        self.scrolling.offset = new_offset;
+        self.scrolling.bouncing_back = false;
+        self.scrolling.started_bouncing_back = false;
+        return true;
+    }
+
     pub fn stretch_overscroll_spring(&mut self) {
         let overscroll_amount = self.overscroll_amount();
         self.scrolling.spring.coords(self.scrolling.offset,

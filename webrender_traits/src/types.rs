@@ -49,6 +49,7 @@ pub enum ApiMsg {
                        AuxiliaryListsDescriptor),
     SetRootPipeline(PipelineId),
     Scroll(Point2D<f32>, Point2D<f32>, ScrollEventPhase),
+    ScrollLayersWithScrollId(Point2D<f32>, PipelineId, ServoScrollRootId),
     TickScrollingBounce,
     TranslatePointToLayerSpace(Point2D<f32>, MsgSender<(Point2D<f32>, PipelineId)>),
     GetScrollLayerState(MsgSender<Vec<ScrollLayerState>>),
@@ -461,6 +462,13 @@ impl ScrollLayerId {
         ScrollLayerId {
             pipeline_id: pipeline_id,
             info: ScrollLayerInfo::Scrollable(0, ServoScrollRootId(0)),
+        }
+    }
+
+    pub fn scroll_root_id(&self) -> Option<ServoScrollRootId> {
+        match self.info {
+            ScrollLayerInfo::Scrollable(_, scroll_root_id) => Some(scroll_root_id),
+            ScrollLayerInfo::Fixed => None,
         }
     }
 }
