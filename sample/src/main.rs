@@ -102,15 +102,11 @@ fn main() {
 
     let bounds = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(width as f32, height as f32));
     let clip_region = {
-        let radius = webrender_traits::BorderRadius::uniform(20.0);
         let complex = webrender_traits::ComplexClipRegion::new(
             Rect::new(Point2D::new(50.0, 50.0), Size2D::new(100.0, 100.0)),
-            radius);
+            webrender_traits::BorderRadius::uniform(20.0));
 
-        webrender_traits::ClipRegion::new(&bounds,
-                                          vec![complex],
-                                          None,
-                                          &mut auxiliary_lists_builder)
+        builder.new_clip_region(&bounds, vec![complex], None)
     };
 
     builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
@@ -128,10 +124,9 @@ fn main() {
             rect: Rect::new(Point2D::new(75.0, 75.0), Size2D::new(100.0, 100.0)),
             repeat: false,
         };
-        let radius = webrender_traits::BorderRadius::uniform(20.0);
         let complex = webrender_traits::ComplexClipRegion::new(
             Rect::new(Point2D::new(50.0, 50.0), Size2D::new(100.0, 100.0)),
-            radius);
+            webrender_traits::BorderRadius::uniform(20.0));
 
         builder.new_clip_region(&bounds, vec![complex], Some(mask))
     };
@@ -218,8 +213,7 @@ fn main() {
                           font_key,
                           ColorF::new(1.0, 1.0, 0.0, 1.0),
                           Au::from_px(32),
-                          Au::from_px(0),
-                          &mut auxiliary_lists_builder);
+                          Au::from_px(0));
     }
 
     builder.pop_stacking_context();
