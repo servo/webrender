@@ -12,6 +12,9 @@ addons:
       - libgles2-mesa-dev
 script:
   - (cd webrender_traits && cargo test --verbose)
+  - (cd webrender_traits && cargo test --verbose --features "ipc")
   - (cd webrender && cargo test --verbose)
+  - (cd webrender && cargo test --verbose --features "ipc")
   - (cd sample && cargo test --verbose)
+  - (cd sample && cargo test --verbose --features "ipc")
   - (cd replay && cargo test --verbose)
