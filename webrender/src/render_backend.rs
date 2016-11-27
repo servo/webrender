@@ -7,6 +7,7 @@ use frame::Frame;
 use internal_types::{FontTemplate, GLContextHandleWrapper, GLContextWrapper};
 use internal_types::{SourceTexture, ResultMsg, RendererFrame};
 use profiler::BackendProfileCounters;
+use record;
 use resource_cache::ResourceCache;
 use scene::Scene;
 use std::collections::HashMap;
@@ -19,7 +20,6 @@ use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, Im
 use webrender_traits::{FlushNotifier, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
 use webrender_traits::{DeviceIntSize};
 use webrender_traits::channel::{PayloadHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
-use record;
 use tiling::FrameBuilderConfig;
 use offscreen_gl_context::GLContextDispatcher;
 

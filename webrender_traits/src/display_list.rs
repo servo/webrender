@@ -249,13 +249,15 @@ impl DisplayListBuilder {
         self.list.push(display_item);
     }
 
-    pub fn push_stacking_context(&mut self, stacking_context: StackingContext) {
+    pub fn push_stacking_context(&mut self,
+                                 stacking_context: StackingContext,
+                                 clip: ClipRegion) {
         let item = DisplayItem {
             item: SpecificDisplayItem::PushStackingContext(PushStackingContextDisplayItem {
                 stacking_context: stacking_context
             }),
             rect: Rect::zero(),
-            clip: ClipRegion::simple(&Rect::zero()),
+            clip: clip,
         };
         self.list.push(item);
     }

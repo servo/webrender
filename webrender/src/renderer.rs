@@ -334,11 +334,15 @@ pub struct Renderer {
     // draw intermediate results to cache targets. The results
     // of these shaders are then used by the primitive shaders.
     cs_box_shadow: LazilyCompiledShader,
-    cs_clip_clear: LazilyCompiledShader,
-    cs_clip_rectangle: LazilyCompiledShader,
-    cs_clip_image: LazilyCompiledShader,
     cs_text_run: LazilyCompiledShader,
     cs_blur: LazilyCompiledShader,
+    /// These are "cache clip shaders". These shaders are used to
+    /// draw clip instances into the cached clip mask. The results
+    /// of these shaders are also used by the primitive shaders.
+    cs_clip_clear: LazilyCompiledShader,
+    cs_clip_copy: LazilyCompiledShader,
+    cs_clip_rectangle: LazilyCompiledShader,
+    cs_clip_image: LazilyCompiledShader,
 
     // The are "primitive shaders". These shaders draw and blend
     // final results on screen. They are aware of tile boundaries.
@@ -368,6 +372,7 @@ pub struct Renderer {
     max_prim_blends: usize,
     max_prim_composites: usize,
     max_cache_instances: usize,
+    max_clip_instances: usize,
     max_blurs: usize,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
@@ -470,24 +475,6 @@ impl Renderer {
                                                       &[],
                                                       &mut device,
                                                       options.precache_shaders);
-        let cs_clip_clear = LazilyCompiledShader::new(ShaderKind::ClipCache,
-                                                      "cs_clip_clear",
-                                                      max_clip_instances,
-                                                      &[],
-                                                      &mut device,
-                                                      options.precache_shaders);
-        let cs_clip_rectangle = LazilyCompiledShader::new(ShaderKind::ClipCache,
-                                                          "cs_clip_rectangle",
-                                                          max_clip_instances,
-                                                          &[],
-                                                          &mut device,
-                                                          options.precache_shaders);
-        let cs_clip_image = LazilyCompiledShader::new(ShaderKind::ClipCache,
-                                                      "cs_clip_image",
-                                                      max_clip_instances,
-                                                      &[],
-                                                      &mut device,
-                                                      options.precache_shaders);
         let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache,
                                                     "cs_text_run",
                                                     max_cache_instances,
@@ -500,6 +487,31 @@ impl Renderer {
                                                  &[],
                                                  &mut device,
                                                  options.precache_shaders);
+
+        let cs_clip_clear = LazilyCompiledShader::new(ShaderKind::ClipCache,
+                                                      "cs_clip_clear",
+                                                      max_clip_instances,
+                                                      &[],
+                                                      &mut device,
+                                                      options.precache_shaders);
+        let cs_clip_copy = LazilyCompiledShader::new(ShaderKind::ClipCache,
+                                                     "cs_clip_copy",
+                                                     max_clip_instances,
+                                                     &[],
+                                                     &mut device,
+                                                     options.precache_shaders);
+        let cs_clip_rectangle = LazilyCompiledShader::new(ShaderKind::ClipCache,
+                                                          "cs_clip_rectangle",
+                                                          max_clip_instances,
+                                                          &[],
+                                                          &mut device,
+                                                          options.precache_shaders);
+        let cs_clip_image = LazilyCompiledShader::new(ShaderKind::ClipCache,
+                                                      "cs_clip_image",
+                                                      max_clip_instances,
+                                                      &[],
+                                                      &mut device,
+                                                      options.precache_shaders);
 
         let ps_rectangle = PrimitiveShader::new("ps_rectangle",
                                                 max_ubo_vectors,
@@ -709,11 +721,12 @@ impl Renderer {
             device_pixel_ratio: options.device_pixel_ratio,
             tile_clear_shader: tile_clear_shader,
             cs_box_shadow: cs_box_shadow,
-            cs_clip_clear: cs_clip_clear,
-            cs_clip_rectangle: cs_clip_rectangle,
-            cs_clip_image: cs_clip_image,
             cs_text_run: cs_text_run,
             cs_blur: cs_blur,
+            cs_clip_clear: cs_clip_clear,
+            cs_clip_copy: cs_clip_copy,
+            cs_clip_rectangle: cs_clip_rectangle,
+            cs_clip_image: cs_clip_image,
             ps_rectangle: ps_rectangle,
             ps_rectangle_clip: ps_rectangle_clip,
             ps_text_run: ps_text_run,
@@ -731,6 +744,7 @@ impl Renderer {
             max_prim_blends: max_prim_blends,
             max_prim_composites: max_prim_composites,
             max_cache_instances: max_cache_instances,
+            max_clip_instances: max_clip_instances,
             max_blurs: max_blurs,
             notifier: notifier,
             flush_notifier: flush_notifier,
@@ -1154,8 +1168,30 @@ impl Renderer {
         self.device.set_blend(false);
         if !target.clip_batcher.clears.is_empty() {
             let shader = self.cs_clip_clear.get(&mut self.device);
-            let max_prim_items = self.max_clear_tiles;
+            let max_prim_items = self.max_clip_instances;
             self.draw_ubo_batch(&target.clip_batcher.clears,
+                                shader,
+                                1,
+                                &BatchTextures::no_texture(),
+                                max_prim_items,
+                                &projection);
+        }
+        // alternatively, copy the contents from another task
+        if !target.clip_batcher.copies.is_empty() {
+            let shader = self.cs_clip_copy.get(&mut self.device);
+            let max_prim_items = self.max_clip_instances;
+            self.draw_ubo_batch(&target.clip_batcher.copies,
+                                shader,
+                                1,
+                                &BatchTextures::no_texture(),
+                                max_prim_items,
+                                &projection);
+        }
+        // the fast path for clear + rect, which is just the rectangle without blending
+        if !target.clip_batcher.rectangles_noblend.is_empty() {
+            let shader = self.cs_clip_rectangle.get(&mut self.device);
+            let max_prim_items = self.max_clip_instances;
+            self.draw_ubo_batch(&target.clip_batcher.rectangles_noblend,
                                 shader,
                                 1,
                                 &BatchTextures::no_texture(),
@@ -1165,10 +1201,10 @@ impl Renderer {
         // now switch to multiplicative blending
         self.device.set_blend(true);
         self.device.set_blend_mode_multiply();
-        let max_prim_items = self.max_cache_instances;
         // draw rounded cornered rectangles
         if !target.clip_batcher.rectangles.is_empty() {
             let shader = self.cs_clip_rectangle.get(&mut self.device);
+            let max_prim_items = self.max_clip_instances;
             self.draw_ubo_batch(&target.clip_batcher.rectangles,
                                 shader,
                                 1,
@@ -1181,6 +1217,7 @@ impl Renderer {
             let texture_id = self.resolve_source_texture(mask_texture_id);
             self.device.bind_texture(TextureSampler::Mask, texture_id);
             let shader = self.cs_clip_image.get(&mut self.device);
+            let max_prim_items = self.max_clip_instances;
             self.draw_ubo_batch(items,
                                 shader,
                                 1,
