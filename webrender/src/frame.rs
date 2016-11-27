@@ -53,6 +53,7 @@ pub struct Frame {
                                           BuildHasherDefault<FnvHasher>>,
     pub root_scroll_layer_id: Option<ScrollLayerId>,
     pending_scroll_offsets: HashMap<(PipelineId, ServoScrollRootId), LayerPoint>,
+    current_scroll_layer_id: Option<ScrollLayerId>,
     id: FrameId,
     debug: bool,
     frame_builder_config: FrameBuilderConfig,
@@ -212,6 +213,7 @@ impl Frame {
             layers: HashMap::with_hasher(Default::default()),
             root_scroll_layer_id: None,
             pending_scroll_offsets: HashMap::new(),
+            current_scroll_layer_id: None,
             id: FrameId(0),
             debug: debug,
             frame_builder: None,
@@ -331,7 +333,7 @@ impl Frame {
 
     /// Returns true if any layers actually changed position or false otherwise.
     pub fn scroll(&mut self,
-                  mut delta: Point2D<f32>,
+                  delta: Point2D<f32>,
                   cursor: Point2D<f32>,
                   phase: ScrollEventPhase)
                   -> bool {
@@ -340,18 +342,60 @@ impl Frame {
             None => return false,
         };
 
-        let scroll_layer_id = match self.get_scroll_layer(&cursor, root_scroll_layer_id) {
-            Some(scroll_layer_id) => scroll_layer_id,
-            None => return false,
+        let scroll_layer_id = match (phase, self.get_scroll_layer(&cursor, root_scroll_layer_id),
+            self.current_scroll_layer_id) {
+            (ScrollEventPhase::Start, Some(scroll_layer_id), _) => {
+                self.current_scroll_layer_id = Some(scroll_layer_id);
+                scroll_layer_id
+            },
+            (ScrollEventPhase::Start, None, _) => return false,
+            (_, _, Some(scroll_layer_id)) => scroll_layer_id,
+            (_, _, None) => return false,
         };
 
-        let scroll_root_id = match scroll_layer_id.info {
-            ScrollLayerInfo::Scrollable(_, scroll_root_id) => scroll_root_id,
-            ScrollLayerInfo::Fixed => unreachable!("Tried to scroll a fixed position layer."),
+        let non_root_overscroll = if scroll_layer_id != root_scroll_layer_id {
+            // true if the current layer is overscrolling,
+            // and it is not the root scroll layer.
+            let child_layer = self.layers.get(&scroll_layer_id).unwrap();
+            let overscroll_amount = child_layer.overscroll_amount();
+            overscroll_amount.width != 0.0 || overscroll_amount.height != 0.0
+        } else {
+            false
+        };
+
+        let switch_layer = match phase {
+            ScrollEventPhase::Start => {
+                // if this is a new gesture, we do not switch layer,
+                // however we do save the state of non_root_overscroll,
+                // for use in the subsequent Move phase.
+                let mut current_layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+                current_layer.scrolling.should_handoff_scroll = non_root_overscroll;
+                false
+            },
+            ScrollEventPhase::Move(true) => {
+                // Switch layer if movement originated in a new gesture,
+                // from a non root layer in overscroll.
+                let current_layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+                current_layer.scrolling.should_handoff_scroll && non_root_overscroll
+            },
+            ScrollEventPhase::End | ScrollEventPhase::Move(false) => {
+                // clean-up when gesture ends, or we're not moving.
+                let mut current_layer = self.layers.get_mut(&scroll_layer_id).unwrap();
+                current_layer.scrolling.should_handoff_scroll = false;
+                false
+            },
+        };
+
+        let scroll_root_id = match (switch_layer, scroll_layer_id.info, root_scroll_layer_id.info) {
+            (true, _, ScrollLayerInfo::Scrollable(_, scroll_root_id)) |
+            (true, ScrollLayerInfo::Scrollable(_, scroll_root_id), ScrollLayerInfo::Fixed) |
+            (false, ScrollLayerInfo::Scrollable(_, scroll_root_id), _) => scroll_root_id,
+            (_, ScrollLayerInfo::Fixed, _) => unreachable!("Tried to scroll a fixed position layer."),
         };
 
         let mut scrolled_a_layer = false;
         for (layer_id, layer) in self.layers.iter_mut() {
+            let mut layer_delta = delta;
             if layer_id.pipeline_id != scroll_layer_id.pipeline_id {
                 continue;
             }
@@ -371,10 +415,10 @@ impl Frame {
                                                    overscroll_amount.height != 0.0);
             if overscrolling {
                 if overscroll_amount.width != 0.0 {
-                    delta.x /= overscroll_amount.width.abs()
+                    layer_delta.x /= overscroll_amount.width.abs()
                 }
                 if overscroll_amount.height != 0.0 {
-                    delta.y /= overscroll_amount.height.abs()
+                    layer_delta.y /= overscroll_amount.height.abs()
                 }
             }
 
@@ -385,7 +429,7 @@ impl Frame {
             let original_layer_scroll_offset = layer.scrolling.offset;
 
             if layer.content_size.width > layer.local_viewport_rect.size.width {
-                layer.scrolling.offset.x = layer.scrolling.offset.x + delta.x;
+                layer.scrolling.offset.x = layer.scrolling.offset.x + layer_delta.x;
                 if is_unscrollable || !CAN_OVERSCROLL {
                     layer.scrolling.offset.x = layer.scrolling.offset.x.min(0.0);
                     layer.scrolling.offset.x =
@@ -395,7 +439,7 @@ impl Frame {
             }
 
             if layer.content_size.height > layer.local_viewport_rect.size.height {
-                layer.scrolling.offset.y = layer.scrolling.offset.y + delta.y;
+                layer.scrolling.offset.y = layer.scrolling.offset.y + layer_delta.y;
                 if is_unscrollable || !CAN_OVERSCROLL {
                     layer.scrolling.offset.y = layer.scrolling.offset.y.min(0.0);
                     layer.scrolling.offset.y =
@@ -407,7 +451,7 @@ impl Frame {
             if phase == ScrollEventPhase::Start || phase == ScrollEventPhase::Move(true) {
                 layer.scrolling.started_bouncing_back = false
             } else if overscrolling &&
-                    ((delta.x < 1.0 && delta.y < 1.0) || phase == ScrollEventPhase::End) {
+                    ((layer_delta.x < 1.0 && layer_delta.y < 1.0) || phase == ScrollEventPhase::End) {
                 layer.scrolling.started_bouncing_back = true;
                 layer.scrolling.bouncing_back = true
             }
@@ -418,12 +462,10 @@ impl Frame {
             if CAN_OVERSCROLL {
                 layer.stretch_overscroll_spring();
             }
-
             scrolled_a_layer = scrolled_a_layer ||
                 layer.scrolling.offset != original_layer_scroll_offset ||
                 layer.scrolling.started_bouncing_back;
         }
-
         scrolled_a_layer
     }
 
