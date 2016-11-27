@@ -69,4 +69,7 @@ void main(void) {
             1.16438,  2.11240,  0.0
         );
     }
+
+    write_clip(vi.global_clamped_pos, prim.clip_area);
+
 }
