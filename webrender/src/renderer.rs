@@ -40,6 +40,7 @@ use webrender_traits::{ColorF, Epoch, FlushNotifier, PipelineId, RenderNotifier,
 use webrender_traits::{ExternalImageId, ImageFormat, RenderApiSender, RendererKind};
 use webrender_traits::{DeviceSize, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use webrender_traits::channel;
+use webrender_traits::VRCompositorHandler;
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
@@ -419,6 +420,10 @@ pub struct Renderer {
 
     /// Map of external image IDs to native textures.
     external_images: HashMap<ExternalImageId, TextureId, BuildHasherDefault<FnvHasher>>,
+
+    // Optional trait object that handles WebVR commands.
+    // Some WebVR commands such as SubmitFrame must be synced with the WebGL render thread.
+    vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>
 }
 
 impl Renderer {
@@ -680,6 +685,9 @@ impl Renderer {
         let backend_main_thread_dispatcher = main_thread_dispatcher.clone();
         let backend_flush_notifier = flush_notifier.clone();
 
+        let vr_compositor = Arc::new(Mutex::new(None));
+        let backend_vr_compositor = vr_compositor.clone();
+
         // We need a reference to the webrender context from the render backend in order to share
         // texture ids
         let context_handle = match options.renderer_kind {
@@ -708,7 +716,8 @@ impl Renderer {
                                                  config,
                                                  debug,
                                                  enable_recording,
-                                                 backend_main_thread_dispatcher);
+                                                 backend_main_thread_dispatcher,
+                                                 backend_vr_compositor);
             backend.run();
         });
 
@@ -770,6 +779,7 @@ impl Renderer {
             cache_texture_id_map: Vec::new(),
             external_image_handler: None,
             external_images: HashMap::with_hasher(Default::default()),
+            vr_compositor_handler: vr_compositor
         };
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
@@ -801,6 +811,15 @@ impl Renderer {
     pub fn set_main_thread_dispatcher(&self, dispatcher: Box<RenderDispatcher>) {
         let mut dispatcher_arc = self.main_thread_dispatcher.lock().unwrap();
         *dispatcher_arc = Some(dispatcher);
+    }
+
+    /// Sets the VRCompositorHandler.
+    ///
+    /// It's used to handle WebVR render commands.
+    /// Some WebVR commands such as Vsync and SubmitFrame must be called in the WebGL render thread.
+    pub fn set_vr_compositor_handler(&self, creator: Box<VRCompositorHandler>) {
+        let mut handler_arc = self.vr_compositor_handler.lock().unwrap();
+        *handler_arc = Some(creator);
     }
 
     /// Returns the Epoch of the current frame in a pipeline.

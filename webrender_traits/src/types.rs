@@ -57,6 +57,8 @@ pub enum ApiMsg {
     ResizeWebGLContext(WebGLContextId, Size2D<i32>),
     WebGLCommand(WebGLContextId, WebGLCommand),
     GenerateFrame,
+    // WebVR commands that must be called in the WebGL render thread.
+    VRCompositorCommand(WebGLContextId, VRCompositorCommand)
 }
 
 #[derive(Copy, Clone, Deserialize, Serialize, Debug)]
@@ -791,4 +793,21 @@ pub enum WebGLShaderParameter {
     Int(i32),
     Bool(bool),
     Invalid,
+}
+
+pub type VRCompositorId = u64;
+
+// WebVR commands that must be called in the WebGL render thread.
+#[derive(Clone, Deserialize, Serialize)]
+pub enum VRCompositorCommand {
+    Create(VRCompositorId),
+    SyncPoses(VRCompositorId, f64, f64, MsgSender<Result<Vec<u8>,()>>),
+    SubmitFrame(VRCompositorId, [f32; 4], [f32; 4]),
+    Release(VRCompositorId)
+}
+
+// Trait object that handles WebVR commands.
+// Receives the texture_id associated to the WebGLContext.
+pub trait VRCompositorHandler: Send {
+    fn handle(&mut self, command: VRCompositorCommand, texture_id: Option<u32>);
 }
