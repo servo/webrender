@@ -210,7 +210,7 @@ fn main() {
                 frame_count += 1;
                 if frame_count == 60 {
                     let avg_time = sum_time / frame_count;
-                    println!("{:3.6} [{:3.6} .. {:3.6}]  -- {:4.7} fps  -- (global {:3.6} .. {:3.6})",
+                    println!("{:3.3} [{:3.3} .. {:3.3}]  -- {:4.7} fps  -- (global {:3.3} .. {:3.3})",
                              as_ms(avg_time), as_ms(min_time), as_ms(max_time),
                              1000.0 / as_ms(avg_time), as_ms(min_min_time), as_ms(max_max_time));
                     min_time = time::Duration::max_value();
