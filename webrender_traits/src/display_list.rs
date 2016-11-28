@@ -257,7 +257,7 @@ impl DisplayListBuilder {
     pub fn push_stacking_context(&mut self, 
                                  scroll_policy: ScrollPolicy,
                                  bounds: Rect<f32>,
-                                 overflow: Rect<f32>,
+                                 clip: ClipRegion,
                                  z_index: i32,
                                  transform: &Matrix4D<f32>,
                                  perspective: &Matrix4D<f32>,
@@ -266,7 +266,6 @@ impl DisplayListBuilder {
         let stacking_context = StackingContext {
             scroll_policy: scroll_policy,
             bounds: bounds,
-            overflow: overflow,
             z_index: z_index,
             transform: transform.clone(),
             perspective: perspective.clone(),
@@ -279,7 +278,7 @@ impl DisplayListBuilder {
                 stacking_context: stacking_context
             }),
             rect: Rect::zero(),
-            clip: ClipRegion::simple(&Rect::zero()),
+            clip: clip,
         };
         self.list.push(item);
     }

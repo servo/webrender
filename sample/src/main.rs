@@ -1,9 +1,11 @@
+extern crate app_units;
 extern crate webrender;
 extern crate glutin;
 extern crate gleam;
 extern crate webrender_traits;
 extern crate euclid;
 
+use app_units::Au;
 use euclid::{Size2D, Point2D, Rect, Matrix4D};
 use gleam::gl;
 use std::path::PathBuf;
@@ -13,7 +15,7 @@ use std::fs::File;
 use std::io::Read;
 use std::env;
 
-fn _load_file(name: &str) -> Vec<u8> {
+fn load_file(name: &str) -> Vec<u8> {
     let mut file = File::open(name).unwrap();
     let mut buffer = vec![];
     file.read_to_end(&mut buffer).unwrap();
@@ -89,10 +91,6 @@ fn main() {
     let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);
     let api = sender.create_api();
 
-//     let font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf";
-//     let font_bytes = load_file(font_path);
-//     let font_key = api.add_raw_font(font_bytes);
-
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));
     renderer.set_render_notifier(notifier);
 
@@ -103,97 +101,120 @@ fn main() {
     let mut builder = webrender_traits::DisplayListBuilder::new(pipeline_id);
 
     let bounds = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(width as f32, height as f32));
+    let clip_region = {
+        let complex = webrender_traits::ComplexClipRegion::new(
+            Rect::new(Point2D::new(50.0, 50.0), Size2D::new(100.0, 100.0)),
+            webrender_traits::BorderRadius::uniform(20.0));
+
+        builder.new_clip_region(&bounds, vec![complex], None)
+    };
+
     builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
                                   bounds,
-                                  bounds,
+                                  clip_region,
                                   0,
                                   &Matrix4D::identity(),
                                   &Matrix4D::identity(),
                                   webrender_traits::MixBlendMode::Normal,
                                   Vec::new());
 
-    let clip_region = {
+    let sub_clip = {
         let mask = webrender_traits::ImageMask {
             image: api.add_image(2, 2, None, ImageFormat::A8, ImageData::new(vec![0,80, 180, 255])),
             rect: Rect::new(Point2D::new(75.0, 75.0), Size2D::new(100.0, 100.0)),
             repeat: false,
         };
-        let radius = webrender_traits::BorderRadius::uniform(20.0);
         let complex = webrender_traits::ComplexClipRegion::new(
             Rect::new(Point2D::new(50.0, 50.0), Size2D::new(100.0, 100.0)),
-            radius);
+            webrender_traits::BorderRadius::uniform(20.0));
 
         builder.new_clip_region(&bounds, vec![complex], Some(mask))
     };
 
     builder.push_rect(Rect::new(Point2D::new(100.0, 100.0), Size2D::new(100.0, 100.0)),
-                      clip_region,
+                      sub_clip,
+                      ColorF::new(0.0, 1.0, 0.0, 1.0));
+    builder.push_rect(Rect::new(Point2D::new(250.0, 100.0), Size2D::new(100.0, 100.0)),
+                      sub_clip,
                       ColorF::new(0.0, 1.0, 0.0, 1.0));
 
-    let _text_bounds = Rect::new(Point2D::new(100.0, 200.0), Size2D::new(700.0, 300.0));
+    if false { // draw text?
+        let font_bytes = load_file("res/FreeSans.ttf");
+        let font_key = api.add_raw_font(font_bytes);
 
-    let _glyphs = vec![
-        GlyphInstance {
-            index: 48,
-            x: 100.0,
-            y: 100.0,
-        },
-        GlyphInstance {
-            index: 68,
-            x: 150.0,
-            y: 100.0,
-        },
-        GlyphInstance {
-            index: 80,
-            x: 200.0,
-            y: 100.0,
-        },
-        GlyphInstance {
-            index: 82,
-            x: 250.0,
-            y: 100.0,
-        },
-        GlyphInstance {
-            index: 81,
-            x: 300.0,
-            y: 100.0,
-        },
-        GlyphInstance {
-            index: 3,
-            x: 350.0,
-            y: 100.0,
-        },
-        GlyphInstance {
-            index: 86,
-            x: 400.0,
-            y: 100.0,
-        },
-        GlyphInstance {
-            index: 79,
-            x: 450.0,
-            y: 100.0,
-        },
-        GlyphInstance {
-            index: 72,
-            x: 500.0,
-            y: 100.0,
-        },
-        GlyphInstance {
-            index: 83,
-            x: 550.0,
-            y: 100.0,
-        },
-        GlyphInstance {
-            index: 87,
-            x: 600.0,
-            y: 100.0,
-        },
-        GlyphInstance {
-            index: 17,
-            x: 650.0,
-            y: 100.0,
-        },
-    ];
+        let text_bounds = Rect::new(Point2D::new(100.0, 200.0), Size2D::new(700.0, 300.0));
+
+        let glyphs = vec![
+            GlyphInstance {
+                index: 48,
+                x: 100.0,
+                y: 100.0,
+            },
+            GlyphInstance {
+                index: 68,
+                x: 150.0,
+                y: 100.0,
+            },
+            GlyphInstance {
+                index: 80,
+                x: 200.0,
+                y: 100.0,
+            },
+            GlyphInstance {
+                index: 82,
+                x: 250.0,
+                y: 100.0,
+            },
+            GlyphInstance {
+                index: 81,
+                x: 300.0,
+                y: 100.0,
+            },
+            GlyphInstance {
+                index: 3,
+                x: 350.0,
+                y: 100.0,
+            },
+            GlyphInstance {
+                index: 86,
+                x: 400.0,
+                y: 100.0,
+            },
+            GlyphInstance {
+                index: 79,
+                x: 450.0,
+                y: 100.0,
+            },
+            GlyphInstance {
+                index: 72,
+                x: 500.0,
+                y: 100.0,
+            },
+            GlyphInstance {
+                index: 83,
+                x: 550.0,
+                y: 100.0,
+            },
+            GlyphInstance {
+                index: 87,
+                x: 600.0,
+                y: 100.0,
+            },
+            GlyphInstance {
+                index: 17,
+                x: 650.0,
+                y: 100.0,
+            },
+        ];
+
+        builder.push_text(text_bounds,
+                          webrender_traits::ClipRegion::simple(&bounds),
+                          glyphs,
+                          font_key,
+                          ColorF::new(1.0, 1.0, 0.0, 1.0),
+                          Au::from_px(32),
+                          Au::from_px(0));
+    }
 
     builder.pop_stacking_context();
 

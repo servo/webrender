@@ -3,16 +3,39 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use gpu_store::{GpuStore, GpuStoreAddress};
-use prim_store::{ClipData, GpuBlock32, PrimitiveClipSource, PrimitiveStore};
+use prim_store::{ClipData, GpuBlock32, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
-use std::i32;
-use tiling::StackingContextIndex;
 use util::{rect_from_points_f, TransformedRect};
-use webrender_traits::{AuxiliaryLists, BorderRadius, ComplexClipRegion, ImageMask};
+use webrender_traits::{AuxiliaryLists, BorderRadius, ClipRegion, ComplexClipRegion, ImageMask};
 use webrender_traits::{DeviceIntRect, DeviceIntSize, LayerRect, LayerToWorldTransform};
 
 const MAX_COORD: f32 = 1.0e+16;
-pub const OPAQUE_TASK_INDEX: i32 = i32::MAX;
+
+#[derive(Clone, Debug)]
+pub enum ClipSource {
+    NoClip,
+    Complex(LayerRect, f32),
+    Region(ClipRegion),
+}
+
+impl ClipSource {
+    pub fn to_rect(&self) -> Option<LayerRect> {
+        match self {
+            &ClipSource::NoClip => None,
+            &ClipSource::Complex(rect, _) => Some(rect),
+            &ClipSource::Region(ref region) => Some(LayerRect::from_untyped(&region.main)),
+        }
+    }
+}
+impl<'a> From<&'a ClipRegion> for ClipSource {
+    fn from(clip_region: &'a ClipRegion) -> ClipSource {
+        if clip_region.is_complex() {
+            ClipSource::Region(clip_region.clone())
+        } else {
+            ClipSource::NoClip
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ClipAddressRange {
@@ -22,33 +45,10 @@ pub struct ClipAddressRange {
 
 type ImageMaskIndex = u16;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub struct MaskCacheKey {
-    pub layer_id: StackingContextIndex,
-    pub clip_range: ClipAddressRange,
-    pub image: Option<GpuStoreAddress>,
-}
-
-impl MaskCacheKey {
-    pub fn empty(layer_id: StackingContextIndex) -> MaskCacheKey {
-        MaskCacheKey {
-            layer_id: layer_id,
-            clip_range: ClipAddressRange {
-                start: GpuStoreAddress(0),
-                item_count: 0,
-            },
-            image: None,
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MaskCacheInfo {
-    pub key: MaskCacheKey,
-    // this is needed to update the ImageMaskData after the
-    // ResourceCache allocates/load the actual data
-    // will be simplified after the TextureCache upgrade
-    pub image: Option<ImageMask>,
+    pub clip_range: ClipAddressRange,
+    pub image: Option<(ImageMask, GpuStoreAddress)>,
     pub local_rect: Option<LayerRect>,
     pub local_inner: Option<LayerRect>,
     pub inner_rect: DeviceIntRect,
@@ -58,49 +58,45 @@ pub struct MaskCacheInfo {
 impl MaskCacheInfo {
     /// Create a new mask cache info. It allocates the GPU store data but leaves
     /// it unitialized for the following `update()` call to deal with.
-    pub fn new(source: &PrimitiveClipSource,
-               layer_id: StackingContextIndex,
+    pub fn new(source: &ClipSource,
                clip_store: &mut GpuStore<GpuBlock32>)
                -> Option<MaskCacheInfo> {
-        let mut clip_key = MaskCacheKey::empty(layer_id);
-
-        let image = match source {
-            &PrimitiveClipSource::NoClip => None,
-            &PrimitiveClipSource::Complex(..) => {
-                clip_key.clip_range.item_count = 1;
-                clip_key.clip_range.start = clip_store.alloc(CLIP_DATA_GPU_SIZE);
-                None
-            }
-            &PrimitiveClipSource::Region(ref region) => {
-                let num = region.complex.length;
-                if num != 0 {
-                    clip_key.clip_range.item_count = num as u32;
-                    clip_key.clip_range.start = clip_store.alloc(CLIP_DATA_GPU_SIZE * num);
+        let (image, clip_range) = match source {
+            &ClipSource::NoClip => return None,
+            &ClipSource::Complex(..) => (
+                None,
+                ClipAddressRange {
+                    start: clip_store.alloc(CLIP_DATA_GPU_SIZE),
+                    item_count: 1,
                 }
-                if region.image_mask.is_some() {
-                    let address = clip_store.alloc(MASK_DATA_GPU_SIZE);
-                    clip_key.image = Some(address);
+            ),
+            &ClipSource::Region(ref region) => (
+                region.image_mask.map(|info|
+                    (info, clip_store.alloc(MASK_DATA_GPU_SIZE))
+                ),
+                ClipAddressRange {
+                    start: if region.complex.length > 0 {
+                        clip_store.alloc(CLIP_DATA_GPU_SIZE * region.complex.length)
+                    } else {
+                        GpuStoreAddress(0)
+                    },
+                    item_count: region.complex.length as u32,
                 }
-                region.image_mask
-            }
+            ),
         };
 
-        if clip_key.clip_range.item_count != 0 || clip_key.image.is_some() {
-            Some(MaskCacheInfo {
-                key: clip_key,
-                image: image,
-                local_rect: None,
-                local_inner: None,
-                inner_rect: DeviceIntRect::zero(),
-                outer_rect: DeviceIntRect::zero(),
-            })
-        } else {
-            None
-        }
+        Some(MaskCacheInfo {
+            clip_range: clip_range,
+            image: image,
+            local_rect: None,
+            local_inner: None,
+            inner_rect: DeviceIntRect::zero(),
+            outer_rect: DeviceIntRect::zero(),
+        })
     }
 
     pub fn update(&mut self,
-                  source: &PrimitiveClipSource,
+                  source: &ClipSource,
                   transform: &LayerToWorldTransform,
                   clip_store: &mut GpuStore<GpuBlock32>,
                   device_pixel_ratio: f32,
@@ -110,18 +106,18 @@ impl MaskCacheInfo {
             let mut local_rect;
             let mut local_inner: Option<LayerRect>;
             match source {
-                &PrimitiveClipSource::NoClip => unreachable!(),
-                &PrimitiveClipSource::Complex(rect, radius) => {
-                    let slice = clip_store.get_slice_mut(self.key.clip_range.start, CLIP_DATA_GPU_SIZE);
+                &ClipSource::NoClip => unreachable!(),
+                &ClipSource::Complex(rect, radius) => {
+                    let slice = clip_store.get_slice_mut(self.clip_range.start, CLIP_DATA_GPU_SIZE);
                     let data = ClipData::uniform(rect, radius);
                     PrimitiveStore::populate_clip_data(slice, data);
-                    debug_assert_eq!(self.key.clip_range.item_count, 1);
+                    debug_assert_eq!(self.clip_range.item_count, 1);
                     local_rect = Some(rect);
                     local_inner = ComplexClipRegion::new(rect.to_untyped(),
                                                          BorderRadius::uniform(radius))
                                                     .get_inner_rect().map(|r|{ LayerRect::from_untyped(&r) });
                 }
-                &PrimitiveClipSource::Region(ref region) => {
+                &ClipSource::Region(ref region) => {
                     local_rect = Some(LayerRect::from_untyped(&rect_from_points_f(-MAX_COORD, -MAX_COORD, MAX_COORD, MAX_COORD)));
                     local_inner = match region.image_mask {
                         Some(ref mask) if !mask.repeat => {
@@ -132,8 +128,8 @@ impl MaskCacheInfo {
                         None => local_rect,
                     };
                     let clips = aux_lists.complex_clip_regions(&region.complex);
-                    assert_eq!(self.key.clip_range.item_count, clips.len() as u32);
-                    let slice = clip_store.get_slice_mut(self.key.clip_range.start, CLIP_DATA_GPU_SIZE * clips.len());
+                    assert_eq!(self.clip_range.item_count, clips.len() as u32);
+                    let slice = clip_store.get_slice_mut(self.clip_range.start, CLIP_DATA_GPU_SIZE * clips.len());
                     for (clip, chunk) in clips.iter().zip(slice.chunks_mut(CLIP_DATA_GPU_SIZE)) {
                         let data = ClipData::from_clip_region(clip);
                         PrimitiveStore::populate_clip_data(chunk, data);
