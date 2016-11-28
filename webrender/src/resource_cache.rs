@@ -180,7 +180,6 @@ pub struct ResourceCache {
 
     font_templates: HashMap<FontKey, FontTemplate, BuildHasherDefault<FnvHasher>>,
     image_templates: HashMap<ImageKey, ImageResource, BuildHasherDefault<FnvHasher>>,
-    device_pixel_ratio: f32,
     enable_aa: bool,
     state: State,
     current_frame_id: FrameId,
@@ -195,7 +194,6 @@ pub struct ResourceCache {
 
 impl ResourceCache {
     pub fn new(texture_cache: TextureCache,
-               device_pixel_ratio: f32,
                enable_aa: bool) -> ResourceCache {
         ResourceCache {
             cached_glyphs: ResourceClassCache::new(),
@@ -206,7 +204,6 @@ impl ResourceCache {
             cached_glyph_dimensions: HashMap::with_hasher(Default::default()),
             texture_cache: texture_cache,
             state: State::Idle,
-            device_pixel_ratio: device_pixel_ratio,
             enable_aa: enable_aa,
             current_frame_id: FrameId(0),
             pending_raster_jobs: Vec::new(),
@@ -315,7 +312,6 @@ impl ResourceCache {
         // Run raster jobs in parallel
         run_raster_jobs(&mut self.pending_raster_jobs,
                         &self.font_templates,
-                        self.device_pixel_ratio,
                         self.enable_aa);
 
         // Add completed raster jobs to the texture cache
@@ -380,7 +376,6 @@ impl ResourceCache {
             Occupied(entry) => *entry.get(),
             Vacant(entry) => {
                 let mut dimensions = None;
-                let device_pixel_ratio = self.device_pixel_ratio;
                 let font_template = &self.font_templates[&glyph_key.font_key];
 
                 FONT_CONTEXT.with(|font_context| {
@@ -397,8 +392,7 @@ impl ResourceCache {
 
                     dimensions = font_context.get_glyph_dimensions(glyph_key.font_key,
                                                                    glyph_key.size,
-                                                                   glyph_key.index,
-                                                                   device_pixel_ratio);
+                                                                   glyph_key.index);
                 });
 
                 *entry.insert(dimensions)
@@ -552,7 +546,6 @@ impl ResourceCache {
 
 fn run_raster_jobs(pending_raster_jobs: &mut Vec<GlyphRasterJob>,
                    font_templates: &HashMap<FontKey, FontTemplate, BuildHasherDefault<FnvHasher>>,
-                   device_pixel_ratio: f32,
                    enable_aa: bool) {
     if pending_raster_jobs.is_empty() {
         return
@@ -579,7 +572,6 @@ fn run_raster_jobs(pending_raster_jobs: &mut Vec<GlyphRasterJob>,
             job.result = font_context.rasterize_glyph(job.glyph_key.key.font_key,
                                                       job.glyph_key.key.size,
                                                       job.glyph_key.key.index,
-                                                      device_pixel_ratio,
                                                       render_mode);
         });
     });

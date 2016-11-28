@@ -260,7 +260,7 @@ pub struct TextRunPrimitiveGpu {
 #[derive(Debug, Clone)]
 pub struct TextRunPrimitiveCpu {
     pub font_key: FontKey,
-    pub font_size: Au,
+    pub logical_font_size: Au,
     pub blur_radius: Au,
     pub glyph_range: ItemRange,
     pub cache_dirty: bool,
@@ -669,12 +669,13 @@ impl PrimitiveStore {
                 PrimitiveKind::Gradient => {}
                 PrimitiveKind::TextRun => {
                     let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
+                    let font_size_dp = text.logical_font_size.scale_by(self.device_pixel_ratio);
 
                     let dest_rects = self.gpu_resource_rects.get_slice_mut(text.resource_address,
                                                                            text.glyph_range.length);
 
                     let texture_id = resource_cache.get_glyphs(text.font_key,
-                                                               text.font_size,
+                                                               font_size_dp,
                                                                &text.glyph_indices,
                                                                text.render_mode, |index, uv0, uv1| {
                         let dest_rect = &mut dest_rects[index];
@@ -838,6 +839,7 @@ impl PrimitiveStore {
             PrimitiveKind::BoxShadow => {}
             PrimitiveKind::TextRun => {
                 let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
+                let font_size_dp = text.logical_font_size.scale_by(self.device_pixel_ratio);
                 prim_needs_resolve = true;
 
                 if text.cache_dirty {
@@ -850,7 +852,7 @@ impl PrimitiveStore {
                     let dest_glyphs = self.gpu_data16.get_slice_mut(metadata.gpu_data_address,
                                                                     text.glyph_range.length);
                     let mut glyph_key = GlyphKey::new(text.font_key,
-                                                      text.font_size,
+                                                      font_size_dp,
                                                       src_glyphs[0].index);
                     let mut local_rect = LayerRect::zero();
                     let mut actual_glyph_count = 0;
@@ -915,7 +917,7 @@ impl PrimitiveStore {
                 }
 
                 resource_cache.request_glyphs(text.font_key,
-                                              text.font_size,
+                                              font_size_dp,
                                               &text.glyph_indices,
                                               text.render_mode);
             }
