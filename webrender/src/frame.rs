@@ -380,8 +380,8 @@ impl Frame {
                     continue;
                 },
                 ScrollLocation::End => {
-                    let end_pos = -layer.content_size.height +
-                                  layer.local_viewport_rect.size.height;
+                    let end_pos = layer.local_viewport_rect.size.height
+                                  - layer.content_size.height;
 
                     if layer.scrolling.offset.y.round() >= end_pos {
                         // Nothing to do on this layer.
@@ -391,7 +391,7 @@ impl Frame {
                     layer.scrolling.offset.y = end_pos;
                     scrolled_a_layer = true;
                     continue;
-                },
+                }
             };
 
             let overscroll_amount = layer.overscroll_amount();
