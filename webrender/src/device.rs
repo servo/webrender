@@ -484,6 +484,10 @@ pub struct UBOId(gl::GLuint);
 const MAX_EVENTS_PER_FRAME: usize = 256;
 const MAX_PROFILE_FRAMES: usize = 4;
 
+pub trait NamedTag {
+    fn get_label(&self) -> &str;
+}
+
 #[derive(Debug, Clone)]
 pub struct GpuSample<T> {
     pub tag: T,
@@ -538,7 +542,10 @@ impl<T> GpuFrameProfile<T> {
     }
 
     #[cfg(not(target_os = "android"))]
-    fn add_marker(&mut self, tag: T) {
+    fn add_marker(&mut self, tag: T) -> GpuMarker
+    where T: NamedTag {
+        let marker = GpuMarker::new(tag.get_label());
+
         if self.pending_query != 0 {
             gl::end_query(gl::TIME_ELAPSED);
         }
@@ -555,6 +562,7 @@ impl<T> GpuFrameProfile<T> {
         }
 
         self.next_query += 1;
+        marker
     }
 
     #[cfg(target_os = "android")]
@@ -633,9 +641,47 @@ impl<T> GpuProfiler<T> {
         self.next_frame = (self.next_frame + 1) % MAX_PROFILE_FRAMES;
     }
 
+    #[cfg(not(target_os = "android"))]
+    pub fn add_marker(&mut self, tag: T) -> GpuMarker
+    where T: NamedTag {
+        self.frames[self.next_frame].add_marker(tag)
+    }
+
+    #[cfg(target_os = "android")]
     pub fn add_marker(&mut self, tag: T) {
-        let frame = &mut self.frames[self.next_frame];
-        frame.add_marker(tag);
+        self.frames[self.next_frame].add_marker(tag)
+    }
+}
+
+#[must_use]
+pub struct GpuMarker(());
+
+#[cfg(any(target_arch="arm", target_arch="aarch64"))]
+impl GpuMarker {
+    pub fn new(_: &str) -> GpuMarker {
+        GpuMarker(())
+    }
+
+    pub fn fire(_: &str) {}
+}
+
+
+#[cfg(not(any(target_arch="arm", target_arch="aarch64")))]
+impl GpuMarker {
+    pub fn new(message: &str) -> GpuMarker {
+       gl::push_group_marker_ext(message);
+       GpuMarker(())
+    }
+
+    pub fn fire(message: &str) {
+        gl::insert_event_marker_ext(message);
+    }
+}
+
+#[cfg(not(any(target_arch="arm", target_arch="aarch64")))]
+impl Drop for GpuMarker {
+    fn drop(&mut self) {
+        gl::pop_group_marker_ext();
     }
 }
 
