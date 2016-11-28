@@ -146,7 +146,7 @@ impl YamlFrameReader {
             panic!("text item had neither text nor glyphs!");
         }
 
-        let glyphs = if item["text"].is_badvalue() {
+        let (glyphs, rect) = if item["text"].is_badvalue() {
             // if glyphs are specified, then the glyph positions can have the
             // origin baked in.
             let origin = item["origin"].as_point().unwrap_or(Point2D::new(0.0, 0.0));
@@ -154,13 +154,18 @@ impl YamlFrameReader {
             let glyph_offsets = item["offsets"].as_vec_f32().unwrap();
             assert!(glyph_offsets.len() == glyph_indices.len() * 2);
 
-            glyph_indices.iter().enumerate().map(|k| {
+            let glyphs = glyph_indices.iter().enumerate().map(|k| {
                 GlyphInstance {
                     index: *k.1,
                     x: origin.x + glyph_offsets[k.0*2],
                     y: origin.y + glyph_offsets[k.0*2+1],
                 }
-            }).collect()
+            }).collect();
+            // TODO(gw): We could optionally use the WR API to query glyph dimensions
+            //           here and calculate the bounding region here if we want to.
+            let rect = item["bounds"].as_rect()
+                                     .expect("Text items with glyphs require bounds [for now]");
+            (glyphs, rect)
         } else {
             if native_key.is_none() {
                 panic!("Can't layout simple ascii text with raw font [for now]");
@@ -174,14 +179,14 @@ impl YamlFrameReader {
 
             let mut x = origin.x;
             let y = origin.y;
-            glyph_indices.iter().zip(glyph_advances).map(|arg| {
+            let glyphs = glyph_indices.iter().zip(glyph_advances).map(|arg| {
                 let gi = GlyphInstance { index: *arg.0 as u32, x: x, y: y };
                 x = x + arg.1;
                 gi
-            }).collect()
+            }).collect();
+            let rect = Rect::new(Point2D::new(0.0, 0.0), wrench.window_size_f32());
+            (glyphs, rect)
         };
-
-        let rect = Rect::new(Point2D::new(0.0, 0.0), wrench.window_size_f32());
 
         let (builder, aux_builder) = self.both_builders();
         let clip = item["clip"].as_clip_region(aux_builder).unwrap_or(*clip_region);
