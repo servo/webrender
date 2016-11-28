@@ -403,8 +403,13 @@ impl YamlFrameWriter {
                         ImageRendering::Pixelated => str_node(&mut v, "rendering", "pixelated"),
                     };
                 },
+                YuvImage(_) => {
+                    // TODO
+                    println!("TODO YAML YuvImage");
+                },
                 WebGL(_) => {
                     // TODO
+                    println!("TODO YAML WebGL");
                     //rect_node(&mut v, "bounds", &base.rect);
                     //clip_node(&mut v, "clip", &base.clip);
                 },
@@ -434,16 +439,19 @@ impl YamlFrameWriter {
                 },
                 BoxShadow(item) => {
                     // TODO
+                    println!("TODO YAML BoxShadow");
                     rect_node(&mut v, "bounds", &base.rect);
                     clip_node(&mut v, "clip", &base.clip);
                 },
                 Gradient(item) => {
                     // TODO
+                    println!("TODO YAML Gradient");
                     rect_node(&mut v, "bounds", &base.rect);
                     clip_node(&mut v, "clip", &base.clip);
                 },
                 Iframe(item) => {
                     // TODO
+                    println!("TODO YAML Iframe");
                 },
                 PushStackingContext(item) => {
                     str_node(&mut v, "type", "stacking_context");
@@ -455,10 +463,12 @@ impl YamlFrameWriter {
                 },
                 PushScrollLayer(item) => {
                     // TODO
+                    println!("TODO PushScrollLayer");
                     rect_node(&mut v, "bounds", &base.rect);
                     clip_node(&mut v, "clip", &base.clip);
                 },
                 PopScrollLayer => {
+                    println!("TODO PopScrollLayer");
                     // TODO
                 },
             }
