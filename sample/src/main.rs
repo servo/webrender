@@ -7,8 +7,7 @@ extern crate euclid;
 use euclid::{Size2D, Point2D, Rect, Matrix4D};
 use gleam::gl;
 use std::path::PathBuf;
-use std::ffi::CStr;
-use webrender_traits::{AuxiliaryListsBuilder, ColorF, Epoch, GlyphInstance};
+use webrender_traits::{ColorF, Epoch, GlyphInstance};
 use webrender_traits::{ImageData, ImageFormat, PipelineId, RendererKind};
 use std::fs::File;
 use std::io::Read;
@@ -31,11 +30,6 @@ impl Notifier {
             window_proxy: window_proxy,
         }
     }
-}
-
-pub struct WebRenderFrameBuilder {
-    pub root_pipeline_id: PipelineId,
-    pub next_scroll_layer_id: usize,
 }
 
 impl webrender_traits::RenderNotifier for Notifier {
@@ -102,24 +96,21 @@ fn main() {
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));
     renderer.set_render_notifier(notifier);
 
-    let pipeline_id = PipelineId(0, 0);
     let epoch = Epoch(0);
     let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
 
-    let mut auxiliary_lists_builder = AuxiliaryListsBuilder::new();
-    let mut builder = webrender_traits::DisplayListBuilder::new();
+    let pipeline_id = PipelineId(0, 0);
+    let mut builder = webrender_traits::DisplayListBuilder::new(pipeline_id);
 
     let bounds = Rect::new(Point2D::new(0.0, 0.0), Size2D::new(width as f32, height as f32));
-    builder.push_stacking_context(
-        webrender_traits::StackingContext::new(webrender_traits::ScrollPolicy::Scrollable,
-                                               bounds,
-                                               bounds,
-                                               0,
-                                               &Matrix4D::identity(),
-                                               &Matrix4D::identity(),
-                                               webrender_traits::MixBlendMode::Normal,
-                                               Vec::new(),
-                                               &mut auxiliary_lists_builder));
+    builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
+                                  bounds,
+                                  bounds,
+                                  0,
+                                  &Matrix4D::identity(),
+                                  &Matrix4D::identity(),
+                                  webrender_traits::MixBlendMode::Normal,
+                                  Vec::new());
 
     let clip_region = {
         let mask = webrender_traits::ImageMask {
@@ -132,10 +123,7 @@ fn main() {
             Rect::new(Point2D::new(50.0, 50.0), Size2D::new(100.0, 100.0)),
             radius);
 
-        webrender_traits::ClipRegion::new(&bounds,
-                                          vec![complex],
-                                          Some(mask),
-                                          &mut auxiliary_lists_builder)
+        builder.new_clip_region(&bounds, vec![complex], Some(mask))
     };
 
     builder.push_rect(Rect::new(Point2D::new(100.0, 100.0), Size2D::new(100.0, 100.0)),
@@ -207,24 +195,13 @@ fn main() {
         },
     ];
 
-//     builder.push_text(text_bounds,
-//                       clip_region,
-//                       glyphs,
-//                       font_key,
-//                       ColorF::new(1.0, 1.0, 0.0, 1.0),
-//                       Au::from_px(32),
-//                       Au::from_px(0),
-//                       &mut frame_builder.auxiliary_lists_builder);
-
     builder.pop_stacking_context();
 
     api.set_root_display_list(
         root_background_color,
         epoch,
-        pipeline_id,
         Size2D::new(width as f32, height as f32),
-        builder.finalize(),
-        auxiliary_lists_builder.finalize());
+        builder);
     api.set_root_pipeline(pipeline_id);
 
     for event in window.wait_events() {

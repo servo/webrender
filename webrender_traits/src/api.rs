@@ -7,7 +7,7 @@ use channel::{self, MsgSender, PayloadHelperMethods, PayloadSender};
 use euclid::{Point2D, Size2D};
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::cell::Cell;
-use {ApiMsg, AuxiliaryLists, BuiltDisplayList, ColorF, Epoch};
+use {ApiMsg, ColorF, DisplayListBuilder, Epoch};
 use {FontKey, IdNamespace, ImageFormat, ImageKey, NativeFontHandle, PipelineId};
 use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState, ServoScrollRootId};
 use {GlyphKey, GlyphDimensions, ImageData, WebGLContextId, WebGLCommand};
@@ -165,10 +165,10 @@ impl RenderApi {
     pub fn set_root_display_list(&self,
                                  background_color: ColorF,
                                  epoch: Epoch,
-                                 pipeline_id: PipelineId,
                                  viewport_size: Size2D<f32>,
-                                 display_list: BuiltDisplayList,
-                                 auxiliary_lists: AuxiliaryLists) {
+                                 builder: DisplayListBuilder) {
+        let pipeline_id = builder.pipeline_id;
+        let (display_list, auxiliary_lists) = builder.finalize();
         let msg = ApiMsg::SetRootDisplayList(background_color,
                                              epoch,
                                              pipeline_id,
