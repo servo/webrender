@@ -19,7 +19,7 @@ use tiling::{AuxiliaryListsMap, FrameBuilder, FrameBuilderConfig, LayerMap, Prim
 use util::MatrixHelpers;
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
 use webrender_traits::{ClipRegion, ColorF, DisplayItem, StackingContext, FilterOp, MixBlendMode};
-use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, SpecificDisplayItem, ScrollLayerState};
+use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, ScrollLocation, SpecificDisplayItem, ScrollLayerState};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
 use webrender_traits::{ServoScrollRootId, ScrollLayerRect, as_scroll_parent_rect, ScrollLayerPixel};
 use webrender_traits::WorldPoint4D;
@@ -329,7 +329,7 @@ impl Frame {
 
     /// Returns true if any layers actually changed position or false otherwise.
     pub fn scroll(&mut self,
-                  mut delta: Point2D<f32>,
+                  scroll_location: ScrollLocation,
                   cursor: Point2D<f32>,
                   phase: ScrollEventPhase)
                   -> bool {
@@ -363,6 +363,33 @@ impl Frame {
             if layer.scrolling.started_bouncing_back && phase == ScrollEventPhase::Move(false) {
                 continue;
             }
+
+            let mut delta = match scroll_location {
+                ScrollLocation::Delta(delta) => delta,
+                ScrollLocation::Start => {
+                    if layer.scrolling.offset.y.round() <= 0.0 {
+                        // Nothing to do on this layer.
+                        continue;
+                    }
+
+                    layer.scrolling.offset.y = 0.0;
+                    scrolled_a_layer = true;
+                    continue;
+                },
+                ScrollLocation::End => {
+                    let end_pos = layer.local_viewport_rect.size.height
+                                  - layer.content_size.height;
+
+                    if layer.scrolling.offset.y.round() >= end_pos {
+                        // Nothing to do on this layer.
+                        continue;
+                    }
+                
+                    layer.scrolling.offset.y = end_pos;
+                    scrolled_a_layer = true;
+                    continue;
+                }
+            };
 
             let overscroll_amount = layer.overscroll_amount();
             let overscrolling = CAN_OVERSCROLL && (overscroll_amount.width != 0.0 ||

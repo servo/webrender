@@ -48,7 +48,7 @@ pub enum ApiMsg {
                        BuiltDisplayListDescriptor,
                        AuxiliaryListsDescriptor),
     SetRootPipeline(PipelineId),
-    Scroll(Point2D<f32>, Point2D<f32>, ScrollEventPhase),
+    Scroll(ScrollLocation, Point2D<f32>, ScrollEventPhase),
     ScrollLayersWithScrollId(Point2D<f32>, PipelineId, ServoScrollRootId),
     TickScrollingBounce,
     TranslatePointToLayerSpace(Point2D<f32>, MsgSender<(Point2D<f32>, PipelineId)>),
@@ -489,6 +489,16 @@ pub struct ScrollLayerState {
 pub enum ScrollPolicy {
     Scrollable,
     Fixed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub enum ScrollLocation {
+    /// Scroll by a certain amount.
+    Delta(Point2D<f32>), 
+    /// Scroll to very top of element.
+    Start,
+    /// Scroll to very bottom of element. 
+    End 
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
