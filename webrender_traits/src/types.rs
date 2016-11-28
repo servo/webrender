@@ -48,6 +48,7 @@ pub enum ApiMsg {
                        BuiltDisplayListDescriptor,
                        AuxiliaryListsDescriptor),
     SetRootPipeline(PipelineId),
+    Scroll(ScrollLocation, Point2D<f32>, ScrollEventPhase),
     ScrollLayersWithScrollId(Point2D<f32>, PipelineId, ServoScrollRootId),
     TickScrollingBounce,
     TranslatePointToLayerSpace(Point2D<f32>, MsgSender<(Point2D<f32>, PipelineId)>),

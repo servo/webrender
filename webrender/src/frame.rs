@@ -298,7 +298,6 @@ impl Frame {
     }
 
     /// Returns true if any layers actually changed position or false otherwise.
-<<<<<<< efdaeb1c18aea2be3172aea2af309298b2f54402
     pub fn scroll_layers(&mut self,
                          origin: Point2D<f32>,
                          pipeline_id: PipelineId,
