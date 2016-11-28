@@ -11,6 +11,7 @@ use {ApiMsg, ColorF, DisplayListBuilder, Epoch};
 use {FontKey, IdNamespace, ImageFormat, ImageKey, NativeFontHandle, PipelineId};
 use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState, ServoScrollRootId};
 use {GlyphKey, GlyphDimensions, ImageData, WebGLContextId, WebGLCommand};
+use VRCompositorCommand;
 
 impl RenderApiSender {
     pub fn new(api_sender: MsgSender<ApiMsg>,
@@ -242,6 +243,11 @@ impl RenderApi {
 
     pub fn generate_frame(&self) {
         let msg = ApiMsg::GenerateFrame;
+        self.api_sender.send(msg).unwrap();
+    }
+
+    pub fn send_vr_compositor_command(&self, context_id: WebGLContextId, command: VRCompositorCommand) {
+        let msg = ApiMsg::VRCompositorCommand(context_id, command);
         self.api_sender.send(msg).unwrap();
     }
 

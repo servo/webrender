@@ -19,6 +19,7 @@ use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, Im
 use webrender_traits::{FlushNotifier, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
 use webrender_traits::{DeviceIntSize};
 use webrender_traits::channel::{PayloadHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
+use webrender_traits::{VRCompositorCommand, VRCompositor, VRCompositorCreator, VRCompositorId};
 use record;
 use tiling::FrameBuilderConfig;
 use offscreen_gl_context::GLContextDispatcher;
@@ -50,6 +51,9 @@ pub struct RenderBackend {
     main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
 
     next_webgl_id: usize,
+
+    vr_compositor_creator: Arc<Mutex<Option<Box<VRCompositorCreator>>>>,
+    vr_compositors: HashMap<VRCompositorId, Box<VRCompositor>>
 }
 
 impl RenderBackend {
@@ -66,7 +70,8 @@ impl RenderBackend {
                config: FrameBuilderConfig,
                debug: bool,
                enable_recording:bool,
-               main_thread_dispatcher:  Arc<Mutex<Option<Box<RenderDispatcher>>>>) -> RenderBackend {
+               main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
+               vr_compositor_creator: Arc<Mutex<Option<Box<VRCompositorCreator>>>>) -> RenderBackend {
 
         let resource_cache = ResourceCache::new(texture_cache,
                                                 device_pixel_ratio,
@@ -90,6 +95,8 @@ impl RenderBackend {
             enable_recording:enable_recording,
             main_thread_dispatcher: main_thread_dispatcher,
             next_webgl_id: 0,
+            vr_compositor_creator: vr_compositor_creator,
+            vr_compositors: HashMap::new(),
         }
     }
 
@@ -337,6 +344,10 @@ impl RenderBackend {
                             ctx.make_current();
                             ctx.apply_command(command);
                             self.current_bound_webgl_context_id = Some(context_id);
+                        },
+
+                        ApiMsg::VRCompositorCommand(context_id, command) => {
+                            self.handle_vr_compositor_command(context_id, command);
                         }
                         ApiMsg::GenerateFrame => {
                             let frame = profile_counters.total_time.profile(|| {
@@ -469,6 +480,38 @@ impl RenderBackend {
         //           cleaner way to do this, or use the OnceMutex on crates.io?
         let mut notifier = self.notifier.lock();
         notifier.as_mut().unwrap().as_mut().unwrap().new_scroll_frame_ready(composite_needed);
+    }
+
+    fn handle_vr_compositor_command(&mut self, ctx_id: WebGLContextId, cmd: VRCompositorCommand) {
+        match cmd {
+            VRCompositorCommand::Create(compositor_id) => {
+                let mut creator = self.vr_compositor_creator.lock();
+                let compositor = creator.as_mut().unwrap().as_mut().unwrap().create_compositor(compositor_id);
+                if let Some(compositor) = compositor {
+                    self.vr_compositors.insert(compositor_id, compositor);
+                }
+            }
+            VRCompositorCommand::SyncPoses(compositor_id, near, far, sender) => {
+                if let Some(ref compositor) = self.vr_compositors.get(&compositor_id) {
+                    let pose = compositor.sync_poses(near, far);
+                    let _result = sender.send(Ok(pose));
+                } else {
+                    let _result = sender.send(Err(()));
+                }
+            }
+            VRCompositorCommand::SubmitFrame(compositor_id, left_bounds, right_bounds) => {
+                if let Some(ref compositor) = self.vr_compositors.get(&compositor_id) {
+                    let texture = self.resource_cache.get_webgl_texture(&ctx_id);
+                    if let SourceTexture::WebGL(texture_id) = texture.texture_id {
+                        compositor.submit_frame(texture_id, left_bounds, right_bounds);
+                    }
+                }
+            }
+            VRCompositorCommand::Release(compositor_id) => {
+                self.vr_compositors.remove(&compositor_id);
+            }
+        }
+
     }
 }
 

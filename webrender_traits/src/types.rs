@@ -57,6 +57,8 @@ pub enum ApiMsg {
     ResizeWebGLContext(WebGLContextId, Size2D<i32>),
     WebGLCommand(WebGLContextId, WebGLCommand),
     GenerateFrame,
+    // WebVR commands that must be called in the WebGL render thread.
+    VRCompositorCommand(WebGLContextId, VRCompositorCommand)
 }
 
 #[derive(Copy, Clone, Deserialize, Serialize, Debug)]
@@ -644,7 +646,16 @@ pub enum WebGLCommand {
     DrawingBufferHeight(MsgSender<i32>),
     Finish(MsgSender<()>),
     Flush,
-    GenerateMipmap(u32),
+    GenerateMipmap(u32)
+}
+
+// WebVR commands that must be called in the WebGL render thread.
+#[derive(Clone, Deserialize, Serialize)]
+pub enum VRCompositorCommand {
+    Create(VRCompositorId),
+    SyncPoses(VRCompositorId, f64, f64, MsgSender<Result<Vec<u8>,()>>),
+    SubmitFrame(VRCompositorId, [f32; 4], [f32; 4]),
+    Release(VRCompositorId)
 }
 
 #[cfg(feature = "nightly")]
@@ -783,4 +794,19 @@ pub enum WebGLShaderParameter {
     Int(i32),
     Bool(bool),
     Invalid,
+}
+
+pub type VRCompositorId = u64;
+
+// Trait object that runs WebVR commands that must be called in the WebGL render thread.
+pub trait VRCompositor {
+    // Synchronization point to keep in step with the HMD.
+    fn sync_poses(&self, f64, f64) -> Vec<u8>;
+    // Submits the frame to the display using the shared WebGLContext texture.
+    fn submit_frame(&self, u32, [f32; 4], [f32; 4]);
+}
+
+// Trait that allows to create VRCompositor instance using decoupled dependencies.
+pub trait VRCompositorCreator: Send {
+    fn create_compositor(&mut self, VRCompositorId) -> Option<Box<VRCompositor>>;
 }
