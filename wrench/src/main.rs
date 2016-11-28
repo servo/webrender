@@ -131,9 +131,9 @@ fn main() {
                                  dp_ratio,
                                  save_type,
                                  size,
+                                 args.is_present("rebuild"),
                                  args.is_present("subpixel-aa"),
-                                 args.is_present("debug"),
-                                 args.is_present("vsync"));
+                                 args.is_present("debug"));
 
     let mut thing =
         if let Some(subargs) = args.subcommand_matches("show") {

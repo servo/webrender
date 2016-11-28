@@ -280,14 +280,19 @@ impl WrenchThing for YamlFrameReader {
 
             self.built_data = Some(builder.finalize());
             self.built_aux_data = Some(aux_builder.finalize());
-
-            self.frame_built = true;
         }
 
         self.frame_count += 1;
-        wrench.send_lists(self.frame_count,
-                          self.built_data.as_ref().unwrap().clone(),
-                          self.built_aux_data.as_ref().unwrap().clone());
+
+        if !self.frame_built || wrench.should_rebuild_display_lists() {
+            wrench.send_lists(self.frame_count,
+                              self.built_data.as_ref().unwrap().clone(),
+                              self.built_aux_data.as_ref().unwrap().clone());
+        } else {
+            wrench.refresh();
+        }
+
+        self.frame_built = true;
         self.frame_count
     }
 

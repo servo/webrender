@@ -111,21 +111,23 @@ pub trait WrenchThing {
 }
 
 pub struct Wrench {
-    pub window_size: Size2D<u32>,
-    pub device_pixel_ratio: f32,
+    window_size: Size2D<u32>,
+    device_pixel_ratio: f32,
 
     pub renderer: webrender::renderer::Renderer,
-    pub sender: RenderApiSender,
+    sender: RenderApiSender,
     pub api: RenderApi,
 
-    pub image_map: HashMap<PathBuf, (ImageKey, Size2D<f32>)>,
+    image_map: HashMap<PathBuf, (ImageKey, Size2D<f32>)>,
 
     // internal housekeeping
-    pub root_pipeline_id: PipelineId,
-    pub next_scroll_layer_id: usize,
+    root_pipeline_id: PipelineId,
+    next_scroll_layer_id: usize,
 
     //pub gl_renderer: String,
     //pub gl_version: String,
+
+    pub rebuild_display_lists: bool,
 
     pub frame_start_sender: chase_lev::Worker<time::SteadyTime>,
 }
@@ -136,9 +138,9 @@ impl Wrench {
                dp_ratio: f32,
                save_type: Option<SaveType>,
                size: Size2D<u32>,
+               do_rebuild: bool,
                subpixel_aa: bool,
-               debug: bool,
-               vsync: bool)
+               debug: bool)
            -> Wrench
     {
         println!("Shader override path: {:?}", shader_override_path);
@@ -181,6 +183,7 @@ impl Wrench {
             sender: sender,
             api: api,
 
+            rebuild_display_lists: do_rebuild,
             device_pixel_ratio: dp_ratio,
 
             image_map: HashMap::new(),
@@ -203,6 +206,10 @@ impl Wrench {
     pub fn set_title(&mut self, extra: &str) {
         //self.window.set_title(&format!("Wrench: {} ({}x) - {} - {}", extra,
         //    self.device_pixel_ratio, self.gl_renderer, self.gl_version));
+    }
+
+    pub fn should_rebuild_display_lists(&self) -> bool {
+        self.rebuild_display_lists
     }
 
     pub fn window_size_f32(&self) -> Size2D<f32> {
@@ -326,6 +333,11 @@ impl Wrench {
     pub fn render(&mut self) {
         self.renderer.update();
         self.renderer.render(self.window_size);
+    }
+
+    pub fn refresh(&mut self) {
+        self.frame_start_sender.push(time::SteadyTime::now());
+        self.api.generate_frame();
     }
 
     pub fn show_onscreen_help(&mut self) {
