@@ -122,7 +122,7 @@ extern crate time;
 extern crate webrender_traits;
 extern crate offscreen_gl_context;
 extern crate byteorder;
-extern crate rayon;
+extern crate threadpool;
 
 pub use renderer::{ExternalImage, ExternalImageSource, ExternalImageHandler};
 pub use renderer::{Renderer, RendererOptions};
