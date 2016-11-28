@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use debug_render::DebugRenderer;
-use device::GpuSample;
+use device::{GpuMarker, GpuSample};
 use euclid::{Point2D, Size2D, Rect};
 use std::collections::vec_deque::VecDeque;
 use std::f32;
@@ -611,6 +611,8 @@ impl Profiler {
                         renderer_profile: &RendererProfileCounters,
                         renderer_timers: &mut RendererProfileTimers,
                         debug_renderer: &mut DebugRenderer) {
+
+        let _ = GpuMarker::new("profile");
         self.x_left = 20.0;
         self.y_left = 40.0;
         self.x_right = 400.0;

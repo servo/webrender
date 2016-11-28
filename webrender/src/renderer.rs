@@ -11,7 +11,7 @@
 
 use debug_colors;
 use debug_render::DebugRenderer;
-use device::{Device, ProgramId, TextureId, VertexFormat, GpuProfiler};
+use device::{Device, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler};
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
 use euclid::{Size2D, Matrix4D};
 use fnv::FnvHasher;
@@ -946,6 +946,7 @@ impl Renderer {
 */
 
     fn update_texture_cache(&mut self) {
+        let _ = GpuMarker::new("texture cache update");
         let mut pending_texture_updates = mem::replace(&mut self.pending_texture_updates, vec![]);
         for update_list in pending_texture_updates.drain(..) {
             for update in update_list.updates {
@@ -1076,6 +1077,7 @@ impl Renderer {
                    target_size: &DeviceSize,
                    cache_texture: Option<TextureId>,
                    should_clear: bool) {
+        let _ = GpuMarker::new("target draw");
         self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
 
         let dimensions = [target_size.width as u32, target_size.height as u32];
@@ -1119,36 +1121,41 @@ impl Renderer {
         // TODO(gw): In the future, consider having
         //           fast path blur shaders for common
         //           blur radii with fixed weights.
-        if !target.vertical_blurs.is_empty() {
-            self.device.set_blend(false);
+        {
+            let _ = GpuMarker::new("blurs");
 
-            self.gpu_profile.add_marker(GPU_TAG_BLUR);
-            let shader = self.cs_blur.get(&mut self.device);
-            let max_blurs = self.max_blurs;
-            self.draw_ubo_batch(&target.vertical_blurs,
-                                shader,
-                                1,
-                                &BatchTextures::no_texture(),
-                                max_blurs,
-                                &projection);
-        }
+            if !target.vertical_blurs.is_empty() {
+                self.device.set_blend(false);
 
-        if !target.horizontal_blurs.is_empty() {
-            self.device.set_blend(false);
+                self.gpu_profile.add_marker(GPU_TAG_BLUR);
+                let shader = self.cs_blur.get(&mut self.device);
+                let max_blurs = self.max_blurs;
+                self.draw_ubo_batch(&target.vertical_blurs,
+                                    shader,
+                                    1,
+                                    &BatchTextures::no_texture(),
+                                    max_blurs,
+                                    &projection);
+            }
 
-            self.gpu_profile.add_marker(GPU_TAG_BLUR);
-            let shader = self.cs_blur.get(&mut self.device);
-            let max_blurs = self.max_blurs;
-            self.draw_ubo_batch(&target.horizontal_blurs,
-                                shader,
-                                1,
-                                &BatchTextures::no_texture(),
-                                max_blurs,
-                                &projection);
+            if !target.horizontal_blurs.is_empty() {
+                self.device.set_blend(false);
+
+                self.gpu_profile.add_marker(GPU_TAG_BLUR);
+                let shader = self.cs_blur.get(&mut self.device);
+                let max_blurs = self.max_blurs;
+                self.draw_ubo_batch(&target.horizontal_blurs,
+                                    shader,
+                                    1,
+                                    &BatchTextures::no_texture(),
+                                    max_blurs,
+                                    &projection);
+            }
         }
 
         // Draw any box-shadow caches for this target.
         if !target.box_shadow_cache_prims.is_empty() {
+            let _ = GpuMarker::new("cached primitives");
             self.device.set_blend(false);
             self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
             let shader = self.cs_box_shadow.get(&mut self.device);
@@ -1162,68 +1169,73 @@ impl Renderer {
         }
 
         // Draw the clip items into the tiled alpha mask.
-        self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
-        // first, mark the target area as opaque
-        //Note: not needed if we know the target is cleared with opaque
-        self.device.set_blend(false);
-        if !target.clip_batcher.clears.is_empty() {
-            let shader = self.cs_clip_clear.get(&mut self.device);
-            let max_prim_items = self.max_clip_instances;
-            self.draw_ubo_batch(&target.clip_batcher.clears,
-                                shader,
-                                1,
-                                &BatchTextures::no_texture(),
-                                max_prim_items,
-                                &projection);
-        }
-        // alternatively, copy the contents from another task
-        if !target.clip_batcher.copies.is_empty() {
-            let shader = self.cs_clip_copy.get(&mut self.device);
-            let max_prim_items = self.max_clip_instances;
-            self.draw_ubo_batch(&target.clip_batcher.copies,
-                                shader,
-                                1,
-                                &BatchTextures::no_texture(),
-                                max_prim_items,
-                                &projection);
-        }
-        // the fast path for clear + rect, which is just the rectangle without blending
-        if !target.clip_batcher.rectangles_noblend.is_empty() {
-            let shader = self.cs_clip_rectangle.get(&mut self.device);
-            let max_prim_items = self.max_clip_instances;
-            self.draw_ubo_batch(&target.clip_batcher.rectangles_noblend,
-                                shader,
-                                1,
-                                &BatchTextures::no_texture(),
-                                max_prim_items,
-                                &projection);
-        }
-        // now switch to multiplicative blending
-        self.device.set_blend(true);
-        self.device.set_blend_mode_multiply();
-        // draw rounded cornered rectangles
-        if !target.clip_batcher.rectangles.is_empty() {
-            let shader = self.cs_clip_rectangle.get(&mut self.device);
-            let max_prim_items = self.max_clip_instances;
-            self.draw_ubo_batch(&target.clip_batcher.rectangles,
-                                shader,
-                                1,
-                                &BatchTextures::no_texture(),
-                                max_prim_items,
-                                &projection);
-        }
-        // draw image masks
-        for (mask_texture_id, items) in target.clip_batcher.images.iter() {
-            let texture_id = self.resolve_source_texture(mask_texture_id);
-            self.device.bind_texture(TextureSampler::Mask, texture_id);
-            let shader = self.cs_clip_image.get(&mut self.device);
-            let max_prim_items = self.max_clip_instances;
-            self.draw_ubo_batch(items,
-                                shader,
-                                1,
-                                &BatchTextures::no_texture(),
-                                max_prim_items,
-                                &projection);
+        {
+            self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
+            let _ = GpuMarker::new("cached clips");
+            // first, mark the target area as opaque
+            //Note: not needed if we know the target is cleared with opaque
+            self.device.set_blend(false);
+            if !target.clip_batcher.clears.is_empty() {
+                let shader = self.cs_clip_clear.get(&mut self.device);
+                let max_prim_items = self.max_clip_instances;
+                self.draw_ubo_batch(&target.clip_batcher.clears,
+                                    shader,
+                                    1,
+                                    &BatchTextures::no_texture(),
+                                    max_prim_items,
+                                    &projection);
+            }
+            // alternatively, copy the contents from another task
+            if !target.clip_batcher.copies.is_empty() {
+                let shader = self.cs_clip_copy.get(&mut self.device);
+                let max_prim_items = self.max_clip_instances;
+                self.draw_ubo_batch(&target.clip_batcher.copies,
+                                    shader,
+                                    1,
+                                    &BatchTextures::no_texture(),
+                                    max_prim_items,
+                                    &projection);
+            }
+            // the fast path for clear + rect, which is just the rectangle without blending
+            if !target.clip_batcher.rectangles_noblend.is_empty() {
+                let shader = self.cs_clip_rectangle.get(&mut self.device);
+                let max_prim_items = self.max_clip_instances;
+                self.draw_ubo_batch(&target.clip_batcher.rectangles_noblend,
+                                    shader,
+                                    1,
+                                    &BatchTextures::no_texture(),
+                                    max_prim_items,
+                                    &projection);
+            }
+            // now switch to multiplicative blending
+            self.device.set_blend(true);
+            self.device.set_blend_mode_multiply();
+            // draw rounded cornered rectangles
+            if !target.clip_batcher.rectangles.is_empty() {
+                let _ = GpuMarker::new("clip rectangles");
+                let shader = self.cs_clip_rectangle.get(&mut self.device);
+                let max_prim_items = self.max_clip_instances;
+                self.draw_ubo_batch(&target.clip_batcher.rectangles,
+                                    shader,
+                                    1,
+                                    &BatchTextures::no_texture(),
+                                    max_prim_items,
+                                    &projection);
+            }
+            // draw image masks
+            for (mask_texture_id, items) in target.clip_batcher.images.iter() {
+                let _ = GpuMarker::new("clip images");
+                let texture_id = self.resolve_source_texture(mask_texture_id);
+                self.device.bind_texture(TextureSampler::Mask, texture_id);
+                let shader = self.cs_clip_image.get(&mut self.device);
+                let max_prim_items = self.max_clip_instances;
+                self.draw_ubo_batch(items,
+                                    shader,
+                                    1,
+                                    &BatchTextures::no_texture(),
+                                    max_prim_items,
+                                    &projection);
+            }
         }
 
         // Draw any textrun caches for this target. For now, this
@@ -1233,6 +1245,7 @@ impl Renderer {
         // it removes the overhead of submitting many small glyphs
         // to multiple tiles in the normal text run case.
         if !target.text_run_cache_prims.is_empty() {
+            let _ = GpuMarker::new("cached text runs");
             self.device.set_blend(true);
             self.device.set_blend_mode_alpha();
 
@@ -1247,6 +1260,7 @@ impl Renderer {
                                 &projection);
         }
 
+        let _ = GpuMarker::new("alpha batches");
         self.device.set_blend(false);
         let mut prev_blend_mode = BlendMode::None;
 
@@ -1415,6 +1429,7 @@ impl Renderer {
                               .expect("Found external image, but no handler set!");
 
             for deferred_resolve in &frame.deferred_resolves {
+                GpuMarker::fire("deferred resolve");
                 let props = &deferred_resolve.image_properties;
                 let external_id = props.external_id
                                        .expect("BUG: Deferred resolves must be external images!");
@@ -1448,6 +1463,7 @@ impl Renderer {
     fn draw_tile_frame(&mut self,
                        frame: &mut Frame,
                        framebuffer_size: &DeviceUintSize) {
+        let _ = GpuMarker::new("tile frame draw");
         self.update_deferred_resolves(frame);
 
         // Some tests use a restricted viewport smaller than the main screen size.
@@ -1458,11 +1474,14 @@ impl Renderer {
         let needs_clear = viewport_size.width < framebuffer_size.width as i32 ||
                           viewport_size.height < framebuffer_size.height as i32;
 
-        for debug_rect in frame.debug_rects.iter().rev() {
-            self.add_debug_rect(debug_rect.rect.origin,
-                                debug_rect.rect.bottom_right(),
-                                &debug_rect.label,
-                                &debug_rect.color);
+        {
+            let _ = GpuMarker::new("debug rectangles");
+            for debug_rect in frame.debug_rects.iter().rev() {
+                self.add_debug_rect(debug_rect.rect.origin,
+                                    debug_rect.rect.bottom_right(),
+                                    &debug_rect.label,
+                                    &debug_rect.color);
+            }
         }
 
         self.device.disable_depth_write();
@@ -1547,6 +1566,7 @@ impl Renderer {
         }
 
         self.gpu_profile.add_marker(GPU_TAG_CLEAR_TILES);
+        let _ = GpuMarker::new("clear tiles");
 
         // Clear tiles with no items
         if !frame.clear_tiles.is_empty() {

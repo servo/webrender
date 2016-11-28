@@ -639,6 +639,36 @@ impl<T> GpuProfiler<T> {
     }
 }
 
+pub struct GpuMarker(());
+
+#[cfg(android)]
+impl GpuMarker {
+    pub fn new(_: &str) -> GpuMarker {
+        GpuMarker(())
+    }
+
+    pub fn fire(_: &str) {}
+}
+
+#[cfg(not(android))]
+impl GpuMarker {
+    pub fn new(message: &str) -> GpuMarker {
+       gl::push_group_marker_ext(message);
+       GpuMarker(())
+    }
+
+    pub fn fire(message: &str) {
+        gl::insert_event_marker_ext(message);
+    }
+}
+
+#[cfg(not(android))]
+impl Drop for GpuMarker {
+    fn drop(&mut self) {
+        gl::pop_group_marker_ext();
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum VertexUsageHint {
     Static,
