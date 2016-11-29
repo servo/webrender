@@ -368,7 +368,7 @@ pub struct Renderer {
 
     tile_clear_shader: LazilyCompiledShader,
 
-    max_clear_tiles: usize,
+    max_empty_tiles: usize,
     max_prim_blends: usize,
     max_prim_composites: usize,
     max_cache_instances: usize,
@@ -380,6 +380,9 @@ pub struct Renderer {
     flush_notifier: Arc<Mutex<Option<Box<FlushNotifier>>>>,
 
     enable_profiler: bool,
+    clear_framebuffer: bool,
+    clear_empty_tiles: bool,
+    clear_color: ColorF,
     debug: DebugRenderer,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
@@ -595,7 +598,7 @@ impl Renderer {
                                                      &mut device,
                                                      options.precache_shaders);
 
-        let max_clear_tiles = get_ubo_max_len::<ClearTile>(max_ubo_size);
+        let max_empty_tiles = get_ubo_max_len::<ClearTile>(max_ubo_size);
         let tile_clear_shader = LazilyCompiledShader::new(ShaderKind::Clear,
                                                           "ps_clear",
                                                            max_ubo_vectors,
@@ -740,7 +743,7 @@ impl Renderer {
             ps_cache_image: ps_cache_image,
             ps_blend: ps_blend,
             ps_composite: ps_composite,
-            max_clear_tiles: max_clear_tiles,
+            max_empty_tiles: max_empty_tiles,
             max_prim_blends: max_prim_blends,
             max_prim_composites: max_prim_composites,
             max_cache_instances: max_cache_instances,
@@ -753,6 +756,9 @@ impl Renderer {
             profile_counters: RendererProfileCounters::new(),
             profiler: Profiler::new(),
             enable_profiler: options.enable_profiler,
+            clear_framebuffer: options.clear_framebuffer,
+            clear_empty_tiles: options.clear_empty_tiles,
+            clear_color: options.clear_color,
             last_time: 0,
             render_targets: Vec::new(),
             gpu_profile: GpuProfiler::new(),
@@ -1099,7 +1105,7 @@ impl Renderer {
                                ORTHO_FAR_PLANE)
             ),
             None => (
-                [1.0, 1.0, 1.0, 1.0],
+                self.clear_color.to_array(),
                 Matrix4D::ortho(0.0,
                                target_size.width,
                                target_size.height,
@@ -1109,7 +1115,6 @@ impl Renderer {
             ),
         };
 
-        // todo(gw): remove me!
         if should_clear {
             self.device.clear_color(color);
         }
@@ -1486,7 +1491,7 @@ impl Renderer {
                                          ORTHO_FAR_PLANE);
 
         if frame.passes.is_empty() {
-            self.device.clear_color([1.0, 1.0, 1.0, 1.0]);
+            self.device.clear_color(self.clear_color.to_array());
         } else {
             // Add new render targets to the pool if required.
             let needed_targets = frame.passes.len() - 1;     // framebuffer doesn't need a target!
@@ -1532,7 +1537,7 @@ impl Renderer {
 
             for (pass_index, pass) in frame.passes.iter().enumerate() {
                 let (do_clear, size, target_id) = if pass.is_framebuffer {
-                    (needs_clear,
+                    (self.clear_framebuffer || needs_clear,
                      DeviceSize::new(framebuffer_size.width as f32, framebuffer_size.height as f32),
                      None)
                 } else {
@@ -1557,12 +1562,12 @@ impl Renderer {
 
         let _ = self.gpu_profile.add_marker(GPU_TAG_CLEAR_TILES);
 
-        // Clear tiles with no items
-        if !frame.clear_tiles.is_empty() {
+        // Tiles with no items
+        if self.clear_empty_tiles && !frame.empty_tiles.is_empty() {
             self.device.set_blend(false);
             let shader = self.tile_clear_shader.get(&mut self.device);
-            let max_prim_items = self.max_clear_tiles;
-            self.draw_ubo_batch(&frame.clear_tiles,
+            let max_prim_items = self.max_empty_tiles;
+            self.draw_ubo_batch(&frame.empty_tiles,
                                 shader,
                                 1,
                                 &BatchTextures::no_texture(),
@@ -1629,4 +1634,8 @@ pub struct RendererOptions {
     pub precache_shaders: bool,
     pub renderer_kind: RendererKind,
     pub enable_subpixel_aa: bool,
+    // TODO: this option ignores the clear color (always opaque white).
+    pub clear_empty_tiles: bool,
+    pub clear_framebuffer: bool,
+    pub clear_color: ColorF,
 }

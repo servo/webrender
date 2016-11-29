@@ -29,7 +29,7 @@ pub struct ScenePipeline {
     pub pipeline_id: PipelineId,
     pub epoch: Epoch,
     pub viewport_size: Size2D<f32>,
-    pub background_color: ColorF,
+    pub background_color: Option<ColorF>,
 }
 
 /// A complete representation of the layout bundling visible pipelines together.
@@ -60,7 +60,7 @@ impl Scene {
                                  pipeline_id: PipelineId,
                                  epoch: Epoch,
                                  built_display_list: BuiltDisplayList,
-                                 background_color: ColorF,
+                                 background_color: Option<ColorF>,
                                  viewport_size: Size2D<f32>,
                                  auxiliary_lists: AuxiliaryLists) {
         self.pipeline_auxiliary_lists.insert(pipeline_id, auxiliary_lists);
