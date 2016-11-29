@@ -656,41 +656,28 @@ impl Frame {
         };
 
         if level == 0 {
-            // Add a large white rectangle as the root display item if there is no root stacking
-            // context background color. This is removed by the occlusion culling for most tiles,
-            // and means that it's no longer necessary to clear the framebuffer.
-            //
-            // TODO(nical) Should painting a white background be optional if there is no stacking
-            // context background color? On deferred GPUs we probably still want to clear the
-            // framebuffer and Gecko currently supports semi-transparent windows.
-            //
-            // If we do need this, does it make sense to keep Frame::clear_tiles?
-            let mut root_background_color = match context.scene.pipeline_map.get(&pipeline_id) {
-                Some(pipeline) => pipeline.background_color,
-                None => ColorF::new(1.0, 1.0, 1.0, 1.0),
-            };
+            if let Some(pipeline) = context.scene.pipeline_map.get(&pipeline_id) {
+                if let Some(bg_color) = pipeline.background_color {
 
-            if root_background_color.a == 0.0 {
-                root_background_color = ColorF::new(1.0, 1.0, 1.0, 1.0);
+                    // Adding a dummy layer for this rectangle in order to disable clipping.
+                    let no_clip = ClipRegion::simple(&clip_region.main);
+                    context.builder.push_layer(LayerRect::from_untyped(&clip_region.main),
+                                               &no_clip,
+                                               transform,
+                                               pipeline_id,
+                                               scroll_layer_id,
+                                               &composition_operations);
+
+                    //Note: we don't use the original clip region here,
+                    // it's already processed by the layer we just pushed.
+                    context.builder.add_solid_rectangle(&LayerRect::from_untyped(&clip_region.main),
+                                                        &no_clip,
+                                                        &bg_color,
+                                                        PrimitiveFlags::None);
+
+                    context.builder.pop_layer();
+                }
             }
-
-            // Adding a dummy layer for this rectangle in order to disable clipping.
-            let no_clip = ClipRegion::simple(&clip_region.main);
-            context.builder.push_layer(LayerRect::from_untyped(&clip_region.main),
-                                       &no_clip,
-                                       transform,
-                                       pipeline_id,
-                                       scroll_layer_id,
-                                       &composition_operations);
-
-            //Note: we don't use the original clip region here,
-            // it's already processed by the layer we just pushed.
-            context.builder.add_solid_rectangle(&LayerRect::from_untyped(&clip_region.main),
-                                                &no_clip,
-                                                &root_background_color,
-                                                PrimitiveFlags::None);
-
-            context.builder.pop_layer();
         }
 
          // TODO(gw): Int with overflow etc

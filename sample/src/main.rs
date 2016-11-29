@@ -66,7 +66,6 @@ fn main() {
     unsafe {
         window.make_current().ok();
         gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
-        gl::clear_color(0.3, 0.0, 0.0, 1.0);
     }
 
     println!("OpenGL version {}", gl::get_string(gl::VERSION));
@@ -86,6 +85,9 @@ fn main() {
         precache_shaders: true,
         renderer_kind: RendererKind::Native,
         enable_subpixel_aa: false,
+        clear_framebuffer: true,
+        clear_empty_tiles: false,
+        clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
     };
 
     let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);
@@ -219,14 +221,13 @@ fn main() {
     builder.pop_stacking_context();
 
     api.set_root_display_list(
-        root_background_color,
+        Some(root_background_color),
         epoch,
         Size2D::new(width as f32, height as f32),
         builder);
     api.set_root_pipeline(pipeline_id);
 
     for event in window.wait_events() {
-        gl::clear(gl::COLOR_BUFFER_BIT);
         renderer.update();
 
         renderer.render(Size2D::new(width, height));

@@ -41,7 +41,7 @@ pub enum ApiMsg {
     ///
     /// After receiving this message, WebRender will read the display list, followed by the
     /// auxiliary lists, from the payload channel.
-    SetRootDisplayList(ColorF,
+    SetRootDisplayList(Option<ColorF>,
                        Epoch,
                        PipelineId,
                        Size2D<f32>,

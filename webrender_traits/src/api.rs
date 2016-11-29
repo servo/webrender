@@ -163,7 +163,7 @@ impl RenderApi {
     ///
     /// [notifier]: trait.RenderNotifier.html#tymethod.new_frame_ready
     pub fn set_root_display_list(&self,
-                                 background_color: ColorF,
+                                 background_color: Option<ColorF>,
                                  epoch: Epoch,
                                  viewport_size: Size2D<f32>,
                                  builder: DisplayListBuilder) {
