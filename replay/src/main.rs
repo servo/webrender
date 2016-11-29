@@ -108,6 +108,7 @@ fn main() {
         renderer_kind: webrender_traits::RendererKind::Native,
         debug: false,
         enable_subpixel_aa: false,
+        clear_method: webrender::CLEAR_ALL
     };
 
     let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);

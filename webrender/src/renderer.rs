@@ -688,7 +688,8 @@ impl Renderer {
         };
 
         let config = FrameBuilderConfig::new(options.enable_scrollbars,
-                                             options.enable_subpixel_aa);
+                                             options.enable_subpixel_aa,
+                                             options.clear_method);
 
         let debug = options.debug;
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
@@ -1461,8 +1462,10 @@ impl Renderer {
         // TODO(gw): Find a better solution for this?
         let viewport_size = DeviceIntSize::new(frame.viewport_size.width * self.device_pixel_ratio as i32,
                                                frame.viewport_size.height * self.device_pixel_ratio as i32);
-        let needs_clear = viewport_size.width < framebuffer_size.width as i32 ||
-                          viewport_size.height < framebuffer_size.height as i32;
+
+        let needs_clear = frame.clear_method.contains(CLEAR_TILES) &&
+                          (viewport_size.width < framebuffer_size.width as i32 ||
+                          viewport_size.height < framebuffer_size.height as i32);
 
         {
             let _ = GpuMarker::new("debug rectangles");
@@ -1536,7 +1539,7 @@ impl Renderer {
                      DeviceSize::new(framebuffer_size.width as f32, framebuffer_size.height as f32),
                      None)
                 } else {
-                    (true, frame.cache_size, Some(self.render_targets[pass_index]))
+                    (needs_clear, frame.cache_size, Some(self.render_targets[pass_index]))
                 };
 
                 for (target_index, target) in pass.targets.iter().enumerate() {
@@ -1548,7 +1551,6 @@ impl Renderer {
                                      &size,
                                      src_id,
                                      do_clear);
-
                 }
 
                 src_id = target_id;
@@ -1558,7 +1560,7 @@ impl Renderer {
         let _ = self.gpu_profile.add_marker(GPU_TAG_CLEAR_TILES);
 
         // Clear tiles with no items
-        if !frame.clear_tiles.is_empty() {
+        if !frame.clear_tiles.is_empty() && needs_clear {
             self.device.set_blend(false);
             let shader = self.tile_clear_shader.get(&mut self.device);
             let max_prim_items = self.max_clear_tiles;
@@ -1616,6 +1618,19 @@ pub trait ExternalImageHandler {
     fn release(&mut self, key: ExternalImageId);
 }
 
+/// TODO: A future improvement would be to allow for the ability
+/// to selectively clear the background / tiles as well. Alterations
+/// are necessary for the clear shader for this to occur however
+bitflags! {
+    pub flags ClearMethod: u8 {
+        const CLEAR_NONE  = 0b00000000,
+        const CLEAR_BACKGROUND = 0b00000001,
+        const CLEAR_TILES = 0b00000010,
+        const CLEAR_ALL = CLEAR_BACKGROUND.bits
+                        | CLEAR_TILES.bits,
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RendererOptions {
     pub device_pixel_ratio: f32,
@@ -1629,4 +1644,5 @@ pub struct RendererOptions {
     pub precache_shaders: bool,
     pub renderer_kind: RendererKind,
     pub enable_subpixel_aa: bool,
+    pub clear_method: ClearMethod
 }
