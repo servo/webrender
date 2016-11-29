@@ -215,7 +215,7 @@ impl YamlFrameWriter {
     }
 
     pub fn begin_write_root_display_list(&mut self,
-                                         _: &ColorF,
+                                         _: &Option<ColorF>,
                                          _: &Epoch,
                                          _: &PipelineId,
                                          _: &LayoutSize,

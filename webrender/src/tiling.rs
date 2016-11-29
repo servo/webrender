@@ -1680,7 +1680,7 @@ pub struct Frame {
     pub debug_rects: Vec<DebugRect>,
     pub cache_size: DeviceSize,
     pub passes: Vec<RenderPass>,
-    pub clear_tiles: Vec<ClearTile>,
+    pub empty_tiles: Vec<ClearTile>,
     pub profile_counters: FrameProfileCounters,
 
     pub layer_texture_data: Vec<PackedStackingContext>,
@@ -2803,7 +2803,7 @@ impl FrameBuilder {
                          &mut profile_counters,
                          device_pixel_ratio);
 
-        let mut clear_tiles = Vec::new();
+        let mut empty_tiles = Vec::new();
         let mut compiled_screen_tiles = Vec::new();
         let mut max_passes_needed = 0;
 
@@ -2852,7 +2852,7 @@ impl FrameBuilder {
                         compiled_screen_tiles.push(compiled_screen_tile);
                     }
                     None => {
-                        clear_tiles.push(ClearTile {
+                        empty_tiles.push(ClearTile {
                             rect: rect,
                         });
                     }
@@ -2918,7 +2918,7 @@ impl FrameBuilder {
             debug_rects: debug_rects,
             profile_counters: profile_counters,
             passes: passes,
-            clear_tiles: clear_tiles,
+            empty_tiles: empty_tiles,
             cache_size: DeviceSize::new(RENDERABLE_CACHE_SIZE as f32,
                                         RENDERABLE_CACHE_SIZE as f32),
             layer_texture_data: self.packed_layers.clone(),

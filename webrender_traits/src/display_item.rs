@@ -94,6 +94,10 @@ impl ColorF {
             a: self.a,
         }
     }
+
+    pub fn to_array(&self) -> [f32; 4] {
+        [self.r, self.g, self.b, self.a]
+    }
 }
 
 impl ComplexClipRegion {

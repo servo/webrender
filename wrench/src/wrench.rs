@@ -166,6 +166,9 @@ impl Wrench {
             debug: debug,
             precache_shaders: false,
             renderer_kind: RendererKind::Native,
+            clear_framebuffer: true,
+            clear_empty_tiles: false,
+            clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
         };
 
         let (renderer, sender) = webrender::renderer::Renderer::new(opts);
@@ -320,7 +323,7 @@ impl Wrench {
     pub fn send_lists(&mut self, frame_number: u32, display_list: DisplayListBuilder) {
         self.frame_start_sender.push(time::SteadyTime::now());
 
-        let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
+        let root_background_color = Some(ColorF::new(0.3, 0.0, 0.0, 1.0));
         self.api.set_root_display_list(root_background_color,
                                        Epoch(frame_number),
                                        self.window_size_f32(),
