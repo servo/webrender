@@ -1,0 +1,56 @@
+root:
+  items:
+  # a rect can be specified like this
+    - type: rect
+      bounds: 10 10 200 200
+      color: red
+  # or like this
+    - rect: 20 20 200 200
+      color: green
+  # they can have clips
+    - type: rect
+      bounds: 300 100 400 400
+      color: 128 100 72
+      clip: 350 150 50 50
+  # including complex ones
+    - type: rect
+      bounds: 100 300 400 400
+      color: green
+  # XXX uh, this isn't doing what I expect
+      clip: [100 300 50 50 10, 150 350 50 50 10]
+  
+    - type: image
+      bounds: 300 300
+      src: landscape.jpg
+  
+    # - text: "Hello World"
+    #   origin: 
+    #   font: Arial (etc.)
+    #   size: 12 (default 12)
+    #   color: (default black)
+    #   style: normal, bold, italic, etc. (default normal)
+  
+    - text: Hello World
+      origin: 200 200
+      size: 64
+  
+    - type: border
+    - type: box_shadow
+    - type: gradient
+  
+    - type: box_shadow
+      bounds: [ rect ]
+      clip: ..
+      offset: point2d (default 0 0)
+      color: (default black)
+      blur: f32 (default 0)
+      spread: f32 (default 0)
+      border: f32 (default 0)
+      clip_mode: none, outset, inset (default none)
+      
+    - glyphs: [ 65, 66, 67 ]
+      positions: [ 0.2, 0.3, 0.4, 0.5, 0.6, 0.7 ]
+      font: Arial
+      size: 12 (default 12)
+      style: normal, bold, italic, etc. (default normal)
+  
