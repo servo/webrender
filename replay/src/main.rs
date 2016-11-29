@@ -14,7 +14,7 @@ use std::io::Read;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::env;
-use webrender_traits::{RenderApi, PipelineId};
+use webrender_traits::{RenderApi, PipelineId, ColorF};
 use webrender_traits::channel::PayloadHelperMethods;
 use glutin::{Event, ElementState, VirtualKeyCode as Key};
 
@@ -108,6 +108,9 @@ fn main() {
         renderer_kind: webrender_traits::RendererKind::Native,
         debug: false,
         enable_subpixel_aa: false,
+        clear_framebuffer: true,
+        clear_empty_tiles: false,
+        clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
     };
 
     let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);
