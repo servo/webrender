@@ -1415,20 +1415,30 @@ pub struct PrimitiveInstance {
     user_data: [i32; 2],
 }
 
-#[derive(Debug, Clone)]
-pub struct PackedBlendPrimitive {
-    src_task_id: i32,
-    target_task_id: i32,
-    op: i32,
-    amount: i32,
-}
+impl PrimitiveInstance {
+    fn blend(src_task_id: i32, target_task_id: i32, op: i32, amount: i32) -> PrimitiveInstance {
+        PrimitiveInstance {
+            global_prim_id: -1,
+            prim_address: GpuStoreAddress(0),
+            task_index: target_task_id,
+            clip_task_index: -1,
+            layer_index: -1,
+            sub_index: op,
+            user_data: [src_task_id, amount],
+        }
+    }
 
-#[derive(Debug)]
-pub struct PackedCompositePrimitive {
-    src0_task_id: i32,
-    src1_task_id: i32,
-    target_task_id: i32,
-    op: i32,
+    fn composite(src_tasks_id: [i32; 2], target_task_id: i32, op: i32) -> PrimitiveInstance {
+        PrimitiveInstance {
+            global_prim_id: -1,
+            prim_address: GpuStoreAddress(0),
+            task_index: target_task_id,
+            clip_task_index: -1,
+            layer_index: -1,
+            sub_index: op,
+            user_data: src_tasks_id,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1442,8 +1452,8 @@ pub enum PrimitiveBatchData {
     AngleGradient(Vec<PrimitiveInstance>),
     BoxShadow(Vec<PrimitiveInstance>),
     CacheImage(Vec<PrimitiveInstance>),
-    Blend(Vec<PackedBlendPrimitive>),
-    Composite(Vec<PackedCompositePrimitive>),
+    Blend(Vec<PrimitiveInstance>),
+    Composite(Vec<PrimitiveInstance>),
 }
 
 #[derive(Debug)]
@@ -1485,13 +1495,10 @@ impl PrimitiveBatch {
                     LowLevelFilterOp::Opacity(amount) => (8, amount.to_f32_px()),
                 };
 
-                ubo_data.push(PackedBlendPrimitive {
-                    src_task_id: src_rect_index.0 as i32,
-                    target_task_id: target_rect_index.0 as i32,
-                    amount: (amount * 65535.0).round() as i32,
-                    op: filter_mode,
-                });
-
+                ubo_data.push(PrimitiveInstance::blend(src_rect_index.0 as i32,
+                                                       target_rect_index.0 as i32,
+                                                       filter_mode,
+                                                       (amount * 65535.0).round() as i32));
                 true
             }
             _ => false
@@ -1505,13 +1512,10 @@ impl PrimitiveBatch {
                       info: MixBlendMode) -> bool {
         match &mut self.data {
             &mut PrimitiveBatchData::Composite(ref mut ubo_data) => {
-                ubo_data.push(PackedCompositePrimitive {
-                    src0_task_id: rect0_index.0 as i32,
-                    src1_task_id: rect1_index.0 as i32,
-                    target_task_id: target_rect_index.0 as i32,
-                    op: info as i32,
-                });
-
+                ubo_data.push(PrimitiveInstance::composite([rect0_index.0 as i32,
+                                                            rect1_index.0 as i32],
+                                                           target_rect_index.0 as i32,
+                                                           info as i32));
                 true
             }
             _ => false

@@ -369,8 +369,7 @@ pub struct Renderer {
     tile_clear_shader: LazilyCompiledShader,
 
     max_clear_tiles: usize,
-    max_prim_blends: usize,
-    max_prim_composites: usize,
+    max_prim_instances: usize,
     max_cache_instances: usize,
     max_clip_instances: usize,
     max_blurs: usize,
@@ -465,8 +464,6 @@ impl Renderer {
         let max_prim_instances = get_ubo_max_len::<tiling::PrimitiveInstance>(max_ubo_size);
         let max_cache_instances = get_ubo_max_len::<tiling::CachePrimitiveInstance>(max_ubo_size);
         let max_clip_instances = get_ubo_max_len::<tiling::CacheClipInstance>(max_ubo_size);
-        let max_prim_blends = get_ubo_max_len::<tiling::PackedBlendPrimitive>(max_ubo_size);
-        let max_prim_composites = get_ubo_max_len::<tiling::PackedCompositePrimitive>(max_ubo_size);
         let max_blurs = get_ubo_max_len::<tiling::BlurCommand>(max_ubo_size);
 
         let cs_box_shadow = LazilyCompiledShader::new(ShaderKind::Cache,
@@ -741,8 +738,7 @@ impl Renderer {
             ps_blend: ps_blend,
             ps_composite: ps_composite,
             max_clear_tiles: max_clear_tiles,
-            max_prim_blends: max_prim_blends,
-            max_prim_composites: max_prim_composites,
+            max_prim_instances: max_prim_instances,
             max_cache_instances: max_cache_instances,
             max_clip_instances: max_clip_instances,
             max_blurs: max_blurs,
@@ -1287,7 +1283,7 @@ impl Renderer {
                 &PrimitiveBatchData::Blend(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_BLEND);
                     let shader = self.ps_blend.get(&mut self.device);
-                    let max_prim_items = self.max_prim_blends;
+                    let max_prim_items = self.max_prim_instances;
                     self.draw_ubo_batch(ubo_data, shader,
                                         1,
                                         &batch.key.textures,
@@ -1297,7 +1293,7 @@ impl Renderer {
                 &PrimitiveBatchData::Composite(ref ubo_data) => {
                     self.gpu_profile.add_marker(GPU_TAG_PRIM_COMPOSITE);
                     let shader = self.ps_composite.get(&mut self.device);
-                    let max_prim_items = self.max_prim_composites;
+                    let max_prim_items = self.max_prim_instances;
 
                     // The composite shader only samples from sCache.
                     debug_assert!(cache_texture.is_some());
