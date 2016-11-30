@@ -225,21 +225,8 @@ pub const DEFAULT_TEXTURE: TextureSampler = TextureSampler::Color0;
 
 pub enum VertexAttribute {
     Position,
-    PositionRect,
-    ColorRectTL,
-    ColorRectTR,
-    ColorRectBR,
-    ColorRectBL,
-    ColorTexCoordRectTop,
-    MaskTexCoordRectTop,
-    ColorTexCoordRectBottom,
-    MaskTexCoordRectBottom,
-    BorderRadii,
-    BorderPosition,
-    BlurRadius,
-    DestTextureSize,
-    SourceTextureSize,
-    Misc,
+    Color,
+    ColorTexCoord,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -260,39 +247,6 @@ impl PackedColor {
             a: (0.5 + color.a * COLOR_FLOAT_TO_FIXED).floor() as u8,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-pub struct PackedVertexForQuad {
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-    pub color_tl: PackedColor,
-    pub color_tr: PackedColor,
-    pub color_br: PackedColor,
-    pub color_bl: PackedColor,
-    pub u_tl: f32,
-    pub v_tl: f32,
-    pub u_tr: f32,
-    pub v_tr: f32,
-    pub u_br: f32,
-    pub v_br: f32,
-    pub u_bl: f32,
-    pub v_bl: f32,
-    pub mu_tl: u16,
-    pub mv_tl: u16,
-    pub mu_tr: u16,
-    pub mv_tr: u16,
-    pub mu_br: u16,
-    pub mv_br: u16,
-    pub mu_bl: u16,
-    pub mv_bl: u16,
-    pub matrix_index: u8,
-    pub clip_in_rect_index: u8,
-    pub clip_out_rect_index: u8,
-    pub tile_params_index: u8,
 }
 
 #[derive(Debug, Clone, Copy)]
