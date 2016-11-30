@@ -642,33 +642,6 @@ BoxShadow fetch_boxshadow(int index) {
     return bs;
 }
 
-struct Blend {
-    ivec4 src_id_target_id_op_amount;
-};
-
-Blend fetch_blend(int index) {
-    Blend blend;
-
-    int offset = index * 1;
-    blend.src_id_target_id_op_amount = int_data[offset + 0];
-
-    return blend;
-}
-
-struct Composite {
-    ivec4 src0_src1_target_id_op;
-};
-
-Composite fetch_composite(int index) {
-    Composite composite;
-
-    int offset = index * 1;
-
-    composite.src0_src1_target_id_op = int_data[offset + 0];
-
-    return composite;
-}
-
 void write_clip(vec2 global_pos, ClipArea area) {
     vec2 texture_size = textureSize(sCache, 0).xy;
     vec2 uv = global_pos + area.task_bounds.xy - area.screen_origin_target_index.xy;
