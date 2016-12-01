@@ -36,7 +36,7 @@ use tiling::{self, Frame, FrameBuilderConfig, PrimitiveBatchData};
 use tiling::{RenderTarget, ClearTile};
 use time::precise_time_ns;
 use util::TransformedRectKind;
-use webrender_traits::{ColorF, Epoch, FlushNotifier, PipelineId, RenderNotifier, RenderDispatcher};
+use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ExternalImageId, ImageFormat, RenderApiSender, RendererKind};
 use webrender_traits::{DeviceSize, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use webrender_traits::channel;
@@ -376,8 +376,6 @@ pub struct Renderer {
     max_blurs: usize,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
-    // Used to notify users that all pending work on render backend thread is done.
-    flush_notifier: Arc<Mutex<Option<Box<FlushNotifier>>>>,
 
     enable_profiler: bool,
     debug: DebugRenderer,
@@ -451,7 +449,6 @@ impl Renderer {
         let (result_tx, result_rx) = channel();
 
         let notifier = Arc::new(Mutex::new(None));
-        let flush_notifier = Arc::new(Mutex::new(None));
 
         let file_watch_handler = FileWatcher {
             result_tx: result_tx.clone(),
@@ -680,7 +677,6 @@ impl Renderer {
         let main_thread_dispatcher = Arc::new(Mutex::new(None));
         let backend_notifier = notifier.clone();
         let backend_main_thread_dispatcher = main_thread_dispatcher.clone();
-        let backend_flush_notifier = flush_notifier.clone();
 
         let vr_compositor = Arc::new(Mutex::new(None));
         let backend_vr_compositor = vr_compositor.clone();
@@ -708,7 +704,6 @@ impl Renderer {
                                                  texture_cache,
                                                  enable_aa,
                                                  backend_notifier,
-                                                 backend_flush_notifier,
                                                  context_handle,
                                                  config,
                                                  debug,
@@ -752,7 +747,6 @@ impl Renderer {
             max_clip_instances: max_clip_instances,
             max_blurs: max_blurs,
             notifier: notifier,
-            flush_notifier: flush_notifier,
             debug: debug_renderer,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
@@ -789,16 +783,6 @@ impl Renderer {
     pub fn set_render_notifier(&self, notifier: Box<RenderNotifier>) {
         let mut notifier_arc = self.notifier.lock().unwrap();
         *notifier_arc = Some(notifier);
-    }
-
-    /// Sets the new FlushNotifier
-    ///
-    /// The FlushNotifier is called after all messages to the backend thread
-    /// have been processed. This should be used when we need to sync wait
-    /// for rendering to happen, such as with reftests.
-    pub fn set_flush_notifier(&self, flush_notifier: Box<FlushNotifier>) {
-        let mut flush_notifier_arc = self.flush_notifier.lock().unwrap();
-        *flush_notifier_arc = Some(flush_notifier);
     }
 
     /// Sets the new MainThreadDispatcher.
