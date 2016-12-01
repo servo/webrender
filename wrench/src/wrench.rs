@@ -10,11 +10,10 @@ use font_loader::system_fonts;
 
 use gleam::gl;
 use glutin;
-use glutin::{WindowProxy, ElementState, VirtualKeyCode};
+use glutin::{WindowProxy, VirtualKeyCode};
 use image;
 use image::GenericImage;
 use std::collections::HashMap;
-use std::ffi::CStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use webrender;
@@ -25,7 +24,7 @@ use json_frame_writer::JsonFrameWriter;
 use time;
 use crossbeam::sync::chase_lev;
 
-use {CURRENT_FRAME_NUMBER, WHITE_COLOR, BLACK_COLOR};
+use {WHITE_COLOR, BLACK_COLOR};
 
 pub enum SaveType {
     Yaml,
@@ -36,14 +35,16 @@ struct Notifier {
     window_proxy: WindowProxy,
     frames_notified: u32,
     timing_receiver: chase_lev::Stealer<time::SteadyTime>,
+    verbose: bool,
 }
 
 impl Notifier {
-    fn new(window_proxy: WindowProxy, timing_receiver: chase_lev::Stealer<time::SteadyTime>) -> Notifier {
+    fn new(window_proxy: WindowProxy, timing_receiver: chase_lev::Stealer<time::SteadyTime>, verbose: bool) -> Notifier {
         Notifier {
             window_proxy: window_proxy,
             frames_notified: 0,
             timing_receiver: timing_receiver,
+            verbose: verbose,
         }
     }
 }
@@ -53,7 +54,7 @@ impl RenderNotifier for Notifier {
         match self.timing_receiver.steal() {
             chase_lev::Steal::Data(last_timing) => {
                 self.frames_notified += 1;
-                if self.frames_notified == 600 {
+                if self.verbose && self.frames_notified == 600 {
                     let elapsed = time::SteadyTime::now() - last_timing;
                     println!("frame latency (consider queue depth when looking at this number): {:3.6} ms",
                              elapsed.num_microseconds().unwrap() as f64 / 1000.);
@@ -117,16 +118,19 @@ pub struct Wrench {
     pub api: RenderApi,
     pub root_pipeline_id: PipelineId,
 
+    window_title_to_set: Option<String>,
+
     sender: RenderApiSender,
     image_map: HashMap<PathBuf, (ImageKey, LayoutSize)>,
 
     // internal housekeeping
     next_scroll_layer_id: usize,
 
-    //pub gl_renderer: String,
-    //pub gl_version: String,
+    gl_renderer: String,
+    gl_version: String,
 
     pub rebuild_display_lists: bool,
+    pub verbose: bool,
 
     pub frame_start_sender: chase_lev::Worker<time::SteadyTime>,
 }
@@ -139,7 +143,8 @@ impl Wrench {
                size: DeviceUintSize,
                do_rebuild: bool,
                subpixel_aa: bool,
-               debug: bool)
+               debug: bool,
+               verbose: bool)
            -> Wrench
     {
         println!("Shader override path: {:?}", shader_override_path);
@@ -174,8 +179,11 @@ impl Wrench {
         let api = sender.create_api();
 
         let (timing_sender, timing_receiver) = chase_lev::deque();
-        let notifier = Box::new(Notifier::new(window.create_window_proxy(), timing_receiver));
+        let notifier = Box::new(Notifier::new(window.create_window_proxy(), timing_receiver, verbose));
         renderer.set_render_notifier(notifier);
+
+        let gl_version = gl::get_string(gl::VERSION);
+        let gl_renderer = gl::get_string(gl::RENDERER);
 
         let mut wrench = Wrench {
             window_size: size,
@@ -183,8 +191,10 @@ impl Wrench {
             renderer: renderer,
             sender: sender,
             api: api,
+            window_title_to_set: None,
 
             rebuild_display_lists: do_rebuild,
+            verbose: verbose,
             device_pixel_ratio: dp_ratio,
 
             image_map: HashMap::new(),
@@ -192,21 +202,27 @@ impl Wrench {
             root_pipeline_id: PipelineId(0, 0),
             next_scroll_layer_id: 0,
 
-            //gl_renderer: gl_renderer,
-            //gl_version: gl_version,
-
+            gl_renderer: gl_renderer,
+            gl_version: gl_version,
             frame_start_sender: timing_sender,
         };
 
         wrench.set_title("start");
+        // there's a "frame 0" that webrender itself renders; push this to
+        // not confuse our notifier
+        wrench.frame_start_sender.push(time::SteadyTime::now());
         wrench.api.set_root_pipeline(wrench.root_pipeline_id);
 
         wrench
     }
 
     pub fn set_title(&mut self, extra: &str) {
-        //self.window.set_title(&format!("Wrench: {} ({}x) - {} - {}", extra,
-        //    self.device_pixel_ratio, self.gl_renderer, self.gl_version));
+        self.window_title_to_set = Some(format!("Wrench: {} ({}x) - {} - {}", extra,
+            self.device_pixel_ratio, self.gl_renderer, self.gl_version));
+    }
+
+    pub fn take_title(&mut self) -> Option<String> {
+        self.window_title_to_set.take()
     }
 
     pub fn should_rebuild_display_lists(&self) -> bool {
@@ -315,14 +331,16 @@ impl Wrench {
             gl::viewport(0, 0, dim.width as i32, dim.height as i32);
             self.window_size = dim;
         }
+    }
 
-        gl::clear(gl::COLOR_BUFFER_BIT);
+    pub fn begin_frame(&mut self) {
+        self.frame_start_sender.push(time::SteadyTime::now());
     }
 
     pub fn send_lists(&mut self, frame_number: u32, display_list: DisplayListBuilder) {
-        self.frame_start_sender.push(time::SteadyTime::now());
+        self.begin_frame();
 
-        let root_background_color = Some(ColorF::new(0.3, 0.0, 0.0, 1.0));
+        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
         self.api.set_root_display_list(root_background_color,
                                        Epoch(frame_number),
                                        self.window_size_f32(),
@@ -335,7 +353,7 @@ impl Wrench {
     }
 
     pub fn refresh(&mut self) {
-        self.frame_start_sender.push(time::SteadyTime::now());
+        self.begin_frame();
         self.api.generate_frame();
     }
 

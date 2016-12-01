@@ -4,6 +4,10 @@ author: Vladimir Vukicevic <vladimir@pobox.com>
 about: WebRender testing and debugging utility
 
 args:
+  - verbose:
+      short: v
+      long: verbose
+      help: Enable verbose display
   - debug:
       short: d
       long: debug
@@ -52,6 +56,15 @@ subcommands:
               long: queue
               help: How many frames to submit to WR ahead of time (default 1)
               takes_value: true
+          - include:
+              long: include
+              help: Include the given element type. Can be specified multiple times. (rect/image/text/glyphs/border)
+              multiple: true
+              takes_value: true
+          - watch:
+              short: w
+              long: watch
+              help: Watch the given YAML file, reloading whenever it changes
           - INPUT:
               help: The input YAML file
               required: true
@@ -65,6 +78,9 @@ subcommands:
           - skip-uploads:
               long: skip-uploads
               help: Skip re-uploads while reissuing Api messages (BROKEN)
+          - play:
+              long: play
+              help: Play entire recording through, then quit (useful with --save)
           - INPUT:
               help: The input binary file or directory
               required: true
