@@ -1,7 +1,6 @@
 extern crate yaml_rust;
 
 use app_units::Au;
-use euclid::{Point2D, Size2D, Rect, Matrix4D};
 use image::{ColorType, save_buffer};
 use std::borrow::BorrowMut;
 use std::cell::Cell;
@@ -10,7 +9,6 @@ use std::collections::hash_map::Entry;
 use std::fs;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
-use std::slice;
 use std::path::{Path, PathBuf};
 use webrender;
 use webrender_traits::*;
@@ -69,7 +67,7 @@ impl JsonFrameWriter {
                                          _: &ColorF,
                                          _: &Epoch,
                                          _: &PipelineId,
-                                         _: &Size2D<f32>,
+                                         _: &LayoutSize,
                                          display_list: &BuiltDisplayListDescriptor,
                                          auxiliary_lists: &AuxiliaryListsDescriptor)
     {

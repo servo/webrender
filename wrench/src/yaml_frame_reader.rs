@@ -4,7 +4,6 @@
 
 use app_units::Au;
 use clap;
-use euclid::{Size2D, Point2D, Rect, Matrix4D};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -87,11 +86,11 @@ impl YamlFrameReader {
 
         let bounds_raws = item["bounds"].as_vec_f32().unwrap();
         let bounds = if bounds_raws.len() == 2 {
-            Rect::new(Point2D::new(bounds_raws[0], bounds_raws[1]),
-                      image_dims)
+            LayoutRect::new(LayoutPoint::new(bounds_raws[0], bounds_raws[1]),
+                            image_dims)
         } else if bounds_raws.len() == 4 {
-            Rect::new(Point2D::new(bounds_raws[0], bounds_raws[1]),
-                      Size2D::new(bounds_raws[2], bounds_raws[3]))
+            LayoutRect::new(LayoutPoint::new(bounds_raws[0], bounds_raws[1]),
+                            LayoutSize::new(bounds_raws[2], bounds_raws[3]))
         } else {
             panic!("image expected 2 or 4 values in bounds, got '{:?}'", item["bounds"]);
         };
@@ -101,7 +100,7 @@ impl YamlFrameReader {
         let stretch_size = item["stretch_size"].as_size()
             .unwrap_or(image_dims);
         let tile_spacing = item["tile_spacing"].as_size()
-            .unwrap_or(Size2D::new(0.0, 0.0));
+            .unwrap_or(LayoutSize::new(0.0, 0.0));
         let rendering = match item["rendering"].as_str() {
             Some("auto") | None => ImageRendering::Auto,
             Some("crisp_edges") => ImageRendering::CrispEdges,
@@ -136,7 +135,7 @@ impl YamlFrameReader {
         let (glyphs, rect) = if item["text"].is_badvalue() {
             // if glyphs are specified, then the glyph positions can have the
             // origin baked in.
-            let origin = item["origin"].as_point().unwrap_or(Point2D::new(0.0, 0.0));
+            let origin = item["origin"].as_point().unwrap_or(LayoutPoint::new(0.0, 0.0));
             let glyph_indices = item["glyphs"].as_vec_u32().unwrap();
             let glyph_offsets = item["offsets"].as_vec_f32().unwrap();
             assert!(glyph_offsets.len() == glyph_indices.len() * 2);
@@ -171,7 +170,7 @@ impl YamlFrameReader {
                 x = x + arg.1;
                 gi
             }).collect();
-            let rect = Rect::new(Point2D::new(0.0, 0.0), wrench.window_size_f32());
+            let rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), wrench.window_size_f32());
             (glyphs, rect)
         };
 
@@ -184,7 +183,7 @@ impl YamlFrameReader {
     pub fn add_display_list_items_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
         let full_clip_region = {
             let win_size = wrench.window_size_f32();
-            self.builder().new_clip_region(&Rect::new(Point2D::new(0.0, 0.0), win_size),
+            self.builder().new_clip_region(&LayoutRect::new(LayoutPoint::new(0.0, 0.0), win_size),
                                            Vec::new(), None)
         };
 
@@ -224,11 +223,11 @@ impl YamlFrameReader {
     }
 
     pub fn add_stacking_context_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
-        let bounds = yaml["bounds"].as_rect().unwrap_or(Rect::new(Point2D::new(0.0, 0.0), wrench.window_size_f32()));
+        let bounds = yaml["bounds"].as_rect().unwrap_or(LayoutRect::new(LayoutPoint::new(0.0, 0.0), wrench.window_size_f32()));
         let overflow_bounds = yaml["overflow"].as_rect().unwrap_or(bounds);
         let z_index = yaml["z_index"].as_i64().unwrap_or(0);
-        let transform = yaml["transform"].as_matrix4d().unwrap_or(Matrix4D::identity());
-        let perspective = yaml["perspective"].as_matrix4d().unwrap_or(Matrix4D::identity());
+        let transform = yaml["transform"].as_matrix4d().unwrap_or(LayoutTransform::identity());
+        let perspective = yaml["perspective"].as_matrix4d().unwrap_or(LayoutTransform::identity());
 
         // FIXME handle these
         let mix_blend_mode = MixBlendMode::Normal;

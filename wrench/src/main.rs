@@ -26,7 +26,6 @@ extern crate dwrote;
 #[cfg(target_os = "linux")]
 extern crate font_loader;
 
-use euclid::Size2D;
 use gleam::gl;
 use glutin::{ElementState, VirtualKeyCode};
 use std::path::PathBuf;
@@ -76,7 +75,7 @@ impl ThingKind {
     }
 }
 
-fn make_window(size: Size2D<u32>,
+fn make_window(size: DeviceUintSize,
                dp_ratio: Option<f32>,
                vsync: bool)
                -> glutin::Window
@@ -122,8 +121,8 @@ fn main() {
         let x = s.find('x').expect("Size must be specified exactly as widthxheight");
         let w = s[0..x].parse::<u32>().expect("Invalid size width");
         let h = s[x+1..].parse::<u32>().expect("Invalid size height");
-        Size2D::new(w, h)
-    }).unwrap_or(Size2D::<u32>::new(1920, 1080));
+        DeviceUintSize::new(w, h)
+    }).unwrap_or(DeviceUintSize::new(1920, 1080));
 
     let mut window = make_window(size, dp_ratio, args.is_present("vsync"));
     let dp_ratio = dp_ratio.unwrap_or(window.hidpi_factor());
@@ -153,7 +152,7 @@ fn main() {
     for _ in 0..queue_frames {
         let thing = thing.thing();
         let (width, height) = window.get_inner_size().unwrap();
-        let dim = Size2D::new(width, height);
+        let dim = DeviceUintSize::new(width, height);
         wrench.update(dim);
 
         let frame_num = thing.do_frame(&mut wrench);
@@ -187,7 +186,7 @@ fn main() {
         match event {
             glutin::Event::Awakened => {
                 let (width, height) = window.get_inner_size().unwrap();
-                let dim = Size2D::new(width, height);
+                let dim = DeviceUintSize::new(width, height);
                 wrench.update(dim);
 
                 let frame_num = thing.do_frame(&mut wrench);

@@ -1,7 +1,6 @@
 extern crate yaml_rust;
 
 use app_units::Au;
-use euclid::{Point2D, Size2D, Rect, Matrix4D};
 use image::{ColorType, save_buffer};
 use std::borrow::BorrowMut;
 use std::cell::Cell;
@@ -63,16 +62,16 @@ fn color_node(parent: &mut Table, key: &str, value: ColorF) {
     yaml_node(parent, key, Yaml::String(color_to_string(value)));
 }
 
-fn size_node(parent: &mut Table, key: &str, value: &Size2D<f32>) {
+fn size_node(parent: &mut Table, key: &str, value: &LayoutSize) {
     yaml_node(parent, key, Yaml::String(format!("{} {}", value.width, value.height)));
 }
 
-fn rect_node(parent: &mut Table, key: &str, value: &Rect<f32>) {
+fn rect_node(parent: &mut Table, key: &str, value: &LayoutRect) {
     yaml_node(parent, key, Yaml::String(format!("{} {} {} {}", value.origin.x, value.origin.y,
                                                                value.size.width, value.size.height)));
 }
 
-fn matrix4d_node(parent: &mut Table, key: &str, value: &Matrix4D<f32>) {
+fn matrix4d_node(parent: &mut Table, key: &str, value: &LayoutTransform) {
     yaml_node(parent, key, Yaml::String(format!("{} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
                                                 value.m11, value.m12, value.m13, value.m14,
                                                 value.m21, value.m22, value.m23, value.m24,
@@ -145,10 +144,10 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
     // scroll_policy
     rect_node(parent, "bounds", &sc.bounds);
     i32_node(parent, "z_index", sc.z_index);
-    if sc.transform != Matrix4D::<f32>::identity() {
+    if sc.transform != LayoutTransform::identity() {
         matrix4d_node(parent, "transform", &sc.transform);
     }
-    if sc.perspective != Matrix4D::<f32>::identity() {
+    if sc.perspective != LayoutTransform::identity() {
         matrix4d_node(parent, "perspective", &sc.perspective);
     }
     // mix_blend_mode
@@ -219,7 +218,7 @@ impl YamlFrameWriter {
                                          _: &ColorF,
                                          _: &Epoch,
                                          _: &PipelineId,
-                                         _: &Size2D<f32>,
+                                         _: &LayoutSize,
                                          display_list: &BuiltDisplayListDescriptor,
                                          auxiliary_lists: &AuxiliaryListsDescriptor)
     {

@@ -8,7 +8,6 @@ use dwrote;
 #[cfg(target_os = "linux")]
 use font_loader::system_fonts;
 
-use euclid::Size2D;
 use gleam::gl;
 use glutin;
 use glutin::{WindowProxy, ElementState, VirtualKeyCode};
@@ -74,7 +73,7 @@ impl RenderNotifier for Notifier {
 
     fn pipeline_size_changed(&mut self,
                              _: PipelineId,
-                             _: Option<Size2D<f32>>) {
+                             _: Option<LayoutSize>) {
     }
 }
 
@@ -111,7 +110,7 @@ pub trait WrenchThing {
 }
 
 pub struct Wrench {
-    window_size: Size2D<u32>,
+    window_size: DeviceUintSize,
     device_pixel_ratio: f32,
 
     pub renderer: webrender::renderer::Renderer,
@@ -119,7 +118,7 @@ pub struct Wrench {
     pub root_pipeline_id: PipelineId,
 
     sender: RenderApiSender,
-    image_map: HashMap<PathBuf, (ImageKey, Size2D<f32>)>,
+    image_map: HashMap<PathBuf, (ImageKey, LayoutSize)>,
 
     // internal housekeeping
     next_scroll_layer_id: usize,
@@ -137,7 +136,7 @@ impl Wrench {
                shader_override_path: Option<PathBuf>,
                dp_ratio: f32,
                save_type: Option<SaveType>,
-               size: Size2D<u32>,
+               size: DeviceUintSize,
                do_rebuild: bool,
                subpixel_aa: bool,
                debug: bool)
@@ -212,9 +211,9 @@ impl Wrench {
         self.rebuild_display_lists
     }
 
-    pub fn window_size_f32(&self) -> Size2D<f32> {
-        return Size2D::new(self.window_size.width as f32,
-                           self.window_size.height as f32)
+    pub fn window_size_f32(&self) -> LayoutSize {
+        return LayoutSize::new(self.window_size.width as f32,
+                               self.window_size.height as f32)
     }
 
     pub fn next_scroll_layer_id(&mut self) -> ScrollLayerId {
@@ -286,7 +285,7 @@ impl Wrench {
         (key, None)
     }
 
-    pub fn add_or_get_image(&mut self, file: &Path) -> (ImageKey, Size2D<f32>) {
+    pub fn add_or_get_image(&mut self, file: &Path) -> (ImageKey, LayoutSize) {
         let key = file.to_owned();
         if let Some(k) = self.image_map.get(&key) {
             return *k
@@ -304,12 +303,12 @@ impl Wrench {
                                            },
                                            ImageData::Raw(Arc::new(image.raw_pixels())));
 
-        let val = (image_key, Size2D::new(image_dims.0 as f32, image_dims.1 as f32));
+        let val = (image_key, LayoutSize::new(image_dims.0 as f32, image_dims.1 as f32));
         self.image_map.insert(key, val);
         val
     }
 
-    pub fn update(&mut self, dim: Size2D<u32>) {
+    pub fn update(&mut self, dim: DeviceUintSize) {
         if dim != self.window_size {
             gl::viewport(0, 0, dim.width as i32, dim.height as i32);
             self.window_size = dim;

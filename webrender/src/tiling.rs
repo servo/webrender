@@ -4,7 +4,6 @@
 
 use app_units::Au;
 use batch_builder::BorderSideHelpers;
-use euclid::{Point2D, Rect, Size2D};
 use fnv::FnvHasher;
 use frame::FrameId;
 use gpu_store::GpuStoreAddress;
@@ -1661,7 +1660,7 @@ impl FrameBuilderConfig {
 }
 
 pub struct FrameBuilder {
-    screen_rect: Rect<i32>,
+    screen_rect: LayerRect,
     prim_store: PrimitiveStore,
     cmds: Vec<PrimitiveRunCmd>,
     debug: bool,
@@ -1676,7 +1675,7 @@ pub struct FrameBuilder {
 /// A rendering-oriented representation of frame::Frame built by the render backend
 /// and presented to the renderer.
 pub struct Frame {
-    pub viewport_size: Size2D<i32>,
+    pub viewport_size: LayerSize,
     pub device_pixel_ratio: f32,
     pub debug_rects: Vec<DebugRect>,
     pub cache_size: DeviceSize,
@@ -1983,12 +1982,11 @@ impl ScreenTile {
 }
 
 impl FrameBuilder {
-    pub fn new(viewport_size: Size2D<f32>,
+    pub fn new(viewport_size: LayerSize,
                debug: bool,
                config: FrameBuilderConfig) -> FrameBuilder {
-        let viewport_size = Size2D::new(viewport_size.width as i32, viewport_size.height as i32);
         FrameBuilder {
-            screen_rect: Rect::new(Point2D::zero(), viewport_size),
+            screen_rect: LayerRect::new(LayerPoint::zero(), viewport_size),
             layer_store: Vec::new(),
             prim_store: PrimitiveStore::new(),
             cmds: Vec::new(),
@@ -2006,7 +2004,7 @@ impl FrameBuilder {
 
         let geometry = PrimitiveGeometry {
             local_rect: *rect,
-            local_clip_rect: LayerRect::from_untyped(&clip_region.main),
+            local_clip_rect: clip_region.main,
         };
         let clip_source = if clip_region.is_complex() {
             ClipSource::Region(clip_region.clone())
@@ -2183,10 +2181,10 @@ impl FrameBuilder {
                 pack_as_float(bottom.style as u32),
             ],
             radii: [
-                LayerSize::from_untyped(&radius.top_left),
-                LayerSize::from_untyped(&radius.top_right),
-                LayerSize::from_untyped(&radius.bottom_right),
-                LayerSize::from_untyped(&radius.bottom_left),
+                radius.top_left,
+                radius.top_right,
+                radius.bottom_right,
+                radius.bottom_left,
             ],
         };
 
