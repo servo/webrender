@@ -86,6 +86,7 @@ fn main() {
         precache_shaders: true,
         renderer_kind: RendererKind::Native,
         enable_subpixel_aa: false,
+        clear_method: webrender::CLEAR_ALL
     };
 
     let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);

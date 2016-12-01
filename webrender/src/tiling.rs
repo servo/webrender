@@ -21,7 +21,7 @@ use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
 use prim_store::{PrimitiveCacheKey, TextRunPrimitiveGpu, TextRunPrimitiveCpu};
 use prim_store::{PrimitiveStore, GpuBlock16, GpuBlock32, GpuBlock64, GpuBlock128};
 use profiler::FrameProfileCounters;
-use renderer::BlendMode;
+use renderer::{BlendMode, ClearMethod};
 use resource_cache::ResourceCache;
 use std::cmp;
 use std::collections::{HashMap};
@@ -1648,14 +1648,17 @@ pub struct ClearTile {
 pub struct FrameBuilderConfig {
     pub enable_scrollbars: bool,
     pub enable_subpixel_aa: bool,
+    pub clear_method: ClearMethod,
 }
 
 impl FrameBuilderConfig {
     pub fn new(enable_scrollbars: bool,
-               enable_subpixel_aa: bool) -> FrameBuilderConfig {
+               enable_subpixel_aa: bool,
+               clear_method: ClearMethod) -> FrameBuilderConfig {
         FrameBuilderConfig {
             enable_scrollbars: enable_scrollbars,
             enable_subpixel_aa: enable_subpixel_aa,
+            clear_method: clear_method,
         }
     }
 }
@@ -1698,6 +1701,7 @@ pub struct Frame {
     // will use a callback to resolve these and
     // patch the data structures.
     pub deferred_resolves: Vec<DeferredResolve>,
+    pub clear_method: ClearMethod,
 }
 
 #[derive(Debug)]
@@ -2927,6 +2931,7 @@ impl FrameBuilder {
             gpu_geometry: self.prim_store.gpu_geometry.build(),
             gpu_resource_rects: self.prim_store.gpu_resource_rects.build(),
             deferred_resolves: deferred_resolves,
+            clear_method: self.config.clear_method
         }
     }
 }

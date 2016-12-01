@@ -128,3 +128,4 @@ extern crate threadpool;
 
 pub use renderer::{ExternalImage, ExternalImageSource, ExternalImageHandler};
 pub use renderer::{Renderer, RendererOptions};
+pub use renderer::{CLEAR_NONE, CLEAR_BACKGROUND, CLEAR_TILES, CLEAR_ALL};
