@@ -100,15 +100,6 @@ impl RenderApi {
         key
     }
 
-    /// Flushes all messages and will send a notification when the render
-    /// backend thread has finished processing all previous messages.
-    /// This is a temporary API And users should not expect this to be API
-    /// to exist in the future.
-    pub fn flush(&self) {
-        let msg = ApiMsg::Flush;
-        self.api_sender.send(msg).unwrap();
-    }
-
     /// Updates a specific image.
     ///
     /// Currently doesn't support changing dimensions or format by updating.

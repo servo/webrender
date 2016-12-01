@@ -35,8 +35,6 @@ pub enum ApiMsg {
     /// Drops an image from the resource cache.
     DeleteImage(ImageKey),
     CloneApi(MsgSender<IdNamespace>),
-    // Flushes all messages
-    Flush,
     /// Supplies a new frame to WebRender.
     ///
     /// After receiving this message, WebRender will read the display list, followed by the
@@ -427,10 +425,6 @@ pub trait RenderNotifier: Send {
     fn new_frame_ready(&mut self);
     fn new_scroll_frame_ready(&mut self, composite_needed: bool);
     fn pipeline_size_changed(&mut self, pipeline_id: PipelineId, size: Option<Size2D<f32>>);
-}
-
-pub trait FlushNotifier: Send {
-    fn all_messages_flushed(&mut self);
 }
 
 // Trait to allow dispatching functions to a specific thread or event loop.
