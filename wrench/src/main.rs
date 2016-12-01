@@ -30,7 +30,6 @@ use gleam::gl;
 use glutin::{ElementState, VirtualKeyCode};
 use std::path::PathBuf;
 use std::cmp::{min, max};
-use std::ffi::CStr;
 use webrender_traits::*;
 
 mod wrench;
@@ -61,17 +60,14 @@ lazy_static! {
 
 pub static mut CURRENT_FRAME_NUMBER: u32 = 0;
 
-enum ThingKind {
-    YamlFile(YamlFrameReader),
-    BinaryFile(BinaryFrameReader),
-}
-
-impl ThingKind {
-    fn thing<'a>(&'a mut self) -> &'a mut WrenchThing {
-        match *self {
-            ThingKind::YamlFile(ref mut f) => &mut *f,
-            ThingKind::BinaryFile(ref mut f) => &mut *f,
-        }
+fn percentile(values: &[f64], pct_int: u32) -> f64 {
+    let pct = pct_int as f32 / 100.;
+    let index_f = (values.len()-1) as f32 * pct;
+    let index = f32::floor(index_f) as usize;
+    if index == index_f as usize {
+        values[index]
+    } else {
+        (values[index] + values[index+1]) / 2.
     }
 }
 
@@ -89,7 +85,7 @@ fn make_window(size: DeviceUintSize,
         unsafe {
             window.make_current().ok();
             gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
-            gl::clear_color(0.3, 0.0, 0.0, 1.0);
+            gl::clear_color(1.0, 1.0, 1.0, 1.0);
         }
 
         let gl_version = gl::get_string(gl::VERSION);
@@ -118,10 +114,18 @@ fn main() {
         else { panic!("Save type must be json or yaml"); }
     });
     let size = args.value_of("size").map(|s| {
-        let x = s.find('x').expect("Size must be specified exactly as widthxheight");
-        let w = s[0..x].parse::<u32>().expect("Invalid size width");
-        let h = s[x+1..].parse::<u32>().expect("Invalid size height");
-        DeviceUintSize::new(w, h)
+        if s == "720p" {
+            DeviceUintSize::new(1280, 720)
+        } else if s == "1080p" {
+            DeviceUintSize::new(1920, 1080)
+        } else if s == "4k" {
+            DeviceUintSize::new(3840, 2160)
+        } else {
+            let x = s.find('x').expect("Size must be specified exactly as 720p, 1080p, 4k, or widthxheight");
+            let w = s[0..x].parse::<u32>().expect("Invalid size width");
+            let h = s[x+1..].parse::<u32>().expect("Invalid size height");
+            DeviceUintSize::new(w, h)
+        }
     }).unwrap_or(DeviceUintSize::new(1920, 1080));
 
     let mut window = make_window(size, dp_ratio, args.is_present("vsync"));
@@ -133,13 +137,14 @@ fn main() {
                                  size,
                                  args.is_present("rebuild"),
                                  args.is_present("subpixel-aa"),
-                                 args.is_present("debug"));
+                                 args.is_present("debug"),
+                                 args.is_present("verbose"));
 
     let mut thing =
         if let Some(subargs) = args.subcommand_matches("show") {
-            ThingKind::YamlFile(YamlFrameReader::new_from_args(subargs))
+            Box::new(YamlFrameReader::new_from_args(subargs)) as Box<WrenchThing>
         } else if let Some(subargs) = args.subcommand_matches("replay") {
-            ThingKind::BinaryFile(BinaryFrameReader::new_from_args(subargs))
+            Box::new(BinaryFrameReader::new_from_args(subargs)) as Box<WrenchThing>
         } else {
             panic!("Should never have gotten here");
         };
@@ -148,9 +153,7 @@ fn main() {
     let mut profiler = false;
     let mut do_loop = false;
 
-    let queue_frames = thing.thing().queue_frames();
-    for _ in 0..queue_frames {
-        let thing = thing.thing();
+    for _ in 0..thing.queue_frames() {
         let (width, height) = window.get_inner_size().unwrap();
         let dim = DeviceUintSize::new(width, height);
         wrench.update(dim);
@@ -161,13 +164,13 @@ fn main() {
         }
 
         wrench.render();
-        //gl::flush();
         window.swap_buffers().ok();
     }
 
     let time_start = time::SteadyTime::now();
     let mut last = time::SteadyTime::now();
     let mut frame_count = 0;
+    let frames_between_dumps = 60;
 
     let mut min_time = time::Duration::max_value();
     let mut min_min_time = time::Duration::max_value();
@@ -175,14 +178,34 @@ fn main() {
     let mut max_max_time = time::Duration::min_value();
     let mut sum_time = time::Duration::zero();
 
+    let mut block_avg_ms = vec![];
+    let mut warmed_up = false;
+
+    fn as_ms(f: time::Duration) -> f64 { f.num_microseconds().unwrap() as f64 / 1000. }
+    fn as_fps(f: time::Duration) -> f64 { (1000.*1000.) / f.num_microseconds().unwrap() as f64 }
+
     for event in window.wait_events() {
+        if let Some(window_title) = wrench.take_title() {
+            window.set_title(&window_title);
+        }
+
         if let Some(limit) = limit_seconds {
             if (time::SteadyTime::now() - time_start) >= limit {
+                let mut block_avg_ms = block_avg_ms.iter().map(|v| as_ms(*v)).collect::<Vec<f64>>();
+                block_avg_ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let avg_ms = block_avg_ms.iter().fold(0., |sum, v| sum + v) / block_avg_ms.len() as f64;
+                let val_10th_pct = percentile(&block_avg_ms, 10);
+                let val_90th_pct = percentile(&block_avg_ms, 90);
+
+                println!("-    {:7} {:7} {:7}", "10th", "avg", "90th");
+                println!("ms   {:4.3} {:4.3} {:4.3}",
+                         val_10th_pct, avg_ms, val_90th_pct);
+                println!("fps  {:4.3} {:4.3} {:4.3}",
+                         1000. / val_10th_pct, 1000. / avg_ms, 1000. / val_90th_pct);
                 break;
             }
         }
 
-        let thing = thing.thing();
         match event {
             glutin::Event::Awakened => {
                 let (width, height) = window.get_inner_size().unwrap();
@@ -199,30 +222,42 @@ fn main() {
                 }
 
                 wrench.render();
-
-                //gl::flush();
                 window.swap_buffers().ok();
 
                 let now = time::SteadyTime::now();
                 let dur = now - last;
 
                 min_time = min(min_time, dur);
-                min_min_time = min(min_min_time, dur);
                 max_time = max(max_time, dur);
-                max_max_time = max(max_max_time, dur);
                 sum_time = sum_time + dur;
 
-                let as_ms = |f: time::Duration| { f.num_microseconds().unwrap() as f64 / 1000. };
+                if warmed_up {
+                    min_min_time = min(min_min_time, dur);
+                    max_max_time = max(max_max_time, dur);
+                }
 
                 frame_count += 1;
-                if frame_count == 60 {
+                if frame_count == frames_between_dumps {
                     let avg_time = sum_time / frame_count;
-                    println!("{:3.3} [{:3.3} .. {:3.3}]  -- {:4.7} fps  -- (global {:3.3} .. {:3.3})",
-                             as_ms(avg_time), as_ms(min_time), as_ms(max_time),
-                             1000.0 / as_ms(avg_time), as_ms(min_min_time), as_ms(max_max_time));
+                    if warmed_up {
+                        block_avg_ms.push(avg_time);
+                    }
+
+                    if wrench.verbose {
+                        if warmed_up {
+                            println!("{:3.3} [{:3.3} .. {:3.3}]  -- {:4.3} fps  -- (global {:3.3} .. {:3.3})",
+                                    as_ms(avg_time), as_ms(min_time), as_ms(max_time),
+                                    as_fps(avg_time), as_ms(min_min_time), as_ms(max_max_time));
+                        } else {
+                            println!("{:3.3} [{:3.3} .. {:3.3}]  -- {:4.3} fps",
+                                    as_ms(avg_time), as_ms(min_time), as_ms(max_time), as_fps(avg_time));
+                        }
+                    }
+
                     min_time = time::Duration::max_value();
                     max_time = time::Duration::min_value();
                     sum_time = time::Duration::zero();
+                    warmed_up = true;
                     frame_count = 0;
                 }
 

@@ -4,6 +4,7 @@
 
 use std::str::FromStr;
 use app_units::Au;
+use euclid::TypedSize2D;
 
 use yaml_rust::Yaml;
 
@@ -18,17 +19,38 @@ pub trait YamlHelper {
     fn as_point(&self) -> Option<LayoutPoint>;
     fn as_matrix4d(&self) -> Option<LayoutTransform>;
     fn as_colorf(&self) -> Option<ColorF>;
-    fn as_complex_clip_rect(&self) -> Option<ComplexClipRegion>;
-    fn as_clip_region(&self, &mut DisplayListBuilder) -> Option<ClipRegion>;
+    fn as_vec_colorf(&self) -> Option<Vec<ColorF>>;
     fn as_px_to_au(&self) -> Option<Au>;
     fn as_pt_to_au(&self) -> Option<Au>;
+    fn as_vec_string(&self) -> Option<Vec<String>>;
+    fn as_border_radius(&self) -> Option<BorderRadius>;
+}
+
+fn string_to_color(color: &str) -> Option<ColorF> {
+    match color {
+        "red" => Some(ColorF::new(1.0, 0.0, 0.0, 1.0)),
+        "green" => Some(ColorF::new(0.0, 1.0, 0.0, 1.0)),
+        "blue" => Some(ColorF::new(0.0, 0.0, 1.0, 1.0)),
+        "white" => Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
+        "black" => Some(ColorF::new(0.0, 0.0, 0.0, 1.0)),
+        s => {
+            let items: Vec<f32> = s.split_whitespace().map(|s| f32::from_str(s).unwrap()).collect();
+            if items.len() == 3 {
+                Some(ColorF::new(items[0] / 255.0, items[1] / 255.0, items[2] / 255.0, 1.0))
+            } else if items.len() == 4 {
+                Some(ColorF::new(items[0] / 255.0, items[1] / 255.0, items[2] / 255.0, items[3]))
+            } else {
+                None
+            }
+        }
+    }
 }
 
 impl YamlHelper for Yaml {
     fn as_force_f32(&self) -> Option<f32> {
         match *self {
             Yaml::Integer(iv) => Some(iv as f32),
-            Yaml::String(ref sv) => match f32::from_str(sv.as_str()) {
+            Yaml::String(ref sv) | Yaml::Real(ref sv) => match f32::from_str(sv.as_str()) {
                 Ok(v) => Some(v),
                 Err(_) => None
             },
@@ -37,20 +59,28 @@ impl YamlHelper for Yaml {
     }
 
     fn as_vec_f32(&self) -> Option<Vec<f32>> {
-        if let Some(v) = self.as_str() {
-            Some(v.split_whitespace()
-                 .map(|v| f32::from_str(v).expect(&format!("expected float value, got '{:?}'", v)))
-                 .collect())
-        } else if let Some(v) = self.as_vec() {
-            Some(v.iter().map(|v| {
-                match *v {
-                    Yaml::Integer(k) => k as f32,
-                    Yaml::String(ref k) | Yaml::Real(ref k) => f32::from_str(&k).expect(&format!("expected float value, got '{:?}'", v)),
-                    _ => panic!("expected float value, got '{:?}'", v),
-                }
-            }).collect())
-        } else {
-            None
+        match *self {
+            Yaml::String(ref s) | Yaml::Real(ref s) => {
+                s.split_whitespace()
+                 .map(|v| f32::from_str(v))
+                 .collect::<Result<Vec<_>,_>>()
+                 .ok()
+            }
+            Yaml::Array(ref v) => {
+                v.iter().map(|v| {
+                    match *v {
+                        Yaml::Integer(k) => Ok(k as f32),
+                        Yaml::String(ref k) | Yaml::Real(ref k) => {
+                            f32::from_str(&k).map_err(|_| false)
+                        },
+                        _ => Err(false),
+                    }
+                }).collect::<Result<Vec<_>,_>>().ok()
+            }
+            Yaml::Integer(k) => {
+                Some(vec![k as f32])
+            }
+            _ => None
         }
     }
 
@@ -81,11 +111,13 @@ impl YamlHelper for Yaml {
             return None;
         }
 
-        let nums = self.as_vec_f32().unwrap();
-        if nums.len() != 4 {
-            panic!("rect expected 4 float values, got {} instead ('{:?}')", nums.len(), self);
+        if let Some(nums) = self.as_vec_f32() {
+            if nums.len() == 4 {
+                return Some(LayoutRect::new(LayoutPoint::new(nums[0], nums[1]), LayoutSize::new(nums[2], nums[3])));
+            }
         }
-        Some(LayoutRect::new(LayoutPoint::new(nums[0], nums[1]), LayoutSize::new(nums[2], nums[3])))
+
+        None
     }
 
     fn as_size(&self) -> Option<LayoutSize> {
@@ -117,80 +149,71 @@ impl YamlHelper for Yaml {
     }
 
     fn as_colorf(&self) -> Option<ColorF> {
-        match self.as_str() {
-            None => None,
-            Some("red") => Some(ColorF::new(1.0, 0.0, 0.0, 1.0)),
-            Some("green") => Some(ColorF::new(0.0, 1.0, 0.0, 1.0)),
-            Some("blue") => Some(ColorF::new(0.0, 0.0, 1.0, 1.0)),
-            Some("white") => Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
-            Some("black") => Some(ColorF::new(0.0, 0.0, 0.0, 1.0)),
-            _ => {
-                let mut nums = self.as_vec_f32().unwrap();
-                if nums.len() != 3 && nums.len() != 4 {
-                    panic!("color expected a color name, or 3-4 floats; got '{:?}'", self);
-                }
+        if let Some(mut nums) = self.as_vec_f32() {
+            if nums.len() != 3 && nums.len() != 4 {
+                panic!("color expected a color name, or 3-4 floats; got '{:?}'", self);
+            }
 
-                if nums.len() == 3 {
-                    nums.push(1.0);
-                }
-                Some(ColorF::new(nums[0] / 255.0, nums[1] / 255.0, nums[2] / 255.0, nums[3]))
+            if nums.len() == 3 {
+                nums.push(1.0);
+            }
+            return Some(ColorF::new(nums[0] / 255.0, nums[1] / 255.0, nums[2] / 255.0, nums[3]));
+        }
+
+        if let Some(s) = self.as_str() {
+            string_to_color(s)
+        } else {
+            None
+        }
+    }
+
+    fn as_vec_colorf(&self) -> Option<Vec<ColorF>> {
+        if let Some(v) = self.as_vec() {
+            Some(v.iter().map(|v| v.as_colorf().unwrap()).collect())
+        } else {
+            if let Some(color) = self.as_colorf() {
+                Some(vec![color])
+            } else {
+                None
             }
         }
     }
 
-    fn as_complex_clip_rect(&self) -> Option<ComplexClipRegion> {
-        if self.is_badvalue() {
-            return None;
-        }
-
-        let nums = self.as_vec_f32().unwrap();
-        match nums.len() {
-            4 => Some(ComplexClipRegion::new(LayoutRect::new(LayoutPoint::new(nums[0], nums[1]), LayoutSize::new(nums[2], nums[3])),
-                                             BorderRadius::zero())),
-            5 => Some(ComplexClipRegion::new(LayoutRect::new(LayoutPoint::new(nums[0], nums[1]), LayoutSize::new(nums[2], nums[3])),
-                                             BorderRadius::uniform(nums[4]))),
-            8 => Some(ComplexClipRegion::new(LayoutRect::new(LayoutPoint::new(nums[0], nums[1]), LayoutSize::new(nums[2], nums[3])),
-                                             BorderRadius {
-                                                 top_left: LayoutSize::new(nums[4], nums[4]),
-                                                 top_right: LayoutSize::new(nums[5], nums[5]),
-                                                 bottom_left: LayoutSize::new(nums[6], nums[6]),
-                                                 bottom_right: LayoutSize::new(nums[7], nums[7]),
-                                             })),
-            12 => Some(ComplexClipRegion::new(LayoutRect::new(LayoutPoint::new(nums[0], nums[1]), LayoutSize::new(nums[2], nums[3])),
-                                              BorderRadius {
-                                                  top_left: LayoutSize::new(nums[4], nums[5]),
-                                                  top_right: LayoutSize::new(nums[6], nums[7]),
-                                                  bottom_left: LayoutSize::new(nums[8], nums[9]),
-                                                  bottom_right: LayoutSize::new(nums[10], nums[11]),
-                                              })),
-            n => panic!("complex clip rect expected 4, 5, 8, or 12 floats; got {} instead at '{:?}'", n, self),
+    fn as_vec_string(&self) -> Option<Vec<String>> {
+        if let Some(v) = self.as_vec() {
+            Some(v.iter().map(|v| v.as_str().unwrap().to_owned()).collect())
+        } else if let Some(s) = self.as_str() {
+            Some(vec![s.to_owned()])
+        } else {
+            None
         }
     }
 
-    fn as_clip_region(&self, builder: &mut DisplayListBuilder) -> Option<ClipRegion> {
-        if self.is_badvalue() {
-            return None;
+    fn as_border_radius(&self) -> Option<BorderRadius> {
+        match *self {
+            Yaml::BadValue => { None }
+            Yaml::String(ref s) | Yaml::Real(ref s) => {
+                let fv = f32::from_str(s).unwrap();
+                Some(BorderRadius::uniform(fv))
+            }
+            Yaml::Integer(v) => {
+                Some(BorderRadius::uniform(v as f32))
+            }
+            Yaml::Hash(_) => {
+                let top_left = self["top_left"].as_size().unwrap_or(TypedSize2D::zero());
+                let top_right = self["top_right"].as_size().unwrap_or(TypedSize2D::zero());
+                let bottom_left = self["bottom_left"].as_size().unwrap_or(TypedSize2D::zero());
+                let bottom_right = self["bottom_right"].as_size().unwrap_or(TypedSize2D::zero());
+                Some(BorderRadius {
+                    top_left: top_left,
+                    top_right: top_right,
+                    bottom_left: bottom_left,
+                    bottom_right: bottom_right,
+                })
+            }
+            _ => {
+                panic!("Invalid border radius specified: {:?}", self);
+            }
         }
-
-        // TODO add support for clip masks
-        // TODO add support for rounded rect clips
-
-        // if it's not a vec, then assume it's a single rect
-        if self.as_vec().is_none() {
-            let rect = self.as_rect().expect(&format!("clip region '{:?}', thought it was a rect but it's not?", self));
-            return Some(builder.new_clip_region(&rect, Vec::new(), None));
-        }
-
-        // otherwise it's an array of complex clip rects
-        let mut bounds = LayoutRect::zero();
-        let mut clips = Vec::<ComplexClipRegion>::new();
-
-        for item in self.as_vec().unwrap() {
-            let c = item.as_complex_clip_rect().unwrap();
-            bounds = bounds.union(&c.rect);
-            clips.push(c);
-        }
-
-        Some(builder.new_clip_region(&bounds, clips, None))
     }
 }
