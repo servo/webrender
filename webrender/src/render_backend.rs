@@ -386,9 +386,7 @@ impl RenderBackend {
             webgl_context.unbind();
         }
 
-        self.frame.create(&self.scene,
-                          &mut new_pipeline_sizes,
-                          self.device_pixel_ratio);
+        self.frame.create(&self.scene, &mut new_pipeline_sizes);
 
         let mut updated_pipeline_sizes = HashMap::new();
 

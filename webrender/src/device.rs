@@ -344,6 +344,7 @@ impl Drop for Texture {
 struct Program {
     id: gl::GLuint,
     u_transform: gl::GLint,
+    u_device_pixel_ratio: gl::GLint,
     name: String,
     vs_source: String,
     fs_source: String,
@@ -815,7 +816,6 @@ pub struct Device {
 
 impl Device {
     pub fn new(resource_override_path: Option<PathBuf>,
-               device_pixel_ratio: f32,
                _file_changed_handler: Box<FileWatcherHandler>) -> Device {
         //let file_watcher = FileWatcherThread::new(file_changed_handler);
 
@@ -824,7 +824,9 @@ impl Device {
 
         Device {
             resource_override_path: resource_override_path,
-            device_pixel_ratio: device_pixel_ratio,
+            // This is initialized to 1 by default, but it is set
+            // every frame by the call to begin_frame().
+            device_pixel_ratio: 1.0,
             inside_frame: false,
 
             capabilities: Capabilities {
@@ -889,9 +891,10 @@ impl Device {
         }
     }
 
-    pub fn begin_frame(&mut self) {
+    pub fn begin_frame(&mut self, device_pixel_ratio: f32) {
         debug_assert!(!self.inside_frame);
         self.inside_frame = true;
+        self.device_pixel_ratio = device_pixel_ratio;
 
         // Retrive the currently set FBO.
         let default_fbo = gl::get_integer_v(gl::FRAMEBUFFER_BINDING);
@@ -966,7 +969,9 @@ impl Device {
         }
 
         let program = self.programs.get(&program_id).unwrap();
-        self.set_uniforms(program, projection);
+        self.set_uniforms(program,
+                          projection,
+                          self.device_pixel_ratio);
     }
 
     pub fn create_texture_ids(&mut self,
@@ -1273,6 +1278,7 @@ impl Device {
             name: base_filename.to_owned(),
             id: pid,
             u_transform: -1,
+            u_device_pixel_ratio: -1,
             vs_source: get_shader_source(&vs_name, &self.resource_override_path),
             fs_source: get_shader_source(&fs_name, &self.resource_override_path),
             prefix: prefix,
@@ -1366,6 +1372,7 @@ impl Device {
                 }
 
                 program.u_transform = gl::get_uniform_location(program.id, "uTransform");
+                program.u_device_pixel_ratio = gl::get_uniform_location(program.id, "uDevicePixelRatio");
 
                 program_id.bind();
                 let u_color_0 = gl::get_uniform_location(program.id, "sColor0");
@@ -1383,10 +1390,6 @@ impl Device {
                 let u_mask = gl::get_uniform_location(program.id, "sMask");
                 if u_mask != -1 {
                     gl::uniform_1i(u_mask, TextureSampler::Mask as i32);
-                }
-                let u_device_pixel_ratio = gl::get_uniform_location(program.id, "uDevicePixelRatio");
-                if u_device_pixel_ratio != -1 {
-                    gl::uniform_1f(u_device_pixel_ratio, self.device_pixel_ratio);
                 }
 
                 let u_cache = gl::get_uniform_location(program.id, "sCache");
@@ -1485,11 +1488,15 @@ impl Device {
         gl::uniform_2f(location, x, y);
     }
 
-    fn set_uniforms(&self, program: &Program, transform: &Matrix4D<f32>) {
+    fn set_uniforms(&self,
+                    program: &Program,
+                    transform: &Matrix4D<f32>,
+                    device_pixel_ratio: f32) {
         debug_assert!(self.inside_frame);
         gl::uniform_matrix_4fv(program.u_transform,
                                false,
                                &transform.to_row_major_array());
+        gl::uniform_1f(program.u_device_pixel_ratio, device_pixel_ratio);
     }
 
     fn update_image_for_2d_texture(&mut self,

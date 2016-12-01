@@ -10,7 +10,7 @@ use mask_cache::{ClipSource, MaskCacheInfo};
 use resource_cache::{ImageProperties, ResourceCache};
 use std::mem;
 use std::usize;
-use tiling::RenderTask;
+use tiling::{RenderTask, RenderTaskLocation};
 use util::TransformedRect;
 use webrender_traits::{AuxiliaryLists, ColorF, ImageKey, ImageRendering, YuvColorSpace};
 use webrender_traits::{ClipRegion, ComplexClipRegion, ItemRange, GlyphKey};
@@ -422,12 +422,11 @@ pub struct PrimitiveStore {
     pub gpu_resource_rects: GpuStore<TexelRect>,
 
     // General
-    device_pixel_ratio: f32,
     prims_to_resolve: Vec<PrimitiveIndex>,
 }
 
 impl PrimitiveStore {
-    pub fn new(device_pixel_ratio: f32) -> PrimitiveStore {
+    pub fn new() -> PrimitiveStore {
         PrimitiveStore {
             cpu_metadata: Vec::new(),
             cpu_bounding_rects: Vec::new(),
@@ -442,7 +441,6 @@ impl PrimitiveStore {
             gpu_data64: GpuStore::new(),
             gpu_data128: GpuStore::new(),
             gpu_resource_rects: GpuStore::new(),
-            device_pixel_ratio: device_pixel_ratio,
             prims_to_resolve: Vec::new(),
         }
     }
@@ -579,16 +577,6 @@ impl PrimitiveStore {
                 metadata
             }
             PrimitiveContainer::BoxShadow(box_shadow_gpu, instance_rects) => {
-                // TODO(gw): Account for zoom factor!
-                // Here, we calculate the size of the patch required in order
-                // to create the box shadow corner. First, scale it by the
-                // device pixel ratio since the cache shader expects vertices
-                // in device space. The shader adds a 1-pixel border around
-                // the patch, in order to prevent bilinear filter artifacts as
-                // the patch is clamped / mirrored across the box shadow rect.
-                let edge_size = box_shadow_gpu.edge_size.ceil() * self.device_pixel_ratio;
-                let edge_size = edge_size as i32 + 2;   // Account for bilinear filtering
-                let cache_size = DeviceIntSize::new(edge_size, edge_size);
                 let cache_key = PrimitiveCacheKey::BoxShadow(BoxShadowPrimitiveCacheKey {
                     blur_radius: Au::from_f32_px(box_shadow_gpu.blur_radius),
                     border_radius: Au::from_f32_px(box_shadow_gpu.border_radius),
@@ -596,6 +584,12 @@ impl PrimitiveStore {
                     shadow_rect_size: Size2D::new(Au::from_f32_px(box_shadow_gpu.bs_rect.size.width),
                                                   Au::from_f32_px(box_shadow_gpu.bs_rect.size.height)),
                 });
+
+                // The actual cache size is calculated during prepare_prim_for_render().
+                // This is necessary since the size may change depending on the device
+                // pixel ratio (for example, during zoom or moving the window to a
+                // monitor with a different device pixel ratio).
+                let cache_size = DeviceIntSize::zero();
 
                 // Create a render task for this box shadow primitive. This renders a small
                 // portion of the box shadow to a render target. That portion is then
@@ -659,7 +653,9 @@ impl PrimitiveStore {
         Self::resolve_clip_cache_internal(&mut self.gpu_data32, clip_info, resource_cache)
     }
 
-    pub fn resolve_primitives(&mut self, resource_cache: &ResourceCache) -> Vec<DeferredResolve> {
+    pub fn resolve_primitives(&mut self,
+                              resource_cache: &ResourceCache,
+                              device_pixel_ratio: f32) -> Vec<DeferredResolve> {
         let mut deferred_resolves = Vec::new();
 
         for prim_index in self.prims_to_resolve.drain(..) {
@@ -675,7 +671,7 @@ impl PrimitiveStore {
                 PrimitiveKind::Gradient => {}
                 PrimitiveKind::TextRun => {
                     let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
-                    let font_size_dp = text.logical_font_size.scale_by(self.device_pixel_ratio);
+                    let font_size_dp = text.logical_font_size.scale_by(device_pixel_ratio);
 
                     let dest_rects = self.gpu_resource_rects.get_slice_mut(text.resource_address,
                                                                            text.glyph_range.length);
@@ -841,11 +837,27 @@ impl PrimitiveStore {
 
         match metadata.prim_kind {
             PrimitiveKind::Rectangle |
-            PrimitiveKind::Border |
-            PrimitiveKind::BoxShadow => {}
+            PrimitiveKind::Border  => {}
+            PrimitiveKind::BoxShadow => {
+                // TODO(gw): Account for zoom factor!
+                // Here, we calculate the size of the patch required in order
+                // to create the box shadow corner. First, scale it by the
+                // device pixel ratio since the cache shader expects vertices
+                // in device space. The shader adds a 1-pixel border around
+                // the patch, in order to prevent bilinear filter artifacts as
+                // the patch is clamped / mirrored across the box shadow rect.
+                let box_shadow_gpu: &BoxShadowPrimitiveGpu = unsafe {
+                    mem::transmute(self.gpu_data64.get(metadata.gpu_prim_index))
+                };
+                let edge_size = box_shadow_gpu.edge_size.ceil() * device_pixel_ratio;
+                let edge_size = edge_size as i32 + 2;   // Account for bilinear filtering
+                let cache_size = DeviceIntSize::new(edge_size, edge_size);
+                let location = RenderTaskLocation::Dynamic(None, cache_size);
+                metadata.render_task.as_mut().unwrap().location = location;
+            }
             PrimitiveKind::TextRun => {
                 let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
-                let font_size_dp = text.logical_font_size.scale_by(self.device_pixel_ratio);
+                let font_size_dp = text.logical_font_size.scale_by(device_pixel_ratio);
                 prim_needs_resolve = true;
 
                 if text.cache_dirty {
@@ -905,12 +917,12 @@ impl PrimitiveStore {
                         // render the text run to a target, and then apply a gaussian
                         // blur to that text run in order to build the actual primitive
                         // which will be blitted to the framebuffer.
-                        let cache_width = (local_rect.size.width * self.device_pixel_ratio).ceil() as i32;
-                        let cache_height = (local_rect.size.height * self.device_pixel_ratio).ceil() as i32;
+                        let cache_width = (local_rect.size.width * device_pixel_ratio).ceil() as i32;
+                        let cache_height = (local_rect.size.height * device_pixel_ratio).ceil() as i32;
                         let cache_size = DeviceIntSize::new(cache_width, cache_height);
                         let cache_key = PrimitiveCacheKey::TextShadow(prim_index);
                         let blur_radius = device_length(text.blur_radius.to_f32_px(),
-                                                       self.device_pixel_ratio);
+                                                        device_pixel_ratio);
                         Some(RenderTask::new_blur(cache_key,
                                                   cache_size,
                                                   blur_radius,

@@ -460,8 +460,7 @@ impl Frame {
 
     pub fn create(&mut self,
                   scene: &Scene,
-                  pipeline_sizes: &mut HashMap<PipelineId, Size2D<f32>>,
-                  device_pixel_ratio: f32) {
+                  pipeline_sizes: &mut HashMap<PipelineId, Size2D<f32>>) {
         let root_pipeline_id = match scene.root_pipeline_id {
             Some(root_pipeline_id) => root_pipeline_id,
             None => return,
@@ -506,7 +505,6 @@ impl Frame {
         self.layers.insert(root_scroll_layer_id, layer);
 
         let mut frame_builder = FrameBuilder::new(root_pipeline.viewport_size,
-                                                  device_pixel_ratio,
                                                   self.debug,
                                                   self.frame_builder_config);
 
@@ -885,8 +883,10 @@ impl Frame {
                  auxiliary_lists_map: &AuxiliaryListsMap,
                  device_pixel_ratio: f32)
                  -> RendererFrame {
-        self.update_layer_transforms(device_pixel_ratio);
-        let frame = self.build_frame(resource_cache, auxiliary_lists_map);
+        self.update_layer_transforms();
+        let frame = self.build_frame(resource_cache,
+                                     auxiliary_lists_map,
+                                     device_pixel_ratio);
         resource_cache.expire_old_resources(self.id);
         frame
     }
@@ -894,8 +894,7 @@ impl Frame {
     fn update_layer_transform(&mut self,
                               layer_id: ScrollLayerId,
                               parent_world_transform: &ScrollToWorldTransform,
-                              parent_viewport_rect: &ScrollLayerRect,
-                              device_pixel_ratio: f32) {
+                              parent_viewport_rect: &ScrollLayerRect) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
         //           Restructure this to avoid the clones!
         let (layer_transform_for_children, viewport_rect, layer_children) = {
@@ -927,19 +926,17 @@ impl Frame {
         for child_layer_id in layer_children {
             self.update_layer_transform(child_layer_id,
                                         &layer_transform_for_children,
-                                        &as_scroll_parent_rect(&viewport_rect),
-                                        device_pixel_ratio);
+                                        &as_scroll_parent_rect(&viewport_rect));
         }
     }
 
-    fn update_layer_transforms(&mut self, device_pixel_ratio: f32) {
+    fn update_layer_transforms(&mut self) {
         if let Some(root_scroll_layer_id) = self.root_scroll_layer_id {
             let root_viewport = self.layers[&root_scroll_layer_id].local_viewport_rect;
 
             self.update_layer_transform(root_scroll_layer_id,
                                         &ScrollToWorldTransform::identity(),
-                                        &as_scroll_parent_rect(&root_viewport),
-                                        device_pixel_ratio);
+                                        &as_scroll_parent_rect(&root_viewport));
 
             // Update any fixed layers
             let mut fixed_layers = Vec::new();
@@ -955,18 +952,22 @@ impl Frame {
             for layer_id in fixed_layers {
                 self.update_layer_transform(layer_id,
                                             &ScrollToWorldTransform::identity(),
-                                            &as_scroll_parent_rect(&root_viewport),
-                                            device_pixel_ratio);
+                                            &as_scroll_parent_rect(&root_viewport));
             }
         }
     }
 
     fn build_frame(&mut self,
                    resource_cache: &mut ResourceCache,
-                   auxiliary_lists_map: &AuxiliaryListsMap) -> RendererFrame {
+                   auxiliary_lists_map: &AuxiliaryListsMap,
+                   device_pixel_ratio: f32) -> RendererFrame {
         let mut frame_builder = self.frame_builder.take();
         let frame = frame_builder.as_mut().map(|builder|
-            builder.build(resource_cache, self.id, &self.layers, auxiliary_lists_map)
+            builder.build(resource_cache,
+                          self.id,
+                          &self.layers,
+                          auxiliary_lists_map,
+                          device_pixel_ratio)
         );
         self.frame_builder = frame_builder;
 
