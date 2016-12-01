@@ -329,7 +329,6 @@ pub struct Renderer {
     pending_texture_updates: Vec<TextureUpdateList>,
     pending_shader_updates: Vec<PathBuf>,
     current_frame: Option<RendererFrame>,
-    device_pixel_ratio: f32,
 
     // These are "cache shaders". These shaders are used to
     // draw intermediate results to cache targets. The results
@@ -456,9 +455,9 @@ impl Renderer {
         };
 
         let mut device = Device::new(options.resource_override_path.clone(),
-                                     options.device_pixel_ratio,
                                      Box::new(file_watch_handler));
-        device.begin_frame();
+        // device-pixel ratio doesn't matter here - we are just creating resources.
+        device.begin_frame(1.0);
 
         let max_ubo_size = device.get_capabilities().max_ubo_size;
         let max_ubo_vectors = max_ubo_size / 16;
@@ -719,7 +718,6 @@ impl Renderer {
             current_frame: None,
             pending_texture_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
-            device_pixel_ratio: options.device_pixel_ratio,
             tile_clear_shader: tile_clear_shader,
             cs_box_shadow: cs_box_shadow,
             cs_text_run: cs_text_run,
@@ -879,7 +877,7 @@ impl Renderer {
                 }
 
                 profile_timers.cpu_time.profile(|| {
-                    self.device.begin_frame();
+                    self.device.begin_frame(frame.device_pixel_ratio);
                     self.gpu_profile.begin_frame();
                     let _ = self.gpu_profile.add_marker(GPU_TAG_INIT);
 
@@ -1458,8 +1456,8 @@ impl Renderer {
         // Some tests use a restricted viewport smaller than the main screen size.
         // Ensure we clear the framebuffer in these tests.
         // TODO(gw): Find a better solution for this?
-        let viewport_size = DeviceIntSize::new(frame.viewport_size.width * self.device_pixel_ratio as i32,
-                                               frame.viewport_size.height * self.device_pixel_ratio as i32);
+        let viewport_size = DeviceIntSize::new(frame.viewport_size.width * frame.device_pixel_ratio as i32,
+                                               frame.viewport_size.height * frame.device_pixel_ratio as i32);
         let needs_clear = viewport_size.width < framebuffer_size.width as i32 ||
                           viewport_size.height < framebuffer_size.height as i32;
 

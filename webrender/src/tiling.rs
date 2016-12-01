@@ -1664,7 +1664,6 @@ pub struct FrameBuilder {
     screen_rect: Rect<i32>,
     prim_store: PrimitiveStore,
     cmds: Vec<PrimitiveRunCmd>,
-    device_pixel_ratio: f32,
     debug: bool,
     config: FrameBuilderConfig,
 
@@ -1678,6 +1677,7 @@ pub struct FrameBuilder {
 /// and presented to the renderer.
 pub struct Frame {
     pub viewport_size: Size2D<i32>,
+    pub device_pixel_ratio: f32,
     pub debug_rects: Vec<DebugRect>,
     pub cache_size: DeviceSize,
     pub passes: Vec<RenderPass>,
@@ -1984,16 +1984,14 @@ impl ScreenTile {
 
 impl FrameBuilder {
     pub fn new(viewport_size: Size2D<f32>,
-               device_pixel_ratio: f32,
                debug: bool,
                config: FrameBuilderConfig) -> FrameBuilder {
         let viewport_size = Size2D::new(viewport_size.width as i32, viewport_size.height as i32);
         FrameBuilder {
             screen_rect: Rect::new(Point2D::zero(), viewport_size),
             layer_store: Vec::new(),
-            prim_store: PrimitiveStore::new(device_pixel_ratio),
+            prim_store: PrimitiveStore::new(),
             cmds: Vec::new(),
-            device_pixel_ratio: device_pixel_ratio,
             debug: debug,
             packed_layers: Vec::new(),
             scrollbar_prims: Vec::new(),
@@ -2451,7 +2449,8 @@ impl FrameBuilder {
                    x_tile_count: i32,
                    y_tile_count: i32,
                    resource_cache: &mut ResourceCache,
-                   profile_counters: &mut FrameProfileCounters) {
+                   profile_counters: &mut FrameProfileCounters,
+                   device_pixel_ratio: f32) {
         // Build layer screen rects.
         // TODO(gw): This can be done earlier once update_layer_transforms() is fixed.
 
@@ -2489,7 +2488,7 @@ impl FrameBuilder {
                     if let Some(layer_local_rect) = layer_local_rect {
                         let layer_xf_rect = TransformedRect::new(&layer_local_rect,
                                                                  &packed_layer.transform,
-                                                                 self.device_pixel_ratio);
+                                                                 device_pixel_ratio);
 
                         if layer_xf_rect.bounding_rect.intersects(&screen_rect) {
                             packed_layer.screen_vertices = layer_xf_rect.vertices.clone();
@@ -2528,7 +2527,7 @@ impl FrameBuilder {
                         clip_info.update(&layer.clip_source,
                                          &packed_layer.transform,
                                          &mut self.prim_store.gpu_data32,
-                                         self.device_pixel_ratio,
+                                         device_pixel_ratio,
                                          auxiliary_lists);
                         if let ClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }) = layer.clip_source {
                             resource_cache.request_image(mask.image, ImageRendering::Auto);
@@ -2554,19 +2553,19 @@ impl FrameBuilder {
                                                                screen_rect,
                                                                &packed_layer.transform,
                                                                &packed_layer.local_clip_rect,
-                                                               self.device_pixel_ratio) {
+                                                               device_pixel_ratio) {
                             profile_counters.visible_primitives.inc();
 
                             if self.prim_store.prepare_prim_for_render(prim_index,
                                                                        resource_cache,
                                                                        &packed_layer.transform,
-                                                                       self.device_pixel_ratio,
+                                                                       device_pixel_ratio,
                                                                        auxiliary_lists) {
                                 self.prim_store.build_bounding_rect(prim_index,
                                                                     screen_rect,
                                                                     &packed_layer.transform,
                                                                     &packed_layer.local_clip_rect,
-                                                                    self.device_pixel_ratio);
+                                                                    device_pixel_ratio);
                             }
                         }
                     }
@@ -2578,11 +2577,11 @@ impl FrameBuilder {
         }
     }
 
-    fn create_screen_tiles(&self) -> (i32, i32, Vec<ScreenTile>) {
+    fn create_screen_tiles(&self, device_pixel_ratio: f32) -> (i32, i32, Vec<ScreenTile>) {
         let dp_size = DeviceIntSize::from_lengths(device_length(self.screen_rect.size.width as f32,
-                                                                self.device_pixel_ratio),
+                                                                device_pixel_ratio),
                                                   device_length(self.screen_rect.size.height as f32,
-                                                                self.device_pixel_ratio));
+                                                                device_pixel_ratio));
 
         let x_tile_size = SCREEN_TILE_SIZE;
         let y_tile_size = SCREEN_TILE_SIZE;
@@ -2614,7 +2613,8 @@ impl FrameBuilder {
 
     fn assign_prims_to_screen_tiles(&self,
                                     screen_tiles: &mut Vec<ScreenTile>,
-                                    x_tile_count: i32) {
+                                    x_tile_count: i32,
+                                    device_pixel_ratio: f32) {
         let mut layer_stack: Vec<StackingContextIndex> = Vec::new();
         let mut clip_rect_stack = Vec::new();
 
@@ -2694,7 +2694,7 @@ impl FrameBuilder {
                                         self.prim_store.prim_affects_tile(prim_index,
                                                                           &tile.rect,
                                                                           &packed_layer.transform,
-                                                                          self.device_pixel_ratio) {
+                                                                          device_pixel_ratio) {
                                     tile.push_primitive(prim_index);
                                 }
                             }
@@ -2775,7 +2775,8 @@ impl FrameBuilder {
                  resource_cache: &mut ResourceCache,
                  frame_id: FrameId,
                  layer_map: &LayerMap,
-                 auxiliary_lists_map: &AuxiliaryListsMap) -> Frame {
+                 auxiliary_lists_map: &AuxiliaryListsMap,
+                 device_pixel_ratio: f32) -> Frame {
 
         let mut profile_counters = FrameProfileCounters::new();
         profile_counters.total_primitives.set(self.prim_store.prim_count());
@@ -2785,13 +2786,13 @@ impl FrameBuilder {
         let screen_rect = DeviceIntRect::new(
             DeviceIntPoint::zero(),
             DeviceIntSize::from_lengths(device_length(self.screen_rect.size.width as f32,
-                                                      self.device_pixel_ratio),
+                                                      device_pixel_ratio),
                                         device_length(self.screen_rect.size.height as f32,
-                                                      self.device_pixel_ratio)));
+                                                      device_pixel_ratio)));
 
         let mut debug_rects = Vec::new();
 
-        let (x_tile_count, y_tile_count, mut screen_tiles) = self.create_screen_tiles();
+        let (x_tile_count, y_tile_count, mut screen_tiles) = self.create_screen_tiles(device_pixel_ratio);
 
         self.update_scroll_bars(layer_map);
 
@@ -2801,7 +2802,8 @@ impl FrameBuilder {
                          x_tile_count,
                          y_tile_count,
                          resource_cache,
-                         &mut profile_counters);
+                         &mut profile_counters,
+                         device_pixel_ratio);
 
         let mut clear_tiles = Vec::new();
         let mut compiled_screen_tiles = Vec::new();
@@ -2821,7 +2823,9 @@ impl FrameBuilder {
             };
 
             if !self.layer_store.is_empty() {
-                self.assign_prims_to_screen_tiles(&mut screen_tiles, x_tile_count);
+                self.assign_prims_to_screen_tiles(&mut screen_tiles,
+                                                  x_tile_count,
+                                                  device_pixel_ratio);
             }
 
             // Build list of passes, target allocs that each tile needs.
@@ -2870,7 +2874,7 @@ impl FrameBuilder {
         }
 
 
-        let deferred_resolves = self.prim_store.resolve_primitives(resource_cache);
+        let deferred_resolves = self.prim_store.resolve_primitives(resource_cache, device_pixel_ratio);
 
         let mut passes = Vec::new();
 
@@ -2911,6 +2915,7 @@ impl FrameBuilder {
         resource_cache.end_frame();
 
         Frame {
+            device_pixel_ratio: device_pixel_ratio,
             viewport_size: self.screen_rect.size,
             debug_rects: debug_rects,
             profile_counters: profile_counters,

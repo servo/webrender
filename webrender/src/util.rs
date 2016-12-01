@@ -230,8 +230,8 @@ pub struct TransformedRect {
 
 impl TransformedRect {
     pub fn new(rect: &LayerRect,
-           transform: &LayerToWorldTransform,
-           device_pixel_ratio: f32) -> TransformedRect {
+               transform: &LayerToWorldTransform,
+               device_pixel_ratio: f32) -> TransformedRect {
 
         let kind = if transform.can_losslessly_transform_and_perspective_project_a_2d_rect() {
             TransformedRectKind::AxisAligned
