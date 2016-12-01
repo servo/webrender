@@ -309,7 +309,7 @@ fn create_clear_shader(name: &'static str,
                        max_ubo_vectors: usize) -> ProgramId {
     let prefix = format!("#define WR_MAX_UBO_VECTORS {}", max_ubo_vectors);
 
-    let includes = &["shared_other"];
+    let includes = &[];
     let program_id = device.create_program_with_prefix(name,
                                                        includes,
                                                        Some(prefix));
