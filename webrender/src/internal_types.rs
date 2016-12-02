@@ -223,10 +223,49 @@ impl BatchTextures {
 // In some places we need to temporarily bind a texture to any slot.
 pub const DEFAULT_TEXTURE: TextureSampler = TextureSampler::Color0;
 
+#[derive(Clone, Copy, Debug)]
 pub enum VertexAttribute {
+    // vertex-frequency basic attributes
     Position,
     Color,
     ColorTexCoord,
+    // instance-frequency primitive attributes
+    GlobalPrimId,
+    PrimitiveAddress,
+    TaskIndex,
+    ClipTaskIndex,
+    LayerIndex,
+    ElementIndex,
+    UserData,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ClearAttribute {
+    // vertex frequency
+    Position,
+    // instance frequency
+    Rectangle,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum BlurAttribute {
+    // vertex frequency
+    Position,
+    // instance frequency
+    RenderTaskIndex,
+    SourceTaskIndex,
+    Direction,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ClipAttribute {
+    // vertex frequency
+    Position,
+    // instance frequency
+    RenderTaskIndex,
+    LayerIndex,
+    DataIndex,
+    BaseTaskIndex,
 }
 
 #[derive(Debug, Clone, Copy)]
