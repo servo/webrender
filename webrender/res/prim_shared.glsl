@@ -59,6 +59,15 @@ uniform sampler2D sData64;
 uniform sampler2D sData128;
 uniform sampler2D sResourceRects;
 
+// Instanced attributes
+in int aGlobalPrimId;
+in int aPrimitiveAddress;
+in int aTaskIndex;
+in int aClipTaskIndex;
+in int aLayerIndex;
+in int aElementIndex;
+in ivec2 aUserData;
+
 ivec2 get_fetch_uv(int index, int vecs_per_item) {
     int items_per_row = WR_MAX_VERTEX_TEXTURE_WIDTH / vecs_per_item;
     int y = index / items_per_row;
@@ -279,7 +288,7 @@ struct PrimitiveInstance {
     ivec2 user_data;
 };
 
-PrimitiveInstance fetch_instance(int index) {
+PrimitiveInstance fetch_instance_ubo(int index) {
     PrimitiveInstance pi;
 
     int offset = index * 2;
@@ -294,6 +303,20 @@ PrimitiveInstance fetch_instance(int index) {
     pi.layer_index = data1.x;
     pi.sub_index = data1.y;
     pi.user_data = data1.zw;
+
+    return pi;
+}
+
+PrimitiveInstance fetch_instance_attrib() {
+    PrimitiveInstance pi;
+
+    pi.global_prim_index = aGlobalPrimId;
+    pi.specific_prim_index = aPrimitiveAddress;
+    pi.render_task_index = aTaskIndex;
+    pi.clip_task_index = aClipTaskIndex;
+    pi.layer_index = aLayerIndex;
+    pi.sub_index = aElementIndex;
+    pi.user_data = aUserData;
 
     return pi;
 }
@@ -356,10 +379,8 @@ struct Primitive {
     ivec2 user_data;
 };
 
-Primitive load_primitive(int index) {
+Primitive load_primitive_custom(PrimitiveInstance pi) {
     Primitive prim;
-
-    PrimitiveInstance pi = fetch_instance(index);
 
     prim.layer = fetch_layer(pi.layer_index);
     prim.tile = fetch_tile(pi.render_task_index);
@@ -375,6 +396,13 @@ Primitive load_primitive(int index) {
 
     return prim;
 }
+
+Primitive load_primitive() {
+    PrimitiveInstance pi = fetch_instance_attrib();
+
+    return load_primitive_custom(pi);
+}
+
 
 // Return the intersection of the plane (set up by "normal" and "point")
 // with the ray (set up by "ray_origin" and "ray_dir"),

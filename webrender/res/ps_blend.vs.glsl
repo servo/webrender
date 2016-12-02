@@ -8,7 +8,7 @@ struct Blend {
 };
 
 Blend fetch_blend(int index) {
-    PrimitiveInstance pi = fetch_instance(index);
+    PrimitiveInstance pi = fetch_instance_ubo(index);
 
     Blend blend;
     blend.src_id_target_id_op_amount = ivec4(pi.user_data.x,

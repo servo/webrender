@@ -5,7 +5,7 @@
 use euclid::Matrix4D;
 use fnv::FnvHasher;
 use gleam::gl;
-use internal_types::{PackedVertex, RenderTargetMode, TextureSampler};
+use internal_types::{PackedInstance, PackedVertex, RenderTargetMode, TextureSampler};
 use internal_types::{VertexAttribute, DebugFontVertex, DebugColorVertex, DEFAULT_TEXTURE};
 //use notify::{self, Watcher};
 use super::shader_source;
@@ -90,7 +90,7 @@ pub trait FileWatcherHandler : Send {
 }
 
 impl VertexFormat {
-    fn bind(&self, main: VBOId, aux: Option<VBOId>, offset: gl::GLuint) {
+    fn bind(&self, main: VBOId, instance: VBOId, offset: gl::GLuint) {
         main.bind();
 
         match *self {
@@ -148,10 +148,9 @@ impl VertexFormat {
             }
             VertexFormat::Rectangles |
             VertexFormat::Triangles => {
+                let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLuint;
                 gl::enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
                 gl::vertex_attrib_divisor(VertexAttribute::Position as gl::GLuint, 0);
-
-                let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLuint;
 
                 gl::vertex_attrib_pointer(VertexAttribute::Position as gl::GLuint,
                                           2,
@@ -160,9 +159,32 @@ impl VertexFormat {
                                           vertex_stride as gl::GLint,
                                           0);
 
-                if let Some(ref aux_format) = aux {
-                    aux_format.bind();
+                instance.bind();
+                let instance_stride = mem::size_of::<PackedInstance>() as gl::GLint;
+
+                for (i, &attrib) in [VertexAttribute::GlobalPrimId,
+                                     VertexAttribute::PrimitiveAddress,
+                                     VertexAttribute::TaskIndex,
+                                     VertexAttribute::ClipTaskIndex,
+                                     VertexAttribute::LayerIndex,
+                                     VertexAttribute::ElementIndex,
+                                    ].into_iter().enumerate() {
+                    gl::enable_vertex_attrib_array(attrib as gl::GLuint);
+                    gl::vertex_attrib_divisor(attrib as gl::GLuint, 1);
+                    gl::vertex_attrib_i_pointer(attrib as gl::GLuint,
+                                                1,
+                                                gl::INT,
+                                                instance_stride,
+                                                (i * 4) as gl::GLuint);
                 }
+
+                gl::enable_vertex_attrib_array(VertexAttribute::UserData as gl::GLuint);
+                gl::vertex_attrib_divisor(VertexAttribute::UserData as gl::GLuint, 1);
+                gl::vertex_attrib_i_pointer(VertexAttribute::UserData as gl::GLuint,
+                                            2,
+                                            gl::INT,
+                                            instance_stride,
+                                            24);
             }
         }
     }
@@ -264,6 +286,14 @@ impl Program {
         gl::bind_attrib_location(self.id, VertexAttribute::Color as gl::GLuint, "aColor");
         gl::bind_attrib_location(self.id, VertexAttribute::ColorTexCoord as gl::GLuint, "aColorTexCoord");
 
+        gl::bind_attrib_location(self.id, VertexAttribute::GlobalPrimId as gl::GLuint, "aGlobalPrimId");
+        gl::bind_attrib_location(self.id, VertexAttribute::PrimitiveAddress as gl::GLuint, "aPrimitiveAddress");
+        gl::bind_attrib_location(self.id, VertexAttribute::TaskIndex as gl::GLuint, "aTaskIndex");
+        gl::bind_attrib_location(self.id, VertexAttribute::ClipTaskIndex as gl::GLuint, "aClipTaskIndex");
+        gl::bind_attrib_location(self.id, VertexAttribute::LayerIndex as gl::GLuint, "aLayerIndex");
+        gl::bind_attrib_location(self.id, VertexAttribute::ElementIndex as gl::GLuint, "aElementIndex");
+        gl::bind_attrib_location(self.id, VertexAttribute::UserData as gl::GLuint, "aUserData");
+
         gl::link_program(self.id);
         if gl::get_program_iv(self.id, gl::LINK_STATUS) == (0 as gl::GLint) {
             println!("Failed to link shader program: {}", gl::get_program_info_log(self.id));
@@ -290,7 +320,7 @@ struct VAO {
     id: gl::GLuint,
     vertex_format: VertexFormat,
     main_vbo_id: VBOId,
-    aux_vbo_id: Option<VBOId>,
+    instance_vbo_id: VBOId,
     ibo_id: IBOId,
     owns_vbos: bool,
 }
@@ -304,9 +334,6 @@ impl Drop for VAO {
             // around.
             if self.vertex_format != VertexFormat::Rectangles {
                 gl::delete_buffers(&[self.main_vbo_id.0]);
-            }
-            if let Some(VBOId(aux_vbo_id)) = self.aux_vbo_id {
-                gl::delete_buffers(&[aux_vbo_id]);
             }
 
             // todo(gw): maybe make these their own type with hashmap?
@@ -403,11 +430,11 @@ impl<T> GpuFrameProfile<T> {
     #[cfg(not(target_os = "android"))]
     fn add_marker(&mut self, tag: T) -> GpuMarker
     where T: NamedTag {
-        let marker = GpuMarker::new(tag.get_label());
-
         if self.pending_query != 0 {
             gl::end_query(gl::TIME_ELAPSED);
         }
+
+        let marker = GpuMarker::new(tag.get_label());
 
         if self.next_query < MAX_EVENTS_PER_FRAME {
             self.pending_query = self.queries[self.next_query];
@@ -548,6 +575,7 @@ impl Drop for GpuMarker {
 pub enum VertexUsageHint {
     Static,
     Dynamic,
+    Stream,
 }
 
 impl VertexUsageHint {
@@ -555,6 +583,7 @@ impl VertexUsageHint {
         match *self {
             VertexUsageHint::Static => gl::STATIC_DRAW,
             VertexUsageHint::Dynamic => gl::DYNAMIC_DRAW,
+            VertexUsageHint::Stream => gl::STREAM_DRAW,
         }
     }
 }
@@ -1450,9 +1479,9 @@ impl Device {
     fn create_vao_with_vbos(&mut self,
                             format: VertexFormat,
                             main_vbo_id: VBOId,
-                            aux_vbo_id: Option<VBOId>,
+                            instance_vbo_id: VBOId,
                             ibo_id: IBOId,
-                            offset: gl::GLuint,
+                            vertex_offset: gl::GLuint,
                             owns_vbos: bool)
                             -> VAOId {
         debug_assert!(self.inside_frame);
@@ -1462,13 +1491,13 @@ impl Device {
 
         gl::bind_vertex_array(vao_id);
 
-        format.bind(main_vbo_id, aux_vbo_id, offset);
+        format.bind(main_vbo_id, instance_vbo_id, vertex_offset);
 
         let vao = VAO {
             id: vao_id,
             vertex_format: format,
             main_vbo_id: main_vbo_id,
-            aux_vbo_id: aux_vbo_id,
+            instance_vbo_id: instance_vbo_id,
             ibo_id: ibo_id,
             owns_vbos: owns_vbos,
         };
@@ -1483,16 +1512,15 @@ impl Device {
         vao_id
     }
 
-    pub fn create_vao(&mut self, format: VertexFormat, quad_vertex_buffer: Option<VBOId>)
-                      -> VAOId {
+    pub fn create_vao(&mut self, format: VertexFormat) -> VAOId {
         debug_assert!(self.inside_frame);
 
-        let buffer_ids = gl::gen_buffers(2);
+        let buffer_ids = gl::gen_buffers(3);
         let ibo_id = IBOId(buffer_ids[0]);
         let main_vbo_id = VBOId(buffer_ids[1]);
-        let aux_vbo_id = quad_vertex_buffer;
+        let intance_vbo_id = VBOId(buffer_ids[2]);
 
-        self.create_vao_with_vbos(format, main_vbo_id, aux_vbo_id, ibo_id, 0, true)
+        self.create_vao_with_vbos(format, main_vbo_id, intance_vbo_id, ibo_id, 0, true)
     }
 
     pub fn update_vao_main_vertices<V>(&mut self,
@@ -1502,10 +1530,24 @@ impl Device {
         debug_assert!(self.inside_frame);
 
         let vao = self.vaos.get(&vao_id).unwrap();
-        debug_assert!(self.bound_vao == vao_id);
+        debug_assert_eq!(self.bound_vao, vao_id);
 
         vao.main_vbo_id.bind();
         gl::buffer_data(gl::ARRAY_BUFFER, &vertices, usage_hint.to_gl());
+    }
+
+    pub fn update_vao_instances<V>(&mut self,
+                                   vao_id: VAOId,
+                                   instances: &[V],
+                                   usage_hint: VertexUsageHint) {
+        debug_assert!(self.inside_frame);
+        debug_assert_eq!(mem::size_of::<V>(), mem::size_of::<PackedInstance>());
+
+        let vao = self.vaos.get(&vao_id).unwrap();
+        debug_assert_eq!(self.bound_vao, vao_id);
+
+        vao.instance_vbo_id.bind();
+        gl::buffer_data(gl::ARRAY_BUFFER, &instances, usage_hint.to_gl());
     }
 
     pub fn update_vao_indices<I>(&mut self,
@@ -1515,7 +1557,7 @@ impl Device {
         debug_assert!(self.inside_frame);
 
         let vao = self.vaos.get(&vao_id).unwrap();
-        debug_assert!(self.bound_vao == vao_id);
+        debug_assert_eq!(self.bound_vao, vao_id);
 
         vao.ibo_id.bind();
         gl::buffer_data(gl::ELEMENT_ARRAY_BUFFER, &indices, usage_hint.to_gl());

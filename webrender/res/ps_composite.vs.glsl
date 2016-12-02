@@ -8,7 +8,7 @@ struct Composite {
 };
 
 Composite fetch_composite(int index) {
-    PrimitiveInstance pi = fetch_instance(index);
+    PrimitiveInstance pi = fetch_instance_ubo(index);
 
     Composite composite;
     composite.src0_src1_target_id_op = ivec4(pi.user_data.xy,

@@ -223,10 +223,20 @@ impl BatchTextures {
 // In some places we need to temporarily bind a texture to any slot.
 pub const DEFAULT_TEXTURE: TextureSampler = TextureSampler::Color0;
 
+#[derive(Clone, Copy, Debug)]
 pub enum VertexAttribute {
+    // vertex-frequency basic attributes
     Position,
     Color,
     ColorTexCoord,
+    // instance-frequency primitive attributes
+    GlobalPrimId,
+    PrimitiveAddress,
+    TaskIndex,
+    ClipTaskIndex,
+    LayerIndex,
+    ElementIndex,
+    UserData,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -253,6 +263,18 @@ impl PackedColor {
 #[repr(C)]
 pub struct PackedVertex {
     pub pos: [f32; 2],
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct PackedInstance {
+    global_prim_id: i32,
+    prim_address: u32,
+    task_index: i32,
+    clip_task_index: i32,
+    layer_index: i32,
+    sub_index: i32,
+    user_data: [i32; 2],
 }
 
 #[derive(Debug)]
