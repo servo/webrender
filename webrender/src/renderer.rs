@@ -878,14 +878,16 @@ impl Renderer {
                 profile_timers.cpu_time.profile(|| {
                     self.device.begin_frame(frame.device_pixel_ratio);
                     self.gpu_profile.begin_frame();
-                    let _ = self.gpu_profile.add_marker(GPU_TAG_INIT);
+                    {
+                        let _gm = self.gpu_profile.add_marker(GPU_TAG_INIT);
+                        self.device.disable_scissor();
+                        self.device.disable_depth();
+                        self.device.set_blend(false);
 
-                    self.device.disable_scissor();
-                    self.device.disable_depth();
-                    self.device.set_blend(false);
+                        //self.update_shaders();
+                        self.update_texture_cache();
+                    }
 
-                    //self.update_shaders();
-                    self.update_texture_cache();
                     self.draw_tile_frame(frame, &framebuffer_size);
 
                     self.device.reset_ubo(UBO_BIND_DATA);
@@ -942,7 +944,7 @@ impl Renderer {
 */
 
     fn update_texture_cache(&mut self) {
-        let _ = GpuMarker::new("texture cache update");
+        let _gm = GpuMarker::new("texture cache update");
         let mut pending_texture_updates = mem::replace(&mut self.pending_texture_updates, vec![]);
         for update_list in pending_texture_updates.drain(..) {
             for update in update_list.updates {
@@ -1073,42 +1075,45 @@ impl Renderer {
                    target_size: &DeviceSize,
                    cache_texture: Option<TextureId>,
                    should_clear: bool) {
-        let _ = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
-
         let dimensions = [target_size.width as u32, target_size.height as u32];
-        self.device.bind_render_target(render_target, Some(dimensions));
+        let projection = {
+            let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
+            self.device.bind_render_target(render_target, Some(dimensions));
 
-        self.device.set_blend(false);
-        self.device.set_blend_mode_alpha();
-        if let Some(cache_texture) = cache_texture {
-            self.device.bind_texture(TextureSampler::Cache, cache_texture);
-        }
+            self.device.set_blend(false);
+            self.device.set_blend_mode_alpha();
+            if let Some(cache_texture) = cache_texture {
+                self.device.bind_texture(TextureSampler::Cache, cache_texture);
+            }
 
-        let (color, projection) = match render_target {
-            Some(..) => (
-                [0.0, 0.0, 0.0, 0.0],
-                Matrix4D::ortho(0.0,
-                               target_size.width,
-                               0.0,
-                               target_size.height,
-                               ORTHO_NEAR_PLANE,
-                               ORTHO_FAR_PLANE)
-            ),
-            None => (
-                [1.0, 1.0, 1.0, 1.0],
-                Matrix4D::ortho(0.0,
-                               target_size.width,
-                               target_size.height,
-                               0.0,
-                               ORTHO_NEAR_PLANE,
-                               ORTHO_FAR_PLANE)
-            ),
+            let (color, projection) = match render_target {
+                Some(..) => (
+                    [0.0, 0.0, 0.0, 0.0],
+                    Matrix4D::ortho(0.0,
+                                   target_size.width,
+                                   0.0,
+                                   target_size.height,
+                                   ORTHO_NEAR_PLANE,
+                                   ORTHO_FAR_PLANE)
+                ),
+                None => (
+                    [1.0, 1.0, 1.0, 1.0],
+                    Matrix4D::ortho(0.0,
+                                   target_size.width,
+                                   target_size.height,
+                                   0.0,
+                                   ORTHO_NEAR_PLANE,
+                                   ORTHO_FAR_PLANE)
+                ),
+            };
+
+            // todo(gw): remove me!
+            if should_clear {
+                self.device.clear_color(color);
+            }
+
+            projection
         };
-
-        // todo(gw): remove me!
-        if should_clear {
-            self.device.clear_color(color);
-        }
 
         // Draw any blurs for this target.
         // Blurs are rendered as a standard 2-pass
@@ -1118,7 +1123,7 @@ impl Renderer {
         //           blur radii with fixed weights.
         if !target.vertical_blurs.is_empty() {
             self.device.set_blend(false);
-            let _ = self.gpu_profile.add_marker(GPU_TAG_BLUR);
+            let _gm = self.gpu_profile.add_marker(GPU_TAG_BLUR);
             let shader = self.cs_blur.get(&mut self.device);
             let max_blurs = self.max_blurs;
             self.draw_ubo_batch(&target.vertical_blurs,
@@ -1131,7 +1136,7 @@ impl Renderer {
 
         if !target.horizontal_blurs.is_empty() {
             self.device.set_blend(false);
-            let _ = self.gpu_profile.add_marker(GPU_TAG_BLUR);
+            let _gm = self.gpu_profile.add_marker(GPU_TAG_BLUR);
             let shader = self.cs_blur.get(&mut self.device);
             let max_blurs = self.max_blurs;
             self.draw_ubo_batch(&target.horizontal_blurs,
@@ -1145,7 +1150,7 @@ impl Renderer {
         // Draw any box-shadow caches for this target.
         if !target.box_shadow_cache_prims.is_empty() {
             self.device.set_blend(false);
-            let _ = self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
+            let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
             let shader = self.cs_box_shadow.get(&mut self.device);
             let max_prim_items = self.max_cache_instances;
             self.draw_ubo_batch(&target.box_shadow_cache_prims,
@@ -1158,7 +1163,7 @@ impl Renderer {
 
         // Draw the clip items into the tiled alpha mask.
         {
-            let _ = self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
+            let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
             // first, mark the target area as opaque
             //Note: not needed if we know the target is cleared with opaque
             self.device.set_blend(false);
@@ -1199,7 +1204,7 @@ impl Renderer {
             self.device.set_blend_mode_multiply();
             // draw rounded cornered rectangles
             if !target.clip_batcher.rectangles.is_empty() {
-                let _ = GpuMarker::new("clip rectangles");
+                let _gm2 = GpuMarker::new("clip rectangles");
                 let shader = self.cs_clip_rectangle.get(&mut self.device);
                 let max_prim_items = self.max_clip_instances;
                 self.draw_ubo_batch(&target.clip_batcher.rectangles,
@@ -1211,7 +1216,7 @@ impl Renderer {
             }
             // draw image masks
             for (mask_texture_id, items) in target.clip_batcher.images.iter() {
-                let _ = GpuMarker::new("clip images");
+                let _gm2 = GpuMarker::new("clip images");
                 let texture_id = self.resolve_source_texture(mask_texture_id);
                 self.device.bind_texture(TextureSampler::Mask, texture_id);
                 let shader = self.cs_clip_image.get(&mut self.device);
@@ -1235,7 +1240,7 @@ impl Renderer {
             self.device.set_blend(true);
             self.device.set_blend_mode_alpha();
 
-            let _ = self.gpu_profile.add_marker(GPU_TAG_CACHE_TEXT_RUN);
+            let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_TEXT_RUN);
             let shader = self.cs_text_run.get(&mut self.device);
             let max_cache_instances = self.max_cache_instances;
             self.draw_ubo_batch(&target.text_run_cache_prims,
@@ -1246,7 +1251,7 @@ impl Renderer {
                                 &projection);
         }
 
-        let _ = GpuMarker::new("alpha batches");
+        let _gm2 = GpuMarker::new("alpha batches");
         self.device.set_blend(false);
         let mut prev_blend_mode = BlendMode::None;
 
@@ -1274,7 +1279,7 @@ impl Renderer {
 
             match &batch.data {
                 &PrimitiveBatchData::CacheImage(ref ubo_data) => {
-                    let _ = self.gpu_profile.add_marker(GPU_TAG_PRIM_CACHE_IMAGE);
+                    let _gm = self.gpu_profile.add_marker(GPU_TAG_PRIM_CACHE_IMAGE);
                     let (shader, max_prim_items) = self.ps_cache_image.get(&mut self.device,
                                                                            transform_kind);
                     self.draw_ubo_batch(ubo_data,
@@ -1285,7 +1290,7 @@ impl Renderer {
                                         &projection);
                 }
                 &PrimitiveBatchData::Blend(ref ubo_data) => {
-                    let _ = self.gpu_profile.add_marker(GPU_TAG_PRIM_BLEND);
+                    let _gm = self.gpu_profile.add_marker(GPU_TAG_PRIM_BLEND);
                     let shader = self.ps_blend.get(&mut self.device);
                     let max_prim_items = self.max_prim_instances;
                     self.draw_ubo_batch(ubo_data, shader,
@@ -1295,7 +1300,7 @@ impl Renderer {
                                         &projection);
                 }
                 &PrimitiveBatchData::Composite(ref ubo_data) => {
-                    let _ = self.gpu_profile.add_marker(GPU_TAG_PRIM_COMPOSITE);
+                    let _gm = self.gpu_profile.add_marker(GPU_TAG_PRIM_COMPOSITE);
                     let shader = self.ps_composite.get(&mut self.device);
                     let max_prim_items = self.max_prim_instances;
 
@@ -1310,7 +1315,7 @@ impl Renderer {
 
                 }
                 &PrimitiveBatchData::Rectangles(ref ubo_data) => {
-                    let _ = self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT);
+                    let _gm = self.gpu_profile.add_marker(GPU_TAG_PRIM_RECT);
                     let (shader, max_prim_items) = if needs_clipping {
                         self.ps_rectangle_clip.get(&mut self.device, transform_kind)
                     } else {
@@ -1324,7 +1329,7 @@ impl Renderer {
                                         &projection);
                 }
                 &PrimitiveBatchData::Image(ref ubo_data) => {
-                    let _ = self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE);
+                    let _gm = self.gpu_profile.add_marker(GPU_TAG_PRIM_IMAGE);
                     let (shader, max_prim_items) = self.ps_image.get(&mut self.device, transform_kind);
                     self.draw_ubo_batch(ubo_data,
                                         shader,
@@ -1334,7 +1339,7 @@ impl Renderer {
                                         &projection);
                 }
                 &PrimitiveBatchData::YuvImage(ref ubo_data) => {
-                    let _ = self.gpu_profile.add_marker(GPU_TAG_PRIM_YUV_IMAGE);
+                    let _gm = self.gpu_profile.add_marker(GPU_TAG_PRIM_YUV_IMAGE);
                     let (shader, max_prim_items) = self.ps_yuv_image.get(
                         &mut self.device, transform_kind
                     );
@@ -1346,7 +1351,7 @@ impl Renderer {
                                         &projection);
                 }
                 &PrimitiveBatchData::Borders(ref ubo_data) => {
-                    let _ = self.gpu_profile.add_marker(GPU_TAG_PRIM_BORDER);
+                    let _gm = self.gpu_profile.add_marker(GPU_TAG_PRIM_BORDER);
                     let (shader, max_prim_items) = self.ps_border.get(&mut self.device, transform_kind);
                     self.draw_ubo_batch(ubo_data,
                                         shader,
@@ -1356,7 +1361,7 @@ impl Renderer {
                                         &projection);
                 }
                 &PrimitiveBatchData::BoxShadow(ref ubo_data) => {
-                    let _ = self.gpu_profile.add_marker(GPU_TAG_PRIM_BOX_SHADOW);
+                    let _gm = self.gpu_profile.add_marker(GPU_TAG_PRIM_BOX_SHADOW);
                     let (shader, max_prim_items) = self.ps_box_shadow.get(&mut self.device, transform_kind);
                     self.draw_ubo_batch(ubo_data,
                                         shader,
@@ -1366,7 +1371,7 @@ impl Renderer {
                                         &projection);
                 }
                 &PrimitiveBatchData::TextRun(ref ubo_data) => {
-                    let _ = self.gpu_profile.add_marker(GPU_TAG_PRIM_TEXT_RUN);
+                    let _gm = self.gpu_profile.add_marker(GPU_TAG_PRIM_TEXT_RUN);
                     let (shader, max_prim_items) = match batch.key.blend_mode {
                         BlendMode::Subpixel(..) => self.ps_text_run_subpixel.get(&mut self.device, transform_kind),
                         BlendMode::Alpha | BlendMode::None => self.ps_text_run.get(&mut self.device, transform_kind),
@@ -1379,7 +1384,7 @@ impl Renderer {
                                         &projection);
                 }
                 &PrimitiveBatchData::AlignedGradient(ref ubo_data) => {
-                    let _ = self.gpu_profile.add_marker(GPU_TAG_PRIM_GRADIENT);
+                    let _gm = self.gpu_profile.add_marker(GPU_TAG_PRIM_GRADIENT);
                     let (shader, max_prim_items) = self.ps_gradient.get(&mut self.device, transform_kind);
                     self.draw_ubo_batch(ubo_data,
                                         shader,
@@ -1389,7 +1394,7 @@ impl Renderer {
                                         &projection);
                 }
                 &PrimitiveBatchData::AngleGradient(ref ubo_data) => {
-                    let _ = self.gpu_profile.add_marker(GPU_TAG_PRIM_ANGLE_GRADIENT);
+                    let _gm = self.gpu_profile.add_marker(GPU_TAG_PRIM_ANGLE_GRADIENT);
                     let (shader, max_prim_items) = self.ps_angle_gradient.get(&mut self.device, transform_kind);
                     self.draw_ubo_batch(ubo_data,
                                         shader,
@@ -1449,7 +1454,7 @@ impl Renderer {
     fn draw_tile_frame(&mut self,
                        frame: &mut Frame,
                        framebuffer_size: &DeviceUintSize) {
-        let _ = GpuMarker::new("tile frame draw");
+        let _gm = GpuMarker::new("tile frame draw");
         self.update_deferred_resolves(frame);
 
         // Some tests use a restricted viewport smaller than the main screen size.
@@ -1461,7 +1466,7 @@ impl Renderer {
                           viewport_size.height < framebuffer_size.height as i32;
 
         {
-            let _ = GpuMarker::new("debug rectangles");
+            let _gm2 = GpuMarker::new("debug rectangles");
             for debug_rect in frame.debug_rects.iter().rev() {
                 self.add_debug_rect(debug_rect.rect.origin,
                                     debug_rect.rect.bottom_right(),
@@ -1551,7 +1556,7 @@ impl Renderer {
             }
         }
 
-        let _ = self.gpu_profile.add_marker(GPU_TAG_CLEAR_TILES);
+        let _gm = self.gpu_profile.add_marker(GPU_TAG_CLEAR_TILES);
 
         // Clear tiles with no items
         if !frame.clear_tiles.is_empty() {
