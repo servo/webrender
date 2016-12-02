@@ -239,6 +239,17 @@ pub enum VertexAttribute {
     UserData,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum ClipAttribute {
+    // vertex frequency
+    Position,
+    // instance frequency
+    RenderTaskIndex,
+    LayerIndex,
+    DataIndex,
+    BaseTaskIndex,
+}
+
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct PackedColor {
@@ -263,18 +274,6 @@ impl PackedColor {
 #[repr(C)]
 pub struct PackedVertex {
     pub pos: [f32; 2],
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-pub struct PackedInstance {
-    global_prim_id: i32,
-    prim_address: u32,
-    task_index: i32,
-    clip_task_index: i32,
-    layer_index: i32,
-    sub_index: i32,
-    user_data: [i32; 2],
 }
 
 #[derive(Debug)]
