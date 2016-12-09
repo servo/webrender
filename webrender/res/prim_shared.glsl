@@ -59,12 +59,7 @@ uniform sampler2D sData64;
 uniform sampler2D sData128;
 uniform sampler2D sResourceRects;
 
-ivec2 get_fetch_uv(int index, int vecs_per_item) {
-    int items_per_row = WR_MAX_VERTEX_TEXTURE_WIDTH / vecs_per_item;
-    int y = index / items_per_row;
-    int x = vecs_per_item * (index % items_per_row);
-    return ivec2(x, y);
-}
+#define get_fetch_uv(i, vpi)  ivec2(vpi * (i % (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi)), i / (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi))
 
 ivec2 get_fetch_uv_1(int index) {
     return get_fetch_uv(index, 1);
