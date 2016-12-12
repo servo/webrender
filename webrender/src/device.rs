@@ -1561,6 +1561,7 @@ impl Device {
         gl::bind_vertex_array(vao_id);
 
         format.bind(main_vbo_id, instance_vbo_id, vertex_offset, instance_stride);
+        ibo_id.bind(); // force it to be a part of VAO
 
         let vao = VAO {
             id: vao_id,

@@ -33,7 +33,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::TextureCache;
 use tiling::{self, Frame, FrameBuilderConfig, PrimitiveBatchData};
-use tiling::{RenderTarget, ClearTile};
+use tiling::{BlurCommand, CacheClipInstance, PrimitiveInstance, RenderTarget, ClearTile};
 use time::precise_time_ns;
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
@@ -668,13 +668,13 @@ impl Renderer {
             },
         ];
 
-        let quad_vao_id = device.create_vao(VertexFormat::Triangles, 32);
+        let quad_vao_id = device.create_vao(VertexFormat::Triangles, mem::size_of::<PrimitiveInstance>() as i32);
         device.bind_vao(quad_vao_id);
         device.update_vao_indices(quad_vao_id, &quad_indices, VertexUsageHint::Static);
         device.update_vao_main_vertices(quad_vao_id, &quad_vertices, VertexUsageHint::Static);
 
-        let clip_vao_id = device.create_vao_with_new_instances(VertexFormat::Clip, 16, quad_vao_id);
-        let blur_vao_id = device.create_vao_with_new_instances(VertexFormat::Blur, 16, quad_vao_id);
+        let clip_vao_id = device.create_vao_with_new_instances(VertexFormat::Clip, mem::size_of::<CacheClipInstance>() as i32, quad_vao_id);
+        let blur_vao_id = device.create_vao_with_new_instances(VertexFormat::Blur, mem::size_of::<BlurCommand>() as i32, quad_vao_id);
 
         device.end_frame();
 
