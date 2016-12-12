@@ -33,7 +33,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::TextureCache;
 use tiling::{self, Frame, FrameBuilderConfig, PrimitiveBatchData};
-use tiling::{BlurCommand, CacheClipInstance, PrimitiveInstance, RenderTarget, ClearTile};
+use tiling::{BlurCommand, CacheClipInstance, ClearTile, PrimitiveInstance, RenderTarget};
 use time::precise_time_ns;
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
@@ -368,11 +368,8 @@ pub struct Renderer {
 
     tile_clear_shader: LazilyCompiledShader,
 
-    max_clear_tiles: usize,
     max_prim_instances: usize,
     max_cache_instances: usize,
-    max_clip_instances: usize,
-    max_blurs: usize,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
@@ -386,9 +383,10 @@ pub struct Renderer {
     render_targets: Vec<TextureId>,
 
     gpu_profile: GpuProfiler<GpuProfileTag>,
-    quad_vao_id: VAOId,
-    clip_vao_id: VAOId,
+    prim_vao_id: VAOId,
+    clear_vao_id: VAOId,
     blur_vao_id: VAOId,
+    clip_vao_id: VAOId,
 
     layer_texture: VertexDataTexture,
     render_task_texture: VertexDataTexture,
@@ -595,7 +593,6 @@ impl Renderer {
                                                      &mut device,
                                                      options.precache_shaders);
 
-        let max_clear_tiles = get_ubo_max_len::<ClearTile>(max_ubo_size);
         let tile_clear_shader = LazilyCompiledShader::new(ShaderKind::Clear,
                                                           "ps_clear",
                                                            max_ubo_vectors,
@@ -668,13 +665,14 @@ impl Renderer {
             },
         ];
 
-        let quad_vao_id = device.create_vao(VertexFormat::Triangles, mem::size_of::<PrimitiveInstance>() as i32);
-        device.bind_vao(quad_vao_id);
-        device.update_vao_indices(quad_vao_id, &quad_indices, VertexUsageHint::Static);
-        device.update_vao_main_vertices(quad_vao_id, &quad_vertices, VertexUsageHint::Static);
+        let prim_vao_id = device.create_vao(VertexFormat::Triangles, mem::size_of::<PrimitiveInstance>() as i32);
+        device.bind_vao(prim_vao_id);
+        device.update_vao_indices(prim_vao_id, &quad_indices, VertexUsageHint::Static);
+        device.update_vao_main_vertices(prim_vao_id, &quad_vertices, VertexUsageHint::Static);
 
-        let clip_vao_id = device.create_vao_with_new_instances(VertexFormat::Clip, mem::size_of::<CacheClipInstance>() as i32, quad_vao_id);
-        let blur_vao_id = device.create_vao_with_new_instances(VertexFormat::Blur, mem::size_of::<BlurCommand>() as i32, quad_vao_id);
+        let clear_vao_id = device.create_vao_with_new_instances(VertexFormat::Clear, mem::size_of::<ClearTile>() as i32, prim_vao_id);
+        let blur_vao_id = device.create_vao_with_new_instances(VertexFormat::Blur, mem::size_of::<BlurCommand>() as i32, prim_vao_id);
+        let clip_vao_id = device.create_vao_with_new_instances(VertexFormat::Clip, mem::size_of::<CacheClipInstance>() as i32, prim_vao_id);
 
         device.end_frame();
 
@@ -744,11 +742,8 @@ impl Renderer {
             ps_cache_image: ps_cache_image,
             ps_blend: ps_blend,
             ps_composite: ps_composite,
-            max_clear_tiles: max_clear_tiles,
             max_prim_instances: max_prim_instances,
             max_cache_instances: max_cache_instances,
-            max_clip_instances: max_clip_instances,
-            max_blurs: max_blurs,
             notifier: notifier,
             debug: debug_renderer,
             backend_profile_counters: BackendProfileCounters::new(),
@@ -758,9 +753,10 @@ impl Renderer {
             last_time: 0,
             render_targets: Vec::new(),
             gpu_profile: GpuProfiler::new(),
-            quad_vao_id: quad_vao_id,
-            clip_vao_id: clip_vao_id,
+            prim_vao_id: prim_vao_id,
+            clear_vao_id: clear_vao_id,
             blur_vao_id: blur_vao_id,
+            clip_vao_id: clip_vao_id,
             layer_texture: layer_texture,
             render_task_texture: render_task_texture,
             prim_geom_texture: prim_geom_texture,
@@ -1058,7 +1054,7 @@ impl Renderer {
                          max_prim_items: usize,
                          projection: &Matrix4D<f32>) {
         self.device.bind_program(shader, &projection);
-        self.device.bind_vao(self.quad_vao_id);
+        self.device.bind_vao(self.prim_vao_id);
 
         for i in 0..textures.colors.len() {
             let texture_id = self.resolve_source_texture(&textures.colors[i]);
@@ -1082,7 +1078,6 @@ impl Renderer {
                                vao: VAOId,
                                shader: ProgramId,
                                textures: &BatchTextures,
-                               max_prim_items: usize,
                                projection: &Matrix4D<f32>) {
         self.device.bind_vao(vao);
         self.device.bind_program(shader, &projection);
@@ -1092,12 +1087,10 @@ impl Renderer {
             self.device.bind_texture(TextureSampler::color(i), texture_id);
         }
 
-        for chunk in data.chunks(max_prim_items) {
-            self.device.update_vao_instances(vao, chunk, VertexUsageHint::Stream);
-            self.device.draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
-            self.profile_counters.vertices.add(6 * chunk.len());
-            self.profile_counters.draw_calls.inc();
-        }
+        self.device.update_vao_instances(vao, data, VertexUsageHint::Stream);
+        self.device.draw_indexed_triangles_instanced_u16(6, data.len() as i32);
+        self.profile_counters.vertices.add(6 * data.len());
+        self.profile_counters.draw_calls.inc();
     }
 
     fn draw_target(&mut self,
@@ -1158,19 +1151,16 @@ impl Renderer {
 
             self.device.set_blend(false);
             let shader = self.cs_blur.get(&mut self.device);
-            let max_blurs = self.max_blurs;
 
             self.draw_instanced_batch(&target.vertical_blurs,
                                       vao,
                                       shader,
                                       &BatchTextures::no_texture(),
-                                      max_blurs,
                                       &projection);
             self.draw_instanced_batch(&target.horizontal_blurs,
                                       vao,
                                       shader,
                                       &BatchTextures::no_texture(),
-                                      max_blurs,
                                       &projection);
         }
 
@@ -1197,34 +1187,28 @@ impl Renderer {
             self.device.set_blend(false);
             if !target.clip_batcher.clears.is_empty() {
                 let shader = self.cs_clip_clear.get(&mut self.device);
-                let max_prim_items = self.max_clip_instances;
                 self.draw_instanced_batch(&target.clip_batcher.clears,
                                           vao,
                                           shader,
                                           &BatchTextures::no_texture(),
-                                          max_prim_items,
                                           &projection);
             }
             // alternatively, copy the contents from another task
             if !target.clip_batcher.copies.is_empty() {
                 let shader = self.cs_clip_copy.get(&mut self.device);
-                let max_prim_items = self.max_clip_instances;
                 self.draw_instanced_batch(&target.clip_batcher.copies,
                                           vao,
                                           shader,
                                           &BatchTextures::no_texture(),
-                                          max_prim_items,
                                           &projection);
             }
             // the fast path for clear + rect, which is just the rectangle without blending
             if !target.clip_batcher.rectangles_noblend.is_empty() {
                 let shader = self.cs_clip_rectangle.get(&mut self.device);
-                let max_prim_items = self.max_clip_instances;
                 self.draw_instanced_batch(&target.clip_batcher.rectangles_noblend,
                                           vao,
                                           shader,
                                           &BatchTextures::no_texture(),
-                                          max_prim_items,
                                           &projection);
             }
             // now switch to multiplicative blending
@@ -1234,12 +1218,10 @@ impl Renderer {
             if !target.clip_batcher.rectangles.is_empty() {
                 let _gm2 = GpuMarker::new("clip rectangles");
                 let shader = self.cs_clip_rectangle.get(&mut self.device);
-                let max_prim_items = self.max_clip_instances;
                 self.draw_instanced_batch(&target.clip_batcher.rectangles,
                                           vao,
                                           shader,
                                           &BatchTextures::no_texture(),
-                                          max_prim_items,
                                           &projection);
             }
             // draw image masks
@@ -1248,12 +1230,10 @@ impl Renderer {
                 let texture_id = self.resolve_source_texture(mask_texture_id);
                 self.device.bind_texture(TextureSampler::Mask, texture_id);
                 let shader = self.cs_clip_image.get(&mut self.device);
-                let max_prim_items = self.max_clip_instances;
                 self.draw_instanced_batch(items,
                                           vao,
                                           shader,
                                           &BatchTextures::no_texture(),
-                                          max_prim_items,
                                           &projection);
             }
         }
@@ -1305,7 +1285,7 @@ impl Renderer {
                 prev_blend_mode = batch.key.blend_mode;
             }
 
-            let (data, marker, (shader, max_prim_items)) = match &batch.data {
+            let (data, marker, (shader, _max_items)) = match &batch.data {
                 &PrimitiveBatchData::CacheImage(ref data) => {
                     let shader = self.ps_cache_image.get(&mut self.device, transform_kind);
                     (data, GPU_TAG_PRIM_CACHE_IMAGE, shader)
@@ -1362,12 +1342,11 @@ impl Renderer {
             };
 
             let _gm = self.gpu_profile.add_marker(marker);
-            let vao = self.quad_vao_id;
+            let vao = self.prim_vao_id;
             self.draw_instanced_batch(data,
                                       vao,
                                       shader,
                                       &batch.key.textures,
-                                      max_prim_items,
                                       &projection);
         }
 
@@ -1526,14 +1505,13 @@ impl Renderer {
         // Clear tiles with no items
         if !frame.clear_tiles.is_empty() {
             self.device.set_blend(false);
+            let vao = self.clear_vao_id;
             let shader = self.tile_clear_shader.get(&mut self.device);
-            let max_prim_items = self.max_clear_tiles;
-            self.draw_ubo_batch(&frame.clear_tiles,
-                                shader,
-                                1,
-                                &BatchTextures::no_texture(),
-                                max_prim_items,
-                                &projection);
+            self.draw_instanced_batch(&frame.clear_tiles,
+                                      vao,
+                                      shader,
+                                      &BatchTextures::no_texture(),
+                                      &projection);
         }
 
         self.release_external_textures();

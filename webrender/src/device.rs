@@ -6,7 +6,8 @@ use euclid::Matrix4D;
 use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{PackedVertex, RenderTargetMode, TextureSampler, DEFAULT_TEXTURE};
-use internal_types::{BlurAttribute, ClipAttribute, VertexAttribute, DebugFontVertex, DebugColorVertex};
+use internal_types::{BlurAttribute, ClearAttribute, ClipAttribute, VertexAttribute};
+use internal_types::{DebugFontVertex, DebugColorVertex};
 //use notify::{self, Watcher};
 use super::shader_source;
 use std::collections::HashMap;
@@ -65,8 +66,9 @@ pub enum VertexFormat {
     Rectangles,
     DebugFont,
     DebugColor,
-    Clip,
+    Clear,
     Blur,
+    Clip,
 }
 
 fn get_optional_shader_source(shader_name: &str, base_path: &Option<PathBuf>) -> Option<String> {
@@ -187,12 +189,12 @@ impl VertexFormat {
                                             instance_stride,
                                             24);
             }
-            VertexFormat::Clip => {
+            VertexFormat::Clear => {
                 let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLuint;
-                gl::enable_vertex_attrib_array(ClipAttribute::Position as gl::GLuint);
-                gl::vertex_attrib_divisor(ClipAttribute::Position as gl::GLuint, 0);
+                gl::enable_vertex_attrib_array(ClearAttribute::Position as gl::GLuint);
+                gl::vertex_attrib_divisor(ClearAttribute::Position as gl::GLuint, 0);
 
-                gl::vertex_attrib_pointer(ClipAttribute::Position as gl::GLuint,
+                gl::vertex_attrib_pointer(ClearAttribute::Position as gl::GLuint,
                                           2,
                                           gl::FLOAT,
                                           false,
@@ -201,19 +203,13 @@ impl VertexFormat {
 
                 instance.bind();
 
-                for (i, &attrib) in [ClipAttribute::RenderTaskIndex,
-                                     ClipAttribute::LayerIndex,
-                                     ClipAttribute::DataIndex,
-                                     ClipAttribute::BaseTaskIndex,
-                                    ].into_iter().enumerate() {
-                    gl::enable_vertex_attrib_array(attrib as gl::GLuint);
-                    gl::vertex_attrib_divisor(attrib as gl::GLuint, 1);
-                    gl::vertex_attrib_i_pointer(attrib as gl::GLuint,
-                                                1,
-                                                gl::INT,
-                                                instance_stride,
-                                                (i * 4) as gl::GLuint);
-                }
+                gl::enable_vertex_attrib_array(ClearAttribute::Rectangle as gl::GLuint);
+                gl::vertex_attrib_divisor(ClearAttribute::Rectangle as gl::GLuint, 1);
+                gl::vertex_attrib_i_pointer(ClearAttribute::Rectangle as gl::GLuint,
+                                            4,
+                                            gl::INT,
+                                            instance_stride,
+                                            0);
             }
             VertexFormat::Blur => {
                 let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLuint;
@@ -232,6 +228,34 @@ impl VertexFormat {
                 for (i, &attrib) in [BlurAttribute::RenderTaskIndex,
                                      BlurAttribute::SourceTaskIndex,
                                      BlurAttribute::Direction,
+                                    ].into_iter().enumerate() {
+                    gl::enable_vertex_attrib_array(attrib as gl::GLuint);
+                    gl::vertex_attrib_divisor(attrib as gl::GLuint, 1);
+                    gl::vertex_attrib_i_pointer(attrib as gl::GLuint,
+                                                1,
+                                                gl::INT,
+                                                instance_stride,
+                                                (i * 4) as gl::GLuint);
+                }
+            }
+            VertexFormat::Clip => {
+                let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLuint;
+                gl::enable_vertex_attrib_array(ClipAttribute::Position as gl::GLuint);
+                gl::vertex_attrib_divisor(ClipAttribute::Position as gl::GLuint, 0);
+
+                gl::vertex_attrib_pointer(ClipAttribute::Position as gl::GLuint,
+                                          2,
+                                          gl::FLOAT,
+                                          false,
+                                          vertex_stride as gl::GLint,
+                                          0);
+
+                instance.bind();
+
+                for (i, &attrib) in [ClipAttribute::RenderTaskIndex,
+                                     ClipAttribute::LayerIndex,
+                                     ClipAttribute::DataIndex,
+                                     ClipAttribute::BaseTaskIndex,
                                     ].into_iter().enumerate() {
                     gl::enable_vertex_attrib_array(attrib as gl::GLuint);
                     gl::vertex_attrib_divisor(attrib as gl::GLuint, 1);

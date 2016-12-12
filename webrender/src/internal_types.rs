@@ -240,14 +240,11 @@ pub enum VertexAttribute {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum ClipAttribute {
+pub enum ClearAttribute {
     // vertex frequency
     Position,
     // instance frequency
-    RenderTaskIndex,
-    LayerIndex,
-    DataIndex,
-    BaseTaskIndex,
+    Rectangle,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -258,6 +255,17 @@ pub enum BlurAttribute {
     RenderTaskIndex,
     SourceTaskIndex,
     Direction,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ClipAttribute {
+    // vertex frequency
+    Position,
+    // instance frequency
+    RenderTaskIndex,
+    LayerIndex,
+    DataIndex,
+    BaseTaskIndex,
 }
 
 #[derive(Debug, Clone, Copy)]
