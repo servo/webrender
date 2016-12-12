@@ -388,6 +388,7 @@ pub struct Renderer {
     gpu_profile: GpuProfiler<GpuProfileTag>,
     quad_vao_id: VAOId,
     clip_vao_id: VAOId,
+    blur_vao_id: VAOId,
 
     layer_texture: VertexDataTexture,
     render_task_texture: VertexDataTexture,
@@ -672,10 +673,8 @@ impl Renderer {
         device.update_vao_indices(quad_vao_id, &quad_indices, VertexUsageHint::Static);
         device.update_vao_main_vertices(quad_vao_id, &quad_vertices, VertexUsageHint::Static);
 
-        let clip_vao_id = device.create_vao(VertexFormat::Clip, 16);
-        device.bind_vao(clip_vao_id);
-        device.update_vao_indices(clip_vao_id, &quad_indices, VertexUsageHint::Static);
-        device.update_vao_main_vertices(clip_vao_id, &quad_vertices, VertexUsageHint::Static);
+        let clip_vao_id = device.create_vao_with_new_instances(VertexFormat::Clip, 16, quad_vao_id);
+        let blur_vao_id = device.create_vao_with_new_instances(VertexFormat::Blur, 16, quad_vao_id);
 
         device.end_frame();
 
@@ -761,6 +760,7 @@ impl Renderer {
             gpu_profile: GpuProfiler::new(),
             quad_vao_id: quad_vao_id,
             clip_vao_id: clip_vao_id,
+            blur_vao_id: blur_vao_id,
             layer_texture: layer_texture,
             render_task_texture: render_task_texture,
             prim_geom_texture: prim_geom_texture,
@@ -1152,30 +1152,26 @@ impl Renderer {
         // TODO(gw): In the future, consider having
         //           fast path blur shaders for common
         //           blur radii with fixed weights.
-        if !target.vertical_blurs.is_empty() {
-            self.device.set_blend(false);
+        if !target.vertical_blurs.is_empty() || !target.horizontal_blurs.is_empty() {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_BLUR);
-            let shader = self.cs_blur.get(&mut self.device);
-            let max_blurs = self.max_blurs;
-            self.draw_ubo_batch(&target.vertical_blurs,
-                                shader,
-                                1,
-                                &BatchTextures::no_texture(),
-                                max_blurs,
-                                &projection);
-        }
+            let vao = self.blur_vao_id;
 
-        if !target.horizontal_blurs.is_empty() {
             self.device.set_blend(false);
-            let _gm = self.gpu_profile.add_marker(GPU_TAG_BLUR);
             let shader = self.cs_blur.get(&mut self.device);
             let max_blurs = self.max_blurs;
-            self.draw_ubo_batch(&target.horizontal_blurs,
-                                shader,
-                                1,
-                                &BatchTextures::no_texture(),
-                                max_blurs,
-                                &projection);
+
+            self.draw_instanced_batch(&target.vertical_blurs,
+                                      vao,
+                                      shader,
+                                      &BatchTextures::no_texture(),
+                                      max_blurs,
+                                      &projection);
+            self.draw_instanced_batch(&target.horizontal_blurs,
+                                      vao,
+                                      shader,
+                                      &BatchTextures::no_texture(),
+                                      max_blurs,
+                                      &projection);
         }
 
         // Draw any box-shadow caches for this target.

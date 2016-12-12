@@ -9,6 +9,26 @@
 #define DIR_HORIZONTAL  0
 #define DIR_VERTICAL    1
 
+in int aBlurRenderTaskIndex;
+in int aBlurSourceTaskIndex;
+in int aBlurDirection;
+
+struct BlurCommand {
+    int task_id;
+    int src_task_id;
+    int dir;
+};
+
+BlurCommand fetch_blur(int index) {
+    BlurCommand blur;
+
+    blur.task_id = aBlurRenderTaskIndex;
+    blur.src_task_id = aBlurSourceTaskIndex;
+    blur.dir = aBlurDirection;
+
+    return blur;
+}
+
 void main(void) {
     BlurCommand cmd = fetch_blur(gl_InstanceID);
     RenderTaskData task = fetch_render_task(cmd.task_id);

@@ -6,7 +6,7 @@ use euclid::Matrix4D;
 use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{PackedVertex, RenderTargetMode, TextureSampler, DEFAULT_TEXTURE};
-use internal_types::{ClipAttribute, VertexAttribute, DebugFontVertex, DebugColorVertex};
+use internal_types::{BlurAttribute, ClipAttribute, VertexAttribute, DebugFontVertex, DebugColorVertex};
 //use notify::{self, Watcher};
 use super::shader_source;
 use std::collections::HashMap;
@@ -66,6 +66,7 @@ pub enum VertexFormat {
     DebugFont,
     DebugColor,
     Clip,
+    Blur,
 }
 
 fn get_optional_shader_source(shader_name: &str, base_path: &Option<PathBuf>) -> Option<String> {
@@ -214,6 +215,33 @@ impl VertexFormat {
                                                 (i * 4) as gl::GLuint);
                 }
             }
+            VertexFormat::Blur => {
+                let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLuint;
+                gl::enable_vertex_attrib_array(BlurAttribute::Position as gl::GLuint);
+                gl::vertex_attrib_divisor(BlurAttribute::Position as gl::GLuint, 0);
+
+                gl::vertex_attrib_pointer(BlurAttribute::Position as gl::GLuint,
+                                          2,
+                                          gl::FLOAT,
+                                          false,
+                                          vertex_stride as gl::GLint,
+                                          0);
+
+                instance.bind();
+
+                for (i, &attrib) in [BlurAttribute::RenderTaskIndex,
+                                     BlurAttribute::SourceTaskIndex,
+                                     BlurAttribute::Direction,
+                                    ].into_iter().enumerate() {
+                    gl::enable_vertex_attrib_array(attrib as gl::GLuint);
+                    gl::vertex_attrib_divisor(attrib as gl::GLuint, 1);
+                    gl::vertex_attrib_i_pointer(attrib as gl::GLuint,
+                                                1,
+                                                gl::INT,
+                                                instance_stride,
+                                                (i * 4) as gl::GLuint);
+                }
+            }
         }
     }
 }
@@ -327,6 +355,10 @@ impl Program {
         gl::bind_attrib_location(self.id, ClipAttribute::DataIndex as gl::GLuint, "aClipDataIndex");
         gl::bind_attrib_location(self.id, ClipAttribute::BaseTaskIndex as gl::GLuint, "aClipBaseTaskIndex");
 
+        gl::bind_attrib_location(self.id, BlurAttribute::RenderTaskIndex as gl::GLuint, "aBlurRenderTaskIndex");
+        gl::bind_attrib_location(self.id, BlurAttribute::SourceTaskIndex as gl::GLuint, "aBlurSourceTaskIndex");
+        gl::bind_attrib_location(self.id, BlurAttribute::Direction as gl::GLuint, "aBlurDirection");
+
         gl::link_program(self.id);
         if gl::get_program_iv(self.id, gl::LINK_STATUS) == (0 as gl::GLint) {
             println!("Failed to link shader program: {}", gl::get_program_info_log(self.id));
@@ -351,28 +383,28 @@ impl Drop for Program {
 
 struct VAO {
     id: gl::GLuint,
-    vertex_format: VertexFormat,
+    ibo_id: IBOId,
     main_vbo_id: VBOId,
     instance_vbo_id: VBOId,
-    ibo_id: IBOId,
     instance_stride: gl::GLint,
-    owns_vbos: bool,
+    owns_indices: bool,
+    owns_vertices: bool,
+    owns_instances: bool,
 }
 
 impl Drop for VAO {
     fn drop(&mut self) {
         gl::delete_vertex_arrays(&[self.id]);
 
-        if self.owns_vbos {
-            // In the case of a rect batch, the main VBO is the shared quad VBO, so keep that
-            // around.
-            if self.vertex_format != VertexFormat::Rectangles {
-                gl::delete_buffers(&[self.main_vbo_id.0]);
-            }
-
+        if self.owns_indices {
             // todo(gw): maybe make these their own type with hashmap?
-            let IBOId(ibo_id) = self.ibo_id;
-            gl::delete_buffers(&[ibo_id]);
+            gl::delete_buffers(&[self.ibo_id.0]);
+        }
+        if self.owns_vertices {
+            gl::delete_buffers(&[self.main_vbo_id.0]);
+        }
+        if self.owns_instances {
+            gl::delete_buffers(&[self.instance_vbo_id.0])
         }
     }
 }
@@ -1517,7 +1549,9 @@ impl Device {
                             ibo_id: IBOId,
                             vertex_offset: gl::GLuint,
                             instance_stride: gl::GLint,
-                            owns_vbos: bool)
+                            owns_vertices: bool,
+                            owns_instances: bool,
+                            owns_indices: bool)
                             -> VAOId {
         debug_assert!(self.inside_frame);
 
@@ -1530,12 +1564,13 @@ impl Device {
 
         let vao = VAO {
             id: vao_id,
-            vertex_format: format,
+            ibo_id: ibo_id,
             main_vbo_id: main_vbo_id,
             instance_vbo_id: instance_vbo_id,
-            ibo_id: ibo_id,
             instance_stride: instance_stride,
-            owns_vbos: owns_vbos,
+            owns_indices: owns_indices,
+            owns_vertices: owns_vertices,
+            owns_instances: owns_instances,
         };
 
         gl::bind_vertex_array(0);
@@ -1556,7 +1591,21 @@ impl Device {
         let main_vbo_id = VBOId(buffer_ids[1]);
         let intance_vbo_id = VBOId(buffer_ids[2]);
 
-        self.create_vao_with_vbos(format, main_vbo_id, intance_vbo_id, ibo_id, 0, inst_stride, true)
+        self.create_vao_with_vbos(format, main_vbo_id, intance_vbo_id, ibo_id, 0, inst_stride, true, true, true)
+    }
+
+    pub fn create_vao_with_new_instances(&mut self, format: VertexFormat, inst_stride: gl::GLint,
+                                         base_vao: VAOId) -> VAOId {
+        debug_assert!(self.inside_frame);
+
+        let buffer_ids = gl::gen_buffers(1);
+        let intance_vbo_id = VBOId(buffer_ids[0]);
+        let (main_vbo_id, ibo_id) = {
+            let vao = self.vaos.get(&base_vao).unwrap();
+            (vao.main_vbo_id, vao.ibo_id)
+        };
+
+        self.create_vao_with_vbos(format, main_vbo_id, intance_vbo_id, ibo_id, 0, inst_stride, false, true, false)
     }
 
     pub fn update_vao_main_vertices<V>(&mut self,

@@ -250,6 +250,16 @@ pub enum ClipAttribute {
     BaseTaskIndex,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum BlurAttribute {
+    // vertex frequency
+    Position,
+    // instance frequency
+    RenderTaskIndex,
+    SourceTaskIndex,
+    Direction,
+}
+
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct PackedColor {
