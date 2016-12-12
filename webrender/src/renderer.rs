@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::TextureCache;
-use tiling::{self, Frame, FrameBuilderConfig, PrimitiveBatchData};
+use tiling::{Frame, FrameBuilderConfig, PrimitiveBatchData};
 use tiling::{BlurCommand, CacheClipInstance, ClearTile, PrimitiveInstance, RenderTarget};
 use time::precise_time_ns;
 use util::TransformedRectKind;
@@ -43,8 +43,6 @@ use webrender_traits::channel;
 use webrender_traits::VRCompositorHandler;
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
-
-const UBO_BIND_DATA: u32 = 1;
 
 const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: debug_colors::BLACK };
 const GPU_TAG_CACHE_CLIP: GpuProfileTag = GpuProfileTag { label: "C_Clip", color: debug_colors::PURPLE };
@@ -134,14 +132,12 @@ struct LazilyCompiledShader {
     id: Option<ProgramId>,
     name: &'static str,
     kind: ShaderKind,
-    max_ubo_vectors: usize,
     features: Vec<&'static str>,
 }
 
 impl LazilyCompiledShader {
     fn new(kind: ShaderKind,
            name: &'static str,
-           max_ubo_vectors: usize,
            features: &[&'static str],
            device: &mut Device,
            precache: bool) -> LazilyCompiledShader {
@@ -149,7 +145,6 @@ impl LazilyCompiledShader {
             id: None,
             name: name,
             kind: kind,
-            max_ubo_vectors: max_ubo_vectors,
             features: features.to_vec(),
         };
 
@@ -164,20 +159,15 @@ impl LazilyCompiledShader {
         if self.id.is_none() {
             let id = match self.kind {
                 ShaderKind::Clear => {
-                    create_clear_shader(self.name,
-                                        device,
-                                        self.max_ubo_vectors)
+                    create_clear_shader(self.name, device)
                 }
                 ShaderKind::Primitive | ShaderKind::Cache => {
                     create_prim_shader(self.name,
                                        device,
-                                       self.max_ubo_vectors,
                                        &self.features)
                 }
                 ShaderKind::ClipCache => {
-                    create_clip_shader(self.name,
-                                       device,
-                                       self.max_ubo_vectors)
+                    create_clip_shader(self.name, device)
                 }
             };
             self.id = Some(id);
@@ -190,7 +180,6 @@ impl LazilyCompiledShader {
 struct PrimitiveShader {
     simple: LazilyCompiledShader,
     transform: LazilyCompiledShader,
-    max_items: usize,
 }
 
 struct FileWatcher {
@@ -206,7 +195,7 @@ impl FileWatcherHandler for FileWatcher {
     }
 }
 
-fn get_ubo_max_len<T>(max_ubo_size: usize) -> usize {
+fn _get_ubo_max_len<T>(max_ubo_size: usize) -> usize {
     let item_size = mem::size_of::<T>();
     let max_items = max_ubo_size / item_size;
 
@@ -219,14 +208,11 @@ fn get_ubo_max_len<T>(max_ubo_size: usize) -> usize {
 
 impl PrimitiveShader {
     fn new(name: &'static str,
-           max_ubo_vectors: usize,
-           max_prim_items: usize,
            device: &mut Device,
            features: &[&'static str],
            precache: bool) -> PrimitiveShader {
         let simple = LazilyCompiledShader::new(ShaderKind::Primitive,
                                                name,
-                                               max_ubo_vectors,
                                                features,
                                                device,
                                                precache);
@@ -236,7 +222,6 @@ impl PrimitiveShader {
 
         let transform = LazilyCompiledShader::new(ShaderKind::Primitive,
                                                   name,
-                                                  max_ubo_vectors,
                                                   &transform_features,
                                                   device,
                                                   precache);
@@ -244,29 +229,23 @@ impl PrimitiveShader {
         PrimitiveShader {
             simple: simple,
             transform: transform,
-            max_items: max_prim_items,
         }
     }
 
     fn get(&mut self,
            device: &mut Device,
-           transform_kind: TransformedRectKind) -> (ProgramId, usize) {
-        let shader = match transform_kind {
+           transform_kind: TransformedRectKind) -> ProgramId {
+        match transform_kind {
             TransformedRectKind::AxisAligned => self.simple.get(device),
             TransformedRectKind::Complex => self.transform.get(device),
-        };
-
-        (shader, self.max_items)
+        }
     }
 }
 
 fn create_prim_shader(name: &'static str,
                       device: &mut Device,
-                      max_ubo_vectors: usize,
                       features: &[&'static str]) -> ProgramId {
-    let mut prefix = format!("#define WR_MAX_UBO_VECTORS {}\n\
-                              #define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n",
-                              max_ubo_vectors,
+    let mut prefix = format!("#define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n",
                               MAX_VERTEX_TEXTURE_WIDTH);
 
     for feature in features {
@@ -277,46 +256,31 @@ fn create_prim_shader(name: &'static str,
     let program_id = device.create_program_with_prefix(name,
                                                        includes,
                                                        Some(prefix));
-    let data_index = device.assign_ubo_binding(program_id, "Data", UBO_BIND_DATA);
-
-    debug!("PrimShader {}: data={} max={}", name, data_index, max_ubo_vectors);
+    debug!("PrimShader {}", name);
 
     program_id
 }
 
-fn create_clip_shader(name: &'static str,
-                      device: &mut Device,
-                      max_ubo_vectors: usize) -> ProgramId {
-    let prefix = format!("#define WR_MAX_UBO_VECTORS {}\n\
-                          #define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n
+fn create_clip_shader(name: &'static str, device: &mut Device) -> ProgramId {
+    let prefix = format!("#define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n
                           #define WR_FEATURE_TRANSFORM",
-                          max_ubo_vectors,
                           MAX_VERTEX_TEXTURE_WIDTH);
 
     let includes = &["prim_shared", "clip_shared"];
     let program_id = device.create_program_with_prefix(name,
                                                        includes,
                                                        Some(prefix));
-    let data_index = device.assign_ubo_binding(program_id, "Data", UBO_BIND_DATA);
-
-    debug!("ClipShader {}: data={} max={}", name, data_index, max_ubo_vectors);
+    debug!("ClipShader {}", name);
 
     program_id
 }
 
-fn create_clear_shader(name: &'static str,
-                       device: &mut Device,
-                       max_ubo_vectors: usize) -> ProgramId {
-    let prefix = format!("#define WR_MAX_UBO_VECTORS {}", max_ubo_vectors);
-
+fn create_clear_shader(name: &'static str, device: &mut Device) -> ProgramId {
     let includes = &[];
     let program_id = device.create_program_with_prefix(name,
                                                        includes,
-                                                       Some(prefix));
-
-    let data_index = device.assign_ubo_binding(program_id, "Data", UBO_BIND_DATA);
-
-    debug!("ClearShader {}: data={} max={}", name, data_index, max_ubo_vectors);
+                                                       None);
+    debug!("ClearShader {}", name);
 
     program_id
 }
@@ -367,8 +331,6 @@ pub struct Renderer {
     ps_composite: LazilyCompiledShader,
 
     tile_clear_shader: LazilyCompiledShader,
-
-    max_prim_instances: usize,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
@@ -458,145 +420,106 @@ impl Renderer {
         // device-pixel ratio doesn't matter here - we are just creating resources.
         device.begin_frame(1.0);
 
-        let max_ubo_size = device.get_capabilities().max_ubo_size;
-        let max_ubo_vectors = max_ubo_size / 16;
-
-        let max_prim_instances = get_ubo_max_len::<tiling::PrimitiveInstance>(max_ubo_size);
-        let max_clip_instances = get_ubo_max_len::<tiling::CacheClipInstance>(max_ubo_size);
-        let max_blurs = get_ubo_max_len::<tiling::BlurCommand>(max_ubo_size);
-
         let cs_box_shadow = LazilyCompiledShader::new(ShaderKind::Cache,
                                                       "cs_box_shadow",
-                                                      max_prim_instances,
                                                       &[],
                                                       &mut device,
                                                       options.precache_shaders);
         let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache,
                                                     "cs_text_run",
-                                                    max_prim_instances,
                                                     &[],
                                                     &mut device,
                                                     options.precache_shaders);
         let cs_blur = LazilyCompiledShader::new(ShaderKind::Cache,
                                                 "cs_blur",
-                                                 max_blurs,
                                                  &[],
                                                  &mut device,
                                                  options.precache_shaders);
 
         let cs_clip_clear = LazilyCompiledShader::new(ShaderKind::ClipCache,
                                                       "cs_clip_clear",
-                                                      max_clip_instances,
                                                       &[],
                                                       &mut device,
                                                       options.precache_shaders);
         let cs_clip_copy = LazilyCompiledShader::new(ShaderKind::ClipCache,
                                                      "cs_clip_copy",
-                                                     max_clip_instances,
                                                      &[],
                                                      &mut device,
                                                      options.precache_shaders);
         let cs_clip_rectangle = LazilyCompiledShader::new(ShaderKind::ClipCache,
                                                           "cs_clip_rectangle",
-                                                          max_clip_instances,
                                                           &[],
                                                           &mut device,
                                                           options.precache_shaders);
         let cs_clip_image = LazilyCompiledShader::new(ShaderKind::ClipCache,
                                                       "cs_clip_image",
-                                                      max_clip_instances,
                                                       &[],
                                                       &mut device,
                                                       options.precache_shaders);
 
         let ps_rectangle = PrimitiveShader::new("ps_rectangle",
-                                                max_ubo_vectors,
-                                                max_prim_instances,
                                                 &mut device,
                                                 &[],
                                                 options.precache_shaders);
         let ps_rectangle_clip = PrimitiveShader::new("ps_rectangle",
-                                                     max_ubo_vectors,
-                                                     max_prim_instances,
                                                      &mut device,
                                                      &[ CLIP_FEATURE ],
                                                      options.precache_shaders);
         let ps_text_run = PrimitiveShader::new("ps_text_run",
-                                               max_ubo_vectors,
-                                               max_prim_instances,
                                                &mut device,
                                                &[],
                                                options.precache_shaders);
         let ps_text_run_subpixel = PrimitiveShader::new("ps_text_run",
-                                                        max_ubo_vectors,
-                                                        max_prim_instances,
                                                         &mut device,
                                                         &[ SUBPIXEL_AA_FEATURE ],
                                                         options.precache_shaders);
         let ps_image = PrimitiveShader::new("ps_image",
-                                            max_ubo_vectors,
-                                            max_prim_instances,
                                             &mut device,
                                             &[],
                                             options.precache_shaders);
         let ps_yuv_image = PrimitiveShader::new("ps_yuv_image",
-                                                max_ubo_vectors,
-                                                max_prim_instances,
                                                 &mut device,
                                                 &[],
                                                 options.precache_shaders);
         let ps_border = PrimitiveShader::new("ps_border",
-                                             max_ubo_vectors,
-                                             max_prim_instances,
                                              &mut device,
                                              &[],
                                              options.precache_shaders);
 
         let ps_box_shadow = PrimitiveShader::new("ps_box_shadow",
-                                                 max_ubo_vectors,
-                                                 max_prim_instances,
                                                  &mut device,
                                                  &[],
                                                  options.precache_shaders);
 
         let ps_gradient = PrimitiveShader::new("ps_gradient",
-                                               max_ubo_vectors,
-                                               max_prim_instances,
                                                &mut device,
                                                &[],
                                                options.precache_shaders);
         let ps_angle_gradient = PrimitiveShader::new("ps_angle_gradient",
-                                                     max_ubo_vectors,
-                                                     max_prim_instances,
                                                      &mut device,
                                                      &[],
                                                      options.precache_shaders);
         let ps_cache_image = PrimitiveShader::new("ps_cache_image",
-                                                  max_ubo_vectors,
-                                                  max_prim_instances,
                                                   &mut device,
                                                   &[],
                                                   options.precache_shaders);
 
         let ps_blend = LazilyCompiledShader::new(ShaderKind::Primitive,
                                                  "ps_blend",
-                                                 max_ubo_vectors,
                                                  &[],
                                                  &mut device,
                                                  options.precache_shaders);
         let ps_composite = LazilyCompiledShader::new(ShaderKind::Primitive,
                                                      "ps_composite",
-                                                     max_ubo_vectors,
                                                      &[],
                                                      &mut device,
                                                      options.precache_shaders);
 
         let tile_clear_shader = LazilyCompiledShader::new(ShaderKind::Clear,
                                                           "ps_clear",
-                                                           max_ubo_vectors,
-                                                           &[],
-                                                           &mut device,
-                                                           options.precache_shaders);
+                                                          &[],
+                                                          &mut device,
+                                                          options.precache_shaders);
 
         let mut texture_cache = TextureCache::new();
 
@@ -740,7 +663,6 @@ impl Renderer {
             ps_cache_image: ps_cache_image,
             ps_blend: ps_blend,
             ps_composite: ps_composite,
-            max_prim_instances: max_prim_instances,
             notifier: notifier,
             debug: debug_renderer,
             backend_profile_counters: BackendProfileCounters::new(),
@@ -891,7 +813,6 @@ impl Renderer {
 
                     self.draw_tile_frame(frame, &framebuffer_size);
 
-                    self.device.reset_ubo(UBO_BIND_DATA);
                     self.gpu_profile.end_frame();
                 });
 
@@ -1040,33 +961,6 @@ impl Renderer {
                                 (tile_y0 as f32 + tile_y1 as f32) * 0.5,
                                 label,
                                 c);
-        }
-    }
-
-    fn draw_ubo_batch<T>(&mut self,
-                         ubo_data: &[T],
-                         shader: ProgramId,
-                         quads_per_item: usize,
-                         textures: &BatchTextures,
-                         max_prim_items: usize,
-                         projection: &Matrix4D<f32>) {
-        self.device.bind_program(shader, &projection);
-        self.device.bind_vao(self.prim_vao_id);
-
-        for i in 0..textures.colors.len() {
-            let texture_id = self.resolve_source_texture(&textures.colors[i]);
-            self.device.bind_texture(TextureSampler::color(i), texture_id);
-        }
-
-        for chunk in ubo_data.chunks(max_prim_items) {
-            let ubo = self.device.create_ubo(&chunk, UBO_BIND_DATA);
-
-            let quad_count = chunk.len() * quads_per_item;
-            self.device.draw_indexed_triangles_instanced_u16(6, quad_count as i32);
-            self.profile_counters.vertices.add(6 * (quad_count as usize));
-            self.profile_counters.draw_calls.inc();
-
-            self.device.delete_buffer(ubo);
         }
     }
 
@@ -1281,20 +1175,20 @@ impl Renderer {
                 prev_blend_mode = batch.key.blend_mode;
             }
 
-            let (data, marker, (shader, _max_items)) = match &batch.data {
+            let (data, marker, shader) = match &batch.data {
                 &PrimitiveBatchData::CacheImage(ref data) => {
                     let shader = self.ps_cache_image.get(&mut self.device, transform_kind);
                     (data, GPU_TAG_PRIM_CACHE_IMAGE, shader)
                 }
                 &PrimitiveBatchData::Blend(ref data) => {
                     let shader = self.ps_blend.get(&mut self.device);
-                    (data, GPU_TAG_PRIM_BLEND, (shader, self.max_prim_instances))
+                    (data, GPU_TAG_PRIM_BLEND, shader)
                 }
                 &PrimitiveBatchData::Composite(ref data) => {
                     // The composite shader only samples from sCache.
                     debug_assert!(cache_texture.is_some());
                     let shader = self.ps_composite.get(&mut self.device);
-                    (data, GPU_TAG_PRIM_COMPOSITE, (shader, self.max_prim_instances))
+                    (data, GPU_TAG_PRIM_COMPOSITE, shader)
                 }
                 &PrimitiveBatchData::Rectangles(ref data) => {
                     let shader = if needs_clipping {

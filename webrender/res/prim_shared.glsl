@@ -98,10 +98,6 @@ struct Layer {
     vec4 screen_vertices[4];
 };
 
-layout(std140) uniform Data {
-    ivec4 int_data[WR_MAX_UBO_VECTORS];
-};
-
 Layer fetch_layer(int index) {
     Layer layer;
 
@@ -288,26 +284,7 @@ struct PrimitiveInstance {
     ivec2 user_data;
 };
 
-PrimitiveInstance fetch_instance_ubo(int index) {
-    PrimitiveInstance pi;
-
-    int offset = index * 2;
-
-    ivec4 data0 = int_data[offset + 0];
-    ivec4 data1 = int_data[offset + 1];
-
-    pi.global_prim_index = data0.x;
-    pi.specific_prim_index = data0.y;
-    pi.render_task_index = data0.z;
-    pi.clip_task_index = data0.w;
-    pi.layer_index = data1.x;
-    pi.sub_index = data1.y;
-    pi.user_data = data1.zw;
-
-    return pi;
-}
-
-PrimitiveInstance fetch_instance_attrib() {
+PrimitiveInstance fetch_prim_instance() {
     PrimitiveInstance pi;
 
     pi.global_prim_index = aGlobalPrimId;
@@ -332,7 +309,7 @@ struct CachePrimitiveInstance {
 CachePrimitiveInstance fetch_cache_instance() {
     CachePrimitiveInstance cpi;
 
-    PrimitiveInstance pi = fetch_instance_attrib();
+    PrimitiveInstance pi = fetch_prim_instance();
 
     cpi.global_prim_index = pi.global_prim_index;
     cpi.specific_prim_index = pi.specific_prim_index;
@@ -375,7 +352,7 @@ Primitive load_primitive_custom(PrimitiveInstance pi) {
 }
 
 Primitive load_primitive() {
-    PrimitiveInstance pi = fetch_instance_attrib();
+    PrimitiveInstance pi = fetch_prim_instance();
 
     return load_primitive_custom(pi);
 }
