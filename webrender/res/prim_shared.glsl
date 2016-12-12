@@ -638,7 +638,7 @@ BoxShadow fetch_boxshadow(int index) {
 }
 
 void write_clip(vec2 global_pos, ClipArea area) {
-    vec2 texture_size = textureSize(sCache, 0).xy;
+    vec2 texture_size = vec2(textureSize(sCache, 0).xy);
     vec2 uv = global_pos + area.task_bounds.xy - area.screen_origin_target_index.xy;
     vClipMaskUvBounds = area.task_bounds / texture_size.xyxy;
     vClipMaskUv = vec3(uv / texture_size, area.screen_origin_target_index.z);
