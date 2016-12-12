@@ -3,6 +3,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp sampler2DArray;
+#else
+precision mediump sampler2DArray;
+#endif
+
 #define PST_TOP_LEFT     0
 #define PST_TOP          1
 #define PST_TOP_RIGHT    2
