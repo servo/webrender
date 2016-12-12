@@ -16,7 +16,6 @@ use scene::Scene;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
 use tiling::{AuxiliaryListsMap, FrameBuilder, FrameBuilderConfig, LayerMap, PrimitiveFlags};
-use util::MatrixHelpers;
 use webrender_traits::{AuxiliaryLists, PipelineId, Epoch, ScrollPolicy, ScrollLayerId};
 use webrender_traits::{ClipRegion, ColorF, DisplayItem, StackingContext, FilterOp, MixBlendMode};
 use webrender_traits::{ScrollEventPhase, ScrollLayerInfo, ScrollLocation, SpecificDisplayItem, ScrollLayerState};

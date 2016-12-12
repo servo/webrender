@@ -30,7 +30,7 @@ use std::hash::{BuildHasherDefault};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::usize;
 use texture_cache::TexturePage;
-use util::{self, rect_from_points, MatrixHelpers, rect_from_points_f};
+use util::{self, rect_from_points, rect_from_points_f};
 use util::{TransformedRect, TransformedRectKind, subtract_rect, pack_as_float};
 use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, MixBlendMode};
 use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle, YuvColorSpace};
