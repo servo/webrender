@@ -369,7 +369,6 @@ pub struct Renderer {
     tile_clear_shader: LazilyCompiledShader,
 
     max_prim_instances: usize,
-    max_cache_instances: usize,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
@@ -463,19 +462,18 @@ impl Renderer {
         let max_ubo_vectors = max_ubo_size / 16;
 
         let max_prim_instances = get_ubo_max_len::<tiling::PrimitiveInstance>(max_ubo_size);
-        let max_cache_instances = get_ubo_max_len::<tiling::CachePrimitiveInstance>(max_ubo_size);
         let max_clip_instances = get_ubo_max_len::<tiling::CacheClipInstance>(max_ubo_size);
         let max_blurs = get_ubo_max_len::<tiling::BlurCommand>(max_ubo_size);
 
         let cs_box_shadow = LazilyCompiledShader::new(ShaderKind::Cache,
                                                       "cs_box_shadow",
-                                                      max_cache_instances,
+                                                      max_prim_instances,
                                                       &[],
                                                       &mut device,
                                                       options.precache_shaders);
         let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache,
                                                     "cs_text_run",
-                                                    max_cache_instances,
+                                                    max_prim_instances,
                                                     &[],
                                                     &mut device,
                                                     options.precache_shaders);
@@ -743,7 +741,6 @@ impl Renderer {
             ps_blend: ps_blend,
             ps_composite: ps_composite,
             max_prim_instances: max_prim_instances,
-            max_cache_instances: max_cache_instances,
             notifier: notifier,
             debug: debug_renderer,
             backend_profile_counters: BackendProfileCounters::new(),
@@ -1168,14 +1165,13 @@ impl Renderer {
         if !target.box_shadow_cache_prims.is_empty() {
             self.device.set_blend(false);
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
+            let vao = self.prim_vao_id;
             let shader = self.cs_box_shadow.get(&mut self.device);
-            let max_prim_items = self.max_cache_instances;
-            self.draw_ubo_batch(&target.box_shadow_cache_prims,
-                                shader,
-                                1,
-                                &BatchTextures::no_texture(),
-                                max_prim_items,
-                                &projection);
+            self.draw_instanced_batch(&target.box_shadow_cache_prims,
+                                      vao,
+                                      shader,
+                                      &BatchTextures::no_texture(),
+                                      &projection);
         }
 
         // Draw the clip items into the tiled alpha mask.
@@ -1249,14 +1245,14 @@ impl Renderer {
             self.device.set_blend_mode_alpha();
 
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_TEXT_RUN);
+            let vao = self.prim_vao_id;
             let shader = self.cs_text_run.get(&mut self.device);
-            let max_cache_instances = self.max_cache_instances;
-            self.draw_ubo_batch(&target.text_run_cache_prims,
-                                shader,
-                                1,
-                                &target.text_run_textures,
-                                max_cache_instances,
-                                &projection);
+
+            self.draw_instanced_batch(&target.text_run_cache_prims,
+                                      vao,
+                                      shader,
+                                      &target.text_run_textures,
+                                      &projection);
         }
 
         let _gm2 = GpuMarker::new("alpha batches");
