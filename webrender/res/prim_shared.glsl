@@ -326,22 +326,19 @@ struct CachePrimitiveInstance {
     int specific_prim_index;
     int render_task_index;
     int sub_index;
-    ivec4 user_data;
+    ivec2 user_data;
 };
 
-CachePrimitiveInstance fetch_cache_instance(int index) {
+CachePrimitiveInstance fetch_cache_instance() {
     CachePrimitiveInstance cpi;
 
-    int offset = index * 2;
+    PrimitiveInstance pi = fetch_instance_attrib();
 
-    ivec4 data0 = int_data[offset + 0];
-    ivec4 data1 = int_data[offset + 1];
-
-    cpi.global_prim_index = data0.x;
-    cpi.specific_prim_index = data0.y;
-    cpi.render_task_index = data0.z;
-    cpi.sub_index = data0.w;
-    cpi.user_data = data1;
+    cpi.global_prim_index = pi.global_prim_index;
+    cpi.specific_prim_index = pi.specific_prim_index;
+    cpi.render_task_index = pi.render_task_index;
+    cpi.sub_index = pi.sub_index;
+    cpi.user_data = pi.user_data;
 
     return cpi;
 }

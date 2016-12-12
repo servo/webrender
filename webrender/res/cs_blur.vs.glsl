@@ -19,7 +19,7 @@ struct BlurCommand {
     int dir;
 };
 
-BlurCommand fetch_blur(int index) {
+BlurCommand fetch_blur() {
     BlurCommand blur;
 
     blur.task_id = aBlurRenderTaskIndex;
@@ -30,7 +30,7 @@ BlurCommand fetch_blur(int index) {
 }
 
 void main(void) {
-    BlurCommand cmd = fetch_blur(gl_InstanceID);
+    BlurCommand cmd = fetch_blur();
     RenderTaskData task = fetch_render_task(cmd.task_id);
     RenderTaskData src_task = fetch_render_task(cmd.src_task_id);
 
