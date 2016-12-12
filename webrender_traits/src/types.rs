@@ -224,17 +224,17 @@ pub enum FilterOp {
     Sepia(f32),
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize, Ord, PartialOrd)]
 pub struct FontKey(u32, u32);
 
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize, Ord, PartialOrd)]
 pub enum FontRenderMode {
     Mono,
     Alpha,
     Subpixel,
 }
 
-#[derive(Clone, Hash, PartialEq, Eq, Debug, Deserialize, Serialize)]
+#[derive(Clone, Hash, PartialEq, Eq, Debug, Deserialize, Serialize, Ord, PartialOrd)]
 pub struct GlyphKey {
     pub font_key: FontKey,
     // The font size is in *device* pixels, not logical pixels.
