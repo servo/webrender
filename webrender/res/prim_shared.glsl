@@ -65,6 +65,15 @@ uniform sampler2D sData64;
 uniform sampler2D sData128;
 uniform sampler2D sResourceRects;
 
+// Instanced attributes
+in int aGlobalPrimId;
+in int aPrimitiveAddress;
+in int aTaskIndex;
+in int aClipTaskIndex;
+in int aLayerIndex;
+in int aElementIndex;
+in ivec2 aUserData;
+
 #define get_fetch_uv(i, vpi)  ivec2(vpi * (i % (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi)), i / (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi))
 
 ivec2 get_fetch_uv_1(int index) {
@@ -88,10 +97,6 @@ struct Layer {
     mat4 inv_transform;
     vec4 local_clip_rect;
     vec4 screen_vertices[4];
-};
-
-layout(std140) uniform Data {
-    ivec4 int_data[WR_MAX_UBO_VECTORS];
 };
 
 Layer fetch_layer(int index) {
@@ -280,43 +285,18 @@ struct PrimitiveInstance {
     ivec2 user_data;
 };
 
-PrimitiveInstance fetch_instance(int index) {
+PrimitiveInstance fetch_prim_instance() {
     PrimitiveInstance pi;
 
-    int offset = index * 2;
-
-    ivec4 data0 = int_data[offset + 0];
-    ivec4 data1 = int_data[offset + 1];
-
-    pi.global_prim_index = data0.x;
-    pi.specific_prim_index = data0.y;
-    pi.render_task_index = data0.z;
-    pi.clip_task_index = data0.w;
-    pi.layer_index = data1.x;
-    pi.sub_index = data1.y;
-    pi.user_data = data1.zw;
+    pi.global_prim_index = aGlobalPrimId;
+    pi.specific_prim_index = aPrimitiveAddress;
+    pi.render_task_index = aTaskIndex;
+    pi.clip_task_index = aClipTaskIndex;
+    pi.layer_index = aLayerIndex;
+    pi.sub_index = aElementIndex;
+    pi.user_data = aUserData;
 
     return pi;
-}
-
-struct BlurCommand {
-    int task_id;
-    int src_task_id;
-    int dir;
-};
-
-BlurCommand fetch_blur(int index) {
-    BlurCommand blur;
-
-    int offset = index * 1;
-
-    ivec4 data0 = int_data[offset + 0];
-
-    blur.task_id = data0.x;
-    blur.src_task_id = data0.y;
-    blur.dir = data0.z;
-
-    return blur;
 }
 
 struct CachePrimitiveInstance {
@@ -324,22 +304,19 @@ struct CachePrimitiveInstance {
     int specific_prim_index;
     int render_task_index;
     int sub_index;
-    ivec4 user_data;
+    ivec2 user_data;
 };
 
-CachePrimitiveInstance fetch_cache_instance(int index) {
+CachePrimitiveInstance fetch_cache_instance() {
     CachePrimitiveInstance cpi;
 
-    int offset = index * 2;
+    PrimitiveInstance pi = fetch_prim_instance();
 
-    ivec4 data0 = int_data[offset + 0];
-    ivec4 data1 = int_data[offset + 1];
-
-    cpi.global_prim_index = data0.x;
-    cpi.specific_prim_index = data0.y;
-    cpi.render_task_index = data0.z;
-    cpi.sub_index = data0.w;
-    cpi.user_data = data1;
+    cpi.global_prim_index = pi.global_prim_index;
+    cpi.specific_prim_index = pi.specific_prim_index;
+    cpi.render_task_index = pi.render_task_index;
+    cpi.sub_index = pi.sub_index;
+    cpi.user_data = pi.user_data;
 
     return cpi;
 }
@@ -357,10 +334,8 @@ struct Primitive {
     ivec2 user_data;
 };
 
-Primitive load_primitive(int index) {
+Primitive load_primitive_custom(PrimitiveInstance pi) {
     Primitive prim;
-
-    PrimitiveInstance pi = fetch_instance(index);
 
     prim.layer = fetch_layer(pi.layer_index);
     prim.tile = fetch_tile(pi.render_task_index);
@@ -376,6 +351,13 @@ Primitive load_primitive(int index) {
 
     return prim;
 }
+
+Primitive load_primitive() {
+    PrimitiveInstance pi = fetch_prim_instance();
+
+    return load_primitive_custom(pi);
+}
+
 
 // Return the intersection of the plane (set up by "normal" and "point")
 // with the ray (set up by "ray_origin" and "ray_dir"),
