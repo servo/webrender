@@ -659,6 +659,6 @@ float do_clip() {
         vec4(vClipMaskUv.xy, vClipMaskUvBounds.zw));
     // check for the dummy bounds, which are given to the opaque objects
     return vClipMaskUvBounds.xy == vClipMaskUvBounds.zw ? 1.0:
-        all(inside) ? textureLod(sCache, vClipMaskUv, 0).a : 0.0;
+        all(inside) ? textureLod(sCache, vClipMaskUv, 0.0).a : 0.0;
 }
 #endif //WR_FRAGMENT_SHADER
