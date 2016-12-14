@@ -16,7 +16,7 @@ use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureT
 use euclid::Matrix4D;
 use fnv::FnvHasher;
 use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
-use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
+use internal_types::{ExternalImageUpdateList, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler, GLContextHandleWrapper};
 use profiler::{Profiler, BackendProfileCounters};
@@ -291,6 +291,7 @@ pub struct Renderer {
     result_rx: Receiver<ResultMsg>,
     device: Device,
     pending_texture_updates: Vec<TextureUpdateList>,
+    pending_external_image_updates: Vec<ExternalImageUpdateList>,
     pending_shader_updates: Vec<PathBuf>,
     current_frame: Option<RendererFrame>,
 
@@ -644,6 +645,7 @@ impl Renderer {
             device: device,
             current_frame: None,
             pending_texture_updates: Vec::new(),
+            pending_external_image_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
             tile_clear_shader: tile_clear_shader,
             cs_box_shadow: cs_box_shadow,
@@ -740,10 +742,29 @@ impl Renderer {
         // Pull any pending results and return the most recent.
         while let Ok(msg) = self.result_rx.try_recv() {
             match msg {
-                ResultMsg::UpdateTextureCache(update_list) => {
+                ResultMsg::UpdateTextureData(update_list, external_image_update_list) => {
                     self.pending_texture_updates.push(update_list);
+
+                    if self.external_image_handler.is_some() {
+                        self.pending_external_image_updates.push(external_image_update_list);
+                    }
                 }
                 ResultMsg::NewFrame(frame, profile_counters) => {
+                    // When a new frame is ready, we could start to update all pending external
+                    // image request here.
+                    if !self.pending_external_image_updates.is_empty() {
+                        let handler = self.external_image_handler
+                                          .as_mut()
+                                          .expect("Found external image updates, but no handler set!");
+                        let mut pending_external_image_updates = mem::replace(&mut self.pending_external_image_updates, Vec::new());
+
+                        for update_list in pending_external_image_updates.drain(..) {
+                            for external_id in update_list.release_list {
+                                handler.release(external_id);
+                            }
+                        }
+                    }
+
                     self.backend_profile_counters = profile_counters;
 
                     // Update the list of available epochs for use during reftests.

@@ -344,6 +344,22 @@ pub enum TextureUpdateOp {
     Grow(u32, u32, ImageFormat, TextureFilter, RenderTargetMode),
 }
 
+pub struct ExternalImageUpdateList {
+    pub release_list : Vec<ExternalImageId>,
+}
+
+impl ExternalImageUpdateList {
+    pub fn new() -> ExternalImageUpdateList {
+        ExternalImageUpdateList {
+            release_list: Vec::new(),
+        }
+    }
+
+    pub fn push_release_id(&mut self, id: ExternalImageId) {
+        self.release_list.push(id);
+    }
+}
+
 pub struct TextureUpdate {
     pub id: CacheTextureId,
     pub op: TextureUpdateOp,
@@ -392,7 +408,7 @@ impl RendererFrame {
 }
 
 pub enum ResultMsg {
-    UpdateTextureCache(TextureUpdateList),
+    UpdateTextureData(TextureUpdateList, ExternalImageUpdateList),
     RefreshShader(PathBuf),
     NewFrame(RendererFrame, BackendProfileCounters),
 }

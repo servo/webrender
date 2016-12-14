@@ -432,8 +432,9 @@ impl RenderBackend {
                                      self.device_pixel_ratio);
 
         let pending_update = self.resource_cache.pending_updates();
-        if !pending_update.updates.is_empty() {
-            self.result_tx.send(ResultMsg::UpdateTextureCache(pending_update)).unwrap();
+        let pending_external_image_update = self.resource_cache.pending_external_image_updates();
+        if !pending_update.updates.is_empty() || !pending_external_image_update.release_list.is_empty() {
+            self.result_tx.send(ResultMsg::UpdateTextureData(pending_update, pending_external_image_update)).unwrap();
         }
 
         frame
