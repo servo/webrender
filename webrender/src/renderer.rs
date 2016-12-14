@@ -1299,14 +1299,14 @@ impl Renderer {
         }
     }
 
-    fn release_external_textures(&mut self) {
+    fn unlock_external_textures(&mut self) {
         if !self.external_images.is_empty() {
             let handler = self.external_image_handler
                               .as_mut()
                               .expect("Found external image, but no handler set!");
 
             for (external_id, _) in self.external_images.drain() {
-                handler.release(external_id);
+                handler.unlock(external_id);
             }
         }
     }
@@ -1430,7 +1430,7 @@ impl Renderer {
                                       &projection);
         }
 
-        self.release_external_textures();
+        self.unlock_external_textures();
     }
 
     pub fn debug_renderer<'a>(&'a mut self) -> &'a mut DebugRenderer {
