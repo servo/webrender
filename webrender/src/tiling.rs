@@ -1718,9 +1718,9 @@ impl LayerMasksTasks {
 
 /// Some extra per-tile information stored for debugging purposes.
 #[derive(Debug)]
-enum CompiledScreenTileInfo {
-    SimpleAlpha(usize),
-    ComplexAlpha(usize, usize),
+struct CompiledScreenTileInfo {
+    cmd_count: usize,
+    prim_count: usize,
 }
 
 #[derive(Debug)]
@@ -1768,7 +1768,6 @@ struct ScreenTile {
     rect: DeviceIntRect,
     cmds: Vec<TileCommand>,
     prim_count: usize,
-    is_simple: bool,
 }
 
 impl ScreenTile {
@@ -1777,25 +1776,13 @@ impl ScreenTile {
             rect: rect,
             cmds: Vec::new(),
             prim_count: 0,
-            is_simple: true,
         }
     }
 
     #[inline(always)]
     fn push_layer(&mut self,
-                  sc_index: StackingContextIndex,
-                  layers: &[StackingContext]) {
+                  sc_index: StackingContextIndex) {
         self.cmds.push(TileCommand::PushLayer(sc_index));
-
-        let layer = &layers[sc_index.0];
-        match layer.composite_kind {
-            CompositeKind::None => {}
-            CompositeKind::Simple(..) | CompositeKind::Complex(..) => {
-                // Bail out on tiles with composites
-                // for now. This can be handled in the future!
-                self.is_simple = false;
-            }
-        }
     }
 
     #[inline(always)]
@@ -1920,23 +1907,6 @@ impl ScreenTile {
                     let sc_index = *sc_stack.last().unwrap();
                     let prim_metadata = ctx.prim_store.get_metadata(prim_index);
 
-                    // TODO(gw): Complex tiles don't currently get
-                    // any occlusion culling!
-                    if self.is_simple {
-                        let layer = &ctx.layer_store[sc_index.0];
-
-                        let prim_bounding_rect = ctx.prim_store.get_bounding_rect(prim_index);
-
-                        // If an opaque primitive covers a tile entirely, we can discard
-                        // all primitives underneath it.
-                        if layer.xf_rect.as_ref().unwrap().kind == TransformedRectKind::AxisAligned &&
-                           prim_metadata.clip_cache_info.is_none() &&
-                           prim_metadata.is_opaque &&
-                           prim_bounding_rect.as_ref().unwrap().contains_rect(&self.rect) {
-                            current_task.as_alpha_batch().items.clear();
-                        }
-                    }
-
                     // Add a task to render the updated image mask
                     if let Some(ref clip_info) = prim_metadata.clip_cache_info {
                         let mask_opt = RenderTask::new_mask(self.rect,
@@ -1966,10 +1936,9 @@ impl ScreenTile {
         debug_assert!(alpha_task_stack.is_empty());
         debug_assert!(clip_task_stack.is_empty());
 
-        let info = if self.is_simple {
-            CompiledScreenTileInfo::SimpleAlpha(actual_prim_count)
-        } else {
-            CompiledScreenTileInfo::ComplexAlpha(cmd_count, actual_prim_count)
+        let info = CompiledScreenTileInfo {
+            cmd_count: cmd_count,
+            prim_count: actual_prim_count,
         };
 
         current_task.location = RenderTaskLocation::Fixed(self.rect);
@@ -2632,7 +2601,7 @@ impl FrameBuilder {
                     for ly in tile_range.y0..tile_range.y1 {
                         for lx in tile_range.x0..tile_range.x1 {
                             let tile = &mut screen_tiles[(ly * x_tile_count + lx) as usize];
-                            tile.push_layer(sc_index, &self.layer_store);
+                            tile.push_layer(sc_index);
                         }
                     }
                 }
@@ -2831,14 +2800,8 @@ impl FrameBuilder {
                     max_passes_needed = cmp::max(max_passes_needed,
                                                  compiled_screen_tile.required_pass_count);
                     if self.debug {
-                        let (label, color) = match &compiled_screen_tile.info {
-                            &CompiledScreenTileInfo::SimpleAlpha(prim_count) => {
-                                (format!("{}", prim_count), ColorF::new(1.0, 0.0, 1.0, 1.0))
-                            }
-                            &CompiledScreenTileInfo::ComplexAlpha(cmd_count, prim_count) => {
-                                (format!("{}|{}", cmd_count, prim_count), ColorF::new(1.0, 0.0, 0.0, 1.0))
-                            }
-                        };
+                        let label = format!("{}|{}", compiled_screen_tile.info.cmd_count, compiled_screen_tile.info.prim_count);
+                        let color =  ColorF::new(1.0, 0.0, 0.0, 1.0);
                         debug_rects.push(DebugRect {
                             label: label,
                             color: color,
