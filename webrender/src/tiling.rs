@@ -76,7 +76,8 @@ trait AlphaBatchHelpers {
                          tile_id: TileUniqueId,
                          base_mask_task_index: RenderTaskIndex,
                          render_tasks: &RenderTaskCollection,
-                         pass_index: RenderPassIndex);
+                         pass_index: RenderPassIndex,
+                         z_sort_index: i32);
 }
 
 impl AlphaBatchHelpers for PrimitiveStore {
@@ -193,7 +194,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
                          tile_id: TileUniqueId,
                          base_mask_task_index: RenderTaskIndex,
                          render_tasks: &RenderTaskCollection,
-                         child_pass_index: RenderPassIndex) {
+                         child_pass_index: RenderPassIndex,
+                         z_sort_index: i32) {
         let metadata = self.get_metadata(prim_index);
         let layer_index = layer_index.0 as i32;
         let global_prim_id = prim_index.0 as i32;
@@ -222,6 +224,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     prim_address: prim_address,
                     sub_index: 0,
                     user_data: [0, 0],
+                    z_sort_index: z_sort_index,
                 });
             }
             &mut PrimitiveBatchData::TextRun(ref mut data) => {
@@ -236,6 +239,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         prim_address: prim_address,
                         sub_index: metadata.gpu_data_address.0 + glyph_index,
                         user_data: [ text_cpu.resource_address.0 + glyph_index, 0 ],
+                        z_sort_index: z_sort_index,
                     });
                 }
             }
@@ -250,6 +254,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     prim_address: prim_address,
                     sub_index: 0,
                     user_data: [ image_cpu.resource_address.0, 0 ],
+                    z_sort_index: z_sort_index,
                 });
             }
             &mut PrimitiveBatchData::YuvImage(ref mut data) => {
@@ -261,6 +266,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     prim_address: prim_address,
                     sub_index: 0,
                     user_data: [ 0, 0 ],
+                    z_sort_index: z_sort_index,
                 });
             }
             &mut PrimitiveBatchData::Borders(ref mut data) => {
@@ -273,6 +279,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         prim_address: prim_address,
                         sub_index: border_segment,
                         user_data: [ 0, 0 ],
+                        z_sort_index: z_sort_index,
                     });
                 }
             }
@@ -286,6 +293,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         prim_address: prim_address,
                         sub_index: metadata.gpu_data_address.0 + part_index,
                         user_data: [ 0, 0 ],
+                        z_sort_index: z_sort_index,
                     });
                 }
             }
@@ -298,6 +306,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     prim_address: prim_address,
                     sub_index: metadata.gpu_data_address.0,
                     user_data: [ metadata.gpu_data_count, 0 ],
+                    z_sort_index: z_sort_index,
                 });
             }
             &mut PrimitiveBatchData::CacheImage(ref mut data) => {
@@ -317,6 +326,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     prim_address: prim_address,
                     sub_index: 0,
                     user_data: [ cache_task_index.0 as i32, 0 ],
+                    z_sort_index: z_sort_index,
                 });
             }
             &mut PrimitiveBatchData::BoxShadow(ref mut data) => {
@@ -333,6 +343,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         prim_address: prim_address,
                         sub_index: metadata.gpu_data_address.0 + rect_index,
                         user_data: [ cache_task_index.0 as i32, 0 ],
+                        z_sort_index: z_sort_index,
                     });
                 }
             }
@@ -504,20 +515,23 @@ impl Default for PrimitiveGeometry {
 
 struct AlphaBatchTask {
     task_id: RenderTaskId,
-    items: Vec<AlphaRenderItem>,
+    opaque_items: Vec<AlphaRenderItem>,
+    alpha_items: Vec<AlphaRenderItem>,
     tile_id: TileUniqueId,
 }
 
 /// Encapsulates the logic of building batches for items that are blended.
 pub struct AlphaBatcher {
-    pub batches: Vec<PrimitiveBatch>,
+    pub alpha_batches: Vec<PrimitiveBatch>,
+    pub opaque_batches: Vec<PrimitiveBatch>,
     tasks: Vec<AlphaBatchTask>,
 }
 
 impl AlphaBatcher {
     fn new() -> AlphaBatcher {
         AlphaBatcher {
-            batches: Vec::new(),
+            alpha_batches: Vec::new(),
+            opaque_batches: Vec::new(),
             tasks: Vec::new(),
         }
     }
@@ -530,20 +544,23 @@ impl AlphaBatcher {
              ctx: &RenderTargetContext,
              render_tasks: &RenderTaskCollection,
              child_pass_index: RenderPassIndex) {
-        let mut batches: Vec<PrimitiveBatch> = vec![];
+        let mut alpha_batches: Vec<PrimitiveBatch> = vec![];
+        let mut opaque_batches: Vec<PrimitiveBatch> = vec![];
+
         for task in &mut self.tasks {
             let task_index = render_tasks.get_static_task_index(&task.task_id);
+            let mut existing_alpha_batch_index = 0;
+            let mut existing_opaque_batch_index = 0;
 
-            let mut existing_batch_index = 0;
-            for item in task.items.drain(..) {
+            for item in &task.alpha_items {
                 let batch_key = match item {
-                    AlphaRenderItem::Composite(..) => {
+                    &AlphaRenderItem::Composite(..) => {
                         AlphaBatchKey::composite()
                     }
-                    AlphaRenderItem::Blend(..) => {
+                    &AlphaRenderItem::Blend(..) => {
                         AlphaBatchKey::blend()
                     }
-                    AlphaRenderItem::Primitive(sc_index, prim_index) => {
+                    &AlphaRenderItem::Primitive(sc_index, prim_index, _) => {
                         // See if this task fits into the tile UBO
                         let layer = &ctx.layer_store[sc_index.0];
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
@@ -576,45 +593,47 @@ impl AlphaBatcher {
                     }
                 };
 
-                while existing_batch_index < batches.len() &&
-                        !batches[existing_batch_index].key.is_compatible_with(&batch_key) {
-                    existing_batch_index += 1
+                while existing_alpha_batch_index < alpha_batches.len() &&
+                        !alpha_batches[existing_alpha_batch_index].key.is_compatible_with(&batch_key) {
+                    existing_alpha_batch_index += 1
                 }
 
-                if existing_batch_index == batches.len() {
+                if existing_alpha_batch_index == alpha_batches.len() {
                     let new_batch = match item {
-                        AlphaRenderItem::Composite(..) => {
+                        &AlphaRenderItem::Composite(..) => {
                             PrimitiveBatch::composite()
                         }
-                        AlphaRenderItem::Blend(..) => {
+                        &AlphaRenderItem::Blend(..) => {
                             PrimitiveBatch::blend()
                         }
-                        AlphaRenderItem::Primitive(_, prim_index) => {
+                        &AlphaRenderItem::Primitive(_, prim_index, _) => {
                             // See if this task fits into the tile UBO
                             let prim_metadata = ctx.prim_store.get_metadata(prim_index);
                             let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
                             PrimitiveBatch::new(batch_kind, batch_key)
                         }
                     };
-                    batches.push(new_batch)
+                    alpha_batches.push(new_batch)
                 }
 
-                let batch = &mut batches[existing_batch_index];
+                let batch = &mut alpha_batches[existing_alpha_batch_index];
                 match item {
-                    AlphaRenderItem::Composite(src0_id, src1_id, info) => {
+                    &AlphaRenderItem::Composite(src0_id, src1_id, info, z) => {
                         let ok = batch.pack_composite(render_tasks.get_static_task_index(&src0_id),
                                                       render_tasks.get_static_task_index(&src1_id),
                                                       render_tasks.get_static_task_index(&task.task_id),
-                                                      info);
+                                                      info,
+                                                      z);
                         debug_assert!(ok)
                     }
-                    AlphaRenderItem::Blend(src_id, info) => {
+                    &AlphaRenderItem::Blend(src_id, info, z) => {
                         let ok = batch.pack_blend(render_tasks.get_static_task_index(&src_id),
                                                   render_tasks.get_static_task_index(&task.task_id),
-                                                  info);
+                                                  info,
+                                                  z);
                         debug_assert!(ok)
                     }
-                    AlphaRenderItem::Primitive(sc_index, prim_index) => {
+                    &AlphaRenderItem::Primitive(sc_index, prim_index, z) => {
                         let mask_task_index = match ctx.layer_masks_tasks.get(&(task.tile_id, sc_index)) {
                             Some(ref mask_task_id) => render_tasks.get_task_index(mask_task_id, child_pass_index),
                             None => OPAQUE_TASK_INDEX,
@@ -626,13 +645,93 @@ impl AlphaBatcher {
                                                          task.tile_id,
                                                          mask_task_index,
                                                          render_tasks,
-                                                         child_pass_index);
+                                                         child_pass_index,
+                                                         z);
+                    }
+                }
+            }
+
+            for item in task.opaque_items.iter().rev() {
+                let batch_key = match item {
+                    &AlphaRenderItem::Composite(..) => unreachable!(),
+                    &AlphaRenderItem::Blend(..) => unreachable!(),
+                    &AlphaRenderItem::Primitive(sc_index, prim_index, _) => {
+                        // See if this task fits into the tile UBO
+                        let layer = &ctx.layer_store[sc_index.0];
+                        let prim_metadata = ctx.prim_store.get_metadata(prim_index);
+                        let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
+                        let needs_clipping = prim_metadata.clip_cache_info.is_some() ||
+                                             ctx.layer_masks_tasks.get(&(task.tile_id, sc_index)).is_some();
+                        let needs_blending = transform_kind == TransformedRectKind::Complex ||
+                                             !prim_metadata.is_opaque ||
+                                             needs_clipping;
+                        let blend_mode = ctx.prim_store.get_blend_mode(needs_blending, prim_metadata);
+                        let needs_clipping_flag = if needs_clipping {
+                            NEEDS_CLIPPING
+                        } else {
+                            AlphaBatchKeyFlags::empty()
+                        };
+                        let flags = match transform_kind {
+                            TransformedRectKind::AxisAligned => AXIS_ALIGNED | needs_clipping_flag,
+                            _ => needs_clipping_flag,
+                        };
+                        let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
+
+                        let textures = BatchTextures {
+                            colors: ctx.prim_store.get_color_textures(prim_metadata),
+                        };
+
+                        AlphaBatchKey::primitive(batch_kind,
+                                                 flags,
+                                                 blend_mode,
+                                                 textures)
+                    }
+                };
+
+                while existing_opaque_batch_index < opaque_batches.len() &&
+                        !opaque_batches[existing_opaque_batch_index].key.is_compatible_with(&batch_key) {
+                    existing_opaque_batch_index += 1
+                }
+
+                if existing_opaque_batch_index == opaque_batches.len() {
+                    let new_batch = match item {
+                        &AlphaRenderItem::Composite(..) => unreachable!(),
+                        &AlphaRenderItem::Blend(..) => unreachable!(),
+                        &AlphaRenderItem::Primitive(_, prim_index, _) => {
+                            // See if this task fits into the tile UBO
+                            let prim_metadata = ctx.prim_store.get_metadata(prim_index);
+                            let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
+                            PrimitiveBatch::new(batch_kind, batch_key)
+                        }
+                    };
+                    opaque_batches.push(new_batch)
+                }
+
+                let batch = &mut opaque_batches[existing_opaque_batch_index];
+                match item {
+                    &AlphaRenderItem::Composite(..) => unreachable!(),
+                    &AlphaRenderItem::Blend(..) => unreachable!(),
+                    &AlphaRenderItem::Primitive(sc_index, prim_index, z) => {
+                        let mask_task_index = match ctx.layer_masks_tasks.get(&(task.tile_id, sc_index)) {
+                            Some(ref mask_task_id) => render_tasks.get_task_index(mask_task_id, child_pass_index),
+                            None => OPAQUE_TASK_INDEX,
+                        };
+                        ctx.prim_store.add_prim_to_batch(prim_index,
+                                                         batch,
+                                                         sc_index,
+                                                         task_index,
+                                                         task.tile_id,
+                                                         mask_task_index,
+                                                         render_tasks,
+                                                         child_pass_index,
+                                                         z);
                     }
                 }
             }
         }
 
-        self.batches.extend(batches.into_iter())
+        self.alpha_batches.extend(alpha_batches.into_iter());
+        self.opaque_batches.extend(opaque_batches.into_iter());
     }
 }
 
@@ -788,7 +887,8 @@ impl RenderTarget {
             RenderTaskKind::Alpha(info) => {
                 self.alpha_batcher.add_task(AlphaBatchTask {
                     task_id: task.id,
-                    items: info.items,
+                    opaque_items: info.opaque_items,
+                    alpha_items: info.alpha_items,
                     tile_id: info.tile_id,
                 });
             }
@@ -833,6 +933,7 @@ impl RenderTarget {
                             layer_index: 0,
                             sub_index: 0,
                             user_data: [0; 2],
+                            z_sort_index: 0,        // z is disabled for rendering cache primitives
                         });
                     }
                     PrimitiveKind::TextRun => {
@@ -861,6 +962,7 @@ impl RenderTarget {
                                 layer_index: 0,
                                 sub_index: prim_metadata.gpu_data_address.0 + glyph_index,
                                 user_data: [ text.resource_address.0 + glyph_index, 0],
+                                z_sort_index: 0,        // z is disabled for rendering cache primitives
                             });
                         }
                     }
@@ -984,15 +1086,16 @@ pub enum RenderTaskLocation {
 
 #[derive(Debug, Clone)]
 enum AlphaRenderItem {
-    Primitive(StackingContextIndex, PrimitiveIndex),
-    Blend(RenderTaskId, LowLevelFilterOp),
-    Composite(RenderTaskId, RenderTaskId, MixBlendMode),
+    Primitive(StackingContextIndex, PrimitiveIndex, i32),
+    Blend(RenderTaskId, LowLevelFilterOp, i32),
+    Composite(RenderTaskId, RenderTaskId, MixBlendMode, i32),
 }
 
 #[derive(Debug, Clone)]
 pub struct AlphaRenderTask {
     actual_rect: DeviceIntRect,
-    items: Vec<AlphaRenderItem>,
+    opaque_items: Vec<AlphaRenderItem>,
+    alpha_items: Vec<AlphaRenderItem>,
     tile_id: TileUniqueId,
 }
 
@@ -1043,7 +1146,8 @@ impl RenderTask {
             location: RenderTaskLocation::Dynamic(None, actual_rect.size),
             kind: RenderTaskKind::Alpha(AlphaRenderTask {
                 actual_rect: actual_rect,
-                items: Vec::new(),
+                alpha_items: Vec::new(),
+                opaque_items: Vec::new(),
                 tile_id: ctx.tile_id,
             }),
         }
@@ -1406,11 +1510,16 @@ pub struct PrimitiveInstance {
     clip_task_index: i32,
     layer_index: i32,
     sub_index: i32,
+    z_sort_index: i32,
     user_data: [i32; 2],
 }
 
 impl PrimitiveInstance {
-    fn blend(src_task_id: i32, target_task_id: i32, op: i32, amount: i32) -> PrimitiveInstance {
+    fn blend(src_task_id: i32,
+             target_task_id: i32,
+             op: i32,
+             amount: i32,
+             z_sort_index: i32) -> PrimitiveInstance {
         PrimitiveInstance {
             global_prim_id: -1,
             prim_address: GpuStoreAddress(0),
@@ -1419,10 +1528,14 @@ impl PrimitiveInstance {
             layer_index: -1,
             sub_index: op,
             user_data: [src_task_id, amount],
+            z_sort_index: z_sort_index,
         }
     }
 
-    fn composite(src_tasks_id: [i32; 2], target_task_id: i32, op: i32) -> PrimitiveInstance {
+    fn composite(src_tasks_id: [i32; 2],
+                 target_task_id: i32,
+                 op: i32,
+                 z_sort_index: i32) -> PrimitiveInstance {
         PrimitiveInstance {
             global_prim_id: -1,
             prim_address: GpuStoreAddress(0),
@@ -1431,6 +1544,7 @@ impl PrimitiveInstance {
             layer_index: -1,
             sub_index: op,
             user_data: src_tasks_id,
+            z_sort_index: z_sort_index,
         }
     }
 }
@@ -1474,7 +1588,8 @@ impl PrimitiveBatch {
     fn pack_blend(&mut self,
                   src_rect_index: RenderTaskIndex,
                   target_rect_index: RenderTaskIndex,
-                  filter: LowLevelFilterOp) -> bool {
+                  filter: LowLevelFilterOp,
+                  z_sort_index: i32) -> bool {
         match &mut self.data {
             &mut PrimitiveBatchData::Blend(ref mut ubo_data) => {
                 let (filter_mode, amount) = match filter {
@@ -1492,7 +1607,8 @@ impl PrimitiveBatch {
                 ubo_data.push(PrimitiveInstance::blend(src_rect_index.0 as i32,
                                                        target_rect_index.0 as i32,
                                                        filter_mode,
-                                                       (amount * 65535.0).round() as i32));
+                                                       (amount * 65535.0).round() as i32,
+                                                       z_sort_index));
                 true
             }
             _ => false
@@ -1503,13 +1619,15 @@ impl PrimitiveBatch {
                       rect0_index: RenderTaskIndex,
                       rect1_index: RenderTaskIndex,
                       target_rect_index: RenderTaskIndex,
-                      info: MixBlendMode) -> bool {
+                      info: MixBlendMode,
+                      z_sort_index: i32) -> bool {
         match &mut self.data {
             &mut PrimitiveBatchData::Composite(ref mut ubo_data) => {
                 ubo_data.push(PrimitiveInstance::composite([rect0_index.0 as i32,
                                                             rect1_index.0 as i32],
                                                            target_rect_index.0 as i32,
-                                                           info as i32));
+                                                           info as i32,
+                                                           z_sort_index));
                 true
             }
             _ => false
@@ -1808,6 +1926,7 @@ impl ScreenTile {
 
         let cmd_count = self.cmds.len();
         let mut actual_prim_count = 0;
+        let mut next_z = 0;
 
         let mut sc_stack = Vec::new();
         let mut current_task = RenderTask::new_alpha_batch(self.rect, ctx);
@@ -1870,8 +1989,9 @@ impl ScreenTile {
                         CompositeKind::None => {}
                         CompositeKind::Simple(info) => {
                             let mut prev_task = alpha_task_stack.pop().unwrap();
-                            prev_task.as_alpha_batch().items.push(AlphaRenderItem::Blend(current_task.id,
-                                                                                         info));
+                            let item = AlphaRenderItem::Blend(current_task.id, info, next_z);
+                            next_z += 1;
+                            prev_task.as_alpha_batch().alpha_items.push(item);
                             prev_task.children.push(current_task);
                             current_task = prev_task;
                         }
@@ -1880,9 +2000,12 @@ impl ScreenTile {
 
                             let mut composite_task = RenderTask::new_alpha_batch(self.rect, ctx);
 
-                            composite_task.as_alpha_batch().items.push(AlphaRenderItem::Composite(backdrop.id,
-                                                                                                  current_task.id,
-                                                                                                  info));
+                            let item = AlphaRenderItem::Composite(backdrop.id,
+                                                                  current_task.id,
+                                                                  info,
+                                                                  next_z);
+                            next_z += 1;
+                            composite_task.as_alpha_batch().alpha_items.push(item);
 
                             composite_task.children.push(backdrop);
                             composite_task.children.push(current_task);
@@ -1928,7 +2051,21 @@ impl ScreenTile {
                     }
 
                     actual_prim_count += 1;
-                    current_task.as_alpha_batch().items.push(AlphaRenderItem::Primitive(sc_index, prim_index));
+
+                    let layer = &ctx.layer_store[sc_index.0];
+                    let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
+                    let needs_clipping = layer.clip_cache_info.is_some() || prim_metadata.clip_cache_info.is_some();
+                    let needs_blending = transform_kind == TransformedRectKind::Complex ||
+                                         !prim_metadata.is_opaque ||
+                                         needs_clipping;
+
+                    let items = if needs_blending {
+                        &mut current_task.as_alpha_batch().alpha_items
+                    } else {
+                        &mut current_task.as_alpha_batch().opaque_items
+                    };
+                    items.push(AlphaRenderItem::Primitive(sc_index, prim_index, next_z));
+                    next_z += 1;
                 }
             }
         }

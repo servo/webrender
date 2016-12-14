@@ -237,6 +237,7 @@ pub enum VertexAttribute {
     LayerIndex,
     ElementIndex,
     UserData,
+    ZIndex,
 }
 
 #[derive(Clone, Copy, Debug)]
