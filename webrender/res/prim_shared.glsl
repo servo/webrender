@@ -74,6 +74,9 @@ in int aLayerIndex;
 in int aElementIndex;
 in ivec2 aUserData;
 
+// get_fetch_uv is a macro to workaround a macOS Intel driver parsing bug.
+// https://github.com/servo/webrender/pull/623
+// https://github.com/servo/servo/issues/13953
 #define get_fetch_uv(i, vpi)  ivec2(vpi * (i % (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi)), i / (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi))
 
 ivec2 get_fetch_uv_1(int index) {
