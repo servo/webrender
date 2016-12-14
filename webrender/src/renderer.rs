@@ -966,7 +966,8 @@ impl Renderer {
                    target: &RenderTarget,
                    target_size: &DeviceSize,
                    cache_texture: Option<TextureId>,
-                   should_clear: bool) {
+                   should_clear: bool,
+                   background_color: Option<ColorF>) {
         let dimensions = [target_size.width as u32, target_size.height as u32];
         let projection = {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
@@ -989,7 +990,9 @@ impl Renderer {
                                    ORTHO_FAR_PLANE)
                 ),
                 None => (
-                    self.clear_color.to_array(),
+                    background_color.map_or(self.clear_color.to_array(), |color| {
+                        color.to_array()
+                    }),
                     Matrix4D::ortho(0.0,
                                    target_size.width,
                                    target_size.height,
@@ -1351,7 +1354,8 @@ impl Renderer {
                                      target,
                                      &size,
                                      src_id,
-                                     do_clear);
+                                     do_clear,
+                                     frame.background_color);
 
                 }
 

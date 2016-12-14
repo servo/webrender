@@ -1656,6 +1656,7 @@ impl FrameBuilderConfig {
 
 pub struct FrameBuilder {
     screen_rect: LayerRect,
+    background_color: Option<ColorF>,
     prim_store: PrimitiveStore,
     cmds: Vec<PrimitiveRunCmd>,
     debug: bool,
@@ -1671,6 +1672,7 @@ pub struct FrameBuilder {
 /// and presented to the renderer.
 pub struct Frame {
     pub viewport_size: LayerSize,
+    pub background_color: Option<ColorF>,
     pub device_pixel_ratio: f32,
     pub debug_rects: Vec<DebugRect>,
     pub cache_size: DeviceSize,
@@ -1977,10 +1979,12 @@ impl ScreenTile {
 
 impl FrameBuilder {
     pub fn new(viewport_size: LayerSize,
+               background_color: Option<ColorF>,
                debug: bool,
                config: FrameBuilderConfig) -> FrameBuilder {
         FrameBuilder {
             screen_rect: LayerRect::new(LayerPoint::zero(), viewport_size),
+            background_color: background_color,
             layer_store: Vec::new(),
             prim_store: PrimitiveStore::new(),
             cmds: Vec::new(),
@@ -2900,6 +2904,7 @@ impl FrameBuilder {
 
         Frame {
             device_pixel_ratio: device_pixel_ratio,
+            background_color: self.background_color,
             viewport_size: self.screen_rect.size,
             debug_rects: debug_rects,
             profile_counters: profile_counters,
