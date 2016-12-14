@@ -1675,7 +1675,6 @@ pub struct Frame {
     pub debug_rects: Vec<DebugRect>,
     pub cache_size: DeviceSize,
     pub passes: Vec<RenderPass>,
-    pub empty_tiles: Vec<ClearTile>,
     pub profile_counters: FrameProfileCounters,
 
     pub layer_texture_data: Vec<PackedStackingContext>,
@@ -2798,7 +2797,6 @@ impl FrameBuilder {
                          &mut profile_counters,
                          device_pixel_ratio);
 
-        let mut empty_tiles = Vec::new();
         let mut compiled_screen_tiles = Vec::new();
         let mut max_passes_needed = 0;
 
@@ -2825,32 +2823,25 @@ impl FrameBuilder {
             for (tile_id, screen_tile) in screen_tiles.into_iter().enumerate() {
                 ctx.tile_id = tile_id;
                 let rect = screen_tile.rect;
-                match screen_tile.compile(&ctx) {
-                    Some(compiled_screen_tile) => {
-                        max_passes_needed = cmp::max(max_passes_needed,
-                                                     compiled_screen_tile.required_pass_count);
-                        if self.debug {
-                            let (label, color) = match &compiled_screen_tile.info {
-                                &CompiledScreenTileInfo::SimpleAlpha(prim_count) => {
-                                    (format!("{}", prim_count), ColorF::new(1.0, 0.0, 1.0, 1.0))
-                                }
-                                &CompiledScreenTileInfo::ComplexAlpha(cmd_count, prim_count) => {
-                                    (format!("{}|{}", cmd_count, prim_count), ColorF::new(1.0, 0.0, 0.0, 1.0))
-                                }
-                            };
-                            debug_rects.push(DebugRect {
-                                label: label,
-                                color: color,
-                                rect: rect,
-                            });
-                        }
-                        compiled_screen_tiles.push(compiled_screen_tile);
-                    }
-                    None => {
-                        empty_tiles.push(ClearTile {
+                if let Some(compiled_screen_tile) = screen_tile.compile(&ctx) {
+                    max_passes_needed = cmp::max(max_passes_needed,
+                                                 compiled_screen_tile.required_pass_count);
+                    if self.debug {
+                        let (label, color) = match &compiled_screen_tile.info {
+                            &CompiledScreenTileInfo::SimpleAlpha(prim_count) => {
+                                (format!("{}", prim_count), ColorF::new(1.0, 0.0, 1.0, 1.0))
+                            }
+                            &CompiledScreenTileInfo::ComplexAlpha(cmd_count, prim_count) => {
+                                (format!("{}|{}", cmd_count, prim_count), ColorF::new(1.0, 0.0, 0.0, 1.0))
+                            }
+                        };
+                        debug_rects.push(DebugRect {
+                            label: label,
+                            color: color,
                             rect: rect,
                         });
                     }
+                    compiled_screen_tiles.push(compiled_screen_tile);
                 }
             }
 
@@ -2913,7 +2904,6 @@ impl FrameBuilder {
             debug_rects: debug_rects,
             profile_counters: profile_counters,
             passes: passes,
-            empty_tiles: empty_tiles,
             cache_size: DeviceSize::new(RENDERABLE_CACHE_SIZE as f32,
                                         RENDERABLE_CACHE_SIZE as f32),
             layer_texture_data: self.packed_layers.clone(),

@@ -120,7 +120,6 @@ fn main() {
         debug: false,
         enable_subpixel_aa: false,
         clear_framebuffer: true,
-        clear_empty_tiles: false,
         clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
     };
 

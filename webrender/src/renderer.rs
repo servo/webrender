@@ -33,7 +33,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::TextureCache;
 use tiling::{Frame, FrameBuilderConfig, PrimitiveBatchData};
-use tiling::{BlurCommand, CacheClipInstance, ClearTile, PrimitiveInstance, RenderTarget};
+use tiling::{BlurCommand, CacheClipInstance, PrimitiveInstance, RenderTarget};
 use time::precise_time_ns;
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
@@ -49,7 +49,6 @@ const GPU_TAG_CACHE_CLIP: GpuProfileTag = GpuProfileTag { label: "C_Clip", color
 const GPU_TAG_CACHE_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "C_TextRun", color: debug_colors::MISTYROSE };
 const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: debug_colors::WHITE };
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: debug_colors::SLATEGREY };
-const GPU_TAG_CLEAR_TILES: GpuProfileTag = GpuProfileTag { label: "Clear Tiles", color: debug_colors::BROWN };
 const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: debug_colors::RED };
 const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: debug_colors::GREEN };
 const GPU_TAG_PRIM_YUV_IMAGE: GpuProfileTag = GpuProfileTag { label: "YuvImage", color: debug_colors::DARKGREEN };
@@ -123,7 +122,6 @@ const CLIP_FEATURE: &'static str = "CLIP";
 
 enum ShaderKind {
     Primitive,
-    Clear,
     Cache,
     ClipCache,
 }
@@ -158,9 +156,6 @@ impl LazilyCompiledShader {
     fn get(&mut self, device: &mut Device) -> ProgramId {
         if self.id.is_none() {
             let id = match self.kind {
-                ShaderKind::Clear => {
-                    create_clear_shader(self.name, device)
-                }
                 ShaderKind::Primitive | ShaderKind::Cache => {
                     create_prim_shader(self.name,
                                        device,
@@ -275,16 +270,6 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> ProgramId {
     program_id
 }
 
-fn create_clear_shader(name: &'static str, device: &mut Device) -> ProgramId {
-    let includes = &[];
-    let program_id = device.create_program_with_prefix(name,
-                                                       includes,
-                                                       None);
-    debug!("ClearShader {}", name);
-
-    program_id
-}
-
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
 pub struct Renderer {
@@ -330,13 +315,10 @@ pub struct Renderer {
     ps_blend: LazilyCompiledShader,
     ps_composite: LazilyCompiledShader,
 
-    tile_clear_shader: LazilyCompiledShader,
-
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
     enable_profiler: bool,
     clear_framebuffer: bool,
-    clear_empty_tiles: bool,
     clear_color: ColorF,
     debug: DebugRenderer,
     backend_profile_counters: BackendProfileCounters,
@@ -348,7 +330,6 @@ pub struct Renderer {
 
     gpu_profile: GpuProfiler<GpuProfileTag>,
     prim_vao_id: VAOId,
-    clear_vao_id: VAOId,
     blur_vao_id: VAOId,
     clip_vao_id: VAOId,
 
@@ -518,12 +499,6 @@ impl Renderer {
                                                      &mut device,
                                                      options.precache_shaders);
 
-        let tile_clear_shader = LazilyCompiledShader::new(ShaderKind::Clear,
-                                                          "ps_clear",
-                                                          &[],
-                                                          &mut device,
-                                                          options.precache_shaders);
-
         let mut texture_cache = TextureCache::new();
 
         let white_pixels: Vec<u8> = vec![
@@ -594,7 +569,6 @@ impl Renderer {
         device.update_vao_indices(prim_vao_id, &quad_indices, VertexUsageHint::Static);
         device.update_vao_main_vertices(prim_vao_id, &quad_vertices, VertexUsageHint::Static);
 
-        let clear_vao_id = device.create_vao_with_new_instances(VertexFormat::Clear, mem::size_of::<ClearTile>() as i32, prim_vao_id);
         let blur_vao_id = device.create_vao_with_new_instances(VertexFormat::Blur, mem::size_of::<BlurCommand>() as i32, prim_vao_id);
         let clip_vao_id = device.create_vao_with_new_instances(VertexFormat::Clip, mem::size_of::<CacheClipInstance>() as i32, prim_vao_id);
 
@@ -645,7 +619,6 @@ impl Renderer {
             current_frame: None,
             pending_texture_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
-            tile_clear_shader: tile_clear_shader,
             cs_box_shadow: cs_box_shadow,
             cs_text_run: cs_text_run,
             cs_blur: cs_blur,
@@ -673,13 +646,11 @@ impl Renderer {
             profiler: Profiler::new(),
             enable_profiler: options.enable_profiler,
             clear_framebuffer: options.clear_framebuffer,
-            clear_empty_tiles: options.clear_empty_tiles,
             clear_color: options.clear_color,
             last_time: 0,
             render_targets: Vec::new(),
             gpu_profile: GpuProfiler::new(),
             prim_vao_id: prim_vao_id,
-            clear_vao_id: clear_vao_id,
             blur_vao_id: blur_vao_id,
             clip_vao_id: clip_vao_id,
             layer_texture: layer_texture,
@@ -1318,13 +1289,6 @@ impl Renderer {
         self.device.disable_stencil();
         self.device.set_blend(false);
 
-        let projection = Matrix4D::ortho(0.0,
-                                         framebuffer_size.width as f32,
-                                         framebuffer_size.height as f32,
-                                         0.0,
-                                         ORTHO_NEAR_PLANE,
-                                         ORTHO_FAR_PLANE);
-
         if frame.passes.is_empty() {
             self.device.clear_color(self.clear_color.to_array());
         } else {
@@ -1395,20 +1359,6 @@ impl Renderer {
             }
         }
 
-        let _gm = self.gpu_profile.add_marker(GPU_TAG_CLEAR_TILES);
-
-        // Tiles with no items
-        if self.clear_empty_tiles && !frame.empty_tiles.is_empty() {
-            self.device.set_blend(false);
-            let vao = self.clear_vao_id;
-            let shader = self.tile_clear_shader.get(&mut self.device);
-            self.draw_instanced_batch(&frame.empty_tiles,
-                                      vao,
-                                      shader,
-                                      &BatchTextures::no_texture(),
-                                      &projection);
-        }
-
         self.release_external_textures();
     }
 
@@ -1468,8 +1418,6 @@ pub struct RendererOptions {
     pub precache_shaders: bool,
     pub renderer_kind: RendererKind,
     pub enable_subpixel_aa: bool,
-    // TODO: this option ignores the clear color (always opaque white).
-    pub clear_empty_tiles: bool,
     pub clear_framebuffer: bool,
     pub clear_color: ColorF,
 }
