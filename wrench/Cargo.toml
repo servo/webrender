@@ -33,3 +33,7 @@ dwrote = "0.1.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 font-loader = "0.1.0"
+
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+osmesa-sys = "0.1.2"
+osmesa-src = {git = "https://github.com/servo/osmesa-src"}
