@@ -307,7 +307,11 @@ impl ResourceCache {
                 },
                 _ => {},
             }
+
+            return;
         }
+
+        println!("Delete the non-exist key:{:?}", image_key);
     }
 
     pub fn add_webgl_texture(&mut self, id: WebGLContextId, texture_id: SourceTexture, size: DeviceIntSize) {
