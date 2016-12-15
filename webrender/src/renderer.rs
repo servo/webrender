@@ -291,7 +291,6 @@ pub struct Renderer {
     result_rx: Receiver<ResultMsg>,
     device: Device,
     pending_texture_updates: Vec<TextureUpdateList>,
-    pending_external_image_updates: Vec<ExternalImageUpdateList>,
     pending_shader_updates: Vec<PathBuf>,
     current_frame: Option<RendererFrame>,
 
@@ -645,7 +644,6 @@ impl Renderer {
             device: device,
             current_frame: None,
             pending_texture_updates: Vec::new(),
-            pending_external_image_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
             tile_clear_shader: tile_clear_shader,
             cs_box_shadow: cs_box_shadow,
@@ -742,28 +740,11 @@ impl Renderer {
         // Pull any pending results and return the most recent.
         while let Ok(msg) = self.result_rx.try_recv() {
             match msg {
-                ResultMsg::UpdateTextureData(update_list, external_image_update_list) => {
-                    self.pending_texture_updates.push(update_list);
+                ResultMsg::NewFrame(frame, texture_update_list, external_image_update_list, profile_counters) => {
+                    self.pending_texture_updates.push(texture_update_list);
 
-                    if self.external_image_handler.is_some() {
-                        self.pending_external_image_updates.push(external_image_update_list);
-                    }
-                }
-                ResultMsg::NewFrame(frame, profile_counters) => {
-                    // When a new frame is ready, we could start to update all pending external
-                    // image request here.
-                    if !self.pending_external_image_updates.is_empty() {
-                        let handler = self.external_image_handler
-                                          .as_mut()
-                                          .expect("Found external image updates, but no handler set!");
-                        let mut pending_external_image_updates = mem::replace(&mut self.pending_external_image_updates, Vec::new());
-
-                        for update_list in pending_external_image_updates.drain(..) {
-                            for external_id in update_list.release_list {
-                                handler.release(external_id);
-                            }
-                        }
-                    }
+                    // When a new frame is ready, we could start to update all pending external image request here.
+                    self.release_external_images(external_image_update_list);
 
                     self.backend_profile_counters = profile_counters;
 
@@ -1299,7 +1280,7 @@ impl Renderer {
         }
     }
 
-    fn unlock_external_textures(&mut self) {
+    fn unlock_external_images(&mut self) {
         if !self.external_images.is_empty() {
             let handler = self.external_image_handler
                               .as_mut()
@@ -1307,6 +1288,18 @@ impl Renderer {
 
             for (external_id, _) in self.external_images.drain() {
                 handler.unlock(external_id);
+            }
+        }
+    }
+
+    fn release_external_images(&mut self, mut pending_external_image_updates: ExternalImageUpdateList) {
+        if !pending_external_image_updates.release_list.is_empty() {
+            let handler = self.external_image_handler
+                              .as_mut()
+                              .expect("found external image updates, but no handler set!");
+
+            for external_id in pending_external_image_updates.release_list.drain(..) {
+                handler.release(external_id);
             }
         }
     }
@@ -1430,7 +1423,7 @@ impl Renderer {
                                       &projection);
         }
 
-        self.unlock_external_textures();
+        self.unlock_external_images();
     }
 
     pub fn debug_renderer<'a>(&'a mut self) -> &'a mut DebugRenderer {

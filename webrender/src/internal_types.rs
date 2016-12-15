@@ -408,9 +408,8 @@ impl RendererFrame {
 }
 
 pub enum ResultMsg {
-    UpdateTextureData(TextureUpdateList, ExternalImageUpdateList),
     RefreshShader(PathBuf),
-    NewFrame(RendererFrame, BackendProfileCounters),
+    NewFrame(RendererFrame, TextureUpdateList, ExternalImageUpdateList, BackendProfileCounters),
 }
 
 #[repr(u32)]
