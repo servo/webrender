@@ -24,6 +24,7 @@ use yaml_frame_writer::YamlFrameWriter;
 use json_frame_writer::JsonFrameWriter;
 use time;
 use crossbeam::sync::chase_lev;
+use WindowWrapper;
 
 use {CURRENT_FRAME_NUMBER, WHITE_COLOR, BLACK_COLOR};
 
@@ -33,13 +34,13 @@ pub enum SaveType {
 }
 
 struct Notifier {
-    window_proxy: WindowProxy,
+    window_proxy: Option<WindowProxy>,
     frames_notified: u32,
     timing_receiver: chase_lev::Stealer<time::SteadyTime>,
 }
 
 impl Notifier {
-    fn new(window_proxy: WindowProxy, timing_receiver: chase_lev::Stealer<time::SteadyTime>) -> Notifier {
+    fn new(window_proxy: Option<WindowProxy>, timing_receiver: chase_lev::Stealer<time::SteadyTime>) -> Notifier {
         Notifier {
             window_proxy: window_proxy,
             frames_notified: 0,
@@ -64,11 +65,15 @@ impl RenderNotifier for Notifier {
                 println!("Notified of frame, but no frame was ready?");
             }
         }
-        self.window_proxy.wakeup_event_loop();
+        if let Some(ref window_proxy) = self.window_proxy {
+            window_proxy.wakeup_event_loop();
+        }
     }
 
     fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {
-        self.window_proxy.wakeup_event_loop();
+        if let Some(ref window_proxy) = self.window_proxy {
+            window_proxy.wakeup_event_loop();
+        }
     }
 
     fn pipeline_size_changed(&mut self,
@@ -132,7 +137,7 @@ pub struct Wrench {
 }
 
 impl Wrench {
-    pub fn new(window: &mut glutin::Window,
+    pub fn new(window: &mut WindowWrapper,
                shader_override_path: Option<PathBuf>,
                dp_ratio: f32,
                save_type: Option<SaveType>,
