@@ -1472,17 +1472,17 @@ pub struct ExternalImage {
 /// Interface that an application can implement
 /// to support providing external image buffers.
 pub trait ExternalImageHandler {
-    // Get the associate external image from the id. It also implies that the
-    // image is held by WR. The WR client will keep the life time for this
-    // image until the release() call.
+    /// Get the associate external image from the id. It also implies that the
+    /// image is held by WR. The WR client will keep the life time for this
+    /// image until the release() call.
     fn get(&mut self, key: ExternalImageId) -> ExternalImage;
-    // Lock the external image. Then, WR could start to read the image content.
-    // The WR client will not change the image content until the unlock() call.
+    /// Lock the external image. Then, WR could start to read the image content.
+    /// The WR client will not change the image content until the unlock() call.
     fn lock(&mut self, key: ExternalImageId) -> bool;
-    // Unlock the external image. WR should not read the image content after
-    // this call.
+    /// Unlock the external image. WR should not read the image content after
+    /// this call.
     fn unlock(&mut self, key: ExternalImageId);
-    // Release the external image.
+    /// Release the external image.
     fn release(&mut self, key: ExternalImageId);
 }
 
