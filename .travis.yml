@@ -10,6 +10,8 @@ addons:
   apt:
     packages:
       - libgles2-mesa-dev
+before_install:
+  - sudo pip install mako
 script:
   - (cd webrender_traits && cargo test --verbose --features "ipc")
   - (cd webrender_traits && cargo test --verbose)
