@@ -119,6 +119,7 @@ fn main() {
         renderer_kind: webrender_traits::RendererKind::Native,
         debug: false,
         enable_subpixel_aa: false,
+        clear_background: true,
         clear_framebuffer: true,
         clear_empty_tiles: false,
         clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
