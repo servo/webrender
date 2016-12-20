@@ -366,7 +366,7 @@ impl Frame {
             let mut delta = match scroll_location {
                 ScrollLocation::Delta(delta) => delta,
                 ScrollLocation::Start => {
-                    if layer.scrolling.offset.y.round() <= 0.0 {
+                    if layer.scrolling.offset.y.round() >= 0.0 {
                         // Nothing to do on this layer.
                         continue;
                     }
@@ -379,7 +379,7 @@ impl Frame {
                     let end_pos = layer.local_viewport_rect.size.height
                                   - layer.content_size.height;
 
-                    if layer.scrolling.offset.y.round() >= end_pos {
+                    if layer.scrolling.offset.y.round() <= end_pos {
                         // Nothing to do on this layer.
                         continue;
                     }
