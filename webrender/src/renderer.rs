@@ -11,7 +11,7 @@
 
 use debug_colors;
 use debug_render::DebugRenderer;
-use device::{Device, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler};
+use device::{DepthFunction, Device, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler};
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
 use euclid::Matrix4D;
 use fnv::FnvHasher;
@@ -1213,6 +1213,7 @@ impl Renderer {
         self.device.set_blend(false);
         let mut prev_blend_mode = BlendMode::None;
 
+        self.device.set_depth_func(DepthFunction::Less);
         self.device.enable_depth();
         self.device.enable_depth_write();
 

@@ -356,7 +356,7 @@ Primitive load_primitive_custom(PrimitiveInstance pi) {
     prim.prim_index = pi.specific_prim_index;
     prim.sub_index = pi.sub_index;
     prim.user_data = pi.user_data;
-    prim.z = pi.z;
+    prim.z = float(pi.z);
 
     return prim;
 }

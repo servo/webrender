@@ -48,6 +48,11 @@ lazy_static! {
     };
 }
 
+#[repr(u32)]
+pub enum DepthFunction {
+    Less = gl::LESS,
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum TextureTarget {
     Default,
@@ -1805,6 +1810,10 @@ impl Device {
 
     pub fn disable_depth(&self) {
         gl::disable(gl::DEPTH_TEST);
+    }
+
+    pub fn set_depth_func(&self, depth_func: DepthFunction) {
+        gl::depth_func(depth_func as gl::GLuint);
     }
 
     pub fn enable_depth_write(&self) {
