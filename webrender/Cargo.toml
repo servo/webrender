@@ -29,12 +29,13 @@ time = "0.1"
 threadpool = "1.3.2"
 webrender_traits = {path = "../webrender_traits", default-features = false}
 bitflags = "0.7"
+image = "0.10"
 
 [target.'cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))'.dependencies]
 freetype = {version = "0.1.2", default-features = false}
 
 [target.'cfg(target_os = "windows")'.dependencies]
-dwrote = "0.1.1"
+dwrote = "0.1.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.4.1"
