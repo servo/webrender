@@ -26,18 +26,6 @@ precision mediump sampler2DArray;
 #define UV_NORMALIZED    uint(0)
 #define UV_PIXEL         uint(1)
 
-// Border styles as defined in webrender_traits/types.rs
-#define BORDER_STYLE_NONE         0
-#define BORDER_STYLE_SOLID        1
-#define BORDER_STYLE_DOUBLE       2
-#define BORDER_STYLE_DOTTED       3
-#define BORDER_STYLE_DASHED       4
-#define BORDER_STYLE_HIDDEN       5
-#define BORDER_STYLE_GROOVE       6
-#define BORDER_STYLE_RIDGE        7
-#define BORDER_STYLE_INSET        8
-#define BORDER_STYLE_OUTSET       9
-
 #define MAX_STOPS_PER_ANGLE_GRADIENT 8
 
 uniform sampler2DArray sCache;
@@ -229,30 +217,6 @@ Glyph fetch_glyph(int index) {
     glyph.offset = texelFetchOffset(sData16, uv, 0, ivec2(0, 0));
 
     return glyph;
-}
-
-struct Border {
-    vec4 style;
-    vec4 widths;
-    vec4 colors[4];
-    vec4 radii[2];
-};
-
-Border fetch_border(int index) {
-    Border border;
-
-    ivec2 uv = get_fetch_uv_8(index);
-
-    border.style = texelFetchOffset(sData128, uv, 0, ivec2(0, 0));
-    border.widths = texelFetchOffset(sData128, uv, 0, ivec2(1, 0));
-    border.colors[0] = texelFetchOffset(sData128, uv, 0, ivec2(2, 0));
-    border.colors[1] = texelFetchOffset(sData128, uv, 0, ivec2(3, 0));
-    border.colors[2] = texelFetchOffset(sData128, uv, 0, ivec2(4, 0));
-    border.colors[3] = texelFetchOffset(sData128, uv, 0, ivec2(5, 0));
-    border.radii[0] = texelFetchOffset(sData128, uv, 0, ivec2(6, 0));
-    border.radii[1] = texelFetchOffset(sData128, uv, 0, ivec2(7, 0));
-
-    return border;
 }
 
 vec4 fetch_instance_geometry(int index) {
