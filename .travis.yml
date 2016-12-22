@@ -3,7 +3,7 @@ os:
   - linux
   - osx
 rust:
-  - nightly-2016-10-09
+  - nightly-2016-12-19
 notifications:
   webhooks: http://build.servo.org:54856/travis
 addons:
