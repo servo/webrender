@@ -139,6 +139,19 @@ fn main() {
     builder.push_rect(LayoutRect::new(LayoutPoint::new(250.0, 100.0), LayoutSize::new(100.0, 100.0)),
                       sub_clip,
                       ColorF::new(0.0, 1.0, 0.0, 1.0));
+    let border_side = webrender_traits::BorderSide {
+        width: 10.0,
+        color: ColorF::new(0.0, 0.0, 1.0, 1.0),
+        style: webrender_traits::BorderStyle::Groove,
+    };
+    builder.push_border(LayoutRect::new(LayoutPoint::new(100.0, 100.0), LayoutSize::new(100.0, 100.0)),
+                        sub_clip,
+                        border_side,
+                        border_side,
+                        border_side,
+                        border_side,
+                        webrender_traits::BorderRadius::uniform(20.0));
+
 
     if false { // draw text?
         let font_bytes = load_file("res/FreeSans.ttf");
