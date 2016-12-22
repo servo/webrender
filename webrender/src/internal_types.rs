@@ -295,6 +295,7 @@ pub struct PackedVertex {
 }
 
 #[derive(Debug)]
+#[repr(C)]
 pub struct DebugFontVertex {
     pub x: f32,
     pub y: f32,
@@ -315,6 +316,7 @@ impl DebugFontVertex {
     }
 }
 
+#[repr(C)]
 pub struct DebugColorVertex {
     pub x: f32,
     pub y: f32,
