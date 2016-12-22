@@ -77,7 +77,6 @@ fn main() {
         device_pixel_ratio: 1.0,
         resource_override_path: res_path,
         enable_aa: false,
-        enable_msaa: false,
         enable_profiler: false,
         enable_recording: false,
         enable_scrollbars: false,
