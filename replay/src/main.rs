@@ -111,7 +111,6 @@ fn main() {
         device_pixel_ratio: window.hidpi_factor(),
         resource_override_path: resource_path,
         enable_aa: false,
-        enable_msaa: false,
         enable_profiler: false,
         enable_recording: false,
         enable_scrollbars: false,

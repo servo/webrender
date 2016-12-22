@@ -158,7 +158,6 @@ impl Wrench {
             device_pixel_ratio: dp_ratio,
             resource_override_path: shader_override_path,
             enable_aa: false,
-            enable_msaa: false,
             enable_profiler: false,
             enable_recording: save_type.is_some(),
             enable_scrollbars: false,

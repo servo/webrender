@@ -401,7 +401,6 @@ impl Renderer {
     ///    device_pixel_ratio: 1.0,
     ///    resource_override_path: None,
     ///    enable_aa: false,
-    ///    enable_msaa: false,
     ///    enable_profiler: false,
     /// };
     /// let (renderer, sender) = Renderer::new(opts);
@@ -1460,7 +1459,6 @@ pub struct RendererOptions {
     pub device_pixel_ratio: f32,
     pub resource_override_path: Option<PathBuf>,
     pub enable_aa: bool,
-    pub enable_msaa: bool,
     pub enable_profiler: bool,
     pub debug: bool,
     pub enable_recording: bool,
