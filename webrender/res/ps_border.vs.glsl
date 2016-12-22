@@ -55,45 +55,81 @@ void main(void) {
     switch (sub_part) {
         case PST_TOP_LEFT:
             segment_rect = vec4(tl_outer, tl_inner - tl_outer);
+            vBorderStyle = int(border.style.x);
+            vHorizontalColor = border.colors[BORDER_LEFT];
+            vVerticalColor = border.colors[BORDER_TOP];
+            vRadii = vec4(border.radii[0].xy,
+                          border.radii[0].xy - border.widths.xy);
             break;
         case PST_TOP_RIGHT:
             segment_rect = vec4(tr_inner.x,
                                 tr_outer.y,
                                 tr_outer.x - tr_inner.x,
                                 tr_inner.y - tr_outer.y);
+            vBorderStyle = int(border.style.y);
+            vHorizontalColor = border.colors[BORDER_TOP];
+            vVerticalColor = border.colors[BORDER_RIGHT];
+            vRadii = vec4(border.radii[0].zw,
+                          border.radii[0].zw - border.widths.zy);
             break;
         case PST_BOTTOM_RIGHT:
             segment_rect = vec4(br_inner, br_outer - br_inner);
+            vBorderStyle = int(border.style.z);
+            vHorizontalColor = border.colors[BORDER_BOTTOM];
+            vVerticalColor = border.colors[BORDER_RIGHT];
+            vRadii = vec4(border.radii[1].xy,
+                          border.radii[1].xy - border.widths.zw);
             break;
         case PST_BOTTOM_LEFT:
             segment_rect = vec4(bl_outer.x,
                                 bl_inner.y,
                                 bl_inner.x - bl_outer.x,
                                 bl_outer.y - bl_inner.y);
+            vBorderStyle = int(border.style.w);
+            vHorizontalColor = border.colors[BORDER_BOTTOM];
+            vVerticalColor = border.colors[BORDER_LEFT];
+            vRadii = vec4(border.radii[1].zw,
+                          border.radii[1].zw - border.widths.xw);
             break;
         case PST_LEFT:
             segment_rect = vec4(tl_outer.x,
                                 tl_inner.y,
                                 border.widths.x,
                                 bl_inner.y - tl_inner.y);
+            vBorderStyle = int(border.style.x);
+            vHorizontalColor = border.colors[BORDER_LEFT];
+            vVerticalColor = border.colors[BORDER_LEFT];
+            vRadii = vec4(0.0);
             break;
         case PST_RIGHT:
             segment_rect = vec4(tr_outer.x - border.widths.z,
                                 tr_inner.y,
                                 border.widths.z,
                                 br_inner.y - tr_inner.y);
+            vBorderStyle = int(border.style.z);
+            vHorizontalColor = border.colors[BORDER_RIGHT];
+            vVerticalColor = border.colors[BORDER_RIGHT];
+            vRadii = vec4(0.0);
             break;
         case PST_BOTTOM:
             segment_rect = vec4(bl_inner.x,
                                 bl_outer.y - border.widths.w,
                                 br_inner.x - bl_inner.x,
                                 border.widths.w);
+            vBorderStyle = int(border.style.w);
+            vHorizontalColor = border.colors[BORDER_BOTTOM];
+            vVerticalColor = border.colors[BORDER_BOTTOM];
+            vRadii = vec4(0.0);
             break;
         case PST_TOP:
             segment_rect = vec4(tl_inner.x,
                                 tl_outer.y,
                                 tr_inner.x - tl_inner.x,
                                 border.widths.y);
+            vBorderStyle = int(border.style.y);
+            vHorizontalColor = border.colors[BORDER_TOP];
+            vVerticalColor = border.colors[BORDER_TOP];
+            vRadii = vec4(0.0);
             break;
     }
 
@@ -116,61 +152,6 @@ void main(void) {
     // Local space
     vLocalRect = prim.local_rect;
 #endif
-
-    switch (sub_part) {
-        case PST_LEFT:
-            vBorderStyle = int(border.style.x);
-            vHorizontalColor = border.colors[BORDER_LEFT];
-            vVerticalColor = border.colors[BORDER_LEFT];
-            vRadii = vec4(0.0);
-            break;
-        case PST_TOP_LEFT:
-            vBorderStyle = int(border.style.x);
-            vHorizontalColor = border.colors[BORDER_LEFT];
-            vVerticalColor = border.colors[BORDER_TOP];
-            vRadii = vec4(border.radii[0].xy,
-                          border.radii[0].xy - border.widths.xy);
-            break;
-        case PST_TOP:
-            vBorderStyle = int(border.style.y);
-            vHorizontalColor = border.colors[BORDER_TOP];
-            vVerticalColor = border.colors[BORDER_TOP];
-            vRadii = vec4(0.0);
-            break;
-        case PST_TOP_RIGHT:
-            vBorderStyle = int(border.style.y);
-            vHorizontalColor = border.colors[BORDER_TOP];
-            vVerticalColor = border.colors[BORDER_RIGHT];
-            vRadii = vec4(border.radii[0].zw,
-                          border.radii[0].zw - border.widths.zy);
-            break;
-        case PST_RIGHT:
-            vBorderStyle = int(border.style.z);
-            vHorizontalColor = border.colors[BORDER_RIGHT];
-            vVerticalColor = border.colors[BORDER_RIGHT];
-            vRadii = vec4(0.0);
-            break;
-        case PST_BOTTOM_RIGHT:
-            vBorderStyle = int(border.style.z);
-            vHorizontalColor = border.colors[BORDER_BOTTOM];
-            vVerticalColor = border.colors[BORDER_RIGHT];
-            vRadii = vec4(border.radii[1].xy,
-                          border.radii[1].xy - border.widths.zw);
-            break;
-        case PST_BOTTOM:
-            vBorderStyle = int(border.style.w);
-            vHorizontalColor = border.colors[BORDER_BOTTOM];
-            vVerticalColor = border.colors[BORDER_BOTTOM];
-            vRadii = vec4(0.0);
-            break;
-        case PST_BOTTOM_LEFT:
-            vBorderStyle = int(border.style.w);
-            vHorizontalColor = border.colors[BORDER_BOTTOM];
-            vVerticalColor = border.colors[BORDER_LEFT];
-            vRadii = vec4(border.radii[1].zw,
-                          border.radii[1].zw - border.widths.xw);
-            break;
-    }
 
     float x0, y0, x1, y1;
     switch (sub_part) {
@@ -236,5 +217,8 @@ void main(void) {
 #else
     vDistanceFromMixLine = (vi.local_clamped_pos.x - x0) * height -
                            (vi.local_clamped_pos.y - y0) * width;
+    vDistanceFromMiddle = (vi.local_clamped_pos.x - vLocalRect.x) +
+                          (vi.local_clamped_pos.y - vLocalRect.y) -
+                          0.5 * (vLocalRect.z + vLocalRect.w);
 #endif
 }

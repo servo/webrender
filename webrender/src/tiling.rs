@@ -2105,6 +2105,8 @@ impl FrameBuilder {
             BorderStyle::Dotted |
             BorderStyle::Dashed |
             BorderStyle::Inset |
+            BorderStyle::Ridge |
+            BorderStyle::Groove |
             BorderStyle::Outset |
             BorderStyle::Double => {
                 return true;
