@@ -48,6 +48,11 @@ lazy_static! {
     };
 }
 
+#[repr(u32)]
+pub enum DepthFunction {
+    Less = gl::LESS,
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum TextureTarget {
     Default,
@@ -172,6 +177,7 @@ impl VertexFormat {
                                 VertexAttribute::ClipTaskIndex,
                                 VertexAttribute::LayerIndex,
                                 VertexAttribute::ElementIndex,
+                                VertexAttribute::ZIndex,
                                ].into_iter() {
                     gl::enable_vertex_attrib_array(attrib as gl::GLuint);
                     gl::vertex_attrib_divisor(attrib as gl::GLuint, 1);
@@ -375,6 +381,7 @@ impl Program {
         gl::bind_attrib_location(self.id, VertexAttribute::LayerIndex as gl::GLuint, "aLayerIndex");
         gl::bind_attrib_location(self.id, VertexAttribute::ElementIndex as gl::GLuint, "aElementIndex");
         gl::bind_attrib_location(self.id, VertexAttribute::UserData as gl::GLuint, "aUserData");
+        gl::bind_attrib_location(self.id, VertexAttribute::ZIndex as gl::GLuint, "aZIndex");
 
         gl::bind_attrib_location(self.id, ClearAttribute::Rectangle as gl::GLuint, "aClearRectangle");
 
@@ -1127,6 +1134,21 @@ impl Device {
                                                   texture_id.name,
                                                   0,
                                                   fbo_index as gl::GLint);
+
+                    // TODO(gw): Share depth render buffer between FBOs to
+                    //           save memory!
+                    // TODO(gw): Free these renderbuffers on exit!
+                    let renderbuffer_ids = gl::gen_renderbuffers(1);
+                    let depth_rb = renderbuffer_ids[0];
+                    gl::bind_renderbuffer(gl::RENDERBUFFER, depth_rb);
+                    gl::renderbuffer_storage(gl::RENDERBUFFER,
+                                             gl::DEPTH_COMPONENT24,
+                                             texture.width as gl::GLsizei,
+                                             texture.height as gl::GLsizei);
+                    gl::framebuffer_renderbuffer(gl::FRAMEBUFFER,
+                                                 gl::DEPTH_ATTACHMENT,
+                                                 gl::RENDERBUFFER,
+                                                 depth_rb);
                 }
             }
             None => {
@@ -1762,13 +1784,40 @@ impl Device {
         }
     }
 
-    pub fn clear_color(&self, c: [f32; 4]) {
-        gl::clear_color(c[0], c[1], c[2], c[3]);
-        gl::clear(gl::COLOR_BUFFER_BIT);
+    pub fn clear_target(&self,
+                        color: Option<[f32; 4]>,
+                        depth: Option<f32>) {
+        let mut clear_bits = 0;
+
+        if let Some(color) = color {
+            gl::clear_color(color[0], color[1], color[2], color[3]);
+            clear_bits |= gl::COLOR_BUFFER_BIT;
+        }
+
+        if let Some(depth) = depth {
+            gl::clear_depth(depth as f64);
+            clear_bits |= gl::DEPTH_BUFFER_BIT;
+        }
+
+        if clear_bits != 0 {
+            gl::clear(clear_bits);
+        }
+    }
+
+    pub fn enable_depth(&self) {
+        gl::enable(gl::DEPTH_TEST);
     }
 
     pub fn disable_depth(&self) {
         gl::disable(gl::DEPTH_TEST);
+    }
+
+    pub fn set_depth_func(&self, depth_func: DepthFunction) {
+        gl::depth_func(depth_func as gl::GLuint);
+    }
+
+    pub fn enable_depth_write(&self) {
+        gl::depth_mask(true);
     }
 
     pub fn disable_depth_write(&self) {

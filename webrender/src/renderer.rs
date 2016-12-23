@@ -11,7 +11,7 @@
 
 use debug_colors;
 use debug_render::DebugRenderer;
-use device::{Device, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler};
+use device::{DepthFunction, Device, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler};
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
 use euclid::Matrix4D;
 use fnv::FnvHasher;
@@ -32,8 +32,8 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::TextureCache;
-use tiling::{Frame, FrameBuilderConfig, PrimitiveBatchData};
-use tiling::{BlurCommand, CacheClipInstance, ClearTile, PrimitiveInstance, RenderTarget};
+use tiling::{Frame, FrameBuilderConfig, PrimitiveBatch, PrimitiveBatchData};
+use tiling::{BlurCommand, CacheClipInstance, PrimitiveInstance, RenderTarget};
 use time::precise_time_ns;
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
@@ -49,7 +49,6 @@ const GPU_TAG_CACHE_CLIP: GpuProfileTag = GpuProfileTag { label: "C_Clip", color
 const GPU_TAG_CACHE_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "C_TextRun", color: debug_colors::MISTYROSE };
 const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: debug_colors::WHITE };
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: debug_colors::SLATEGREY };
-const GPU_TAG_CLEAR_TILES: GpuProfileTag = GpuProfileTag { label: "Clear Tiles", color: debug_colors::BROWN };
 const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: debug_colors::RED };
 const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: debug_colors::GREEN };
 const GPU_TAG_PRIM_YUV_IMAGE: GpuProfileTag = GpuProfileTag { label: "YuvImage", color: debug_colors::DARKGREEN };
@@ -123,7 +122,6 @@ const CLIP_FEATURE: &'static str = "CLIP";
 
 enum ShaderKind {
     Primitive,
-    Clear,
     Cache,
     ClipCache,
 }
@@ -158,9 +156,6 @@ impl LazilyCompiledShader {
     fn get(&mut self, device: &mut Device) -> ProgramId {
         if self.id.is_none() {
             let id = match self.kind {
-                ShaderKind::Clear => {
-                    create_clear_shader(self.name, device)
-                }
                 ShaderKind::Primitive | ShaderKind::Cache => {
                     create_prim_shader(self.name,
                                        device,
@@ -275,16 +270,6 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> ProgramId {
     program_id
 }
 
-fn create_clear_shader(name: &'static str, device: &mut Device) -> ProgramId {
-    let includes = &[];
-    let program_id = device.create_program_with_prefix(name,
-                                                       includes,
-                                                       None);
-    debug!("ClearShader {}", name);
-
-    program_id
-}
-
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
 pub struct Renderer {
@@ -330,13 +315,10 @@ pub struct Renderer {
     ps_blend: LazilyCompiledShader,
     ps_composite: LazilyCompiledShader,
 
-    tile_clear_shader: LazilyCompiledShader,
-
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
     enable_profiler: bool,
     clear_framebuffer: bool,
-    clear_empty_tiles: bool,
     clear_color: ColorF,
     debug: DebugRenderer,
     backend_profile_counters: BackendProfileCounters,
@@ -348,7 +330,6 @@ pub struct Renderer {
 
     gpu_profile: GpuProfiler<GpuProfileTag>,
     prim_vao_id: VAOId,
-    clear_vao_id: VAOId,
     blur_vao_id: VAOId,
     clip_vao_id: VAOId,
 
@@ -517,12 +498,6 @@ impl Renderer {
                                                      &mut device,
                                                      options.precache_shaders);
 
-        let tile_clear_shader = LazilyCompiledShader::new(ShaderKind::Clear,
-                                                          "ps_clear",
-                                                          &[],
-                                                          &mut device,
-                                                          options.precache_shaders);
-
         let mut texture_cache = TextureCache::new();
 
         let white_pixels: Vec<u8> = vec![
@@ -593,7 +568,6 @@ impl Renderer {
         device.update_vao_indices(prim_vao_id, &quad_indices, VertexUsageHint::Static);
         device.update_vao_main_vertices(prim_vao_id, &quad_vertices, VertexUsageHint::Static);
 
-        let clear_vao_id = device.create_vao_with_new_instances(VertexFormat::Clear, mem::size_of::<ClearTile>() as i32, prim_vao_id);
         let blur_vao_id = device.create_vao_with_new_instances(VertexFormat::Blur, mem::size_of::<BlurCommand>() as i32, prim_vao_id);
         let clip_vao_id = device.create_vao_with_new_instances(VertexFormat::Clip, mem::size_of::<CacheClipInstance>() as i32, prim_vao_id);
 
@@ -644,7 +618,6 @@ impl Renderer {
             current_frame: None,
             pending_texture_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
-            tile_clear_shader: tile_clear_shader,
             cs_box_shadow: cs_box_shadow,
             cs_text_run: cs_text_run,
             cs_blur: cs_blur,
@@ -672,13 +645,11 @@ impl Renderer {
             profiler: Profiler::new(),
             enable_profiler: options.enable_profiler,
             clear_framebuffer: options.clear_framebuffer,
-            clear_empty_tiles: options.clear_empty_tiles,
             clear_color: options.clear_color,
             last_time: 0,
             render_targets: Vec::new(),
             gpu_profile: GpuProfiler::new(),
             prim_vao_id: prim_vao_id,
-            clear_vao_id: clear_vao_id,
             blur_vao_id: blur_vao_id,
             clip_vao_id: clip_vao_id,
             layer_texture: layer_texture,
@@ -989,12 +960,87 @@ impl Renderer {
         self.profile_counters.draw_calls.inc();
     }
 
+    fn submit_batch(&mut self,
+                    batch: &PrimitiveBatch,
+                    projection: &Matrix4D<f32>) {
+        let transform_kind = batch.key.flags.transform_kind();
+        let needs_clipping = batch.key.flags.needs_clipping();
+        debug_assert!(!needs_clipping || batch.key.blend_mode == BlendMode::Alpha);
+
+        let (data, marker, shader) = match &batch.data {
+            &PrimitiveBatchData::CacheImage(ref data) => {
+                let shader = self.ps_cache_image.get(&mut self.device, transform_kind);
+                (data, GPU_TAG_PRIM_CACHE_IMAGE, shader)
+            }
+            &PrimitiveBatchData::Blend(ref data) => {
+                let shader = self.ps_blend.get(&mut self.device);
+                (data, GPU_TAG_PRIM_BLEND, shader)
+            }
+            &PrimitiveBatchData::Composite(ref data) => {
+                // The composite shader only samples from sCache.
+                let shader = self.ps_composite.get(&mut self.device);
+                (data, GPU_TAG_PRIM_COMPOSITE, shader)
+            }
+            &PrimitiveBatchData::Rectangles(ref data) => {
+                let shader = if needs_clipping {
+                    self.ps_rectangle_clip.get(&mut self.device, transform_kind)
+                } else {
+                    self.ps_rectangle.get(&mut self.device, transform_kind)
+                };
+                (data, GPU_TAG_PRIM_RECT, shader)
+            }
+            &PrimitiveBatchData::Image(ref data) => {
+                let shader = self.ps_image.get(&mut self.device, transform_kind);
+                (data, GPU_TAG_PRIM_IMAGE, shader)
+            }
+            &PrimitiveBatchData::YuvImage(ref data) => {
+                let shader = self.ps_yuv_image.get(&mut self.device, transform_kind);
+                (data, GPU_TAG_PRIM_YUV_IMAGE, shader)
+            }
+            &PrimitiveBatchData::Borders(ref data) => {
+                let shader = self.ps_border.get(&mut self.device, transform_kind);
+                (data, GPU_TAG_PRIM_BORDER, shader)
+            }
+            &PrimitiveBatchData::BoxShadow(ref data) => {
+                let shader = self.ps_box_shadow.get(&mut self.device, transform_kind);
+                (data, GPU_TAG_PRIM_BOX_SHADOW, shader)
+            }
+            &PrimitiveBatchData::TextRun(ref data) => {
+                let shader = match batch.key.blend_mode {
+                    BlendMode::Subpixel(..) => self.ps_text_run_subpixel.get(&mut self.device, transform_kind),
+                    BlendMode::Alpha | BlendMode::None => self.ps_text_run.get(&mut self.device, transform_kind),
+                };
+                (data, GPU_TAG_PRIM_TEXT_RUN, shader)
+            }
+            &PrimitiveBatchData::AlignedGradient(ref data) => {
+                let shader = self.ps_gradient.get(&mut self.device, transform_kind);
+                (data, GPU_TAG_PRIM_GRADIENT, shader)
+            }
+            &PrimitiveBatchData::AngleGradient(ref data) => {
+                let shader = self.ps_angle_gradient.get(&mut self.device, transform_kind);
+                (data, GPU_TAG_PRIM_ANGLE_GRADIENT, shader)
+            }
+        };
+
+        let _gm = self.gpu_profile.add_marker(marker);
+        let vao = self.prim_vao_id;
+        self.draw_instanced_batch(data,
+                                  vao,
+                                  shader,
+                                  &batch.key.textures,
+                                  &projection);
+    }
+
     fn draw_target(&mut self,
                    render_target: Option<(TextureId, i32)>,
                    target: &RenderTarget,
                    target_size: &DeviceSize,
                    cache_texture: Option<TextureId>,
-                   should_clear: bool) {
+                   should_clear: bool,
+                   background_color: Option<ColorF>) {
+        self.device.disable_depth();
+        self.device.enable_depth_write();
+
         let dimensions = [target_size.width as u32, target_size.height as u32];
         let projection = {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
@@ -1017,7 +1063,9 @@ impl Renderer {
                                    ORTHO_FAR_PLANE)
                 ),
                 None => (
-                    self.clear_color.to_array(),
+                    background_color.map_or(self.clear_color.to_array(), |color| {
+                        color.to_array()
+                    }),
                     Matrix4D::ortho(0.0,
                                    target_size.width,
                                    target_size.height,
@@ -1027,12 +1075,19 @@ impl Renderer {
                 ),
             };
 
-            if should_clear {
-                self.device.clear_color(color);
-            }
+            let clear_depth = Some(1.0);
+            let clear_color = if should_clear {
+                Some(color)
+            } else {
+                None
+            };
+
+            self.device.clear_target(clear_color, clear_depth);
 
             projection
         };
+
+        self.device.disable_depth_write();
 
         // Draw any blurs for this target.
         // Blurs are rendered as a standard 2-pass
@@ -1157,11 +1212,17 @@ impl Renderer {
         self.device.set_blend(false);
         let mut prev_blend_mode = BlendMode::None;
 
-        for batch in &target.alpha_batcher.batches {
-            let transform_kind = batch.key.flags.transform_kind();
-            let needs_clipping = batch.key.flags.needs_clipping();
-            debug_assert!(!needs_clipping || batch.key.blend_mode == BlendMode::Alpha);
+        self.device.set_depth_func(DepthFunction::Less);
+        self.device.enable_depth();
+        self.device.enable_depth_write();
 
+        for batch in &target.alpha_batcher.opaque_batches {
+            self.submit_batch(batch, &projection);
+        }
+
+        self.device.disable_depth_write();
+
+        for batch in &target.alpha_batcher.alpha_batches {
             if batch.key.blend_mode != prev_blend_mode {
                 match batch.key.blend_mode {
                     BlendMode::None => {
@@ -1179,71 +1240,10 @@ impl Renderer {
                 prev_blend_mode = batch.key.blend_mode;
             }
 
-            let (data, marker, shader) = match &batch.data {
-                &PrimitiveBatchData::CacheImage(ref data) => {
-                    let shader = self.ps_cache_image.get(&mut self.device, transform_kind);
-                    (data, GPU_TAG_PRIM_CACHE_IMAGE, shader)
-                }
-                &PrimitiveBatchData::Blend(ref data) => {
-                    let shader = self.ps_blend.get(&mut self.device);
-                    (data, GPU_TAG_PRIM_BLEND, shader)
-                }
-                &PrimitiveBatchData::Composite(ref data) => {
-                    // The composite shader only samples from sCache.
-                    debug_assert!(cache_texture.is_some());
-                    let shader = self.ps_composite.get(&mut self.device);
-                    (data, GPU_TAG_PRIM_COMPOSITE, shader)
-                }
-                &PrimitiveBatchData::Rectangles(ref data) => {
-                    let shader = if needs_clipping {
-                        self.ps_rectangle_clip.get(&mut self.device, transform_kind)
-                    } else {
-                        self.ps_rectangle.get(&mut self.device, transform_kind)
-                    };
-                    (data, GPU_TAG_PRIM_RECT, shader)
-                }
-                &PrimitiveBatchData::Image(ref data) => {
-                    let shader = self.ps_image.get(&mut self.device, transform_kind);
-                    (data, GPU_TAG_PRIM_IMAGE, shader)
-                }
-                &PrimitiveBatchData::YuvImage(ref data) => {
-                    let shader = self.ps_yuv_image.get(&mut self.device, transform_kind);
-                    (data, GPU_TAG_PRIM_YUV_IMAGE, shader)
-                }
-                &PrimitiveBatchData::Borders(ref data) => {
-                    let shader = self.ps_border.get(&mut self.device, transform_kind);
-                    (data, GPU_TAG_PRIM_BORDER, shader)
-                }
-                &PrimitiveBatchData::BoxShadow(ref data) => {
-                    let shader = self.ps_box_shadow.get(&mut self.device, transform_kind);
-                    (data, GPU_TAG_PRIM_BOX_SHADOW, shader)
-                }
-                &PrimitiveBatchData::TextRun(ref data) => {
-                    let shader = match batch.key.blend_mode {
-                        BlendMode::Subpixel(..) => self.ps_text_run_subpixel.get(&mut self.device, transform_kind),
-                        BlendMode::Alpha | BlendMode::None => self.ps_text_run.get(&mut self.device, transform_kind),
-                    };
-                    (data, GPU_TAG_PRIM_TEXT_RUN, shader)
-                }
-                &PrimitiveBatchData::AlignedGradient(ref data) => {
-                    let shader = self.ps_gradient.get(&mut self.device, transform_kind);
-                    (data, GPU_TAG_PRIM_GRADIENT, shader)
-                }
-                &PrimitiveBatchData::AngleGradient(ref data) => {
-                    let shader = self.ps_angle_gradient.get(&mut self.device, transform_kind);
-                    (data, GPU_TAG_PRIM_ANGLE_GRADIENT, shader)
-                }
-            };
-
-            let _gm = self.gpu_profile.add_marker(marker);
-            let vao = self.prim_vao_id;
-            self.draw_instanced_batch(data,
-                                      vao,
-                                      shader,
-                                      &batch.key.textures,
-                                      &projection);
+            self.submit_batch(batch, &projection);
         }
 
+        self.device.disable_depth();
         self.device.set_blend(false);
     }
 
@@ -1317,15 +1317,8 @@ impl Renderer {
         self.device.disable_stencil();
         self.device.set_blend(false);
 
-        let projection = Matrix4D::ortho(0.0,
-                                         framebuffer_size.width as f32,
-                                         framebuffer_size.height as f32,
-                                         0.0,
-                                         ORTHO_NEAR_PLANE,
-                                         ORTHO_FAR_PLANE);
-
         if frame.passes.is_empty() {
-            self.device.clear_color(self.clear_color.to_array());
+            self.device.clear_target(Some(self.clear_color.to_array()), Some(1.0));
         } else {
             // Add new render targets to the pool if required.
             let needed_targets = frame.passes.len() - 1;     // framebuffer doesn't need a target!
@@ -1386,26 +1379,13 @@ impl Renderer {
                                      target,
                                      &size,
                                      src_id,
-                                     do_clear);
+                                     do_clear,
+                                     frame.background_color);
 
                 }
 
                 src_id = target_id;
             }
-        }
-
-        let _gm = self.gpu_profile.add_marker(GPU_TAG_CLEAR_TILES);
-
-        // Tiles with no items
-        if self.clear_empty_tiles && !frame.empty_tiles.is_empty() {
-            self.device.set_blend(false);
-            let vao = self.clear_vao_id;
-            let shader = self.tile_clear_shader.get(&mut self.device);
-            self.draw_instanced_batch(&frame.empty_tiles,
-                                      vao,
-                                      shader,
-                                      &BatchTextures::no_texture(),
-                                      &projection);
         }
 
         self.release_external_textures();
@@ -1466,8 +1446,6 @@ pub struct RendererOptions {
     pub precache_shaders: bool,
     pub renderer_kind: RendererKind,
     pub enable_subpixel_aa: bool,
-    // TODO: this option ignores the clear color (always opaque white).
-    pub clear_empty_tiles: bool,
     pub clear_framebuffer: bool,
     pub clear_color: ColorF,
 }

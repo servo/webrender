@@ -61,6 +61,7 @@ in int aClipTaskIndex;
 in int aLayerIndex;
 in int aElementIndex;
 in ivec2 aUserData;
+in int aZIndex;
 
 // get_fetch_uv is a macro to work around a macOS Intel driver parsing bug.
 // TODO: convert back to a function once the driver issues are resolved, if ever.
@@ -250,6 +251,7 @@ struct PrimitiveInstance {
     int clip_task_index;
     int layer_index;
     int sub_index;
+    int z;
     ivec2 user_data;
 };
 
@@ -263,6 +265,7 @@ PrimitiveInstance fetch_prim_instance() {
     pi.layer_index = aLayerIndex;
     pi.sub_index = aElementIndex;
     pi.user_data = aUserData;
+    pi.z = aZIndex;
 
     return pi;
 }
@@ -300,6 +303,7 @@ struct Primitive {
     // this index allows the vertex shader to recognize the difference
     int sub_index;
     ivec2 user_data;
+    float z;
 };
 
 Primitive load_primitive_custom(PrimitiveInstance pi) {
@@ -316,6 +320,7 @@ Primitive load_primitive_custom(PrimitiveInstance pi) {
     prim.prim_index = pi.specific_prim_index;
     prim.sub_index = pi.sub_index;
     prim.user_data = pi.user_data;
+    prim.z = float(pi.z);
 
     return prim;
 }
@@ -388,6 +393,7 @@ struct VertexInfo {
 
 VertexInfo write_vertex(vec4 instance_rect,
                         vec4 local_clip_rect,
+                        float z,
                         Layer layer,
                         Tile tile) {
     vec2 p0 = floor(0.5 + instance_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
@@ -415,7 +421,7 @@ VertexInfo write_vertex(vec4 instance_rect,
 
     vec2 final_pos = clamped_pos + tile.screen_origin_task_origin.zw - tile.screen_origin_task_origin.xy;
 
-    gl_Position = uTransform * vec4(final_pos, 0, 1);
+    gl_Position = uTransform * vec4(final_pos, z, 1.0);
 
     VertexInfo vi = VertexInfo(Rect(p0, p1), local_clamped_pos.xy, clamped_pos.xy);
     return vi;
@@ -431,6 +437,7 @@ struct TransformVertexInfo {
 
 TransformVertexInfo write_transform_vertex(vec4 instance_rect,
                                            vec4 local_clip_rect,
+                                           float z,
                                            Layer layer,
                                            Tile tile) {
     vec2 lp0_base = instance_rect.xy;
@@ -482,7 +489,7 @@ TransformVertexInfo write_transform_vertex(vec4 instance_rect,
     // apply the task offset
     vec2 final_pos = clamped_pos + tile.screen_origin_task_origin.zw - tile.screen_origin_task_origin.xy;
 
-    gl_Position = uTransform * vec4(final_pos, 0.0, 1.0);
+    gl_Position = uTransform * vec4(final_pos, z, 1.0);
 
     return TransformVertexInfo(layer_pos.xyw, clamped_pos, clipped_local_rect);
 }

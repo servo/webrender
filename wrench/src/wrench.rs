@@ -166,7 +166,6 @@ impl Wrench {
             precache_shaders: false,
             renderer_kind: RendererKind::Native,
             clear_framebuffer: true,
-            clear_empty_tiles: false,
             clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
         };
 

@@ -136,6 +136,7 @@ void main(void) {
 #ifdef WR_FEATURE_TRANSFORM
     TransformVertexInfo vi = write_transform_vertex(segment_rect,
                                                     prim.local_clip_rect,
+                                                    prim.z,
                                                     prim.layer,
                                                     prim.tile);
     vLocalPos = vi.local_pos;
@@ -145,6 +146,7 @@ void main(void) {
 #else
     VertexInfo vi = write_vertex(segment_rect,
                                  prim.local_clip_rect,
+                                 prim.z,
                                  prim.layer,
                                  prim.tile);
     vLocalPos = vi.local_clamped_pos.xy;

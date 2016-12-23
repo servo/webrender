@@ -513,7 +513,16 @@ impl Frame {
         self.layers.insert(root_fixed_layer_id, layer.clone());
         self.layers.insert(root_scroll_layer_id, layer);
 
+        let background_color = root_pipeline.background_color.and_then(|color| {
+            if color.a > 0.0 {
+                Some(color)
+            } else {
+                None
+            }
+        });
+
         let mut frame_builder = FrameBuilder::new(root_pipeline.viewport_size,
+                                                  background_color,
                                                   self.debug,
                                                   self.frame_builder_config);
 
