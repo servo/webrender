@@ -487,10 +487,12 @@ impl Frame {
             if CAN_OVERSCROLL {
                 layer.stretch_overscroll_spring();
             }
+
             scrolled_a_layer = scrolled_a_layer ||
                 layer.scrolling.offset != original_layer_scroll_offset ||
                 layer.scrolling.started_bouncing_back;
         }
+
         scrolled_a_layer
     }
 
