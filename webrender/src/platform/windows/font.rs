@@ -123,18 +123,19 @@ impl FontContext {
         }
 
         let pixels = analysis.create_alpha_texture(tex_type, bounds);
-        let mut rgba_pixels = vec![0; pixels.len() * 4];
-
-        match render_mode.unwrap() {
+        let rgba_pixels = match render_mode.unwrap() {
             FontRenderMode::Mono => {
+                let mut rgba_pixels = vec![0; pixels.len() * 4];
                 for i in 0..pixels.len() {
                     rgba_pixels[i*4+0] = 0xff;
                     rgba_pixels[i*4+1] = 0xff;
                     rgba_pixels[i*4+2] = 0xff;
                     rgba_pixels[i*4+3] = pixels[i];
                 }
+                rgba_pixels
             }
             FontRenderMode::Alpha => {
+                let mut rgba_pixels = vec![0; pixels.len()/3 * 4];
                 for i in 0..pixels.len()/3 {
                     // TODO(vlad): we likely need to do something smarter
                     let alpha = (pixels[i*3+0] as u32 + pixels[i*3+0] as u32 + pixels[i*3+0] as u32) / 3;
@@ -143,16 +144,19 @@ impl FontContext {
                     rgba_pixels[i*4+2] = 0xff;
                     rgba_pixels[i*4+3] = alpha as u8;
                 }
+                rgba_pixels
             }
             FontRenderMode::Subpixel => {
+                let mut rgba_pixels = vec![0; pixels.len()/3 * 4];
                 for i in 0..pixels.len()/3 {
                     rgba_pixels[i*4+0] = pixels[i*3+0];
                     rgba_pixels[i*4+1] = pixels[i*3+1];
                     rgba_pixels[i*4+2] = pixels[i*3+2];
                     rgba_pixels[i*4+3] = 0xff;
                 }
+                rgba_pixels
             }
-        }
+        };
 
         (Some(dims), Some(RasterizedGlyph {
             width: dims.width,
