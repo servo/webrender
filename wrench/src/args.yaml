@@ -24,6 +24,10 @@ args:
       short: a
       long: subpixel-aa
       help: Enable subpixel aa
+  - headless:
+      short: h
+      long: headless
+      help: Enable headless rendering
   - dp_ratio:
       short: p
       long: device-pixel-ratio
