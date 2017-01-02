@@ -321,6 +321,7 @@ pub struct Renderer {
     clear_framebuffer: bool,
     clear_color: ColorF,
     debug: DebugRenderer,
+    render_target_debug: bool,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
     profiler: Profiler,
@@ -592,6 +593,7 @@ impl Renderer {
 
         let debug = options.debug;
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
+        let render_target_debug = options.render_target_debug;
         let payload_tx_for_backend = payload_tx.clone();
         let enable_recording = options.enable_recording;
         thread::spawn(move || {
@@ -640,6 +642,7 @@ impl Renderer {
             ps_composite: ps_composite,
             notifier: notifier,
             debug: debug_renderer,
+            render_target_debug: render_target_debug,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
             profiler: Profiler::new(),
@@ -1400,6 +1403,8 @@ impl Renderer {
 
                 src_id = target_id;
             }
+
+            self.draw_render_target_debug(framebuffer_size);
         }
 
         self.unlock_external_images();
@@ -1415,6 +1420,41 @@ impl Renderer {
 
     pub fn set_profiler_enabled(&mut self, enabled: bool) {
         self.enable_profiler = enabled;
+    }
+
+    fn draw_render_target_debug(&mut self,
+                                framebuffer_size: &DeviceUintSize) {
+        if self.render_target_debug {
+            // TODO(gw): Make the layout of the render targets a bit more sophisticated.
+            // Right now, it just draws them in one row at the bottom of the screen,
+            // with a fixed size.
+            let rt_debug_x0 = 16;
+            let rt_debug_y0 = 16;
+            let rt_debug_spacing = 16;
+            let rt_debug_size = 512;
+            let mut current_fbo = 0;
+
+            for texture_id in &self.render_targets {
+                let layer_count = self.device.get_render_target_layer_count(*texture_id);
+                for layer_index in 0..layer_count {
+                    let x0 = rt_debug_x0 + (rt_debug_spacing + rt_debug_size) * current_fbo;
+                    let y0 = rt_debug_y0;
+
+                    self.device.blit_render_target(*texture_id,
+                                                   layer_index as i32,
+                                                   x0,
+                                                   y0,
+                                                   rt_debug_size,
+                                                   rt_debug_size);
+
+                    // If we have more targets than fit on one row in screen, just early exit.
+                    if x0 > framebuffer_size.width as i32 {
+                        return;
+                    }
+                    current_fbo += 1;
+                }
+            }
+        }
     }
 }
 
@@ -1471,4 +1511,5 @@ pub struct RendererOptions {
     pub enable_subpixel_aa: bool,
     pub clear_framebuffer: bool,
     pub clear_color: ColorF,
+    pub render_target_debug: bool,
 }
