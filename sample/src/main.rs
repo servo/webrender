@@ -86,6 +86,7 @@ fn main() {
         enable_subpixel_aa: false,
         clear_framebuffer: true,
         clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
+        render_target_debug: false,
     };
 
     let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);

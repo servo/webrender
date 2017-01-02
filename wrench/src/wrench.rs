@@ -172,6 +172,7 @@ impl Wrench {
             renderer_kind: RendererKind::Native,
             clear_framebuffer: true,
             clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
+            render_target_debug: false,
         };
 
         let (renderer, sender) = webrender::renderer::Renderer::new(opts);

@@ -18,7 +18,7 @@ use std::mem;
 use std::path::PathBuf;
 //use std::sync::mpsc::{channel, Sender};
 //use std::thread;
-use webrender_traits::{ColorF, ImageFormat};
+use webrender_traits::{ColorF, ImageFormat, DeviceIntRect};
 
 #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
 const GL_FORMAT_A: gl::GLuint = gl::RED;
@@ -74,6 +74,11 @@ pub enum VertexFormat {
     Clear,
     Blur,
     Clip,
+}
+
+enum FBOTarget {
+    Read,
+    Draw,
 }
 
 fn get_optional_shader_source(shader_name: &str, base_path: &Option<PathBuf>) -> Option<String> {
@@ -325,8 +330,12 @@ impl UBOId {
 }
 
 impl FBOId {
-    fn bind(&self) {
-        gl::bind_framebuffer(gl::FRAMEBUFFER, self.0);
+    fn bind(&self, target: FBOTarget) {
+        let target = match target {
+            FBOTarget::Read => gl::READ_FRAMEBUFFER,
+            FBOTarget::Draw => gl::DRAW_FRAMEBUFFER,
+        };
+        gl::bind_framebuffer(target, self.0);
     }
 }
 
@@ -777,8 +786,10 @@ pub struct Device {
     bound_textures: [TextureId; 16],
     bound_program: ProgramId,
     bound_vao: VAOId,
-    bound_fbo: FBOId,
-    default_fbo: gl::GLuint,
+    bound_read_fbo: FBOId,
+    bound_draw_fbo: FBOId,
+    default_read_fbo: gl::GLuint,
+    default_draw_fbo: gl::GLuint,
     device_pixel_ratio: f32,
 
     // HW or API capabilties
@@ -825,8 +836,10 @@ impl Device {
             bound_textures: [ TextureId::invalid(); 16 ],
             bound_program: ProgramId(0),
             bound_vao: VAOId(0),
-            bound_fbo: FBOId(0),
-            default_fbo: 0,
+            bound_read_fbo: FBOId(0),
+            bound_draw_fbo: FBOId(0),
+            default_read_fbo: 0,
+            default_draw_fbo: 0,
 
             textures: HashMap::with_hasher(Default::default()),
             programs: HashMap::with_hasher(Default::default()),
@@ -885,8 +898,10 @@ impl Device {
         self.device_pixel_ratio = device_pixel_ratio;
 
         // Retrive the currently set FBO.
-        let default_fbo = gl::get_integer_v(gl::FRAMEBUFFER_BINDING);
-        self.default_fbo = default_fbo as gl::GLuint;
+        let default_read_fbo = gl::get_integer_v(gl::READ_FRAMEBUFFER_BINDING);
+        self.default_read_fbo = default_read_fbo as gl::GLuint;
+        let default_draw_fbo = gl::get_integer_v(gl::DRAW_FRAMEBUFFER_BINDING);
+        self.default_draw_fbo = default_draw_fbo as gl::GLuint;
 
         // Texture state
         for i in 0..self.bound_textures.len() {
@@ -904,7 +919,8 @@ impl Device {
         self.clear_vertex_array();
 
         // FBO state
-        self.bound_fbo = FBOId(self.default_fbo);
+        self.bound_read_fbo = FBOId(self.default_read_fbo);
+        self.bound_draw_fbo = FBOId(self.default_draw_fbo);
 
         // Pixel op state
         gl::pixel_store_i(gl::UNPACK_ALIGNMENT, 1);
@@ -927,18 +943,31 @@ impl Device {
         }
     }
 
-    pub fn bind_render_target(&mut self,
-                              texture_id: Option<(TextureId, i32)>,
-                              dimensions: Option<ViewportDimensions>) {
+    pub fn bind_read_target(&mut self, texture_id: Option<(TextureId, i32)>) {
         debug_assert!(self.inside_frame);
 
-        let fbo_id = texture_id.map_or(FBOId(self.default_fbo), |texture_id| {
+        let fbo_id = texture_id.map_or(FBOId(self.default_read_fbo), |texture_id| {
             self.textures.get(&texture_id.0).unwrap().fbo_ids[texture_id.1 as usize]
         });
 
-        if self.bound_fbo != fbo_id {
-            self.bound_fbo = fbo_id;
-            fbo_id.bind();
+        if self.bound_read_fbo != fbo_id {
+            self.bound_read_fbo = fbo_id;
+            fbo_id.bind(FBOTarget::Read);
+        }
+    }
+
+    pub fn bind_draw_target(&mut self,
+                            texture_id: Option<(TextureId, i32)>,
+                            dimensions: Option<ViewportDimensions>) {
+        debug_assert!(self.inside_frame);
+
+        let fbo_id = texture_id.map_or(FBOId(self.default_draw_fbo), |texture_id| {
+            self.textures.get(&texture_id.0).unwrap().fbo_ids[texture_id.1 as usize]
+        });
+
+        if self.bound_draw_fbo != fbo_id {
+            self.bound_draw_fbo = fbo_id;
+            fbo_id.bind(FBOTarget::Draw);
         }
 
         if let Some(dimensions) = dimensions {
@@ -1092,6 +1121,10 @@ impl Device {
         }
     }
 
+    pub fn get_render_target_layer_count(&self, texture_id: TextureId) -> usize {
+        self.textures[&texture_id].fbo_ids.len()
+    }
+
     pub fn create_fbo_for_texture_if_necessary(&mut self,
                                                texture_id: TextureId,
                                                layer_count: Option<i32>) {
@@ -1169,7 +1202,31 @@ impl Device {
             }
         }
 
-        gl::bind_framebuffer(gl::FRAMEBUFFER, self.default_fbo);
+        // TODO(gw): Hack! Modify the code above to use the normal binding interfaces the device exposes.
+        gl::bind_framebuffer(gl::READ_FRAMEBUFFER, self.bound_read_fbo.0);
+        gl::bind_framebuffer(gl::DRAW_FRAMEBUFFER, self.bound_draw_fbo.0);
+    }
+
+    pub fn blit_render_target(&mut self,
+                              src_texture_id: TextureId,
+                              src_texture_layer: i32,
+                              dest_rect: DeviceIntRect) {
+        debug_assert!(self.inside_frame);
+
+        self.bind_read_target(Some((src_texture_id, src_texture_layer)));
+
+        let texture = self.textures.get(&src_texture_id).expect("unknown texture id!");
+
+        gl::blit_framebuffer(0,
+                             0,
+                             texture.width as gl::GLint,
+                             texture.height as gl::GLint,
+                             dest_rect.origin.x,
+                             dest_rect.origin.y,
+                             dest_rect.origin.x + dest_rect.size.width,
+                             dest_rect.origin.y + dest_rect.size.height,
+                             gl::COLOR_BUFFER_BIT,
+                             gl::LINEAR);
     }
 
     pub fn resize_texture(&mut self,
@@ -1187,7 +1244,7 @@ impl Device {
         self.init_texture(temp_texture_id, old_width, old_height, format, filter, mode, None);
         self.create_fbo_for_texture_if_necessary(temp_texture_id, None);
 
-        self.bind_render_target(Some((texture_id, 0)), None);
+        self.bind_read_target(Some((texture_id, 0)));
         self.bind_texture(DEFAULT_TEXTURE, temp_texture_id);
 
         gl::copy_tex_sub_image_2d(temp_texture_id.target,
@@ -1202,7 +1259,7 @@ impl Device {
         self.deinit_texture(texture_id);
         self.init_texture(texture_id, new_width, new_height, format, filter, mode, None);
         self.create_fbo_for_texture_if_necessary(texture_id, None);
-        self.bind_render_target(Some((temp_texture_id, 0)), None);
+        self.bind_read_target(Some((temp_texture_id, 0)));
         self.bind_texture(DEFAULT_TEXTURE, texture_id);
 
         gl::copy_tex_sub_image_2d(texture_id.target,
@@ -1214,7 +1271,7 @@ impl Device {
                                   old_width as i32,
                                   old_height as i32);
 
-        self.bind_render_target(None, None);
+        self.bind_read_target(None);
         self.deinit_texture(temp_texture_id);
     }
 
@@ -1730,7 +1787,8 @@ impl Device {
     }
 
     pub fn end_frame(&mut self) {
-        self.bind_render_target(None, None);
+        self.bind_draw_target(None, None);
+        self.bind_read_target(None);
 
         debug_assert!(self.inside_frame);
         self.inside_frame = false;
