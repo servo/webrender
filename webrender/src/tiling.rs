@@ -738,13 +738,8 @@ impl AlphaBatcher {
 /// Batcher managing draw calls into the clip mask (in the RT cache).
 #[derive(Debug)]
 pub struct ClipBatcher {
-    /// Clear draws initialize the target area to full opacity (1.0)
-    /// So that the following primitive can be blended with MULtiplication.
-    pub clears: Vec<CacheClipInstance>,
     /// Copy draws get the existing mask from a parent layer.
     pub copies: Vec<CacheClipInstance>,
-    /// A fast path for masks that only have clear + rectangle.
-    pub rectangles_noblend: Vec<CacheClipInstance>,
     /// Rectangle draws fill up the rectangles with rounded corners.
     pub rectangles: Vec<CacheClipInstance>,
     /// Image draws apply the image masking.
@@ -754,9 +749,7 @@ pub struct ClipBatcher {
 impl ClipBatcher {
     fn new() -> ClipBatcher {
         ClipBatcher {
-            clears: Vec::new(),
             copies: Vec::new(),
-            rectangles_noblend: Vec::new(),
             rectangles: Vec::new(),
             images: HashMap::new(),
         }
@@ -776,28 +769,17 @@ impl ClipBatcher {
                 address: GpuStoreAddress(0),
                 base_task_id: 0,
             };
-            let mut start_rect_id = 0;
-            // clear/copy on the first clip only
+            // copy on the first clip only
             if info as *const _ == &clips[0].1 as *const _ {
                 if let Some(layer_task_id) = base_task_index {
                     self.copies.push(CacheClipInstance {
                         base_task_id: layer_task_id.0 as i32,
                         ..instance
                     });
-                } else if info.clip_range.item_count > 0 {
-                    // draw the first rectangle without blending in order
-                    // to avoid clearing the area first
-                    start_rect_id = 1;
-                    self.rectangles_noblend.push(CacheClipInstance {
-                        address: info.clip_range.start,
-                        ..instance
-                    })
-                } else {
-                    self.clears.push(instance);
                 }
             }
 
-            self.rectangles.extend((start_rect_id .. info.clip_range.item_count as usize)
+            self.rectangles.extend((0 .. info.clip_range.item_count as usize)
                            .map(|region_id| {
                 let offset = info.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * region_id) as i32);
                 CacheClipInstance {
@@ -805,6 +787,7 @@ impl ClipBatcher {
                     ..instance
                 }
             }));
+
             if let Some((ref mask, address)) = info.image {
                 let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto);
                 self.images.entry(cache_item.texture_id)
