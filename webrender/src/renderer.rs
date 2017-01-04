@@ -288,7 +288,6 @@ pub struct Renderer {
     /// These are "cache clip shaders". These shaders are used to
     /// draw clip instances into the cached clip mask. The results
     /// of these shaders are also used by the primitive shaders.
-    cs_clip_clear: LazilyCompiledShader,
     cs_clip_copy: LazilyCompiledShader,
     cs_clip_rectangle: LazilyCompiledShader,
     cs_clip_image: LazilyCompiledShader,
@@ -420,11 +419,6 @@ impl Renderer {
                                                  &mut device,
                                                  options.precache_shaders);
 
-        let cs_clip_clear = LazilyCompiledShader::new(ShaderKind::ClipCache,
-                                                      "cs_clip_clear",
-                                                      &[],
-                                                      &mut device,
-                                                      options.precache_shaders);
         let cs_clip_copy = LazilyCompiledShader::new(ShaderKind::ClipCache,
                                                      "cs_clip_copy",
                                                      &[],
@@ -623,7 +617,6 @@ impl Renderer {
             cs_box_shadow: cs_box_shadow,
             cs_text_run: cs_text_run,
             cs_blur: cs_blur,
-            cs_clip_clear: cs_clip_clear,
             cs_clip_copy: cs_clip_copy,
             cs_clip_rectangle: cs_clip_rectangle,
             cs_clip_image: cs_clip_image,
@@ -1059,7 +1052,16 @@ impl Renderer {
 
             let (color, projection) = match render_target {
                 Some(..) => (
-                    [0.0, 0.0, 0.0, 0.0],
+                    // The clear color here is chosen specifically such that:
+                    // - The red channel is cleared to 1, so that the clip mask
+                    //   generation (which reads/writes the red channel) can
+                    //   assume that each allocated rect is opaque / non-clipped
+                    //   initially.
+                    // - The alpha channel is cleared to 0, so that visual render
+                    //   tasks can assume that pixels are transparent if not
+                    //   rendered. (This is relied on by the compositing support
+                    //   for mix-blend-mode etc).
+                    [1.0, 0.0, 0.0, 0.0],
                     Matrix4D::ortho(0.0,
                                    target_size.width,
                                    0.0,
@@ -1136,30 +1138,11 @@ impl Renderer {
         {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
             let vao = self.clip_vao_id;
-            // first, mark the target area as opaque
-            //Note: not needed if we know the target is cleared with opaque
-            self.device.set_blend(false);
-            if !target.clip_batcher.clears.is_empty() {
-                let shader = self.cs_clip_clear.get(&mut self.device);
-                self.draw_instanced_batch(&target.clip_batcher.clears,
-                                          vao,
-                                          shader,
-                                          &BatchTextures::no_texture(),
-                                          &projection);
-            }
-            // alternatively, copy the contents from another task
+            // Optionally, copy the contents from another task
             if !target.clip_batcher.copies.is_empty() {
+                self.device.set_blend(false);
                 let shader = self.cs_clip_copy.get(&mut self.device);
                 self.draw_instanced_batch(&target.clip_batcher.copies,
-                                          vao,
-                                          shader,
-                                          &BatchTextures::no_texture(),
-                                          &projection);
-            }
-            // the fast path for clear + rect, which is just the rectangle without blending
-            if !target.clip_batcher.rectangles_noblend.is_empty() {
-                let shader = self.cs_clip_rectangle.get(&mut self.device);
-                self.draw_instanced_batch(&target.clip_batcher.rectangles_noblend,
                                           vao,
                                           shader,
                                           &BatchTextures::no_texture(),
