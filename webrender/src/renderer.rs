@@ -349,11 +349,13 @@ pub struct Renderer {
 
     /// A vector for fast resolves of texture cache IDs to
     /// native texture IDs. This maps to a free-list managed
-    /// by the backend thread / texture cache. Because of this,
-    /// items in this array may be None if they have been
-    /// freed by the backend thread. This saves having to
+    /// by the backend thread / texture cache. We free the
+    /// texture memory associated with a TextureId when its
+    /// texture cache ID is freed by the texture cache, but
+    /// reuse the TextureId when the texture caches's free
+    /// list reuses the texture cache ID. This saves having to
     /// use a hashmap, and allows a flat vector for performance.
-    cache_texture_id_map: Vec<Option<TextureId>>,
+    cache_texture_id_map: Vec<TextureId>,
 
     /// Optional trait object that allows the client
     /// application to provide external buffers for image data.
@@ -746,7 +748,6 @@ impl Renderer {
             }
             &SourceTexture::TextureCache(index) => {
                 self.cache_texture_id_map[index.0]
-                    .expect("BUG: Texture should exist in texture cache map!")
             }
         }
     }
@@ -846,20 +847,14 @@ impl Renderer {
             for update in update_list.updates {
                 match update.op {
                     TextureUpdateOp::Create(width, height, format, filter, mode, maybe_bytes) => {
-                        // Create a new native texture, as requested by the texture cache.
-                        let texture_id = self.device
-                                             .create_texture_ids(1, TextureTarget::Default)[0];
-
                         let CacheTextureId(cache_texture_index) = update.id;
                         if self.cache_texture_id_map.len() == cache_texture_index {
-                            // It was a new texture, so add to end of the map.
-                            self.cache_texture_id_map.push(Some(texture_id));
-                        } else {
-                            // It was re-using an item from the free-list, so store
-                            // the new ID there.
-                            debug_assert!(self.cache_texture_id_map[cache_texture_index].is_none());
-                            self.cache_texture_id_map[cache_texture_index] = Some(texture_id);
+                            // Create a new native texture, as requested by the texture cache.
+                            let texture_id = self.device
+                                             .create_texture_ids(1, TextureTarget::Default)[0];
+                            self.cache_texture_id_map.push(texture_id);
                         }
+                        let texture_id = self.cache_texture_id_map[cache_texture_index];
 
                         let maybe_slice = maybe_bytes.as_ref().map(|bytes|{ bytes.as_slice() });
                         self.device.init_texture(texture_id,
@@ -875,7 +870,7 @@ impl Renderer {
                                           format,
                                           filter,
                                           mode) => {
-                        let texture_id = self.cache_texture_id_map[update.id.0].unwrap();
+                        let texture_id = self.cache_texture_id_map[update.id.0];
                         self.device.resize_texture(texture_id,
                                                    new_width,
                                                    new_height,
@@ -884,12 +879,16 @@ impl Renderer {
                                                    mode);
                     }
                     TextureUpdateOp::Update(x, y, width, height, bytes, stride) => {
-                        let texture_id = self.cache_texture_id_map[update.id.0].unwrap();
+                        let texture_id = self.cache_texture_id_map[update.id.0];
                         self.device.update_texture(texture_id,
                                                    x,
                                                    y,
                                                    width, height, stride,
                                                    bytes.as_slice());
+                    }
+                    TextureUpdateOp::Free => {
+                        let texture_id = self.cache_texture_id_map[update.id.0];
+                        self.device.deinit_texture(texture_id);
                     }
                 }
             }
