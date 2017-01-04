@@ -10,12 +10,12 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::ops::DerefMut;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use webrender_traits::ApiMsg;
 use byteorder::{LittleEndian, WriteBytesExt};
 
 lazy_static! {
-    static ref WEBRENDER_RECORDING_DETOUR: Arc<Mutex<Option<Box<ApiRecordingReceiver>>>> = Arc::new(Mutex::new(None));
+    static ref WEBRENDER_RECORDING_DETOUR: Mutex<Option<Box<ApiRecordingReceiver>>> = Mutex::new(None);
 }
 
 pub trait ApiRecordingReceiver: Send {
