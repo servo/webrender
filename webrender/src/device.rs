@@ -268,7 +268,6 @@ impl VertexFormat {
                 for (i, &attrib) in [ClipAttribute::RenderTaskIndex,
                                      ClipAttribute::LayerIndex,
                                      ClipAttribute::DataIndex,
-                                     ClipAttribute::BaseTaskIndex,
                                     ].into_iter().enumerate() {
                     gl::enable_vertex_attrib_array(attrib as gl::GLuint);
                     gl::vertex_attrib_divisor(attrib as gl::GLuint, 1);
@@ -401,7 +400,6 @@ impl Program {
         gl::bind_attrib_location(self.id, ClipAttribute::RenderTaskIndex as gl::GLuint, "aClipRenderTaskIndex");
         gl::bind_attrib_location(self.id, ClipAttribute::LayerIndex as gl::GLuint, "aClipLayerIndex");
         gl::bind_attrib_location(self.id, ClipAttribute::DataIndex as gl::GLuint, "aClipDataIndex");
-        gl::bind_attrib_location(self.id, ClipAttribute::BaseTaskIndex as gl::GLuint, "aClipBaseTaskIndex");
 
         gl::link_program(self.id);
         if gl::get_program_iv(self.id, gl::LINK_STATUS) == (0 as gl::GLint) {

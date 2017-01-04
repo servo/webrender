@@ -288,7 +288,6 @@ pub struct Renderer {
     /// These are "cache clip shaders". These shaders are used to
     /// draw clip instances into the cached clip mask. The results
     /// of these shaders are also used by the primitive shaders.
-    cs_clip_copy: LazilyCompiledShader,
     cs_clip_rectangle: LazilyCompiledShader,
     cs_clip_image: LazilyCompiledShader,
 
@@ -419,11 +418,6 @@ impl Renderer {
                                                  &mut device,
                                                  options.precache_shaders);
 
-        let cs_clip_copy = LazilyCompiledShader::new(ShaderKind::ClipCache,
-                                                     "cs_clip_copy",
-                                                     &[],
-                                                     &mut device,
-                                                     options.precache_shaders);
         let cs_clip_rectangle = LazilyCompiledShader::new(ShaderKind::ClipCache,
                                                           "cs_clip_rectangle",
                                                           &[],
@@ -617,7 +611,6 @@ impl Renderer {
             cs_box_shadow: cs_box_shadow,
             cs_text_run: cs_text_run,
             cs_blur: cs_blur,
-            cs_clip_copy: cs_clip_copy,
             cs_clip_rectangle: cs_clip_rectangle,
             cs_clip_image: cs_clip_image,
             ps_rectangle: ps_rectangle,
@@ -1138,17 +1131,7 @@ impl Renderer {
         {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
             let vao = self.clip_vao_id;
-            // Optionally, copy the contents from another task
-            if !target.clip_batcher.copies.is_empty() {
-                self.device.set_blend(false);
-                let shader = self.cs_clip_copy.get(&mut self.device);
-                self.draw_instanced_batch(&target.clip_batcher.copies,
-                                          vao,
-                                          shader,
-                                          &BatchTextures::no_texture(),
-                                          &projection);
-            }
-            // now switch to multiplicative blending
+            // switch to multiplicative blending
             self.device.set_blend(true);
             self.device.set_blend_mode_multiply();
             // draw rounded cornered rectangles
