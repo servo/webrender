@@ -1,11 +1,12 @@
+// the json code is largely unfinished; allow these to silence a bunch of warnings
+#![allow(unused_variables)]
+#![allow(dead_code)]
+
 extern crate yaml_rust;
 
-use app_units::Au;
 use image::{ColorType, save_buffer};
 use std::borrow::BorrowMut;
-use std::cell::Cell;
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::fs;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
@@ -13,6 +14,7 @@ use std::path::{Path, PathBuf};
 use webrender;
 use webrender_traits::*;
 use serde_json;
+use time;
 
 use super::CURRENT_FRAME_NUMBER;
 
@@ -33,6 +35,7 @@ struct CachedImage {
 pub struct JsonFrameWriter {
     frame_base: PathBuf,
     rsrc_base: PathBuf,
+    rsrc_prefix: String,
     next_rsrc_num: u32,
     images: HashMap<ImageKey, CachedImage>,
     fonts: HashMap<FontKey, CachedFont>,
@@ -49,9 +52,12 @@ impl JsonFrameWriter {
         rsrc_base.push("res");
         fs::create_dir_all(&rsrc_base).ok();
 
+        let rsrc_prefix = format!("{}", time::get_time().sec);
+
         JsonFrameWriter {
             frame_base: path.to_owned(),
             rsrc_base: rsrc_base,
+            rsrc_prefix: rsrc_prefix,
             next_rsrc_num: 1,
             images: HashMap::new(),
             fonts: HashMap::new(),
@@ -102,7 +108,7 @@ impl JsonFrameWriter {
 
         let mut frame_file_name = self.frame_base.clone();
         let current_shown_frame = unsafe { CURRENT_FRAME_NUMBER };
-        frame_file_name.push(format!("frame-{}.yaml", current_shown_frame));
+        frame_file_name.push(format!("frame-{}.json", current_shown_frame));
 
         let mut file = File::create(&frame_file_name).unwrap();
 
@@ -112,11 +118,11 @@ impl JsonFrameWriter {
         file.write_all(b"\n").unwrap();
     }
 
-    fn next_rsrc_paths(counter: &mut u32, base_path: &Path, base: &str, ext: &str) -> (PathBuf, PathBuf) {
+    fn next_rsrc_paths(prefix: &str, counter: &mut u32, base_path: &Path, base: &str, ext: &str) -> (PathBuf, PathBuf) {
         let mut path_file = base_path.to_owned();
         let mut path = PathBuf::from("res");
 
-        let fstr = format!("{}-{}.{}", base, counter, ext);
+        let fstr = format!("{}-{}-{}.{}", prefix, base, counter, ext);
         path_file.push(&fstr);
         path.push(&fstr);
 
@@ -137,7 +143,7 @@ impl JsonFrameWriter {
         // Remove the data to munge it
         let mut data = self.images.remove(&key).unwrap();
         let bytes = data.bytes.take().unwrap();
-        let (path_file, path) = Self::next_rsrc_paths(&mut self.next_rsrc_num, &self.rsrc_base, "img", "png");
+        let (path_file, path) = Self::next_rsrc_paths(&self.rsrc_prefix, &mut self.next_rsrc_num, &self.rsrc_base, "img", "png");
 
         let ok = match data.format {
             ImageFormat::RGB8 => {

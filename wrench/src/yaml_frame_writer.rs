@@ -1,11 +1,10 @@
 extern crate yaml_rust;
 
 use app_units::Au;
+use euclid::{TypedPoint2D, TypedSize2D, TypedRect, TypedMatrix4D};
 use image::{ColorType, save_buffer};
 use std::borrow::BorrowMut;
-use std::cell::Cell;
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::fs;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
@@ -14,6 +13,7 @@ use std::path::{Path, PathBuf};
 use webrender;
 use webrender_traits::*;
 use yaml_rust::{Yaml, YamlEmitter};
+use time;
 
 use super::CURRENT_FRAME_NUMBER;
 
@@ -62,21 +62,24 @@ fn color_node(parent: &mut Table, key: &str, value: ColorF) {
     yaml_node(parent, key, Yaml::String(color_to_string(value)));
 }
 
-fn size_node(parent: &mut Table, key: &str, value: &LayoutSize) {
-    yaml_node(parent, key, Yaml::String(format!("{} {}", value.width, value.height)));
+fn point_node<U>(parent: &mut Table, key: &str, value: &TypedPoint2D<f32, U>) {
+    f32_vec_node(parent, key, &[value.x, value.y]);
 }
 
-fn rect_node(parent: &mut Table, key: &str, value: &LayoutRect) {
-    yaml_node(parent, key, Yaml::String(format!("{} {} {} {}", value.origin.x, value.origin.y,
-                                                               value.size.width, value.size.height)));
+fn size_node<U>(parent: &mut Table, key: &str, value: &TypedSize2D<f32, U>) {
+    f32_vec_node(parent, key, &[value.width, value.height]);
 }
 
-fn matrix4d_node(parent: &mut Table, key: &str, value: &LayoutTransform) {
-    yaml_node(parent, key, Yaml::String(format!("{} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
-                                                value.m11, value.m12, value.m13, value.m14,
-                                                value.m21, value.m22, value.m23, value.m24,
-                                                value.m31, value.m32, value.m33, value.m34,
-                                                value.m41, value.m42, value.m43, value.m44)));
+fn rect_yaml<U>(value: &TypedRect<f32, U>) -> Yaml {
+    f32_vec_yaml(&[value.origin.x, value.origin.y, value.size.width, value.size.height], false)
+}
+
+fn rect_node<U>(parent: &mut Table, key: &str, value: &TypedRect<f32, U>) {
+    yaml_node(parent, key, rect_yaml(value));
+}
+
+fn matrix4d_node<U1,U2>(parent: &mut Table, key: &str, value: &TypedMatrix4D<f32, U1, U2>) {
+    f32_vec_node(parent, key, &value.to_row_major_array());
 }
 
 fn u32_node(parent: &mut Table, key: &str, value: u32) {
@@ -132,17 +135,34 @@ fn f32_vec_yaml(value: &[f32], check_unique: bool) -> Yaml {
 }
 
 fn f32_vec_node(parent: &mut Table, key: &str, value: &[f32]) {
-    yaml_node(parent, key,
-                  f32_vec_yaml(value, false));
+    yaml_node(parent, key, f32_vec_yaml(value, false));
 }
 
-fn clip_node(parent: &mut Table, key: &str, value: &ClipRegion) {
-    // pass for now
+fn vec_node(parent: &mut Table, key: &str, value: Vec<Yaml>) {
+    yaml_node(parent, key, Yaml::Array(value));
+}
+
+fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
+    if let Some(radius) = radius.is_uniform() {
+        if radius == 0.0 {
+            None
+        } else {
+            Some(Yaml::Real(radius.to_string()))
+        }
+    } else {
+        let mut table = new_table();
+        size_node(&mut table, "top_left", &radius.top_left);
+        size_node(&mut table, "top_right", &radius.top_right);
+        size_node(&mut table, "bottom_left", &radius.bottom_left);
+        size_node(&mut table, "bottom_right", &radius.bottom_right);
+        Some(Yaml::Hash(table))
+    }
 }
 
 fn write_sc(parent: &mut Table, sc: &StackingContext) {
-    // scroll_policy
+    // overwrite "bounds" with the proper one
     rect_node(parent, "bounds", &sc.bounds);
+    // scroll_policy
     i32_node(parent, "z_index", sc.z_index);
     if sc.transform != LayoutTransform::identity() {
         matrix4d_node(parent, "transform", &sc.transform);
@@ -185,6 +205,7 @@ pub struct YamlFrameWriter {
     frame_base: PathBuf,
     rsrc_base: PathBuf,
     next_rsrc_num: u32,
+    rsrc_prefix: String,
     images: HashMap<ImageKey, CachedImage>,
     fonts: HashMap<FontKey, CachedFont>,
 
@@ -200,9 +221,12 @@ impl YamlFrameWriter {
         rsrc_base.push("res");
         fs::create_dir_all(&rsrc_base).ok();
 
+        let rsrc_prefix = format!("{}", time::get_time().sec);
+
         YamlFrameWriter {
             frame_base: path.to_owned(),
             rsrc_base: rsrc_base,
+            rsrc_prefix: rsrc_prefix,
             next_rsrc_num: 1,
             images: HashMap::new(),
             fonts: HashMap::new(),
@@ -273,11 +297,11 @@ impl YamlFrameWriter {
         file.write_all(&sb).unwrap();
     }
 
-    fn next_rsrc_paths(counter: &mut u32, base_path: &Path, base: &str, ext: &str) -> (PathBuf, PathBuf) {
+    fn next_rsrc_paths(prefix: &str, counter: &mut u32, base_path: &Path, base: &str, ext: &str) -> (PathBuf, PathBuf) {
         let mut path_file = base_path.to_owned();
         let mut path = PathBuf::from("res");
 
-        let fstr = format!("{}-{}.{}", base, counter, ext);
+        let fstr = format!("{}-{}-{}.{}", prefix, base, counter, ext);
         path_file.push(&fstr);
         path.push(&fstr);
 
@@ -298,7 +322,7 @@ impl YamlFrameWriter {
         // Remove the data to munge it
         let mut data = self.images.remove(&key).unwrap();
         let bytes = data.bytes.take().unwrap();
-        let (path_file, path) = Self::next_rsrc_paths(&mut self.next_rsrc_num, &self.rsrc_base, "img", "png");
+        let (path_file, path) = Self::next_rsrc_paths(&self.rsrc_prefix, &mut self.next_rsrc_num, &self.rsrc_base, "img", "png");
 
         let ok = match data.format {
             ImageFormat::RGB8 => {
@@ -340,16 +364,55 @@ impl YamlFrameWriter {
         Some(path)
     }
 
+    fn make_clip_node(&mut self, clip: &ClipRegion, aux: &AuxiliaryLists) -> Yaml {
+        if clip.is_complex() {
+            let complex = aux.complex_clip_regions(&clip.complex);
+            let mut complex_table = new_table();
+            rect_node(&mut complex_table, "rect", &clip.main);
+
+            if complex.len() > 0 {
+                let mut complex_items = complex.iter().map(|ccx|
+                    if ccx.radii.is_zero() {
+                        rect_yaml(&ccx.rect)
+                    } else {
+                        let mut t = new_table();
+                        rect_node(&mut t, "rect", &ccx.rect);
+                        yaml_node(&mut t, "radius", maybe_radius_yaml(&ccx.radii).unwrap());
+                        Yaml::Hash(t)
+                    }
+                ).collect();
+
+                vec_node(&mut complex_table, "complex", complex_items);
+            }
+
+            if let Some(ref mask) = clip.image_mask {
+                let mut mask_table = new_table();
+                if let Some(path) = self.path_for_image(&mask.image) {
+                    path_node(&mut mask_table, "image", &path);
+                }
+                rect_node(&mut mask_table, "rect", &mask.rect);
+                bool_node(&mut mask_table, "repeat", mask.repeat);
+
+                table_node(&mut complex_table, "image_mask", mask_table);
+            }
+
+            Yaml::Hash(complex_table)
+        } else {
+            rect_yaml(&clip.main)
+        }
+    }
+
     fn write_dl_items(&mut self, list: &mut Vec<Yaml>, dl_iter: &mut slice::Iter<DisplayItem>, aux: &AuxiliaryLists) {
         use webrender_traits::SpecificDisplayItem::*;
         while let Some(ref base) = dl_iter.next() {
             let mut v = new_table();
+            rect_node(&mut v, "bounds", &base.rect);
+            yaml_node(&mut v, "clip", self.make_clip_node(&base.clip, aux));
+
             match base.item {
                 Rectangle(item) => {
                     str_node(&mut v, "type", "rect");
                     color_node(&mut v, "color", item.color);
-                    rect_node(&mut v, "bounds", &base.rect);
-                    clip_node(&mut v, "clip", &base.clip);
                 },
                 Text(item) => {
                     let gi = aux.glyph_instances(&item.glyphs);
@@ -363,8 +426,6 @@ impl YamlFrameWriter {
                     f32_vec_node(&mut v, "offsets", &offsets);
                     f32_node(&mut v, "size", item.size.to_f32_px() * 12.0 / 16.0);
                     color_node(&mut v, "color", item.color);
-                    rect_node(&mut v, "bounds", &base.rect);
-                    clip_node(&mut v, "clip", &base.clip);
 
                     let entry = self.fonts.entry(item.font_key).or_insert_with(|| {
                         println!("Warning: font key not found in fonts table!");
@@ -377,7 +438,7 @@ impl YamlFrameWriter {
                         }
                         &mut CachedFont::Raw(ref mut bytes_opt, ref mut path_opt) => {
                             if let Some(bytes) = bytes_opt.take() {
-                                let (path_file, path) = Self::next_rsrc_paths(&mut self.next_rsrc_num, &self.rsrc_base, "font", "ttf");
+                                let (path_file, path) = Self::next_rsrc_paths(&self.rsrc_prefix, &mut self.next_rsrc_num, &self.rsrc_base, "font", "ttf");
                                 let mut file = File::create(&path_file).unwrap();
                                 file.write_all(&bytes).unwrap();
                                 *path_opt = Some(path);
@@ -391,8 +452,6 @@ impl YamlFrameWriter {
                     if let Some(path) = self.path_for_image(&item.image_key) {
                         path_node(&mut v, "image", &path);
                     }
-                    rect_node(&mut v, "bounds", &base.rect);
-                    clip_node(&mut v, "clip", &base.clip);
                     size_node(&mut v, "strech", &item.stretch_size);
                     size_node(&mut v, "spacing", &item.tile_spacing);
                     match item.image_rendering {
@@ -402,18 +461,17 @@ impl YamlFrameWriter {
                     };
                 },
                 YuvImage(_) => {
+                    str_node(&mut v, "type", "yuv-image");
                     // TODO
                     println!("TODO YAML YuvImage");
                 },
                 WebGL(_) => {
+                    str_node(&mut v, "type", "webgl");
                     // TODO
                     println!("TODO YAML WebGL");
-                    //rect_node(&mut v, "bounds", &base.rect);
-                    //clip_node(&mut v, "clip", &base.clip);
                 },
                 Border(item) => {
-                    rect_node(&mut v, "bounds", &base.rect);
-                    clip_node(&mut v, "clip", &base.clip);
+                    str_node(&mut v, "type", "border");
                     let trbl = vec![&item.top, &item.right, &item.bottom, &item.left];
                     let widths: Vec<f32> = trbl.iter().map(|x| x.width).collect();
                     let colors: Vec<String> = trbl.iter().map(|x| color_to_string(x.color)).collect();
@@ -434,20 +492,38 @@ impl YamlFrameWriter {
                     yaml_node(&mut v, "width", f32_vec_yaml(&widths, true));
                     yaml_node(&mut v, "color", string_vec_yaml(&colors, true));
                     yaml_node(&mut v, "style", string_vec_yaml(&styles, true));
+                    if let Some(radius_node) = maybe_radius_yaml(&item.radius) {
+                        yaml_node(&mut v, "radius", radius_node);
+                    }
                 },
                 BoxShadow(item) => {
-                    // TODO
-                    println!("TODO YAML BoxShadow");
-                    rect_node(&mut v, "bounds", &base.rect);
-                    clip_node(&mut v, "clip", &base.clip);
+                    str_node(&mut v, "type", "box-shadow");
+                    rect_node(&mut v, "box_bounds", &item.box_bounds);
+                    point_node(&mut v, "offset", &item.offset);
+                    color_node(&mut v, "color", item.color);
+                    f32_node(&mut v, "blur_radius", item.blur_radius);
+                    f32_node(&mut v, "spread_radius", item.spread_radius);
+                    f32_node(&mut v, "border_radius", item.border_radius);
+                    let clip_mode = match item.clip_mode {
+                        BoxShadowClipMode::None => "none",
+                        BoxShadowClipMode::Outset => "outset",
+                        BoxShadowClipMode::Inset => "inset"
+                    };
+                    str_node(&mut v, "clip_mode", clip_mode);
                 },
                 Gradient(item) => {
-                    // TODO
-                    println!("TODO YAML Gradient");
-                    rect_node(&mut v, "bounds", &base.rect);
-                    clip_node(&mut v, "clip", &base.clip);
+                    str_node(&mut v, "type", "gradient");
+                    point_node(&mut v, "start", &item.start_point);
+                    point_node(&mut v, "end", &item.end_point);
+                    let mut stops = vec![];
+                    for stop in aux.gradient_stops(&item.stops) {
+                        stops.push(Yaml::Real(stop.offset.to_string()));
+                        stops.push(Yaml::String(color_to_string(stop.color)));
+                    }
+                    yaml_node(&mut v, "stops", Yaml::Array(stops));
                 },
                 Iframe(item) => {
+                    str_node(&mut v, "type", "iframe");
                     // TODO
                     println!("TODO YAML Iframe");
                 },
@@ -461,12 +537,10 @@ impl YamlFrameWriter {
                 },
                 PushScrollLayer(item) => {
                     // TODO
-                    println!("TODO PushScrollLayer");
-                    rect_node(&mut v, "bounds", &base.rect);
-                    clip_node(&mut v, "clip", &base.clip);
+                    //println!("TODO PushScrollLayer");
                 },
                 PopScrollLayer => {
-                    println!("TODO PopScrollLayer");
+                    //println!("TODO PopScrollLayer");
                     // TODO
                 },
             }
