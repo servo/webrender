@@ -324,39 +324,49 @@ impl YamlFrameWriter {
         let bytes = data.bytes.take().unwrap();
         let (path_file, path) = Self::next_rsrc_paths(&self.rsrc_prefix, &mut self.next_rsrc_num, &self.rsrc_base, "img", "png");
 
-        let ok = match data.format {
+        // takes a buffer with a stride and copies it into a new buffer that has stride == width
+        fn unstride<T: Clone>(mut slice: &[T], width: usize, stride: usize) -> Vec<T> {
+            let mut result = Vec::new();
+            while slice.len() > width {
+                result.extend_from_slice(&slice[..width]);
+                slice = &slice[stride..];
+            }
+            result.extend_from_slice(slice);
+            result
+        }
+
+        assert!(data.stride > 0);
+        match data.format {
             ImageFormat::RGB8 => {
                 if data.stride == data.width * 3 {
                     save_buffer(&path_file, &bytes, data.width, data.height, ColorType::RGB(8)).unwrap();
-                    true
                 } else {
-                    false
+                    let tmp = unstride(&bytes[..], (data.width * 3) as usize, data.stride as usize);
+                    save_buffer(&path_file, &tmp, data.width, data.height, ColorType::RGB(8)).unwrap();
                 }
             }
             ImageFormat::RGBA8 => {
                 if data.stride == data.width * 4 {
                     save_buffer(&path_file, &bytes, data.width, data.height, ColorType::RGBA(8)).unwrap();
-                    true
                 } else {
-                    false
+                    let tmp = unstride(&bytes[..], (data.width * 4) as usize, data.stride as usize);
+                    save_buffer(&path_file, &tmp, data.width, data.height, ColorType::RGBA(8)).unwrap();
                 }
             }
             ImageFormat::A8 => {
                 if data.stride == data.width {
                     save_buffer(&path_file, &bytes, data.width, data.height, ColorType::Gray(8)).unwrap();
-                    true
                 } else {
-                    false
+                    let tmp = unstride(&bytes[..], data.width as usize, data.stride as usize);
+                    save_buffer(&path_file, &tmp, data.width, data.height, ColorType::Gray(8)).unwrap();
                 }
             }
-            _ => { false }
+            _ => {
+                println!("Failed to write image with format {:?}, dimensions {}x{}, stride {}",
+                         data.format, data.width, data.height, data.stride);
+                return None;
+            }
         };
-
-        if !ok {
-            println!("Failed to write image with format {:?}, dimensions {}x{}, stride {}",
-                     data.format, data.width, data.height, data.stride);
-            return None;
-        }
 
         data.path = Some(path.clone());
         // put it back
