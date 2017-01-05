@@ -154,8 +154,7 @@ impl YamlFrameReader {
         }
     }
 
-    fn handle_rect(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
-    {
+    fn handle_rect(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
         let bounds_key = if item["type"].is_badvalue() { "rect" } else { "bounds" };
         let rect = item[bounds_key].as_rect().expect("rect type must have bounds");
         let color = item["color"].as_colorf().unwrap_or(*WHITE_COLOR);
@@ -164,50 +163,38 @@ impl YamlFrameReader {
         self.builder().push_rect(rect, clip, color);
     }
 
-    fn handle_gradient(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
-    {
+    fn handle_gradient(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
         let bounds_key = if item["type"].is_badvalue() { "gradient" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("gradient must have bounds");
         let start = item["start"].as_point().expect("gradient must have start");
         let end = item["end"].as_point().expect("gradient must have end");
-        let stops = if let Some(stops) = item["stops"].as_vec() {
-            // FIXME(vlad): I can't find the right way to do this with iterators;
-            // I want to take N elements at a time.
-            let num_stops = stops.len()/2;
-            let mut g_stops = Vec::with_capacity(num_stops);
-            for n in 0..num_stops {
-                g_stops.push(GradientStop {
-                    offset: stops[n*2+0].as_force_f32().expect("gradient stop offset is not f32"),
-                    color: stops[n*2+1].as_colorf().expect("gradient stop color is not color"),
-                });
-            }
-            g_stops
-        } else {
-            panic!("gradient must have stops array");
-        };
+        let stops = item["stops"].as_vec().expect("gradient must have stops")
+            .chunks(2).map(|chunk| GradientStop {
+                offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
+                color: chunk[1].as_colorf().expect("gradient stop color is not color"),
+            }).collect::<Vec<_>>();
 
         let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
         self.builder().push_gradient(bounds, clip, start, end, stops);
     }
 
-    fn handle_border(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
-    {
+    fn handle_border(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
         let bounds_key = if item["type"].is_badvalue() { "border" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("borders must have bounds");
         let widths = item["width"].as_vec_f32().expect("borders must have width(s)");
         let colors = item["color"].as_vec_colorf().expect("borders must have color(s)");
         let styles = item["style"].as_vec_string().expect("borders must have style(s)");
-        let styles = styles.iter().map(|s| match s {
-            s if s == "none" => BorderStyle::None,
-            s if s == "solid" => BorderStyle::Solid,
-            s if s == "double" => BorderStyle::Double,
-            s if s == "dotted" => BorderStyle::Dotted,
-            s if s == "dashed" => BorderStyle::Dashed,
-            s if s == "hidden" => BorderStyle::Hidden,
-            s if s == "ridge" => BorderStyle::Ridge,
-            s if s == "inset" => BorderStyle::Inset,
-            s if s == "outset" => BorderStyle::Outset,
-            s if s == "groove" => BorderStyle::Groove,
+        let styles = styles.iter().map(|s| match s.as_str() {
+            "none" => BorderStyle::None,
+            "solid" => BorderStyle::Solid,
+            "double" => BorderStyle::Double,
+            "dotted" => BorderStyle::Dotted,
+            "dashed" => BorderStyle::Dashed,
+            "hidden" => BorderStyle::Hidden,
+            "ridge" => BorderStyle::Ridge,
+            "inset" => BorderStyle::Inset,
+            "outset" => BorderStyle::Outset,
+            "groove" => BorderStyle::Groove,
             s => {
                 panic!("Unknown border style '{}'", s);
             }
@@ -227,8 +214,7 @@ impl YamlFrameReader {
         self.builder().push_border(bounds, clip, left, top, right, bottom, radius);
     }
 
-    fn handle_box_shadow(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
-    {
+    fn handle_box_shadow(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
         let bounds_key = if item["type"].is_badvalue() { "box_shadow" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("box shadow must have bounds");
         let box_bounds = item["box_bounds"].as_rect().unwrap_or(bounds);
@@ -239,9 +225,9 @@ impl YamlFrameReader {
         let border_radius = item["border_radius"].as_force_f32().unwrap_or(0.0);
         let clip_mode = if let Some(mode) = item.as_str() {
             match mode {
-                s if s == "none" => BoxShadowClipMode::None,
-                s if s == "outset" => BoxShadowClipMode::Outset,
-                s if s == "inset" => BoxShadowClipMode::Inset,
+                "none" => BoxShadowClipMode::None,
+                "outset" => BoxShadowClipMode::Outset,
+                "inset" => BoxShadowClipMode::Inset,
                 s => panic!("Unknown box shadow clip mode {}", s),
             }
         } else {
@@ -260,8 +246,7 @@ impl YamlFrameReader {
         file
     }
 
-    fn handle_image(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
-    {
+    fn handle_image(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
         let filename = &item[if item["type"].is_badvalue() { "image" } else { "src" }];
         let (image_key, image_dims) = wrench.add_or_get_image(&self.rsrc_path(filename));
 
@@ -290,8 +275,7 @@ impl YamlFrameReader {
         self.builder().push_image(bounds, clip, stretch_size, tile_spacing, rendering, image_key);
     }
 
-    fn handle_text(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
-    {
+    fn handle_text(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
         let size = item["size"].as_pt_to_au().unwrap_or(Au::from_f32_px(16.0));
         let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
         let blur_radius = item["blur_radius"].as_px_to_au().unwrap_or(Au::from_f32_px(0.0));
