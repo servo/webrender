@@ -393,7 +393,7 @@ impl YamlFrameWriter {
                 rect_node(&mut mask_table, "rect", &mask.rect);
                 bool_node(&mut mask_table, "repeat", mask.repeat);
 
-                table_node(&mut complex_table, "mask", mask_table);
+                table_node(&mut complex_table, "image_mask", mask_table);
             }
 
             Yaml::Hash(complex_table)
