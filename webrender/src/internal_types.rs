@@ -345,6 +345,7 @@ pub enum TextureUpdateOp {
     Create(u32, u32, ImageFormat, TextureFilter, RenderTargetMode, Option<Arc<Vec<u8>>>),
     Update(u32, u32, u32, u32, Arc<Vec<u8>>, Option<u32>),
     Grow(u32, u32, ImageFormat, TextureFilter, RenderTargetMode),
+    Free
 }
 
 pub type ExternalImageUpdateList = Vec<ExternalImageId>;
