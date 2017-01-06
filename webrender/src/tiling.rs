@@ -15,7 +15,7 @@ use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{ImagePrimitiveCpu, ImagePrimitiveGpu, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu, ImagePrimitiveKind, };
 use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata, TexelRect};
-use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve};
+use prim_store::{DeferredResolve};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
 use prim_store::{PrimitiveCacheKey, TextRunPrimitiveGpu, TextRunPrimitiveCpu};
 use prim_store::{PrimitiveStore, GpuBlock16, GpuBlock32, GpuBlock64, GpuBlock128};
@@ -733,21 +733,20 @@ impl ClipBatcher {
                 address: GpuStoreAddress(0),
             };
 
-            self.rectangles.extend((0 .. info.clip_range.item_count as usize)
-                           .map(|region_id| {
-                let offset = info.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * region_id) as i32);
-                CacheClipInstance {
-                    address: GpuStoreAddress(offset),
+            for corner in &info.corner_components {
+                self.rectangles.push(CacheClipInstance {
+                    address: corner.gpu_address,
                     ..instance
-                }
-            }));
+                });
+            }
 
-            if let Some((ref mask, address)) = info.image {
-                let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto);
+            for mask in &info.image_components {
+                let cache_item = resource_cache.get_cached_image(mask.image_mask.image,
+                                                                 ImageRendering::Auto);
                 self.images.entry(cache_item.texture_id)
                            .or_insert(Vec::new())
                            .push(CacheClipInstance {
-                    address: address,
+                    address: mask.gpu_address,
                     ..instance
                 })
             }
@@ -1095,7 +1094,6 @@ impl RenderTask {
                 top_clip: (StackingContextIndex, &MaskCacheInfo),
                 layer_clips: &[(StackingContextIndex, MaskCacheInfo)])
                 -> MaskResult {
-
         let extra = (top_clip.0, top_clip.1.clone());
 
         // We scan through the clip stack and detect if our actual rectangle
@@ -1103,7 +1101,7 @@ impl RenderTask {
         // and if it's completely inside the intersection of all of the inner bounds.
         let result = layer_clips.iter().chain(Some(&extra))
                                 .fold(Some(actual_rect), |current, clip| {
-            current.and_then(|rect| rect.intersection(&clip.1.outer_rect))
+            current.and_then(|rect| rect.intersection(&clip.1.bounding_rect))
         });
 
         let task_rect = match result {
@@ -2589,7 +2587,7 @@ impl FrameBuilder {
                     }
 
                     if let Some(ref clip_info) = layer.clip_cache_info {
-                        clip_rect_stack.push(clip_info.outer_rect);
+                        clip_rect_stack.push(clip_info.bounding_rect);
                     }
 
                     let tile_range = layer.tile_range.as_ref().unwrap();
@@ -2622,7 +2620,7 @@ impl FrameBuilder {
                         };
                         // check the clip bounding rectangle
                         if let Some(ref clip_info) = self.prim_store.get_metadata(prim_index).clip_cache_info {
-                            p_rect = match p_rect.intersection(&clip_info.outer_rect) {
+                            p_rect = match p_rect.intersection(&clip_info.bounding_rect) {
                                 Some(r) => r,
                                 None => continue,
                             }

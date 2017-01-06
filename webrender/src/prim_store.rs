@@ -20,9 +20,6 @@ use webrender_traits::{DeviceRect, DevicePoint, DeviceSize};
 use webrender_traits::{LayerRect, LayerSize, LayerPoint};
 use webrender_traits::LayerToWorldTransform;
 
-pub const CLIP_DATA_GPU_SIZE: usize = 5;
-pub const MASK_DATA_GPU_SIZE: usize = 1;
-
 /// Stores two coordinates in texel space. The coordinates
 /// are stored in texel coordinates because the texture atlas
 /// may grow. Storing them as texel coords and normalizing
@@ -281,31 +278,26 @@ struct GlyphPrimitive {
     padding: LayerPoint,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
-struct ClipRect {
-    rect: LayerRect,
-    padding: [f32; 4],
-}
-
-#[derive(Debug, Clone)]
-#[repr(C)]
-struct ClipCorner {
-    rect: LayerRect,
-    outer_radius_x: f32,
-    outer_radius_y: f32,
-    inner_radius_x: f32,
-    inner_radius_y: f32,
+pub struct ClipCorner {
+    pub rect: LayerRect,
+    pub clip_ref_x: f32,
+    pub clip_ref_y: f32,
+    pub radius_x: f32,
+    pub radius_y: f32,
 }
 
 impl ClipCorner {
-    fn uniform(rect: LayerRect, outer_radius: f32, inner_radius: f32) -> ClipCorner {
+    fn uniform(rect: LayerRect,
+               radius: f32,
+               clip_ref: LayerPoint) -> ClipCorner {
         ClipCorner {
             rect: rect,
-            outer_radius_x: outer_radius,
-            outer_radius_y: outer_radius,
-            inner_radius_x: inner_radius,
-            inner_radius_y: inner_radius,
+            radius_x: radius,
+            radius_y: radius,
+            clip_ref_x: clip_ref.x,
+            clip_ref_y: clip_ref.y,
         }
     }
 }
@@ -319,86 +311,72 @@ pub struct ImageMaskData {
 
 #[derive(Debug, Clone)]
 pub struct ClipData {
-    rect: ClipRect,
-    top_left: ClipCorner,
-    top_right: ClipCorner,
-    bottom_left: ClipCorner,
-    bottom_right: ClipCorner,
+    pub corners: [ClipCorner; 4],
 }
 
 impl ClipData {
     pub fn from_clip_region(clip: &ComplexClipRegion) -> ClipData {
+        let rect_tl = LayerRect::new(LayerPoint::new(clip.rect.origin.x, clip.rect.origin.y),
+                                     LayerSize::new(clip.radii.top_left.width, clip.radii.top_left.height));
+        let rect_tr = LayerRect::new(LayerPoint::new(clip.rect.origin.x + clip.rect.size.width - clip.radii.top_right.width, clip.rect.origin.y),
+                                     LayerSize::new(clip.radii.top_right.width, clip.radii.top_right.height));
+        let rect_bl = LayerRect::new(LayerPoint::new(clip.rect.origin.x, clip.rect.origin.y + clip.rect.size.height - clip.radii.bottom_left.height),
+                                     LayerSize::new(clip.radii.bottom_left.width, clip.radii.bottom_left.height));
+        let rect_br = LayerRect::new(LayerPoint::new(clip.rect.origin.x + clip.rect.size.width - clip.radii.bottom_right.width,
+                                                    clip.rect.origin.y + clip.rect.size.height - clip.radii.bottom_right.height),
+                                     LayerSize::new(clip.radii.bottom_right.width, clip.radii.bottom_right.height));
+
         ClipData {
-            rect: ClipRect {
-                rect: clip.rect,
-                padding: [0.0, 0.0, 0.0, 0.0],
-            },
-            top_left: ClipCorner {
-                rect: LayerRect::new(
-                    LayerPoint::new(clip.rect.origin.x, clip.rect.origin.y),
-                    LayerSize::new(clip.radii.top_left.width, clip.radii.top_left.height)),
-                outer_radius_x: clip.radii.top_left.width,
-                outer_radius_y: clip.radii.top_left.height,
-                inner_radius_x: 0.0,
-                inner_radius_y: 0.0,
-            },
-            top_right: ClipCorner {
-                rect: LayerRect::new(
-                    LayerPoint::new(clip.rect.origin.x + clip.rect.size.width - clip.radii.top_right.width, clip.rect.origin.y),
-                    LayerSize::new(clip.radii.top_right.width, clip.radii.top_right.height)),
-                outer_radius_x: clip.radii.top_right.width,
-                outer_radius_y: clip.radii.top_right.height,
-                inner_radius_x: 0.0,
-                inner_radius_y: 0.0,
-            },
-            bottom_left: ClipCorner {
-                rect: LayerRect::new(
-                    LayerPoint::new(clip.rect.origin.x, clip.rect.origin.y + clip.rect.size.height - clip.radii.bottom_left.height),
-                    LayerSize::new(clip.radii.bottom_left.width, clip.radii.bottom_left.height)),
-                outer_radius_x: clip.radii.bottom_left.width,
-                outer_radius_y: clip.radii.bottom_left.height,
-                inner_radius_x: 0.0,
-                inner_radius_y: 0.0,
-            },
-            bottom_right: ClipCorner {
-                rect: LayerRect::new(
-                    LayerPoint::new(clip.rect.origin.x + clip.rect.size.width - clip.radii.bottom_right.width,
-                                    clip.rect.origin.y + clip.rect.size.height - clip.radii.bottom_right.height),
-                    LayerSize::new(clip.radii.bottom_right.width, clip.radii.bottom_right.height)),
-                outer_radius_x: clip.radii.bottom_right.width,
-                outer_radius_y: clip.radii.bottom_right.height,
-                inner_radius_x: 0.0,
-                inner_radius_y: 0.0,
-            },
+            corners: [
+                ClipCorner {
+                    rect: rect_tl,
+                    radius_x: clip.radii.top_left.width,
+                    radius_y: clip.radii.top_left.height,
+                    clip_ref_x: rect_tl.origin.x + rect_tl.size.width,
+                    clip_ref_y: rect_tl.origin.y + rect_tl.size.height,
+                },
+                ClipCorner {
+                    rect: rect_tr,
+                    radius_x: clip.radii.top_right.width,
+                    radius_y: clip.radii.top_right.height,
+                    clip_ref_x: rect_tr.origin.x,
+                    clip_ref_y: rect_tr.origin.y + rect_tr.size.height,
+                },
+                ClipCorner {
+                    rect: rect_bl,
+                    radius_x: clip.radii.bottom_left.width,
+                    radius_y: clip.radii.bottom_left.height,
+                    clip_ref_x: rect_bl.origin.x + rect_bl.size.width,
+                    clip_ref_y: rect_bl.origin.y,
+                },
+                ClipCorner {
+                    rect: rect_br,
+                    radius_x: clip.radii.bottom_right.width,
+                    radius_y: clip.radii.bottom_right.height,
+                    clip_ref_x: rect_br.origin.x,
+                    clip_ref_y: rect_br.origin.y,
+                },
+            ],
         }
     }
 
     pub fn uniform(rect: LayerRect, radius: f32) -> ClipData {
+        let rect_tl = LayerRect::new(LayerPoint::new(rect.origin.x, rect.origin.y),
+                                     LayerSize::new(radius, radius));
+        let rect_tr = LayerRect::new(LayerPoint::new(rect.origin.x + rect.size.width - radius, rect.origin.y),
+                                     LayerSize::new(radius, radius));
+        let rect_bl = LayerRect::new(LayerPoint::new(rect.origin.x, rect.origin.y + rect.size.height - radius),
+                                     LayerSize::new(radius, radius));
+        let rect_br = LayerRect::new(LayerPoint::new(rect.origin.x + rect.size.width - radius, rect.origin.y + rect.size.height - radius),
+                                     LayerSize::new(radius, radius));
+
         ClipData {
-            rect: ClipRect {
-                rect: rect,
-                padding: [0.0; 4],
-            },
-            top_left: ClipCorner::uniform(
-                LayerRect::new(
-                    LayerPoint::new(rect.origin.x, rect.origin.y),
-                    LayerSize::new(radius, radius)),
-                radius, 0.0),
-            top_right: ClipCorner::uniform(
-                LayerRect::new(
-                    LayerPoint::new(rect.origin.x + rect.size.width - radius, rect.origin.y),
-                    LayerSize::new(radius, radius)),
-                radius, 0.0),
-            bottom_left: ClipCorner::uniform(
-                LayerRect::new(
-                    LayerPoint::new(rect.origin.x, rect.origin.y + rect.size.height - radius),
-                    LayerSize::new(radius, radius)),
-                radius, 0.0),
-            bottom_right: ClipCorner::uniform(
-                LayerRect::new(
-                    LayerPoint::new(rect.origin.x + rect.size.width - radius, rect.origin.y + rect.size.height - radius),
-                    LayerSize::new(radius, radius)),
-                radius, 0.0),
+            corners: [
+                ClipCorner::uniform(rect_tl, radius, rect_tl.origin),
+                ClipCorner::uniform(rect_tr, radius, rect_tr.bottom_left()),
+                ClipCorner::uniform(rect_bl, radius, rect_bl.top_right()),
+                ClipCorner::uniform(rect_br, radius, rect_br.bottom_right()),
+            ],
         }
     }
 }
@@ -456,14 +434,6 @@ impl PrimitiveStore {
             gpu_resource_rects: GpuStore::new(),
             prims_to_resolve: Vec::new(),
         }
-    }
-
-    pub fn populate_clip_data(data: &mut [GpuBlock32], clip: ClipData) {
-        data[0] = GpuBlock32::from(clip.rect);
-        data[1] = GpuBlock32::from(clip.top_left);
-        data[2] = GpuBlock32::from(clip.top_right);
-        data[3] = GpuBlock32::from(clip.bottom_left);
-        data[4] = GpuBlock32::from(clip.bottom_right);
     }
 
     pub fn add_primitive(&mut self,
@@ -648,14 +618,14 @@ impl PrimitiveStore {
     fn resolve_clip_cache_internal(gpu_data32: &mut GpuStore<GpuBlock32>,
                                    clip_info: &MaskCacheInfo,
                                    resource_cache: &ResourceCache) {
-        if let Some((ref mask, gpu_address)) = clip_info.image {
-            let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto);
-            let mask_data = gpu_data32.get_slice_mut(gpu_address, MASK_DATA_GPU_SIZE);
-            mask_data[0] = GpuBlock32::from(ImageMaskData {
+        for mask in &clip_info.image_components {
+            let cache_item = resource_cache.get_cached_image(mask.image_mask.image, ImageRendering::Auto);
+            let mask_data = gpu_data32.get_mut(mask.gpu_address);
+            *mask_data = GpuBlock32::from(ImageMaskData {
                 uv_rect: DeviceRect::new(cache_item.uv0,
                                          DeviceSize::new(cache_item.uv1.x - cache_item.uv0.x,
                                                          cache_item.uv1.y - cache_item.uv0.y)),
-                local_rect: mask.rect,
+                local_rect: mask.image_mask.rect,
             });
         }
     }
@@ -1111,14 +1081,6 @@ impl From<YuvImagePrimitiveGpu> for GpuBlock64 {
     fn from(data: YuvImagePrimitiveGpu) -> GpuBlock64 {
         unsafe {
             mem::transmute::<YuvImagePrimitiveGpu, GpuBlock64>(data)
-        }
-    }
-}
-
-impl From<ClipRect> for GpuBlock32 {
-    fn from(data: ClipRect) -> GpuBlock32 {
-        unsafe {
-            mem::transmute::<ClipRect, GpuBlock32>(data)
         }
     }
 }
