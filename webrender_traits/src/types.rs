@@ -56,23 +56,23 @@ pub enum ApiMsg {
     GenerateFrame,
     // WebVR commands that must be called in the WebGL render thread.
     VRCompositorCommand(WebGLContextId, VRCompositorCommand),
-    // An opaque handle that must be passed to the render notifier. It is used by Gecko
-    // to forward gecko-specific messages to the render thread preserving the ordering
-    // within the other messages.
+    /// An opaque handle that must be passed to the render notifier. It is used by Gecko
+    /// to forward gecko-specific messages to the render thread preserving the ordering
+    /// within the other messages.
     ExternalEvent(ExternalEvent),
 }
 
+/// An opaque pointer-sized value.
 #[derive(Clone, Deserialize, Serialize)]
 pub struct ExternalEvent {
-    // An opaque pointer-sized value.
     raw: usize,
 }
 
 unsafe impl Send for ExternalEvent {}
 
 impl ExternalEvent {
-    pub fn new(raw: usize) -> Self { ExternalEvent { raw: raw } }
-    // Consume self to make it obvious that the callback should be forwarded only once.
+    pub fn from_raw(raw: usize) -> Self { ExternalEvent { raw: raw } }
+    /// Consumes self to make it obvious that the event should be forwarded only once.
     pub fn unwrap(self) -> usize { self.raw }
 }
 

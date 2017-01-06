@@ -349,8 +349,7 @@ impl RenderBackend {
                         }
                         ApiMsg::ExternalEvent(evt) => {
                             let mut notifier = self.notifier.lock();
-                            notifier.as_mut()
-                                    .unwrap()
+                            notifier.unwrap()
                                     .as_mut()
                                     .unwrap()
                                     .external_event(evt);
