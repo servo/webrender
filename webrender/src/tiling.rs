@@ -848,7 +848,8 @@ impl RenderTarget {
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
             page_allocator: TexturePage::new(CacheTextureId(0),
-                                             RENDERABLE_CACHE_SIZE as u32),
+                                             DeviceUintSize::new(RENDERABLE_CACHE_SIZE as u32,
+                                                                 RENDERABLE_CACHE_SIZE as u32)),
         }
     }
 
