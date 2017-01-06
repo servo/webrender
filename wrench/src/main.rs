@@ -54,6 +54,7 @@ use yaml_frame_reader::YamlFrameReader;
 
 mod yaml_frame_writer;
 mod json_frame_writer;
+mod scene;
 
 mod binary_frame_reader;
 use binary_frame_reader::BinaryFrameReader;
