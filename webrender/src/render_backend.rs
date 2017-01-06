@@ -347,6 +347,13 @@ impl RenderBackend {
                                 frame_counter += 1;
                             }
                         }
+                        ApiMsg::ExternalEvent(evt) => {
+                            let mut notifier = self.notifier.lock();
+                            notifier.unwrap()
+                                    .as_mut()
+                                    .unwrap()
+                                    .external_event(evt);
+                        }
                     }
                 }
                 Err(..) => {
