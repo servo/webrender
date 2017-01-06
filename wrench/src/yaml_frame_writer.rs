@@ -324,42 +324,16 @@ impl YamlFrameWriter {
         let bytes = data.bytes.take().unwrap();
         let (path_file, path) = Self::next_rsrc_paths(&self.rsrc_prefix, &mut self.next_rsrc_num, &self.rsrc_base, "img", "png");
 
-        // takes a buffer with a stride and copies it into a new buffer that has stride == width
-        fn unstride<T: Clone>(mut slice: &[T], width: usize, stride: usize) -> Vec<T> {
-            let mut result = Vec::new();
-            while slice.len() > width {
-                result.extend_from_slice(&slice[..width]);
-                slice = &slice[stride..];
-            }
-            result.extend_from_slice(slice);
-            result
-        }
-
         assert!(data.stride > 0);
-        match data.format {
+        let (color_type, bpp) = match data.format {
             ImageFormat::RGB8 => {
-                if data.stride == data.width * 3 {
-                    save_buffer(&path_file, &bytes, data.width, data.height, ColorType::RGB(8)).unwrap();
-                } else {
-                    let tmp = unstride(&bytes[..], (data.width * 3) as usize, data.stride as usize);
-                    save_buffer(&path_file, &tmp, data.width, data.height, ColorType::RGB(8)).unwrap();
-                }
+                (ColorType::RGB(8), 3)
             }
             ImageFormat::RGBA8 => {
-                if data.stride == data.width * 4 {
-                    save_buffer(&path_file, &bytes, data.width, data.height, ColorType::RGBA(8)).unwrap();
-                } else {
-                    let tmp = unstride(&bytes[..], (data.width * 4) as usize, data.stride as usize);
-                    save_buffer(&path_file, &tmp, data.width, data.height, ColorType::RGBA(8)).unwrap();
-                }
+                (ColorType::RGBA(8), 4)
             }
             ImageFormat::A8 => {
-                if data.stride == data.width {
-                    save_buffer(&path_file, &bytes, data.width, data.height, ColorType::Gray(8)).unwrap();
-                } else {
-                    let tmp = unstride(&bytes[..], data.width as usize, data.stride as usize);
-                    save_buffer(&path_file, &tmp, data.width, data.height, ColorType::Gray(8)).unwrap();
-                }
+                (ColorType::Gray(8), 1)
             }
             _ => {
                 println!("Failed to write image with format {:?}, dimensions {}x{}, stride {}",
@@ -367,6 +341,17 @@ impl YamlFrameWriter {
                 return None;
             }
         };
+
+        if data.stride == data.width * bpp {
+            save_buffer(&path_file, &bytes, data.width, data.height, ColorType::RGB(8)).unwrap();
+        } else {
+            // takes a buffer with a stride and copies it into a new buffer that has stride == width
+            let tmp : Vec<_>  = bytes[..].chunks(data.stride as usize)
+                                .flat_map(|chunk| chunk[..(data.width * bpp) as usize].iter().cloned())
+                                .collect();
+
+            save_buffer(&path_file, &tmp, data.width, data.height, color_type).unwrap();
+        }
 
         data.path = Some(path.clone());
         // put it back
