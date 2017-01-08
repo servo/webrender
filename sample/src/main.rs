@@ -9,7 +9,7 @@ use app_units::Au;
 use gleam::gl;
 use std::path::PathBuf;
 use webrender_traits::{ColorF, Epoch, GlyphInstance};
-use webrender_traits::{ImageData, ImageFormat, PipelineId, RendererKind};
+use webrender_traits::{ImageData, ImageFormat, PipelineId};
 use webrender_traits::{LayoutSize, LayoutPoint, LayoutRect, LayoutTransform, DeviceUintSize};
 use std::fs::File;
 use std::io::Read;
@@ -74,19 +74,10 @@ fn main() {
     let (width, height) = window.get_inner_size().unwrap();
 
     let opts = webrender::RendererOptions {
-        device_pixel_ratio: 1.0,
         resource_override_path: res_path,
-        enable_aa: false,
-        enable_profiler: false,
-        enable_recording: false,
-        enable_scrollbars: false,
         debug: true,
         precache_shaders: true,
-        renderer_kind: RendererKind::Native,
-        enable_subpixel_aa: false,
-        clear_framebuffer: true,
-        clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
-        render_target_debug: false,
+        .. Default::default()
     };
 
     let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);
