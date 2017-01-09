@@ -33,11 +33,8 @@ TransformVertexInfo write_clip_tile_vertex(vec4 local_rect,
     vec2 lp0_base = local_rect.xy;
     vec2 lp1_base = local_rect.xy + local_rect.zw;
 
-    vec2 lp0 = clamp_rect(clamp_rect(lp0_base, local_rect),
-                          layer.local_clip_rect);
-    vec2 lp1 = clamp_rect(clamp_rect(lp1_base, local_rect),
-                          layer.local_clip_rect);
-
+    vec2 lp0 = clamp_rect(lp0_base, layer.local_clip_rect);
+    vec2 lp1 = clamp_rect(lp1_base, layer.local_clip_rect);
     vec4 clipped_local_rect = vec4(lp0, lp1 - lp0);
 
     vec2 p0 = lp0;

@@ -33,6 +33,5 @@ void main(void) {
     vPos = vi.local_pos;
 
     vClipRect = vec4(local_rect.xy, local_rect.xy + local_rect.zw);
-    vClipRadius = clip.clip_ref_radius.zw;
-    vClipRef = clip.clip_ref_radius.xy;
+    vClipRefPoint_Radius = clip.clip_ref_radius;
 }

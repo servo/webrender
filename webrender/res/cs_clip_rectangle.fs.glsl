@@ -7,7 +7,8 @@ float rounded_rect(vec2 pos) {
     float nudge = 0.5 * pixels_per_fragment;
 
     // TODO(gw): Support ellipse clip!
-    float d = (distance(pos, vClipRef) - vClipRadius.x + nudge) / pixels_per_fragment;
+    float d = max(0.0, distance(pos, vClipRefPoint_Radius.xy));
+    d = (d - vClipRefPoint_Radius.z + nudge) / pixels_per_fragment;
 
     return 1.0 - smoothstep(0.0, 1.0, d);
 }
