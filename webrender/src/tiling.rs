@@ -193,7 +193,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
         let global_prim_id = prim_index.0 as i32;
         let prim_address = metadata.gpu_prim_index;
         let clip_task_key = RenderTaskKey::CacheMask(MaskCacheKey::Primitive(prim_index));
-        let clip_task_index = if metadata.clip_cache_info.is_some() {
+        let clip_task_index = if metadata.clip_task.is_some() {
             let cache_task_id = RenderTaskId::Dynamic(clip_task_key);
             render_tasks.get_task_index(&cache_task_id, child_pass_index)
         } else {
@@ -547,7 +547,7 @@ impl AlphaBatcher {
                         let layer = &ctx.layer_store[sc_index.0];
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
                         let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
-                        let needs_clipping = prim_metadata.clip_cache_info.is_some();
+                        let needs_clipping = prim_metadata.clip_task.is_some();
                         let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                              !prim_metadata.is_opaque ||
                                              needs_clipping;
@@ -635,7 +635,7 @@ impl AlphaBatcher {
                         let layer = &ctx.layer_store[sc_index.0];
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
                         let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
-                        let needs_clipping = prim_metadata.clip_cache_info.is_some();
+                        let needs_clipping = prim_metadata.clip_task.is_some();
                         let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                              !prim_metadata.is_opaque ||
                                              needs_clipping;
@@ -1091,15 +1091,13 @@ impl RenderTask {
 
     fn new_mask(actual_rect: DeviceIntRect,
                 mask_key: MaskCacheKey,
-                top_clip: (StackingContextIndex, &MaskCacheInfo),
+                top_clip: Option<(StackingContextIndex, MaskCacheInfo)>,
                 layer_clips: &[(StackingContextIndex, MaskCacheInfo)])
                 -> MaskResult {
-        let extra = (top_clip.0, top_clip.1.clone());
-
         // We scan through the clip stack and detect if our actual rectangle
         // is in the intersection of all of all the outer bounds,
         // and if it's completely inside the intersection of all of the inner bounds.
-        let result = layer_clips.iter().chain(Some(&extra))
+        let result = layer_clips.iter().chain(&top_clip)
                                 .fold(Some(actual_rect), |current, clip| {
             current.and_then(|rect| rect.intersection(&clip.1.bounding_rect))
         });
@@ -1110,7 +1108,7 @@ impl RenderTask {
         };
         let clips = layer_clips.iter()
                                .map(|lc| lc.clone())
-                               .chain(Some(extra))
+                               .chain(top_clip)
                                .collect();
 
         MaskResult::Inside(RenderTask {
@@ -1818,7 +1816,6 @@ impl ScreenTile {
         let mut sc_stack = Vec::new();
         let mut current_task = RenderTask::new_alpha_batch(self.rect, ctx);
         let mut alpha_task_stack = Vec::new();
-        let mut clip_info_stack = Vec::new();
 
         for cmd in self.cmds {
             match cmd {
@@ -1836,12 +1833,6 @@ impl ScreenTile {
                                                          RenderTask::new_alpha_batch(needed_rect, ctx));
                             alpha_task_stack.push(prev_task);
                         }
-                    }
-
-                    // Create a task for the layer mask, if needed,
-                    // i.e. if there are rounded corners or image masks for the layer.
-                    if let Some(ref clip_info) = layer.clip_cache_info {
-                        clip_info_stack.push((sc_index, clip_info.clone()));
                     }
                 }
                 TileCommand::PopLayer => {
@@ -1876,40 +1867,24 @@ impl ScreenTile {
                             current_task = composite_task;
                         }
                     }
-
-                    if layer.clip_cache_info.is_some() {
-                        clip_info_stack.pop().unwrap();
-                    }
                 }
                 TileCommand::DrawPrimitive(prim_index) => {
                     let sc_index = *sc_stack.last().unwrap();
                     let prim_metadata = ctx.prim_store.get_metadata(prim_index);
 
-                    // Add a task to render the updated image mask
-                    if let Some(ref clip_info) = prim_metadata.clip_cache_info {
-                        let prim_bounding_rect = ctx.prim_store
-                                                    .get_bounding_rect(prim_index)
-                                                    .expect("prim must have valid bounds by now!");
-                        let mask_opt = RenderTask::new_mask(prim_bounding_rect,
-                                                            MaskCacheKey::Primitive(prim_index),
-                                                            (sc_index, clip_info),
-                                                            &clip_info_stack);
-                        match mask_opt {
-                            MaskResult::Outside => panic!("Primitive be culled by `assign_prims_to_screen_tiles` already"),
-                            MaskResult::Inside(task) => current_task.children.push(task),
-                        }
-                    }
-
                     // Add any dynamic render tasks needed to render this primitive
                     if let Some(ref render_task) = prim_metadata.render_task {
                         current_task.children.push(render_task.clone());
+                    }
+                    if let Some(ref clip_task) = prim_metadata.clip_task {
+                        current_task.children.push(clip_task.clone());
                     }
 
                     actual_prim_count += 1;
 
                     let layer = &ctx.layer_store[sc_index.0];
                     let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
-                    let needs_clipping = layer.clip_cache_info.is_some() || prim_metadata.clip_cache_info.is_some();
+                    let needs_clipping = prim_metadata.clip_task.is_some();
                     let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                          !prim_metadata.is_opaque ||
                                          needs_clipping;
@@ -2414,6 +2389,7 @@ impl FrameBuilder {
 
         // TODO(gw): Remove this stack once the layers refactor is done!
         let mut layer_stack: Vec<StackingContextIndex> = Vec::new();
+        let mut clip_info_stack = Vec::new();
 
         for cmd in &self.cmds {
             match cmd {
@@ -2491,6 +2467,10 @@ impl FrameBuilder {
                             resource_cache.request_image(mask.image, ImageRendering::Auto);
                             //Note: no need to add the layer for resolve, all layers get resolved
                         }
+
+                        // Create a task for the layer mask, if needed,
+                        // i.e. if there are rounded corners or image masks for the layer.
+                        clip_info_stack.push((sc_index, clip_info.clone()));
                     }
 
                 }
@@ -2512,8 +2492,6 @@ impl FrameBuilder {
                                                                &packed_layer.transform,
                                                                &packed_layer.local_clip_rect,
                                                                device_pixel_ratio) {
-                            profile_counters.visible_primitives.inc();
-
                             if self.prim_store.prepare_prim_for_render(prim_index,
                                                                        resource_cache,
                                                                        &packed_layer.transform,
@@ -2525,10 +2503,49 @@ impl FrameBuilder {
                                                                     &packed_layer.local_clip_rect,
                                                                     device_pixel_ratio);
                             }
+
+                            // If the primitive is visible, consider culling it via clip rect(s).
+                            // If it is visible but has clips, create the clip task for it.
+                            if let Some(prim_bounding_rect) = self.prim_store
+                                                                  .cpu_bounding_rects[prim_index.0] {
+                                let prim_metadata = &mut self.prim_store.cpu_metadata[prim_index.0];
+                                let prim_clip_info = prim_metadata.clip_cache_info.as_ref().map(|info| {
+                                    (*sc_index, info.clone())
+                                });
+
+                                // Try to create a mask if we may need to.
+                                if prim_clip_info.is_some() || !clip_info_stack.is_empty() {
+                                    let mask_opt = RenderTask::new_mask(prim_bounding_rect,
+                                                                        MaskCacheKey::Primitive(prim_index),
+                                                                        prim_clip_info,
+                                                                        &clip_info_stack);
+                                    match mask_opt {
+                                        MaskResult::Outside => {
+                                            // Primitive is completely clipped out.
+                                            prim_metadata.clip_task = None;
+                                            continue;
+                                        }
+                                        MaskResult::Inside(task) => {
+                                            // Got a valid clip task, so store it for this primitive.
+                                            prim_metadata.clip_task = Some(task);
+                                        }
+                                    }
+                                }
+
+                                profile_counters.visible_primitives.inc();
+                            }
                         }
                     }
                 }
                 &PrimitiveRunCmd::PopStackingContext => {
+                    let sc_index = *layer_stack.last().unwrap();
+                    let layer = &mut self.layer_store[sc_index.0];
+                    if layer.is_visible() {
+                        if layer.clip_cache_info.is_some() {
+                            clip_info_stack.pop().unwrap();
+                        }
+                    }
+
                     layer_stack.pop().unwrap();
                 }
             }

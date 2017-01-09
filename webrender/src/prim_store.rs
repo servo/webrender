@@ -109,6 +109,7 @@ pub struct PrimitiveMetadata {
     // that implements a 2-pass separable blur on a
     // text run.
     pub render_task: Option<RenderTask>,
+    pub clip_task: Option<RenderTask>,
 }
 
 #[derive(Debug, Clone)]
@@ -460,6 +461,7 @@ impl PrimitiveStore {
                     gpu_data_address: GpuStoreAddress(0),
                     gpu_data_count: 0,
                     render_task: None,
+                    clip_task: None,
                 };
 
                 metadata
@@ -479,6 +481,7 @@ impl PrimitiveStore {
                     gpu_data_address: gpu_glyphs_address,
                     gpu_data_count: text_cpu.glyph_range.length as i32,
                     render_task: None,
+                    clip_task: None,
                 };
 
                 self.cpu_text_runs.push(text_cpu);
@@ -499,6 +502,7 @@ impl PrimitiveStore {
                     gpu_data_address: GpuStoreAddress(0),
                     gpu_data_count: 0,
                     render_task: None,
+                    clip_task: None,
                 };
 
                 self.cpu_images.push(image_cpu);
@@ -517,6 +521,7 @@ impl PrimitiveStore {
                     gpu_data_address: GpuStoreAddress(0),
                     gpu_data_count: 0,
                     render_task: None,
+                    clip_task: None,
                 };
 
                 self.cpu_yuv_images.push(image_cpu);
@@ -535,6 +540,7 @@ impl PrimitiveStore {
                     gpu_data_address: GpuStoreAddress(0),
                     gpu_data_count: 0,
                     render_task: None,
+                    clip_task: None,
                 };
 
                 self.cpu_borders.push(border_cpu);
@@ -554,6 +560,7 @@ impl PrimitiveStore {
                     gpu_data_address: gpu_stops_address,
                     gpu_data_count: gradient_cpu.stops_range.length as i32,
                     render_task: None,
+                    clip_task: None,
                 };
 
                 self.cpu_gradients.push(gradient_cpu);
@@ -598,6 +605,7 @@ impl PrimitiveStore {
                     gpu_data_address: gpu_data_address,
                     gpu_data_count: instance_rects.len() as i32,
                     render_task: Some(render_task),
+                    clip_task: None,
                 };
 
                 for rect in instance_rects {
