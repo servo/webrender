@@ -1151,17 +1151,17 @@ impl RenderTask {
     fn new_mask(actual_rect: DeviceIntRect,
                 dependent: Option<&RenderTask>,
                 mask_key: MaskCacheKey,
-                top_clip: (StackingContextIndex, &MaskCacheInfo),
+                top_clip: Option<(StackingContextIndex, &MaskCacheInfo)>,
                 layer_clips: &[(StackingContextIndex, MaskCacheInfo)],
                 tile_id: TileUniqueId)
                 -> MaskResult {
 
-        let extra = (top_clip.0, top_clip.1.clone());
+        let extra = top_clip.map(|c| (c.0, c.1.clone()));
 
         // We scan through the clip stack and detect if our actual rectangle
         // is in the intersection of all of all the outer bounds,
         // and if it's completely inside the intersection of all of the inner bounds.
-        let result = layer_clips.iter().chain(Some(&extra))
+        let result = layer_clips.iter().chain(extra.as_ref())
                                 .fold(Some((actual_rect, true)), |current, clip| {
             current.and_then(|(rect, covering)|
                 rect.intersection(&clip.1.outer_rect)
@@ -1175,7 +1175,7 @@ impl RenderTask {
         };
         let clips = layer_clips.iter()
                                .map(|lc| lc.clone())
-                               .chain(Some(extra))
+                               .chain(extra)
                                .collect();
 
         MaskResult::Inside(RenderTask {
@@ -1947,7 +1947,7 @@ impl ScreenTile {
                             let mask_opt = RenderTask::new_mask(self.rect,
                                                                 clip_task_stack.last(),
                                                                 MaskCacheKey::Layer(sc_index),
-                                                                (sc_index, clip_info),
+                                                                Some((sc_index, clip_info)),
                                                                 &clip_info_stack,
                                                                 ctx.tile_id);
                             match mask_opt {
@@ -2015,17 +2015,25 @@ impl ScreenTile {
                     let prim_metadata = ctx.prim_store.get_metadata(prim_index);
 
                     // Add a task to render the updated image mask
-                    if let Some(ref clip_info) = prim_metadata.clip_cache_info {
+                    if prim_metadata.clip_cache_info.is_some() || !clip_info_stack.is_empty() {
+                        let top = prim_metadata.clip_cache_info.as_ref().map(|clip_info| (sc_index, clip_info));
                         let mask_opt = RenderTask::new_mask(self.rect,
                                                             clip_task_stack.last(),
                                                             MaskCacheKey::Primitive(prim_index),
-                                                            (sc_index, clip_info),
+                                                            top,
                                                             &clip_info_stack,
                                                             ctx.tile_id);
                         match mask_opt {
                             MaskResult::Outside => panic!("Primitive be culled by `assign_prims_to_screen_tiles` already"),
                             MaskResult::Covering => (), //do nothing
-                            MaskResult::Inside(task) => current_task.children.push(task),
+                            MaskResult::Inside(mask_task) => {
+                                // special case of the primitive not having any clips associated
+                                // but with something on the stack
+                                if CLIP_TASK_COLLAPSE && prim_metadata.clip_cache_info.is_none() {
+                                    layer_masks_tasks.add(sc_index, mask_task.id);
+                                }
+                                current_task.children.push(mask_task);
+                            },
                         }
                     }
 
