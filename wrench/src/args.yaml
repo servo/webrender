@@ -89,3 +89,5 @@ subcommands:
               help: The input binary file or directory
               required: true
               index: 1
+    - reftest:
+        about: run reftests
