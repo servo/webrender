@@ -102,6 +102,22 @@ fn main() {
     let mut builder = webrender_traits::DisplayListBuilder::new(pipeline_id);
 
     let bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(width as f32, height as f32));
+
+    // Push outer stacking context.
+    // No (effective) clip on the stacking context
+    let clip_region = {
+        builder.new_clip_region(&bounds, vec![], None)
+    };
+    builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
+                                  bounds,
+                                  clip_region,
+                                  0,
+                                  &LayoutTransform::identity(),
+                                  &LayoutTransform::identity(),
+                                  webrender_traits::MixBlendMode::Normal,
+                                  Vec::new());
+
+
     let clip_region = {
         let complex = webrender_traits::ComplexClipRegion::new(
             LayoutRect::new(LayoutPoint::new(50.0, 50.0), LayoutSize::new(100.0, 100.0)),
@@ -150,7 +166,6 @@ fn main() {
                         border_side,
                         border_side,
                         webrender_traits::BorderRadius::uniform(20.0));
-
 
     if false { // draw text?
         let font_bytes = load_file("res/FreeSans.ttf");
@@ -230,6 +245,20 @@ fn main() {
                           Au::from_px(0));
     }
 
+    builder.pop_stacking_context();
+
+    let two_clips = {
+        let complex1 = webrender_traits::ComplexClipRegion::new(
+            LayoutRect::new(LayoutPoint::new(400.0, 100.0), LayoutSize::new(50.0, 100.0)),
+                webrender_traits::BorderRadius::uniform(10.0));
+        let complex2 = webrender_traits::ComplexClipRegion::new(
+            LayoutRect::new(LayoutPoint::new(400.0, 100.0), LayoutSize::new(100.0, 50.0)),
+                webrender_traits::BorderRadius::uniform(20.0));
+        builder.new_clip_region(&bounds, vec![complex1, complex2], None)
+    };
+    builder.push_rect(LayoutRect::new(LayoutPoint::new(400.0, 100.0), LayoutSize::new(100.0, 100.0)),
+                      two_clips,
+                      ColorF::new(1.0, 1.0, 0.0, 1.0));
     builder.pop_stacking_context();
 
     api.set_root_display_list(
