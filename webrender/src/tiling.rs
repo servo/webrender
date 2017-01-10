@@ -42,15 +42,11 @@ use webrender_traits::{LayerRect, LayerPoint, LayerSize};
 use webrender_traits::{LayerToScrollTransform, LayerToWorldTransform, WorldToLayerTransform};
 use webrender_traits::{WorldPoint4D, ScrollLayerPixel, as_scroll_parent_rect};
 
-// Removes the clip task dependencies and instead
-// draws all the clip instances that affect a primitive
-const CLIP_TASK_COLLAPSE: bool = true;
-
 // Special sentinel value recognized by the shader. It is considered to be
 // a dummy task that doesn't mask out anything.
 const OPAQUE_TASK_INDEX: RenderTaskIndex = RenderTaskIndex(i32::MAX as usize);
 
-const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
+const FLOATS_PER_RENDER_TASK_INFO: usize = 12;
 
 pub type LayerMap = HashMap<ScrollLayerId,
                             Layer,
@@ -73,8 +69,6 @@ trait AlphaBatchHelpers {
                          batch: &mut PrimitiveBatch,
                          layer_index: StackingContextIndex,
                          task_index: RenderTaskIndex,
-                         tile_id: TileUniqueId,
-                         base_mask_task_index: RenderTaskIndex,
                          render_tasks: &RenderTaskCollection,
                          pass_index: RenderPassIndex,
                          z_sort_index: i32);
@@ -191,8 +185,6 @@ impl AlphaBatchHelpers for PrimitiveStore {
                          batch: &mut PrimitiveBatch,
                          layer_index: StackingContextIndex,
                          task_index: RenderTaskIndex,
-                         tile_id: TileUniqueId,
-                         base_mask_task_index: RenderTaskIndex,
                          render_tasks: &RenderTaskCollection,
                          child_pass_index: RenderPassIndex,
                          z_sort_index: i32) {
@@ -200,13 +192,12 @@ impl AlphaBatchHelpers for PrimitiveStore {
         let layer_index = layer_index.0 as i32;
         let global_prim_id = prim_index.0 as i32;
         let prim_address = metadata.gpu_prim_index;
-        let clip_task_key = RenderTaskKey::CacheMask(MaskCacheKey::Primitive(prim_index), tile_id);
-        let clip_task_index = if metadata.clip_cache_info.is_some() &&
-                                 render_tasks.has_dynamic_task(&clip_task_key, child_pass_index) {
+        let clip_task_key = RenderTaskKey::CacheMask(MaskCacheKey::Primitive(prim_index));
+        let clip_task_index = if metadata.clip_task.is_some() {
             let cache_task_id = RenderTaskId::Dynamic(clip_task_key);
             render_tasks.get_task_index(&cache_task_id, child_pass_index)
         } else {
-            base_mask_task_index
+            OPAQUE_TASK_INDEX
         };
         let task_index = task_index.0 as i32;
         let clip_task_index = clip_task_index.0 as i32;
@@ -386,12 +377,9 @@ struct RenderPassIndex(isize);
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
 pub struct RenderTaskIndex(usize);
 
-type TileUniqueId = usize;
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum MaskCacheKey {
     Primitive(PrimitiveIndex),
-    Layer(StackingContextIndex),
 }
 
 
@@ -400,7 +388,7 @@ pub enum RenderTaskKey {
     /// Draw this primitive to a cache target.
     CachePrimitive(PrimitiveCacheKey),
     /// Draw the tile alpha mask for a primitive.
-    CacheMask(MaskCacheKey, TileUniqueId),
+    CacheMask(MaskCacheKey),
     /// Apply a vertical blur pass of given radius for this primitive.
     VerticalBlur(i32, PrimitiveIndex),
     /// Apply a horizontal blur pass of given radius for this primitive.
@@ -476,11 +464,6 @@ impl RenderTaskCollection {
             }
         }
     }
-
-    fn has_dynamic_task(&self, key: &RenderTaskKey, pass_index: RenderPassIndex) -> bool {
-        //TODO: remove clone
-        self.dynamic_tasks.contains_key(&(key.clone(), pass_index))
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -517,7 +500,6 @@ struct AlphaBatchTask {
     task_id: RenderTaskId,
     opaque_items: Vec<AlphaRenderItem>,
     alpha_items: Vec<AlphaRenderItem>,
-    tile_id: TileUniqueId,
 }
 
 /// Encapsulates the logic of building batches for items that are blended.
@@ -565,8 +547,7 @@ impl AlphaBatcher {
                         let layer = &ctx.layer_store[sc_index.0];
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
                         let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
-                        let needs_clipping = prim_metadata.clip_cache_info.is_some() ||
-                                             ctx.layer_masks_tasks.get(&(task.tile_id, sc_index)).is_some();
+                        let needs_clipping = prim_metadata.clip_task.is_some();
                         let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                              !prim_metadata.is_opaque ||
                                              needs_clipping;
@@ -634,16 +615,10 @@ impl AlphaBatcher {
                         debug_assert!(ok)
                     }
                     &AlphaRenderItem::Primitive(sc_index, prim_index, z) => {
-                        let mask_task_index = match ctx.layer_masks_tasks.get(&(task.tile_id, sc_index)) {
-                            Some(ref mask_task_id) => render_tasks.get_task_index(mask_task_id, child_pass_index),
-                            None => OPAQUE_TASK_INDEX,
-                        };
                         ctx.prim_store.add_prim_to_batch(prim_index,
                                                          batch,
                                                          sc_index,
                                                          task_index,
-                                                         task.tile_id,
-                                                         mask_task_index,
                                                          render_tasks,
                                                          child_pass_index,
                                                          z);
@@ -660,8 +635,7 @@ impl AlphaBatcher {
                         let layer = &ctx.layer_store[sc_index.0];
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
                         let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
-                        let needs_clipping = prim_metadata.clip_cache_info.is_some() ||
-                                             ctx.layer_masks_tasks.get(&(task.tile_id, sc_index)).is_some();
+                        let needs_clipping = prim_metadata.clip_task.is_some();
                         let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                              !prim_metadata.is_opaque ||
                                              needs_clipping;
@@ -712,16 +686,10 @@ impl AlphaBatcher {
                     &AlphaRenderItem::Composite(..) => unreachable!(),
                     &AlphaRenderItem::Blend(..) => unreachable!(),
                     &AlphaRenderItem::Primitive(sc_index, prim_index, z) => {
-                        let mask_task_index = match ctx.layer_masks_tasks.get(&(task.tile_id, sc_index)) {
-                            Some(ref mask_task_id) => render_tasks.get_task_index(mask_task_id, child_pass_index),
-                            None => OPAQUE_TASK_INDEX,
-                        };
                         ctx.prim_store.add_prim_to_batch(prim_index,
                                                          batch,
                                                          sc_index,
                                                          task_index,
-                                                         task.tile_id,
-                                                         mask_task_index,
                                                          render_tasks,
                                                          child_pass_index,
                                                          z);
@@ -738,8 +706,6 @@ impl AlphaBatcher {
 /// Batcher managing draw calls into the clip mask (in the RT cache).
 #[derive(Debug)]
 pub struct ClipBatcher {
-    /// Copy draws get the existing mask from a parent layer.
-    pub copies: Vec<CacheClipInstance>,
     /// Rectangle draws fill up the rectangles with rounded corners.
     pub rectangles: Vec<CacheClipInstance>,
     /// Image draws apply the image masking.
@@ -749,7 +715,6 @@ pub struct ClipBatcher {
 impl ClipBatcher {
     fn new() -> ClipBatcher {
         ClipBatcher {
-            copies: Vec::new(),
             rectangles: Vec::new(),
             images: HashMap::new(),
         }
@@ -757,36 +722,54 @@ impl ClipBatcher {
 
     fn add(&mut self,
            task_index: RenderTaskIndex,
-           base_task_index: Option<RenderTaskIndex>,
            clips: &[(StackingContextIndex, MaskCacheInfo)],
-           resource_cache: &ResourceCache) {
+           resource_cache: &ResourceCache,
+           geometry_kind: MaskGeometryKind) {
 
-        // TODO: don't draw clipping instances covering the whole tile
         for &(layer_id, ref info) in clips.iter() {
             let instance = CacheClipInstance {
                 task_id: task_index.0 as i32,
                 layer_index: layer_id.0 as i32,
                 address: GpuStoreAddress(0),
-                base_task_id: 0,
+                segment: 0,
             };
-            // copy on the first clip only
-            if info as *const _ == &clips[0].1 as *const _ {
-                if let Some(layer_task_id) = base_task_index {
-                    self.copies.push(CacheClipInstance {
-                        base_task_id: layer_task_id.0 as i32,
-                        ..instance
-                    });
+
+            for clip_index in 0..info.clip_range.item_count as usize {
+                let offset = info.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * clip_index) as i32);
+                match geometry_kind {
+                    MaskGeometryKind::Default => {
+                        self.rectangles.push(CacheClipInstance {
+                            address: GpuStoreAddress(offset),
+                            segment: MaskSegment::All as i32,
+                            ..instance
+                        });
+                    }
+                    MaskGeometryKind::CornersOnly => {
+                        self.rectangles.extend(&[
+                            CacheClipInstance {
+                                address: GpuStoreAddress(offset),
+                                segment: MaskSegment::Corner_TopLeft as i32,
+                                ..instance
+                            },
+                            CacheClipInstance {
+                                address: GpuStoreAddress(offset),
+                                segment: MaskSegment::Corner_TopRight as i32,
+                                ..instance
+                            },
+                            CacheClipInstance {
+                                address: GpuStoreAddress(offset),
+                                segment: MaskSegment::Corner_BottomLeft as i32,
+                                ..instance
+                            },
+                            CacheClipInstance {
+                                address: GpuStoreAddress(offset),
+                                segment: MaskSegment::Corner_BottomRight as i32,
+                                ..instance
+                            },
+                        ]);
+                    }
                 }
             }
-
-            self.rectangles.extend((0 .. info.clip_range.item_count as usize)
-                           .map(|region_id| {
-                let offset = info.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * region_id) as i32);
-                CacheClipInstance {
-                    address: GpuStoreAddress(offset),
-                    ..instance
-                }
-            }));
 
             if let Some((ref mask, address)) = info.image {
                 let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto);
@@ -805,7 +788,6 @@ impl ClipBatcher {
 struct CompileTileContext<'a> {
     layer_store: &'a [StackingContext],
     prim_store: &'a PrimitiveStore,
-    tile_id: TileUniqueId,
     render_task_id_counter: AtomicUsize,
 }
 
@@ -813,7 +795,6 @@ struct RenderTargetContext<'a> {
     layer_store: &'a [StackingContext],
     prim_store: &'a PrimitiveStore,
     resource_cache: &'a ResourceCache,
-    layer_masks_tasks: HashMap<(TileUniqueId, StackingContextIndex), RenderTaskId>,
 }
 
 /// A render target represents a number of rendering operations on a surface.
@@ -873,7 +854,6 @@ impl RenderTarget {
                     task_id: task.id,
                     opaque_items: info.opaque_items,
                     alpha_items: info.alpha_items,
-                    tile_id: info.tile_id,
                 });
             }
             RenderTaskKind::VerticalBlur(_, prim_index) => {
@@ -958,12 +938,10 @@ impl RenderTarget {
             }
             RenderTaskKind::CacheMask(ref task_info) => {
                 let task_index = render_tasks.get_task_index(&task.id, pass_index);
-                let base_task_id = task_info.base_task_id.map(|ref task_id|
-                    render_tasks.get_task_index(task_id, pass_index)
-                );
-                self.clip_batcher.add(task_index, base_task_id,
+                self.clip_batcher.add(task_index,
                                       &task_info.clips,
-                                      &ctx.resource_cache);
+                                      &ctx.resource_cache,
+                                      task_info.geometry_kind);
             }
         }
     }
@@ -1005,7 +983,7 @@ impl RenderPass {
                 let mut new_target = RenderTarget::new();
                 let origin = new_target.page_allocator
                                        .allocate(&size)
-                                       .expect("Each render task must allocate <= size of one target!");
+                                       .expect(&format!("Each render task must allocate <= size of one target! ({:?})", size));
                 targets.push(new_target);
                 origin
             }
@@ -1080,22 +1058,40 @@ pub struct AlphaRenderTask {
     actual_rect: DeviceIntRect,
     opaque_items: Vec<AlphaRenderItem>,
     alpha_items: Vec<AlphaRenderItem>,
-    tile_id: TileUniqueId,
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+enum MaskSegment {
+    // This must match the SEGMENT_ values
+    // in clip_shared.glsl!
+    All = 0,
+    Corner_TopLeft,
+    Corner_TopRight,
+    Corner_BottomLeft,
+    Corner_BottomRight,
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+enum MaskGeometryKind {
+    Default,        // Draw the entire rect
+    CornersOnly,    // Draw the corners (simple axis aligned mask)
+    // TODO(gw): Add more types here (e.g. 4 rectangles outside the inner rect)
 }
 
 #[derive(Debug, Clone)]
 pub struct CacheMaskTask {
     actual_rect: DeviceIntRect,
-    base_task_id: Option<RenderTaskId>,
+    inner_rect: DeviceIntRect,
     clips: Vec<(StackingContextIndex, MaskCacheInfo)>,
+    geometry_kind: MaskGeometryKind,
 }
 
 #[derive(Debug)]
 enum MaskResult {
     /// The mask is completely outside the region
     Outside,
-    /// The mask completely covers the region
-    Covering,
     /// The mask is inside and needs to be processed
     Inside(RenderTask),
 }
@@ -1132,7 +1128,6 @@ impl RenderTask {
                 actual_rect: actual_rect,
                 alpha_items: Vec::new(),
                 opaque_items: Vec::new(),
-                tile_id: ctx.tile_id,
             }),
         }
     }
@@ -1149,46 +1144,60 @@ impl RenderTask {
     }
 
     fn new_mask(actual_rect: DeviceIntRect,
-                dependent: Option<&RenderTask>,
                 mask_key: MaskCacheKey,
-                top_clip: Option<(StackingContextIndex, &MaskCacheInfo)>,
-                layer_clips: &[(StackingContextIndex, MaskCacheInfo)],
-                tile_id: TileUniqueId)
+                clips: &[(StackingContextIndex, MaskCacheInfo)],
+                layers: &[StackingContext])
                 -> MaskResult {
-
-        let extra = top_clip.map(|c| (c.0, c.1.clone()));
+        if clips.is_empty() {
+            return MaskResult::Outside;
+        }
 
         // We scan through the clip stack and detect if our actual rectangle
         // is in the intersection of all of all the outer bounds,
         // and if it's completely inside the intersection of all of the inner bounds.
-        let result = layer_clips.iter().chain(extra.as_ref())
-                                .fold(Some((actual_rect, true)), |current, clip| {
-            current.and_then(|(rect, covering)|
-                rect.intersection(&clip.1.outer_rect)
-                    .map(|r| (r, covering & clip.1.inner_rect.contains_rect(&actual_rect))))
+        let result = clips.iter()
+                          .fold(Some(actual_rect), |current, clip| {
+            current.and_then(|rect| rect.intersection(&clip.1.outer_rect))
         });
 
         let task_rect = match result {
             None => return MaskResult::Outside,
-            Some((_, true)) => return MaskResult::Covering,
-            Some((rect, false)) => rect,
+            Some(rect) => rect,
         };
-        let clips = layer_clips.iter()
-                               .map(|lc| lc.clone())
-                               .chain(extra)
-                               .collect();
+
+        let inner_rect = clips.iter()
+                              .fold(Some(task_rect), |current, clip| {
+            current.and_then(|rect| rect.intersection(&clip.1.inner_rect))
+        });
+
+        // TODO(gw): This optimization is very conservative for now.
+        //           For now, only draw optimized geometry if it is
+        //           a single aligned rect mask with rounded corners.
+        //           In the future, we'll expand this to handle the
+        //           more complex types of clip mask geometry.
+        let mut geometry_kind = MaskGeometryKind::Default;
+
+        if inner_rect.is_some() && clips.len() == 1 {
+            let (sc_index, ref clip_info) = clips[0];
+
+            if clip_info.image.is_none() &&
+               clip_info.clip_range.item_count == 1 &&
+               layers[sc_index.0].xf_rect.as_ref().unwrap().kind == TransformedRectKind::AxisAligned {
+                geometry_kind = MaskGeometryKind::CornersOnly;
+            }
+        }
+
+        let inner_rect = inner_rect.unwrap_or(DeviceIntRect::zero());
 
         MaskResult::Inside(RenderTask {
-            id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(mask_key, tile_id)),
-            children: match dependent {
-                Some(task) => vec![task.clone()],
-                None => Vec::new(),
-            },
+            id: RenderTaskId::Dynamic(RenderTaskKey::CacheMask(mask_key)),
+            children: Vec::new(),
             location: RenderTaskLocation::Dynamic(None, task_rect.size),
             kind: RenderTaskKind::CacheMask(CacheMaskTask {
                 actual_rect: task_rect,
-                base_task_id: dependent.map(|task| task.id),
-                clips: clips,
+                inner_rect: inner_rect,
+                clips: clips.to_vec(),
+                geometry_kind: geometry_kind,
             }),
         })
     }
@@ -1264,6 +1273,10 @@ impl RenderTask {
                         task.actual_rect.size.height as f32,
                         target_index.0 as f32,
                         0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
                     ],
                 }
             }
@@ -1275,6 +1288,10 @@ impl RenderTask {
                         target_rect.size.width as f32,
                         target_rect.size.height as f32,
                         target_index.0 as f32,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
                         0.0,
                         0.0,
                         0.0,
@@ -1293,6 +1310,10 @@ impl RenderTask {
                         task.actual_rect.origin.y as f32,
                         target_index.0 as f32,
                         0.0,
+                        task.inner_rect.origin.x as f32,
+                        task.inner_rect.origin.y as f32,
+                        (task.inner_rect.origin.x + task.inner_rect.size.width) as f32,
+                        (task.inner_rect.origin.y + task.inner_rect.size.height) as f32,
                     ],
                 }
             }
@@ -1306,6 +1327,10 @@ impl RenderTask {
                         target_rect.size.height as f32,
                         target_index.0 as f32,
                         blur_radius.0 as f32,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
                         0.0,
                         0.0,
                     ]
@@ -1483,7 +1508,7 @@ pub struct CacheClipInstance {
     task_id: i32,
     layer_index: i32,
     address: GpuStoreAddress,
-    base_task_id: i32,
+    segment: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -1797,27 +1822,6 @@ pub struct Frame {
     pub deferred_resolves: Vec<DeferredResolve>,
 }
 
-#[derive(Debug)]
-struct LayerMasksTasks {
-    task_ids: Vec<Option<RenderTaskId>>,
-}
-
-impl LayerMasksTasks {
-    fn new() -> LayerMasksTasks {
-        LayerMasksTasks {
-            task_ids: Vec::new(),
-        }
-    }
-
-    fn add(&mut self, index: StackingContextIndex, task_id: RenderTaskId) {
-        while self.task_ids.len() <= index.0 {
-            self.task_ids.push(None);
-        }
-        assert!(self.task_ids[index.0].is_none());
-        self.task_ids[index.0] = Some(task_id);
-    }
-}
-
 /// Some extra per-tile information stored for debugging purposes.
 #[derive(Debug)]
 struct CompiledScreenTileInfo {
@@ -1830,15 +1834,11 @@ struct CompiledScreenTile {
     main_render_task: RenderTask,
     required_pass_count: usize,
     info: CompiledScreenTileInfo,
-    unique_id: TileUniqueId,
-    layer_masks_tasks: LayerMasksTasks,
 }
 
 impl CompiledScreenTile {
     fn new(main_render_task: RenderTask,
-           info: CompiledScreenTileInfo,
-           unique_id: TileUniqueId,
-           layer_masks_tasks: LayerMasksTasks)
+           info: CompiledScreenTileInfo)
            -> CompiledScreenTile {
         let mut required_pass_count = 0;
         main_render_task.max_depth(0, &mut required_pass_count);
@@ -1847,8 +1847,6 @@ impl CompiledScreenTile {
             main_render_task: main_render_task,
             required_pass_count: required_pass_count,
             info: info,
-            unique_id: unique_id,
-            layer_masks_tasks: layer_masks_tasks,
         }
     }
 
@@ -1915,10 +1913,6 @@ impl ScreenTile {
         let mut sc_stack = Vec::new();
         let mut current_task = RenderTask::new_alpha_batch(self.rect, ctx);
         let mut alpha_task_stack = Vec::new();
-        let mut clip_info_stack = Vec::new();
-        let mut clip_task_stack = Vec::new();
-        let mut num_clips_to_skip = 0;
-        let mut layer_masks_tasks = LayerMasksTasks::new();
 
         for cmd in self.cmds {
             match cmd {
@@ -1936,33 +1930,6 @@ impl ScreenTile {
                                                          RenderTask::new_alpha_batch(needed_rect, ctx));
                             alpha_task_stack.push(prev_task);
                         }
-                    }
-
-                    // Create a task for the layer mask, if needed,
-                    // i.e. if there are rounded corners or image masks for the layer.
-                    if let Some(ref clip_info) = layer.clip_cache_info {
-                        if CLIP_TASK_COLLAPSE {
-                            clip_info_stack.push((sc_index, clip_info.clone()));
-                        } else {
-                            let mask_opt = RenderTask::new_mask(self.rect,
-                                                                clip_task_stack.last(),
-                                                                MaskCacheKey::Layer(sc_index),
-                                                                Some((sc_index, clip_info)),
-                                                                &clip_info_stack,
-                                                                ctx.tile_id);
-                            match mask_opt {
-                                MaskResult::Inside(mask_task) => {
-                                    current_task.children.push(mask_task.clone());
-                                    clip_task_stack.push(mask_task);
-                                    num_clips_to_skip = 0;
-                                }
-                                _ => num_clips_to_skip += 1,
-                            }
-                        }
-                    }
-                    // Register the layer mask task within the context
-                    if let Some(ref mask_task) = clip_task_stack.last() {
-                        layer_masks_tasks.add(sc_index, mask_task.id);
                     }
                 }
                 TileCommand::PopLayer => {
@@ -1997,56 +1964,24 @@ impl ScreenTile {
                             current_task = composite_task;
                         }
                     }
-
-                    if layer.clip_cache_info.is_some() {
-                        if CLIP_TASK_COLLAPSE {
-                            clip_info_stack.pop().unwrap();
-                        } else {
-                            if num_clips_to_skip > 0 {
-                                num_clips_to_skip -= 1;
-                            } else {
-                                clip_task_stack.pop().unwrap();
-                            }
-                        }
-                    }
                 }
                 TileCommand::DrawPrimitive(prim_index) => {
                     let sc_index = *sc_stack.last().unwrap();
                     let prim_metadata = ctx.prim_store.get_metadata(prim_index);
 
-                    // Add a task to render the updated image mask
-                    if prim_metadata.clip_cache_info.is_some() || !clip_info_stack.is_empty() {
-                        let top = prim_metadata.clip_cache_info.as_ref().map(|clip_info| (sc_index, clip_info));
-                        let mask_opt = RenderTask::new_mask(self.rect,
-                                                            clip_task_stack.last(),
-                                                            MaskCacheKey::Primitive(prim_index),
-                                                            top,
-                                                            &clip_info_stack,
-                                                            ctx.tile_id);
-                        match mask_opt {
-                            MaskResult::Outside => panic!("Primitive be culled by `assign_prims_to_screen_tiles` already"),
-                            MaskResult::Covering => (), //do nothing
-                            MaskResult::Inside(mask_task) => {
-                                // special case of the primitive not having any clips associated
-                                // but with something on the stack
-                                if CLIP_TASK_COLLAPSE && prim_metadata.clip_cache_info.is_none() {
-                                    layer_masks_tasks.add(sc_index, mask_task.id);
-                                }
-                                current_task.children.push(mask_task);
-                            },
-                        }
-                    }
-
                     // Add any dynamic render tasks needed to render this primitive
                     if let Some(ref render_task) = prim_metadata.render_task {
                         current_task.children.push(render_task.clone());
+                    }
+                    if let Some(ref clip_task) = prim_metadata.clip_task {
+                        current_task.children.push(clip_task.clone());
                     }
 
                     actual_prim_count += 1;
 
                     let layer = &ctx.layer_store[sc_index.0];
                     let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
-                    let needs_clipping = layer.clip_cache_info.is_some() || prim_metadata.clip_cache_info.is_some();
+                    let needs_clipping = prim_metadata.clip_task.is_some();
                     let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                          !prim_metadata.is_opaque ||
                                          needs_clipping;
@@ -2063,7 +1998,6 @@ impl ScreenTile {
         }
 
         debug_assert!(alpha_task_stack.is_empty());
-        debug_assert!(clip_task_stack.is_empty());
 
         let info = CompiledScreenTileInfo {
             cmd_count: cmd_count,
@@ -2071,7 +2005,7 @@ impl ScreenTile {
         };
 
         current_task.location = RenderTaskLocation::Fixed(self.rect);
-        Some(CompiledScreenTile::new(current_task, info, ctx.tile_id, layer_masks_tasks))
+        Some(CompiledScreenTile::new(current_task, info))
     }
 }
 
@@ -2552,6 +2486,7 @@ impl FrameBuilder {
 
         // TODO(gw): Remove this stack once the layers refactor is done!
         let mut layer_stack: Vec<StackingContextIndex> = Vec::new();
+        let mut clip_info_stack = Vec::new();
 
         for cmd in &self.cmds {
             match cmd {
@@ -2629,12 +2564,16 @@ impl FrameBuilder {
                             resource_cache.request_image(mask.image, ImageRendering::Auto);
                             //Note: no need to add the layer for resolve, all layers get resolved
                         }
+
+                        // Create a task for the layer mask, if needed,
+                        // i.e. if there are rounded corners or image masks for the layer.
+                        clip_info_stack.push((sc_index, clip_info.clone()));
                     }
 
                 }
                 &PrimitiveRunCmd::PrimitiveRun(prim_index, prim_count) => {
                     let sc_index = layer_stack.last().unwrap();
-                    let layer = &mut self.layer_store[sc_index.0];
+                    let layer = &self.layer_store[sc_index.0];
                     if !layer.is_visible() {
                         continue;
                     }
@@ -2650,8 +2589,6 @@ impl FrameBuilder {
                                                                &packed_layer.transform,
                                                                &packed_layer.local_clip_rect,
                                                                device_pixel_ratio) {
-                            profile_counters.visible_primitives.inc();
-
                             if self.prim_store.prepare_prim_for_render(prim_index,
                                                                        resource_cache,
                                                                        &packed_layer.transform,
@@ -2663,10 +2600,59 @@ impl FrameBuilder {
                                                                     &packed_layer.local_clip_rect,
                                                                     device_pixel_ratio);
                             }
+
+                            // If the primitive is visible, consider culling it via clip rect(s).
+                            // If it is visible but has clips, create the clip task for it.
+                            if let Some(prim_bounding_rect) = self.prim_store
+                                                                  .cpu_bounding_rects[prim_index.0] {
+                                let prim_metadata = &mut self.prim_store.cpu_metadata[prim_index.0];
+                                let prim_clip_info = prim_metadata.clip_cache_info.as_ref();
+                                let mut visible = true;
+
+                                if let Some(info) = prim_clip_info {
+                                    clip_info_stack.push((*sc_index, info.clone()));
+                                }
+
+                                // Try to create a mask if we may need to.
+                                if prim_clip_info.is_some() || !clip_info_stack.is_empty() {
+                                    let mask_opt = RenderTask::new_mask(prim_bounding_rect,
+                                                                        MaskCacheKey::Primitive(prim_index),
+                                                                        &clip_info_stack,
+                                                                        &self.layer_store);
+                                    match mask_opt {
+                                        MaskResult::Outside => {
+                                            // Primitive is completely clipped out.
+                                            prim_metadata.clip_task = None;
+                                            self.prim_store.cpu_bounding_rects[prim_index.0] = None;
+                                            visible = false;
+                                        }
+                                        MaskResult::Inside(task) => {
+                                            // Got a valid clip task, so store it for this primitive.
+                                            prim_metadata.clip_task = Some(task);
+                                        }
+                                    }
+                                }
+
+                                if let Some(..) = prim_clip_info {
+                                    clip_info_stack.pop();
+                                }
+
+                                if visible {
+                                    profile_counters.visible_primitives.inc();
+                                }
+                            }
                         }
                     }
                 }
                 &PrimitiveRunCmd::PopStackingContext => {
+                    let sc_index = *layer_stack.last().unwrap();
+                    let layer = &mut self.layer_store[sc_index.0];
+                    if layer.can_contribute_to_scene() {
+                        if layer.clip_cache_info.is_some() {
+                            clip_info_stack.pop().unwrap();
+                        }
+                    }
+
                     layer_stack.pop().unwrap();
                 }
             }
@@ -2905,10 +2891,9 @@ impl FrameBuilder {
         let mut max_passes_needed = 0;
 
         let mut render_tasks = {
-            let mut ctx = CompileTileContext {
+            let ctx = CompileTileContext {
                 layer_store: &self.layer_store,
                 prim_store: &self.prim_store,
-                tile_id: 0,
 
                 // This doesn't need to be atomic right now (all the screen tiles are
                 // compiled on a single thread). However, in the future each of the
@@ -2924,8 +2909,7 @@ impl FrameBuilder {
             }
 
             // Build list of passes, target allocs that each tile needs.
-            for (tile_id, screen_tile) in screen_tiles.into_iter().enumerate() {
-                ctx.tile_id = tile_id;
+            for screen_tile in screen_tiles {
                 let rect = screen_tile.rect;
                 if let Some(compiled_screen_tile) = screen_tile.compile(&ctx) {
                     max_passes_needed = cmp::max(max_passes_needed,
@@ -2961,11 +2945,10 @@ impl FrameBuilder {
         let mut passes = Vec::new();
 
         if !compiled_screen_tiles.is_empty() {
-            let mut ctx = RenderTargetContext {
+            let ctx = RenderTargetContext {
                 layer_store: &self.layer_store,
                 prim_store: &self.prim_store,
                 resource_cache: resource_cache,
-                layer_masks_tasks: HashMap::new(),
             };
 
             // Do the allocations now, assigning each tile's tasks to a render
@@ -2975,14 +2958,7 @@ impl FrameBuilder {
                                             index == max_passes_needed-1));
             }
 
-            for mut compiled_screen_tile in compiled_screen_tiles {
-                // Grab the mask task indices from the compile tile and append into the context map
-                for (i, mask_task_opt) in compiled_screen_tile.layer_masks_tasks.task_ids.drain(..).enumerate() {
-                    if let Some(mask_task_id) = mask_task_opt {
-                        let key = (compiled_screen_tile.unique_id, StackingContextIndex(i));
-                        ctx.layer_masks_tasks.insert(key, mask_task_id);
-                    }
-                }
+            for compiled_screen_tile in compiled_screen_tiles {
                 compiled_screen_tile.build(&mut passes);
             }
 

@@ -38,7 +38,7 @@ varying vec3 vClipMaskUv;
 #ifdef WR_VERTEX_SHADER
 
 #define VECS_PER_LAYER             13
-#define VECS_PER_RENDER_TASK        2
+#define VECS_PER_RENDER_TASK        3
 #define VECS_PER_PRIM_GEOM          2
 
 #define GRADIENT_HORIZONTAL     0
@@ -128,6 +128,7 @@ Layer fetch_layer(int index) {
 struct RenderTaskData {
     vec4 data0;
     vec4 data1;
+    vec4 data2;
 };
 
 RenderTaskData fetch_render_task(int index) {
@@ -137,6 +138,7 @@ RenderTaskData fetch_render_task(int index) {
 
     task.data0 = texelFetchOffset(sRenderTasks, uv, 0, ivec2(0, 0));
     task.data1 = texelFetchOffset(sRenderTasks, uv, 0, ivec2(1, 0));
+    task.data2 = texelFetchOffset(sRenderTasks, uv, 0, ivec2(2, 0));
 
     return task;
 }
@@ -159,6 +161,7 @@ Tile fetch_tile(int index) {
 struct ClipArea {
     vec4 task_bounds;
     vec4 screen_origin_target_index;
+    vec4 inner_rect;
 };
 
 ClipArea fetch_clip_area(int index) {
@@ -167,10 +170,12 @@ ClipArea fetch_clip_area(int index) {
     if (index == 0x7FFFFFFF) { //special sentinel task index
         area.task_bounds = vec4(0.0, 0.0, 0.0, 0.0);
         area.screen_origin_target_index = vec4(0.0, 0.0, 0.0, 0.0);
+        area.inner_rect = vec4(0.0);
     } else {
         RenderTaskData task = fetch_render_task(index);
         area.task_bounds = task.data0;
         area.screen_origin_target_index = task.data1;
+        area.inner_rect = task.data2;
     }
 
     return area;
