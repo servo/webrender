@@ -592,7 +592,7 @@ impl Renderer {
         let render_target_debug = options.render_target_debug;
         let payload_tx_for_backend = payload_tx.clone();
         let enable_recording = options.enable_recording;
-        thread::spawn(move || {
+        thread::Builder::new().name("RenderBackend".to_string()).spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  payload_rx,
                                                  payload_tx_for_backend,
@@ -608,7 +608,7 @@ impl Renderer {
                                                  backend_main_thread_dispatcher,
                                                  backend_vr_compositor);
             backend.run();
-        });
+        }).unwrap();
 
         let renderer = Renderer {
             result_rx: result_rx,
