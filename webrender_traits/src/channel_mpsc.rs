@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use serde::{Deserialize, Serialize};
-use std::io::Error;
 
 use serde::{Deserializer, Serializer};
 
@@ -12,6 +11,8 @@ use std::sync::mpsc;
 ///
 /// Handles the channel implementation when in process channels are enabled.
 ///
+
+pub type Error = ();
 
 pub type PayloadSender = MsgSender<Vec<u8>>;
 
@@ -29,7 +30,7 @@ pub struct MsgReceiver<T> {
 
 impl<T> MsgReceiver<T> {
     pub fn recv(&self) -> Result<T, Error> {
-        Ok(self.rx.recv().unwrap())
+        if let Ok(msg) = self.rx.recv() { Ok(msg) } else { Err(()) }
     }
 }
 
