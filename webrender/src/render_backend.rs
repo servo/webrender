@@ -348,15 +348,28 @@ impl RenderBackend {
                             }
                         }
                         ApiMsg::ExternalEvent(evt) => {
-                            let mut notifier = self.notifier.lock();
+                            let notifier = self.notifier.lock();
                             notifier.unwrap()
                                     .as_mut()
                                     .unwrap()
                                     .external_event(evt);
                         }
+                        ApiMsg::ShutDown => {
+                            let notifier = self.notifier.lock();
+                            notifier.unwrap()
+                                    .as_mut()
+                                    .unwrap()
+                                    .shut_down();
+                            break;
+                        }
                     }
                 }
                 Err(..) => {
+                    let notifier = self.notifier.lock();
+                    notifier.unwrap()
+                            .as_mut()
+                            .unwrap()
+                            .shut_down();
                     break;
                 }
             }

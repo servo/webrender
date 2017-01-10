@@ -248,6 +248,10 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
     }
 
+    pub fn shut_down(&self) {
+        self.api_sender.send(ApiMsg::ShutDown).unwrap();
+    }
+
     #[inline]
     fn next_unique_id(&self) -> (u32, u32) {
         let IdNamespace(namespace) = self.id_namespace;

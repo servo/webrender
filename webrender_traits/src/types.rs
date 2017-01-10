@@ -60,6 +60,7 @@ pub enum ApiMsg {
     /// to forward gecko-specific messages to the render thread preserving the ordering
     /// within the other messages.
     ExternalEvent(ExternalEvent),
+    ShutDown,
 }
 
 /// An opaque pointer-sized value.
@@ -443,6 +444,7 @@ pub trait RenderNotifier: Send {
     fn new_scroll_frame_ready(&mut self, composite_needed: bool);
     fn pipeline_size_changed(&mut self, pipeline_id: PipelineId, size: Option<LayoutSize>);
     fn external_event(&mut self, _evt: ExternalEvent) { unimplemented!() }
+    fn shut_down(&mut self) {}
 }
 
 // Trait to allow dispatching functions to a specific thread or event loop.
