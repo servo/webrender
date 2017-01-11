@@ -937,7 +937,7 @@ impl Renderer {
                                textures: &BatchTextures,
                                projection: &Matrix4D<f32>) {
         self.device.bind_vao(vao);
-        self.device.bind_program(shader, &projection);
+        self.device.bind_program(shader, projection);
 
         for i in 0..textures.colors.len() {
             let texture_id = self.resolve_source_texture(&textures.colors[i]);
@@ -1018,7 +1018,7 @@ impl Renderer {
                                   vao,
                                   shader,
                                   &batch.key.textures,
-                                  &projection);
+                                  projection);
     }
 
     fn draw_target(&mut self,
