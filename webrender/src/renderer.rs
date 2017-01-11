@@ -316,6 +316,7 @@ pub struct Renderer {
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
     enable_profiler: bool,
+    clear_background: bool,
     clear_framebuffer: bool,
     clear_color: ColorF,
     debug: DebugRenderer,
@@ -635,6 +636,7 @@ impl Renderer {
             profile_counters: RendererProfileCounters::new(),
             profiler: Profiler::new(),
             enable_profiler: options.enable_profiler,
+            clear_background: options.clear_background,
             clear_framebuffer: options.clear_framebuffer,
             clear_color: options.clear_color,
             last_time: 0,
@@ -1350,7 +1352,7 @@ impl Renderer {
                      DeviceSize::new(framebuffer_size.width as f32, framebuffer_size.height as f32),
                      None)
                 } else {
-                    (true, frame.cache_size, Some(self.render_targets[pass_index]))
+                    (self.clear_background, frame.cache_size, Some(self.render_targets[pass_index]))
                 };
 
                 for (target_index, target) in pass.targets.iter().enumerate() {
@@ -1475,6 +1477,7 @@ pub struct RendererOptions {
     pub renderer_kind: RendererKind,
     pub enable_subpixel_aa: bool,
     pub clear_framebuffer: bool,
+    pub clear_background: bool,
     pub clear_color: ColorF,
     pub render_target_debug: bool,
 }

@@ -84,6 +84,7 @@ fn main() {
         precache_shaders: true,
         renderer_kind: RendererKind::Native,
         enable_subpixel_aa: false,
+        clear_background: true,
         clear_framebuffer: true,
         clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
         render_target_debug: false,
