@@ -37,7 +37,7 @@ use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle, YuvColorSpace
 use webrender_traits::{AuxiliaryLists, ItemRange, BoxShadowClipMode, ClipRegion};
 use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId, FontRenderMode};
 use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize, DeviceIntLength, device_length};
-use webrender_traits::{DeviceUintSize, DeviceUintPoint, DeviceSize};
+use webrender_traits::{DeviceUintSize, DeviceUintPoint};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
 use webrender_traits::{LayerToScrollTransform, LayerToWorldTransform, WorldToLayerTransform};
 use webrender_traits::{WorldPoint4D, ScrollLayerPixel, as_scroll_parent_rect};
@@ -819,7 +819,7 @@ pub struct RenderTarget {
 }
 
 impl RenderTarget {
-    fn new() -> RenderTarget {
+    fn new(size: DeviceUintSize) -> RenderTarget {
         RenderTarget {
             alpha_batcher: AlphaBatcher::new(),
             clip_batcher: ClipBatcher::new(),
@@ -828,9 +828,7 @@ impl RenderTarget {
             text_run_textures: BatchTextures::no_texture(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
-            page_allocator: TexturePage::new(CacheTextureId(0),
-                                             DeviceUintSize::new(RENDERABLE_CACHE_SIZE as u32,
-                                                                 RENDERABLE_CACHE_SIZE as u32)),
+            page_allocator: TexturePage::new(CacheTextureId(0), size),
         }
     }
 
@@ -957,15 +955,19 @@ pub struct RenderPass {
     pub is_framebuffer: bool,
     tasks: Vec<RenderTask>,
     pub targets: Vec<RenderTarget>,
+    size: DeviceUintSize,
 }
 
 impl RenderPass {
-    fn new(pass_index: isize, is_framebuffer: bool) -> RenderPass {
+    fn new(pass_index: isize,
+           is_framebuffer: bool,
+           size: DeviceUintSize) -> RenderPass {
         RenderPass {
             pass_index: RenderPassIndex(pass_index),
             is_framebuffer: is_framebuffer,
-            targets: vec![ RenderTarget::new() ],
+            targets: vec![ RenderTarget::new(size) ],
             tasks: vec![],
+            size: size,
         }
     }
 
@@ -973,18 +975,20 @@ impl RenderPass {
         self.tasks.push(task);
     }
 
-    fn allocate_target(targets: &mut Vec<RenderTarget>, size: DeviceUintSize) -> DeviceUintPoint {
-        let existing_origin = targets.last_mut()
-                                     .unwrap()
-                                     .page_allocator.allocate(&size);
+    fn allocate_target(&mut self, alloc_size: DeviceUintSize) -> DeviceUintPoint {
+        let existing_origin = self.targets
+                                  .last_mut()
+                                  .unwrap()
+                                  .page_allocator
+                                  .allocate(&alloc_size);
         match existing_origin {
             Some(origin) => origin,
             None => {
-                let mut new_target = RenderTarget::new();
+                let mut new_target = RenderTarget::new(self.size);
                 let origin = new_target.page_allocator
-                                       .allocate(&size)
-                                       .expect(&format!("Each render task must allocate <= size of one target! ({:?})", size));
-                targets.push(new_target);
+                                       .allocate(&alloc_size)
+                                       .expect(&format!("Each render task must allocate <= size of one target! ({:?})", alloc_size));
+                self.targets.push(new_target);
                 origin
             }
         }
@@ -995,7 +999,8 @@ impl RenderPass {
              ctx: &RenderTargetContext,
              render_tasks: &mut RenderTaskCollection) {
         // Step through each task, adding to batches as appropriate.
-        for mut task in self.tasks.drain(..) {
+        let tasks = mem::replace(&mut self.tasks, Vec::new());
+        for mut task in tasks {
             // Find a target to assign this task to, or create a new
             // one if required.
             match task.location {
@@ -1018,7 +1023,7 @@ impl RenderPass {
                     }
 
                     let alloc_size = DeviceUintSize::new(size.width as u32, size.height as u32);
-                    let alloc_origin = Self::allocate_target(&mut self.targets, alloc_size);
+                    let alloc_origin = self.allocate_target(alloc_size);
 
                     *origin = Some((DeviceIntPoint::new(alloc_origin.x as i32,
                                                      alloc_origin.y as i32),
@@ -1383,7 +1388,6 @@ impl RenderTask {
 }
 
 pub const SCREEN_TILE_SIZE: i32 = 256;
-pub const RENDERABLE_CACHE_SIZE: i32 = 2048;
 
 #[derive(Debug, Clone)]
 pub struct DebugRect {
@@ -1802,7 +1806,7 @@ pub struct Frame {
     pub background_color: Option<ColorF>,
     pub device_pixel_ratio: f32,
     pub debug_rects: Vec<DebugRect>,
-    pub cache_size: DeviceSize,
+    pub cache_size: DeviceUintSize,
     pub passes: Vec<RenderPass>,
     pub profile_counters: FrameProfileCounters,
 
@@ -2859,7 +2863,6 @@ impl FrameBuilder {
                  layer_map: &LayerMap,
                  auxiliary_lists_map: &AuxiliaryListsMap,
                  device_pixel_ratio: f32) -> Frame {
-
         let mut profile_counters = FrameProfileCounters::new();
         profile_counters.total_primitives.set(self.prim_store.prim_count());
 
@@ -2871,6 +2874,20 @@ impl FrameBuilder {
                                                       device_pixel_ratio),
                                         device_length(self.screen_rect.size.height as f32,
                                                       device_pixel_ratio)));
+
+        // Pick a size for the cache render targets to be. The main requirement is that it
+        // has to be at least as large as the framebuffer size. This ensures that it will
+        // always be able to allocate the worst case render task (such as a clip mask that
+        // covers the entire screen).
+        // However, there are some extremely subtle rounding errors that occur in the
+        // reftests under OSMesa if the cache targets are exactly the size of the
+        // framebuffer. To work around this, we'll align the cache size to a multiple
+        // of the tile size. This can be removed once the tiling code is gone.
+        // TODO(gw): Remove this hack once the tiling code is sorted out!!
+        let max_dimension = cmp::max(screen_rect.size.width, screen_rect.size.height);
+        let aligned_max_dimension = (max_dimension + SCREEN_TILE_SIZE - 1) & !(SCREEN_TILE_SIZE-1);
+        let cache_size = DeviceUintSize::new(aligned_max_dimension as u32,
+                                             aligned_max_dimension as u32);
 
         let mut debug_rects = Vec::new();
 
@@ -2955,7 +2972,8 @@ impl FrameBuilder {
             // pass and target as required.
             for index in 0..max_passes_needed {
                 passes.push(RenderPass::new(index as isize,
-                                            index == max_passes_needed-1));
+                                            index == max_passes_needed-1,
+                                            cache_size));
             }
 
             for compiled_screen_tile in compiled_screen_tiles {
@@ -2979,8 +2997,7 @@ impl FrameBuilder {
             debug_rects: debug_rects,
             profile_counters: profile_counters,
             passes: passes,
-            cache_size: DeviceSize::new(RENDERABLE_CACHE_SIZE as f32,
-                                        RENDERABLE_CACHE_SIZE as f32),
+            cache_size: cache_size,
             layer_texture_data: self.packed_layers.clone(),
             render_task_data: render_tasks.render_task_data,
             gpu_data16: self.prim_store.gpu_data16.build(),
