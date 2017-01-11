@@ -6,10 +6,10 @@ use app_units::Au;
 use core_graphics::base::{kCGImageAlphaNoneSkipFirst, kCGImageAlphaPremultipliedLast};
 use core_graphics::base::kCGBitmapByteOrder32Little;
 use core_graphics::color_space::CGColorSpace;
-use core_graphics::context::CGContext;
+use core_graphics::context::{CGContext, CGTextDrawingMode};
 use core_graphics::data_provider::CGDataProvider;
 use core_graphics::font::{CGFont, CGGlyph};
-use core_graphics::geometry::CGPoint;
+use core_graphics::geometry::{CGPoint, CGSize, CGRect};
 use core_text::font::CTFont;
 use core_text::font_descriptor::kCTFontDefaultOrientation;
 use core_text;
@@ -158,6 +158,23 @@ impl FontContext {
         })
     }
 
+    #[allow(dead_code)]
+    fn print_glyph_data(&mut self, cg_context: &mut CGContext, width: usize, height: usize) {
+        let data = cg_context.data();
+        // Rust doesn't have step_by support on stable :(
+        for i in 0..height {
+            let current_height = i * width * 4;
+
+            for pixel in data[current_height .. current_height + (width * 4)].chunks(4) {
+                let b = pixel[0];
+                let g = pixel[1];
+                let r = pixel[2];
+                print!("({}, {}, {}) ", r, g, b);
+            }
+            println!("");
+        }
+    }
+
     pub fn rasterize_glyph(&mut self,
                            font_key: FontKey,
                            size: Au,
@@ -189,20 +206,61 @@ impl FontContext {
                     FontRenderMode::Mono => (false, false),
                 };
 
+                // These are always true in Gecko, even for non-AA fonts
+                cg_context.set_allows_font_subpixel_positioning(true);
+                cg_context.set_should_subpixel_position_fonts(true);
+
                 cg_context.set_allows_font_smoothing(smooth);
                 cg_context.set_should_smooth_fonts(smooth);
                 cg_context.set_allows_antialiasing(antialias);
                 cg_context.set_should_antialias(antialias);
-                cg_context.set_rgb_fill_color(1.0, 1.0, 1.0, 1.0);
 
                 let rasterization_origin = CGPoint {
                     x: -metrics.rasterized_left as f64,
                     y: metrics.rasterized_descent as f64,
                 };
+
+                // CGFonts have to be drawn with black text on a white background
+                // After 10.11, there are two different glyphs depending on
+                // white on black or black on white. Gecko defaults to black on white.
+                cg_context.set_rgb_fill_color(1.0, 1.0, 1.0, 1.0);
+
+                let rect = CGRect {
+                    origin: CGPoint {
+                        x: 0.0,
+                        y: 0.0,
+                    },
+                    size: CGSize {
+                        width: metrics.rasterized_width as f64,
+                        height: metrics.rasterized_height as f64,
+                    }
+                };
+
+                // Fill white
+                cg_context.fill_rect(rect);
+
+                // Now draw black
+                cg_context.set_text_drawing_mode(CGTextDrawingMode::CGTextFill);
+                cg_context.set_rgb_fill_color(0.0, 0.0, 0.0, 1.0);
+
                 ct_font.draw_glyphs(&[glyph], &[rasterization_origin], cg_context.clone());
 
                 let rasterized_area = (metrics.rasterized_width * metrics.rasterized_height) as usize;
                 let mut rasterized_pixels = cg_context.data().to_vec();
+
+                // We need to invert the pixels back since right now
+                // transparent pixels are actually white.
+                for i in 0..metrics.rasterized_height {
+                    let current_height :usize = (i * metrics.rasterized_width * 4) as usize;
+                    let end_row :usize = current_height + (metrics.rasterized_width as usize * 4);
+
+                    for mut pixel in rasterized_pixels[current_height .. end_row].chunks_mut(4) {
+                        pixel[0] = 255 - pixel[0];
+                        pixel[1] = 255 - pixel[1];
+                        pixel[2] = 255 - pixel[2];
+                        pixel[3] = 255;
+                    }
+                }
 
                 match render_mode {
                     FontRenderMode::Alpha | FontRenderMode::Mono => {
