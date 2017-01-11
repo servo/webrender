@@ -731,15 +731,15 @@ impl Renderer {
     // we will add a callback here that is able to ask the caller
     // for the image data.
     fn resolve_source_texture(&mut self, texture_id: &SourceTexture) -> TextureId {
-        match texture_id {
-            &SourceTexture::Invalid => TextureId::invalid(),
-            &SourceTexture::WebGL(id) => TextureId::new(id),
-            &SourceTexture::External(ref key) => {
+        match *texture_id {
+            SourceTexture::Invalid => TextureId::invalid(),
+            SourceTexture::WebGL(id) => TextureId::new(id),
+            SourceTexture::External(ref key) => {
                 *self.external_images
                      .get(key)
                      .expect("BUG: External image should be resolved by now!")
             }
-            &SourceTexture::TextureCache(index) => {
+            SourceTexture::TextureCache(index) => {
                 self.cache_texture_id_map[index.0]
             }
         }
