@@ -214,6 +214,10 @@ impl RenderBackend {
                             }
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
+                            if scene.pipeline_map.get(&pipeline_id).is_none() {
+                                return;
+                            }
+
                             let frame = profile_counters.total_time.profile(|| {
                                 self.scene.set_root_pipeline_id(pipeline_id);
 
