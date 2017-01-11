@@ -108,6 +108,8 @@ impl HeadlessContext {
         attribs.push(3);
         attribs.push(osmesa_sys::OSMESA_CONTEXT_MINOR_VERSION);
         attribs.push(3);
+        attribs.push(osmesa_sys::OSMESA_DEPTH_BITS);
+        attribs.push(24);
         attribs.push(0);
 
         let context = unsafe {
