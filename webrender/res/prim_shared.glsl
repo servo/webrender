@@ -3,11 +3,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#if defined(GL_ES) && GL_ES == 1
-    #ifdef GL_FRAGMENT_PRECISION_HIGH
-    precision highp sampler2DArray;
-    #else
-    precision mediump sampler2DArray;
+#if defined(GL_ES)
+    #if GL_ES == 1
+        #ifdef GL_FRAGMENT_PRECISION_HIGH
+        precision highp sampler2DArray;
+        #else
+        precision mediump sampler2DArray;
+        #endif
     #endif
 #endif
 
