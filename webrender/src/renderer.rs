@@ -691,7 +691,7 @@ impl Renderer {
 
     /// Returns the Epoch of the current frame in a pipeline.
     pub fn current_epoch(&self, pipeline_id: PipelineId) -> Option<Epoch> {
-        self.pipeline_epoch_map.get(&pipeline_id).map(|epoch| *epoch)
+        self.pipeline_epoch_map.get(&pipeline_id).cloned()
     }
 
     /// Processes the result queue.
