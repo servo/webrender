@@ -38,7 +38,7 @@ use time::precise_time_ns;
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ExternalImageId, ImageFormat, RenderApiSender, RendererKind};
-use webrender_traits::{DeviceIntRect, DeviceSize, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
+use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use webrender_traits::channel;
 use webrender_traits::VRCompositorHandler;
 
@@ -1024,14 +1024,14 @@ impl Renderer {
     fn draw_target(&mut self,
                    render_target: Option<(TextureId, i32)>,
                    target: &RenderTarget,
-                   target_size: &DeviceSize,
+                   target_size: &DeviceUintSize,
                    cache_texture: Option<TextureId>,
                    should_clear: bool,
                    background_color: Option<ColorF>) {
         self.device.disable_depth();
         self.device.enable_depth_write();
 
-        let dimensions = [target_size.width as u32, target_size.height as u32];
+        let dimensions = [target_size.width, target_size.height];
         let projection = {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
             self.device.bind_draw_target(render_target, Some(dimensions));
@@ -1055,9 +1055,9 @@ impl Renderer {
                     //   for mix-blend-mode etc).
                     [1.0, 1.0, 1.0, 0.0],
                     Matrix4D::ortho(0.0,
-                                   target_size.width,
+                                   target_size.width as f32,
                                    0.0,
-                                   target_size.height,
+                                   target_size.height as f32,
                                    ORTHO_NEAR_PLANE,
                                    ORTHO_FAR_PLANE)
                 ),
@@ -1066,8 +1066,8 @@ impl Renderer {
                         color.to_array()
                     }),
                     Matrix4D::ortho(0.0,
-                                   target_size.width,
-                                   target_size.height,
+                                   target_size.width as f32,
+                                   target_size.height as f32,
                                    0.0,
                                    ORTHO_NEAR_PLANE,
                                    ORTHO_FAR_PLANE)
@@ -1347,10 +1347,10 @@ impl Renderer {
             for (pass_index, pass) in frame.passes.iter().enumerate() {
                 let (do_clear, size, target_id) = if pass.is_framebuffer {
                     (self.clear_framebuffer || needs_clear,
-                     DeviceSize::new(framebuffer_size.width as f32, framebuffer_size.height as f32),
+                     framebuffer_size,
                      None)
                 } else {
-                    (true, frame.cache_size, Some(self.render_targets[pass_index]))
+                    (true, &frame.cache_size, Some(self.render_targets[pass_index]))
                 };
 
                 for (target_index, target) in pass.targets.iter().enumerate() {
@@ -1359,7 +1359,7 @@ impl Renderer {
                     });
                     self.draw_target(render_target,
                                      target,
-                                     &size,
+                                     size,
                                      src_id,
                                      do_clear,
                                      frame.background_color);
