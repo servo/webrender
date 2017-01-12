@@ -62,4 +62,5 @@ def set_osmesa_env(bin_path):
 
 set_osmesa_env('../target/release/')
 subprocess.check_call(['../target/release/wrench', '-t', '1', '-h', 'show', sys.argv[1]])
+subprocess.check_call(['../target/release/wrench', '-h', 'reftest'])
 print('md5 = ' + hashlib.md5(open('screenshot.png', 'rb').read()).hexdigest())

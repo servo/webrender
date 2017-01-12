@@ -54,6 +54,9 @@ use yaml_frame_reader::YamlFrameReader;
 
 mod yaml_frame_writer;
 mod json_frame_writer;
+mod scene;
+mod reftest;
+use reftest::run_reftests;
 
 mod binary_frame_reader;
 use binary_frame_reader::BinaryFrameReader;
@@ -300,6 +303,9 @@ fn main() {
             Box::new(YamlFrameReader::new_from_args(subargs)) as Box<WrenchThing>
         } else if let Some(subargs) = args.subcommand_matches("replay") {
             Box::new(BinaryFrameReader::new_from_args(subargs)) as Box<WrenchThing>
+        } else if let Some(_) = args.subcommand_matches("reftest") {
+            run_reftests(&mut wrench, &mut window, "reftests/reftest.list");
+            return;
         } else {
             panic!("Should never have gotten here");
         };
