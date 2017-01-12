@@ -310,21 +310,46 @@ impl YamlFrameWriter {
         scene.finish_root_display_list(self.pipeline_id.unwrap(), dl, aux);
 
         let mut root = new_table();
-        table_node(&mut root, "root", root_dl_table);
+        if let Some(root_pipeline_id) = scene.root_pipeline_id {
+            u32_vec_node(&mut root_dl_table, "id", &vec![root_pipeline_id.0, root_pipeline_id.1]);
 
-        let mut s = String::new();
-        // FIXME YamlEmitter wants a std::fmt::Write, not a io::Write, so we can't pass a file
-        // directly.  This seems broken.
-        {
-            let mut emitter = YamlEmitter::new(&mut s);
-            emitter.dump(&Yaml::Hash(root)).unwrap();
+            let mut pipelines = vec![];
+            for pipeline_id in scene.pipeline_map.keys() {
+                // write out all pipelines other than the root one
+                if *pipeline_id == root_pipeline_id {
+                    continue;
+                }
+
+                let mut pipeline = new_table();
+                u32_vec_node(&mut pipeline, "id", &vec![pipeline_id.0, pipeline_id.1]);
+
+                let dl = scene.display_lists.get(pipeline_id).unwrap();
+                let aux = scene.pipeline_auxiliary_lists.get(pipeline_id).unwrap();
+                let mut iter = dl.iter();
+                self.write_dl(&mut pipeline, &mut iter, &aux);
+                pipelines.push(Yaml::Hash(pipeline));
+            }
+
+            table_node(&mut root, "root", root_dl_table);
+
+            root.insert(Yaml::String("pipelines".to_owned()), Yaml::Array(pipelines));
+
+            let mut s = String::new();
+            // FIXME YamlEmitter wants a std::fmt::Write, not a io::Write, so we can't pass a file
+            // directly.  This seems broken.
+            {
+                let mut emitter = YamlEmitter::new(&mut s);
+                emitter.dump(&Yaml::Hash(root)).unwrap();
+            }
+            let sb = s.into_bytes();
+            let mut frame_file_name = self.frame_base.clone();
+            let current_shown_frame = unsafe { CURRENT_FRAME_NUMBER };
+            frame_file_name.push(format!("frame-{}.yaml", current_shown_frame));
+            let mut file = File::create(&frame_file_name).unwrap();
+            file.write_all(&sb).unwrap();
+
         }
-        let sb = s.into_bytes();
-        let mut frame_file_name = self.frame_base.clone();
-        let current_shown_frame = unsafe { CURRENT_FRAME_NUMBER };
-        frame_file_name.push(format!("frame-{}.yaml", current_shown_frame));
-        let mut file = File::create(&frame_file_name).unwrap();
-        file.write_all(&sb).unwrap();
+
     }
 
     fn next_rsrc_paths(prefix: &str, counter: &mut u32, base_path: &Path, base: &str, ext: &str) -> (PathBuf, PathBuf) {
@@ -550,8 +575,7 @@ impl YamlFrameWriter {
                 },
                 Iframe(item) => {
                     str_node(&mut v, "type", "iframe");
-                    // TODO
-                    println!("TODO YAML Iframe");
+                    u32_vec_node(&mut v, "id", &vec![item.pipeline_id.0, item.pipeline_id.1]);
                 },
                 PushStackingContext(item) => {
                     str_node(&mut v, "type", "stacking_context");
