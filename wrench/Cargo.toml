@@ -19,6 +19,7 @@ yaml-rust = { git = "https://github.com/vvuk/yaml-rust" }
 serde = "0.8"
 serde_json = "0.8"
 time = "0.1"
+uuid = "0.3.1"
 crossbeam = "0.2"
 osmesa-sys = { version = "0.1.2", optional = true }
 osmesa-src = { git = "https://github.com/servo/osmesa-src", optional = true }

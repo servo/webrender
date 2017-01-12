@@ -4,6 +4,7 @@ extern crate glutin;
 extern crate gleam;
 extern crate webrender_traits;
 extern crate euclid;
+extern crate uuid;
 
 use app_units::Au;
 use gleam::gl;
@@ -14,6 +15,7 @@ use webrender_traits::{LayoutSize, LayoutPoint, LayoutRect, LayoutTransform, Dev
 use std::fs::File;
 use std::io::Read;
 use std::env;
+use uuid::Uuid;
 
 fn load_file(name: &str) -> Vec<u8> {
     let mut file = File::open(name).unwrap();
@@ -98,7 +100,7 @@ fn main() {
     let epoch = Epoch(0);
     let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
 
-    let pipeline_id = PipelineId(0, 0);
+    let pipeline_id = PipelineId(Uuid::nil());
     let mut builder = webrender_traits::DisplayListBuilder::new(pipeline_id);
 
     let bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(width as f32, height as f32));

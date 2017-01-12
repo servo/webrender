@@ -16,6 +16,7 @@ use image::GenericImage;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use uuid::Uuid;
 use webrender;
 use webrender_traits::*;
 use yaml_rust::Yaml;
@@ -204,7 +205,7 @@ impl Wrench {
 
             image_map: HashMap::new(),
 
-            root_pipeline_id: PipelineId(0, 0),
+            root_pipeline_id: PipelineId(Uuid::nil()),
             next_scroll_layer_id: 0,
 
             gl_renderer: gl_renderer,
