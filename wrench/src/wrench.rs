@@ -167,17 +167,10 @@ impl Wrench {
         let opts = webrender::RendererOptions {
             device_pixel_ratio: dp_ratio,
             resource_override_path: shader_override_path,
-            enable_aa: false,
-            enable_profiler: false,
             enable_recording: save_type.is_some(),
-            enable_scrollbars: false,
             enable_subpixel_aa: subpixel_aa,
             debug: debug,
-            precache_shaders: false,
-            renderer_kind: RendererKind::Native,
-            clear_framebuffer: true,
-            clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
-            render_target_debug: false,
+            .. Default::default()
         };
 
         let (renderer, sender) = webrender::renderer::Renderer::new(opts);
