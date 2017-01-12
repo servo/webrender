@@ -691,7 +691,7 @@ impl Renderer {
 
     /// Returns the Epoch of the current frame in a pipeline.
     pub fn current_epoch(&self, pipeline_id: PipelineId) -> Option<Epoch> {
-        self.pipeline_epoch_map.get(&pipeline_id).map(|epoch| *epoch)
+        self.pipeline_epoch_map.get(&pipeline_id).cloned()
     }
 
     /// Processes the result queue.
@@ -731,15 +731,15 @@ impl Renderer {
     // we will add a callback here that is able to ask the caller
     // for the image data.
     fn resolve_source_texture(&mut self, texture_id: &SourceTexture) -> TextureId {
-        match texture_id {
-            &SourceTexture::Invalid => TextureId::invalid(),
-            &SourceTexture::WebGL(id) => TextureId::new(id),
-            &SourceTexture::External(ref key) => {
+        match *texture_id {
+            SourceTexture::Invalid => TextureId::invalid(),
+            SourceTexture::WebGL(id) => TextureId::new(id),
+            SourceTexture::External(ref key) => {
                 *self.external_images
                      .get(key)
                      .expect("BUG: External image should be resolved by now!")
             }
-            &SourceTexture::TextureCache(index) => {
+            SourceTexture::TextureCache(index) => {
                 self.cache_texture_id_map[index.0]
             }
         }
@@ -937,7 +937,7 @@ impl Renderer {
                                textures: &BatchTextures,
                                projection: &Matrix4D<f32>) {
         self.device.bind_vao(vao);
-        self.device.bind_program(shader, &projection);
+        self.device.bind_program(shader, projection);
 
         for i in 0..textures.colors.len() {
             let texture_id = self.resolve_source_texture(&textures.colors[i]);
@@ -1018,7 +1018,7 @@ impl Renderer {
                                   vao,
                                   shader,
                                   &batch.key.textures,
-                                  &projection);
+                                  projection);
     }
 
     fn draw_target(&mut self,
