@@ -1478,3 +1478,23 @@ pub struct RendererOptions {
     pub clear_color: ColorF,
     pub render_target_debug: bool,
 }
+
+impl Default for RendererOptions {
+    fn default() -> RendererOptions {
+        RendererOptions {
+            device_pixel_ratio: 1.0,
+            resource_override_path: None,
+            enable_aa: false,
+            enable_profiler: false,
+            debug: false,
+            enable_recording: false,
+            enable_scrollbars: false,
+            precache_shaders: false,
+            renderer_kind: RendererKind::Native,
+            enable_subpixel_aa: false,
+            clear_framebuffer: true,
+            clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
+            render_target_debug: false,
+        }
+    }
+}

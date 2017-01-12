@@ -19,7 +19,7 @@ dependencies = [
  "serde 0.8.19 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.35 (registry+https://github.com/rust-lang/crates.io-index)",
- "webrender 0.11.0",
+ "webrender 0.11.1",
  "webrender_traits 0.11.0",
  "yaml-rust 0.3.4 (git+https://github.com/vvuk/yaml-rust)",
 ]
@@ -1115,7 +1115,7 @@ dependencies = [
 
 [[package]]
 name = "webrender"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "app_units 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bincode 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1201,7 +1201,7 @@ dependencies = [
  "euclid 0.10.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.2.30 (registry+https://github.com/rust-lang/crates.io-index)",
  "glutin 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "webrender 0.11.0",
+ "webrender 0.11.1",
  "webrender_traits 0.11.0",
 ]
 
@@ -1213,7 +1213,7 @@ dependencies = [
  "euclid 0.10.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.2.30 (registry+https://github.com/rust-lang/crates.io-index)",
  "glutin 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "webrender 0.11.0",
+ "webrender 0.11.1",
  "webrender_traits 0.11.0",
 ]
 
