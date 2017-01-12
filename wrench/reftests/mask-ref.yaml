@@ -1,0 +1,11 @@
+---
+root:
+  items:
+    - 
+      bounds: [0, 0, 95, 88]
+      items:
+        - 
+          bounds: [9, 9, 10, 10]
+          type: rect
+          color: blue
+      type: stacking_context
