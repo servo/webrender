@@ -343,7 +343,6 @@ impl Wrench {
     }
 
     pub fn send_lists(&mut self, frame_number: u32, display_list: DisplayListBuilder) {
-        self.begin_frame();
 
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
         self.api.set_root_display_list(root_background_color,
