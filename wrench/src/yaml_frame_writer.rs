@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use webrender;
 use webrender_traits::*;
 use yaml_rust::{Yaml, YamlEmitter};
+use scene::Scene;
 use time;
 
 use super::CURRENT_FRAME_NUMBER;
@@ -210,10 +211,26 @@ pub struct YamlFrameWriter {
     fonts: HashMap<FontKey, CachedFont>,
 
     last_frame_written: u32,
+    pipeline_id: Option<PipelineId>,
 
     dl_descriptor: Option<BuiltDisplayListDescriptor>,
     aux_descriptor: Option<AuxiliaryListsDescriptor>,
 }
+
+pub struct YamlFrameWriterReceiver {
+    frame_writer: YamlFrameWriter,
+    scene: Scene,
+}
+
+impl YamlFrameWriterReceiver {
+    pub fn new(path: &Path) -> YamlFrameWriterReceiver {
+        YamlFrameWriterReceiver {
+            frame_writer: YamlFrameWriter::new(path),
+            scene: Scene::new(),
+        }
+    }
+}
+
 
 impl YamlFrameWriter {
     pub fn new(path: &Path) -> YamlFrameWriter {
@@ -234,15 +251,18 @@ impl YamlFrameWriter {
             dl_descriptor: None,
             aux_descriptor: None,
 
+            pipeline_id: None,
+
             last_frame_written: u32::max_value(),
         }
     }
 
     pub fn begin_write_root_display_list(&mut self,
-                                         _: &Option<ColorF>,
-                                         _: &Epoch,
-                                         _: &PipelineId,
-                                         _: &LayoutSize,
+                                         scene: &mut Scene,
+                                         background_color: &Option<ColorF>,
+                                         epoch: &Epoch,
+                                         pipeline_id: &PipelineId,
+                                         viewport_size: &LayoutSize,
                                          display_list: &BuiltDisplayListDescriptor,
                                          auxiliary_lists: &AuxiliaryListsDescriptor)
     {
@@ -255,9 +275,15 @@ impl YamlFrameWriter {
 
         self.dl_descriptor = Some(display_list.clone());
         self.aux_descriptor = Some(auxiliary_lists.clone());
+        self.pipeline_id = Some(pipeline_id.clone());
+
+        scene.begin_root_display_list(pipeline_id, epoch,
+                                      background_color,
+                                      viewport_size);
     }
 
     pub fn finish_write_root_display_list(&mut self,
+                                          scene: &mut Scene,
                                           frame: u32,
                                           data: &[u8])
     {
@@ -276,8 +302,12 @@ impl YamlFrameWriter {
         let aux = AuxiliaryLists::from_data(aux_list_data, aux_desc);
 
         let mut root_dl_table = new_table();
-        let mut iter = dl.all_display_items().iter();
-        self.write_dl(&mut root_dl_table, &mut iter, &aux);
+        {
+            let mut iter = dl.all_display_items().iter();
+            self.write_dl(&mut root_dl_table, &mut iter, &aux);
+        }
+
+        scene.finish_root_display_list(self.pipeline_id.unwrap(), dl, aux);
 
         let mut root = new_table();
         table_node(&mut root, "root", root_dl_table);
@@ -553,21 +583,23 @@ impl YamlFrameWriter {
     }
 }
 
-impl webrender::ApiRecordingReceiver for YamlFrameWriter {
+impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
     fn write_msg(&mut self, _: u32, msg: &ApiMsg) {
         match msg {
-            &ApiMsg::SetRootPipeline(..) |
+            &ApiMsg::SetRootPipeline(ref pipeline_id) => {
+                self.scene.set_root_pipeline_id(pipeline_id.clone());
+            }
             &ApiMsg::Scroll(..) |
             &ApiMsg::TickScrollingBounce |
             &ApiMsg::WebGLCommand(..) => {
             }
 
             &ApiMsg::AddRawFont(ref key, ref bytes) => {
-                self.fonts.insert(*key, CachedFont::Raw(Some(bytes.clone()), None));
+                self.frame_writer.fonts.insert(*key, CachedFont::Raw(Some(bytes.clone()), None));
             }
 
             &ApiMsg::AddNativeFont(ref key, ref native_font_handle) => {
-                self.fonts.insert(*key, CachedFont::Native(native_font_handle.clone()));
+                self.frame_writer.fonts.insert(*key, CachedFont::Native(native_font_handle.clone()));
             }
 
             &ApiMsg::AddImage(ref key, width, height, stride,
@@ -586,7 +618,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriter {
                     &ImageData::Raw(ref v) => { (**v).clone() }
                     &ImageData::External(_) => { return; }
                 };
-                self.images.insert(*key, CachedImage {
+                self.frame_writer.images.insert(*key, CachedImage {
                     width: width, height: height, stride: stride,
                     format: format,
                     bytes: Some(bytes),
@@ -596,7 +628,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriter {
 
             &ApiMsg::UpdateImage(ref key, width, height,
                                  format, ref bytes) => {
-                if let Some(ref mut data) = self.images.get_mut(key) {
+                if let Some(ref mut data) = self.frame_writer.images.get_mut(key) {
                     assert!(data.width == width);
                     assert!(data.height == height);
                     assert!(data.format == format);
@@ -607,7 +639,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriter {
             }
 
             &ApiMsg::DeleteImage(ref key) => {
-                self.images.remove(key);
+                self.frame_writer.images.remove(key);
             }
 
             &ApiMsg::SetRootDisplayList(ref background_color,
@@ -616,7 +648,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriter {
                                         ref viewport_size,
                                         ref display_list,
                                         ref auxiliary_lists) => {
-                self.begin_write_root_display_list(background_color, epoch, pipeline_id,
+                self.frame_writer.begin_write_root_display_list(&mut self.scene, background_color, epoch, pipeline_id,
                                                    viewport_size, display_list, auxiliary_lists);
             }
             _ => {}
@@ -624,8 +656,8 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriter {
     }
 
     fn write_payload(&mut self, frame: u32, data: &[u8]) {
-        if self.dl_descriptor.is_some() {
-            self.finish_write_root_display_list(frame, data);
+        if self.frame_writer.dl_descriptor.is_some() {
+            self.frame_writer.finish_write_root_display_list(&mut self.scene, frame, data);
         }
     }
 }

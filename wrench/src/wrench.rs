@@ -19,7 +19,7 @@ use std::sync::Arc;
 use webrender;
 use webrender_traits::*;
 use yaml_rust::Yaml;
-use yaml_frame_writer::YamlFrameWriter;
+use yaml_frame_writer::YamlFrameWriterReceiver;
 use json_frame_writer::JsonFrameWriter;
 use time;
 use crossbeam::sync::chase_lev;
@@ -156,7 +156,7 @@ impl Wrench {
 
         if let Some(ref save_type) = save_type {
             let recorder = match save_type {
-                &SaveType::Yaml => Box::new(YamlFrameWriter::new(&PathBuf::from("yaml_frames")))
+                &SaveType::Yaml => Box::new(YamlFrameWriterReceiver::new(&PathBuf::from("yaml_frames")))
                     as Box<webrender::ApiRecordingReceiver>,
                 &SaveType::Json => Box::new(JsonFrameWriter::new(&PathBuf::from("json_frames")))
                     as Box<webrender::ApiRecordingReceiver>,
