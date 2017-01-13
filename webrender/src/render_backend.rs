@@ -426,12 +426,12 @@ impl RenderBackend {
                 }
                 None => {
                     // Was existing, not in current frame anymore
-                        let mut notifier = self.notifier.lock();
-                        notifier.as_mut()
-                                .unwrap()
-                                .as_mut()
-                                .unwrap()
-                                .pipeline_size_changed(pipeline_id, None);
+                    let mut notifier = self.notifier.lock();
+                    notifier.as_mut()
+                            .unwrap()
+                            .as_mut()
+                            .unwrap()
+                            .pipeline_size_changed(pipeline_id, None);
                 }
             }
         }
