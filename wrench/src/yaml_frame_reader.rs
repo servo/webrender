@@ -145,7 +145,6 @@ impl YamlFrameReader {
                 } else {
                     None
                 };
-                println!("R {:?} cx {:?}", bounds, complex);
                 Some(self.builder().new_clip_region(&bounds, complex, image_mask))
             }
             _ => {
