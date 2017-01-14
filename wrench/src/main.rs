@@ -36,13 +36,14 @@ use image::png::PNGEncoder;
 use std::path::PathBuf;
 use std::cmp::{min, max};
 use std::fs::File;
-use std::mem;
 use std::os::raw::c_void;
 use std::ptr;
 use webrender_traits::*;
 
 #[cfg(feature = "headless")]
 use std::ffi::CString;
+#[cfg(feature = "headless")]
+use std::mem;
 
 mod wrench;
 use wrench::{Wrench, WrenchThing};

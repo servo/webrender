@@ -9,8 +9,7 @@ use dwrote;
 use font_loader::system_fonts;
 
 use gleam::gl;
-use glutin;
-use glutin::{WindowProxy, VirtualKeyCode};
+use glutin::WindowProxy;
 use image;
 use image::GenericImage;
 use std::collections::HashMap;
