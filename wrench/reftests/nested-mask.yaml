@@ -1,0 +1,27 @@
+---
+root:
+  items:
+    - 
+      type: stacking_context
+      bounds: [0, 0, 95, 88]
+      clip:
+        image_mask:
+          image: "mask.png"
+          rect: [0, 0, 35, 35]
+          repeat: false
+        rect: [0, 0, 95, 88]
+      items:
+        - 
+          type: stacking_context
+          bounds: [0, 0, 95, 88]
+          clip:
+            image_mask:
+              image: "mask.png"
+              rect: [4, 4, 35, 35]
+              repeat: false
+            rect: [0, 0, 95, 88]
+          items:
+           - 
+            bounds: [0, 0, 95, 88]
+            type: rect
+            color: blue
