@@ -6,10 +6,10 @@ use app_units::Au;
 use core_graphics::base::{kCGImageAlphaNoneSkipFirst, kCGImageAlphaPremultipliedLast};
 use core_graphics::base::kCGBitmapByteOrder32Little;
 use core_graphics::color_space::CGColorSpace;
-use core_graphics::context::CGContext;
+use core_graphics::context::{CGContext, CGTextDrawingMode};
 use core_graphics::data_provider::CGDataProvider;
 use core_graphics::font::{CGFont, CGGlyph};
-use core_graphics::geometry::CGPoint;
+use core_graphics::geometry::{CGPoint, CGSize, CGRect};
 use core_text::font::CTFont;
 use core_text::font_descriptor::kCTFontDefaultOrientation;
 use core_text;
@@ -40,12 +40,22 @@ impl RasterizedGlyph {
     }
 }
 
+#[derive(Debug)]
 struct GlyphMetrics {
-    rasterized_left: i32,
-    rasterized_descent: i32,
-    rasterized_ascent: i32,
-    rasterized_width: u32,
-    rasterized_height: u32,
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+impl GlyphMetrics {
+    pub fn width(&self) -> usize {
+        return (self.right - self.left) as usize;
+    }
+
+    pub fn height(&self) -> usize {
+        return (self.top - self.bottom) as usize;
+    }
 }
 
 // According to the Skia source code, there's no public API to
@@ -72,20 +82,30 @@ fn supports_subpixel_aa() -> bool {
 fn get_glyph_metrics(ct_font: &CTFont, glyph: CGGlyph) -> GlyphMetrics {
     let bounds = ct_font.get_bounding_rects_for_glyphs(kCTFontDefaultOrientation, &[glyph]);
 
-    let rasterized_left = bounds.origin.x.floor() as i32;
-    let rasterized_width =
-        (bounds.origin.x - (rasterized_left as f64) + bounds.size.width).ceil() as u32;
-    let rasterized_descent = (-bounds.origin.y).ceil() as i32;
-    let rasterized_ascent = (bounds.size.height + bounds.origin.y).ceil() as i32;
-    let rasterized_height = (rasterized_descent + rasterized_ascent) as u32;
+    // First round out to pixel boundaries
+    // CG Origin is bottom left
+    let mut left = bounds.origin.x.floor() as i32;
+    let mut bottom = bounds.origin.y.floor() as i32;
+    let mut right = (bounds.origin.x + bounds.size.width).ceil() as i32;
+    let mut top = (bounds.origin.y + bounds.size.height).ceil() as i32;
 
-    GlyphMetrics {
-        rasterized_ascent: rasterized_ascent,
-        rasterized_descent: rasterized_descent,
-        rasterized_left: rasterized_left,
-        rasterized_width: rasterized_width,
-        rasterized_height: rasterized_height,
-    }
+    // Expand the bounds by 1 pixel, to give CG room for anti-aliasing.
+    // Note that this outset is to allow room for LCD smoothed glyphs. However, the correct outset
+    // is not currently known, as CG dilates the outlines by some percentage.
+    // This is taken from Skia.
+    left -= 1;
+    bottom -= 1;
+    right += 1;
+    top += 1;
+
+    let metrics = GlyphMetrics {
+        left: left,
+        top: top,
+        right: right,
+        bottom: bottom,
+    };
+
+    metrics
 }
 
 impl FontContext {
@@ -145,17 +165,34 @@ impl FontContext {
         self.get_ct_font(font_key, size).and_then(|ref ct_font| {
             let glyph = character as CGGlyph;
             let metrics = get_glyph_metrics(ct_font, glyph);
-            if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
+            if metrics.width() == 0 || metrics.height() == 0 {
                 None
             } else {
                 Some(GlyphDimensions {
-                    left: metrics.rasterized_left,
-                    top: metrics.rasterized_ascent,
-                    width: metrics.rasterized_width as u32,
-                    height: metrics.rasterized_height as u32,
+                    left: metrics.left,
+                    top: metrics.top,
+                    width: metrics.width() as u32,
+                    height: metrics.height() as u32,
                 })
             }
         })
+    }
+
+    #[allow(dead_code)]
+    fn print_glyph_data(&mut self, cg_context: &mut CGContext, width: usize, height: usize) {
+        let data = cg_context.data();
+        // Rust doesn't have step_by support on stable :(
+        for i in 0..height {
+            let current_height = i * width * 4;
+
+            for pixel in data[current_height .. current_height + (width * 4)].chunks(4) {
+                let b = pixel[0];
+                let g = pixel[1];
+                let r = pixel[2];
+                print!("({}, {}, {}) ", r, g, b);
+            }
+            println!("");
+        }
     }
 
     pub fn rasterize_glyph(&mut self,
@@ -167,7 +204,7 @@ impl FontContext {
             Some(ref ct_font) => {
                 let glyph = character as CGGlyph;
                 let metrics = get_glyph_metrics(ct_font, glyph);
-                if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
+                if metrics.width() == 0 || metrics.height() == 0 {
                     return Some(RasterizedGlyph::blank())
                 }
 
@@ -176,10 +213,10 @@ impl FontContext {
                     FontRenderMode::Alpha | FontRenderMode::Mono => kCGImageAlphaPremultipliedLast,
                 };
 
-                let mut cg_context = CGContext::create_bitmap_context(metrics.rasterized_width as usize,
-                                                                      metrics.rasterized_height as usize,
+                let mut cg_context = CGContext::create_bitmap_context(metrics.width() as usize,
+                                                                      metrics.height() as usize,
                                                                       8,
-                                                                      metrics.rasterized_width as usize * 4,
+                                                                      metrics.width() as usize * 4,
                                                                       &CGColorSpace::create_device_rgb(),
                                                                       context_flags);
 
@@ -189,20 +226,63 @@ impl FontContext {
                     FontRenderMode::Mono => (false, false),
                 };
 
+                // These are always true in Gecko, even for non-AA fonts
+                cg_context.set_allows_font_subpixel_positioning(true);
+                cg_context.set_should_subpixel_position_fonts(true);
+
                 cg_context.set_allows_font_smoothing(smooth);
                 cg_context.set_should_smooth_fonts(smooth);
                 cg_context.set_allows_antialiasing(antialias);
                 cg_context.set_should_antialias(antialias);
-                cg_context.set_rgb_fill_color(1.0, 1.0, 1.0, 1.0);
 
                 let rasterization_origin = CGPoint {
-                    x: -metrics.rasterized_left as f64,
-                    y: metrics.rasterized_descent as f64,
+                    x: -metrics.left as f64,
+                    y: (-metrics.top + metrics.height() as i32) as f64,
                 };
+
+                // CGFonts have to be drawn with black text on a white background
+                // After 10.11, there are two different glyphs depending on
+                // white on black or black on white. Gecko defaults to black on white.
+                cg_context.set_rgb_fill_color(1.0, 1.0, 1.0, 1.0);
+
+                let rect = CGRect {
+                    origin: CGPoint {
+                        x: 0.0,
+                        y: 0.0,
+                    },
+                    size: CGSize {
+                        width: metrics.width() as f64,
+                        height: metrics.height() as f64,
+                    }
+                };
+
+                // Fill white
+                cg_context.fill_rect(rect);
+
+                // Now draw black
+                cg_context.set_text_drawing_mode(CGTextDrawingMode::CGTextFill);
+                cg_context.set_rgb_fill_color(0.0, 0.0, 0.0, 1.0);
+
                 ct_font.draw_glyphs(&[glyph], &[rasterization_origin], cg_context.clone());
 
-                let rasterized_area = (metrics.rasterized_width * metrics.rasterized_height) as usize;
+                let rasterized_area = (metrics.width() * metrics.height()) as usize;
                 let mut rasterized_pixels = cg_context.data().to_vec();
+
+                self.print_glyph_data(&mut cg_context, metrics.width(), metrics.height());
+
+                // We need to invert the pixels back since right now
+                // transparent pixels are actually white.
+                for i in 0..metrics.height() {
+                    let current_height :usize = (i * metrics.width() * 4) as usize;
+                    let end_row :usize = current_height + (metrics.width() * 4);
+
+                    for mut pixel in rasterized_pixels[current_height .. end_row ].chunks_mut(4) {
+                        pixel[0] = 255 - pixel[0];
+                        pixel[1] = 255 - pixel[1];
+                        pixel[2] = 255 - pixel[2];
+                        pixel[3] = 255;
+                    }
+                }
 
                 match render_mode {
                     FontRenderMode::Alpha | FontRenderMode::Mono => {
@@ -217,8 +297,8 @@ impl FontContext {
                 }
 
                 Some(RasterizedGlyph {
-                    width: metrics.rasterized_width,
-                    height: metrics.rasterized_height,
+                    width: metrics.width() as u32,
+                    height: metrics.height() as u32,
                     bytes: rasterized_pixels,
                 })
             }
