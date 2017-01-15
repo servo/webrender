@@ -205,10 +205,6 @@ impl RenderBackend {
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
                             self.scene.set_root_pipeline_id(pipeline_id);
-
-                            if self.scene.display_lists.get(&pipeline_id).is_none() {
-                                continue;
-                            }
                         }
                         ApiMsg::Scroll(delta, cursor, move_phase) => {
                             let frame = profile_counters.total_time.profile(|| {
@@ -497,4 +493,3 @@ impl GLContextDispatcher for WebRenderGLDispatcher {
         dispatcher.as_mut().unwrap().as_mut().unwrap().dispatch(f);
     }
 }
-
