@@ -206,9 +206,6 @@ impl Wrench {
         };
 
         wrench.set_title("start");
-        // there's a "frame 0" that webrender itself renders; push this to
-        // not confuse our notifier
-        wrench.frame_start_sender.push(time::SteadyTime::now());
         wrench.api.set_root_pipeline(wrench.root_pipeline_id);
 
         wrench
@@ -343,6 +340,7 @@ impl Wrench {
                                        Epoch(frame_number),
                                        self.window_size_f32(),
                                        display_list);
+        self.api.generate_frame();
     }
 
     pub fn render(&mut self) {
