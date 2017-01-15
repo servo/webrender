@@ -135,6 +135,7 @@ impl RenderApi {
     pub fn set_root_pipeline(&self, pipeline_id: PipelineId) {
         let msg = ApiMsg::SetRootPipeline(pipeline_id);
         self.api_sender.send(msg).unwrap();
+        self.generate_frame();
     }
 
     /// Supplies a new frame to WebRender.
@@ -169,6 +170,7 @@ impl RenderApi {
                                              display_list.descriptor().clone(),
                                              *auxiliary_lists.descriptor());
         self.api_sender.send(msg).unwrap();
+        self.generate_frame();
 
         let mut payload = vec![];
         payload.write_u32::<LittleEndian>(epoch.0).unwrap();
