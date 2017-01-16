@@ -202,9 +202,16 @@ impl RenderBackend {
                                                              background_color,
                                                              viewport_size,
                                                              auxiliary_lists);
+                            self.build_scene();
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
                             self.scene.set_root_pipeline_id(pipeline_id);
+
+                            if self.scene.display_lists.get(&pipeline_id).is_none() {
+                                continue;
+                            }
+
+                            self.build_scene();
                         }
                         ApiMsg::Scroll(delta, cursor, move_phase) => {
                             let frame = profile_counters.total_time.profile(|| {
@@ -321,7 +328,6 @@ impl RenderBackend {
                         }
                         ApiMsg::GenerateFrame => {
                             let frame = profile_counters.total_time.profile(|| {
-                                self.build_scene();
                                 self.render()
                             });
                             if self.scene.root_pipeline_id.is_some() {
