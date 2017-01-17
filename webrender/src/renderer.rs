@@ -1412,8 +1412,8 @@ impl Renderer {
 
                     let dest_rect = DeviceIntRect::new(DeviceIntPoint::new(x0, y0),
                                                        DeviceIntSize::new(rt_debug_size, rt_debug_size));
-                    self.device.blit_render_target(*texture_id,
-                                                   layer_index as i32,
+                    self.device.blit_render_target(Some((*texture_id, layer_index as i32)),
+                                                   None,
                                                    dest_rect);
 
                     current_target += 1;
