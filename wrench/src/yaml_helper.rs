@@ -145,6 +145,15 @@ impl YamlHelper for Yaml {
     }
 
     fn as_matrix4d(&self) -> Option<LayoutTransform> {
+        if let Some(mut nums) = self.as_vec_f32() {
+            if nums.len() != 16 {
+                panic!("expected 16 floats, got '{:?}'", self);
+            }
+            return Some(LayoutTransform::row_major(nums[0], nums[1], nums[2], nums[3],
+                                                   nums[4], nums[5], nums[6], nums[7],
+                                                   nums[8], nums[9], nums[10], nums[11],
+                                                   nums[12], nums[13], nums[14], nums[15]))
+        }
         None
     }
 
