@@ -55,6 +55,7 @@ use yaml_frame_reader::YamlFrameReader;
 
 mod yaml_frame_writer;
 mod json_frame_writer;
+mod scene;
 
 mod reftest;
 use reftest::run_reftests;

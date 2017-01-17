@@ -14,6 +14,7 @@ pub trait YamlHelper {
     fn as_force_f32(&self) -> Option<f32>;
     fn as_vec_f32(&self) -> Option<Vec<f32>>;
     fn as_vec_u32(&self) -> Option<Vec<u32>>;
+    fn as_pipeline_id(&self) -> Option<PipelineId>;
     fn as_rect(&self) -> Option<LayoutRect>;
     fn as_size(&self) -> Option<LayoutSize>;
     fn as_point(&self) -> Option<LayoutPoint>;
@@ -87,6 +88,19 @@ impl YamlHelper for Yaml {
     fn as_vec_u32(&self) -> Option<Vec<u32>> {
         if let Some(v) = self.as_vec() {
             Some(v.iter().map(|v| v.as_i64().unwrap() as u32).collect())
+        } else {
+            None
+        }
+    }
+
+    fn as_pipeline_id(&self) -> Option<PipelineId> {
+        if let Some(mut v) = self.as_vec() {
+            let a = v.get(0).and_then(|v| v.as_i64()).map(|v| v as u32);
+            let b = v.get(1).and_then(|v| v.as_i64()).map(|v| v as u32);
+            match (a, b) {
+                (Some(a), Some(b)) if v.len() == 2 => Some(PipelineId(a, b)),
+                _ => None,
+            }
         } else {
             None
         }
