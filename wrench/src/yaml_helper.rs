@@ -9,6 +9,7 @@ use euclid::TypedSize2D;
 use yaml_rust::Yaml;
 
 use webrender_traits::*;
+use parse_function::parse_function;
 
 pub trait YamlHelper {
     fn as_force_f32(&self) -> Option<f32>;
@@ -167,6 +168,17 @@ impl YamlHelper for Yaml {
                                                    nums[4], nums[5], nums[6], nums[7],
                                                    nums[8], nums[9], nums[10], nums[11],
                                                    nums[12], nums[13], nums[14], nums[15]))
+        }
+        if let Some(s) = self.as_str() {
+            let (name, args) = parse_function(s);
+            match name {
+                "translate" if args.len() == 2 =>  {
+                    return Some(LayoutTransform::create_translation(args[0].parse().unwrap(),
+                                                                    args[1].parse().unwrap(),
+                                                                    0.))
+                }
+                _ => { panic!("unknown function"); }
+            }
         }
         None
     }
