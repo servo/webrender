@@ -42,6 +42,7 @@ use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize
 use webrender_traits::channel;
 use webrender_traits::VRCompositorHandler;
 
+pub const VERTEX_TEXTURE_POOL: usize = 5;
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
 const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: debug_colors::BLACK };
@@ -270,6 +271,52 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> ProgramId {
     program_id
 }
 
+struct VertexTextures {
+    layer_texture: VertexDataTexture,
+    render_task_texture: VertexDataTexture,
+    prim_geom_texture: VertexDataTexture,
+    data16_texture: VertexDataTexture,
+    data32_texture: VertexDataTexture,
+    data64_texture: VertexDataTexture,
+    data128_texture: VertexDataTexture,
+    resource_rects_texture: VertexDataTexture,
+}
+
+impl VertexTextures {
+    fn new(device: &mut Device) -> VertexTextures {
+        VertexTextures {
+            layer_texture: VertexDataTexture::new(device),
+            render_task_texture: VertexDataTexture::new(device),
+            prim_geom_texture: VertexDataTexture::new(device),
+            data16_texture: VertexDataTexture::new(device),
+            data32_texture: VertexDataTexture::new(device),
+            data64_texture: VertexDataTexture::new(device),
+            data128_texture: VertexDataTexture::new(device),
+            resource_rects_texture: VertexDataTexture::new(device),
+        }
+    }
+
+    fn init_frame(&mut self, device: &mut Device, frame: &mut Frame) {
+        self.data16_texture.init(device, &mut frame.gpu_data16);
+        self.data32_texture.init(device, &mut frame.gpu_data32);
+        self.data64_texture.init(device, &mut frame.gpu_data64);
+        self.data128_texture.init(device, &mut frame.gpu_data128);
+        self.prim_geom_texture.init(device, &mut frame.gpu_geometry);
+        self.resource_rects_texture.init(device, &mut frame.gpu_resource_rects);
+        self.layer_texture.init(device, &mut frame.layer_texture_data);
+        self.render_task_texture.init(device, &mut frame.render_task_data);
+
+        device.bind_texture(TextureSampler::Layers, self.layer_texture.id);
+        device.bind_texture(TextureSampler::RenderTasks, self.render_task_texture.id);
+        device.bind_texture(TextureSampler::Geometry, self.prim_geom_texture.id);
+        device.bind_texture(TextureSampler::Data16, self.data16_texture.id);
+        device.bind_texture(TextureSampler::Data32, self.data32_texture.id);
+        device.bind_texture(TextureSampler::Data64, self.data64_texture.id);
+        device.bind_texture(TextureSampler::Data128, self.data128_texture.id);
+        device.bind_texture(TextureSampler::ResourceRects, self.resource_rects_texture.id);
+    }
+}
+
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
 pub struct Renderer {
@@ -332,14 +379,8 @@ pub struct Renderer {
     blur_vao_id: VAOId,
     clip_vao_id: VAOId,
 
-    layer_texture: VertexDataTexture,
-    render_task_texture: VertexDataTexture,
-    prim_geom_texture: VertexDataTexture,
-    data16_texture: VertexDataTexture,
-    data32_texture: VertexDataTexture,
-    data64_texture: VertexDataTexture,
-    data128_texture: VertexDataTexture,
-    resource_rects_texture: VertexDataTexture,
+    vt_index: usize,
+    vertex_textures: [VertexTextures; VERTEX_TEXTURE_POOL],
 
     pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
     /// Used to dispatch functions to the main thread's event loop.
@@ -522,15 +563,13 @@ impl Renderer {
 
         let debug_renderer = DebugRenderer::new(&mut device);
 
-        let layer_texture = VertexDataTexture::new(&mut device);
-        let render_task_texture = VertexDataTexture::new(&mut device);
-        let prim_geom_texture = VertexDataTexture::new(&mut device);
-
-        let data16_texture = VertexDataTexture::new(&mut device);
-        let data32_texture = VertexDataTexture::new(&mut device);
-        let data64_texture = VertexDataTexture::new(&mut device);
-        let data128_texture = VertexDataTexture::new(&mut device);
-        let resource_rects_texture = VertexDataTexture::new(&mut device);
+        let vertex_textures = [
+            VertexTextures::new(&mut device),
+            VertexTextures::new(&mut device),
+            VertexTextures::new(&mut device),
+            VertexTextures::new(&mut device),
+            VertexTextures::new(&mut device),
+        ];
 
         let x0 = 0.0;
         let y0 = 0.0;
@@ -643,14 +682,8 @@ impl Renderer {
             prim_vao_id: prim_vao_id,
             blur_vao_id: blur_vao_id,
             clip_vao_id: clip_vao_id,
-            layer_texture: layer_texture,
-            render_task_texture: render_task_texture,
-            prim_geom_texture: prim_geom_texture,
-            data16_texture: data16_texture,
-            data32_texture: data32_texture,
-            data64_texture: data64_texture,
-            data128_texture: data128_texture,
-            resource_rects_texture: resource_rects_texture,
+            vt_index: 0,
+            vertex_textures: vertex_textures,
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
             main_thread_dispatcher: main_thread_dispatcher,
             cache_texture_id_map: Vec::new(),
@@ -1312,8 +1345,7 @@ impl Renderer {
                 self.render_targets.extend_from_slice(&new_targets);
             }
 
-            // Init textures and render targets to match this scene. This shouldn't
-            // block in drivers, but it might be worth checking...
+            // Init textures and render targets to match this scene.
             for (pass, texture_id) in frame.passes.iter().zip(self.render_targets.iter()) {
                 self.device.init_texture(*texture_id,
                                          frame.cache_size.width as u32,
@@ -1324,23 +1356,12 @@ impl Renderer {
                                          None);
             }
 
-            self.layer_texture.init(&mut self.device, &mut frame.layer_texture_data);
-            self.render_task_texture.init(&mut self.device, &mut frame.render_task_data);
-            self.data16_texture.init(&mut self.device, &mut frame.gpu_data16);
-            self.data32_texture.init(&mut self.device, &mut frame.gpu_data32);
-            self.data64_texture.init(&mut self.device, &mut frame.gpu_data64);
-            self.data128_texture.init(&mut self.device, &mut frame.gpu_data128);
-            self.prim_geom_texture.init(&mut self.device, &mut frame.gpu_geometry);
-            self.resource_rects_texture.init(&mut self.device, &mut frame.gpu_resource_rects);
-
-            self.device.bind_texture(TextureSampler::Layers, self.layer_texture.id);
-            self.device.bind_texture(TextureSampler::RenderTasks, self.render_task_texture.id);
-            self.device.bind_texture(TextureSampler::Geometry, self.prim_geom_texture.id);
-            self.device.bind_texture(TextureSampler::Data16, self.data16_texture.id);
-            self.device.bind_texture(TextureSampler::Data32, self.data32_texture.id);
-            self.device.bind_texture(TextureSampler::Data64, self.data64_texture.id);
-            self.device.bind_texture(TextureSampler::Data128, self.data128_texture.id);
-            self.device.bind_texture(TextureSampler::ResourceRects, self.resource_rects_texture.id);
+            // TODO(gw): This is a hack / workaround for #728.
+            // We should find a better way to implement these updates rather
+            // than wasting this extra memory, but for now it removes a large
+            // number of driver stalls.
+            self.vertex_textures[self.vt_index].init_frame(&mut self.device, frame);
+            self.vt_index = (self.vt_index + 1) % VERTEX_TEXTURE_POOL;
 
             let mut src_id = None;
 
