@@ -42,27 +42,17 @@ fn validate_shaders() {
         } else {
             shader_prefix.push_str("#define WR_FRAGMENT_SHADER\n");
         }
-        if is_clip {
-            // the transform feature is always on for clip shaders
-            shader_prefix.push_str("#define WR_FEATURE_TRANSFORM\n");
+
+        let mut build_configs = vec!["#define WR_FEATURE_TRANSFORM\n"];
+        if is_prim {
+            // the transform feature may be disabled for the prim shaders
+            build_configs.push("// WR_FEATURE_TRANSFORM disabled\n");
         }
 
-
-        let features = vec!["TRANSFORM", "SUBPIXEL_AA", "CLIP"];
-        let build_mx: Vec<_> = features.iter().map(|feature| vec![
-            format!("#define WR_FEATURE_{}\n", feature),
-            format!("// #define WR_FEATURE_{}\n", feature),
-        ]).collect::<Vec<_>>();
-        let build_configs = create_build_configs(build_mx);
-
-
-        for config_vec in build_configs {
+        for config_prefix in build_configs {
             let mut shader_source = String::new();
             shader_source.push_str(shader_prefix.as_str());
-            for flag in &config_vec {
-                shader_source.push_str(flag);
-            }
-
+            shader_source.push_str(config_prefix);
             shader_source.push_str(shared_src);
             shader_source.push_str(prim_shared_src);
             if is_clip {
@@ -86,26 +76,10 @@ fn validate_shaders() {
                     println!("Shader translated succesfully: {}", filename);
                 },
                 Err(_) => {
-                    panic!("Shader compilation failed: {}\nFeatures: {:?}\n{}\n{}",
-                        filename, config_vec, validator.info_log(), shader_source);
+                    panic!("Shader compilation failed: {}\n{}",
+                        filename, validator.info_log());
                 },
             }
         }
     }
-}
-
-
-fn create_build_configs(build_mx: Vec<Vec<String>>) -> Vec<Vec<String>> {
-    let mut results: Vec<Vec<String>> = vec![vec![]];
-    for option_vec in build_mx {
-        let mut entries: Vec<Vec<String>> = vec![];
-        for build_entry in results {
-            for option in &option_vec {
-                entries.push(build_entry.to_vec());
-                entries.last_mut().unwrap().push(option.clone());
-            }
-        }
-        results = entries;
-    }
-    results
 }
