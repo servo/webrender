@@ -41,7 +41,7 @@ void main(void) {
                                                     prim.local_clip_rect,
                                                     prim.z,
                                                     prim.layer,
-                                                    prim.tile);
+                                                    prim.task);
     vLocalRect = vi.clipped_local_rect;
     vLocalPos = vi.local_pos;
     vec2 f = (vi.local_pos.xy - prim.local_rect.xy) / prim.local_rect.zw;
@@ -50,13 +50,13 @@ void main(void) {
                                  prim.local_clip_rect,
                                  prim.z,
                                  prim.layer,
-                                 prim.tile);
+                                 prim.task);
 
-    vec2 f = (vi.local_clamped_pos - segment_rect.xy) / segment_rect.zw;
-    vPos = vi.local_clamped_pos;
+    vec2 f = (vi.local_pos - segment_rect.xy) / segment_rect.zw;
+    vPos = vi.local_pos;
 #endif
 
-    write_clip(vi.global_clamped_pos, prim.clip_area);
+    write_clip(vi.screen_pos, prim.clip_area);
 
     switch (int(gradient.kind.x)) {
         case GRADIENT_HORIZONTAL:

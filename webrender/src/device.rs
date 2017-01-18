@@ -19,7 +19,7 @@ use std::path::PathBuf;
 //use std::sync::mpsc::{channel, Sender};
 //use std::thread;
 use webrender_traits::{ColorF, ImageFormat};
-use webrender_traits::{DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use webrender_traits::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintSize};
 
 #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
 const GL_FORMAT_A: gl::GLuint = gl::RED;
@@ -40,8 +40,6 @@ const SHADER_VERSION: &'static str = "#version 150\n";
 const SHADER_VERSION: &'static str = "#version 300 es\n";
 
 static SHADER_PREAMBLE: &'static str = "shared";
-
-pub type ViewportDimensions = [u32; 2];
 
 lazy_static! {
     pub static ref MAX_TEXTURE_SIZE: gl::GLint = {
@@ -959,7 +957,7 @@ impl Device {
 
     pub fn bind_draw_target(&mut self,
                             texture_id: Option<(TextureId, i32)>,
-                            dimensions: Option<ViewportDimensions>) {
+                            dimensions: Option<DeviceUintSize>) {
         debug_assert!(self.inside_frame);
 
         let fbo_id = texture_id.map_or(FBOId(self.default_draw_fbo), |texture_id| {
@@ -972,7 +970,7 @@ impl Device {
         }
 
         if let Some(dimensions) = dimensions {
-            gl::viewport(0, 0, dimensions[0] as gl::GLint, dimensions[1] as gl::GLint);
+            gl::viewport(0, 0, dimensions.width as gl::GLint, dimensions.height as gl::GLint);
         }
     }
 
@@ -1028,9 +1026,9 @@ impl Device {
         texture_ids
     }
 
-    pub fn get_texture_dimensions(&self, texture_id: TextureId) -> (u32, u32) {
+    pub fn get_texture_dimensions(&self, texture_id: TextureId) -> DeviceUintSize {
         let texture = &self.textures[&texture_id];
-        (texture.width, texture.height)
+        DeviceUintSize::new(texture.width, texture.height)
     }
 
     fn set_texture_parameters(&mut self, target: gl::GLuint, filter: TextureFilter) {
@@ -1244,10 +1242,10 @@ impl Device {
                           mode: RenderTargetMode) {
         debug_assert!(self.inside_frame);
 
-        let (old_width, old_height) = self.get_texture_dimensions(texture_id);
+        let old_size = self.get_texture_dimensions(texture_id);
 
         let temp_texture_id = self.create_texture_ids(1, TextureTarget::Default)[0];
-        self.init_texture(temp_texture_id, old_width, old_height, format, filter, mode, None);
+        self.init_texture(temp_texture_id, old_size.width, old_size.height, format, filter, mode, None);
         self.create_fbo_for_texture_if_necessary(temp_texture_id, None);
 
         self.bind_read_target(Some((texture_id, 0)));
@@ -1259,8 +1257,8 @@ impl Device {
                                   0,
                                   0,
                                   0,
-                                  old_width as i32,
-                                  old_height as i32);
+                                  old_size.width as i32,
+                                  old_size.height as i32);
 
         self.deinit_texture(texture_id);
         self.init_texture(texture_id, new_width, new_height, format, filter, mode, None);
@@ -1274,8 +1272,8 @@ impl Device {
                                   0,
                                   0,
                                   0,
-                                  old_width as i32,
-                                  old_height as i32);
+                                  old_size.width as i32,
+                                  old_size.height as i32);
 
         self.bind_read_target(None);
         self.deinit_texture(temp_texture_id);
