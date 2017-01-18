@@ -22,10 +22,25 @@ pub struct Reftest<'a> {
     reference: &'a Path,
 }
 
-pub fn parse_reftests<F>(filename: &str, mut runner: F)
+pub fn parse_reftests_recursive<F>(directory: &Path, runner: &mut F)
     where F: FnMut(Reftest)
 {
-    let manifest = Path::new(filename);
+    let manifest = directory.join("reftest.list");
+
+    if manifest.is_file() {
+        parse_reftest_manifest(manifest.as_path(), runner);
+    }
+
+    for entry in directory.read_dir().unwrap().map(|x| x.unwrap()) {
+        if entry.metadata().unwrap().is_dir() {
+            parse_reftests_recursive(entry.path().as_path(), runner);
+        }
+    }
+}
+
+pub fn parse_reftest_manifest<F>(manifest: &Path, runner: &mut F)
+    where F: FnMut(Reftest)
+{
     let dir = manifest.parent().unwrap();
     let f = File::open(manifest).unwrap();
     let file = BufReader::new(&f);
@@ -47,6 +62,9 @@ pub fn parse_reftests<F>(filename: &str, mut runner: F)
         };
         let test = dir.join(items.next().unwrap());
         let reference = dir.join(items.next().unwrap());
+
+        assert!(test.is_file() && reference.is_file());
+
         runner(Reftest {
             op: kind,
             test: test.as_path(),
@@ -79,7 +97,7 @@ fn render_yaml(wrench: &mut Wrench,
     pixels
 }
 
-pub fn run_reftests(wrench: &mut Wrench, window: &mut WindowWrapper, filename: &str) {
+pub fn run_reftests(wrench: &mut Wrench, window: &mut WindowWrapper, root: &str) {
     // setup a notifier so we can wait for frames to be finished
     struct Notifier {
         tx: Sender<()>,
@@ -94,7 +112,7 @@ pub fn run_reftests(wrench: &mut Wrench, window: &mut WindowWrapper, filename: &
     let (tx, rx) = channel();
     wrench.renderer.set_render_notifier(Box::new(Notifier { tx: tx }));
 
-    parse_reftests(filename, |t: Reftest| {
+    parse_reftests_recursive(Path::new(root), &mut |t: Reftest| {
         println!("{} {}", t.test.display(), t.reference.display());
         let test = render_yaml(wrench, window, t.test, &rx);
         let reference = render_yaml(wrench, window, t.reference, &rx);

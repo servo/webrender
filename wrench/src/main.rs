@@ -306,7 +306,7 @@ fn main() {
         } else if let Some(subargs) = args.subcommand_matches("replay") {
             Box::new(BinaryFrameReader::new_from_args(subargs)) as Box<WrenchThing>
         } else if let Some(_) = args.subcommand_matches("reftest") {
-            run_reftests(&mut wrench, &mut window, "reftests/reftest.list");
+            run_reftests(&mut wrench, &mut window, "reftests/");
             return;
         } else {
             panic!("Should never have gotten here");
