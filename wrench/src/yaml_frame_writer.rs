@@ -143,6 +143,31 @@ fn vec_node(parent: &mut Table, key: &str, value: Vec<Yaml>) {
     yaml_node(parent, key, Yaml::Array(value));
 }
 
+fn mix_blend_mode_to_string(value: MixBlendMode) -> &'static str {
+    match value {
+        MixBlendMode::Normal => "normal",
+        MixBlendMode::Multiply => "multiply",
+        MixBlendMode::Screen => "screen",
+        MixBlendMode::Overlay => "overlay",
+        MixBlendMode::Darken => "darken",
+        MixBlendMode::Lighten => "lighten",
+        MixBlendMode::ColorDodge => "color-dodge",
+        MixBlendMode::ColorBurn => "color-burn",
+        MixBlendMode::HardLight => "hard-light",
+        MixBlendMode::SoftLight => "soft-light",
+        MixBlendMode::Difference => "difference",
+        MixBlendMode::Exclusion => "exclusion",
+        MixBlendMode::Hue => "hue",
+        MixBlendMode::Saturation => "saturation",
+        MixBlendMode::Color => "color",
+        MixBlendMode::Luminosity => "luminosity",
+    }
+}
+
+fn mix_blend_mode_node(parent: &mut Table, key: &str, value: MixBlendMode) {
+    yaml_node(parent, key, Yaml::String(mix_blend_mode_to_string(value).to_owned()));
+}
+
 fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
     if let Some(radius) = radius.is_uniform() {
         if radius == 0.0 {
@@ -170,6 +195,9 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
     }
     if sc.perspective != LayoutTransform::identity() {
         matrix4d_node(parent, "perspective", &sc.perspective);
+    }
+    if sc.mix_blend_mode != MixBlendMode::Normal {
+        mix_blend_mode_node(parent, "mix-blend-mode", sc.mix_blend_mode)
     }
     // mix_blend_mode
     // filters

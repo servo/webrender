@@ -25,6 +25,7 @@ pub trait YamlHelper {
     fn as_pt_to_au(&self) -> Option<Au>;
     fn as_vec_string(&self) -> Option<Vec<String>>;
     fn as_border_radius(&self) -> Option<BorderRadius>;
+    fn as_mix_blend_mode(&self) -> Option<MixBlendMode>;
 }
 
 fn string_to_color(color: &str) -> Option<ColorF> {
@@ -44,6 +45,28 @@ fn string_to_color(color: &str) -> Option<ColorF> {
                 None
             }
         }
+    }
+}
+
+fn string_to_mix_blend_mode(mix_blend_mode: &str) -> Option<MixBlendMode> {
+    match mix_blend_mode {
+        "normal" => Some(MixBlendMode::Normal),
+        "multiply" => Some(MixBlendMode::Multiply),
+        "screen" => Some(MixBlendMode::Screen),
+        "overlay" => Some(MixBlendMode::Overlay),
+        "darken" => Some(MixBlendMode::Darken),
+        "lighten" => Some(MixBlendMode::Lighten),
+        "color-dodge" => Some(MixBlendMode::ColorDodge),
+        "color-burn" => Some(MixBlendMode::ColorBurn),
+        "hard-light" => Some(MixBlendMode::HardLight),
+        "soft-light" => Some(MixBlendMode::SoftLight),
+        "difference" => Some(MixBlendMode::Difference),
+        "exclusion" => Some(MixBlendMode::Exclusion),
+        "hue" => Some(MixBlendMode::Hue),
+        "saturation" => Some(MixBlendMode::Saturation),
+        "color" => Some(MixBlendMode::Color),
+        "luminosity" => Some(MixBlendMode::Luminosity),
+        _ => None,
     }
 }
 
@@ -237,6 +260,13 @@ impl YamlHelper for Yaml {
             _ => {
                 panic!("Invalid border radius specified: {:?}", self);
             }
+        }
+    }
+
+    fn as_mix_blend_mode(&self) -> Option<MixBlendMode> {
+        return match self.as_str() {
+            Some(mix_blend_mode) => string_to_mix_blend_mode(mix_blend_mode),
+            None => None,
         }
     }
 }
