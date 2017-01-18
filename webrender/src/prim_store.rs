@@ -822,10 +822,6 @@ impl PrimitiveStore {
         deferred_resolves
     }
 
-    pub fn get_bounding_rect(&self, index: PrimitiveIndex) -> &Option<DeviceIntRect> {
-        &self.cpu_bounding_rects[index.0]
-    }
-
     pub fn set_clip_source(&mut self, index: PrimitiveIndex, source: ClipSource) {
         let metadata = &mut self.cpu_metadata[index.0];
         let (rect, is_complex) = match source {
