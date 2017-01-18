@@ -188,6 +188,24 @@ impl YamlFrameReader {
         self.builder().push_gradient(bounds, clip, start, end, stops);
     }
 
+    fn handle_radial_gradient(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
+        let bounds_key = if item["type"].is_badvalue() { "radial_gradient" } else { "bounds" };
+        let bounds = item[bounds_key].as_rect().expect("radial gradient must have bounds");
+        let start_center = item["start_center"].as_point().expect("radial gradient must have start center");
+        let start_radius = item["start_radius"].as_force_f32().expect("radial gradient must have start radius");
+        let end_center = item["end_center"].as_point().expect("radial gradient must have end center");
+        let end_radius = item["end_radius"].as_force_f32().expect("radial gradient must have end radius");
+        let stops = item["stops"].as_vec().expect("radial gradient must have stops")
+            .chunks(2).map(|chunk| GradientStop {
+                offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
+                color: chunk[1].as_colorf().expect("gradient stop color is not color"),
+            }).collect::<Vec<_>>();
+
+        let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
+        self.builder().push_radial_gradient(bounds, clip, start_center, start_radius,
+                                            end_center, end_radius, stops);
+    }
+
     fn handle_border(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
         let bounds_key = if item["type"].is_badvalue() { "border" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("borders must have bounds");
@@ -384,6 +402,7 @@ impl YamlFrameReader {
                 else if !item["box_shadow"].is_badvalue() { "box_shadow" }
                 else if !item["border"].is_badvalue() { "border" }
                 else if !item["gradient"].is_badvalue() { "gradient" }
+                else if !item["radial_gradient"].is_badvalue() { "radial_gradient" }
                 else { item["type"].as_str().unwrap_or("unknown") };
 
             if item_type != "stacking_context" &&
@@ -399,6 +418,7 @@ impl YamlFrameReader {
                 "stacking_context" => self.add_stacking_context_from_yaml(wrench, &item),
                 "border" => self.handle_border(wrench, &full_clip_region, &item),
                 "gradient" => self.handle_gradient(wrench, &full_clip_region, &item),
+                "radial_gradient" => self.handle_radial_gradient(wrench, &full_clip_region, &item),
                 "box_shadow" => self.handle_box_shadow(wrench, &full_clip_region, &item),
                 "iframe" => self.handle_iframe(wrench, &full_clip_region, &item),
                 _ => {
