@@ -192,12 +192,13 @@ impl AlphaBatchHelpers for PrimitiveStore {
         let layer_index = layer_index.0 as i32;
         let global_prim_id = prim_index.0 as i32;
         let prim_address = metadata.gpu_prim_index;
-        let clip_task_key = RenderTaskKey::CacheMask(MaskCacheKey::Primitive(prim_index));
-        let clip_task_index = if metadata.clip_task.is_some() {
-            let cache_task_id = RenderTaskId::Dynamic(clip_task_key);
-            render_tasks.get_task_index(&cache_task_id, child_pass_index)
-        } else {
-            OPAQUE_TASK_INDEX
+        let clip_task_index = match metadata.clip_task {
+            Some(ref clip_task) => {
+                render_tasks.get_task_index(&clip_task.id, child_pass_index)
+            }
+            None => {
+                OPAQUE_TASK_INDEX
+            }
         };
         let task_index = task_index.0 as i32;
         let clip_task_index = clip_task_index.0 as i32;
@@ -380,8 +381,8 @@ pub struct RenderTaskIndex(usize);
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum MaskCacheKey {
     Primitive(PrimitiveIndex),
+    StackingContext(StackingContextIndex),
 }
-
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum RenderTaskKey {
@@ -2618,9 +2619,18 @@ impl FrameBuilder {
                                 }
 
                                 // Try to create a mask if we may need to.
-                                if prim_clip_info.is_some() || !clip_info_stack.is_empty() {
+                                if !clip_info_stack.is_empty() {
+                                    // If the primitive doesn't have a specific clip,
+                                    // key the task ID off the stacking context. This means
+                                    // that two primitives which are only clipped by the
+                                    // stacking context stack can share clip masks during
+                                    // render task assignment to targets.
+                                    let mask_key = match prim_clip_info {
+                                        Some(..) => MaskCacheKey::Primitive(prim_index),
+                                        None => MaskCacheKey::StackingContext(*sc_index),
+                                    };
                                     let mask_opt = RenderTask::new_mask(prim_bounding_rect,
-                                                                        MaskCacheKey::Primitive(prim_index),
+                                                                        mask_key,
                                                                         &clip_info_stack,
                                                                         &self.layer_store);
                                     match mask_opt {
