@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use webrender;
 use webrender_traits::*;
 use yaml_rust::{Yaml, YamlEmitter};
+use yaml_helper::mix_blend_mode_to_string;
 use scene::Scene;
 use time;
 
@@ -143,6 +144,10 @@ fn vec_node(parent: &mut Table, key: &str, value: Vec<Yaml>) {
     yaml_node(parent, key, Yaml::Array(value));
 }
 
+fn mix_blend_mode_node(parent: &mut Table, key: &str, value: MixBlendMode) {
+    yaml_node(parent, key, Yaml::String(mix_blend_mode_to_string(value).to_owned()));
+}
+
 fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
     if let Some(radius) = radius.is_uniform() {
         if radius == 0.0 {
@@ -172,6 +177,9 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
         matrix4d_node(parent, "perspective", &sc.perspective);
     }
     // mix_blend_mode
+    if sc.mix_blend_mode != MixBlendMode::Normal {
+        mix_blend_mode_node(parent, "mix-blend-mode", sc.mix_blend_mode)
+    }
     // filters
 }
 

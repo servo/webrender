@@ -25,6 +25,7 @@ pub trait YamlHelper {
     fn as_pt_to_au(&self) -> Option<Au>;
     fn as_vec_string(&self) -> Option<Vec<String>>;
     fn as_border_radius(&self) -> Option<BorderRadius>;
+    fn as_mix_blend_mode(&self) -> Option<MixBlendMode>;
 }
 
 fn string_to_color(color: &str) -> Option<ColorF> {
@@ -46,6 +47,41 @@ fn string_to_color(color: &str) -> Option<ColorF> {
         }
     }
 }
+
+macro_rules! define_enum_conversion {
+    ($read_func:ident, $write_func:ident, $T:ty, [ $( ( $x:expr, $y:path ) ),* ]) => {
+        pub fn $read_func(text: &str) -> Option<$T> {
+            match text {
+            $( $x => Some($y), )*
+                _ => None
+            }
+        }
+        pub fn $write_func(val: $T) -> &'static str {
+            match val {
+            $( $y => $x, )*
+            }
+        }
+    }
+}
+
+define_enum_conversion!(string_to_mix_blend_mode, mix_blend_mode_to_string, MixBlendMode, [
+    ("normal", MixBlendMode::Normal),
+    ("multiply", MixBlendMode::Multiply),
+    ("screen", MixBlendMode::Screen),
+    ("overlay", MixBlendMode::Overlay),
+    ("darken", MixBlendMode::Darken),
+    ("lighten", MixBlendMode::Lighten),
+    ("color-dodge", MixBlendMode::ColorDodge),
+    ("color-burn", MixBlendMode::ColorBurn),
+    ("hard-light", MixBlendMode::HardLight),
+    ("soft-light", MixBlendMode::SoftLight),
+    ("difference", MixBlendMode::Difference),
+    ("exclusion", MixBlendMode::Exclusion),
+    ("hue", MixBlendMode::Hue),
+    ("saturation", MixBlendMode::Saturation),
+    ("color", MixBlendMode::Color),
+    ("luminosity", MixBlendMode::Luminosity)
+]);
 
 impl YamlHelper for Yaml {
     fn as_force_f32(&self) -> Option<f32> {
@@ -238,5 +274,9 @@ impl YamlHelper for Yaml {
                 panic!("Invalid border radius specified: {:?}", self);
             }
         }
+    }
+
+    fn as_mix_blend_mode(&self) -> Option<MixBlendMode> {
+        return self.as_str().and_then(|x| string_to_mix_blend_mode(x));
     }
 }
