@@ -10,7 +10,7 @@ bincode = "0.6"
 byteorder = "0.5"
 euclid = "0.10"
 gleam = "0.2"
-glutin = "0.6"
+glutin = "0.7"
 app_units = "0.3"
 image = "0.10"
 clap = { version = "2", features = ["yaml"] }
