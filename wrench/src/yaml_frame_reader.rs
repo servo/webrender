@@ -433,11 +433,11 @@ impl YamlFrameReader {
         let z_index = yaml["z_index"].as_i64().unwrap_or(0);
         let transform = yaml["transform"].as_matrix4d().unwrap_or(LayoutTransform::identity());
         let perspective = yaml["perspective"].as_matrix4d().unwrap_or(LayoutTransform::identity());
+        let mix_blend_mode = yaml["mix-blend-mode"].as_mix_blend_mode().unwrap_or(MixBlendMode::Normal);
         let sc_full_rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), bounds.size);
         let clip = self.to_clip_region(&yaml["clip"], &sc_full_rect, wrench).unwrap_or(ClipRegion::simple(&sc_full_rect));
 
         // FIXME handle these
-        let mix_blend_mode = MixBlendMode::Normal;
         let filters: Vec<FilterOp> = Vec::new();
 
         self.builder().push_stacking_context(ScrollPolicy::Scrollable,
