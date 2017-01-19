@@ -573,6 +573,19 @@ impl YamlFrameWriter {
                     }
                     yaml_node(&mut v, "stops", Yaml::Array(stops));
                 },
+                RadialGradient(item) => {
+                    str_node(&mut v, "type", "radial_gradient");
+                    point_node(&mut v, "start_center", &item.start_center);
+                    f32_node(&mut v, "start_radius", item.start_radius);
+                    point_node(&mut v, "end_center", &item.end_center);
+                    f32_node(&mut v, "end_radius", item.end_radius);
+                    let mut stops = vec![];
+                    for stop in aux.gradient_stops(&item.stops) {
+                        stops.push(Yaml::Real(stop.offset.to_string()));
+                        stops.push(Yaml::String(color_to_string(stop.color)));
+                    }
+                    yaml_node(&mut v, "stops", Yaml::Array(stops));
+                },
                 Iframe(item) => {
                     str_node(&mut v, "type", "iframe");
                     u32_vec_node(&mut v, "id", &vec![item.pipeline_id.0, item.pipeline_id.1]);
