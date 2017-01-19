@@ -9,7 +9,6 @@ use frame::FrameId;
 use gpu_store::GpuStoreAddress;
 use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp, CompositionOp};
 use internal_types::{BatchTextures, CacheTextureId, SourceTexture};
-use layer::Layer;
 use mask_cache::{ClipSource, MaskCacheInfo};
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
@@ -22,6 +21,7 @@ use prim_store::{PrimitiveStore, GpuBlock16, GpuBlock32, GpuBlock64, GpuBlock128
 use profiler::FrameProfileCounters;
 use renderer::BlendMode;
 use resource_cache::ResourceCache;
+use scroll_tree::ScrollTree;
 use std::cmp;
 use std::collections::{HashMap};
 use std::{i32, f32};
@@ -48,9 +48,6 @@ const OPAQUE_TASK_INDEX: RenderTaskIndex = RenderTaskIndex(i32::MAX as usize);
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 12;
 
-pub type LayerMap = HashMap<ScrollLayerId,
-                            Layer,
-                            BuildHasherDefault<FnvHasher>>;
 pub type AuxiliaryListsMap = HashMap<PipelineId,
                                      AuxiliaryLists,
                                      BuildHasherDefault<FnvHasher>>;
@@ -2479,7 +2476,7 @@ impl FrameBuilder {
     /// primitives in screen space.
     fn cull_layers(&mut self,
                    screen_rect: &DeviceIntRect,
-                   layer_map: &LayerMap,
+                   scroll_tree: &ScrollTree,
                    auxiliary_lists_map: &AuxiliaryListsMap,
                    x_tile_count: i32,
                    y_tile_count: i32,
@@ -2503,7 +2500,7 @@ impl FrameBuilder {
                     layer.xf_rect = None;
                     layer.tile_range = None;
 
-                    let scroll_layer = &layer_map[&layer.scroll_layer_id];
+                    let scroll_layer = &scroll_tree.layers[&layer.scroll_layer_id];
                     packed_layer.transform = scroll_layer.world_content_transform
                                                          .with_source::<ScrollLayerPixel>() // the scroll layer is considered a parent of layer
                                                          .pre_mul(&layer.local_transform);
@@ -2821,13 +2818,12 @@ impl FrameBuilder {
         }
     }
 
-    fn update_scroll_bars(&mut self,
-                          layer_map: &LayerMap) {
+    fn update_scroll_bars(&mut self, scroll_tree: &ScrollTree) {
         let distance_from_edge = 8.0;
 
         for scrollbar_prim in &self.scrollbar_prims {
             let mut geom = (*self.prim_store.gpu_geometry.get(GpuStoreAddress(scrollbar_prim.prim_index.0 as i32))).clone();
-            let scroll_layer = &layer_map[&scrollbar_prim.scroll_layer_id];
+            let scroll_layer = &scroll_tree.layers[&scrollbar_prim.scroll_layer_id];
 
             let scrollable_distance = scroll_layer.content_size.height - scroll_layer.local_viewport_rect.size.height;
 
@@ -2870,7 +2866,7 @@ impl FrameBuilder {
     pub fn build(&mut self,
                  resource_cache: &mut ResourceCache,
                  frame_id: FrameId,
-                 layer_map: &LayerMap,
+                 scroll_tree: &ScrollTree,
                  auxiliary_lists_map: &AuxiliaryListsMap,
                  device_pixel_ratio: f32) -> Frame {
         let mut profile_counters = FrameProfileCounters::new();
@@ -2903,10 +2899,10 @@ impl FrameBuilder {
 
         let (x_tile_count, y_tile_count, mut screen_tiles) = self.create_screen_tiles(device_pixel_ratio);
 
-        self.update_scroll_bars(layer_map);
+        self.update_scroll_bars(scroll_tree);
 
         self.cull_layers(&screen_rect,
-                         layer_map,
+                         scroll_tree,
                          auxiliary_lists_map,
                          x_tile_count,
                          y_tile_count,

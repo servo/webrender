@@ -3,9 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use spring::{DAMPING, STIFFNESS, Spring};
-use webrender_traits::{PipelineId, ScrollLayerId};
-use webrender_traits::{LayerRect, LayerPoint, LayerSize};
-use webrender_traits::{LayerToScrollTransform, LayerToWorldTransform};
+use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform};
+use webrender_traits::{LayerToWorldTransform, PipelineId, ScrollLayerId};
 
 /// Contains scrolling and transform information stacking contexts.
 #[derive(Clone)]
