@@ -1014,7 +1014,7 @@ impl PrimitiveStore {
                         // right now, but if we introduce a cache for images for some other
                         // reason then we might as well cache this with it.
                         let image_properties = resource_cache.get_image_properties(image_key);
-                        metadata.is_opaque = image_properties.is_opaque &&
+                        metadata.is_opaque = image_properties.descriptor.is_opaque &&
                                              tile_spacing.width == 0.0 &&
                                              tile_spacing.height == 0.0;
                     }

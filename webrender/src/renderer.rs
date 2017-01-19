@@ -39,6 +39,7 @@ use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ExternalImageId, ImageFormat, RenderApiSender, RendererKind};
 use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
+use webrender_traits::ImageDescriptor;
 use webrender_traits::channel;
 use webrender_traits::VRCompositorHandler;
 
@@ -551,19 +552,25 @@ impl Renderer {
         // TODO: Ensure that the white texture can never get evicted when the cache supports LRU eviction!
         let white_image_id = texture_cache.new_item_id();
         texture_cache.insert(white_image_id,
-                             2,
-                             2,
-                             None,
-                             ImageFormat::RGBA8,
+                             ImageDescriptor {
+                                width: 2,
+                                height: 2,
+                                stride: None,
+                                format: ImageFormat::RGBA8,
+                                is_opaque: false,
+                             },
                              TextureFilter::Linear,
                              Arc::new(white_pixels));
 
         let dummy_mask_image_id = texture_cache.new_item_id();
         texture_cache.insert(dummy_mask_image_id,
-                             2,
-                             2,
-                             None,
-                             ImageFormat::A8,
+                             ImageDescriptor {
+                                width: 2,
+                                height: 2,
+                                stride: None,
+                                format: ImageFormat::A8,
+                                is_opaque: true,
+                             },
                              TextureFilter::Linear,
                              Arc::new(mask_pixels));
 

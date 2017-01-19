@@ -305,15 +305,22 @@ impl Wrench {
 
         let image = image::open(file).unwrap();
         let image_dims = image.dimensions();
-        let image_key = self.api.add_image(image_dims.0, image_dims.1,
-                                           None, // stride
-                                           match image {
-                                               image::ImageLuma8(_) => ImageFormat::A8,
-                                               image::ImageRgb8(_) => ImageFormat::RGB8,
-                                               image::ImageRgba8(_) => ImageFormat::RGBA8,
-                                               _ => panic!("We don't support whatever your crazy image type is, come on"),
-                                           },
-                                           ImageData::Raw(Arc::new(image.raw_pixels())));
+        let format = match image {
+            image::ImageLuma8(_) => ImageFormat::A8,
+            image::ImageRgb8(_) => ImageFormat::RGB8,
+            image::ImageRgba8(_) => ImageFormat::RGBA8,
+            _ => panic!("We don't support whatever your crazy image type is, come on"),
+        };
+        let bytes = image.raw_pixels();
+        let image_key = self.api.add_image(
+            ImageDescriptor {
+                width: image_dims.0,
+                height: image_dims.1,
+                stride: None,
+                format: format,
+                is_opaque: is_image_opaque(format, &bytes[..]),
+            },
+            ImageData::Raw(Arc::new(bytes)));
 
         let val = (image_key, LayoutSize::new(image_dims.0 as f32, image_dims.1 as f32));
         self.image_map.insert(key, val);
