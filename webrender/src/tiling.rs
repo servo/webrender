@@ -2670,11 +2670,16 @@ impl FrameBuilder {
                                     // that two primitives which are only clipped by the
                                     // stacking context stack can share clip masks during
                                     // render task assignment to targets.
-                                    let mask_key = match prim_clip_info {
-                                        Some(..) => MaskCacheKey::Primitive(prim_index),
-                                        None => MaskCacheKey::StackingContext(*sc_index),
+                                    let (mask_key, mask_rect) = match prim_clip_info {
+                                        Some(..) => {
+                                            (MaskCacheKey::Primitive(prim_index), prim_bounding_rect)
+                                        }
+                                        None => {
+                                            let layer_rect = layer.xf_rect.as_ref().unwrap().bounding_rect;
+                                            (MaskCacheKey::StackingContext(*sc_index), layer_rect)
+                                        }
                                     };
-                                    let mask_opt = RenderTask::new_mask(prim_bounding_rect,
+                                    let mask_opt = RenderTask::new_mask(mask_rect,
                                                                         mask_key,
                                                                         &clip_info_stack,
                                                                         &self.layer_store);
