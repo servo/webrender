@@ -4,7 +4,7 @@
 
 use std::str::FromStr;
 use app_units::Au;
-use euclid::TypedSize2D;
+use euclid::{Radians, TypedSize2D};
 
 use yaml_rust::Yaml;
 
@@ -211,6 +211,11 @@ impl YamlHelper for Yaml {
                     return Some(LayoutTransform::create_translation(args[0].parse().unwrap(),
                                                                     args[1].parse().unwrap(),
                                                                     0.))
+                }
+                ("rotate", ref args) if args.len() == 1 =>  {
+                    // rotate takes a single parameter of degrees and rotates in X-Y plane
+                    return Some(LayoutTransform::identity().pre_rotated(0., 0., 1.,
+                                                                        Radians::new(args[0].parse::<f32>().unwrap().to_radians())))
                 }
                 (name, _) => { panic!("unknown function {}", name); }
             }
