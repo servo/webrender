@@ -229,6 +229,7 @@ fn main() {
         LayoutSize::new(width as f32, height as f32),
         builder);
     api.set_root_pipeline(pipeline_id);
+    api.generate_frame();
 
     for event in window.wait_events() {
         renderer.update();
