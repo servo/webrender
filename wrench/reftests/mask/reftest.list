@@ -1,0 +1,3 @@
+== mask.yaml mask-ref.yaml
+== nested-mask.yaml nested-mask-ref.yaml
+!= mask.yaml green.yaml
