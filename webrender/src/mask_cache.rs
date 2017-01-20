@@ -5,11 +5,9 @@
 use gpu_store::{GpuStore, GpuStoreAddress};
 use prim_store::{ClipData, GpuBlock32, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
-use util::{rect_from_points_f, TransformedRect};
+use util::TransformedRect;
 use webrender_traits::{AuxiliaryLists, BorderRadius, ClipRegion, ComplexClipRegion, ImageMask};
 use webrender_traits::{DeviceIntRect, DeviceIntSize, LayerRect, LayerToWorldTransform};
-
-const MAX_COORD: f32 = 1.0e+16;
 
 #[derive(Clone, Debug)]
 pub enum ClipSource {
@@ -24,15 +22,6 @@ impl ClipSource {
             &ClipSource::NoClip => None,
             &ClipSource::Complex(rect, _) => Some(rect),
             &ClipSource::Region(ref region) => Some(region.main),
-        }
-    }
-}
-impl<'a> From<&'a ClipRegion> for ClipSource {
-    fn from(clip_region: &'a ClipRegion) -> ClipSource {
-        if clip_region.is_complex() {
-            ClipSource::Region(clip_region.clone())
-        } else {
-            ClipSource::NoClip
         }
     }
 }
@@ -57,30 +46,31 @@ impl MaskCacheInfo {
     /// Create a new mask cache info. It allocates the GPU store data but leaves
     /// it unitialized for the following `update()` call to deal with.
     pub fn new(source: &ClipSource,
+               is_transformed: bool,
                clip_store: &mut GpuStore<GpuBlock32>)
                -> Option<MaskCacheInfo> {
         let (image, clip_range) = match source {
             &ClipSource::NoClip => return None,
-            &ClipSource::Complex(..) => (
-                None,
+            &ClipSource::Complex(..) => {
+                (None,
                 ClipAddressRange {
                     start: clip_store.alloc(CLIP_DATA_GPU_SIZE),
                     item_count: 1,
-                }
-            ),
-            &ClipSource::Region(ref region) => (
-                region.image_mask.map(|info|
-                    (info, clip_store.alloc(MASK_DATA_GPU_SIZE))
-                ),
+                })
+            },
+            &ClipSource::Region(ref region) => {
+                let count = region.complex.length + if is_transformed {1} else {0};
+                (region.image_mask.map(|info|
+                    (info, clip_store.alloc(MASK_DATA_GPU_SIZE))),
                 ClipAddressRange {
-                    start: if region.complex.length > 0 {
-                        clip_store.alloc(CLIP_DATA_GPU_SIZE * region.complex.length)
+                    start: if count > 0 {
+                        clip_store.alloc(CLIP_DATA_GPU_SIZE * count)
                     } else {
                         GpuStoreAddress(0)
                     },
-                    item_count: region.complex.length as u32,
-                }
-            ),
+                    item_count: count as u32,
+                })
+            },
         };
 
         Some(MaskCacheInfo {
@@ -115,7 +105,7 @@ impl MaskCacheInfo {
                                                     .get_inner_rect();
                 }
                 &ClipSource::Region(ref region) => {
-                    local_rect = Some(LayerRect::from_untyped(&rect_from_points_f(-MAX_COORD, -MAX_COORD, MAX_COORD, MAX_COORD)));
+                    local_rect = Some(region.main);
                     local_inner = match region.image_mask {
                         Some(ref mask) if !mask.repeat => {
                             local_rect = local_rect.and_then(|r| r.intersection(&mask.rect));
@@ -125,14 +115,19 @@ impl MaskCacheInfo {
                         None => local_rect,
                     };
                     let clips = aux_lists.complex_clip_regions(&region.complex);
-                    assert_eq!(self.clip_range.item_count, clips.len() as u32);
-                    let slice = clip_store.get_slice_mut(self.clip_range.start, CLIP_DATA_GPU_SIZE * clips.len());
+                    assert_eq!(self.clip_range.item_count, clips.len() as u32 + 1);
+                    let slice = clip_store.get_slice_mut(self.clip_range.start, CLIP_DATA_GPU_SIZE * (clips.len() + 1));
                     for (clip, chunk) in clips.iter().zip(slice.chunks_mut(CLIP_DATA_GPU_SIZE)) {
                         let data = ClipData::from_clip_region(clip);
                         PrimitiveStore::populate_clip_data(chunk, data);
                         local_rect = local_rect.and_then(|r| r.intersection(&clip.rect));
                         local_inner = local_inner.and_then(|r| clip.get_inner_rect()
                                                                    .and_then(|ref inner| r.intersection(&inner)));
+                    }
+                    if slice.len() > CLIP_DATA_GPU_SIZE * clips.len() {
+                        // we have an extra clip rect coming from the transformed layer
+                        PrimitiveStore::populate_clip_data(&mut slice[CLIP_DATA_GPU_SIZE * clips.len() ..],
+                                                           ClipData::uniform(region.main, 0.0));
                     }
                 }
             };

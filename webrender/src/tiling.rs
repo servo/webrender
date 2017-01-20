@@ -1851,6 +1851,7 @@ impl FrameBuilder {
             ClipSource::NoClip
         };
         let clip_info = MaskCacheInfo::new(&clip_source,
+                                           false,
                                            &mut self.prim_store.gpu_data32);
 
         let prim_index = self.prim_store.add_primitive(geometry,
@@ -1882,8 +1883,10 @@ impl FrameBuilder {
                       composition_operations: &[CompositionOp]) {
         let sc_index = StackingContextIndex(self.layer_store.len());
 
-        let clip_source = clip_region.into();
+        let clip_source = ClipSource::Region(clip_region.clone());
+        let is_transformed = true; //TODO: we could possibly be smarter about this
         let clip_info = MaskCacheInfo::new(&clip_source,
+                                           is_transformed,
                                            &mut self.prim_store.gpu_data32);
 
         let sc = StackingContext {
