@@ -191,6 +191,53 @@ pub struct ColorF {
 }
 known_heap_size!(0, ColorF);
 
+#[derive(Clone, Copy, Hash, Eq, Debug, Deserialize, PartialEq, PartialOrd, Ord, Serialize)]
+pub struct ColorU {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+impl ColorU {
+    fn round_to_int(x: f32) -> u8 {
+        assert!((0.0 <= x) && (x <= 1.0));
+        let f = (255.0 * x) + 0.5;
+        let val = f.floor();
+        assert!(val <= 255.0);
+        val as u8
+    }
+
+    #[allow(non_snake_case)]
+    pub fn from_colorF(color: ColorF) -> ColorU {
+        ColorU {
+            r: ColorU::round_to_int(color.r),
+            g: ColorU::round_to_int(color.g),
+            b: ColorU::round_to_int(color.b),
+            a: ColorU::round_to_int(color.a),
+        }
+    }
+
+    #[allow(non_snake_case)]
+    pub fn to_colorF(&self) -> ColorF {
+        ColorF {
+            r: self.r as f32 / 255.0,
+            g: self.g as f32 / 255.0,
+            b: self.b as f32 / 255.0,
+            a: self.a as f32 / 255.0,
+        }
+    }
+
+    pub fn new(r: u8, g: u8, b: u8, a: u8) -> ColorU {
+        ColorU {
+            r: r,
+            g: g,
+            b: b,
+            a: a,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ImageDescriptor {
     pub format: ImageFormat,
@@ -296,15 +343,18 @@ pub struct GlyphKey {
     //           or something similar to that.
     pub size: Au,
     pub index: u32,
+    pub color: ColorU,
 }
 
 impl GlyphKey {
     pub fn new(font_key: FontKey,
                size: Au,
+               color: ColorF,
                index: u32) -> GlyphKey {
         GlyphKey {
             font_key: font_key,
             size: size,
+            color: ColorU::from_colorF(color),
             index: index,
         }
     }

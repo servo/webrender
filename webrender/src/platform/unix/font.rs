@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use webrender_traits::{FontKey, FontRenderMode, GlyphDimensions, NativeFontHandle};
+use webrender_traits::{FontKey, ColorU, FontRenderMode, GlyphDimensions, NativeFontHandle};
 
 use freetype::freetype::{FT_Render_Mode, FT_Pixel_Mode};
 use freetype::freetype::{FT_Done_FreeType, FT_Library_SetLcdFilter};
@@ -133,6 +133,7 @@ impl FontContext {
     pub fn rasterize_glyph(&mut self,
                            font_key: FontKey,
                            size: Au,
+                           color: ColorU,
                            character: u32,
                            render_mode: FontRenderMode) -> Option<RasterizedGlyph> {
         let mut glyph = None;
