@@ -379,3 +379,21 @@ impl Wrench {
         }
     }
 }
+
+fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
+    match format {
+        ImageFormat::RGBA8 => {
+            let mut is_opaque = true;
+            for i in 0..(bytes.len() / 4) {
+                if bytes[i * 4 + 3] != 255 {
+                    is_opaque = false;
+                    break;
+                }
+            }
+            is_opaque
+        }
+        ImageFormat::RGB8 => true,
+        ImageFormat::A8 => false,
+        ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
+    }
+}
