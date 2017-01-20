@@ -29,6 +29,7 @@ use {WHITE_COLOR, BLACK_COLOR};
 pub enum SaveType {
     Yaml,
     Json,
+    Binary,
 }
 
 struct Notifier {
@@ -153,20 +154,21 @@ impl Wrench {
     {
         println!("Shader override path: {:?}", shader_override_path);
 
-        if let Some(ref save_type) = save_type {
-            let recorder = match save_type {
-                &SaveType::Yaml => Box::new(YamlFrameWriterReceiver::new(&PathBuf::from("yaml_frames")))
-                    as Box<webrender::ApiRecordingReceiver>,
-                &SaveType::Json => Box::new(JsonFrameWriter::new(&PathBuf::from("json_frames")))
-                    as Box<webrender::ApiRecordingReceiver>,
-            };
-            webrender::set_recording_detour(Some(recorder));
-        }
+        let recorder = save_type.map(|save_type| {
+            match save_type {
+                SaveType::Yaml =>
+                    Box::new(YamlFrameWriterReceiver::new(&PathBuf::from("yaml_frames"))) as Box<webrender::ApiRecordingReceiver>,
+                SaveType::Json =>
+                    Box::new(JsonFrameWriter::new(&PathBuf::from("json_frames"))) as Box<webrender::ApiRecordingReceiver>,
+                SaveType::Binary =>
+                    Box::new(webrender::BinaryRecorder::new(&PathBuf::from("wr-record.bin"))) as Box<webrender::ApiRecordingReceiver>,
+            }
+        });
 
         let opts = webrender::RendererOptions {
             device_pixel_ratio: dp_ratio,
             resource_override_path: shader_override_path,
-            enable_recording: save_type.is_some(),
+            recorder: recorder,
             enable_subpixel_aa: subpixel_aa,
             debug: debug,
             .. Default::default()
@@ -175,8 +177,14 @@ impl Wrench {
         let (renderer, sender) = webrender::renderer::Renderer::new(opts);
         let api = sender.create_api();
 
+        let proxy = window.create_window_proxy();
+        // put an Awakened event into the queue to kick off the first frame
+        if let Some(ref wp) = proxy {
+            wp.wakeup_event_loop();
+        }
+
         let (timing_sender, timing_receiver) = chase_lev::deque();
-        let notifier = Box::new(Notifier::new(window.create_window_proxy(), timing_receiver, verbose));
+        let notifier = Box::new(Notifier::new(proxy, timing_receiver, verbose));
         renderer.set_render_notifier(notifier);
 
         let gl_version = gl::get_string(gl::VERSION);

@@ -10,6 +10,7 @@ use channel::{PayloadSender, MsgSender};
 #[cfg(feature = "nightly")]
 use core::nonzero::NonZero;
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
+use std::fmt;
 use std::sync::Arc;
 
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
@@ -961,4 +962,32 @@ pub enum VRCompositorCommand {
 // Receives the texture_id associated to the WebGLContext.
 pub trait VRCompositorHandler: Send {
     fn handle(&mut self, command: VRCompositorCommand, texture_id: Option<u32>);
+}
+
+impl fmt::Debug for ApiMsg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &ApiMsg::AddRawFont(..) => { write!(f, "ApiMsg::AddRawFont") }
+            &ApiMsg::AddNativeFont(..) => { write!(f, "ApiMsg::AddNativeFont") }
+            &ApiMsg::GetGlyphDimensions(..) => { write!(f, "ApiMsg::GetGlyphDimensions") }
+            &ApiMsg::AddImage(..) => { write!(f, "ApiMsg::AddImage") }
+            &ApiMsg::UpdateImage(..) => { write!(f, "ApiMsg::UpdateImage") }
+            &ApiMsg::DeleteImage(..) => { write!(f, "ApiMsg::DeleteImage") }
+            &ApiMsg::CloneApi(..) => { write!(f, "ApiMsg::CloneApi") }
+            &ApiMsg::SetRootDisplayList(..) => { write!(f, "ApiMsg::SetRootDisplayList") }
+            &ApiMsg::SetRootPipeline(..) => { write!(f, "ApiMsg::SetRootPipeline") }
+            &ApiMsg::Scroll(..) => { write!(f, "ApiMsg::Scroll") }
+            &ApiMsg::ScrollLayersWithScrollId(..) => { write!(f, "ApiMsg::ScrollLayersWithScrollId") }
+            &ApiMsg::TickScrollingBounce => { write!(f, "ApiMsg::TickScrollingBounce") }
+            &ApiMsg::TranslatePointToLayerSpace(..) => { write!(f, "ApiMsg::TranslatePointToLayerSpace") }
+            &ApiMsg::GetScrollLayerState(..) => { write!(f, "ApiMsg::GetScrollLayerState") }
+            &ApiMsg::RequestWebGLContext(..) => { write!(f, "ApiMsg::RequestWebGLContext") }
+            &ApiMsg::ResizeWebGLContext(..) => { write!(f, "ApiMsg::ResizeWebGLContext") }
+            &ApiMsg::WebGLCommand(..) => { write!(f, "ApiMsg::WebGLCommand") }
+            &ApiMsg::GenerateFrame => { write!(f, "ApiMsg::GenerateFrame") }
+            &ApiMsg::VRCompositorCommand(..) => { write!(f, "ApiMsg::VRCompositorCommand") }
+            &ApiMsg::ExternalEvent(..) => { write!(f, "ApiMsg::ExternalEvent") }
+            &ApiMsg::ShutDown => { write!(f, "ApiMsg::ShutDown") }
+        }
+    }
 }
