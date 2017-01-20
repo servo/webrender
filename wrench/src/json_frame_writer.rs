@@ -7,6 +7,7 @@ extern crate yaml_rust;
 use image::{ColorType, save_buffer};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
+use std::fmt;
 use std::fs;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
@@ -95,16 +96,14 @@ impl JsonFrameWriter {
         let dl_desc = self.dl_descriptor.take().unwrap();
         let aux_desc = self.aux_descriptor.take().unwrap();
 
-        let mut auxiliary_data = Cursor::new(&data[4..]);
+        assert_eq!(data.len(), dl_desc.size() + aux_desc.size() + 4);
 
-        let mut built_display_list_data = vec![0; dl_desc.size()];
-        let mut aux_list_data = vec![0; aux_desc.size()];
+        // there's a 4 byte epoch header that we skip
+        let dl_data = data[4..dl_desc.size()+4].to_vec();
+        let aux_data = data[dl_desc.size()+4..].to_vec();
 
-        auxiliary_data.read_exact(&mut built_display_list_data[..]).unwrap();
-        auxiliary_data.read_exact(&mut aux_list_data[..]).unwrap();
-
-        let dl = BuiltDisplayList::from_data(built_display_list_data, dl_desc);
-        let aux = AuxiliaryLists::from_data(aux_list_data, aux_desc);
+        let dl = BuiltDisplayList::from_data(dl_data, dl_desc);
+        let aux = AuxiliaryLists::from_data(aux_data, aux_desc);
 
         let mut frame_file_name = self.frame_base.clone();
         let current_shown_frame = unsafe { CURRENT_FRAME_NUMBER };
@@ -183,6 +182,12 @@ impl JsonFrameWriter {
         // put it back
         self.images.insert(*key, data);
         Some(path)
+    }
+}
+
+impl fmt::Debug for JsonFrameWriter {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "JsonFrameWriter")
     }
 }
 

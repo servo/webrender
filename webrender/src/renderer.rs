@@ -21,6 +21,7 @@ use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler, GLContextHandleWrapper};
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
+use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
 use std::cmp;
 use std::collections::HashMap;
@@ -637,7 +638,7 @@ impl Renderer {
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
         let render_target_debug = options.render_target_debug;
         let payload_tx_for_backend = payload_tx.clone();
-        let enable_recording = options.enable_recording;
+        let recorder = options.recorder;
         thread::Builder::new().name("RenderBackend".to_string()).spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  payload_rx,
@@ -650,7 +651,7 @@ impl Renderer {
                                                  context_handle,
                                                  config,
                                                  debug,
-                                                 enable_recording,
+                                                 recorder,
                                                  backend_main_thread_dispatcher,
                                                  backend_vr_compositor);
             backend.run();
@@ -1501,14 +1502,13 @@ pub trait ExternalImageHandler {
     fn release(&mut self, key: ExternalImageId);
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct RendererOptions {
     pub device_pixel_ratio: f32,
     pub resource_override_path: Option<PathBuf>,
     pub enable_aa: bool,
     pub enable_profiler: bool,
     pub debug: bool,
-    pub enable_recording: bool,
     pub enable_scrollbars: bool,
     pub precache_shaders: bool,
     pub renderer_kind: RendererKind,
@@ -1516,6 +1516,7 @@ pub struct RendererOptions {
     pub clear_framebuffer: bool,
     pub clear_color: ColorF,
     pub render_target_debug: bool,
+    pub recorder: Option<Box<ApiRecordingReceiver>>,
 }
 
 impl Default for RendererOptions {
@@ -1526,7 +1527,6 @@ impl Default for RendererOptions {
             enable_aa: true,
             enable_profiler: false,
             debug: false,
-            enable_recording: false,
             enable_scrollbars: false,
             precache_shaders: false,
             renderer_kind: RendererKind::Native,
@@ -1534,6 +1534,7 @@ impl Default for RendererOptions {
             clear_framebuffer: true,
             clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
             render_target_debug: false,
+            recorder: None,
         }
     }
 }
