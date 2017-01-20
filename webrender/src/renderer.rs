@@ -569,7 +569,7 @@ impl Renderer {
                                 height: 2,
                                 stride: None,
                                 format: ImageFormat::A8,
-                                is_opaque: true,
+                                is_opaque: false,
                              },
                              TextureFilter::Linear,
                              Arc::new(mask_pixels));
