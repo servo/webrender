@@ -28,9 +28,9 @@ pub enum ApiMsg {
     /// Gets the glyph dimensions
     GetGlyphDimensions(Vec<GlyphKey>, MsgSender<Vec<Option<GlyphDimensions>>>),
     /// Adds an image from the resource cache.
-    AddImage(ImageKey, u32, u32, Option<u32>, ImageFormat, ImageData),
+    AddImage(ImageKey, ImageDescriptor, ImageData),
     /// Updates the the resource cache with the new image data.
-    UpdateImage(ImageKey, u32, u32, ImageFormat, Vec<u8>),
+    UpdateImage(ImageKey, ImageDescriptor, Vec<u8>),
     /// Drops an image from the resource cache.
     DeleteImage(ImageKey),
     CloneApi(MsgSender<IdNamespace>),
@@ -190,6 +190,39 @@ pub struct ColorF {
     pub a: f32,
 }
 known_heap_size!(0, ColorF);
+
+#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ImageDescriptor {
+    pub format: ImageFormat,
+    pub width: u32,
+    pub height: u32,
+    pub stride: Option<u32>,
+    pub is_opaque: bool,
+}
+
+// TODO(gw): If this ever shows up in profiles, consider calculating
+// this lazily on demand, possibly via the resource cache thread.
+// It can probably be made a lot faster with SIMD too!
+// This assumes that A8 textures are never opaque, since they are
+// typically used for alpha masks. We could revisit that if it
+// ever becomes an issue in real world usage.
+pub fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
+    match format {
+        ImageFormat::RGBA8 => {
+            let mut is_opaque = true;
+            for i in 0..(bytes.len() / 4) {
+                if bytes[i * 4 + 3] != 255 {
+                    is_opaque = false;
+                    break;
+                }
+            }
+            is_opaque
+        }
+        ImageFormat::RGB8 => true,
+        ImageFormat::A8 => false,
+        ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
+    }
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ImageMask {

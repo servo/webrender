@@ -9,7 +9,7 @@ use app_units::Au;
 use gleam::gl;
 use std::path::PathBuf;
 use webrender_traits::{ColorF, Epoch, GlyphInstance};
-use webrender_traits::{ImageData, ImageFormat, PipelineId};
+use webrender_traits::{ImageDescriptor, ImageData, ImageFormat, PipelineId};
 use webrender_traits::{LayoutSize, LayoutPoint, LayoutRect, LayoutTransform, DeviceUintSize};
 use std::fs::File;
 use std::io::Read;
@@ -112,7 +112,16 @@ fn main() {
 
     let sub_clip = {
         let mask = webrender_traits::ImageMask {
-            image: api.add_image(2, 2, None, ImageFormat::A8, ImageData::new(vec![0,80, 180, 255])),
+            image: api.add_image(
+                ImageDescriptor {
+                    width: 2,
+                    height: 2,
+                    stride: None,
+                    format: ImageFormat::A8,
+                    is_opaque: true,
+                },
+                ImageData::new(vec![0,80, 180, 255])
+            ),
             rect: LayoutRect::new(LayoutPoint::new(75.0, 75.0), LayoutSize::new(100.0, 100.0)),
             repeat: false,
         };
