@@ -782,12 +782,7 @@ impl TextureCache {
 
         let op = match result.kind {
             AllocationKind::TexturePage => {
-                let bpp = match format {
-                    ImageFormat::A8 => 1,
-                    ImageFormat::RGB8 => 3,
-                    ImageFormat::RGBA8 => 4,
-                    ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
-                };
+                let bpp = format.bytes_per_pixel().unwrap();
 
                 let mut top_row_bytes = Vec::new();
                 let mut bottom_row_bytes = Vec::new();

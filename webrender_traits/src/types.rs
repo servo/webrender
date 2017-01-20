@@ -200,30 +200,6 @@ pub struct ImageDescriptor {
     pub is_opaque: bool,
 }
 
-// TODO(gw): If this ever shows up in profiles, consider calculating
-// this lazily on demand, possibly via the resource cache thread.
-// It can probably be made a lot faster with SIMD too!
-// This assumes that A8 textures are never opaque, since they are
-// typically used for alpha masks. We could revisit that if it
-// ever becomes an issue in real world usage.
-pub fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
-    match format {
-        ImageFormat::RGBA8 => {
-            let mut is_opaque = true;
-            for i in 0..(bytes.len() / 4) {
-                if bytes[i * 4 + 3] != 255 {
-                    is_opaque = false;
-                    break;
-                }
-            }
-            is_opaque
-        }
-        ImageFormat::RGB8 => true,
-        ImageFormat::A8 => false,
-        ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
-    }
-}
-
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ImageMask {
     pub image: ImageKey,
@@ -389,6 +365,18 @@ pub enum ImageFormat {
     RGB8,
     RGBA8,
     RGBAF32,
+}
+
+impl ImageFormat {
+    pub fn bytes_per_pixel(self) -> Option<u32> {
+        match self {
+            ImageFormat::A8 => Some(1),
+            ImageFormat::RGB8 => Some(3),
+            ImageFormat::RGBA8 => Some(4),
+            ImageFormat::RGBAF32 => Some(16),
+            ImageFormat::Invalid => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]

@@ -204,16 +204,9 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
             }
 
             &ApiMsg::AddImage(ref key, ref descriptor, ref data) => {
-                let stride = if let Some(stride) = descriptor.stride {
-                    stride
-                } else {
-                    match descriptor.format {
-                        ImageFormat::A8 => descriptor.width,
-                        ImageFormat::RGBA8 | ImageFormat::RGB8 => descriptor.width*4,
-                        ImageFormat::RGBAF32 => descriptor.width*16,
-                        _ => panic!("Invalid image format"),
-                    }
-                };
+                let stride = descriptor.stride.unwrap_or(
+                    descriptor.width * descriptor.format.bytes_per_pixel().unwrap()
+                );
                 let bytes = match data {
                     &ImageData::Raw(ref v) => { (**v).clone() }
                     &ImageData::External(_) => { return; }
