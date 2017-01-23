@@ -375,8 +375,7 @@ struct Program {
 impl Program {
     fn attach_and_bind_shaders(&mut self,
                                vs_id: gl::GLuint,
-                               fs_id: gl::GLuint,
-                               panic_on_fail: bool) -> bool {
+                               fs_id: gl::GLuint) -> Result<(), ShaderError> {
         gl::attach_shader(self.id, vs_id);
         gl::attach_shader(self.id, fs_id);
 
@@ -406,17 +405,14 @@ impl Program {
 
         gl::link_program(self.id);
         if gl::get_program_iv(self.id, gl::LINK_STATUS) == (0 as gl::GLint) {
-            println!("Failed to link shader program: {}", gl::get_program_info_log(self.id));
+            let error_log = gl::get_program_info_log(self.id);
+            println!("Failed to link shader program: {}", error_log);
             gl::detach_shader(self.id, vs_id);
             gl::detach_shader(self.id, fs_id);
-            if panic_on_fail {
-                panic!("-- Program link failed - exiting --");
-            }
-            false
-        } else {
-            //println!("{}", gl::get_program_info_log(self.id));
-            true
+            return Err(ShaderError::Link(error_log));
         }
+
+        Ok(())
     }
 }
 
@@ -782,6 +778,12 @@ pub struct Capabilities {
     pub supports_multisampling: bool,
 }
 
+#[derive(Clone, Debug)]
+pub enum ShaderError {
+    Compilation(String, String), // name, error mssage
+    Link(String), // error message
+}
+
 pub struct Device {
     // device state
     bound_textures: [TextureId; 16],
@@ -860,9 +862,8 @@ impl Device {
     pub fn compile_shader(name: &str,
                           source_str: &str,
                           shader_type: gl::GLenum,
-                          shader_preamble: &[String],
-                          panic_on_fail: bool)
-                          -> Option<gl::GLuint> {
+                          shader_preamble: &[String])
+                          -> Result<gl::GLuint, ShaderError> {
         debug!("compile {:?}", name);
 
         let mut s = String::new();
@@ -880,16 +881,12 @@ impl Device {
         let log = gl::get_shader_info_log(id);
         if gl::get_shader_iv(id, gl::COMPILE_STATUS) == (0 as gl::GLint) {
             println!("Failed to compile shader: {:?}\n{}", name, log);
-            if panic_on_fail {
-                panic!("-- Shader compile failed - exiting --");
-            }
-
-            None
+            Err(ShaderError::Compilation(name.to_string(), log))
         } else {
             if !log.is_empty() {
                 println!("Warnings detected on shader: {:?}\n{}", name, log);
             }
-            Some(id)
+            Ok(id)
         }
     }
 
@@ -1313,14 +1310,14 @@ impl Device {
 
     pub fn create_program(&mut self,
                           base_filename: &str,
-                          include_filename: &str) -> ProgramId {
+                          include_filename: &str) -> Result<ProgramId, ShaderError> {
         self.create_program_with_prefix(base_filename, &[include_filename], None)
     }
 
     pub fn create_program_with_prefix(&mut self,
                                       base_filename: &str,
                                       include_filenames: &[&str],
-                                      prefix: Option<String>) -> ProgramId {
+                                      prefix: Option<String>) -> Result<ProgramId, ShaderError> {
         debug_assert!(self.inside_frame);
 
         let pid = gl::create_program();
@@ -1357,15 +1354,14 @@ impl Device {
         debug_assert!(self.programs.contains_key(&program_id) == false);
         self.programs.insert(program_id, program);
 
-        self.load_program(program_id, include, true);
+        try!{ self.load_program(program_id, include) };
 
-        program_id
+        Ok(program_id)
     }
 
     fn load_program(&mut self,
                     program_id: ProgramId,
-                    include: String,
-                    panic_on_fail: bool) {
+                    include: String) -> Result<(), ShaderError> {
         debug_assert!(self.inside_frame);
 
         let program = self.programs.get_mut(&program_id).unwrap();
@@ -1391,27 +1387,28 @@ impl Device {
         let vs_id = Device::compile_shader(&program.name,
                                            &program.vs_source,
                                            gl::VERTEX_SHADER,
-                                           &vs_preamble,
-                                           panic_on_fail);
+                                           &vs_preamble);
         let fs_id = Device::compile_shader(&program.name,
                                            &program.fs_source,
                                            gl::FRAGMENT_SHADER,
-                                           &fs_preamble,
-                                           panic_on_fail);
+                                           &fs_preamble);
 
         match (vs_id, fs_id) {
-            (Some(vs_id), None) => {
+            (Ok(vs_id), Err(e)) => {
                 println!("FAILED to load fs - falling back to previous!");
                 gl::delete_shader(vs_id);
+                return Err(e);
             }
-            (None, Some(fs_id)) => {
+            (Err(e), Ok(fs_id)) => {
                 println!("FAILED to load vs - falling back to previous!");
                 gl::delete_shader(fs_id);
+                return Err(e);
             }
-            (None, None) => {
+            (Err(e1), Err(_)) => {
                 println!("FAILED to load vs/fs - falling back to previous!");
+                return Err(e1);
             }
-            (Some(vs_id), Some(fs_id)) => {
+            (Ok(vs_id), Ok(fs_id)) => {
                 if let Some(vs_id) = program.vs_id {
                     gl::detach_shader(program.id, vs_id);
                 }
@@ -1420,7 +1417,13 @@ impl Device {
                     gl::detach_shader(program.id, fs_id);
                 }
 
-                if program.attach_and_bind_shaders(vs_id, fs_id, panic_on_fail) {
+                if let Err(bind_error) = program.attach_and_bind_shaders(vs_id, fs_id) {
+                    if let (Some(vs_id), Some(fs_id)) = (program.vs_id, program.fs_id) {
+                        try! { program.attach_and_bind_shaders(vs_id, fs_id) };
+                    } else {
+                       return Err(bind_error);
+                    }
+                } else {
                     if let Some(vs_id) = program.vs_id {
                         gl::delete_shader(vs_id);
                     }
@@ -1431,10 +1434,6 @@ impl Device {
 
                     program.vs_id = Some(vs_id);
                     program.fs_id = Some(fs_id);
-                } else {
-                    let vs_id = program.vs_id.unwrap();
-                    let fs_id = program.fs_id.unwrap();
-                    program.attach_and_bind_shaders(vs_id, fs_id, true);
                 }
 
                 program.u_transform = gl::get_uniform_location(program.id, "uTransform");
@@ -1504,6 +1503,8 @@ impl Device {
                 }
             }
         }
+
+        Ok(())
     }
 
 /*

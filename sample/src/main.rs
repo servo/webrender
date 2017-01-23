@@ -80,7 +80,7 @@ fn main() {
         .. Default::default()
     };
 
-    let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);
+    let (mut renderer, sender) = webrender::renderer::Renderer::new(opts).unwrap();
     let api = sender.create_api();
 
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));

@@ -172,7 +172,7 @@ impl Wrench {
             .. Default::default()
         };
 
-        let (renderer, sender) = webrender::renderer::Renderer::new(opts);
+        let (renderer, sender) = webrender::renderer::Renderer::new(opts).unwrap();
         let api = sender.create_api();
 
         let (timing_sender, timing_receiver) = chase_lev::deque();

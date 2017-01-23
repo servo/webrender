@@ -123,7 +123,7 @@ fn main() {
         render_target_debug: false,
     };
 
-    let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);
+    let (mut renderer, sender) = webrender::renderer::Renderer::new(opts).unwrap();
     let api = sender.create_api();
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));
     renderer.set_render_notifier(notifier);
