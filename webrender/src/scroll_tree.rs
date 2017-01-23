@@ -2,22 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use euclid::Point3D;
 use fnv::FnvHasher;
-use geometry::ray_intersects_rect;
 use layer::{Layer, ScrollingState};
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
-use webrender_traits::{LayerPoint, LayerRect, PipelineId, ScrollEventPhase, ScrollLayerId};
-use webrender_traits::{ScrollLayerInfo, ScrollLayerPixel, ScrollLayerRect, ScrollLayerState};
-use webrender_traits::{ScrollLocation, ScrollToWorldTransform, ServoScrollRootId, WorldPoint};
-use webrender_traits::{WorldPoint4D, as_scroll_parent_rect};
-
-#[cfg(target_os = "macos")]
-const CAN_OVERSCROLL: bool = true;
-
-#[cfg(not(target_os = "macos"))]
-const CAN_OVERSCROLL: bool = false;
+use webrender_traits::{LayerPoint, PipelineId, ScrollEventPhase, ScrollLayerId, ScrollLayerInfo};
+use webrender_traits::{ScrollLayerPixel, ScrollLayerRect, ScrollLayerState, ScrollLocation};
+use webrender_traits::{ScrollToWorldTransform, ServoScrollRootId, WorldPoint};
+use webrender_traits::as_scroll_parent_rect;
 
 pub type ScrollStates = HashMap<ScrollLayerId, ScrollingState, BuildHasherDefault<FnvHasher>>;
 
@@ -60,37 +52,14 @@ impl ScrollTree {
                 }
             }
 
-            match scroll_layer_id.info {
-                ScrollLayerInfo::Fixed => {
-                    None
-                }
-                ScrollLayerInfo::Scrollable(..) => {
-                    let inv = layer.world_viewport_transform.inverse().unwrap();
-                    let z0 = -10000.0;
-                    let z1 =  10000.0;
+            if scroll_layer_id.info == ScrollLayerInfo::Fixed {
+                return None;
+            }
 
-                    let p0 = inv.transform_point4d(&WorldPoint4D::new(cursor.x, cursor.y, z0, 1.0));
-                    let p0 = Point3D::new(p0.x / p0.w,
-                                          p0.y / p0.w,
-                                          p0.z / p0.w);
-                    let p1 = inv.transform_point4d(&WorldPoint4D::new(cursor.x, cursor.y, z1, 1.0));
-                    let p1 = Point3D::new(p1.x / p1.w,
-                                          p1.y / p1.w,
-                                          p1.z / p1.w);
-
-                    let is_unscrollable = layer.content_size.width <= layer.local_viewport_rect.size.width &&
-                        layer.content_size.height <= layer.local_viewport_rect.size.height;
-                    if is_unscrollable {
-                        None
-                    } else {
-                        let result = ray_intersects_rect(p0, p1, layer.local_viewport_rect.to_untyped());
-                        if result {
-                            Some(scroll_layer_id)
-                        } else {
-                            None
-                        }
-                    }
-                }
+            if layer.ray_intersects_layer(cursor) {
+                Some(scroll_layer_id)
+            } else {
+                None
             }
         })
     }
@@ -207,11 +176,16 @@ impl ScrollTree {
             },
         };
 
-        let scroll_root_id = match (switch_layer, scroll_layer_id.info, root_scroll_layer_id.info) {
-            (true, _, ScrollLayerInfo::Scrollable(_, scroll_root_id)) |
-            (true, ScrollLayerInfo::Scrollable(_, scroll_root_id), ScrollLayerInfo::Fixed) |
-            (false, ScrollLayerInfo::Scrollable(_, scroll_root_id), _) => scroll_root_id,
-            (_, ScrollLayerInfo::Fixed, _) => unreachable!("Tried to scroll a fixed position layer."),
+        let scroll_layer_info = if switch_layer {
+            root_scroll_layer_id.info
+        } else {
+            scroll_layer_id.info
+        };
+
+        let scroll_root_id = match scroll_layer_info {
+             ScrollLayerInfo::Scrollable(_, scroll_root_id) => scroll_root_id,
+             _ => unreachable!("Tried to scroll a non-scrolling layer."),
+
         };
 
         let mut scrolled_a_layer = false;
@@ -226,95 +200,9 @@ impl ScrollTree {
                 _ => {}
             }
 
-            if layer.scrolling.started_bouncing_back && phase == ScrollEventPhase::Move(false) {
-                continue;
-            }
-
-            let mut delta = match scroll_location {
-                ScrollLocation::Delta(delta) => delta,
-                ScrollLocation::Start => {
-                    if layer.scrolling.offset.y.round() >= 0.0 {
-                        // Nothing to do on this layer.
-                        continue;
-                    }
-
-                    layer.scrolling.offset.y = 0.0;
-                    scrolled_a_layer = true;
-                    continue;
-                },
-                ScrollLocation::End => {
-                    let end_pos = layer.local_viewport_rect.size.height
-                                  - layer.content_size.height;
-
-                    if layer.scrolling.offset.y.round() <= end_pos {
-                        // Nothing to do on this layer.
-                        continue;
-                    }
-
-                    layer.scrolling.offset.y = end_pos;
-                    scrolled_a_layer = true;
-                    continue;
-                }
-            };
-
-            let overscroll_amount = layer.overscroll_amount();
-            let overscrolling = CAN_OVERSCROLL && (overscroll_amount.width != 0.0 ||
-                                                   overscroll_amount.height != 0.0);
-            if overscrolling {
-                if overscroll_amount.width != 0.0 {
-                    delta.x /= overscroll_amount.width.abs()
-                }
-                if overscroll_amount.height != 0.0 {
-                    delta.y /= overscroll_amount.height.abs()
-                }
-            }
-
-            let is_unscrollable =
-                layer.content_size.width <= layer.local_viewport_rect.size.width &&
-                layer.content_size.height <= layer.local_viewport_rect.size.height;
-
-            let original_layer_scroll_offset = layer.scrolling.offset;
-
-            if layer.content_size.width > layer.local_viewport_rect.size.width {
-                layer.scrolling.offset.x = layer.scrolling.offset.x + delta.x;
-                if is_unscrollable || !CAN_OVERSCROLL {
-                    layer.scrolling.offset.x = layer.scrolling.offset.x.min(0.0);
-                    layer.scrolling.offset.x =
-                        layer.scrolling.offset.x.max(-layer.content_size.width +
-                                                     layer.local_viewport_rect.size.width);
-                }
-            }
-
-            if layer.content_size.height > layer.local_viewport_rect.size.height {
-                layer.scrolling.offset.y = layer.scrolling.offset.y + delta.y;
-                if is_unscrollable || !CAN_OVERSCROLL {
-                    layer.scrolling.offset.y = layer.scrolling.offset.y.min(0.0);
-                    layer.scrolling.offset.y =
-                        layer.scrolling.offset.y.max(-layer.content_size.height +
-                                                     layer.local_viewport_rect.size.height);
-                }
-            }
-
-            if phase == ScrollEventPhase::Start || phase == ScrollEventPhase::Move(true) {
-                layer.scrolling.started_bouncing_back = false
-            } else if overscrolling &&
-                    ((delta.x < 1.0 && delta.y < 1.0) || phase == ScrollEventPhase::End) {
-                layer.scrolling.started_bouncing_back = true;
-                layer.scrolling.bouncing_back = true
-            }
-
-            layer.scrolling.offset.x = layer.scrolling.offset.x.round();
-            layer.scrolling.offset.y = layer.scrolling.offset.y.round();
-
-            if CAN_OVERSCROLL {
-                layer.stretch_overscroll_spring();
-            }
-
-            scrolled_a_layer = scrolled_a_layer ||
-                layer.scrolling.offset != original_layer_scroll_offset ||
-                layer.scrolling.started_bouncing_back;
+            let scrolled_this_layer = layer.scroll(scroll_location, phase);
+            scrolled_a_layer = scrolled_a_layer || scrolled_this_layer;
         }
-
         scrolled_a_layer
     }
 
@@ -332,23 +220,10 @@ impl ScrollTree {
         let (layer_transform_for_children, viewport_rect, layer_children) = {
             match self.layers.get_mut(&layer_id) {
                 Some(layer) => {
-                    let inv_transform = layer.local_transform.inverse().unwrap();
-                    let parent_viewport_rect_in_local_space = inv_transform.transform_rect(parent_viewport_rect)
-                                                                           .translate(&-layer.scrolling.offset);
-                    let local_viewport_rect = layer.local_viewport_rect
-                                                   .translate(&-layer.scrolling.offset);
-                    let viewport_rect = parent_viewport_rect_in_local_space.intersection(&local_viewport_rect)
-                                                                           .unwrap_or(LayerRect::zero());
-
-                    layer.combined_local_viewport_rect = viewport_rect;
-                    layer.world_viewport_transform = parent_world_transform.pre_mul(&layer.local_transform);
-                    layer.world_content_transform = layer.world_viewport_transform
-                                                         .pre_translated(layer.scrolling.offset.x,
-                                                                         layer.scrolling.offset.y,
-                                                                         0.0);
+                    layer.update_transform(parent_world_transform, parent_viewport_rect);
 
                     (layer.world_content_transform.with_source::<ScrollLayerPixel>(),
-                     viewport_rect,
+                     as_scroll_parent_rect(&layer.combined_local_viewport_rect),
                      layer.children.clone())
                 }
                 None => return,
@@ -358,7 +233,7 @@ impl ScrollTree {
         for child_layer_id in layer_children {
             self.update_layer_transform(child_layer_id,
                                         &layer_transform_for_children,
-                                        &as_scroll_parent_rect(&viewport_rect));
+                                        &viewport_rect);
         }
     }
 
@@ -419,6 +294,16 @@ impl ScrollTree {
             }
         }
 
+    }
+
+    pub fn add_layer(&mut self, layer: Layer, id: ScrollLayerId, parent_id: Option<ScrollLayerId>) {
+        debug_assert!(!self.layers.contains_key(&id));
+        self.layers.insert(id, layer);
+
+        if let Some(parent_id) = parent_id {
+            debug_assert!(parent_id != id);
+            self.layers.get_mut(&parent_id).unwrap().add_child(id);
+        }
     }
 }
 

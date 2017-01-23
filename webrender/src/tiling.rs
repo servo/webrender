@@ -2875,7 +2875,7 @@ impl FrameBuilder {
             let mut geom = (*self.prim_store.gpu_geometry.get(GpuStoreAddress(scrollbar_prim.prim_index.0 as i32))).clone();
             let scroll_layer = &scroll_tree.layers[&scrollbar_prim.scroll_layer_id];
 
-            let scrollable_distance = scroll_layer.content_size.height - scroll_layer.local_viewport_rect.size.height;
+            let scrollable_distance = scroll_layer.scrollable_height();
 
             if scrollable_distance <= 0.0 {
                 geom.local_clip_rect.size = LayerSize::zero();
