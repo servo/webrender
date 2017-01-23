@@ -12,7 +12,7 @@
 use debug_colors;
 use debug_render::DebugRenderer;
 use device::{DepthFunction, Device, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler};
-use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
+use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use euclid::Matrix4D;
 use fnv::FnvHasher;
 use gpu_store::{GpuStore, GpuStoreLayout};
@@ -25,6 +25,7 @@ use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
+use std;
 use std::cmp;
 use std::collections::HashMap;
 use std::f32;
@@ -180,7 +181,7 @@ impl LazilyCompiledShader {
            name: &'static str,
            features: &[&'static str],
            device: &mut Device,
-           precache: bool) -> LazilyCompiledShader {
+           precache: bool) -> Result<LazilyCompiledShader, ShaderError> {
         let mut shader = LazilyCompiledShader {
             id: None,
             name: name,
@@ -189,35 +190,37 @@ impl LazilyCompiledShader {
         };
 
         if precache {
-            shader.get(device);
+            try!{ shader.get(device) };
         }
 
-        shader
+        Ok(shader)
     }
 
-    fn get(&mut self, device: &mut Device) -> ProgramId {
+    fn get(&mut self, device: &mut Device) -> Result<ProgramId, ShaderError> {
         if self.id.is_none() {
-            let id = match self.kind {
-                ShaderKind::Primitive => {
-                    create_prim_shader(self.name,
-                                       device,
-                                       &self.features,
-                                       VertexFormat::Triangles)
-                }
-                ShaderKind::Cache(format) => {
-                    create_prim_shader(self.name,
-                                       device,
-                                       &self.features,
-                                       format)
-                }
-                ShaderKind::ClipCache => {
-                    create_clip_shader(self.name, device)
+            let id = try!{
+                match self.kind {
+                    ShaderKind::Primitive => {
+                        create_prim_shader(self.name,
+                                           device,
+                                           &self.features,
+                                           VertexFormat::Triangles)
+                    }
+                    ShaderKind::Cache(format) => {
+                        create_prim_shader(self.name,
+                                           device,
+                                           &self.features,
+                                           format)
+                    }
+                    ShaderKind::ClipCache => {
+                        create_clip_shader(self.name, device)
+                    }
                 }
             };
             self.id = Some(id);
         }
 
-        self.id.unwrap()
+        Ok(self.id.unwrap())
     }
 }
 
@@ -254,31 +257,35 @@ impl PrimitiveShader {
     fn new(name: &'static str,
            device: &mut Device,
            features: &[&'static str],
-           precache: bool) -> PrimitiveShader {
-        let simple = LazilyCompiledShader::new(ShaderKind::Primitive,
-                                               name,
-                                               features,
-                                               device,
-                                               precache);
+           precache: bool) -> Result<PrimitiveShader, ShaderError> {
+        let simple = try!{
+            LazilyCompiledShader::new(ShaderKind::Primitive,
+                                      name,
+                                      features,
+                                      device,
+                                      precache)
+        };
 
         let mut transform_features = features.to_vec();
         transform_features.push(TRANSFORM_FEATURE);
 
-        let transform = LazilyCompiledShader::new(ShaderKind::Primitive,
-                                                  name,
-                                                  &transform_features,
-                                                  device,
-                                                  precache);
+        let transform = try!{
+            LazilyCompiledShader::new(ShaderKind::Primitive,
+                                      name,
+                                      &transform_features,
+                                      device,
+                                      precache)
+        };
 
-        PrimitiveShader {
+        Ok(PrimitiveShader {
             simple: simple,
             transform: transform,
-        }
+        })
     }
 
     fn get(&mut self,
            device: &mut Device,
-           transform_kind: TransformedRectKind) -> ProgramId {
+           transform_kind: TransformedRectKind) -> Result<ProgramId, ShaderError> {
         match transform_kind {
             TransformedRectKind::AxisAligned => self.simple.get(device),
             TransformedRectKind::Complex => self.transform.get(device),
@@ -289,7 +296,7 @@ impl PrimitiveShader {
 fn create_prim_shader(name: &'static str,
                       device: &mut Device,
                       features: &[&'static str],
-                      vertex_format: VertexFormat) -> ProgramId {
+                      vertex_format: VertexFormat) -> Result<ProgramId, ShaderError> {
     let mut prefix = format!("#define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n",
                               MAX_VERTEX_TEXTURE_WIDTH);
 
@@ -297,29 +304,21 @@ fn create_prim_shader(name: &'static str,
         prefix.push_str(&format!("#define WR_FEATURE_{}\n", feature));
     }
 
-    let includes = &["prim_shared"];
-    let program_id = device.create_program_with_prefix(name,
-                                                       includes,
-                                                       Some(prefix),
-                                                       vertex_format);
     debug!("PrimShader {}", name);
 
-    program_id
+    let includes = &["prim_shared"];
+    device.create_program_with_prefix(name, includes, Some(prefix), vertex_format)
 }
 
-fn create_clip_shader(name: &'static str, device: &mut Device) -> ProgramId {
+fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<ProgramId, ShaderError> {
     let prefix = format!("#define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n
                           #define WR_FEATURE_TRANSFORM",
                           MAX_VERTEX_TEXTURE_WIDTH);
 
-    let includes = &["prim_shared", "clip_shared"];
-    let program_id = device.create_program_with_prefix(name,
-                                                       includes,
-                                                       Some(prefix),
-                                                       VertexFormat::Clip);
     debug!("ClipShader {}", name);
 
-    program_id
+    let includes = &["prim_shared", "clip_shared"];
+    device.create_program_with_prefix(name, includes, Some(prefix), VertexFormat::Clip)
 }
 
 struct GpuDataTextures {
@@ -465,6 +464,20 @@ pub struct Renderer {
     vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>
 }
 
+#[derive(Debug)]
+pub enum InitError {
+    Shader(ShaderError),
+    Thread(std::io::Error),
+}
+
+impl From<ShaderError> for InitError {
+    fn from(err: ShaderError) -> Self { InitError::Shader(err) }
+}
+
+impl From<std::io::Error> for InitError {
+    fn from(err: std::io::Error) -> Self { InitError::Thread(err) }
+}
+
 impl Renderer {
     /// Initializes webrender and creates a Renderer and RenderApiSender.
     ///
@@ -484,9 +497,9 @@ impl Renderer {
     /// };
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
-    pub fn new(options: RendererOptions) -> (Renderer, RenderApiSender) {
-        let (api_tx, api_rx) = channel::msg_channel().unwrap();
-        let (payload_tx, payload_rx) = channel::payload_channel().unwrap();
+    pub fn new(options: RendererOptions) -> Result<(Renderer, RenderApiSender), InitError> {
+        let (api_tx, api_rx) = try!{ channel::msg_channel() };
+        let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
         let (result_tx, result_rx) = channel();
 
         let notifier = Arc::new(Mutex::new(None));
@@ -501,94 +514,145 @@ impl Renderer {
         // device-pixel ratio doesn't matter here - we are just creating resources.
         device.begin_frame(1.0);
 
-        let cs_box_shadow = LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Triangles),
-                                                      "cs_box_shadow",
-                                                      &[],
-                                                      &mut device,
-                                                      options.precache_shaders);
-        let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Triangles),
-                                                    "cs_text_run",
-                                                    &[],
-                                                    &mut device,
-                                                    options.precache_shaders);
-        let cs_blur = LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Blur),
-                                                "cs_blur",
-                                                 &[],
-                                                 &mut device,
-                                                 options.precache_shaders);
+        let cs_box_shadow = try!{
+            LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Triangles),
+                                      "cs_box_shadow",
+                                      &[],
+                                      &mut device,
+                                      options.precache_shaders)
+        };
 
-        let cs_clip_rectangle = LazilyCompiledShader::new(ShaderKind::ClipCache,
-                                                          "cs_clip_rectangle",
-                                                          &[],
-                                                          &mut device,
-                                                          options.precache_shaders);
-        let cs_clip_image = LazilyCompiledShader::new(ShaderKind::ClipCache,
-                                                      "cs_clip_image",
-                                                      &[],
-                                                      &mut device,
-                                                      options.precache_shaders);
+        let cs_text_run = try!{
+            LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Triangles),
+                                      "cs_text_run",
+                                      &[],
+                                      &mut device,
+                                      options.precache_shaders)
+        };
 
-        let ps_rectangle = PrimitiveShader::new("ps_rectangle",
-                                                &mut device,
-                                                &[],
-                                                options.precache_shaders);
-        let ps_rectangle_clip = PrimitiveShader::new("ps_rectangle",
-                                                     &mut device,
-                                                     &[ CLIP_FEATURE ],
-                                                     options.precache_shaders);
-        let ps_text_run = PrimitiveShader::new("ps_text_run",
-                                               &mut device,
-                                               &[],
-                                               options.precache_shaders);
-        let ps_text_run_subpixel = PrimitiveShader::new("ps_text_run",
-                                                        &mut device,
-                                                        &[ SUBPIXEL_AA_FEATURE ],
-                                                        options.precache_shaders);
-        let ps_image = PrimitiveShader::new("ps_image",
-                                            &mut device,
-                                            &[],
-                                            options.precache_shaders);
-        let ps_yuv_image = PrimitiveShader::new("ps_yuv_image",
-                                                &mut device,
-                                                &[],
-                                                options.precache_shaders);
-        let ps_border = PrimitiveShader::new("ps_border",
-                                             &mut device,
-                                             &[],
-                                             options.precache_shaders);
+        let cs_blur = try!{
+            LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Blur),
+                                     "cs_blur",
+                                      &[],
+                                      &mut device,
+                                      options.precache_shaders)
+        };
 
-        let ps_box_shadow = PrimitiveShader::new("ps_box_shadow",
-                                                 &mut device,
-                                                 &[],
-                                                 options.precache_shaders);
+        let cs_clip_rectangle = try!{
+            LazilyCompiledShader::new(ShaderKind::ClipCache,
+                                      "cs_clip_rectangle",
+                                      &[],
+                                      &mut device,
+                                      options.precache_shaders)
+        };
 
-        let ps_gradient = PrimitiveShader::new("ps_gradient",
-                                               &mut device,
-                                               &[],
-                                               options.precache_shaders);
-        let ps_angle_gradient = PrimitiveShader::new("ps_angle_gradient",
-                                                     &mut device,
-                                                     &[],
-                                                     options.precache_shaders);
-        let ps_radial_gradient = PrimitiveShader::new("ps_radial_gradient",
-                                                      &mut device,
-                                                      &[],
-                                                      options.precache_shaders);
-        let ps_cache_image = PrimitiveShader::new("ps_cache_image",
-                                                  &mut device,
-                                                  &[],
-                                                  options.precache_shaders);
+        let cs_clip_image = try!{
+            LazilyCompiledShader::new(ShaderKind::ClipCache,
+                                      "cs_clip_image",
+                                      &[],
+                                      &mut device,
+                                      options.precache_shaders)
+        };
 
-        let ps_blend = LazilyCompiledShader::new(ShaderKind::Primitive,
-                                                 "ps_blend",
-                                                 &[],
-                                                 &mut device,
-                                                 options.precache_shaders);
-        let ps_composite = LazilyCompiledShader::new(ShaderKind::Primitive,
-                                                     "ps_composite",
-                                                     &[],
-                                                     &mut device,
-                                                     options.precache_shaders);
+        let ps_rectangle = try!{
+            PrimitiveShader::new("ps_rectangle",
+                                 &mut device,
+                                 &[],
+                                 options.precache_shaders)
+        };
+
+        let ps_rectangle_clip = try!{
+            PrimitiveShader::new("ps_rectangle",
+                                 &mut device,
+                                 &[ CLIP_FEATURE ],
+                                 options.precache_shaders)
+        };
+
+        let ps_text_run = try!{
+            PrimitiveShader::new("ps_text_run",
+                                 &mut device,
+                                 &[],
+                                 options.precache_shaders)
+        };
+
+        let ps_text_run_subpixel = try!{
+            PrimitiveShader::new("ps_text_run",
+                                 &mut device,
+                                 &[ SUBPIXEL_AA_FEATURE ],
+                                 options.precache_shaders)
+        };
+
+        let ps_image = try!{
+            PrimitiveShader::new("ps_image",
+                                 &mut device,
+                                 &[],
+                                 options.precache_shaders)
+        };
+
+        let ps_yuv_image = try!{
+            PrimitiveShader::new("ps_yuv_image",
+                                 &mut device,
+                                 &[],
+                                 options.precache_shaders)
+        };
+
+        let ps_border = try!{
+            PrimitiveShader::new("ps_border",
+                                 &mut device,
+                                 &[],
+                                 options.precache_shaders)
+        };
+
+        let ps_box_shadow = try!{
+            PrimitiveShader::new("ps_box_shadow",
+                                 &mut device,
+                                 &[],
+                                 options.precache_shaders)
+        };
+
+        let ps_gradient = try!{
+            PrimitiveShader::new("ps_gradient",
+                                 &mut device,
+                                 &[],
+                                 options.precache_shaders)
+        };
+
+        let ps_angle_gradient = try!{
+            PrimitiveShader::new("ps_angle_gradient",
+                                 &mut device,
+                                 &[],
+                                 options.precache_shaders)
+        };
+
+        let ps_radial_gradient = try!{
+            PrimitiveShader::new("ps_radial_gradient",
+                                 &mut device,
+                                 &[],
+                                 options.precache_shaders)
+        };
+
+        let ps_cache_image = try!{
+            PrimitiveShader::new("ps_cache_image",
+                                 &mut device,
+                                 &[],
+                                 options.precache_shaders)
+        };
+
+        let ps_blend = try!{
+            LazilyCompiledShader::new(ShaderKind::Primitive,
+                                     "ps_blend",
+                                     &[],
+                                     &mut device,
+                                     options.precache_shaders)
+        };
+
+        let ps_composite = try!{
+            LazilyCompiledShader::new(ShaderKind::Primitive,
+                                      "ps_composite",
+                                      &[],
+                                      &mut device,
+                                      options.precache_shaders)
+        };
 
         let mut texture_cache = TextureCache::new();
 
@@ -691,7 +755,7 @@ impl Renderer {
         let render_target_debug = options.render_target_debug;
         let payload_tx_for_backend = payload_tx.clone();
         let recorder = options.recorder;
-        thread::Builder::new().name("RenderBackend".to_string()).spawn(move || {
+        try!{ thread::Builder::new().name("RenderBackend".to_string()).spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  payload_rx,
                                                  payload_tx_for_backend,
@@ -707,7 +771,7 @@ impl Renderer {
                                                  backend_main_thread_dispatcher,
                                                  backend_vr_compositor);
             backend.run();
-        }).unwrap();
+        })};
 
         let renderer = Renderer {
             result_rx: result_rx,
@@ -760,7 +824,7 @@ impl Renderer {
         };
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
-        (renderer, sender)
+        Ok((renderer, sender))
     }
 
     /// Sets the new RenderNotifier.
@@ -1082,6 +1146,8 @@ impl Renderer {
                     }
                 };
 
+                let shader = shader.unwrap();
+
                 let _gm = self.gpu_profile.add_marker(marker);
                 let vao = self.prim_vao_id;
                 self.draw_instanced_batch(data,
@@ -1093,7 +1159,7 @@ impl Renderer {
             PrimitiveBatchData::Composite(ref instance) => {
                 let _gm = self.gpu_profile.add_marker(GPU_TAG_PRIM_COMPOSITE);
                 let vao = self.prim_vao_id;
-                let shader = self.ps_composite.get(&mut self.device);
+                let shader = self.ps_composite.get(&mut self.device).unwrap();
 
                 // TODO(gw): This code branch is all a bit hacky. We rely
                 // on pulling specific values from the render target data
@@ -1236,7 +1302,7 @@ impl Renderer {
             let vao = self.blur_vao_id;
 
             self.device.set_blend(false);
-            let shader = self.cs_blur.get(&mut self.device);
+            let shader = self.cs_blur.get(&mut self.device).unwrap();
 
             self.draw_instanced_batch(&target.vertical_blurs,
                                       vao,
@@ -1255,7 +1321,7 @@ impl Renderer {
             self.device.set_blend(false);
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
             let vao = self.prim_vao_id;
-            let shader = self.cs_box_shadow.get(&mut self.device);
+            let shader = self.cs_box_shadow.get(&mut self.device).unwrap();
             self.draw_instanced_batch(&target.box_shadow_cache_prims,
                                       vao,
                                       shader,
@@ -1273,7 +1339,7 @@ impl Renderer {
             // draw rounded cornered rectangles
             if !target.clip_batcher.rectangles.is_empty() {
                 let _gm2 = GpuMarker::new("clip rectangles");
-                let shader = self.cs_clip_rectangle.get(&mut self.device);
+                let shader = self.cs_clip_rectangle.get(&mut self.device).unwrap();
                 self.draw_instanced_batch(&target.clip_batcher.rectangles,
                                           vao,
                                           shader,
@@ -1285,7 +1351,7 @@ impl Renderer {
                 let _gm2 = GpuMarker::new("clip images");
                 let texture_id = self.resolve_source_texture(mask_texture_id);
                 self.device.bind_texture(TextureSampler::Mask, texture_id);
-                let shader = self.cs_clip_image.get(&mut self.device);
+                let shader = self.cs_clip_image.get(&mut self.device).unwrap();
                 self.draw_instanced_batch(items,
                                           vao,
                                           shader,
@@ -1306,7 +1372,7 @@ impl Renderer {
 
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_TEXT_RUN);
             let vao = self.prim_vao_id;
-            let shader = self.cs_text_run.get(&mut self.device);
+            let shader = self.cs_text_run.get(&mut self.device).unwrap();
 
             self.draw_instanced_batch(&target.text_run_cache_prims,
                                       vao,

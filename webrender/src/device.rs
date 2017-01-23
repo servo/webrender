@@ -375,8 +375,7 @@ impl Program {
     fn attach_and_bind_shaders(&mut self,
                                vs_id: gl::GLuint,
                                fs_id: gl::GLuint,
-                               vertex_format: VertexFormat,
-                               panic_on_fail: bool) -> bool {
+                               vertex_format: VertexFormat) -> Result<(), ShaderError> {
         gl::attach_shader(self.id, vs_id);
         gl::attach_shader(self.id, fs_id);
 
@@ -417,17 +416,14 @@ impl Program {
 
         gl::link_program(self.id);
         if gl::get_program_iv(self.id, gl::LINK_STATUS) == (0 as gl::GLint) {
-            println!("Failed to link shader program: {}", gl::get_program_info_log(self.id));
+            let error_log = gl::get_program_info_log(self.id);
+            println!("Failed to link shader program: {}", error_log);
             gl::detach_shader(self.id, vs_id);
             gl::detach_shader(self.id, fs_id);
-            if panic_on_fail {
-                panic!("-- Program link failed - exiting --");
-            }
-            false
-        } else {
-            //println!("{}", gl::get_program_info_log(self.id));
-            true
+            return Err(ShaderError::Link(error_log));
         }
+
+        Ok(())
     }
 }
 
@@ -793,6 +789,12 @@ pub struct Capabilities {
     pub supports_multisampling: bool,
 }
 
+#[derive(Clone, Debug)]
+pub enum ShaderError {
+    Compilation(String, String), // name, error mssage
+    Link(String), // error message
+}
+
 pub struct Device {
     // device state
     bound_textures: [TextureId; 16],
@@ -871,9 +873,8 @@ impl Device {
     pub fn compile_shader(name: &str,
                           source_str: &str,
                           shader_type: gl::GLenum,
-                          shader_preamble: &[String],
-                          panic_on_fail: bool)
-                          -> Option<gl::GLuint> {
+                          shader_preamble: &[String])
+                          -> Result<gl::GLuint, ShaderError> {
         debug!("compile {:?}", name);
 
         let mut s = String::new();
@@ -891,16 +892,12 @@ impl Device {
         let log = gl::get_shader_info_log(id);
         if gl::get_shader_iv(id, gl::COMPILE_STATUS) == (0 as gl::GLint) {
             println!("Failed to compile shader: {:?}\n{}", name, log);
-            if panic_on_fail {
-                panic!("-- Shader compile failed - exiting --");
-            }
-
-            None
+            Err(ShaderError::Compilation(name.to_string(), log))
         } else {
             if !log.is_empty() {
                 println!("Warnings detected on shader: {:?}\n{}", name, log);
             }
-            Some(id)
+            Ok(id)
         }
     }
 
@@ -1334,7 +1331,7 @@ impl Device {
     pub fn create_program(&mut self,
                           base_filename: &str,
                           include_filename: &str,
-                          vertex_format: VertexFormat) -> ProgramId {
+                          vertex_format: VertexFormat) -> Result<ProgramId, ShaderError> {
         self.create_program_with_prefix(base_filename, &[include_filename], None, vertex_format)
     }
 
@@ -1342,7 +1339,7 @@ impl Device {
                                       base_filename: &str,
                                       include_filenames: &[&str],
                                       prefix: Option<String>,
-                                      vertex_format: VertexFormat) -> ProgramId {
+                                      vertex_format: VertexFormat) -> Result<ProgramId, ShaderError> {
         debug_assert!(self.inside_frame);
 
         let pid = gl::create_program();
@@ -1379,16 +1376,15 @@ impl Device {
         debug_assert!(self.programs.contains_key(&program_id) == false);
         self.programs.insert(program_id, program);
 
-        self.load_program(program_id, include, vertex_format, true);
+        try!{ self.load_program(program_id, include, vertex_format) };
 
-        program_id
+        Ok(program_id)
     }
 
     fn load_program(&mut self,
                     program_id: ProgramId,
                     include: String,
-                    vertex_format: VertexFormat,
-                    panic_on_fail: bool) {
+                    vertex_format: VertexFormat) -> Result<(), ShaderError> {
         debug_assert!(self.inside_frame);
 
         let program = self.programs.get_mut(&program_id).unwrap();
@@ -1411,127 +1407,114 @@ impl Device {
         fs_preamble.push(include);
 
         // todo(gw): store shader ids so they can be freed!
-        let vs_id = Device::compile_shader(&program.name,
-                                           &program.vs_source,
-                                           gl::VERTEX_SHADER,
-                                           &vs_preamble,
-                                           panic_on_fail);
-        let fs_id = Device::compile_shader(&program.name,
-                                           &program.fs_source,
-                                           gl::FRAGMENT_SHADER,
-                                           &fs_preamble,
-                                           panic_on_fail);
+        let vs_id = try!{ Device::compile_shader(&program.name,
+                                                 &program.vs_source,
+                                                 gl::VERTEX_SHADER,
+                                                 &vs_preamble) };
+        let fs_id = try!{ Device::compile_shader(&program.name,
+                                                 &program.fs_source,
+                                                 gl::FRAGMENT_SHADER,
+                                                 &fs_preamble) };
 
-        match (vs_id, fs_id) {
-            (Some(vs_id), None) => {
-                println!("FAILED to load fs - falling back to previous!");
+        if let Some(vs_id) = program.vs_id {
+            gl::detach_shader(program.id, vs_id);
+        }
+
+        if let Some(fs_id) = program.fs_id {
+            gl::detach_shader(program.id, fs_id);
+        }
+
+        if let Err(bind_error) = program.attach_and_bind_shaders(vs_id, fs_id, vertex_format) {
+            if let (Some(vs_id), Some(fs_id)) = (program.vs_id, program.fs_id) {
+                try! { program.attach_and_bind_shaders(vs_id, fs_id, vertex_format) };
+            } else {
+               return Err(bind_error);
+            }
+        } else {
+            if let Some(vs_id) = program.vs_id {
                 gl::delete_shader(vs_id);
             }
-            (None, Some(fs_id)) => {
-                println!("FAILED to load vs - falling back to previous!");
+
+            if let Some(fs_id) = program.fs_id {
                 gl::delete_shader(fs_id);
             }
-            (None, None) => {
-                println!("FAILED to load vs/fs - falling back to previous!");
-            }
-            (Some(vs_id), Some(fs_id)) => {
-                if let Some(vs_id) = program.vs_id {
-                    gl::detach_shader(program.id, vs_id);
-                }
 
-                if let Some(fs_id) = program.fs_id {
-                    gl::detach_shader(program.id, fs_id);
-                }
-
-                if program.attach_and_bind_shaders(vs_id, fs_id, vertex_format, panic_on_fail) {
-                    if let Some(vs_id) = program.vs_id {
-                        gl::delete_shader(vs_id);
-                    }
-
-                    if let Some(fs_id) = program.fs_id {
-                        gl::delete_shader(fs_id);
-                    }
-
-                    program.vs_id = Some(vs_id);
-                    program.fs_id = Some(fs_id);
-                } else {
-                    let vs_id = program.vs_id.unwrap();
-                    let fs_id = program.fs_id.unwrap();
-                    program.attach_and_bind_shaders(vs_id, fs_id, vertex_format, true);
-                }
-
-                program.u_transform = gl::get_uniform_location(program.id, "uTransform");
-                program.u_device_pixel_ratio = gl::get_uniform_location(program.id, "uDevicePixelRatio");
-
-                program_id.bind();
-                let u_color_0 = gl::get_uniform_location(program.id, "sColor0");
-                if u_color_0 != -1 {
-                    gl::uniform_1i(u_color_0, TextureSampler::Color0 as i32);
-                }
-                let u_color1 = gl::get_uniform_location(program.id, "sColor1");
-                if u_color1 != -1 {
-                    gl::uniform_1i(u_color1, TextureSampler::Color1 as i32);
-                }
-                let u_color_2 = gl::get_uniform_location(program.id, "sColor2");
-                if u_color_2 != -1 {
-                    gl::uniform_1i(u_color_2, TextureSampler::Color2 as i32);
-                }
-                let u_mask = gl::get_uniform_location(program.id, "sMask");
-                if u_mask != -1 {
-                    gl::uniform_1i(u_mask, TextureSampler::Mask as i32);
-                }
-
-                let u_cache = gl::get_uniform_location(program.id, "sCache");
-                if u_cache != -1 {
-                    gl::uniform_1i(u_cache, TextureSampler::Cache as i32);
-                }
-
-                let u_layers = gl::get_uniform_location(program.id, "sLayers");
-                if u_layers != -1 {
-                    gl::uniform_1i(u_layers, TextureSampler::Layers as i32);
-                }
-
-                let u_tasks = gl::get_uniform_location(program.id, "sRenderTasks");
-                if u_tasks != -1 {
-                    gl::uniform_1i(u_tasks, TextureSampler::RenderTasks as i32);
-                }
-
-                let u_prim_geom = gl::get_uniform_location(program.id, "sPrimGeometry");
-                if u_prim_geom != -1 {
-                    gl::uniform_1i(u_prim_geom, TextureSampler::Geometry as i32);
-                }
-
-                let u_data16 = gl::get_uniform_location(program.id, "sData16");
-                if u_data16 != -1 {
-                    gl::uniform_1i(u_data16, TextureSampler::Data16 as i32);
-                }
-
-                let u_data32 = gl::get_uniform_location(program.id, "sData32");
-                if u_data32 != -1 {
-                    gl::uniform_1i(u_data32, TextureSampler::Data32 as i32);
-                }
-
-                let u_data64 = gl::get_uniform_location(program.id, "sData64");
-                if u_data64 != -1 {
-                    gl::uniform_1i(u_data64, TextureSampler::Data64 as i32);
-                }
-
-                let u_data128 = gl::get_uniform_location(program.id, "sData128");
-                if u_data128 != -1 {
-                    gl::uniform_1i(u_data128, TextureSampler::Data128    as i32);
-                }
-
-                let u_resource_rects = gl::get_uniform_location(program.id, "sResourceRects");
-                if u_resource_rects != -1 {
-                    gl::uniform_1i(u_resource_rects, TextureSampler::ResourceRects as i32);
-                }
-
-                let u_gradients = gl::get_uniform_location(program.id, "sGradients");
-                if u_gradients != -1 {
-                    gl::uniform_1i(u_gradients, TextureSampler::Gradients as i32);
-                }
-            }
+            program.vs_id = Some(vs_id);
+            program.fs_id = Some(fs_id);
         }
+
+        program.u_transform = gl::get_uniform_location(program.id, "uTransform");
+        program.u_device_pixel_ratio = gl::get_uniform_location(program.id, "uDevicePixelRatio");
+
+        program_id.bind();
+        let u_color_0 = gl::get_uniform_location(program.id, "sColor0");
+        if u_color_0 != -1 {
+            gl::uniform_1i(u_color_0, TextureSampler::Color0 as i32);
+        }
+        let u_color1 = gl::get_uniform_location(program.id, "sColor1");
+        if u_color1 != -1 {
+            gl::uniform_1i(u_color1, TextureSampler::Color1 as i32);
+        }
+        let u_color_2 = gl::get_uniform_location(program.id, "sColor2");
+        if u_color_2 != -1 {
+            gl::uniform_1i(u_color_2, TextureSampler::Color2 as i32);
+        }
+        let u_mask = gl::get_uniform_location(program.id, "sMask");
+        if u_mask != -1 {
+            gl::uniform_1i(u_mask, TextureSampler::Mask as i32);
+        }
+
+        let u_cache = gl::get_uniform_location(program.id, "sCache");
+        if u_cache != -1 {
+            gl::uniform_1i(u_cache, TextureSampler::Cache as i32);
+        }
+
+        let u_layers = gl::get_uniform_location(program.id, "sLayers");
+        if u_layers != -1 {
+            gl::uniform_1i(u_layers, TextureSampler::Layers as i32);
+        }
+
+        let u_tasks = gl::get_uniform_location(program.id, "sRenderTasks");
+        if u_tasks != -1 {
+            gl::uniform_1i(u_tasks, TextureSampler::RenderTasks as i32);
+        }
+
+        let u_prim_geom = gl::get_uniform_location(program.id, "sPrimGeometry");
+        if u_prim_geom != -1 {
+            gl::uniform_1i(u_prim_geom, TextureSampler::Geometry as i32);
+        }
+
+        let u_data16 = gl::get_uniform_location(program.id, "sData16");
+        if u_data16 != -1 {
+            gl::uniform_1i(u_data16, TextureSampler::Data16 as i32);
+        }
+
+        let u_data32 = gl::get_uniform_location(program.id, "sData32");
+        if u_data32 != -1 {
+            gl::uniform_1i(u_data32, TextureSampler::Data32 as i32);
+        }
+
+        let u_data64 = gl::get_uniform_location(program.id, "sData64");
+        if u_data64 != -1 {
+            gl::uniform_1i(u_data64, TextureSampler::Data64 as i32);
+        }
+
+        let u_data128 = gl::get_uniform_location(program.id, "sData128");
+        if u_data128 != -1 {
+            gl::uniform_1i(u_data128, TextureSampler::Data128    as i32);
+        }
+
+        let u_resource_rects = gl::get_uniform_location(program.id, "sResourceRects");
+        if u_resource_rects != -1 {
+            gl::uniform_1i(u_resource_rects, TextureSampler::ResourceRects as i32);
+        }
+
+        let u_gradients = gl::get_uniform_location(program.id, "sGradients");
+        if u_gradients != -1 {
+            gl::uniform_1i(u_gradients, TextureSampler::Gradients as i32);
+        }
+
+        Ok(())
     }
 
 /*
