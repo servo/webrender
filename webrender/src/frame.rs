@@ -16,8 +16,8 @@ use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use tiling::{AuxiliaryListsMap, FrameBuilder, FrameBuilderConfig, PrimitiveFlags};
 use webrender_traits::{AuxiliaryLists, ClipRegion, ColorF, DisplayItem, Epoch, FilterOp};
-use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform, MixBlendMode};
-use webrender_traits::{PipelineId, ScrollEventPhase, ScrollLayerId, ScrollLayerState};
+use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform};
+use webrender_traits::{MixBlendMode, PipelineId, ScrollEventPhase, ScrollLayerId, ScrollLayerState};
 use webrender_traits::{ScrollLocation, ScrollPolicy, ServoScrollRootId, SpecificDisplayItem};
 use webrender_traits::{StackingContext, WorldPoint};
 
@@ -270,19 +270,18 @@ impl Frame {
             }
         };
 
-        let root_scroll_layer_id = ScrollLayerId::root(root_pipeline_id);
-        self.scroll_tree.root_scroll_layer_id = Some(root_scroll_layer_id);
-
         // Insert global position: fixed elements layer
         debug_assert!(self.scroll_tree.layers.is_empty());
+        let root_scroll_layer_id = ScrollLayerId::root(root_pipeline_id);
         let root_fixed_layer_id = ScrollLayerId::create_fixed(root_pipeline_id);
         let root_viewport = LayerRect::new(LayerPoint::zero(), root_pipeline.viewport_size);
         let layer = Layer::new(&root_viewport,
                                root_clip.main.size,
                                &LayerToScrollTransform::identity(),
                                root_pipeline_id);
-        self.scroll_tree.layers.insert(root_fixed_layer_id, layer.clone());
-        self.scroll_tree.layers.insert(root_scroll_layer_id, layer);
+        self.scroll_tree.add_layer(layer.clone(), root_fixed_layer_id, None);
+        self.scroll_tree.add_layer(layer, root_scroll_layer_id, None);
+        self.scroll_tree.root_scroll_layer_id = Some(root_scroll_layer_id);
 
         let background_color = root_pipeline.background_color.and_then(|color| {
             if color.a > 0.0 {
@@ -337,17 +336,8 @@ impl Frame {
             return;
         }
 
-        debug_assert!(!self.scroll_tree.layers.contains_key(&new_scroll_layer_id));
-
         let layer = Layer::new(&clip, *content_size, &layer_relative_transform, pipeline_id);
-        debug_assert!(current_scroll_layer_id != new_scroll_layer_id);
-
-        self.scroll_tree.layers
-            .get_mut(&current_scroll_layer_id)
-            .unwrap()
-            .add_child(new_scroll_layer_id);
-
-        self.scroll_tree.layers.insert(new_scroll_layer_id, layer);
+        self.scroll_tree.add_layer(layer, new_scroll_layer_id, Some(current_scroll_layer_id));
         current_scroll_layer_id = new_scroll_layer_id;
 
         let layer_rect = LayerRect::new(LayerPoint::zero(),
@@ -511,9 +501,8 @@ impl Frame {
                                iframe_clip.main.size,
                                &transform,
                                pipeline_id);
-        self.scroll_tree.layers.insert(iframe_fixed_layer_id, layer.clone());
-        self.scroll_tree.layers.insert(iframe_scroll_layer_id, layer);
-        self.scroll_tree.layers.get_mut(&current_scroll_layer_id).unwrap().add_child(iframe_scroll_layer_id);
+        self.scroll_tree.add_layer(layer.clone(), iframe_fixed_layer_id, None);
+        self.scroll_tree.add_layer(layer, iframe_scroll_layer_id, Some(current_scroll_layer_id));
 
         let mut traversal = DisplayListTraversal::new_skipping_first(display_list);
 
