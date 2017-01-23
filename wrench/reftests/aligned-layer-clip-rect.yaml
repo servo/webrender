@@ -1,0 +1,19 @@
+---
+root:
+  items:
+    - 
+      type: stacking_context
+      bounds: [0, 0, 95, 88]
+      clip:
+        rect: [9, 9, 10, 10]
+      items:
+        - 
+          type: stacking_context
+          bounds: [0, 0, 95, 88]
+          clip:
+              rect: [0, 0, 100, 100]
+          items:
+            - 
+              bounds: [0, 0, 100, 100]
+              type: rect
+              color: blue
