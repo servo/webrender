@@ -30,8 +30,8 @@ use std::mem;
 use std::hash::{BuildHasherDefault};
 use std::usize;
 use texture_cache::TexturePage;
-use util::{self, rect_from_points_f};
-use util::{TransformedRect, TransformedRectKind, subtract_rect, pack_as_float};
+use util::{self, rect_from_points, rect_from_points_f};
+use util::{MatrixHelpers, TransformedRect, TransformedRectKind, subtract_rect, pack_as_float};
 use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, MixBlendMode};
 use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle, YuvColorSpace};
 use webrender_traits::{AuxiliaryLists, ItemRange, BoxShadowClipMode, ClipRegion};
@@ -1788,6 +1788,7 @@ pub struct FrameBuilder {
 
     layer_store: Vec<StackingContext>,
     packed_layers: Vec<PackedStackingContext>,
+    aligned_clip_rect_stack: Vec<Option<LayerRect>>,
 
     scrollbar_prims: Vec<ScrollbarPrimitive>,
 }
@@ -1831,6 +1832,7 @@ impl FrameBuilder {
             cmds: Vec::new(),
             _debug: debug,
             packed_layers: Vec::new(),
+            aligned_clip_rect_stack: Vec::new(),
             scrollbar_prims: Vec::new(),
             config: config,
         }
@@ -1843,8 +1845,15 @@ impl FrameBuilder {
 
         let geometry = PrimitiveGeometry {
             local_rect: *rect,
-            local_clip_rect: clip_region.main,
+            local_clip_rect: match self.aligned_clip_rect_stack.last() {
+                Some(&Some(ref rect)) => {
+                    clip_region.main.intersection(rect)
+                        .unwrap_or(LayerRect::zero()) //TODO: skip the primitive entirely
+                },
+                _ => clip_region.main,
+            },
         };
+
         let clip_source = if clip_region.is_complex() {
             ClipSource::Region(clip_region.clone())
         } else {
@@ -1883,8 +1892,22 @@ impl FrameBuilder {
                       composition_operations: &[CompositionOp]) {
         let sc_index = StackingContextIndex(self.layer_store.len());
 
-        let clip_source = ClipSource::Region(clip_region.clone());
-        let is_transformed = true; //TODO: we could possibly be smarter about this
+        let aligned_clip_rect = match self.aligned_clip_rect_stack.last() {
+            Some(&Some(ref rect)) if transform.can_losslessly_transform_a_2d_rect() => {
+                let clip_rect = clip_region.main.intersection(rect)
+                                           .unwrap_or(LayerRect::zero());
+                Some(clip_rect)
+            }
+            _ => None
+        };
+        let is_transformed = aligned_clip_rect.is_none();
+        self.aligned_clip_rect_stack.push(aligned_clip_rect);
+
+        let clip_source = if is_transformed || clip_region.is_complex() {
+            ClipSource::Region(clip_region.clone())
+        } else {
+            ClipSource::NoClip
+        };
         let clip_info = MaskCacheInfo::new(&clip_source,
                                            is_transformed,
                                            &mut self.prim_store.gpu_data32);
@@ -1912,6 +1935,7 @@ impl FrameBuilder {
     }
 
     pub fn pop_layer(&mut self) {
+        self.aligned_clip_rect_stack.pop().unwrap();
         self.cmds.push(PrimitiveRunCmd::PopStackingContext);
     }
 
@@ -2696,6 +2720,7 @@ impl FrameBuilder {
                  device_pixel_ratio: f32) -> Frame {
         let mut profile_counters = FrameProfileCounters::new();
         profile_counters.total_primitives.set(self.prim_store.prim_count());
+        assert!(self.aligned_clip_rect_stack.is_empty());
 
         resource_cache.begin_frame(frame_id);
 
