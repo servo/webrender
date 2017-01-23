@@ -11,6 +11,7 @@ use channel::{PayloadSender, MsgSender};
 use core::nonzero::NonZero;
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::sync::Arc;
+use std::collections::HashMap;
 
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
 #[cfg(target_os = "windows")] use dwrote::FontDescriptor;
@@ -474,6 +475,12 @@ pub trait RenderNotifier: Send {
     fn pipeline_size_changed(&mut self, pipeline_id: PipelineId, size: Option<LayoutSize>);
     fn external_event(&mut self, _evt: ExternalEvent) { unimplemented!() }
     fn shut_down(&mut self) {}
+}
+
+pub type PipelineEpochMap = HashMap<PipelineId, Epoch>;
+
+pub trait RenderedPipelinesNotifier: {
+    fn pipelines_rendered(&mut self, pipeline_epochs: PipelineEpochMap);
 }
 
 // Trait to allow dispatching functions to a specific thread or event loop.

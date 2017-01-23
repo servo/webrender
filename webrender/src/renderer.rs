@@ -36,10 +36,10 @@ use tiling::{Frame, FrameBuilderConfig, PrimitiveBatch, PrimitiveBatchData};
 use tiling::{BlurCommand, CacheClipInstance, PrimitiveInstance, RenderTarget};
 use time::precise_time_ns;
 use util::TransformedRectKind;
-use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
+use webrender_traits::{ColorF, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ExternalImageId, ImageFormat, RenderApiSender, RendererKind};
 use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
-use webrender_traits::ImageDescriptor;
+use webrender_traits::{ImageDescriptor, PipelineEpochMap, RenderedPipelinesNotifier};
 use webrender_traits::channel;
 use webrender_traits::VRCompositorHandler;
 
@@ -385,7 +385,8 @@ pub struct Renderer {
     vt_index: usize,
     vertex_textures: [VertexTextures; VERTEX_TEXTURE_POOL],
 
-    pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
+    pipeline_epoch_map: PipelineEpochMap,
+    rendered_pipeline_notifier: Option<Box<RenderedPipelinesNotifier>>,
     /// Used to dispatch functions to the main thread's event loop.
     /// Required to allow GLContext sharing in some implementations like WGL.
     main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
@@ -698,7 +699,8 @@ impl Renderer {
             clip_vao_id: clip_vao_id,
             vt_index: 0,
             vertex_textures: vertex_textures,
-            pipeline_epoch_map: HashMap::with_hasher(Default::default()),
+            pipeline_epoch_map: PipelineEpochMap::new(),
+            rendered_pipeline_notifier: None,
             main_thread_dispatcher: main_thread_dispatcher,
             cache_texture_id_map: Vec::new(),
             external_image_handler: None,
@@ -736,9 +738,12 @@ impl Renderer {
         *handler_arc = Some(creator);
     }
 
-    /// Returns the Epoch of the current frame in a pipeline.
-    pub fn current_epoch(&self, pipeline_id: PipelineId) -> Option<Epoch> {
-        self.pipeline_epoch_map.get(&pipeline_id).cloned()
+    /// Sets the rendered pipelines notifier.
+    ///
+    /// This notifier is used to signal when pipelines have been rendered and with
+    /// which epoch.
+    pub fn set_rendered_pipeline_notifier(&mut self, notifier: Box<RenderedPipelinesNotifier>) {
+        self.rendered_pipeline_notifier = Some(notifier);
     }
 
     /// Processes the result queue.
@@ -855,6 +860,11 @@ impl Renderer {
 
             // Restore frame - avoid borrow checker!
             self.current_frame = Some(frame);
+        }
+        if let Some(ref mut notifier) = self.rendered_pipeline_notifier {
+            notifier.pipelines_rendered(mem::replace(&mut self.pipeline_epoch_map, PipelineEpochMap::new()));
+        } else {
+            self.pipeline_epoch_map.clear();
         }
     }
 
