@@ -479,7 +479,10 @@ pub trait RenderNotifier: Send {
 
 pub type PipelineEpochMap = HashMap<PipelineId, Epoch>;
 
-pub trait RenderedPipelinesNotifier: {
+/// A notifier used by the renderer to signal which pipelines are rendered and their epochs.
+pub trait RenderedPipelinesNotifier {
+    /// Called at the end of every Renderer::render() call of the corresponding Renderer
+    /// on the render thread.
     fn pipelines_rendered(&mut self, pipeline_epochs: PipelineEpochMap);
 }
 
