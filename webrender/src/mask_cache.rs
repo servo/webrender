@@ -114,20 +114,25 @@ impl MaskCacheInfo {
                         Some(_) => None,
                         None => local_rect,
                     };
+
                     let clips = aux_lists.complex_clip_regions(&region.complex);
-                    assert_eq!(self.clip_range.item_count, clips.len() as u32 + 1);
-                    let slice = clip_store.get_slice_mut(self.clip_range.start, CLIP_DATA_GPU_SIZE * (clips.len() + 1));
+                    if self.clip_range.item_count > clips.len() as u32 {
+                        // we have an extra clip rect coming from the transformed layer
+                        assert_eq!(self.clip_range.item_count, clips.len() as u32 + 1);
+                        let address = GpuStoreAddress(self.clip_range.start.0 + (CLIP_DATA_GPU_SIZE * clips.len()) as i32);
+                        let slice = clip_store.get_slice_mut(address, CLIP_DATA_GPU_SIZE);
+                        PrimitiveStore::populate_clip_data(slice, ClipData::uniform(region.main, 0.0));
+                    } else {
+                        assert_eq!(self.clip_range.item_count, clips.len() as u32);
+                    }
+
+                    let slice = clip_store.get_slice_mut(self.clip_range.start, CLIP_DATA_GPU_SIZE * clips.len());
                     for (clip, chunk) in clips.iter().zip(slice.chunks_mut(CLIP_DATA_GPU_SIZE)) {
                         let data = ClipData::from_clip_region(clip);
                         PrimitiveStore::populate_clip_data(chunk, data);
                         local_rect = local_rect.and_then(|r| r.intersection(&clip.rect));
                         local_inner = local_inner.and_then(|r| clip.get_inner_rect()
                                                                    .and_then(|ref inner| r.intersection(&inner)));
-                    }
-                    if slice.len() > CLIP_DATA_GPU_SIZE * clips.len() {
-                        // we have an extra clip rect coming from the transformed layer
-                        PrimitiveStore::populate_clip_data(&mut slice[CLIP_DATA_GPU_SIZE * clips.len() ..],
-                                                           ClipData::uniform(region.main, 0.0));
                     }
                 }
             };
