@@ -1112,7 +1112,6 @@ impl Renderer {
 
         let projection = {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
-            self.device.bind_read_target(render_target);
             self.device.bind_draw_target(render_target, Some(target_size));
 
             self.device.set_blend(false);

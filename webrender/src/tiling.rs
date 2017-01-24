@@ -179,8 +179,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
 
         batch.items.push(PrimitiveBatchItem::StackingContext(layer_index));
 
-        match &mut batch.data {
-            &mut PrimitiveBatchData::Instances(ref mut data) => {
+        match batch.data {
+            PrimitiveBatchData::Instances(ref mut data) => {
                 data.push(PrimitiveInstance {
                     global_prim_id: -1,
                     prim_address: GpuStoreAddress(0),
@@ -427,8 +427,8 @@ pub enum RenderTaskKey {
     VerticalBlur(i32, PrimitiveIndex),
     /// Apply a horizontal blur pass of given radius for this primitive.
     HorizontalBlur(i32, PrimitiveIndex),
-    /// Allocate a block of space in target for framebuffer readback.
-    Readback(StackingContextIndex),
+    /// Allocate a block of space in target for framebuffer copy.
+    CopyFramebuffer(StackingContextIndex),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1215,7 +1215,7 @@ impl RenderTask {
     fn new_readback(key: StackingContextIndex,
                     screen_rect: DeviceIntRect) -> RenderTask {
         RenderTask {
-            id: RenderTaskId::Dynamic(RenderTaskKey::Readback(key)),
+            id: RenderTaskId::Dynamic(RenderTaskKey::CopyFramebuffer(key)),
             children: Vec::new(),
             location: RenderTaskLocation::Dynamic(None, screen_rect.size),
             kind: RenderTaskKind::Readback(screen_rect),
@@ -2602,7 +2602,7 @@ impl FrameBuilder {
                     for i in 0..prim_count {
                         let prim_index = PrimitiveIndex(first_prim_index.0 + i);
 
-                        if let Some(..) = self.prim_store.cpu_bounding_rects[prim_index.0] {
+                        if self.prim_store.cpu_bounding_rects[prim_index.0].is_some() {
                             let prim_metadata = self.prim_store.get_metadata(prim_index);
 
                             // Add any dynamic render tasks needed to render this primitive
