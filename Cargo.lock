@@ -322,6 +322,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gamma-lut"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "lazy_static 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "gcc"
 version = "0.3.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1138,6 +1146,7 @@ dependencies = [
  "euclid 0.10.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "freetype 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gamma-lut 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.2.30 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1300,6 +1309,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum font-loader 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "0658a43445357800293fd652716dde29bd38f63f59a45c515d6aee176827e16c"
 "checksum freetype 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fde23272c687e4570aefec06cb71174ec0f5284b725deac4e77ba2665d635faf"
 "checksum fs2 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)" = "bcd414e5a1a979b931bb92f41b7a54106d3f6d2e6c253e9ce943b7cd468251ef"
+"checksum gamma-lut 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "4ca6b9023d24a7faff85abfa82fabd382f7ecbbde95af5143f1c215fd94e91cd"
 "checksum gcc 0.3.38 (registry+https://github.com/rust-lang/crates.io-index)" = "553f11439bdefe755bf366b264820f1da70f3aaf3924e594b886beb9c831bcf5"
 "checksum gdi32-sys 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "65256ec4dc2592e6f05bfc1ca3b956a4e0698aa90b1dff1f5687d55a5a3fd59a"
 "checksum gdi32-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "0912515a8ff24ba900422ecda800b52f4016a56251922d397c576bf92c690518"
