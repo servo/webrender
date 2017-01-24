@@ -42,6 +42,7 @@ use webrender_traits::{DeviceUintSize, DeviceUintPoint};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
 use webrender_traits::{LayerToScrollTransform, LayerToWorldTransform, WorldToLayerTransform};
 use webrender_traits::{WorldPoint4D, ScrollLayerPixel, as_scroll_parent_rect};
+use webrender_traits::{GlyphOptions};
 
 // Special sentinel value recognized by the shader. It is considered to be
 // a dummy task that doesn't mask out anything.
@@ -2324,7 +2325,8 @@ impl FrameBuilder {
                     size: Au,
                     blur_radius: Au,
                     color: &ColorF,
-                    glyph_range: ItemRange) {
+                    glyph_range: ItemRange,
+                    glyph_options: Option<GlyphOptions>) {
         if color.a == 0.0 {
             return
         }
@@ -2370,6 +2372,7 @@ impl FrameBuilder {
                 color_texture_id: SourceTexture::Invalid,
                 color: *color,
                 render_mode: render_mode,
+                glyph_options: glyph_options,
                 resource_address: GpuStoreAddress(0),
             };
 

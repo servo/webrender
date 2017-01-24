@@ -371,7 +371,7 @@ impl YamlFrameReader {
         };
 
         let clip = self.to_clip_region(&item["clip"], &rect, wrench).unwrap_or(*clip_region);
-        self.builder().push_text(rect, clip, glyphs, font_key, color, size, blur_radius);
+        self.builder().push_text(rect, clip, glyphs, font_key, color, size, blur_radius, None);
     }
 
     fn handle_iframe(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)

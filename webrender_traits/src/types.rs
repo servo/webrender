@@ -631,6 +631,13 @@ pub struct StackingContext {
     pub filters: ItemRange,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize)]
+pub struct GlyphOptions {
+    // These are currently only used on windows for dwrite fonts.
+    use_embedded_bitmap: bool,
+    force_gdi_rendering: bool,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct TextDisplayItem {
     pub glyphs: ItemRange,
@@ -638,6 +645,7 @@ pub struct TextDisplayItem {
     pub size: Au,
     pub color: ColorF,
     pub blur_radius: Au,
+    pub glyph_options: Option<GlyphOptions>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]

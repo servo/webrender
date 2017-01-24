@@ -15,6 +15,7 @@ use {PushScrollLayerItem, PushStackingContextDisplayItem, RectangleDisplayItem, 
 use {ScrollPolicy, ServoScrollRootId, SpecificDisplayItem, StackingContext, TextDisplayItem};
 use {WebGLContextId, WebGLDisplayItem, YuvImageDisplayItem};
 use {LayoutTransform, LayoutPoint, LayoutRect, LayoutSize};
+use {GlyphOptions};
 
 impl BuiltDisplayListDescriptor {
     pub fn size(&self) -> usize {
@@ -154,7 +155,8 @@ impl DisplayListBuilder {
                      font_key: FontKey,
                      color: ColorF,
                      size: Au,
-                     blur_radius: Au) {
+                     blur_radius: Au,
+                     glyph_options: Option<GlyphOptions>) {
         // Sanity check - anything with glyphs bigger than this
         // is probably going to consume too much memory to render
         // efficiently anyway. This is specifically to work around
@@ -168,6 +170,7 @@ impl DisplayListBuilder {
                 font_key: font_key,
                 size: size,
                 blur_radius: blur_radius,
+                glyph_options: glyph_options,
             };
 
             let display_item = DisplayItem {
