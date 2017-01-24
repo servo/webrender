@@ -15,6 +15,7 @@ extern crate gleam;
 extern crate heapsize;
 #[cfg(feature = "ipc")]
 extern crate ipc_channel;
+#[cfg(feature = "webgl")]
 extern crate offscreen_gl_context;
 extern crate serde;
 #[cfg(feature = "serde_derive")]
@@ -39,6 +40,7 @@ pub mod channel;
 mod display_item;
 mod display_list;
 mod stacking_context;
+#[cfg(feature = "webgl")]
 mod webgl;
 
 pub use api::RenderApi;
