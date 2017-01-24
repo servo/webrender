@@ -4,6 +4,7 @@
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use channel::{self, MsgSender, PayloadHelperMethods, PayloadSender};
+#[cfg(feature = "webgl")]
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::cell::Cell;
 use {ApiMsg, ColorF, DisplayListBuilder, Epoch, ImageDescriptor};
@@ -210,6 +211,7 @@ impl RenderApi {
         rx.recv().unwrap()
     }
 
+    #[cfg(feature = "webgl")]
     pub fn request_webgl_context(&self, size: &DeviceIntSize, attributes: GLContextAttributes)
                                  -> Result<(WebGLContextId, GLLimits), String> {
         let (tx, rx) = channel::msg_channel().unwrap();
@@ -218,6 +220,7 @@ impl RenderApi {
         rx.recv().unwrap()
     }
 
+    #[cfg(feature = "webgl")]
     pub fn resize_webgl_context(&self, context_id: WebGLContextId, size: &DeviceIntSize) {
         let msg = ApiMsg::ResizeWebGLContext(context_id, *size);
         self.api_sender.send(msg).unwrap();

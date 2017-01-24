@@ -9,6 +9,7 @@ use app_units::Au;
 use channel::{PayloadSender, MsgSender};
 #[cfg(feature = "nightly")]
 use core::nonzero::NonZero;
+#[cfg(feature = "webgl")]
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::sync::Arc;
 
@@ -50,7 +51,9 @@ pub enum ApiMsg {
     TickScrollingBounce,
     TranslatePointToLayerSpace(WorldPoint, MsgSender<(LayoutPoint, PipelineId)>),
     GetScrollLayerState(MsgSender<Vec<ScrollLayerState>>),
+    #[cfg(feature = "webgl")]
     RequestWebGLContext(DeviceIntSize, GLContextAttributes, MsgSender<Result<(WebGLContextId, GLLimits), String>>),
+    #[cfg(feature = "webgl")]
     ResizeWebGLContext(WebGLContextId, DeviceIntSize),
     WebGLCommand(WebGLContextId, WebGLCommand),
     GenerateFrame,
@@ -592,11 +595,11 @@ known_heap_size!(0, ScrollPolicy);
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum ScrollLocation {
     /// Scroll by a certain amount.
-    Delta(LayoutPoint), 
+    Delta(LayoutPoint),
     /// Scroll to very top of element.
     Start,
-    /// Scroll to very bottom of element. 
-    End 
+    /// Scroll to very bottom of element.
+    End
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -642,6 +645,7 @@ pub struct TextDisplayItem {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub enum WebGLCommand {
+    #[cfg(feature = "webgl")]
     GetContextAttributes(MsgSender<GLContextAttributes>),
     ActiveTexture(u32),
     BlendColor(f32, f32, f32, f32),
