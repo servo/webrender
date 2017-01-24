@@ -554,25 +554,32 @@ pub struct ScrollLayerId {
 }
 
 impl ScrollLayerId {
-    pub fn root(pipeline_id: PipelineId) -> ScrollLayerId {
+    pub fn root_scroll_layer(pipeline_id: PipelineId) -> ScrollLayerId {
         ScrollLayerId {
             pipeline_id: pipeline_id,
             info: ScrollLayerInfo::Scrollable(0, ServoScrollRootId(0)),
         }
     }
 
+    pub fn root_reference_frame(pipeline_id: PipelineId) -> ScrollLayerId {
+        ScrollLayerId {
+            pipeline_id: pipeline_id,
+            info: ScrollLayerInfo::ReferenceFrame(0),
+        }
+    }
+
     pub fn scroll_root_id(&self) -> Option<ServoScrollRootId> {
         match self.info {
             ScrollLayerInfo::Scrollable(_, scroll_root_id) => Some(scroll_root_id),
-            ScrollLayerInfo::Fixed => None,
+            ScrollLayerInfo::ReferenceFrame(..) => None,
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ScrollLayerInfo {
-    Fixed,
-    Scrollable(usize, ServoScrollRootId)
+    Scrollable(usize, ServoScrollRootId),
+    ReferenceFrame(usize),
 }
 
 #[derive(Clone, Deserialize, Serialize)]

@@ -2556,7 +2556,8 @@ impl FrameBuilder {
                     }
 
                     let inv_layer_transform = layer.local_transform.inverse().unwrap();
-                    let local_viewport_rect = as_scroll_parent_rect(&scroll_layer.combined_local_viewport_rect);
+                    let local_viewport_rect =
+                        as_scroll_parent_rect(&scroll_layer.combined_local_viewport_rect);
                     let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
                     let local_clip_rect = layer.clip_source.to_rect().unwrap_or(layer.local_rect);
                     let layer_local_rect = layer.local_rect
