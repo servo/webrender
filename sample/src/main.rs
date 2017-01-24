@@ -45,11 +45,6 @@ impl webrender_traits::RenderNotifier for Notifier {
     fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {
         self.window_proxy.wakeup_event_loop();
     }
-
-    fn pipeline_size_changed(&mut self,
-                             _: PipelineId,
-                             _: Option<LayoutSize>) {
-    }
 }
 
 fn main() {

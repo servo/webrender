@@ -173,7 +173,6 @@ pub fn run_reftests(wrench: &mut Wrench, window: &mut WindowWrapper, filename: &
             self.tx.send(()).unwrap();
         }
         fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {}
-        fn pipeline_size_changed(&mut self, _: PipelineId, _: Option<LayoutSize>) {}
     }
     let (tx, rx) = channel();
     wrench.renderer.set_render_notifier(Box::new(Notifier { tx: tx }));

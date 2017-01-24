@@ -22,7 +22,6 @@ pub struct ScenePipeline {
 pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
     pub pipeline_map: HashMap<PipelineId, ScenePipeline, BuildHasherDefault<FnvHasher>>,
-    pub pipeline_sizes: HashMap<PipelineId, LayerSize>,
     pub pipeline_auxiliary_lists: AuxiliaryListsMap,
     pub display_lists: HashMap<PipelineId, Vec<DisplayItem>, BuildHasherDefault<FnvHasher>>,
 }
@@ -31,7 +30,6 @@ impl Scene {
     pub fn new() -> Scene {
         Scene {
             root_pipeline_id: None,
-            pipeline_sizes: HashMap::new(),
             pipeline_map: HashMap::with_hasher(Default::default()),
             pipeline_auxiliary_lists: HashMap::with_hasher(Default::default()),
             display_lists: HashMap::with_hasher(Default::default()),
