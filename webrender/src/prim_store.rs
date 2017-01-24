@@ -737,9 +737,9 @@ impl PrimitiveStore {
 
                     let dest_rects = self.gpu_resource_rects.get_slice_mut(text.resource_address,
                                                                            text.glyph_range.length);
-
                     let texture_id = resource_cache.get_glyphs(text.font_key,
                                                                font_size_dp,
+                                                               text.color,
                                                                &text.glyph_indices,
                                                                text.render_mode, |index, uv0, uv1| {
                         let dest_rect = &mut dest_rects[index];
@@ -933,6 +933,7 @@ impl PrimitiveStore {
                                                                     text.glyph_range.length);
                     let mut glyph_key = GlyphKey::new(text.font_key,
                                                       font_size_dp,
+                                                      text.color,
                                                       src_glyphs[0].index);
                     let mut local_rect = LayerRect::zero();
                     let mut actual_glyph_count = 0;
@@ -998,6 +999,7 @@ impl PrimitiveStore {
 
                 resource_cache.request_glyphs(text.font_key,
                                               font_size_dp,
+                                              text.color,
                                               &text.glyph_indices,
                                               text.render_mode);
             }
