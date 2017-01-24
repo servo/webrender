@@ -401,8 +401,7 @@ impl RenderBackend {
                         notifier.as_mut()
                                 .unwrap()
                                 .as_mut()
-                                .unwrap()
-                                .pipeline_size_changed(pipeline_id, Some(new_size));
+                                .unwrap();
                     }
 
                     // Re-insert
@@ -414,8 +413,7 @@ impl RenderBackend {
                         notifier.as_mut()
                                 .unwrap()
                                 .as_mut()
-                                .unwrap()
-                                .pipeline_size_changed(pipeline_id, None);
+                                .unwrap();
                 }
             }
         }
@@ -426,8 +424,7 @@ impl RenderBackend {
             notifier.as_mut()
                     .unwrap()
                     .as_mut()
-                    .unwrap()
-                    .pipeline_size_changed(pipeline_id, Some(new_size));
+                    .unwrap();
             updated_pipeline_sizes.insert(pipeline_id, new_size);
         }
 
