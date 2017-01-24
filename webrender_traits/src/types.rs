@@ -446,7 +446,8 @@ pub struct ExternalImageId(pub u64);
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ImageData {
     Raw(Arc<Vec<u8>>),
-    External(ExternalImageId),
+    ExternalHandle(ExternalImageId),
+    ExternalBuffer(ExternalImageId),
 }
 
 impl ImageData {
