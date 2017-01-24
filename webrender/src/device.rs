@@ -1111,13 +1111,33 @@ impl Device {
             RenderTargetMode::None => {
                 self.bind_texture(DEFAULT_TEXTURE, texture_id);
                 self.set_texture_parameters(texture_id.target, filter);
-                self.upload_texture_image(texture_id.target,
-                                          width,
-                                          height,
-                                          internal_format as u32,
-                                          gl_format,
-                                          type_,
-                                          pixels);
+                let mut expanded_data = Vec::new();
+                if pixels.is_some() &&
+                   format == ImageFormat::A8 &&
+                   cfg!(any(target_arch="arm", target_arch="aarch64")) {
+                    let pixel_data = pixels.unwrap();
+                    for byte in pixel_data {
+                        expanded_data.push(*byte);
+                        expanded_data.push(*byte);
+                        expanded_data.push(*byte);
+                        expanded_data.push(*byte);
+                    }
+                    self.upload_texture_image(texture_id.target,
+                                              width,
+                                              height,
+                                              internal_format as u32,
+                                              gl_format,
+                                              type_,
+                                              Some(expanded_data.as_slice()));
+                } else {
+                    self.upload_texture_image(texture_id.target,
+                                              width,
+                                              height,
+                                              internal_format as u32,
+                                              gl_format,
+                                              type_,
+                                              pixels);
+                }
             }
         }
     }
