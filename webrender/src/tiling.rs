@@ -1679,10 +1679,10 @@ impl PrimitiveBatch {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct StackingContextIndex(usize);
+pub struct StackingContextIndex(pub usize);
 
-struct StackingContext {
-    pipeline_id: PipelineId,
+pub struct StackingContext {
+    pub pipeline_id: PipelineId,
     local_transform: LayerToScrollTransform,
     local_rect: LayerRect,
     scroll_layer_id: ScrollLayerId,
@@ -2402,7 +2402,8 @@ impl FrameBuilder {
                                                                        resource_cache,
                                                                        &packed_layer.transform,
                                                                        device_pixel_ratio,
-                                                                       auxiliary_lists) {
+                                                                       auxiliary_lists,
+                                                                       *sc_index) {
                                 self.prim_store.build_bounding_rect(prim_index,
                                                                     screen_rect,
                                                                     &packed_layer.transform,
@@ -2687,7 +2688,10 @@ impl FrameBuilder {
             }
         }
 
-        let deferred_resolves = self.prim_store.resolve_primitives(resource_cache, device_pixel_ratio);
+        let deferred_resolves = self.prim_store.resolve_primitives(resource_cache,
+                                                                   device_pixel_ratio,
+                                                                   &self.layer_store,
+                                                                   auxiliary_lists_map);
 
         let mut passes = Vec::new();
 
