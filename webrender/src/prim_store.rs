@@ -18,7 +18,8 @@ use webrender_traits::{FontKey, FontRenderMode, WebGLContextId};
 use webrender_traits::{device_length, DeviceIntRect, DeviceIntSize};
 use webrender_traits::{DeviceRect, DevicePoint, DeviceSize};
 use webrender_traits::{LayerRect, LayerSize, LayerPoint};
-use webrender_traits::LayerToWorldTransform;
+use webrender_traits::{LayerToWorldTransform};
+use tiling::{AuxiliaryListsMap, StackingContext};
 
 pub const CLIP_DATA_GPU_SIZE: usize = 5;
 pub const MASK_DATA_GPU_SIZE: usize = 1;
@@ -290,6 +291,7 @@ pub struct TextRunPrimitiveCpu {
     pub color: ColorF,
     pub render_mode: FontRenderMode,
     pub resource_address: GpuStoreAddress,
+    pub stackingcontext_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -716,7 +718,9 @@ impl PrimitiveStore {
 
     pub fn resolve_primitives(&mut self,
                               resource_cache: &ResourceCache,
-                              device_pixel_ratio: f32) -> Vec<DeferredResolve> {
+                              device_pixel_ratio: f32,
+                              layer_store: &Vec<StackingContext>,
+                              auxiliary_lists_map: &AuxiliaryListsMap) -> Vec<DeferredResolve> {
         let mut deferred_resolves = Vec::new();
 
         for prim_index in self.prims_to_resolve.drain(..) {
@@ -733,14 +737,22 @@ impl PrimitiveStore {
                 PrimitiveKind::RadialGradient=> {}
                 PrimitiveKind::TextRun => {
                     let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
+                    let sc_index = text.stackingcontext_index;
+
                     let font_size_dp = text.logical_font_size.scale_by(device_pixel_ratio);
 
                     let dest_rects = self.gpu_resource_rects.get_slice_mut(text.resource_address,
                                                                            text.glyph_range.length);
+
+                    let layer = &layer_store[sc_index];
+                    let auxiliary_lists = auxiliary_lists_map.get(&layer.pipeline_id)
+                                                             .expect("No auxiliary lists?");
+                    let src_glyphs = auxiliary_lists.glyph_instances(&text.glyph_range);
+
                     let texture_id = resource_cache.get_glyphs(text.font_key,
                                                                font_size_dp,
                                                                text.color,
-                                                               &text.glyph_indices,
+                                                               src_glyphs,
                                                                text.render_mode, |index, uv0, uv1| {
                         let dest_rect = &mut dest_rects[index];
                         dest_rect.uv0 = uv0;
@@ -879,7 +891,8 @@ impl PrimitiveStore {
                                    resource_cache: &mut ResourceCache,
                                    layer_transform: &LayerToWorldTransform,
                                    device_pixel_ratio: f32,
-                                   auxiliary_lists: &AuxiliaryLists) -> bool {
+                                   auxiliary_lists: &AuxiliaryLists,
+                                   stackingcontext_index: usize) -> bool {
 
         let metadata = &mut self.cpu_metadata[prim_index.0];
         let mut prim_needs_resolve = false;
@@ -919,7 +932,10 @@ impl PrimitiveStore {
             }
             PrimitiveKind::TextRun => {
                 let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
+                text.stackingcontext_index = stackingcontext_index;
+
                 let font_size_dp = text.logical_font_size.scale_by(device_pixel_ratio);
+                let src_glyphs = auxiliary_lists.glyph_instances(&text.glyph_range);
                 prim_needs_resolve = true;
 
                 if text.cache_dirty {
@@ -928,18 +944,23 @@ impl PrimitiveStore {
 
                     debug_assert!(metadata.gpu_data_count == text.glyph_range.length as i32);
                     debug_assert!(text.glyph_indices.is_empty());
-                    let src_glyphs = auxiliary_lists.glyph_instances(&text.glyph_range);
+
                     let dest_glyphs = self.gpu_data16.get_slice_mut(metadata.gpu_data_address,
                                                                     text.glyph_range.length);
                     let mut glyph_key = GlyphKey::new(text.font_key,
                                                       font_size_dp,
                                                       text.color,
-                                                      src_glyphs[0].index);
+                                                      src_glyphs[0].index,
+                                                      src_glyphs[0].x,
+                                                      src_glyphs[0].y,
+                                                      text.render_mode);
                     let mut local_rect = LayerRect::zero();
                     let mut actual_glyph_count = 0;
 
                     for src in src_glyphs {
                         glyph_key.index = src.index;
+                        glyph_key.set_x_offset(src.x);
+                        glyph_key.set_y_offset(src.y);
 
                         let dimensions = match resource_cache.get_glyph_dimensions(&glyph_key) {
                             None => continue,
@@ -1000,7 +1021,7 @@ impl PrimitiveStore {
                 resource_cache.request_glyphs(text.font_key,
                                               font_size_dp,
                                               text.color,
-                                              &text.glyph_indices,
+                                              src_glyphs,
                                               text.render_mode);
             }
             PrimitiveKind::Image => {
