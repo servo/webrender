@@ -741,6 +741,12 @@ impl Renderer {
         self.pipeline_epoch_map.get(&pipeline_id).cloned()
     }
 
+    /// Returns a HashMap containing the pipeline ids that have been received by the renderer and
+    /// their respective epochs since the last time the method was called.
+    pub fn flush_rendered_epochs(&mut self) -> HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>> {
+        return mem::replace(&mut self.pipeline_epoch_map, HashMap::with_hasher(Default::default()));
+    }
+
     /// Processes the result queue.
     ///
     /// Should be called before `render()`, as texture cache updates are done here.
