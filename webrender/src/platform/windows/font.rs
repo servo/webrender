@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use std::collections::HashMap;
-use webrender_traits::{FontKey, ColorU, FontRenderMode, GlyphDimensions};
+use webrender_traits::{FontKey, ColorU, FontRenderMode, GlyphDimensions, GlyphOptions};
 
 use dwrote;
 
@@ -184,7 +184,8 @@ impl FontContext {
                            size: Au,
                            color: ColorU,
                            glyph: u32,
-                           render_mode: FontRenderMode) -> Option<RasterizedGlyph> {
+                           render_mode: FontRenderMode,
+                           glyph_options: Option<GlyphOptions>) -> Option<RasterizedGlyph> {
         let (_, maybe_glyph) =
             self.get_glyph_dimensions_and_maybe_rasterize(font_key, size, glyph, Some(render_mode));
         maybe_glyph

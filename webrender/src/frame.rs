@@ -554,7 +554,8 @@ impl Frame {
                                              text_info.size,
                                              text_info.blur_radius,
                                              &text_info.color,
-                                             text_info.glyphs);
+                                             text_info.glyphs,
+                                             text_info.glyph_options);
                 }
                 SpecificDisplayItem::Rectangle(ref info) => {
                     context.builder.add_solid_rectangle(&item.rect,

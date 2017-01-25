@@ -22,7 +22,7 @@ use texture_cache::{TextureCache, TextureCacheItemId};
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRendering};
 use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
 use webrender_traits::{DevicePoint, DeviceIntSize, ImageDescriptor, ColorF};
-use webrender_traits::ExternalImageId;
+use webrender_traits::{ExternalImageId, GlyphOptions};
 use threadpool::ThreadPool;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
@@ -36,7 +36,7 @@ enum GlyphCacheMsg {
     /// Add a new font.
     AddFont(FontKey, FontTemplate),
     /// Request glyphs for a text run.
-    RequestGlyphs(FontKey, Au, ColorF, Vec<u32>, FontRenderMode),
+    RequestGlyphs(FontKey, Au, ColorF, Vec<u32>, FontRenderMode, Option<GlyphOptions>),
     /// Finished requesting glyphs. Reply with new glyphs.
     EndFrame,
 }
@@ -66,6 +66,7 @@ pub struct CacheItem {
 pub struct RenderedGlyphKey {
     pub key: GlyphKey,
     pub render_mode: FontRenderMode,
+    pub glyph_options: Option<GlyphOptions>,
 }
 
 impl RenderedGlyphKey {
@@ -73,10 +74,12 @@ impl RenderedGlyphKey {
                size: Au,
                color: ColorF,
                index: u32,
-               render_mode: FontRenderMode) -> RenderedGlyphKey {
+               render_mode: FontRenderMode,
+               glyph_options: Option<GlyphOptions>) -> RenderedGlyphKey {
         RenderedGlyphKey {
             key: GlyphKey::new(font_key, size, color, index),
             render_mode: render_mode,
+            glyph_options: glyph_options,
         }
     }
 }
@@ -328,7 +331,8 @@ impl ResourceCache {
                           size: Au,
                           color: ColorF,
                           glyph_indices: &[u32],
-                          render_mode: FontRenderMode) {
+                          render_mode: FontRenderMode,
+                          glyph_options: Option<GlyphOptions>) {
         debug_assert!(self.state == State::AddResources);
         let render_mode = self.get_glyph_render_mode(render_mode);
         // Immediately request that the glyph cache thread start
@@ -338,7 +342,8 @@ impl ResourceCache {
                                                size,
                                                color,
                                                glyph_indices.to_vec(),
-                                               render_mode);
+                                               render_mode,
+                                               glyph_options);
         self.glyph_cache_tx.send(msg).unwrap();
     }
 
@@ -356,6 +361,7 @@ impl ResourceCache {
                          color: ColorF,
                          glyph_indices: &[u32],
                          render_mode: FontRenderMode,
+                         glyph_options: Option<GlyphOptions>,
                          mut f: F) -> SourceTexture where F: FnMut(usize, DevicePoint, DevicePoint) {
         debug_assert!(self.state == State::QueryResources);
         let cache = self.cached_glyphs.as_ref().unwrap();
@@ -364,7 +370,8 @@ impl ResourceCache {
                                                   size,
                                                   color,
                                                   0,
-                                                  render_mode);
+                                                  render_mode,
+                                                  glyph_options);
         let mut texture_id = None;
         for (loop_index, glyph_index) in glyph_indices.iter().enumerate() {
             glyph_key.key.index = *glyph_index;
@@ -668,7 +675,7 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                         });
                     }
                 }
-                GlyphCacheMsg::RequestGlyphs(key, size, color, indices, render_mode) => {
+                GlyphCacheMsg::RequestGlyphs(key, size, color, indices, render_mode, glyph_options) => {
                     // Request some glyphs for a text run.
                     // For any glyph that isn't currently in the cache,
                     // immeediately push a job to the worker thread pool
@@ -680,7 +687,8 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                                                               size,
                                                               color,
                                                               glyph_index,
-                                                              render_mode);
+                                                              render_mode,
+                                                              glyph_options);
 
                         glyph_cache.mark_as_needed(&glyph_key, current_frame_id);
                         if !glyph_cache.contains_key(&glyph_key) &&
@@ -694,7 +702,8 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                                                                               glyph_key.key.size,
                                                                               glyph_key.key.color,
                                                                               glyph_key.key.index,
-                                                                              render_mode);
+                                                                              render_mode,
+                                                                              glyph_options);
                                     glyph_tx.send((glyph_key, result)).unwrap();
                                 });
                             });

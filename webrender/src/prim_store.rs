@@ -19,6 +19,7 @@ use webrender_traits::{device_length, DeviceIntRect, DeviceIntSize};
 use webrender_traits::{DeviceRect, DevicePoint, DeviceSize};
 use webrender_traits::{LayerRect, LayerSize, LayerPoint};
 use webrender_traits::LayerToWorldTransform;
+use webrender_traits::{GlyphOptions};
 
 pub const CLIP_DATA_GPU_SIZE: usize = 5;
 pub const MASK_DATA_GPU_SIZE: usize = 1;
@@ -290,6 +291,7 @@ pub struct TextRunPrimitiveCpu {
     pub color: ColorF,
     pub render_mode: FontRenderMode,
     pub resource_address: GpuStoreAddress,
+    pub glyph_options: Option<GlyphOptions>,
 }
 
 #[derive(Debug, Clone)]
@@ -741,7 +743,8 @@ impl PrimitiveStore {
                                                                font_size_dp,
                                                                text.color,
                                                                &text.glyph_indices,
-                                                               text.render_mode, |index, uv0, uv1| {
+                                                               text.render_mode,
+                                                               text.glyph_options, |index, uv0, uv1| {
                         let dest_rect = &mut dest_rects[index];
                         dest_rect.uv0 = uv0;
                         dest_rect.uv1 = uv1;
@@ -1001,7 +1004,8 @@ impl PrimitiveStore {
                                               font_size_dp,
                                               text.color,
                                               &text.glyph_indices,
-                                              text.render_mode);
+                                              text.render_mode,
+                                              text.glyph_options);
             }
             PrimitiveKind::Image => {
                 let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
