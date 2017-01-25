@@ -22,12 +22,12 @@ use texture_cache::{TextureCache, TextureCacheItemId};
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRendering};
 use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
 use webrender_traits::{DevicePoint, DeviceIntSize, ImageDescriptor, ColorF};
-use webrender_traits::{ExternalImageId, GlyphOptions};
+use webrender_traits::{ExternalImageId, GlyphOptions, GlyphInstance};
 use threadpool::ThreadPool;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
-type GlyphCache = ResourceClassCache<RenderedGlyphKey, Option<TextureCacheItemId>>;
+type GlyphCache = ResourceClassCache<GlyphKey, Option<TextureCacheItemId>>;
 
 /// Message sent from the resource cache to the glyph cache thread.
 enum GlyphCacheMsg {
@@ -36,7 +36,7 @@ enum GlyphCacheMsg {
     /// Add a new font.
     AddFont(FontKey, FontTemplate),
     /// Request glyphs for a text run.
-    RequestGlyphs(FontKey, Au, ColorF, Vec<u32>, FontRenderMode, Option<GlyphOptions>),
+    RequestGlyphs(FontKey, Au, ColorF, Vec<GlyphInstance>, FontRenderMode, Option<GlyphOptions>),
     /// Finished requesting glyphs. Reply with new glyphs.
     EndFrame,
 }
@@ -60,28 +60,6 @@ pub struct CacheItem {
     pub texture_id: SourceTexture,
     pub uv0: DevicePoint,
     pub uv1: DevicePoint,
-}
-
-#[derive(Clone, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
-pub struct RenderedGlyphKey {
-    pub key: GlyphKey,
-    pub render_mode: FontRenderMode,
-    pub glyph_options: Option<GlyphOptions>,
-}
-
-impl RenderedGlyphKey {
-    pub fn new(font_key: FontKey,
-               size: Au,
-               color: ColorF,
-               index: u32,
-               render_mode: FontRenderMode,
-               glyph_options: Option<GlyphOptions>) -> RenderedGlyphKey {
-        RenderedGlyphKey {
-            key: GlyphKey::new(font_key, size, color, index),
-            render_mode: render_mode,
-            glyph_options: glyph_options,
-        }
-    }
 }
 
 pub struct ImageProperties {
@@ -175,7 +153,7 @@ struct ImageRequest {
 }
 
 struct GlyphRasterJob {
-    key: RenderedGlyphKey,
+    key: GlyphKey,
     result: Option<RasterizedGlyph>,
 }
 
@@ -330,7 +308,7 @@ impl ResourceCache {
                           key: FontKey,
                           size: Au,
                           color: ColorF,
-                          glyph_indices: &[u32],
+                          glyph_instances: &[GlyphInstance],
                           render_mode: FontRenderMode,
                           glyph_options: Option<GlyphOptions>) {
         debug_assert!(self.state == State::AddResources);
@@ -341,7 +319,7 @@ impl ResourceCache {
         let msg = GlyphCacheMsg::RequestGlyphs(key,
                                                size,
                                                color,
-                                               glyph_indices.to_vec(),
+                                               glyph_instances.to_vec(),
                                                render_mode,
                                                glyph_options);
         self.glyph_cache_tx.send(msg).unwrap();
@@ -359,22 +337,26 @@ impl ResourceCache {
                          font_key: FontKey,
                          size: Au,
                          color: ColorF,
-                         glyph_indices: &[u32],
+                         glyph_instances: &[GlyphInstance],
                          render_mode: FontRenderMode,
                          glyph_options: Option<GlyphOptions>,
                          mut f: F) -> SourceTexture where F: FnMut(usize, DevicePoint, DevicePoint) {
         debug_assert!(self.state == State::QueryResources);
         let cache = self.cached_glyphs.as_ref().unwrap();
         let render_mode = self.get_glyph_render_mode(render_mode);
-        let mut glyph_key = RenderedGlyphKey::new(font_key,
-                                                  size,
-                                                  color,
-                                                  0,
-                                                  render_mode,
-                                                  glyph_options);
+        let mut glyph_key = GlyphKey::new(font_key,
+                                          size,
+                                          color,
+                                          0,
+                                          0.0, 0.0,
+                                          render_mode,
+                                          glyph_options);
         let mut texture_id = None;
-        for (loop_index, glyph_index) in glyph_indices.iter().enumerate() {
-            glyph_key.key.index = *glyph_index;
+        for (loop_index, glyph_instance) in glyph_instances.iter().enumerate() {
+            glyph_key.index = glyph_instance.index;
+            glyph_key.set_x_offset(glyph_instance.x);
+            glyph_key.set_y_offset(glyph_instance.y);
+
             let image_id = cache.get(&glyph_key, self.current_frame_id);
             let cache_item = image_id.map(|image_id| self.texture_cache.get(image_id));
             if let Some(cache_item) = cache_item {
@@ -675,20 +657,22 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                         });
                     }
                 }
-                GlyphCacheMsg::RequestGlyphs(key, size, color, indices, render_mode, glyph_options) => {
+                GlyphCacheMsg::RequestGlyphs(key, size, color, glyph_instances, render_mode, glyph_options) => {
                     // Request some glyphs for a text run.
                     // For any glyph that isn't currently in the cache,
                     // immeediately push a job to the worker thread pool
                     // to start rasterizing this glyph now!
                     let glyph_cache = glyph_cache.as_mut().unwrap();
 
-                    for glyph_index in indices {
-                        let glyph_key = RenderedGlyphKey::new(key,
-                                                              size,
-                                                              color,
-                                                              glyph_index,
-                                                              render_mode,
-                                                              glyph_options);
+                    for glyph_instance in glyph_instances {
+                        let glyph_key = GlyphKey::new(key,
+                                                      size,
+                                                      color,
+                                                      glyph_instance.index,
+                                                      glyph_instance.x,
+                                                      glyph_instance.y,
+                                                      render_mode,
+                                                      glyph_options);
 
                         glyph_cache.mark_as_needed(&glyph_key, current_frame_id);
                         if !glyph_cache.contains_key(&glyph_key) &&
@@ -698,10 +682,10 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                             thread_pool.execute(move || {
                                 FONT_CONTEXT.with(move |font_context| {
                                     let mut font_context = font_context.borrow_mut();
-                                    let result = font_context.rasterize_glyph(glyph_key.key.font_key,
-                                                                              glyph_key.key.size,
-                                                                              glyph_key.key.color,
-                                                                              glyph_key.key.index,
+                                    let result = font_context.rasterize_glyph(glyph_key.font_key,
+                                                                              glyph_key.size,
+                                                                              glyph_key.color,
+                                                                              glyph_key.index,
                                                                               render_mode,
                                                                               glyph_options);
                                     glyph_tx.send((glyph_key, result)).unwrap();
