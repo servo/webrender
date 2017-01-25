@@ -22,12 +22,11 @@ pub struct Reftest<'a> {
     reference: &'a Path,
 }
 
-pub fn parse_reftests<F>(filename: &str, mut runner: F)
+fn parse_reftests<F>(manifest: &Path, runner: &mut F)
     where F: FnMut(Reftest)
 {
-    let manifest = Path::new(filename);
     let dir = manifest.parent().unwrap();
-    let f = File::open(manifest).unwrap();
+    let f = File::open(manifest).expect(&format!("couldn't open manifest: {}", manifest.display()));
     let file = BufReader::new(&f);
     for line in file.lines() {
         let l = line.unwrap();
@@ -40,18 +39,28 @@ pub fn parse_reftests<F>(filename: &str, mut runner: F)
         }
 
         let mut items = s.split_whitespace();
-        let kind = match items.next() {
-            Some("==") => ReftestOp::Equal,
-            Some("!=") => ReftestOp::NotEqual,
+
+        match items.next() {
+            Some("include") => {
+                let include = dir.join(items.next().unwrap());
+                parse_reftests(include.as_path(), runner);
+            }
+            Some(x) => {
+                let kind = match x {
+                    "==" => ReftestOp::Equal,
+                    "!=" => ReftestOp::NotEqual,
+                    _ => panic!("unexpected match operator"),
+                };
+                let test = dir.join(items.next().unwrap());
+                let reference = dir.join(items.next().unwrap());
+                runner(Reftest {
+                    op: kind,
+                    test: test.as_path(),
+                    reference: reference.as_path(),
+                });
+            }
             _ => panic!(),
         };
-        let test = dir.join(items.next().unwrap());
-        let reference = dir.join(items.next().unwrap());
-        runner(Reftest {
-            op: kind,
-            test: test.as_path(),
-            reference: reference.as_path(),
-        });
     }
 
 }
@@ -94,7 +103,7 @@ pub fn run_reftests(wrench: &mut Wrench, window: &mut WindowWrapper, filename: &
     let (tx, rx) = channel();
     wrench.renderer.set_render_notifier(Box::new(Notifier { tx: tx }));
 
-    parse_reftests(filename, |t: Reftest| {
+    parse_reftests(Path::new(filename), &mut |t: Reftest| {
         println!("{} {}", t.test.display(), t.reference.display());
         let test = render_yaml(wrench, window, t.test, &rx);
         let reference = render_yaml(wrench, window, t.reference, &rx);
