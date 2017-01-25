@@ -259,6 +259,10 @@ impl RenderBackend {
                             tx.send(self.frame.get_scroll_layer_state())
                               .unwrap()
                         }
+                        #[cfg(not(feature = "webgl"))]
+                        ApiMsg::RequestWebGLContext(..) => {
+                            unreachable!()
+                        }
                         #[cfg(feature = "webgl")]
                         ApiMsg::RequestWebGLContext(size, attributes, tx) => {
                             if let Some(ref wrapper) = self.webrender_context_handle {
@@ -294,6 +298,10 @@ impl RenderBackend {
                             } else {
                                 tx.send(Err("Not implemented yet".to_owned())).unwrap();
                             }
+                        }
+                        #[cfg(not(feature = "webgl"))]
+                        ApiMsg::ResizeWebGLContext(..) => {
+                            unreachable!()
                         }
                         #[cfg(feature = "webgl")]
                         ApiMsg::ResizeWebGLContext(context_id, size) => {

@@ -16,6 +16,15 @@ use std::sync::Arc;
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
 #[cfg(target_os = "windows")] use dwrote::FontDescriptor;
 
+// Some stubs to work around https://github.com/serde-rs/serde/issues/720
+#[cfg(not(feature = "webgl"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GLContextAttributes([u8; 0]);
+
+#[cfg(not(feature = "webgl"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GLLimits([u8; 0]);
+
 #[derive(Debug, Copy, Clone)]
 pub enum RendererKind {
     Native,
@@ -51,9 +60,7 @@ pub enum ApiMsg {
     TickScrollingBounce,
     TranslatePointToLayerSpace(WorldPoint, MsgSender<(LayoutPoint, PipelineId)>),
     GetScrollLayerState(MsgSender<Vec<ScrollLayerState>>),
-    #[cfg(feature = "webgl")]
     RequestWebGLContext(DeviceIntSize, GLContextAttributes, MsgSender<Result<(WebGLContextId, GLLimits), String>>),
-    #[cfg(feature = "webgl")]
     ResizeWebGLContext(WebGLContextId, DeviceIntSize),
     WebGLCommand(WebGLContextId, WebGLCommand),
     GenerateFrame,
@@ -645,7 +652,6 @@ pub struct TextDisplayItem {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub enum WebGLCommand {
-    #[cfg(feature = "webgl")]
     GetContextAttributes(MsgSender<GLContextAttributes>),
     ActiveTexture(u32),
     BlendColor(f32, f32, f32, f32),
