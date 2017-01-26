@@ -125,7 +125,7 @@ const CLIP_FEATURE: &'static str = "CLIP";
 
 enum ShaderKind {
     Primitive,
-    Cache,
+    Cache(VertexFormat),
     ClipCache,
 }
 
@@ -159,10 +159,17 @@ impl LazilyCompiledShader {
     fn get(&mut self, device: &mut Device) -> ProgramId {
         if self.id.is_none() {
             let id = match self.kind {
-                ShaderKind::Primitive | ShaderKind::Cache => {
+                ShaderKind::Primitive => {
                     create_prim_shader(self.name,
                                        device,
-                                       &self.features)
+                                       &self.features,
+                                       VertexFormat::Triangles)
+                }
+                ShaderKind::Cache(format) => {
+                    create_prim_shader(self.name,
+                                       device,
+                                       &self.features,
+                                       format)
                 }
                 ShaderKind::ClipCache => {
                     create_clip_shader(self.name, device)
@@ -242,7 +249,8 @@ impl PrimitiveShader {
 
 fn create_prim_shader(name: &'static str,
                       device: &mut Device,
-                      features: &[&'static str]) -> ProgramId {
+                      features: &[&'static str],
+                      vertex_format: VertexFormat) -> ProgramId {
     let mut prefix = format!("#define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n",
                               MAX_VERTEX_TEXTURE_WIDTH);
 
@@ -253,7 +261,8 @@ fn create_prim_shader(name: &'static str,
     let includes = &["prim_shared"];
     let program_id = device.create_program_with_prefix(name,
                                                        includes,
-                                                       Some(prefix));
+                                                       Some(prefix),
+                                                       vertex_format);
     debug!("PrimShader {}", name);
 
     program_id
@@ -267,7 +276,8 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> ProgramId {
     let includes = &["prim_shared", "clip_shared"];
     let program_id = device.create_program_with_prefix(name,
                                                        includes,
-                                                       Some(prefix));
+                                                       Some(prefix),
+                                                       VertexFormat::Clip);
     debug!("ClipShader {}", name);
 
     program_id
@@ -448,17 +458,17 @@ impl Renderer {
         // device-pixel ratio doesn't matter here - we are just creating resources.
         device.begin_frame(1.0);
 
-        let cs_box_shadow = LazilyCompiledShader::new(ShaderKind::Cache,
+        let cs_box_shadow = LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Triangles),
                                                       "cs_box_shadow",
                                                       &[],
                                                       &mut device,
                                                       options.precache_shaders);
-        let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache,
+        let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Triangles),
                                                     "cs_text_run",
                                                     &[],
                                                     &mut device,
                                                     options.precache_shaders);
-        let cs_blur = LazilyCompiledShader::new(ShaderKind::Cache,
+        let cs_blur = LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Blur),
                                                 "cs_blur",
                                                  &[],
                                                  &mut device,
