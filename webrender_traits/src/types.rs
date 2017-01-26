@@ -311,6 +311,25 @@ pub enum FontRenderMode {
     Subpixel,
 }
 
+#[derive(Hash, Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub enum SubpixelOffset {
+    Zero,
+    Quarter,
+    Half,
+    ThreeQuarters,
+}
+
+impl Into<f64> for SubpixelOffset {
+    fn into(self) -> f64 {
+        match self {
+            SubpixelOffset::Zero => 0.0,
+            SubpixelOffset::Quarter => 0.25,
+            SubpixelOffset::Half => 0.5,
+            SubpixelOffset::ThreeQuarters => 0.75,
+        }
+    }
+}
+
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Deserialize, Serialize, Ord, PartialOrd)]
 pub struct GlyphKey {
     pub font_key: FontKey,
@@ -322,18 +341,62 @@ pub struct GlyphKey {
     pub size: Au,
     pub index: u32,
     pub color: ColorU,
+    pub x_suboffset: SubpixelOffset,
+    pub y_suboffset: SubpixelOffset,
+    pub render_mode: FontRenderMode,
+    pub glyph_options: Option<GlyphOptions>,
 }
 
 impl GlyphKey {
     pub fn new(font_key: FontKey,
                size: Au,
                color: ColorF,
-               index: u32) -> GlyphKey {
-        GlyphKey {
+               index: u32,
+               x: f32,
+               y: f32,
+               render_mode: FontRenderMode,
+               glyph_options: Option<GlyphOptions>) -> GlyphKey {
+        let mut key = GlyphKey {
             font_key: font_key,
             size: size,
             color: ColorU::from(color),
             index: index,
+            x_suboffset: SubpixelOffset::Zero,
+            y_suboffset: SubpixelOffset::Zero,
+            render_mode: render_mode,
+            glyph_options: glyph_options,
+        };
+
+        key.set_x_offset(x);
+        key.set_y_offset(y);
+
+        key
+    }
+
+    pub fn set_x_offset(&mut self, x: f32) {
+        self.x_suboffset = self.subpixel_quantize_offset(x);
+    }
+
+    pub fn set_y_offset(&mut self, y: f32) {
+        self.y_suboffset = self.subpixel_quantize_offset(y);
+    }
+
+    // Skia quantizes subpixel offets into 1/4 increments.
+    // Given the absolute position, return the quantized increment
+    fn subpixel_quantize_offset(&self, pos: f32) -> SubpixelOffset {
+        if self.render_mode != FontRenderMode::Subpixel {
+            return SubpixelOffset::Zero;
+        }
+
+        const SUBPIXEL_ROUNDING :f32 = 0.125; // Skia chosen value.
+        let fraction = (pos + SUBPIXEL_ROUNDING).fract();
+
+        match fraction {
+            0.0...0.25 => SubpixelOffset::Zero,
+            0.25...0.5 => SubpixelOffset::Quarter,
+            0.5...0.75 => SubpixelOffset::Half,
+            0.75...1.0 => SubpixelOffset::ThreeQuarters,
+            _ => panic!("Should only be given the fractional part"),
         }
     }
 }

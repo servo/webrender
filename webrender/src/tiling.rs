@@ -1681,8 +1681,16 @@ impl PrimitiveBatch {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct StackingContextIndex(usize);
 
-struct StackingContext {
-    pipeline_id: PipelineId,
+#[derive(Debug)]
+struct TileRange {
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+}
+
+pub struct StackingContext {
+    pub pipeline_id: PipelineId,
     local_transform: LayerToScrollTransform,
     local_rect: LayerRect,
     scroll_layer_id: ScrollLayerId,
@@ -2160,6 +2168,8 @@ impl FrameBuilder {
                 render_mode: render_mode,
                 glyph_options: glyph_options,
                 resource_address: GpuStoreAddress(0),
+                // Note this is filled later when we assign this to astacking context
+                stackingcontext_index: 0,
             };
 
             let prim_gpu = TextRunPrimitiveGpu {
@@ -2402,7 +2412,8 @@ impl FrameBuilder {
                                                                        resource_cache,
                                                                        &packed_layer.transform,
                                                                        device_pixel_ratio,
-                                                                       auxiliary_lists) {
+                                                                       auxiliary_lists,
+                                                                       sc_index.0) {
                                 self.prim_store.build_bounding_rect(prim_index,
                                                                     screen_rect,
                                                                     &packed_layer.transform,
@@ -2687,7 +2698,10 @@ impl FrameBuilder {
             }
         }
 
-        let deferred_resolves = self.prim_store.resolve_primitives(resource_cache, device_pixel_ratio);
+        let deferred_resolves = self.prim_store.resolve_primitives(resource_cache,
+                                                                   device_pixel_ratio,
+                                                                   &self.layer_store,
+                                                                   auxiliary_lists_map);
 
         let mut passes = Vec::new();
 
