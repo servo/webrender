@@ -4,7 +4,7 @@
 
 use euclid::{Point2D, Rect, Size2D};
 use euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedPoint4D, TypedMatrix4D};
-use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize, DeviceIntLength};
+use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize};
 use webrender_traits::{LayerRect, WorldPoint4D, LayerPoint4D, LayerToWorldTransform};
 use num_traits::Zero;
 use time::precise_time_ns;
@@ -118,15 +118,6 @@ impl<U> RectHelpers<U> for TypedRect<f32, U> {
 // below instead of an "or".
 pub fn rect_is_empty<N:PartialEq + Zero, U>(rect: &TypedRect<N, U>) -> bool {
     rect.size.width == Zero::zero() || rect.size.height == Zero::zero()
-}
-
-#[inline]
-pub fn rect_from_points(x0: DeviceIntLength,
-                        y0: DeviceIntLength,
-                        x1: DeviceIntLength,
-                        y1: DeviceIntLength) -> DeviceIntRect {
-    DeviceIntRect::new(DeviceIntPoint::from_lengths(x0, y0),
-                       DeviceIntSize::from_lengths(x1 - x0, y1 - y0))
 }
 
 #[inline]

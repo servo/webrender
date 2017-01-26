@@ -153,15 +153,6 @@ vec3 Luminosity(vec3 Cb, vec3 Cs) {
 
 void main(void) {
     vec4 Cb = texture(sCache, vUv0);
-
-    if (vUv1.x < vUv1Rect.x ||
-        vUv1.x > vUv1Rect.z ||
-        vUv1.y < vUv1Rect.y ||
-        vUv1.y > vUv1Rect.w) {
-        oFragColor = Cb;
-        return;
-    }
-
     vec4 Cs = texture(sCache, vUv1);
 
     // Return yellow if none of the branches match (shouldn't happen).

@@ -647,36 +647,29 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 self.frame_writer.fonts.insert(*key, CachedFont::Native(native_font_handle.clone()));
             }
 
-            &ApiMsg::AddImage(ref key, width, height, stride,
-                              format, ref data) => {
-                let stride = if let Some(stride) = stride {
-                    stride
-                } else {
-                    match format {
-                        ImageFormat::A8 => width,
-                        ImageFormat::RGBA8 | ImageFormat::RGB8 => width*4,
-                        ImageFormat::RGBAF32 => width*16,
-                        _ => panic!("Invalid image format"),
-                    }
-                };
+            &ApiMsg::AddImage(ref key, ref descriptor, ref data) => {
+                let stride = descriptor.stride.unwrap_or(
+                    descriptor.width * descriptor.format.bytes_per_pixel().unwrap()
+                );
                 let bytes = match data {
                     &ImageData::Raw(ref v) => { (**v).clone() }
                     &ImageData::External(_) => { return; }
                 };
                 self.frame_writer.images.insert(*key, CachedImage {
-                    width: width, height: height, stride: stride,
-                    format: format,
+                    width: descriptor.width,
+                    height: descriptor.height,
+                    stride: stride,
+                    format: descriptor.format,
                     bytes: Some(bytes),
                     path: None,
                 });
             }
 
-            &ApiMsg::UpdateImage(ref key, width, height,
-                                 format, ref bytes) => {
+            &ApiMsg::UpdateImage(ref key, ref descriptor, ref bytes) => {
                 if let Some(ref mut data) = self.frame_writer.images.get_mut(key) {
-                    assert!(data.width == width);
-                    assert!(data.height == height);
-                    assert!(data.format == format);
+                    assert!(data.width == descriptor.width);
+                    assert!(data.height == descriptor.height);
+                    assert!(data.format == descriptor.format);
 
                     *data.path.borrow_mut() = None;
                     *data.bytes.borrow_mut() = Some(bytes.clone());

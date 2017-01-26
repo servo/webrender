@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::f32;
 use std::str::FromStr;
 use app_units::Au;
 use euclid::{Radians, TypedSize2D};
@@ -19,7 +20,7 @@ pub trait YamlHelper {
     fn as_rect(&self) -> Option<LayoutRect>;
     fn as_size(&self) -> Option<LayoutSize>;
     fn as_point(&self) -> Option<LayoutPoint>;
-    fn as_matrix4d(&self) -> Option<LayoutTransform>;
+    fn as_matrix4d(&self, transform_origin: &LayoutPoint) -> Option<LayoutTransform>;
     fn as_colorf(&self) -> Option<ColorF>;
     fn as_vec_colorf(&self) -> Option<Vec<ColorF>>;
     fn as_px_to_au(&self) -> Option<Au>;
@@ -195,7 +196,7 @@ impl YamlHelper for Yaml {
         Some(LayoutPoint::new(nums[0], nums[1]))
     }
 
-    fn as_matrix4d(&self) -> Option<LayoutTransform> {
+    fn as_matrix4d(&self, transform_origin: &LayoutPoint) -> Option<LayoutTransform> {
         if let Some(mut nums) = self.as_vec_f32() {
             if nums.len() != 16 {
                 panic!("expected 16 floats, got '{:?}'", self);
@@ -214,8 +215,21 @@ impl YamlHelper for Yaml {
                 }
                 ("rotate", ref args) if args.len() == 1 =>  {
                     // rotate takes a single parameter of degrees and rotates in X-Y plane
-                    return Some(LayoutTransform::identity().pre_rotated(0., 0., 1.,
-                                                                        Radians::new(args[0].parse::<f32>().unwrap().to_radians())))
+                    let pre_transform = LayoutTransform::create_translation(transform_origin.x,
+                                                                            transform_origin.y,
+                                                                            0.0);
+                    let post_transform = LayoutTransform::create_translation(-transform_origin.x,
+                                                                             -transform_origin.y,
+                                                                             -0.0);
+
+                    let angle = args[0].parse::<f32>().unwrap().to_radians();
+                    let theta = 2.0f32 * f32::consts::PI - angle;
+                    let transform = LayoutTransform::identity().pre_rotated(0.0,
+                                                                            0.0,
+                                                                            1.0,
+                                                                            Radians::new(theta));
+
+                    return Some(pre_transform.pre_mul(&transform).pre_mul(&post_transform))
                 }
                 (name, _) => { panic!("unknown function {}", name); }
             }

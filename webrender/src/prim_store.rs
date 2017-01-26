@@ -19,6 +19,7 @@ use webrender_traits::{device_length, DeviceIntRect, DeviceIntSize};
 use webrender_traits::{DeviceRect, DevicePoint, DeviceSize};
 use webrender_traits::{LayerRect, LayerSize, LayerPoint};
 use webrender_traits::LayerToWorldTransform;
+use webrender_traits::{GlyphOptions};
 
 pub const CLIP_DATA_GPU_SIZE: usize = 5;
 pub const MASK_DATA_GPU_SIZE: usize = 1;
@@ -290,6 +291,7 @@ pub struct TextRunPrimitiveCpu {
     pub color: ColorF,
     pub render_mode: FontRenderMode,
     pub resource_address: GpuStoreAddress,
+    pub glyph_options: Option<GlyphOptions>,
 }
 
 #[derive(Debug, Clone)]
@@ -737,11 +739,12 @@ impl PrimitiveStore {
 
                     let dest_rects = self.gpu_resource_rects.get_slice_mut(text.resource_address,
                                                                            text.glyph_range.length);
-
                     let texture_id = resource_cache.get_glyphs(text.font_key,
                                                                font_size_dp,
+                                                               text.color,
                                                                &text.glyph_indices,
-                                                               text.render_mode, |index, uv0, uv1| {
+                                                               text.render_mode,
+                                                               text.glyph_options, |index, uv0, uv1| {
                         let dest_rect = &mut dest_rects[index];
                         dest_rect.uv0 = uv0;
                         dest_rect.uv1 = uv1;
@@ -820,10 +823,6 @@ impl PrimitiveStore {
         }
 
         deferred_resolves
-    }
-
-    pub fn get_bounding_rect(&self, index: PrimitiveIndex) -> &Option<DeviceIntRect> {
-        &self.cpu_bounding_rects[index.0]
     }
 
     pub fn set_clip_source(&mut self, index: PrimitiveIndex, source: ClipSource) {
@@ -933,6 +932,7 @@ impl PrimitiveStore {
                                                                     text.glyph_range.length);
                     let mut glyph_key = GlyphKey::new(text.font_key,
                                                       font_size_dp,
+                                                      text.color,
                                                       src_glyphs[0].index);
                     let mut local_rect = LayerRect::zero();
                     let mut actual_glyph_count = 0;
@@ -998,8 +998,10 @@ impl PrimitiveStore {
 
                 resource_cache.request_glyphs(text.font_key,
                                               font_size_dp,
+                                              text.color,
                                               &text.glyph_indices,
-                                              text.render_mode);
+                                              text.render_mode,
+                                              text.glyph_options);
             }
             PrimitiveKind::Image => {
                 let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
@@ -1014,7 +1016,7 @@ impl PrimitiveStore {
                         // right now, but if we introduce a cache for images for some other
                         // reason then we might as well cache this with it.
                         let image_properties = resource_cache.get_image_properties(image_key);
-                        metadata.is_opaque = image_properties.is_opaque &&
+                        metadata.is_opaque = image_properties.descriptor.is_opaque &&
                                              tile_spacing.width == 0.0 &&
                                              tile_spacing.height == 0.0;
                     }

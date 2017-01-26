@@ -371,7 +371,7 @@ impl YamlFrameReader {
         };
 
         let clip = self.to_clip_region(&item["clip"], &rect, wrench).unwrap_or(*clip_region);
-        self.builder().push_text(rect, clip, glyphs, font_key, color, size, blur_radius);
+        self.builder().push_text(rect, clip, glyphs, font_key, color, size, blur_radius, None);
     }
 
     fn handle_iframe(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
@@ -431,8 +431,14 @@ impl YamlFrameReader {
     pub fn add_stacking_context_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
         let bounds = yaml["bounds"].as_rect().unwrap_or(LayoutRect::new(LayoutPoint::new(0.0, 0.0), wrench.window_size_f32()));
         let z_index = yaml["z_index"].as_i64().unwrap_or(0);
-        let transform = yaml["transform"].as_matrix4d().unwrap_or(LayoutTransform::identity());
-        let perspective = yaml["perspective"].as_matrix4d().unwrap_or(LayoutTransform::identity());
+        // TODO(gw): Add support for specifying the transform origin in yaml.
+        let transform_origin = LayoutPoint::new(bounds.origin.x + bounds.size.width * 0.5,
+                                                bounds.origin.y + bounds.size.height * 0.5);
+        let transform = yaml["transform"].as_matrix4d(&transform_origin)
+                                         .unwrap_or(LayoutTransform::identity());
+        // TODO(gw): Support perspective-origin.
+        let perspective = yaml["perspective"].as_matrix4d(&LayoutPoint::zero())
+                                             .unwrap_or(LayoutTransform::identity());
         let mix_blend_mode = yaml["mix-blend-mode"].as_mix_blend_mode().unwrap_or(MixBlendMode::Normal);
         let sc_full_rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), bounds.size);
         let clip = self.to_clip_region(&yaml["clip"], &sc_full_rect, wrench).unwrap_or(ClipRegion::simple(&sc_full_rect));

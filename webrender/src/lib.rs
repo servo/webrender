@@ -67,6 +67,7 @@ mod record;
 mod render_backend;
 mod resource_cache;
 mod scene;
+mod scroll_tree;
 mod spring;
 mod texture_cache;
 mod tiling;
@@ -125,6 +126,7 @@ extern crate webrender_traits;
 extern crate offscreen_gl_context;
 extern crate byteorder;
 extern crate threadpool;
+extern crate gamma_lut;
 
 pub use renderer::{ExternalImage, ExternalImageSource, ExternalImageHandler};
 pub use renderer::{Renderer, RendererOptions};

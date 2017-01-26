@@ -11,10 +11,10 @@ void main(void) {
                                  prim.local_clip_rect,
                                  prim.z,
                                  prim.layer,
-                                 prim.tile);
+                                 prim.task);
 
     vStopCount = int(prim.user_data.x);
-    vPos = vi.local_clamped_pos;
+    vPos = vi.local_pos;
 
     // Snap the start/end points to device pixel units.
     // I'm not sure this is entirely correct, but the

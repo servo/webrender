@@ -1,5 +1,2 @@
-== mask.yaml mask-ref.yaml
-== nested-mask.yaml nested-mask-ref.yaml
-!= mask.yaml green.yaml
-
-== multiply.yaml multiply-ref.yaml
+include blend/reftest.list
+include mask/reftest.list
