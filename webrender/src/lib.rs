@@ -126,6 +126,7 @@ extern crate webrender_traits;
 extern crate offscreen_gl_context;
 extern crate byteorder;
 extern crate threadpool;
+extern crate gamma_lut;
 
 pub use renderer::{ExternalImage, ExternalImageSource, ExternalImageHandler};
 pub use renderer::{Renderer, RendererOptions};
