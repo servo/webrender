@@ -5,7 +5,7 @@
 use gpu_store::{GpuStore, GpuStoreAddress};
 use prim_store::{ClipData, GpuBlock32, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
-use util::TransformedRect;
+use util::{MatrixHelpers, TransformedRect};
 use webrender_traits::{AuxiliaryLists, BorderRadius, ClipRegion, ComplexClipRegion, ImageMask};
 use webrender_traits::{DeviceIntRect, DeviceIntSize, LayerRect, LayerToWorldTransform};
 
@@ -29,12 +29,13 @@ impl ClipSource {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ClipAddressRange {
     pub start: GpuStoreAddress,
-    pub item_count: u32,
+    item_count: u32,
 }
 
 #[derive(Clone, Debug)]
 pub struct MaskCacheInfo {
     pub clip_range: ClipAddressRange,
+    pub effective_clip_count: u32,
     pub image: Option<(ImageMask, GpuStoreAddress)>,
     pub local_rect: Option<LayerRect>,
     pub local_inner: Option<LayerRect>,
@@ -46,7 +47,7 @@ impl MaskCacheInfo {
     /// Create a new mask cache info. It allocates the GPU store data but leaves
     /// it unitialized for the following `update()` call to deal with.
     pub fn new(source: &ClipSource,
-               is_transformed: bool,
+               extra_clip: bool,
                clip_store: &mut GpuStore<GpuBlock32>)
                -> Option<MaskCacheInfo> {
         let (image, clip_range) = match source {
@@ -59,7 +60,7 @@ impl MaskCacheInfo {
                 })
             },
             &ClipSource::Region(ref region) => {
-                let count = region.complex.length + if is_transformed {1} else {0};
+                let count = region.complex.length + if extra_clip {1} else {0};
                 (region.image_mask.map(|info|
                     (info, clip_store.alloc(MASK_DATA_GPU_SIZE))),
                 ClipAddressRange {
@@ -75,6 +76,7 @@ impl MaskCacheInfo {
 
         Some(MaskCacheInfo {
             clip_range: clip_range,
+            effective_clip_count: clip_range.item_count,
             image: image,
             local_rect: None,
             local_inner: None,
@@ -115,16 +117,18 @@ impl MaskCacheInfo {
                         None => local_rect,
                     };
 
+                    let is_aligned = transform.can_losslessly_transform_and_perspective_project_a_2d_rect();
                     let clips = aux_lists.complex_clip_regions(&region.complex);
-                    if self.clip_range.item_count > clips.len() as u32 {
+                    self.effective_clip_count = if !is_aligned && self.clip_range.item_count > clips.len() as u32 {
                         // we have an extra clip rect coming from the transformed layer
                         assert_eq!(self.clip_range.item_count, clips.len() as u32 + 1);
                         let address = GpuStoreAddress(self.clip_range.start.0 + (CLIP_DATA_GPU_SIZE * clips.len()) as i32);
                         let slice = clip_store.get_slice_mut(address, CLIP_DATA_GPU_SIZE);
                         PrimitiveStore::populate_clip_data(slice, ClipData::uniform(region.main, 0.0));
+                        self.clip_range.item_count
                     } else {
-                        assert_eq!(self.clip_range.item_count, clips.len() as u32);
-                    }
+                        clips.len() as u32
+                    };
 
                     let slice = clip_store.get_slice_mut(self.clip_range.start, CLIP_DATA_GPU_SIZE * clips.len());
                     for (clip, chunk) in clips.iter().zip(slice.chunks_mut(CLIP_DATA_GPU_SIZE)) {
