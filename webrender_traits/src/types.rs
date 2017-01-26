@@ -634,8 +634,8 @@ pub struct StackingContext {
 #[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize)]
 pub struct GlyphOptions {
     // These are currently only used on windows for dwrite fonts.
-    use_embedded_bitmap: bool,
-    force_gdi_rendering: bool,
+    pub use_embedded_bitmap: bool,
+    pub force_gdi_rendering: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
