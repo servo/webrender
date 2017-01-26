@@ -395,7 +395,9 @@ impl ResourceCache {
 
                     dimensions = font_context.get_glyph_dimensions(glyph_key.font_key,
                                                                    glyph_key.size,
-                                                                   glyph_key.index);
+                                                                   glyph_key.index,
+                                                                   glyph_key.x_suboffset,
+                                                                   glyph_key.y_suboffset);
                 });
 
                 *entry.insert(dimensions)
@@ -673,7 +675,6 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                                                       glyph_instance.y,
                                                       render_mode,
                                                       glyph_options);
-
                         glyph_cache.mark_as_needed(&glyph_key, current_frame_id);
                         if !glyph_cache.contains_key(&glyph_key) &&
                            !pending_glyphs.contains(&glyph_key) {
@@ -687,6 +688,8 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                                                                               glyph_key.color,
                                                                               glyph_key.index,
                                                                               render_mode,
+                                                                              glyph_key.x_suboffset,
+                                                                              glyph_key.y_suboffset,
                                                                               glyph_options);
                                     glyph_tx.send((glyph_key, result)).unwrap();
                                 });
