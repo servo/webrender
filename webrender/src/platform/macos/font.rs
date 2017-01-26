@@ -16,12 +16,14 @@ use core_text;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use webrender_traits::{ColorU, FontKey, FontRenderMode, GlyphDimensions, GlyphOptions};
+use gamma_lut::{GammaLut, Color as ColorLut};
 
 pub type NativeFontHandle = CGFont;
 
 pub struct FontContext {
     cg_fonts: HashMap<FontKey, CGFont>,
     ct_fonts: HashMap<(FontKey, Au), CTFont>,
+    gamma_lut: GammaLut,
 }
 
 pub struct RasterizedGlyph {
@@ -92,9 +94,14 @@ impl FontContext {
     pub fn new() -> FontContext {
         debug!("Test for subpixel AA support: {}", supports_subpixel_aa());
 
+        // Force CG to use sRGB color space to gamma correct.
+        let contrast = 0.0;
+        let gamma = 0.0;
+
         FontContext {
             cg_fonts: HashMap::new(),
             ct_fonts: HashMap::new(),
+            gamma_lut: GammaLut::new(contrast, gamma, gamma),
         }
     }
 
@@ -158,9 +165,31 @@ impl FontContext {
         })
     }
 
+    // Assumes the pixels here are linear values from CG
+    fn gamma_correct_pixels(&self, pixels: &mut Vec<u8>, width: usize,
+                            height: usize, render_mode: FontRenderMode,
+                            color: ColorU) {
+        // Then convert back to gamma corrected values.
+        let color_lut = ColorLut::new(color.r,
+                                     color.g,
+                                     color.b,
+                                     color.a);
+        match render_mode {
+            FontRenderMode::Alpha => {
+                self.gamma_lut.preblend_grayscale_bgra(pixels, width,
+                                                       height, color_lut);
+            },
+            FontRenderMode::Subpixel => {
+                self.gamma_lut.preblend_bgra(pixels, width, height, color_lut);
+            },
+            _ => {} // Again, give mono untouched since only the alpha matters.
+        }
+    }
+
     #[allow(dead_code)]
     fn print_glyph_data(&mut self, data: &Vec<u8>, width: usize, height: usize) {
         // Rust doesn't have step_by support on stable :(
+        println!("Width is: {:?} height: {:?}", width, height);
         for i in 0..height {
             let current_height = i * width * 4;
 
@@ -266,6 +295,14 @@ impl FontContext {
 
                 let mut rasterized_pixels = cg_context.data().to_vec();
 
+                // Convert to linear space for subpixel AA.
+                // We explicitly do not do this for grayscale AA
+                if render_mode == FontRenderMode::Subpixel {
+                    self.gamma_lut.coregraphics_convert_to_linear_bgra(&mut rasterized_pixels,
+                                                                       metrics.rasterized_width as usize,
+                                                                       metrics.rasterized_height as usize);
+                }
+
                 // We need to invert the pixels back since right now
                 // transparent pixels are actually opaque white.
                 for i in 0..metrics.rasterized_height {
@@ -287,6 +324,12 @@ impl FontContext {
                         }; // end match
                     } // end row
                 } // end height
+
+                self.gamma_correct_pixels(&mut rasterized_pixels,
+                                          metrics.rasterized_width as usize,
+                                          metrics.rasterized_height as usize,
+                                          render_mode,
+                                          color);
 
                 Some(RasterizedGlyph {
                     width: metrics.rasterized_width,
