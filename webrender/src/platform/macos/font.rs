@@ -18,8 +18,6 @@ use std::collections::hash_map::Entry;
 use webrender_traits::{ColorU, FontKey, FontRenderMode, GlyphDimensions, GlyphOptions};
 use gamma_lut::{GammaLut, Color as ColorLut};
 
-pub type NativeFontHandle = CGFont;
-
 pub struct FontContext {
     cg_fonts: HashMap<FontKey, CGFont>,
     ct_fonts: HashMap<(FontKey, Au), CTFont>,
