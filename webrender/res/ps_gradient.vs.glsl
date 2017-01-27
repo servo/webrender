@@ -11,29 +11,29 @@ void main(void) {
     GradientStop g1 = fetch_gradient_stop(prim.sub_index + 1);
 
     vec4 segment_rect;
-    switch (int(gradient.kind.x)) {
-        case GRADIENT_HORIZONTAL: {
-            float x0 = mix(gradient.start_end_point.x,
-                           gradient.start_end_point.z,
-                           g0.offset.x);
-            float x1 = mix(gradient.start_end_point.x,
-                           gradient.start_end_point.z,
-                           g1.offset.x);
-            segment_rect.yw = prim.local_rect.yw;
-            segment_rect.x = x0;
-            segment_rect.z = x1 - x0;
-            } break;
-        case GRADIENT_VERTICAL: {
-            float y0 = mix(gradient.start_end_point.y,
-                           gradient.start_end_point.w,
-                           g0.offset.x);
-            float y1 = mix(gradient.start_end_point.y,
-                           gradient.start_end_point.w,
-                           g1.offset.x);
-            segment_rect.xz = prim.local_rect.xz;
-            segment_rect.y = y0;
-            segment_rect.w = y1 - y0;
-            } break;
+    vec2 axis;
+    if (gradient.start_end_point.y == gradient.start_end_point.w) {
+        float x0 = mix(gradient.start_end_point.x,
+                       gradient.start_end_point.z,
+                       g0.offset.x);
+        float x1 = mix(gradient.start_end_point.x,
+                       gradient.start_end_point.z,
+                       g1.offset.x);
+        segment_rect.yw = prim.local_rect.yw;
+        segment_rect.x = x0;
+        segment_rect.z = x1 - x0;
+        axis = vec2(1.0, 0.0);
+    } else {
+        float y0 = mix(gradient.start_end_point.y,
+                       gradient.start_end_point.w,
+                       g0.offset.x);
+        float y1 = mix(gradient.start_end_point.y,
+                       gradient.start_end_point.w,
+                       g1.offset.x);
+        segment_rect.xz = prim.local_rect.xz;
+        segment_rect.y = y0;
+        segment_rect.w = y1 - y0;
+        axis = vec2(0.0, 1.0);
     }
 
 #ifdef WR_FEATURE_TRANSFORM
@@ -58,15 +58,5 @@ void main(void) {
 
     write_clip(vi.screen_pos, prim.clip_area);
 
-    switch (int(gradient.kind.x)) {
-        case GRADIENT_HORIZONTAL:
-            vColor = mix(g0.color, g1.color, f.x);
-            break;
-        case GRADIENT_VERTICAL:
-            vColor = mix(g0.color, g1.color, f.y);
-            break;
-        case GRADIENT_ROTATED:
-            vColor = vec4(1.0, 0.0, 1.0, 1.0);
-            break;
-    }
+    vColor = mix(g0.color, g1.color, dot(f, axis));
 }

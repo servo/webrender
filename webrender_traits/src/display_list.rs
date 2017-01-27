@@ -8,7 +8,7 @@ use std::slice;
 use {AuxiliaryLists, AuxiliaryListsDescriptor, BorderDisplayItem, BorderRadius};
 use {BorderSide, BoxShadowClipMode, BoxShadowDisplayItem, BuiltDisplayList};
 use {BuiltDisplayListDescriptor, ClipRegion, ComplexClipRegion, ColorF};
-use {DisplayItem, DisplayListMode, FilterOp, YuvColorSpace};
+use {DisplayItem, DisplayListMode, ExtendMode, FilterOp, YuvColorSpace};
 use {FontKey, GlyphInstance, GradientDisplayItem, RadialGradientDisplayItem, GradientStop, IframeDisplayItem};
 use {ImageDisplayItem, ImageKey, ImageMask, ImageRendering, ItemRange, MixBlendMode, PipelineId};
 use {PushScrollLayerItem, PushStackingContextDisplayItem, RectangleDisplayItem, ScrollLayerId};
@@ -242,11 +242,13 @@ impl DisplayListBuilder {
                          clip: ClipRegion,
                          start_point: LayoutPoint,
                          end_point: LayoutPoint,
-                         stops: Vec<GradientStop>) {
+                         stops: Vec<GradientStop>,
+                         extend_mode: ExtendMode) {
         let item = GradientDisplayItem {
             start_point: start_point,
             end_point: end_point,
             stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
+            extend_mode: extend_mode,
         };
 
         let display_item = DisplayItem {
@@ -265,13 +267,15 @@ impl DisplayListBuilder {
                                 start_radius: f32,
                                 end_center: LayoutPoint,
                                 end_radius: f32,
-                                stops: Vec<GradientStop>) {
+                                stops: Vec<GradientStop>,
+                                extend_mode: ExtendMode) {
         let item = RadialGradientDisplayItem {
             start_center: start_center,
             start_radius: start_radius,
             end_center: end_center,
             end_radius: end_radius,
             stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
+            extend_mode: extend_mode,
         };
 
         let display_item = DisplayItem {

@@ -290,6 +290,12 @@ pub enum DisplayListMode {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Epoch(pub u32);
 
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize, Ord, PartialOrd)]
+pub enum ExtendMode {
+    Clamp,
+    Repeat,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum FilterOp {
     Blur(Au),
@@ -400,6 +406,7 @@ pub struct GradientDisplayItem {
     pub start_point: LayoutPoint,
     pub end_point: LayoutPoint,
     pub stops: ItemRange,
+    pub extend_mode: ExtendMode,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -416,6 +423,7 @@ pub struct RadialGradientDisplayItem {
     pub end_center: LayoutPoint,
     pub end_radius: f32,
     pub stops: ItemRange,
+    pub extend_mode: ExtendMode,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
