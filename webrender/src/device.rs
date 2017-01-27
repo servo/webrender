@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::hash::BuildHasherDefault;
 use std::io::Read;
+use std::iter::repeat;
 use std::mem;
 use std::path::PathBuf;
 //use std::sync::mpsc::{channel, Sender};
@@ -1111,13 +1112,22 @@ impl Device {
             RenderTargetMode::None => {
                 self.bind_texture(DEFAULT_TEXTURE, texture_id);
                 self.set_texture_parameters(texture_id.target, filter);
+                let expanded_data: Vec<u8>;
+                let actual_pixels = if pixels.is_some() &&
+                                       format == ImageFormat::A8 &&
+                                       cfg!(any(target_arch="arm", target_arch="aarch64")) {
+                    expanded_data = pixels.unwrap().iter().flat_map(|&byte| repeat(byte).take(4)).collect();
+                    Some(expanded_data.as_slice())
+                } else {
+                    pixels
+                };
                 self.upload_texture_image(texture_id.target,
                                           width,
                                           height,
                                           internal_format as u32,
                                           gl_format,
                                           type_,
-                                          pixels);
+                                          actual_pixels);
             }
         }
     }
