@@ -719,7 +719,7 @@ impl PrimitiveStore {
     pub fn resolve_primitives(&mut self,
                               resource_cache: &ResourceCache,
                               device_pixel_ratio: f32,
-                              layer_store: &Vec<StackingContext>,
+                              layer_store: &[StackingContext],
                               auxiliary_lists_map: &AuxiliaryListsMap) -> Vec<DeferredResolve> {
         let mut deferred_resolves = Vec::new();
 
