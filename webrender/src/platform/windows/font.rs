@@ -182,7 +182,7 @@ impl FontContext {
     fn convert_to_rgba(&self, pixels: &Vec<u8>, render_mode: FontRenderMode) -> Vec<u8> {
         match render_mode {
             FontRenderMode::Mono => {
-                let mut rgba_pixels: Vec<u8> = Vec::with_capacity(pixels.len() * 4);
+                let mut rgba_pixels: Vec<u8> = vec![0; pixels.len() * 4];
                 for i in 0..pixels.len() {
                     rgba_pixels[i*4+0] = pixels[i];
                     rgba_pixels[i*4+1] = pixels[i];
@@ -193,7 +193,7 @@ impl FontContext {
             }
             FontRenderMode::Alpha => {
                 let length = pixels.len() / 3;
-                let mut rgba_pixels: Vec<u8> = Vec::with_capacity(length * 4);
+                let mut rgba_pixels: Vec<u8> = vec![0; length * 4];
                 for i in 0..length {
                     // TODO(vlad): we likely need to do something smarter
                     // This is what skia does
@@ -211,7 +211,7 @@ impl FontContext {
             }
             FontRenderMode::Subpixel => {
                 let length = pixels.len() / 3;
-                let mut rgba_pixels: Vec<u8> = Vec::with_capacity(length * 4);
+                let mut rgba_pixels: Vec<u8> = vec![0; length * 4];
                 for i in 0..length {
                     rgba_pixels[i*4+0] = pixels[i*3+0];
                     rgba_pixels[i*4+1] = pixels[i*3+1];
