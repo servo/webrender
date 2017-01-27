@@ -169,11 +169,4 @@ impl ScrollLayerId {
             info: ScrollLayerInfo::Scrollable(index, scroll_root_id),
         }
     }
-
-    pub fn create_fixed(pipeline_id: PipelineId) -> ScrollLayerId {
-        ScrollLayerId {
-            pipeline_id: pipeline_id,
-            info: ScrollLayerInfo::Fixed,
-        }
-    }
 }
