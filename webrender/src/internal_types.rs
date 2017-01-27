@@ -21,6 +21,8 @@ use tiling;
 use webrender_traits::{Epoch, ColorF, PipelineId, DeviceIntSize};
 use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle};
 use webrender_traits::{ExternalImageId, ScrollLayerId, WebGLCommand};
+use webrender_traits::{ImageData};
+use webrender_traits::{DeviceUintRect};
 
 // An ID for a texture that is owned by the
 // texture cache module. This can include atlases
@@ -342,17 +344,36 @@ pub enum RenderTargetMode {
 }
 
 pub enum TextureUpdateOp {
-    // Create(image.width, image.height, format, filter, mode, buffer)
-    Create(u32, u32, ImageFormat, TextureFilter, RenderTargetMode, Option<Arc<Vec<u8>>>),
-    // Create(image.width, image.height, format, filter, mode, external_image_id)
-    CreateForExternalBuffer(u32, u32, ImageFormat, TextureFilter, RenderTargetMode, ExternalImageId),
-    // Update(page_pos.x, page_pos.y, image_size.width, image_size.height, buffer, stride)
-    Update(u32, u32, u32, u32, Arc<Vec<u8>>, Option<u32>),
-    // UpdateExternalBuffer(alloc.x, alloc.y, alloc.width, alloc.height,
-    //                      request.x, request.y, request.width, request.height,
-    //                      external_image_id, bpp, stride)
-    UpdateForExternalBuffer(u32, u32, u32, u32, u32, u32, u32, u32, ExternalImageId, u32, Option<u32>),
-    Grow(u32, u32, ImageFormat, TextureFilter, RenderTargetMode),
+    Create {
+      width: u32,
+      height: u32,
+      format: ImageFormat,
+      filter: TextureFilter,
+      mode: RenderTargetMode,
+      data: Option<ImageData>,
+    },
+    Update {
+        page_pos_x: u32,    // the texture page position which we want to upload
+        page_pos_y: u32,
+        width: u32,
+        height: u32,
+        data: Arc<Vec<u8>>,
+        stride: Option<u32>,
+    },
+    UpdateForExternalBuffer {
+        allocated_rect: DeviceUintRect,
+        requested_rect: DeviceUintRect,
+        id: ExternalImageId,
+        bpp: u32,
+        stride: Option<u32>,
+    },
+    Grow {
+        width: u32,
+        height: u32,
+        format: ImageFormat,
+        filter: TextureFilter,
+        mode: RenderTargetMode,
+    },
     Free,
 }
 
