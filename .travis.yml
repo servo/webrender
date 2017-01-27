@@ -18,8 +18,9 @@ addons:
       - llvm-3.8-dev
       - libedit-dev
 before_install:
-  - pip install mako
+  - pip install mako servo-tidy
 script:
+  - servo-tidy
   - (cd webrender_traits && cargo test --verbose --features "ipc")
   - (cd webrender_traits && cargo test --verbose)
   - (cd webrender && cargo test --verbose)
