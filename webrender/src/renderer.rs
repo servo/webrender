@@ -980,18 +980,12 @@ impl Renderer {
                                     texture_id: self.cache_texture_id_map[update.id.0],
                                     device: &mut self.device,
                                 };
-                                TextureCache::insert_image_border_updating_operation(data,
-                                                                                     alloc_x,
-                                                                                     alloc_y,
-                                                                                     alloc_width,
-                                                                                     alloc_height,
-                                                                                     request_x,
-                                                                                     request_y,
-                                                                                     request_width,
-                                                                                     request_height,
-                                                                                     stride,
-                                                                                     bpp,
-                                                                                     &mut op);
+                                TextureCache::insert_image_border(data,
+                                                                  allocated_rect,
+                                                                  requested_rect,
+                                                                  stride,
+                                                                  bpp,
+                                                                  &mut op);
                                 // image
                                 op.device.update_texture(op.texture_id,
                                                            request_x, request_y, request_width, request_height,

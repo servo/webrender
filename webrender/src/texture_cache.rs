@@ -600,40 +600,34 @@ impl TextureCache {
         }
     }
 
-    pub fn insert_image_border_updating_operation(src: &[u8],
-                                                  alloc_x: u32,
-                                                  alloc_y: u32,
-                                                  alloc_width: u32,
-                                                  _alloc_height: u32,
-                                                  _request_x: u32,
-                                                  request_y: u32,
-                                                  request_width: u32,
-                                                  request_height: u32,
-                                                  stride: Option<u32>,
-                                                  bpp: u32,
-                                                  op: &mut BorderUpdatingMethod) {
+    pub fn insert_image_border(src: &[u8],
+                               allocated_rect: DeviceUintRect,
+                               requested_rect: DeviceUintRect,
+                               stride: Option<u32>,
+                               bpp: u32,
+                               op: &mut BorderUpdatingMethod) {
         let mut top_row_data = Vec::new();
         let mut bottom_row_data = Vec::new();
         let mut left_column_data = Vec::new();
         let mut right_column_data = Vec::new();
 
-        copy_pixels(&src, &mut top_row_data, 0, 0, 1, request_width, stride, bpp);
-        copy_pixels(&src, &mut top_row_data, 0, 0, request_width, request_width, stride, bpp);
-        copy_pixels(&src, &mut top_row_data, request_width - 1, 0, 1, request_width, stride, bpp);
+        copy_pixels(&src, &mut top_row_data, 0, 0, 1, requested_rect.size.width, stride, bpp);
+        copy_pixels(&src, &mut top_row_data, 0, 0, requested_rect.size.width, requested_rect.size.width, stride, bpp);
+        copy_pixels(&src, &mut top_row_data, requested_rect.size.width - 1, 0, 1, requested_rect.size.width, stride, bpp);
 
-        copy_pixels(&src, &mut bottom_row_data, 0, request_height - 1, 1, request_width, stride, bpp);
-        copy_pixels(&src, &mut bottom_row_data, 0, request_height - 1, request_width, request_width, stride, bpp);
-        copy_pixels(&src, &mut bottom_row_data, request_width - 1, request_height - 1, 1, request_width, stride, bpp);
+        copy_pixels(&src, &mut bottom_row_data, 0, requested_rect.size.height - 1, 1, requested_rect.size.width, stride, bpp);
+        copy_pixels(&src, &mut bottom_row_data, 0, requested_rect.size.height - 1, requested_rect.size.width, requested_rect.size.width, stride, bpp);
+        copy_pixels(&src, &mut bottom_row_data, requested_rect.size.width - 1, requested_rect.size.height - 1, 1, requested_rect.size.width, stride, bpp);
 
-        for y in 0..request_height {
-            copy_pixels(&src, &mut left_column_data, 0, y, 1, request_width, stride, bpp);
-            copy_pixels(&src, &mut right_column_data, request_width - 1, y, 1, request_width, stride, bpp);
+        for y in 0..requested_rect.size.height {
+            copy_pixels(&src, &mut left_column_data, 0, y, 1, requested_rect.size.width, stride, bpp);
+            copy_pixels(&src, &mut right_column_data, requested_rect.size.width - 1, y, 1, requested_rect.size.width, stride, bpp);
         }
 
-        op.update(alloc_x, alloc_y, alloc_width, 1, Arc::new(top_row_data), None);
-        op.update(alloc_x, alloc_y + request_height + 1, alloc_width, 1, Arc::new(bottom_row_data), None);
-        op.update(alloc_x, request_y, 1, request_height, Arc::new(left_column_data), None);
-        op.update(alloc_x + request_width + 1, request_y, 1, request_height, Arc::new(right_column_data), None);
+        op.update(allocated_rect.origin.x, allocated_rect.origin.y, allocated_rect.size.width, 1, Arc::new(top_row_data), None);
+        op.update(allocated_rect.origin.x, allocated_rect.origin.y + requested_rect.size.height + 1, allocated_rect.size.width, 1, Arc::new(bottom_row_data), None);
+        op.update(allocated_rect.origin.x, requested_rect.origin.y, 1, requested_rect.size.height, Arc::new(left_column_data), None);
+        op.update(allocated_rect.origin.x + requested_rect.size.width + 1, requested_rect.origin.y, 1, requested_rect.size.height, Arc::new(right_column_data), None);
     }
 
     pub fn pending_updates(&mut self) -> TextureUpdateList {
@@ -860,18 +854,12 @@ impl TextureCache {
                         };
 
                         // image's borders
-                        TextureCache::insert_image_border_updating_operation(&bytes,
-                                                                             result.item.allocated_rect.origin.x,
-                                                                             result.item.allocated_rect.origin.y,
-                                                                             result.item.allocated_rect.size.width,
-                                                                             result.item.allocated_rect.size.height,
-                                                                             result.item.requested_rect.origin.x,
-                                                                             result.item.requested_rect.origin.y,
-                                                                             result.item.requested_rect.size.width,
-                                                                             result.item.requested_rect.size.height,
-                                                                             stride,
-                                                                             bpp,
-                                                                             &mut op);
+                        TextureCache::insert_image_border(&bytes,
+                                                          result.item.allocated_rect,
+                                                          result.item.requested_rect,
+                                                          stride,
+                                                          bpp,
+                                                          &mut op);
                         // image itself
                         op.update(result.item.requested_rect.origin.x, result.item.requested_rect.origin.y,
                                   result.item.requested_rect.size.width, result.item.requested_rect.size.height,
