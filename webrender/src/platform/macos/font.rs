@@ -15,7 +15,8 @@ use core_text::font_descriptor::kCTFontDefaultOrientation;
 use core_text;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use webrender_traits::{ColorU, FontKey, FontRenderMode, GlyphDimensions, GlyphOptions};
+use webrender_traits::{ColorU, FontKey, FontRenderMode, GlyphDimensions};
+use webrender_traits::{GlyphOptions, SubpixelOffset};
 use gamma_lut::{GammaLut, Color as ColorLut};
 
 pub struct FontContext {
@@ -69,23 +70,47 @@ fn supports_subpixel_aa() -> bool {
     data[0] != data[1] || data[1] != data[2]
 }
 
-fn get_glyph_metrics(ct_font: &CTFont, glyph: CGGlyph) -> GlyphMetrics {
+fn get_glyph_metrics(ct_font: &CTFont,
+                     glyph: CGGlyph,
+                     x_subpixel: SubpixelOffset,
+                     y_subpixel: SubpixelOffset) -> GlyphMetrics {
     let bounds = ct_font.get_bounding_rects_for_glyphs(kCTFontDefaultOrientation, &[glyph]);
 
-    let rasterized_left = bounds.origin.x.floor() as i32;
-    let rasterized_width =
-        (bounds.origin.x - (rasterized_left as f64) + bounds.size.width).ceil() as u32;
-    let rasterized_descent = (-bounds.origin.y).ceil() as i32;
-    let rasterized_ascent = (bounds.size.height + bounds.origin.y).ceil() as i32;
-    let rasterized_height = (rasterized_descent + rasterized_ascent) as u32;
+    let y_offset :f64 = y_subpixel.into();
+    let x_offset :f64 = x_subpixel.into();
 
-    GlyphMetrics {
-        rasterized_ascent: rasterized_ascent,
-        rasterized_descent: rasterized_descent,
-        rasterized_left: rasterized_left,
-        rasterized_width: rasterized_width,
-        rasterized_height: rasterized_height,
-    }
+    // First round out to pixel boundaries
+    // CG Origin is bottom left
+    let mut left = bounds.origin.x.floor() as i32;
+    let mut bottom = bounds.origin.y.floor() as i32;
+    let mut right = (bounds.origin.x
+                    + bounds.size.width
+                    + x_offset).ceil() as i32;
+    let mut top = (bounds.origin.y
+                  + bounds.size.height
+                  + y_offset).ceil() as i32;
+
+    // Expand the bounds by 1 pixel, to give CG room for anti-aliasing.
+    // Note that this outset is to allow room for LCD smoothed glyphs. However, the correct outset
+    // is not currently known, as CG dilates the outlines by some percentage.
+    // This is taken from Skia.
+    left -= 1;
+    bottom -= 1;
+    right += 1;
+    top += 1;
+
+    let width = right - left;
+    let height = top - bottom;
+
+    let metrics = GlyphMetrics {
+        rasterized_left: left,
+        rasterized_width: width as u32,
+        rasterized_height: height as u32,
+        rasterized_ascent: top,
+        rasterized_descent: -bottom,
+    };
+
+    metrics
 }
 
 impl FontContext {
@@ -146,10 +171,12 @@ impl FontContext {
     pub fn get_glyph_dimensions(&mut self,
                                 font_key: FontKey,
                                 size: Au,
-                                character: u32) -> Option<GlyphDimensions> {
+                                character: u32,
+                                x_subpixel: SubpixelOffset,
+                                y_subpixel: SubpixelOffset) -> Option<GlyphDimensions> {
         self.get_ct_font(font_key, size).and_then(|ref ct_font| {
             let glyph = character as CGGlyph;
-            let metrics = get_glyph_metrics(ct_font, glyph);
+            let metrics = get_glyph_metrics(ct_font, glyph, x_subpixel, y_subpixel);
             if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
                 None
             } else {
@@ -208,11 +235,13 @@ impl FontContext {
                            color: ColorU,
                            character: u32,
                            render_mode: FontRenderMode,
+                           x_suboffset: SubpixelOffset,
+                           y_suboffset: SubpixelOffset,
                            glyph_options: Option<GlyphOptions>) -> Option<RasterizedGlyph> {
         match self.get_ct_font(font_key, size) {
             Some(ref ct_font) => {
                 let glyph = character as CGGlyph;
-                let metrics = get_glyph_metrics(ct_font, glyph);
+                let metrics = get_glyph_metrics(ct_font, glyph, x_suboffset, y_suboffset);
                 if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
                     return Some(RasterizedGlyph::blank())
                 }
@@ -261,14 +290,22 @@ impl FontContext {
                 cg_context.set_allows_font_subpixel_positioning(true);
                 cg_context.set_should_subpixel_position_fonts(true);
 
+                // Don't quantize because we're doing it already.
+                cg_context.set_allows_font_subpixel_quantization(false);
+                cg_context.set_should_subpixel_quantize_fonts(false);
+
                 cg_context.set_allows_font_smoothing(smooth);
                 cg_context.set_should_smooth_fonts(smooth);
                 cg_context.set_allows_antialiasing(antialias);
                 cg_context.set_should_antialias(antialias);
 
+                let y_offset :f64 = y_suboffset.into();
+                let x_offset :f64 = y_suboffset.into();
+
+                // CG Origin is bottom left, WR is top left. Need -y offset
                 let rasterization_origin = CGPoint {
-                    x: -metrics.rasterized_left as f64,
-                    y: metrics.rasterized_descent as f64,
+                    x: -metrics.rasterized_left as f64 + x_offset,
+                    y: metrics.rasterized_descent as f64 - y_offset,
                 };
 
                 // Always draw black text on a white background

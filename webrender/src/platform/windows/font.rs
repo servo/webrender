@@ -5,6 +5,7 @@
 use app_units::Au;
 use std::collections::HashMap;
 use webrender_traits::{FontKey, ColorU, FontRenderMode, GlyphDimensions, GlyphOptions};
+use webrender_traits::{SubpixelOffset};
 use gamma_lut::{GammaLut, Color as ColorLut};
 
 use dwrote;
@@ -197,7 +198,9 @@ impl FontContext {
     pub fn get_glyph_dimensions(&self,
                                 font_key: FontKey,
                                 size: Au,
-                                glyph: u32) -> Option<GlyphDimensions> {
+                                glyph: u32,
+                                x_subpixel: SubpixelOffset,
+                                y_subpixel: SubpixelOffset) -> Option<GlyphDimensions> {
         // Probably have to default to something else here.
         let render_mode = FontRenderMode::Subpixel;
         let analysis = self.create_glyph_analysis(font_key, size,
@@ -260,6 +263,8 @@ impl FontContext {
                            color: ColorU,
                            glyph: u32,
                            render_mode: FontRenderMode,
+                           x_suboffset: SubpixelOffset,
+                           y_suboffset: SubpixelOffset,
                            glyph_options: Option<GlyphOptions>) -> Option<RasterizedGlyph> {
         let analysis = self.create_glyph_analysis(font_key, size, glyph,
                                                   render_mode, glyph_options);
