@@ -311,31 +311,33 @@ pub enum FontRenderMode {
     Subpixel,
 }
 
+impl FontRenderMode {
+    // Skia quantizes subpixel offets into 1/4 increments.
+    // Given the absolute position, return the quantized increment
+    fn subpixel_quantize_offset(&self, pos: f32) -> SubpixelOffset {
+        if *self != FontRenderMode::Subpixel {
+            return SubpixelOffset::Zero;
+        }
+
+        const SUBPIXEL_ROUNDING :f32 = 0.125; // Skia chosen value.
+        let fraction = (pos + SUBPIXEL_ROUNDING).fract();
+
+        match fraction {
+            0.0...0.25 => SubpixelOffset::Zero,
+            0.25...0.5 => SubpixelOffset::Quarter,
+            0.5...0.75 => SubpixelOffset::Half,
+            0.75...1.0 => SubpixelOffset::ThreeQuarters,
+            _ => panic!("Should only be given the fractional part"),
+        }
+    }
+}
+
 #[derive(Hash, Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum SubpixelOffset {
     Zero,
     Quarter,
     Half,
     ThreeQuarters,
-}
-
-// Skia quantizes subpixel offets into 1/4 increments.
-// Given the absolute position, return the quantized increment
-fn subpixel_quantize_offset(pos: f32, render_mode: FontRenderMode) -> SubpixelOffset {
-    if render_mode != FontRenderMode::Subpixel {
-        return SubpixelOffset::Zero;
-    }
-
-    const SUBPIXEL_ROUNDING :f32 = 0.125; // Skia chosen value.
-    let fraction = (pos + SUBPIXEL_ROUNDING).fract();
-
-    match fraction {
-        0.0...0.25 => SubpixelOffset::Zero,
-        0.25...0.5 => SubpixelOffset::Quarter,
-        0.5...0.75 => SubpixelOffset::Half,
-        0.75...1.0 => SubpixelOffset::ThreeQuarters,
-        _ => panic!("Should only be given the fractional part"),
-    }
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Deserialize, Serialize, Ord, PartialOrd)]
@@ -366,14 +368,14 @@ impl GlyphKey {
             size: size,
             color: ColorU::from(color),
             index: index,
-            x_suboffset: subpixel_quantize_offset(x, render_mode),
-            y_suboffset: subpixel_quantize_offset(y, render_mode),
+            x_suboffset: render_mode.subpixel_quantize_offset(x),
+            y_suboffset: render_mode.subpixel_quantize_offset(y),
         }
     }
 
     pub fn set_subpixel_offset(&mut self, x: f32, y: f32, render_mode: FontRenderMode) {
-        self.x_suboffset = subpixel_quantize_offset(x, render_mode);
-        self.y_suboffset = subpixel_quantize_offset(y, render_mode);
+        self.x_suboffset = render_mode.subpixel_quantize_offset(x);
+        self.y_suboffset = render_mode.subpixel_quantize_offset(y);
     }
 }
 
