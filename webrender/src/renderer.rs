@@ -886,7 +886,7 @@ impl Renderer {
         for update_list in pending_texture_updates.drain(..) {
             for update in update_list.updates {
                 match update.op {
-                    TextureUpdateOp::Create(width, height, format, filter, mode, maybe_bytes) => {
+                    TextureUpdateOp::Create { width, height, format, filter, mode, data } => {
                         let CacheTextureId(cache_texture_index) = update.id;
                         if self.cache_texture_id_map.len() == cache_texture_index {
                             // Create a new native texture, as requested by the texture cache.
@@ -896,41 +896,49 @@ impl Renderer {
                         }
                         let texture_id = self.cache_texture_id_map[cache_texture_index];
 
-                        let maybe_slice = maybe_bytes.as_ref().map(|bytes|{ bytes.as_slice() });
-                        self.device.init_texture(texture_id,
-                                                 width,
-                                                 height,
-                                                 format,
-                                                 filter,
-                                                 mode,
-                                                 maybe_slice);
-                    }
-                    TextureUpdateOp::CreateForExternalBuffer(width, height, format, filter, mode, external_image_id) => {
-                        let CacheTextureId(cache_texture_index) = update.id;
-                        if self.cache_texture_id_map.len() == cache_texture_index {
-                            // Create a new native texture, as requested by the texture cache.
-                            let texture_id = self.device
-                                                 .create_texture_ids(1, TextureTarget::Default)[0];
-                            self.cache_texture_id_map.push(texture_id);
-                        }
-                        let texture_id = self.cache_texture_id_map[cache_texture_index];
-                        let handler = self.external_image_handler
-                                          .as_mut()
-                                          .expect("Found external image, but no handler set!");
+                        if let Some(image) = data {
+                            match image {
+                                ImageData::Raw(raw) => {
+                                    self.device.init_texture(texture_id,
+                                                             width,
+                                                             height,
+                                                             format,
+                                                             filter,
+                                                             mode,
+                                                             Some(raw.as_slice()));
+                                }
+                                ImageData::ExternalBuffer(id) => {
+                                    let handler = self.external_image_handler
+                                                      .as_mut()
+                                                      .expect("Found external image, but no handler set!");
 
-                        match handler.lock(external_image_id).source {
-                            ExternalImageSource::RawData(data) => {
-                                self.device.init_texture(texture_id,
-                                                         width,
-                                                         height,
-                                                         format,
-                                                         filter,
-                                                         mode,
-                                                         Some(data));
+                                    match handler.lock(id).source {
+                                        ExternalImageSource::RawData(raw) => {
+                                            self.device.init_texture(texture_id,
+                                                                     width,
+                                                                     height,
+                                                                     format,
+                                                                     filter,
+                                                                     mode,
+                                                                     Some(raw));
+                                        }
+                                        _ => panic!("No external buffer found"),
+                                    };
+                                    handler.unlock(id);
+                                }
+                                _ => {
+                                    panic!("No suitable image buffer for TextureUpdateOp::Create.");
+                                }
                             }
-                            _ => panic!("No external buffer found"),
-                        };
-                        handler.unlock(external_image_id);
+                        } else {
+                            self.device.init_texture(texture_id,
+                                                     width,
+                                                     height,
+                                                     format,
+                                                     filter,
+                                                     mode,
+                                                     None);
+                        }
                     }
                     TextureUpdateOp::Grow { width, height, format, filter, mode } => {
                         let texture_id = self.cache_texture_id_map[update.id.0];
