@@ -64,6 +64,7 @@ pub enum ApiMsg {
 }
 
 /// An opaque pointer-sized value.
+#[repr(C)]
 #[derive(Clone, Deserialize, Serialize)]
 pub struct ExternalEvent {
     raw: usize,
@@ -77,6 +78,7 @@ impl ExternalEvent {
     pub fn unwrap(self) -> usize { self.raw }
 }
 
+#[repr(C)]
 #[derive(Copy, Clone, Deserialize, Serialize, Debug)]
 pub struct GlyphDimensions {
     pub left: i32,
@@ -122,6 +124,7 @@ pub struct BorderRadius {
     pub bottom_right: LayoutSize,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BorderSide {
     pub width: f32,
@@ -129,25 +132,29 @@ pub struct BorderSide {
     pub style: BorderStyle,
 }
 
+#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum BorderStyle {
-    None,
-    Solid,
-    Double,
-    Dotted,
-    Dashed,
-    Hidden,
-    Groove,
-    Ridge,
-    Inset,
-    Outset,
+    None    = 0,
+    Solid   = 1,
+    Double  = 2,
+    Dotted  = 3,
+    Dashed  = 4,
+    Hidden  = 5,
+    Groove  = 6,
+    Ridge   = 7,
+    Inset   = 8,
+    Outset  = 9,
 }
 
+#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum BoxShadowClipMode {
-    None,
-    Outset,
-    Inset,
+    None    = 0,
+    Outset  = 1,
+    Inset   = 2,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -182,6 +189,7 @@ pub struct BuiltDisplayListDescriptor {
     display_items_size: usize,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ColorF {
     pub r: f32,
@@ -191,6 +199,7 @@ pub struct ColorF {
 }
 known_heap_size!(0, ColorF);
 
+#[repr(C)]
 #[derive(Clone, Copy, Hash, Eq, Debug, Deserialize, PartialEq, PartialOrd, Ord, Serialize)]
 pub struct ColorU {
     pub r: u8,
@@ -278,13 +287,16 @@ pub struct DisplayItem {
     pub clip: ClipRegion,
 }
 
+#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum DisplayListMode {
-    Default,
-    PseudoFloat,
-    PseudoPositionedContent,
+    Default                 = 0,
+    PseudoFloat             = 1,
+    PseudoPositionedContent = 2,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Epoch(pub u32);
 
@@ -301,6 +313,7 @@ pub enum FilterOp {
     Sepia(f32),
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize, Ord, PartialOrd)]
 pub struct FontKey(pub u32, pub u32);
 
@@ -332,12 +345,14 @@ impl FontRenderMode {
     }
 }
 
+#[repr(C)]
+#[repr(u32)]
 #[derive(Hash, Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum SubpixelOffset {
-    Zero,
-    Quarter,
-    Half,
-    ThreeQuarters,
+    Zero            = 0,
+    Quarter         = 1,
+    Half            = 2,
+    ThreeQuarters   = 3,
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Deserialize, Serialize, Ord, PartialOrd)]
@@ -379,13 +394,16 @@ impl GlyphKey {
     }
 }
 
+#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum FragmentType {
-    FragmentBody,
-    BeforePseudoContent,
-    AfterPseudoContent,
+    FragmentBody        = 0,
+    BeforePseudoContent = 1,
+    AfterPseudoContent  = 2,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GlyphInstance {
     pub index: u32,
@@ -432,6 +450,7 @@ pub struct IframeDisplayItem {
     pub pipeline_id: PipelineId,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct IdNamespace(pub u32);
 
@@ -451,13 +470,15 @@ pub struct YuvImageDisplayItem {
     pub color_space: YuvColorSpace,
 }
 
+#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ImageFormat {
-    Invalid,
-    A8,
-    RGB8,
-    RGBA8,
-    RGBAF32,
+    Invalid  = 0,
+    A8       = 1,
+    RGB8     = 2,
+    RGBA8    = 3,
+    RGBAF32  = 4,
 }
 
 impl ImageFormat {
@@ -472,6 +493,8 @@ impl ImageFormat {
     }
 }
 
+#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum YuvColorSpace {
     Rec601 = 1, // The values must match the ones in prim_shared.glsl
@@ -516,24 +539,26 @@ pub struct ItemRange {
     pub length: usize,
 }
 
+#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum MixBlendMode {
-    Normal,
-    Multiply,
-    Screen,
-    Overlay,
-    Darken,
-    Lighten,
-    ColorDodge,
-    ColorBurn,
-    HardLight,
-    SoftLight,
-    Difference,
-    Exclusion,
-    Hue,
-    Saturation,
-    Color,
-    Luminosity,
+    Normal      = 0,
+    Multiply    = 1,
+    Screen      = 2,
+    Overlay     = 3,
+    Darken      = 4,
+    Lighten     = 5,
+    ColorDodge  = 6,
+    ColorBurn   = 7,
+    HardLight   = 8,
+    SoftLight   = 9,
+    Difference  = 10,
+    Exclusion   = 11,
+    Hue         = 12,
+    Saturation  = 13,
+    Color       = 14,
+    Luminosity  = 15,
 }
 
 #[cfg(target_os = "macos")]
@@ -547,6 +572,7 @@ pub struct NativeFontHandle;
 #[cfg(target_os = "windows")]
 pub type NativeFontHandle = FontDescriptor;
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct PipelineId(pub u32, pub u32);
 
@@ -574,6 +600,7 @@ pub trait RenderDispatcher: Send {
     fn dispatch(&self, Box<Fn() + Send>);
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct ResourceId(pub u32);
 
@@ -630,10 +657,12 @@ pub struct ScrollLayerState {
     pub scroll_offset: LayoutPoint,
 }
 
+#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ScrollPolicy {
-    Scrollable,
-    Fixed,
+    Scrollable  = 0,
+    Fixed       = 1,
 }
 known_heap_size!(0, ScrollPolicy);
 
@@ -647,6 +676,7 @@ pub enum ScrollLocation {
     End 
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ServoScrollRootId(pub usize);
 
