@@ -790,12 +790,14 @@ impl TextureCache {
                 panic!("Doesn't support Update() for external image.");
             }
             ImageData::Raw(bytes) => {
-                TextureUpdateOp::Update(existing_item.requested_rect.origin.x,
-                                        existing_item.requested_rect.origin.y,
-                                        descriptor.width,
-                                        descriptor.height,
-                                        bytes,
-                                        descriptor.stride)
+                TextureUpdateOp::Update {
+                    page_pos_x: existing_item.requested_rect.origin.x,
+                    page_pos_y: existing_item.requested_rect.origin.y,
+                    width: descriptor.width,
+                    height: descriptor.height,
+                    data: bytes,
+                    stride: descriptor.stride,
+                }
             }
         };
 
@@ -841,7 +843,14 @@ impl TextureCache {
                             fn update(&mut self, x: u32, y: u32, w: u32, h: u32, src: Arc<Vec<u8>>, stride: Option<u32>) {
                                 let update_op = TextureUpdate {
                                     id: self.texture_id,
-                                    op: TextureUpdateOp::Update(x, y, w, h, src, stride)
+                                    op: TextureUpdateOp::Update {
+                                        page_pos_x: x,
+                                        page_pos_y: y,
+                                        width: w,
+                                        height: h,
+                                        data: src,
+                                        stride: stride,
+                                    },
                                 };
 
                                 self.update_list.push(update_op);
@@ -945,18 +954,27 @@ impl TextureCache {
 
 fn texture_create_op(texture_size: DeviceUintSize, format: ImageFormat, mode: RenderTargetMode)
                      -> TextureUpdateOp {
-    TextureUpdateOp::Create(texture_size.width, texture_size.height, format, TextureFilter::Linear, mode, None)
+    TextureUpdateOp::Create {
+        width: texture_size.width,
+        height: texture_size.height,
+        format: format,
+        filter: TextureFilter::Linear,
+        mode: mode,
+        data: None,
+    }
 }
 
 fn texture_grow_op(texture_size: DeviceUintSize,
                    format: ImageFormat,
                    mode: RenderTargetMode)
                    -> TextureUpdateOp {
-    TextureUpdateOp::Grow(texture_size.width,
-                          texture_size.height,
-                          format,
-                          TextureFilter::Linear,
-                          mode)
+    TextureUpdateOp::Grow {
+        width: texture_size.width,
+        height: texture_size.height,
+        format: format,
+        filter: TextureFilter::Linear,
+        mode: mode,
+    }
 }
 
 trait FitsInside {

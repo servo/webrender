@@ -932,35 +932,29 @@ impl Renderer {
                         };
                         handler.unlock(external_image_id);
                     }
-                    TextureUpdateOp::Grow(new_width,
-                                          new_height,
-                                          format,
-                                          filter,
-                                          mode) => {
+                    TextureUpdateOp::Grow { width, height, format, filter, mode } => {
                         let texture_id = self.cache_texture_id_map[update.id.0];
                         self.device.resize_texture(texture_id,
-                                                   new_width,
-                                                   new_height,
+                                                   width,
+                                                   height,
                                                    format,
                                                    filter,
                                                    mode);
                     }
-                    TextureUpdateOp::Update(x, y, width, height, bytes, stride) => {
+                    TextureUpdateOp::Update { page_pos_x, page_pos_y, width, height, data, stride } => {
                         let texture_id = self.cache_texture_id_map[update.id.0];
                         self.device.update_texture(texture_id,
-                                                   x,
-                                                   y,
+                                                   page_pos_x,
+                                                   page_pos_y,
                                                    width, height, stride,
-                                                   bytes.as_slice());
+                                                   data.as_slice());
                     }
-                    TextureUpdateOp::UpdateForExternalBuffer(alloc_x, alloc_y, alloc_width, alloc_height,
-                                                             request_x, request_y, request_width, request_height,
-                                                             external_image_id, bpp, stride) => {
+                    TextureUpdateOp::UpdateForExternalBuffer { allocated_rect, requested_rect, id, bpp, stride } => {
                         let handler = self.external_image_handler
                                           .as_mut()
                                           .expect("Found external image, but no handler set!");
 
-                        match handler.lock(external_image_id).source {
+                        match handler.lock(id).source {
                             ExternalImageSource::RawData(data) => {
                                 struct TextureUpdatingFunctor<'a> {
                                     texture_id: TextureId,
@@ -988,12 +982,15 @@ impl Renderer {
                                                                   &mut op);
                                 // image
                                 op.device.update_texture(op.texture_id,
-                                                           request_x, request_y, request_width, request_height,
-                                                           stride, data);
+                                                         requested_rect.origin.x,
+                                                         requested_rect.origin.y,
+                                                         requested_rect.size.width,
+                                                         requested_rect.size.height,
+                                                         stride, data);
                             }
                             _ => panic!("No external buffer found"),
                         };
-                        handler.unlock(external_image_id);
+                        handler.unlock(id);
                     }
                     TextureUpdateOp::Free => {
                         let texture_id = self.cache_texture_id_map[update.id.0];
