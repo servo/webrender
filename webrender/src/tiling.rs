@@ -2000,6 +2000,66 @@ impl FrameBuilder {
         let br_inner = br_outer - LayerPoint::new(radius.bottom_right.width.max(right.width),
                                                   radius.bottom_right.height.max(bottom.width));
 
+        // The border shader is quite expensive. For simple borders, we can just draw
+        // the border with a few rectangles. This generally gives better batching, and
+        // a GPU win in fragment shader time.
+        // More importantly, the software (OSMesa) implementation we run tests on is
+        // particularly slow at running our complex border shader, compared to the
+        // rectangle shader. This has the effect of making some of our tests time
+        // out more often on CI (the actual cause is simply too many Servo processes and
+        // threads being run on CI at once).
+        // TODO(gw): Detect some more simple cases and handle those with simpler shaders too.
+        // TODO(gw): Consider whether it's only worth doing this for large rectangles (since
+        //           it takes a little more CPU time to handle multiple rectangles compared
+        //           to a single border primitive).
+        if left.style == BorderStyle::Solid {
+            let same_color = left_color == top_color &&
+                             left_color == right_color &&
+                             left_color == bottom_color;
+            let same_style = left.style == top.style &&
+                             left.style == right.style &&
+                             left.style == bottom.style;
+            let zero_radius = radius.top_left == LayerSize::zero() &&
+                              radius.top_right == LayerSize::zero() &&
+                              radius.bottom_left == LayerSize::zero() &&
+                              radius.bottom_right == LayerSize::zero();
+
+            if same_color && same_style && zero_radius {
+                let top_rect = LayerRect::new(rect.origin,
+                                              LayerSize::new(rect.size.width, top.width));
+                let left_rect = LayerRect::new(LayerPoint::new(tl_outer.x, tl_inner.y),
+                                               LayerSize::new(left.width,
+                                                              rect.size.height - top.width - bottom.width));
+                let right_rect = LayerRect::new(tr_inner,
+                                                LayerSize::new(right.width,
+                                                               rect.size.height - top.width - bottom.width));
+                let bottom_rect = LayerRect::new(LayerPoint::new(bl_outer.x, bl_inner.y),
+                                                 LayerSize::new(rect.size.width, bottom.width));
+
+                self.add_solid_rectangle(&top_rect,
+                                         clip_region,
+                                         &top_color,
+                                         PrimitiveFlags::None);
+
+                self.add_solid_rectangle(&left_rect,
+                                         clip_region,
+                                         &left_color,
+                                         PrimitiveFlags::None);
+
+                self.add_solid_rectangle(&right_rect,
+                                         clip_region,
+                                         &right_color,
+                                         PrimitiveFlags::None);
+
+                self.add_solid_rectangle(&bottom_rect,
+                                         clip_region,
+                                         &bottom_color,
+                                         PrimitiveFlags::None);
+
+                return;
+            }
+        }
+
         //Note: while similar to `ComplexClipRegion::get_inner_rect()` in spirit,
         // this code is a bit more complex and can not there for be merged.
         let inner_rect = rect_from_points_f(tl_inner.x.max(bl_inner.x),
