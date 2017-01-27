@@ -338,6 +338,17 @@ fn subpixel_quantize_offset(pos: f32, render_mode: FontRenderMode) -> SubpixelOf
     }
 }
 
+impl Into<f64> for SubpixelOffset {
+    fn into(self) -> f64 {
+        match self {
+            SubpixelOffset::Zero => 0.0,
+            SubpixelOffset::Quarter => 0.25,
+            SubpixelOffset::Half => 0.5,
+            SubpixelOffset::ThreeQuarters => 0.75,
+        }
+    }
+}
+
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Deserialize, Serialize, Ord, PartialOrd)]
 pub struct GlyphKey {
     pub font_key: FontKey,
