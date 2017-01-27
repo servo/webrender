@@ -302,7 +302,7 @@ pub enum FilterOp {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize, Ord, PartialOrd)]
-pub struct FontKey(u32, u32);
+pub struct FontKey(pub u32, pub u32);
 
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize, Ord, PartialOrd)]
 pub enum FontRenderMode {
@@ -499,7 +499,7 @@ impl ImageData {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct ImageKey(u32, u32);
+pub struct ImageKey(pub u32, pub u32);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ImageRendering {
