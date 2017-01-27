@@ -190,6 +190,7 @@ pub enum TextureSampler {
     RenderTasks,
     Geometry,
     ResourceRects,
+    Gradients,
 }
 
 impl TextureSampler {
@@ -269,6 +270,9 @@ pub enum ClipAttribute {
     SegmentIndex,
 }
 
+// A packed RGBA8 color ordered for vertex data or similar.
+// Use PackedTexel instead if intending to upload to a texture.
+
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct PackedColor {
@@ -284,6 +288,29 @@ impl PackedColor {
             r: (0.5 + color.r * COLOR_FLOAT_TO_FIXED).floor() as u8,
             g: (0.5 + color.g * COLOR_FLOAT_TO_FIXED).floor() as u8,
             b: (0.5 + color.b * COLOR_FLOAT_TO_FIXED).floor() as u8,
+            a: (0.5 + color.a * COLOR_FLOAT_TO_FIXED).floor() as u8,
+        }
+    }
+}
+
+// RGBA8 textures currently pack texels in BGRA format for upload.
+// PackedTexel abstracts away this difference from PackedColor.
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct PackedTexel {
+    pub b: u8,
+    pub g: u8,
+    pub r: u8,
+    pub a: u8,
+}
+
+impl PackedTexel {
+    pub fn from_color(color: &ColorF) -> PackedTexel {
+        PackedTexel {
+            b: (0.5 + color.b * COLOR_FLOAT_TO_FIXED).floor() as u8,
+            g: (0.5 + color.g * COLOR_FLOAT_TO_FIXED).floor() as u8,
+            r: (0.5 + color.r * COLOR_FLOAT_TO_FIXED).floor() as u8,
             a: (0.5 + color.a * COLOR_FLOAT_TO_FIXED).floor() as u8,
         }
     }

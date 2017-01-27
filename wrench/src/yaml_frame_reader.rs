@@ -198,9 +198,14 @@ impl YamlFrameReader {
                 offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
                 color: chunk[1].as_colorf().expect("gradient stop color is not color"),
             }).collect::<Vec<_>>();
+        let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
+            ExtendMode::Repeat
+        } else {
+            ExtendMode::Clamp
+        };
 
         let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
-        self.builder().push_gradient(bounds, clip, start, end, stops);
+        self.builder().push_gradient(bounds, clip, start, end, stops, extend_mode);
     }
 
     fn handle_radial_gradient(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
@@ -215,10 +220,15 @@ impl YamlFrameReader {
                 offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
                 color: chunk[1].as_colorf().expect("gradient stop color is not color"),
             }).collect::<Vec<_>>();
+        let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
+            ExtendMode::Repeat
+        } else {
+            ExtendMode::Clamp
+        };
 
         let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
         self.builder().push_radial_gradient(bounds, clip, start_center, start_radius,
-                                            end_center, end_radius, stops);
+                                            end_center, end_radius, stops, extend_mode);
     }
 
     fn handle_border(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {

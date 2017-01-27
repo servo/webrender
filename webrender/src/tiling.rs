@@ -15,7 +15,7 @@ use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{ImagePrimitiveCpu, ImagePrimitiveGpu, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu, ImagePrimitiveKind, };
 use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata, TexelRect};
 use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve};
-use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
+use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientData};
 use prim_store::{RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
 use prim_store::{PrimitiveCacheKey, TextRunPrimitiveGpu, TextRunPrimitiveCpu};
 use prim_store::{PrimitiveStore, GpuBlock16, GpuBlock32, GpuBlock64, GpuBlock128};
@@ -32,7 +32,7 @@ use std::usize;
 use texture_cache::TexturePage;
 use util::{self, rect_from_points_f};
 use util::{TransformedRect, TransformedRectKind, subtract_rect, pack_as_float};
-use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, MixBlendMode};
+use webrender_traits::{ColorF, ExtendMode, FontKey, ImageKey, ImageRendering, MixBlendMode};
 use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle, YuvColorSpace};
 use webrender_traits::{AuxiliaryLists, ItemRange, BoxShadowClipMode, ClipRegion};
 use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId, FontRenderMode};
@@ -82,6 +82,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::Image => AlphaBatchKind::Image,
             PrimitiveKind::YuvImage => AlphaBatchKind::YuvImage,
             PrimitiveKind::Rectangle => AlphaBatchKind::Rectangle,
+            PrimitiveKind::AlignedGradient => AlphaBatchKind::AlignedGradient,
+            PrimitiveKind::AngleGradient => AlphaBatchKind::AngleGradient,
             PrimitiveKind::RadialGradient => AlphaBatchKind::RadialGradient,
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
@@ -92,17 +94,6 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     // results of the cached text blur to the framebuffer,
                     // applying tile clipping etc.
                     AlphaBatchKind::CacheImage
-                }
-            }
-            PrimitiveKind::Gradient => {
-                let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                match gradient.kind {
-                    GradientType::Horizontal | GradientType::Vertical => {
-                        AlphaBatchKind::AlignedGradient
-                    }
-                    GradientType::Rotated => {
-                        AlphaBatchKind::AngleGradient
-                    }
                 }
             }
         };
@@ -116,7 +107,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::Border |
             PrimitiveKind::BoxShadow |
             PrimitiveKind::Rectangle |
-            PrimitiveKind::Gradient |
+            PrimitiveKind::AlignedGradient |
+            PrimitiveKind::AngleGradient |
             PrimitiveKind::RadialGradient => [invalid; 3],
             PrimitiveKind::Image => {
                 let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
@@ -1809,6 +1801,7 @@ pub struct Frame {
     pub gpu_data64: Vec<GpuBlock64>,
     pub gpu_data128: Vec<GpuBlock128>,
     pub gpu_geometry: Vec<PrimitiveGeometry>,
+    pub gpu_gradient_data: Vec<GradientData>,
     pub gpu_resource_rects: Vec<TexelRect>,
 
     // List of textures that we don't know about yet
@@ -2083,21 +2076,26 @@ impl FrameBuilder {
                         clip_region: &ClipRegion,
                         start_point: LayerPoint,
                         end_point: LayerPoint,
-                        stops: ItemRange) {
-        // Fast paths for axis-aligned gradients:
-        let mut reverse_stops = false;
-        let kind = if start_point.x == end_point.x {
-            GradientType::Vertical
-        } else if start_point.y == end_point.y {
-            GradientType::Horizontal
-        } else {
-            reverse_stops = start_point.x > end_point.x;
-            GradientType::Rotated
-        };
+                        stops: ItemRange,
+                        extend_mode: ExtendMode) {
+        // Fast path for clamped, axis-aligned gradients:
+        let aligned = extend_mode == ExtendMode::Clamp &&
+                      (start_point.x == end_point.x ||
+                       start_point.y == end_point.y);
+        // Try to ensure that if the gradient is specified in reverse, then so long as the stops
+        // are also supplied in reverse that the rendered result will be equivalent. To do this,
+        // a reference orientation for the gradient line must be chosen, somewhat arbitrarily, so
+        // just designate the reference orientation as start < end. Aligned gradient rendering
+        // manages to produce the same result regardless of orientation, so don't worry about
+        // reversing in that case.
+        let reverse_stops = !aligned &&
+                            (start_point.x > end_point.x ||
+                             (start_point.x == end_point.x &&
+                              start_point.y > end_point.y));
 
         let gradient_cpu = GradientPrimitiveCpu {
             stops_range: stops,
-            kind: kind,
+            extend_mode: extend_mode,
             reverse_stops: reverse_stops,
             cache_dirty: true,
         };
@@ -2114,13 +2112,17 @@ impl FrameBuilder {
         let gradient_gpu = GradientPrimitiveGpu {
             start_point: sp,
             end_point: ep,
+            extend_mode: pack_as_float(extend_mode as u32),
             padding: [0.0, 0.0, 0.0],
-            kind: pack_as_float(kind as u32),
         };
 
-        self.add_primitive(&rect,
-                           clip_region,
-                           PrimitiveContainer::Gradient(gradient_cpu, gradient_gpu));
+        let prim = if aligned {
+            PrimitiveContainer::AlignedGradient(gradient_cpu, gradient_gpu)
+        } else {
+            PrimitiveContainer::AngleGradient(gradient_cpu, gradient_gpu)
+        };
+
+        self.add_primitive(&rect, clip_region, prim);
     }
 
     pub fn add_radial_gradient(&mut self,
@@ -2130,9 +2132,11 @@ impl FrameBuilder {
                                start_radius: f32,
                                end_center: LayerPoint,
                                end_radius: f32,
-                               stops: ItemRange) {
+                               stops: ItemRange,
+                               extend_mode: ExtendMode) {
         let radial_gradient_cpu = RadialGradientPrimitiveCpu {
             stops_range: stops,
+            extend_mode: extend_mode,
             cache_dirty: true,
         };
 
@@ -2141,7 +2145,8 @@ impl FrameBuilder {
             end_center: end_center,
             start_radius: start_radius,
             end_radius: end_radius,
-            padding: [0.0, 0.0],
+            extend_mode: pack_as_float(extend_mode as u32),
+            padding: [0.0],
         };
 
         self.add_primitive(&rect,
@@ -2777,6 +2782,7 @@ impl FrameBuilder {
             gpu_data64: self.prim_store.gpu_data64.build(),
             gpu_data128: self.prim_store.gpu_data128.build(),
             gpu_geometry: self.prim_store.gpu_geometry.build(),
+            gpu_gradient_data: self.prim_store.gpu_gradient_data.build(),
             gpu_resource_rects: self.prim_store.gpu_resource_rects.build(),
             deferred_resolves: deferred_resolves,
         }

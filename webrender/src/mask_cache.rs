@@ -2,9 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use gpu_store::{GpuStore, GpuStoreAddress};
+use gpu_store::GpuStoreAddress;
 use prim_store::{ClipData, GpuBlock32, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
+use renderer::VertexDataStore;
 use util::{rect_from_points_f, TransformedRect};
 use webrender_traits::{AuxiliaryLists, BorderRadius, ClipRegion, ComplexClipRegion, ImageMask};
 use webrender_traits::{DeviceIntRect, DeviceIntSize, LayerRect, LayerToWorldTransform};
@@ -57,7 +58,7 @@ impl MaskCacheInfo {
     /// Create a new mask cache info. It allocates the GPU store data but leaves
     /// it unitialized for the following `update()` call to deal with.
     pub fn new(source: &ClipSource,
-               clip_store: &mut GpuStore<GpuBlock32>)
+               clip_store: &mut VertexDataStore<GpuBlock32>)
                -> Option<MaskCacheInfo> {
         let (image, clip_range) = match source {
             &ClipSource::NoClip => return None,
@@ -96,7 +97,7 @@ impl MaskCacheInfo {
     pub fn update(&mut self,
                   source: &ClipSource,
                   transform: &LayerToWorldTransform,
-                  clip_store: &mut GpuStore<GpuBlock32>,
+                  clip_store: &mut VertexDataStore<GpuBlock32>,
                   device_pixel_ratio: f32,
                   aux_lists: &AuxiliaryLists) {
 
