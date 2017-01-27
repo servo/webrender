@@ -13,7 +13,6 @@ void main(void) {
                                  prim.layer,
                                  prim.task);
 
-    vStopCount = int(prim.user_data.x);
     vPos = vi.local_pos;
 
     // Snap the start/end points to device pixel units.
@@ -24,12 +23,15 @@ void main(void) {
     // and not snap here?
     vStartCenter = floor(0.5 + gradient.start_end_center.xy * uDevicePixelRatio) / uDevicePixelRatio;
     vEndCenter = floor(0.5 + gradient.start_end_center.zw * uDevicePixelRatio) / uDevicePixelRatio;
-    vStartRadius = gradient.start_end_radius.x;
-    vEndRadius = gradient.start_end_radius.y;
+    vStartRadius = gradient.start_end_radius_extend_mode.x;
+    vEndRadius = gradient.start_end_radius_extend_mode.y;
 
-    for (int i=0 ; i < vStopCount ; ++i) {
-        GradientStop stop = fetch_gradient_stop(prim.sub_index + i);
-        vColors[i] = stop.color;
-        vOffsets[i/4][i%4] = stop.offset.x;
-    }
+    // V coordinate of gradient row in lookup texture.
+    vGradientIndex = prim.sub_index + 0.5;
+
+    // Number of entries in gradient for scaling U coordinate.
+    vGradientScale = float(prim.user_data.x);
+
+    // Whether to repeat the gradient instead of clamping.
+    vGradientRepeat = float(int(gradient.start_end_radius_extend_mode.z) == EXTEND_MODE_REPEAT);
 }

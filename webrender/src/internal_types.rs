@@ -190,6 +190,7 @@ pub enum TextureSampler {
     RenderTasks,
     Geometry,
     ResourceRects,
+    Gradients,
 }
 
 impl TextureSampler {
@@ -285,6 +286,15 @@ impl PackedColor {
             g: (0.5 + color.g * COLOR_FLOAT_TO_FIXED).floor() as u8,
             b: (0.5 + color.b * COLOR_FLOAT_TO_FIXED).floor() as u8,
             a: (0.5 + color.a * COLOR_FLOAT_TO_FIXED).floor() as u8,
+        }
+    }
+
+    pub fn to_bgra(&self) -> PackedColor {
+        PackedColor {
+            r: self.b,
+            g: self.g,
+            b: self.r,
+            a: self.a
         }
     }
 }

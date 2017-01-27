@@ -580,6 +580,7 @@ impl YamlFrameWriter {
                         stops.push(Yaml::String(color_to_string(stop.color)));
                     }
                     yaml_node(&mut v, "stops", Yaml::Array(stops));
+                    bool_node(&mut v, "repeat", item.extend_mode == ExtendMode::Repeat);
                 },
                 RadialGradient(item) => {
                     str_node(&mut v, "type", "radial_gradient");
@@ -593,6 +594,7 @@ impl YamlFrameWriter {
                         stops.push(Yaml::String(color_to_string(stop.color)));
                     }
                     yaml_node(&mut v, "stops", Yaml::Array(stops));
+                    bool_node(&mut v, "repeat", item.extend_mode == ExtendMode::Repeat);
                 },
                 Iframe(item) => {
                     str_node(&mut v, "type", "iframe");
