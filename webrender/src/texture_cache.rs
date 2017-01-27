@@ -827,13 +827,13 @@ impl TextureCache {
 
         let bpp = format.bytes_per_pixel().unwrap();
 
-        match data {
-            ImageData::ExternalHandle(..) => {
-                panic!("External handle should not go through texture_cache.");
-            }
-            ImageData::Raw(bytes) => {
-                match result.kind {
-                    AllocationKind::TexturePage => {
+        match result.kind {
+            AllocationKind::TexturePage => {
+                match data {
+                    ImageData::ExternalHandle(..) => {
+                        panic!("External handle should not go through texture_cache.");
+                    }
+                    ImageData::Raw(bytes) => {
                         struct TextureUpdatingFunctor<'a> {
                             texture_id: CacheTextureId,
                             update_list: &'a mut TextureUpdateList,
@@ -874,55 +874,43 @@ impl TextureCache {
                                   result.item.requested_rect.size.width, result.item.requested_rect.size.height,
                                   bytes, stride);
                     }
-                    AllocationKind::Standalone => {
+                    ImageData::ExternalBuffer(id) => {
                         let update_op = TextureUpdate {
                             id: result.item.texture_id,
-                            op: TextureUpdateOp::Create(width,
-                                                        height,
-                                                        format,
-                                                        filter,
-                                                        RenderTargetMode::None,
-                                                        Some(bytes))
+                            op: TextureUpdateOp::UpdateForExternalBuffer {
+                                allocated_rect: result.item.allocated_rect,
+                                requested_rect: result.item.requested_rect,
+                                id: id,
+                                bpp: bpp,
+                                stride: stride,
+                            },
                         };
 
                         self.pending_updates.push(update_op);
                     }
-                };
+                }
             }
-            ImageData::ExternalBuffer(id) => {
-                match result.kind {
-                    AllocationKind::TexturePage => {
+            AllocationKind::Standalone => {
+                match data {
+                    ImageData::ExternalHandle(..) => {
+                        panic!("External handle should not go through texture_cache.");
+                    }
+                    _ => {
                         let update_op = TextureUpdate {
                             id: result.item.texture_id,
-                            op: TextureUpdateOp::UpdateForExternalBuffer(result.item.allocated_rect.origin.x,
-                                                                         result.item.allocated_rect.origin.y,
-                                                                         result.item.allocated_rect.size.width,
-                                                                         result.item.allocated_rect.size.height,
-                                                                         result.item.requested_rect.origin.x,
-                                                                         result.item.requested_rect.origin.y,
-                                                                         result.item.requested_rect.size.width,
-                                                                         result.item.requested_rect.size.height,
-                                                                         id,
-                                                                         bpp,
-                                                                         stride)
+                            op: TextureUpdateOp::Create {
+                                width: width,
+                                height: height,
+                                format: format,
+                                filter: filter,
+                                mode: RenderTargetMode::None,
+                                data: Some(data),
+                            },
                         };
 
                         self.pending_updates.push(update_op);
                     }
-                    AllocationKind::Standalone => {
-                        let update_op = TextureUpdate {
-                            id: result.item.texture_id,
-                            op: TextureUpdateOp::CreateForExternalBuffer(width,
-                                                                         height,
-                                                                         format,
-                                                                         filter,
-                                                                         RenderTargetMode::None,
-                                                                         id)
-                        };
-
-                        self.pending_updates.push(update_op);
-                    }
-                };
+                }
             }
         }
     }
