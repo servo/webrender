@@ -22,6 +22,7 @@ before_install:
 script:
   - (cd webrender_traits && cargo test --verbose --features "ipc")
   - (cd webrender_traits && cargo test --verbose)
+  - (cd webrender && cargo build --verbose --no-default-features --features codegen)
   - (cd webrender && cargo test --verbose)
   - (cd sample && cargo test --verbose)
   - (cd replay && cargo test --verbose)
