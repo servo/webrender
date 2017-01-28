@@ -194,7 +194,16 @@ impl ScrollTree {
                 self.current_scroll_layer_id = Some(scroll_layer_id);
                 scroll_layer_id
             },
-            (_, _, Some(scroll_layer_id)) => scroll_layer_id,
+            (_, scroll_layer_id, Some(cached_scroll_layer_id)) => {
+                let scroll_layer_id = match self.layers.get(&cached_scroll_layer_id) {
+                    Some(_) => cached_scroll_layer_id,
+                    None => {
+                        self.current_scroll_layer_id = Some(scroll_layer_id);
+                        scroll_layer_id
+                    },
+                };
+                scroll_layer_id
+            },
             (_, _, None) => return false,
         };
 
