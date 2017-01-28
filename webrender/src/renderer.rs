@@ -31,7 +31,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
-use texture_cache::{BorderUpdatingMethod, TextureCache};
+use texture_cache::{TextureCache};
 use tiling::{Frame, FrameBuilderConfig, PrimitiveBatch, PrimitiveBatchData};
 use tiling::{BlurCommand, CacheClipInstance, PrimitiveInstance, RenderTarget};
 use time::precise_time_ns;
@@ -961,40 +961,28 @@ impl Renderer {
                         let handler = self.external_image_handler
                                           .as_mut()
                                           .expect("Found external image, but no handler set!");
+                        let device = &mut self.device;
+                        let cached_id = self.cache_texture_id_map[update.id.0];
 
                         match handler.lock(id).source {
                             ExternalImageSource::RawData(data) => {
-                                struct TextureUpdatingFunctor<'a> {
-                                    texture_id: TextureId,
-                                    device: &'a mut Device,
-                                }
-
-                                impl<'a> BorderUpdatingMethod for TextureUpdatingFunctor<'a> {
-                                    fn update(&mut self, x: u32, y: u32, w: u32, h: u32, src: Arc<Vec<u8>>, stride: Option<u32>) {
-                                        self.device.update_texture(self.texture_id,
-                                                                   x, y, w, h, stride,
-                                                                   src.as_slice());
-                                    }
-                                }
-
-                                // image's border
-                                let mut op = TextureUpdatingFunctor {
-                                    texture_id: self.cache_texture_id_map[update.id.0],
-                                    device: &mut self.device,
+                                // image itself
+                                device.update_texture(cached_id,
+                                                      requested_rect.origin.x,
+                                                      requested_rect.origin.y,
+                                                      requested_rect.size.width,
+                                                      requested_rect.size.height,
+                                                      stride, data);
+                                // image's borders
+                                let op = |x , y , w , h , src: Arc<Vec<u8>> , stride| {
+                                    device.update_texture(cached_id, x, y, w, h, stride, src.as_slice());
                                 };
                                 TextureCache::insert_image_border(data,
                                                                   allocated_rect,
                                                                   requested_rect,
                                                                   stride,
                                                                   bpp,
-                                                                  &mut op);
-                                // image
-                                op.device.update_texture(op.texture_id,
-                                                         requested_rect.origin.x,
-                                                         requested_rect.origin.y,
-                                                         requested_rect.size.width,
-                                                         requested_rect.size.height,
-                                                         stride, data);
+                                                                  op);
                             }
                             _ => panic!("No external buffer found"),
                         };
