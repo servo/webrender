@@ -7,7 +7,7 @@ use batch_builder::BorderSideHelpers;
 use fnv::FnvHasher;
 use frame::FrameId;
 use gpu_store::GpuStoreAddress;
-use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp, CompositionOp};
+use internal_types::{ANGLE_FLOAT_TO_FIXED, LowLevelFilterOp};
 use internal_types::{BatchTextures, CacheTextureId, SourceTexture};
 use mask_cache::{ClipSource, MaskCacheInfo};
 use prim_store::{PrimitiveGeometry, RectanglePrimitive, PrimitiveContainer};
@@ -1687,7 +1687,7 @@ pub struct StackingContext {
     local_rect: LayerRect,
     scroll_layer_id: ScrollLayerId,
     xf_rect: Option<TransformedRect>,
-    composite_kind: CompositeKind,
+    composite_ops: CompositeOps,
     clip_source: ClipSource,
     clip_cache_info: Option<MaskCacheInfo>,
 }
@@ -1712,39 +1712,41 @@ impl Default for PackedStackingContext {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-enum CompositeKind {
-    None,
+#[derive(Debug, Clone)]
+pub struct CompositeOps {
     // Requires only a single texture as input (e.g. most filters)
-    Simple(LowLevelFilterOp),
+    filters: Vec<LowLevelFilterOp>,
     // Requires two source textures (e.g. mix-blend-mode)
-    Complex(MixBlendMode),
+    mix_blend_mode: Option<MixBlendMode>,
 }
 
-impl CompositeKind {
-    fn new(composition_ops: &[CompositionOp]) -> CompositeKind {
-        if composition_ops.is_empty() {
-            return CompositeKind::None;
+impl CompositeOps {
+    pub fn new(filters: Vec<LowLevelFilterOp>, mix_blend_mode: Option<MixBlendMode>) -> CompositeOps {
+        CompositeOps {
+            filters: filters,
+            mix_blend_mode: mix_blend_mode
         }
+    }
 
-        match composition_ops.first().unwrap() {
-            &CompositionOp::Filter(filter_op) => {
-                match filter_op {
-                    LowLevelFilterOp::Opacity(opacity) => {
-                        let opacityf = opacity.to_f32_px();
-                        if opacityf == 1.0 {
-                            CompositeKind::None
-                        } else {
-                            CompositeKind::Simple(LowLevelFilterOp::Opacity(opacity))
-                        }
-                    }
-                    other_filter => CompositeKind::Simple(other_filter),
-                }
-            }
-            &CompositionOp::MixBlend(mode) => {
-                CompositeKind::Complex(mode)
+    pub fn empty() -> CompositeOps {
+        CompositeOps {
+            filters: Vec::new(),
+            mix_blend_mode: None,
+        }
+    }
+
+    pub fn count(&self) -> usize {
+        self.filters.len() + if self.mix_blend_mode.is_some() { 1 } else { 0 }
+    }
+
+    pub fn will_make_invisible(&self) -> bool {
+        for op in &self.filters {
+            match op {
+                &LowLevelFilterOp::Opacity(Au(0)) => return true,
+                _ => {}
             }
         }
+        false
     }
 }
 
@@ -1754,11 +1756,7 @@ impl StackingContext {
     }
 
     fn can_contribute_to_scene(&self) -> bool {
-        match self.composite_kind {
-            CompositeKind::None | CompositeKind::Complex(..) => true,
-            CompositeKind::Simple(LowLevelFilterOp::Opacity(opacity)) => opacity > Au(0),
-            CompositeKind::Simple(..) => true,
-        }
+        !self.composite_ops.will_make_invisible()
     }
 }
 
@@ -1879,7 +1877,7 @@ impl FrameBuilder {
                       transform: LayerToScrollTransform,
                       pipeline_id: PipelineId,
                       scroll_layer_id: ScrollLayerId,
-                      composition_operations: &[CompositionOp]) {
+                      composite_ops: &CompositeOps) {
         let sc_index = StackingContextIndex(self.layer_store.len());
 
         let clip_source = clip_region.into();
@@ -1892,7 +1890,7 @@ impl FrameBuilder {
             scroll_layer_id: scroll_layer_id,
             pipeline_id: pipeline_id,
             xf_rect: None,
-            composite_kind: CompositeKind::new(composition_operations),
+            composite_ops: composite_ops.clone(),
             clip_source: clip_source,
             clip_cache_info: clip_info,
         };
@@ -2595,18 +2593,16 @@ impl FrameBuilder {
                         continue;
                     }
 
-                    match layer.composite_kind {
-                        CompositeKind::None => {}
-                        CompositeKind::Simple(..) | CompositeKind::Complex(..) => {
-                            let layer_rect = layer.xf_rect.as_ref().unwrap().bounding_rect;
-                            let location = RenderTaskLocation::Dynamic(None, layer_rect.size);
-                            let new_task = RenderTask::new_alpha_batch(next_task_index,
-                                                                       layer_rect.origin,
-                                                                       location);
-                            next_task_index.0 += 1;
-                            let prev_task = mem::replace(&mut current_task, new_task);
-                            alpha_task_stack.push(prev_task);
-                        }
+                    let composite_count = layer.composite_ops.count();
+                    for _ in 0..composite_count {
+                        let layer_rect = layer.xf_rect.as_ref().unwrap().bounding_rect;
+                        let location = RenderTaskLocation::Dynamic(None, layer_rect.size);
+                        let new_task = RenderTask::new_alpha_batch(next_task_index,
+                                                                   layer_rect.origin,
+                                                                   location);
+                        next_task_index.0 += 1;
+                        let prev_task = mem::replace(&mut current_task, new_task);
+                        alpha_task_stack.push(prev_task);
                     }
                 }
                 PrimitiveRunCmd::PopStackingContext => {
@@ -2617,28 +2613,25 @@ impl FrameBuilder {
                         continue;
                     }
 
-                    match layer.composite_kind {
-                        CompositeKind::None => {}
-                        CompositeKind::Simple(info) => {
-                            let mut prev_task = alpha_task_stack.pop().unwrap();
-                            let item = AlphaRenderItem::Blend(sc_index, current_task.id, info, next_z);
-                            next_z += 1;
-                            prev_task.as_alpha_batch().alpha_items.push(item);
-                            prev_task.children.push(current_task);
-                            current_task = prev_task;
-                        }
-                        CompositeKind::Complex(info) => {
-                            let layer_rect = layer.xf_rect.as_ref().unwrap().bounding_rect;
-                            let readback_task = RenderTask::new_readback(sc_index, layer_rect);
+                    for filter in &layer.composite_ops.filters {
+                        let mut prev_task = alpha_task_stack.pop().unwrap();
+                        let item = AlphaRenderItem::Blend(sc_index, current_task.id, *filter, next_z);
+                        next_z += 1;
+                        prev_task.as_alpha_batch().alpha_items.push(item);
+                        prev_task.children.push(current_task);
+                        current_task = prev_task;
+                    }
+                    if let Some(mix_blend_mode) = layer.composite_ops.mix_blend_mode {
+                        let layer_rect = layer.xf_rect.as_ref().unwrap().bounding_rect;
+                        let readback_task = RenderTask::new_readback(sc_index, layer_rect);
 
-                            let mut prev_task = alpha_task_stack.pop().unwrap();
-                            let item = AlphaRenderItem::Composite(sc_index, readback_task.id, current_task.id, info, next_z);
-                            next_z += 1;
-                            prev_task.as_alpha_batch().alpha_items.push(item);
-                            prev_task.children.push(current_task);
-                            prev_task.children.push(readback_task);
-                            current_task = prev_task;
-                        }
+                        let mut prev_task = alpha_task_stack.pop().unwrap();
+                        let item = AlphaRenderItem::Composite(sc_index, readback_task.id, current_task.id, mix_blend_mode, next_z);
+                        next_z += 1;
+                        prev_task.as_alpha_batch().alpha_items.push(item);
+                        prev_task.children.push(current_task);
+                        prev_task.children.push(readback_task);
+                        current_task = prev_task;
                     }
                 }
                 PrimitiveRunCmd::PrimitiveRun(first_prim_index, prim_count) => {

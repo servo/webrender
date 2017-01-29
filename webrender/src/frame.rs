@@ -5,7 +5,6 @@
 use app_units::Au;
 use fnv::FnvHasher;
 use internal_types::{ANGLE_FLOAT_TO_FIXED, AxisDirection};
-use internal_types::{CompositionOp};
 use internal_types::{LowLevelFilterOp};
 use internal_types::{RendererFrame};
 use layer::Layer;
@@ -14,7 +13,7 @@ use scene::Scene;
 use scroll_tree::{ScrollTree, ScrollStates};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
-use tiling::{AuxiliaryListsMap, FrameBuilder, FrameBuilderConfig, PrimitiveFlags};
+use tiling::{AuxiliaryListsMap, CompositeOps, FrameBuilder, FrameBuilderConfig, PrimitiveFlags};
 use webrender_traits::{AuxiliaryLists, ClipRegion, ColorF, DisplayItem, Epoch, FilterOp};
 use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform, LayoutTransform};
 use webrender_traits::{MixBlendMode, PipelineId, ScrollEventPhase, ScrollLayerId, ScrollLayerState};
@@ -59,84 +58,66 @@ impl DisplayListHelpers for Vec<DisplayItem> {
 }
 
 trait StackingContextHelpers {
-    fn needs_composition_operation_for_mix_blend_mode(&self) -> bool;
-    fn composition_operations(&self, auxiliary_lists: &AuxiliaryLists) -> Vec<CompositionOp>;
+    fn mix_blend_mode_for_compositing(&self) -> Option<MixBlendMode>;
+    fn filter_ops_for_compositing(&self, auxiliary_lists: &AuxiliaryLists) -> Vec<LowLevelFilterOp>;
 }
 
 impl StackingContextHelpers for StackingContext {
-    fn needs_composition_operation_for_mix_blend_mode(&self) -> bool {
+    fn mix_blend_mode_for_compositing(&self) -> Option<MixBlendMode> {
         match self.mix_blend_mode {
-            MixBlendMode::Normal => false,
-            MixBlendMode::Multiply |
-            MixBlendMode::Screen |
-            MixBlendMode::Overlay |
-            MixBlendMode::Darken |
-            MixBlendMode::Lighten |
-            MixBlendMode::ColorDodge |
-            MixBlendMode::ColorBurn |
-            MixBlendMode::HardLight |
-            MixBlendMode::SoftLight |
-            MixBlendMode::Difference |
-            MixBlendMode::Exclusion |
-            MixBlendMode::Hue |
-            MixBlendMode::Saturation |
-            MixBlendMode::Color |
-            MixBlendMode::Luminosity => true,
+            MixBlendMode::Normal => None,
+            _ => Some(self.mix_blend_mode),
         }
     }
 
-    fn composition_operations(&self, auxiliary_lists: &AuxiliaryLists) -> Vec<CompositionOp> {
-        let mut composition_operations = vec![];
-        if self.needs_composition_operation_for_mix_blend_mode() {
-            composition_operations.push(CompositionOp::MixBlend(self.mix_blend_mode));
-        }
+    fn filter_ops_for_compositing(&self, auxiliary_lists: &AuxiliaryLists) -> Vec<LowLevelFilterOp> {
+        let mut filters = vec![];
         for filter in auxiliary_lists.filters(&self.filters) {
             match *filter {
                 FilterOp::Blur(radius) => {
-                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Blur(
+                    filters.push(LowLevelFilterOp::Blur(
                         radius,
-                        AxisDirection::Horizontal)));
-                    composition_operations.push(CompositionOp::Filter(LowLevelFilterOp::Blur(
+                        AxisDirection::Horizontal));
+                    filters.push(LowLevelFilterOp::Blur(
                         radius,
-                        AxisDirection::Vertical)));
+                        AxisDirection::Vertical));
                 }
                 FilterOp::Brightness(amount) => {
-                    composition_operations.push(CompositionOp::Filter(
-                            LowLevelFilterOp::Brightness(Au::from_f32_px(amount))));
+                    filters.push(
+                            LowLevelFilterOp::Brightness(Au::from_f32_px(amount)));
                 }
                 FilterOp::Contrast(amount) => {
-                    composition_operations.push(CompositionOp::Filter(
-                            LowLevelFilterOp::Contrast(Au::from_f32_px(amount))));
+                    filters.push(
+                            LowLevelFilterOp::Contrast(Au::from_f32_px(amount)));
                 }
                 FilterOp::Grayscale(amount) => {
-                    composition_operations.push(CompositionOp::Filter(
-                            LowLevelFilterOp::Grayscale(Au::from_f32_px(amount))));
+                    filters.push(
+                            LowLevelFilterOp::Grayscale(Au::from_f32_px(amount)));
                 }
                 FilterOp::HueRotate(angle) => {
-                    composition_operations.push(CompositionOp::Filter(
+                    filters.push(
                             LowLevelFilterOp::HueRotate(f32::round(
-                                    angle * ANGLE_FLOAT_TO_FIXED) as i32)));
+                                    angle * ANGLE_FLOAT_TO_FIXED) as i32));
                 }
                 FilterOp::Invert(amount) => {
-                    composition_operations.push(CompositionOp::Filter(
-                            LowLevelFilterOp::Invert(Au::from_f32_px(amount))));
+                    filters.push(
+                            LowLevelFilterOp::Invert(Au::from_f32_px(amount)));
                 }
                 FilterOp::Opacity(amount) => {
-                    composition_operations.push(CompositionOp::Filter(
-                            LowLevelFilterOp::Opacity(Au::from_f32_px(amount))));
+                    filters.push(
+                            LowLevelFilterOp::Opacity(Au::from_f32_px(amount)));
                 }
                 FilterOp::Saturate(amount) => {
-                    composition_operations.push(CompositionOp::Filter(
-                            LowLevelFilterOp::Saturate(Au::from_f32_px(amount))));
+                    filters.push(
+                            LowLevelFilterOp::Saturate(Au::from_f32_px(amount)));
                 }
                 FilterOp::Sepia(amount) => {
-                    composition_operations.push(CompositionOp::Filter(
-                            LowLevelFilterOp::Sepia(Au::from_f32_px(amount))));
+                    filters.push(
+                            LowLevelFilterOp::Sepia(Au::from_f32_px(amount)));
                 }
             }
         }
-
-        composition_operations
+        filters
     }
 }
 
@@ -341,7 +322,7 @@ impl Frame {
                                    LayerToScrollTransform::identity(),
                                    pipeline_id,
                                    current_scroll_layer_id,
-                                   &[]);
+                                   &CompositeOps::empty());
 
         self.flatten_items(traversal,
                            pipeline_id,
@@ -374,18 +355,14 @@ impl Frame {
             let auxiliary_lists = self.pipeline_auxiliary_lists
                                       .get(&pipeline_id)
                                       .expect("No auxiliary lists?!");
-            stacking_context.composition_operations(auxiliary_lists)
+            CompositeOps::new(
+                stacking_context.filter_ops_for_compositing(auxiliary_lists),
+                stacking_context.mix_blend_mode_for_compositing())
         };
 
-        // Detect composition operations that will make us invisible.
-        for composition_operation in &composition_operations {
-            match *composition_operation {
-                CompositionOp::Filter(LowLevelFilterOp::Opacity(Au(0))) => {
-                    traversal.skip_current_stacking_context();
-                    return;
-                }
-                _ => {}
-            }
+        if composition_operations.will_make_invisible() {
+            traversal.skip_current_stacking_context();
+            return;
         }
 
         let mut transform =

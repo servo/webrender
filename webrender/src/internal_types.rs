@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tiling;
 use webrender_traits::{Epoch, ColorF, PipelineId, DeviceIntSize};
-use webrender_traits::{ImageFormat, MixBlendMode, NativeFontHandle};
+use webrender_traits::{ImageFormat, NativeFontHandle};
 use webrender_traits::{ExternalImageId, ScrollLayerId, WebGLCommand};
 
 // An ID for a texture that is owned by the
@@ -432,10 +432,4 @@ pub enum LowLevelFilterOp {
     Opacity(Au),
     Saturate(Au),
     Sepia(Au),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum CompositionOp {
-    MixBlend(MixBlendMode),
-    Filter(LowLevelFilterOp),
 }
