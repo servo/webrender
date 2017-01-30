@@ -17,7 +17,6 @@ extern crate image;
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
-extern crate serde;
 extern crate serde_json;
 extern crate crossbeam;
 

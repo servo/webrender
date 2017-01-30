@@ -2,15 +2,13 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-extern crate yaml_rust;
-
 use image::{ColorType, save_buffer};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::fs::File;
-use std::io::{Cursor, Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use webrender;
 use webrender_traits::*;

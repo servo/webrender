@@ -104,7 +104,7 @@ pub fn layout_simple_ascii(face: NativeFontHandle, text: &str, size: Au) -> (Vec
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn layout_simple_ascii(face: NativeFontHandle, text: &str, size: Au) -> (Vec<u16>, Vec<f32>) {
+pub fn layout_simple_ascii(_: NativeFontHandle, _: &str, _: Au) -> (Vec<u16>, Vec<f32>) {
     panic!("Can't layout simple ascii on this platform");
 }
 
@@ -125,11 +125,7 @@ pub struct Wrench {
 
     window_title_to_set: Option<String>,
 
-    sender: RenderApiSender,
     image_map: HashMap<PathBuf, (ImageKey, LayoutSize)>,
-
-    // internal housekeeping
-    next_scroll_layer_id: usize,
 
     gl_renderer: String,
     gl_version: String,
@@ -194,7 +190,6 @@ impl Wrench {
             window_size: size,
 
             renderer: renderer,
-            sender: sender,
             api: api,
             window_title_to_set: None,
 
@@ -205,7 +200,6 @@ impl Wrench {
             image_map: HashMap::new(),
 
             root_pipeline_id: PipelineId(0, 0),
-            next_scroll_layer_id: 0,
 
             gl_renderer: gl_renderer,
             gl_version: gl_version,
@@ -234,12 +228,6 @@ impl Wrench {
     pub fn window_size_f32(&self) -> LayoutSize {
         return LayoutSize::new(self.window_size.width as f32,
                                self.window_size.height as f32)
-    }
-
-    pub fn next_scroll_layer_id(&mut self) -> ScrollLayerId {
-        let scroll_layer_id = ServoScrollRootId(self.next_scroll_layer_id);
-        self.next_scroll_layer_id += 1;
-        ScrollLayerId::new(self.root_pipeline_id, 0, scroll_layer_id)
     }
 
     #[cfg(target_os = "windows")]
@@ -284,19 +272,13 @@ impl Wrench {
         self.font_key_from_bytes(font)
     }
 
-
     #[cfg(not(target_os = "windows"))]
-    pub fn font_key_from_native_handle(&mut self, descriptor: &NativeFontHandle) -> FontKey {
-        panic!("Can't font_key_from_native_handle on this platform");
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    pub fn font_key_from_name(&mut self, font_name: &str) -> (FontKey, Option<NativeFontHandle>) {
+    pub fn font_key_from_name(&mut self, _font_name: &str) -> (FontKey, Option<NativeFontHandle>) {
         panic!("Can't font_key_from_name on this platform");
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-    pub fn font_key_from_yaml_table(&mut self, item: &Yaml) -> (FontKey, Option<NativeFontHandle>) {
+    pub fn font_key_from_yaml_table(&mut self, _item: &Yaml) -> (FontKey, Option<NativeFontHandle>) {
         panic!("Can't font_key_from_yaml_table on this platform");
     }
 
