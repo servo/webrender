@@ -182,10 +182,13 @@ impl WindowWrapper {
             WindowWrapper::Window(ref window) => {
                 unsafe {
                     window.make_current().expect("unable to make context current!");
-                    gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
                 }
+                // Android uses the static generator (as opposed to a global generator) at the moment
+                #[cfg(not(target_os="android"))]
+                gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
             }
             WindowWrapper::Headless(..) => {
+                #[cfg(not(target_os="android"))]
                 gl::load_with(|s| {
                     HeadlessContext::get_proc_address(s)
                 });

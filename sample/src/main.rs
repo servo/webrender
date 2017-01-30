@@ -68,8 +68,10 @@ fn main() {
 
     unsafe {
         window.make_current().ok();
-        gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
     }
+    // Android uses the static generator (as opposed to a global generator) at the moment
+    #[cfg(not(target_os="android"))]
+    gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
 
     println!("OpenGL version {}", gl::get_string(gl::VERSION));
     println!("Shader resource path: {:?}", res_path);
