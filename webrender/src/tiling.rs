@@ -2199,7 +2199,7 @@ impl FrameBuilder {
                 blur_radius: blur_radius,
                 glyph_range: sub_range,
                 cache_dirty: true,
-                glyph_indices: Vec::new(),
+                glyph_instances: Vec::new(),
                 color_texture_id: SourceTexture::Invalid,
                 color: *color,
                 render_mode: render_mode,
@@ -2448,8 +2448,7 @@ impl FrameBuilder {
                                                                        resource_cache,
                                                                        &packed_layer.transform,
                                                                        device_pixel_ratio,
-                                                                       auxiliary_lists,
-                                                                       *sc_index) {
+                                                                       auxiliary_lists) {
                                 self.prim_store.build_bounding_rect(prim_index,
                                                                     screen_rect,
                                                                     &packed_layer.transform,
@@ -2735,9 +2734,7 @@ impl FrameBuilder {
         }
 
         let deferred_resolves = self.prim_store.resolve_primitives(resource_cache,
-                                                                   device_pixel_ratio,
-                                                                   &self.layer_store,
-                                                                   auxiliary_lists_map);
+                                                                   device_pixel_ratio);
 
         let mut passes = Vec::new();
 
