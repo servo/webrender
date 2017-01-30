@@ -5,6 +5,7 @@ use euclid::{TypedPoint2D, TypedSize2D, TypedRect, TypedMatrix4D};
 use image::{ColorType, save_buffer};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
+use std::fmt;
 use std::fs;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
@@ -239,6 +240,11 @@ impl YamlFrameWriterReceiver {
     }
 }
 
+impl fmt::Debug for YamlFrameWriterReceiver {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "YamlFrameWriterReceiver")
+    }
+}
 
 impl YamlFrameWriter {
     pub fn new(path: &Path) -> YamlFrameWriter {
@@ -298,16 +304,14 @@ impl YamlFrameWriter {
         let dl_desc = self.dl_descriptor.take().unwrap();
         let aux_desc = self.aux_descriptor.take().unwrap();
 
-        let mut auxiliary_data = Cursor::new(&data[4..]);
+        assert_eq!(data.len(), dl_desc.size() + aux_desc.size() + 4);
 
-        let mut built_display_list_data = vec![0; dl_desc.size()];
-        let mut aux_list_data = vec![0; aux_desc.size()];
+        // skip 4-byte epoch header
+        let dl_data = data[4..dl_desc.size()+4].to_vec();
+        let aux_data = data[dl_desc.size()+4..].to_vec();
 
-        auxiliary_data.read_exact(&mut built_display_list_data[..]).unwrap();
-        auxiliary_data.read_exact(&mut aux_list_data[..]).unwrap();
-
-        let dl = BuiltDisplayList::from_data(built_display_list_data, dl_desc);
-        let aux = AuxiliaryLists::from_data(aux_list_data, aux_desc);
+        let dl = BuiltDisplayList::from_data(dl_data, dl_desc);
+        let aux = AuxiliaryLists::from_data(aux_data, aux_desc);
 
         let mut root_dl_table = new_table();
         {
@@ -430,7 +434,7 @@ impl YamlFrameWriter {
             rect_node(&mut complex_table, "rect", &clip.main);
 
             if complex.len() > 0 {
-                let mut complex_items = complex.iter().map(|ccx|
+                let complex_items = complex.iter().map(|ccx|
                     if ccx.radii.is_zero() {
                         rect_yaml(&ccx.rect)
                     } else {
@@ -440,7 +444,6 @@ impl YamlFrameWriter {
                         Yaml::Hash(t)
                     }
                 ).collect();
-
                 vec_node(&mut complex_table, "complex", complex_items);
             }
 

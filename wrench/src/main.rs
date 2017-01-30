@@ -269,7 +269,8 @@ fn main() {
     let save_type = args.value_of("save").map(|s| {
         if s == "yaml" { wrench::SaveType::Yaml }
         else if s == "json" { wrench::SaveType::Json }
-        else { panic!("Save type must be json or yaml"); }
+        else if s == "binary" { wrench::SaveType::Binary }
+        else { panic!("Save type must be json, yaml, or binary"); }
     });
     let size = args.value_of("size").map(|s| {
         if s == "720p" {

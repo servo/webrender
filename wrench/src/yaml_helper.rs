@@ -132,7 +132,7 @@ impl YamlHelper for Yaml {
     }
 
     fn as_pipeline_id(&self) -> Option<PipelineId> {
-        if let Some(mut v) = self.as_vec() {
+        if let Some(v) = self.as_vec() {
             let a = v.get(0).and_then(|v| v.as_i64()).map(|v| v as u32);
             let b = v.get(1).and_then(|v| v.as_i64()).map(|v| v as u32);
             match (a, b) {
@@ -197,7 +197,7 @@ impl YamlHelper for Yaml {
     }
 
     fn as_matrix4d(&self, transform_origin: &LayoutPoint) -> Option<LayoutTransform> {
-        if let Some(mut nums) = self.as_vec_f32() {
+        if let Some(nums) = self.as_vec_f32() {
             if nums.len() != 16 {
                 panic!("expected 16 floats, got '{:?}'", self);
             }
