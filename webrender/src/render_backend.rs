@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, ImageData};
-use webrender_traits::{RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
+use webrender_traits::{PipelineId, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
 use webrender_traits::channel::{PayloadHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
 use webrender_traits::{VRCompositorCommand, VRCompositorHandler};
 use tiling::FrameBuilderConfig;
@@ -146,7 +146,8 @@ impl RenderBackend {
                                                    pipeline_id,
                                                    viewport_size,
                                                    display_list_descriptor,
-                                                   auxiliary_lists_descriptor) => {
+                                                   auxiliary_lists_descriptor,
+                                                   preserve_frame_state) => {
                             let mut leftover_auxiliary_data = vec![];
                             let mut auxiliary_data;
                             loop {
@@ -181,6 +182,10 @@ impl RenderBackend {
                             let auxiliary_lists =
                                 AuxiliaryLists::from_data(auxiliary_lists_data,
                                                           auxiliary_lists_descriptor);
+
+                            if !preserve_frame_state {
+                                self.discard_frame_state_for_pipeline(pipeline_id);
+                            }
 
                             self.scene.set_root_display_list(pipeline_id,
                                                              epoch,
@@ -348,6 +353,10 @@ impl RenderBackend {
                 }
             }
         }
+    }
+
+    fn discard_frame_state_for_pipeline(&mut self, pipeline_id: PipelineId) {
+        self.frame.discard_frame_state_for_pipeline(pipeline_id);
     }
 
     fn build_scene(&mut self) {

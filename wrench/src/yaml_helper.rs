@@ -28,6 +28,7 @@ pub trait YamlHelper {
     fn as_vec_string(&self) -> Option<Vec<String>>;
     fn as_border_radius(&self) -> Option<BorderRadius>;
     fn as_mix_blend_mode(&self) -> Option<MixBlendMode>;
+    fn as_scroll_policy(&self) -> Option<ScrollPolicy>;
 }
 
 fn string_to_color(color: &str) -> Option<ColorF> {
@@ -83,6 +84,11 @@ define_enum_conversion!(string_to_mix_blend_mode, mix_blend_mode_to_string, MixB
     ("saturation", MixBlendMode::Saturation),
     ("color", MixBlendMode::Color),
     ("luminosity", MixBlendMode::Luminosity)
+]);
+
+define_enum_conversion!(string_to_scroll_policy, scroll_policy_to_string, ScrollPolicy, [
+    ("scrollable", ScrollPolicy::Scrollable),
+    ("fixed", ScrollPolicy::Fixed)
 ]);
 
 impl YamlHelper for Yaml {
@@ -308,5 +314,9 @@ impl YamlHelper for Yaml {
 
     fn as_mix_blend_mode(&self) -> Option<MixBlendMode> {
         return self.as_str().and_then(|x| string_to_mix_blend_mode(x));
+    }
+
+    fn as_scroll_policy(&self) -> Option<ScrollPolicy> {
+        return self.as_str().and_then(|string| string_to_scroll_policy(string))
     }
 }

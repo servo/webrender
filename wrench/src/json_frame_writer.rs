@@ -246,9 +246,14 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                                         ref pipeline_id,
                                         ref viewport_size,
                                         ref display_list,
-                                        ref auxiliary_lists) => {
-                self.begin_write_root_display_list(background_color, epoch, pipeline_id,
-                                                   viewport_size, display_list, auxiliary_lists);
+                                        ref auxiliary_lists,
+                                        _preserve_frame_state) => {
+                self.begin_write_root_display_list(background_color,
+                                                   epoch,
+                                                   pipeline_id,
+                                                   viewport_size,
+                                                   display_list,
+                                                   auxiliary_lists);
             }
             _ => {}
         }

@@ -16,8 +16,15 @@ pub type ScrollStates = HashMap<ScrollLayerId, ScrollingState, BuildHasherDefaul
 pub struct ScrollTree {
     pub layers: HashMap<ScrollLayerId, Layer, BuildHasherDefault<FnvHasher>>,
     pub pending_scroll_offsets: HashMap<(PipelineId, ServoScrollRootId), LayerPoint>,
+
+    /// The ScrollLayerId of the currently scrolling layer. Used to allow the same
+    /// layer to scroll even if a touch operation leaves the boundaries of that layer.
     pub current_scroll_layer_id: Option<ScrollLayerId>,
-    pub current_reference_frame_id: usize,
+
+    /// The current reference frame id, used for giving a unique id to all new
+    /// reference frames. The ScrollTree increments this by one every time a
+    /// reference frame is created.
+    current_reference_frame_id: usize,
 
     /// The root reference frame, which is the true root of the ScrollTree. Initially
     /// this ID is not valid, which is indicated by ```layers``` being empty.
@@ -26,6 +33,10 @@ pub struct ScrollTree {
     /// The root scroll layer, which is the first child of the root reference frame.
     /// Initially this ID is not valid, which is indicated by ```layers``` being empty.
     pub topmost_scroll_layer_id: ScrollLayerId,
+
+    /// A set of pipelines which should be discarded the next time this
+    /// tree is drained.
+    pub pipelines_to_discard: HashSet<PipelineId>,
 }
 
 impl ScrollTree {
@@ -38,6 +49,7 @@ impl ScrollTree {
             root_reference_frame_id: ScrollLayerId::root_reference_frame(dummy_pipeline),
             topmost_scroll_layer_id: ScrollLayerId::root_scroll_layer(dummy_pipeline),
             current_reference_frame_id: 1,
+            pipelines_to_discard: HashSet::new(),
         }
     }
 
@@ -137,8 +149,12 @@ impl ScrollTree {
 
         let mut scroll_states = HashMap::with_hasher(Default::default());
         for (layer_id, old_layer) in &mut self.layers.drain() {
-            scroll_states.insert(layer_id, old_layer.scrolling);
+            if !self.pipelines_to_discard.contains(&layer_id.pipeline_id) {
+                scroll_states.insert(layer_id, old_layer.scrolling);
+            }
         }
+
+        self.pipelines_to_discard.clear();
         scroll_states
     }
 
@@ -148,6 +164,7 @@ impl ScrollTree {
                          scroll_root_id: ServoScrollRootId)
                          -> bool {
         if self.layers.is_empty() {
+            self.pending_scroll_offsets.insert((pipeline_id, scroll_root_id), origin);
             return false;
         }
 
@@ -325,8 +342,8 @@ impl ScrollTree {
 
             let pipeline_id = scroll_layer_id.pipeline_id;
             if let Some(pending_offset) =
-                self.pending_scroll_offsets.get_mut(&(pipeline_id, scroll_root_id)) {
-                layer.set_scroll_origin(pending_offset);
+                self.pending_scroll_offsets.remove(&(pipeline_id, scroll_root_id)) {
+                layer.set_scroll_origin(&pending_offset);
             }
         }
 
@@ -354,6 +371,15 @@ impl ScrollTree {
 
         debug_assert!(parent_id != id);
         self.layers.get_mut(&parent_id).unwrap().add_child(id);
+    }
+
+    pub fn discard_frame_state_for_pipeline(&mut self, pipeline_id: PipelineId) {
+        self.pipelines_to_discard.insert(pipeline_id);
+
+        match self.current_scroll_layer_id {
+            Some(id) if id.pipeline_id == pipeline_id => self.current_scroll_layer_id = None,
+            _ => {}
+        }
     }
 }
 

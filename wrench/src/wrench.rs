@@ -346,13 +346,24 @@ impl Wrench {
         self.frame_start_sender.push(time::SteadyTime::now());
     }
 
-    pub fn send_lists(&mut self, frame_number: u32, display_list: DisplayListBuilder) {
-
+    pub fn send_lists(&mut self,
+                      frame_number: u32,
+                      display_list: DisplayListBuilder,
+                      scroll_offsets: &HashMap<ServoScrollRootId, LayerPoint>) {
+        let pipeline_id = display_list.pipeline_id;
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
         self.api.set_root_display_list(root_background_color,
                                        Epoch(frame_number),
                                        self.window_size_f32(),
-                                       display_list);
+                                       display_list,
+                                       false);
+
+        for (scroll_root_id, offset) in scroll_offsets {
+            self.api.scroll_layers_with_scroll_root_id(*offset,
+                                                       pipeline_id,
+                                                       *scroll_root_id);
+        }
+
         self.api.generate_frame();
     }
 

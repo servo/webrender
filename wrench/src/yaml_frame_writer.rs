@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use webrender;
 use webrender_traits::*;
 use yaml_rust::{Yaml, YamlEmitter};
-use yaml_helper::mix_blend_mode_to_string;
+use yaml_helper::{mix_blend_mode_to_string, scroll_policy_to_string};
 use scene::Scene;
 use time;
 
@@ -89,6 +89,10 @@ fn u32_node(parent: &mut Table, key: &str, value: u32) {
     yaml_node(parent, key, Yaml::Integer(value as i64));
 }
 
+fn usize_node(parent: &mut Table, key: &str, value: usize) {
+    yaml_node(parent, key, Yaml::Integer(value as i64));
+}
+
 fn i32_node(parent: &mut Table, key: &str, value: i32) {
     yaml_node(parent, key, Yaml::Integer(value as i64));
 }
@@ -149,6 +153,10 @@ fn mix_blend_mode_node(parent: &mut Table, key: &str, value: MixBlendMode) {
     yaml_node(parent, key, Yaml::String(mix_blend_mode_to_string(value).to_owned()));
 }
 
+fn scroll_policy_node(parent: &mut Table, key: &str, value: ScrollPolicy) {
+    yaml_node(parent, key, Yaml::String(scroll_policy_to_string(value).to_owned()));
+}
+
 fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
     if let Some(radius) = radius.is_uniform() {
         if radius == LayoutSize::zero() {
@@ -169,8 +177,10 @@ fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
 fn write_sc(parent: &mut Table, sc: &StackingContext) {
     // overwrite "bounds" with the proper one
     rect_node(parent, "bounds", &sc.bounds);
-    // scroll_policy
+
+    scroll_policy_node(parent, "scroll-policy", sc.scroll_policy);
     i32_node(parent, "z_index", sc.z_index);
+
     if sc.transform != LayoutTransform::identity() {
         matrix4d_node(parent, "transform", &sc.transform);
     }
@@ -182,6 +192,14 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
         mix_blend_mode_node(parent, "mix-blend-mode", sc.mix_blend_mode)
     }
     // filters
+}
+
+fn write_scroll_layer(parent: &mut Table, scroll_layer: &PushScrollLayerItem) {
+    size_node(parent, "content_size", &scroll_layer.content_size);
+    match scroll_layer.id.info {
+        ScrollLayerInfo::Scrollable(_, id) => usize_node(parent, "id", id.0),
+        ScrollLayerInfo::ReferenceFrame(..) => unreachable!("Scroll layer had reference frame id"),
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -610,12 +628,11 @@ impl YamlFrameWriter {
                     return;
                 },
                 PushScrollLayer(item) => {
-                    // TODO
-                    //println!("TODO PushScrollLayer");
+                    str_node(&mut v, "type", "scroll_layer");
+                    write_scroll_layer(&mut v, &item);
                 },
                 PopScrollLayer => {
-                    //println!("TODO PopScrollLayer");
-                    // TODO
+                    return;
                 },
             }
             if !v.is_empty() {
@@ -688,9 +705,15 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                                         ref pipeline_id,
                                         ref viewport_size,
                                         ref display_list,
-                                        ref auxiliary_lists) => {
-                self.frame_writer.begin_write_root_display_list(&mut self.scene, background_color, epoch, pipeline_id,
-                                                   viewport_size, display_list, auxiliary_lists);
+                                        ref auxiliary_lists,
+                                        _preserve_frame_state) => {
+                self.frame_writer.begin_write_root_display_list(&mut self.scene,
+                                                                background_color,
+                                                                epoch,
+                                                                pipeline_id,
+                                                                viewport_size,
+                                                                display_list,
+                                                                auxiliary_lists);
             }
             _ => {}
         }
