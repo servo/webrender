@@ -49,12 +49,12 @@ impl BorderRadius {
         }
     }
 
-    pub fn is_uniform(&self) -> Option<f32> {
-        let uniform_radius = LayoutSize::new(self.top_left.width, self.top_left.width);
+    pub fn is_uniform(&self) -> Option<LayoutSize> {
+        let uniform_radius = self.top_left;
         if self.top_right == uniform_radius &&
            self.bottom_left == uniform_radius &&
            self.bottom_right == uniform_radius {
-            Some(uniform_radius.width)
+            Some(uniform_radius)
         } else {
             None
         }
@@ -62,7 +62,7 @@ impl BorderRadius {
 
     pub fn is_zero(&self) -> bool {
         if let Some(radius) = self.is_uniform() {
-            radius == 0.0
+            radius.width == 0.0 && radius.height == 0.0
         } else {
             false
         }

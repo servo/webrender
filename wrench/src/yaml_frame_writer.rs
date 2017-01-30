@@ -151,7 +151,7 @@ fn mix_blend_mode_node(parent: &mut Table, key: &str, value: MixBlendMode) {
 
 fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
     if let Some(radius) = radius.is_uniform() {
-        if radius == 0.0 {
+        if radius == LayoutSize::zero() {
             None
         } else {
             Some(Yaml::Real(radius.to_string()))
