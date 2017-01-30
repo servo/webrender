@@ -133,10 +133,10 @@ impl FontContext {
     pub fn rasterize_glyph(&mut self,
                            font_key: FontKey,
                            size: Au,
-                           color: ColorU,
+                           _color: ColorU,
                            character: u32,
                            render_mode: FontRenderMode,
-                           glyph_options: Option<GlyphOptions>) -> Option<RasterizedGlyph> {
+                           _glyph_options: Option<GlyphOptions>) -> Option<RasterizedGlyph> {
         let mut glyph = None;
 
         if let Some(slot) = self.load_glyph(font_key,
