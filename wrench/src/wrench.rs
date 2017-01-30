@@ -352,7 +352,8 @@ impl Wrench {
         self.api.set_root_display_list(root_background_color,
                                        Epoch(frame_number),
                                        self.window_size_f32(),
-                                       display_list);
+                                       display_list,
+                                       false);
         self.api.generate_frame();
     }
 

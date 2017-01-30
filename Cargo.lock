@@ -19,8 +19,8 @@ dependencies = [
  "serde 0.8.19 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.35 (registry+https://github.com/rust-lang/crates.io-index)",
- "webrender 0.12.0",
- "webrender_traits 0.11.0",
+ "webrender 0.13.0",
+ "webrender_traits 0.12.0",
  "yaml-rust 0.3.4 (git+https://github.com/vvuk/yaml-rust)",
 ]
 
@@ -1046,7 +1046,7 @@ dependencies = [
 
 [[package]]
 name = "webrender"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "angle 0.1.2 (git+https://github.com/servo/angle?branch=servo)",
  "app_units 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1068,12 +1068,12 @@ dependencies = [
  "offscreen_gl_context 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "threadpool 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.35 (registry+https://github.com/rust-lang/crates.io-index)",
- "webrender_traits 0.11.0",
+ "webrender_traits 0.12.0",
 ]
 
 [[package]]
 name = "webrender_traits"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "app_units 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1133,8 +1133,8 @@ dependencies = [
  "euclid 0.10.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.2.30 (registry+https://github.com/rust-lang/crates.io-index)",
  "glutin 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "webrender 0.12.0",
- "webrender_traits 0.11.0",
+ "webrender 0.13.0",
+ "webrender_traits 0.12.0",
 ]
 
 [[package]]

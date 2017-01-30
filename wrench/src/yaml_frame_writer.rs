@@ -688,9 +688,15 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                                         ref pipeline_id,
                                         ref viewport_size,
                                         ref display_list,
-                                        ref auxiliary_lists) => {
-                self.frame_writer.begin_write_root_display_list(&mut self.scene, background_color, epoch, pipeline_id,
-                                                   viewport_size, display_list, auxiliary_lists);
+                                        ref auxiliary_lists,
+                                        _preserve_frame_state) => {
+                self.frame_writer.begin_write_root_display_list(&mut self.scene,
+                                                                background_color,
+                                                                epoch,
+                                                                pipeline_id,
+                                                                viewport_size,
+                                                                display_list,
+                                                                auxiliary_lists);
             }
             _ => {}
         }

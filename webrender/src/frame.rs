@@ -238,6 +238,10 @@ impl Frame {
         self.scroll_tree.tick_scrolling_bounce_animations();
     }
 
+    pub fn discard_frame_state_for_pipeline(&mut self, pipeline_id: PipelineId) {
+        self.scroll_tree.discard_frame_state_for_pipeline(pipeline_id);
+    }
+
     pub fn create(&mut self,
                   scene: &Scene,
                   pipeline_sizes: &mut HashMap<PipelineId, LayerSize>) {
