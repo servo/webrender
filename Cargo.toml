@@ -1,9 +1,9 @@
 [workspace]
 members = [
-	"webrender",
-	"webrender_traits",
-	"sample",
-	"wrench",
+    "webrender",
+    "webrender_traits",
+    "sample",
+    "wrench",
 ]
 
 [profile.release]

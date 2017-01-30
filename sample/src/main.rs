@@ -1,19 +1,23 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 extern crate app_units;
-extern crate webrender;
-extern crate glutin;
-extern crate gleam;
-extern crate webrender_traits;
 extern crate euclid;
+extern crate gleam;
+extern crate glutin;
+extern crate webrender;
+extern crate webrender_traits;
 
 use app_units::Au;
 use gleam::gl;
+use std::env;
+use std::fs::File;
+use std::io::Read;
 use std::path::PathBuf;
 use webrender_traits::{ColorF, Epoch, GlyphInstance};
 use webrender_traits::{ImageDescriptor, ImageData, ImageFormat, PipelineId};
 use webrender_traits::{LayoutSize, LayoutPoint, LayoutRect, LayoutTransform, DeviceUintSize};
-use std::fs::File;
-use std::io::Read;
-use std::env;
 
 fn load_file(name: &str) -> Vec<u8> {
     let mut file = File::open(name).unwrap();
@@ -120,7 +124,7 @@ fn main() {
                     format: ImageFormat::A8,
                     is_opaque: true,
                 },
-                ImageData::new(vec![0,80, 180, 255])
+                ImageData::new(vec![0, 80, 180, 255])
             ),
             rect: LayoutRect::new(LayoutPoint::new(75.0, 75.0), LayoutSize::new(100.0, 100.0)),
             repeat: false,
