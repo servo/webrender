@@ -207,11 +207,20 @@ impl ScrollTree {
             phase,
             self.find_scrolling_layer_at_point(&cursor),
             self.current_scroll_layer_id) {
-            (ScrollEventPhase::Start, scroll_layer_id, _) => {
-                self.current_scroll_layer_id = Some(scroll_layer_id);
+            (ScrollEventPhase::Start, scroll_layer_at_point_id, _) => {
+                self.current_scroll_layer_id = Some(scroll_layer_at_point_id);
+                scroll_layer_at_point_id
+            },
+            (_, scroll_layer_at_point_id, Some(cached_scroll_layer_id)) => {
+                let scroll_layer_id = match self.layers.get(&cached_scroll_layer_id) {
+                    Some(_) => cached_scroll_layer_id,
+                    None => {
+                        self.current_scroll_layer_id = Some(scroll_layer_at_point_id);
+                        scroll_layer_at_point_id
+                    },
+                };
                 scroll_layer_id
             },
-            (_, _, Some(scroll_layer_id)) => scroll_layer_id,
             (_, _, None) => return false,
         };
 
