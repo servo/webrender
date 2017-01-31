@@ -15,7 +15,7 @@ use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{ImagePrimitiveCpu, ImagePrimitiveGpu, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu, ImagePrimitiveKind, };
 use prim_store::{PrimitiveKind, PrimitiveIndex, PrimitiveMetadata, TexelRect};
 use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve};
-use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientType};
+use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, GradientData};
 use prim_store::{RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
 use prim_store::{PrimitiveCacheKey, TextRunPrimitiveGpu, TextRunPrimitiveCpu};
 use prim_store::{PrimitiveStore, GpuBlock16, GpuBlock32, GpuBlock64, GpuBlock128};
@@ -30,9 +30,9 @@ use std::mem;
 use std::hash::{BuildHasherDefault};
 use std::usize;
 use texture_cache::TexturePage;
-use util::{self, rect_from_points_f};
-use util::{TransformedRect, TransformedRectKind, subtract_rect, pack_as_float};
-use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, MixBlendMode};
+use util::{self, pack_as_float, rect_from_points_f, subtract_rect};
+use util::{TransformedRect, TransformedRectKind};
+use webrender_traits::{ColorF, ExtendMode, FontKey, ImageKey, ImageRendering, MixBlendMode};
 use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle, YuvColorSpace};
 use webrender_traits::{AuxiliaryLists, ItemRange, BoxShadowClipMode, ClipRegion};
 use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId, FontRenderMode};
@@ -82,6 +82,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::Image => AlphaBatchKind::Image,
             PrimitiveKind::YuvImage => AlphaBatchKind::YuvImage,
             PrimitiveKind::Rectangle => AlphaBatchKind::Rectangle,
+            PrimitiveKind::AlignedGradient => AlphaBatchKind::AlignedGradient,
+            PrimitiveKind::AngleGradient => AlphaBatchKind::AngleGradient,
             PrimitiveKind::RadialGradient => AlphaBatchKind::RadialGradient,
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
@@ -92,17 +94,6 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     // results of the cached text blur to the framebuffer,
                     // applying tile clipping etc.
                     AlphaBatchKind::CacheImage
-                }
-            }
-            PrimitiveKind::Gradient => {
-                let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                match gradient.kind {
-                    GradientType::Horizontal | GradientType::Vertical => {
-                        AlphaBatchKind::AlignedGradient
-                    }
-                    GradientType::Rotated => {
-                        AlphaBatchKind::AngleGradient
-                    }
                 }
             }
         };
@@ -116,7 +107,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::Border |
             PrimitiveKind::BoxShadow |
             PrimitiveKind::Rectangle |
-            PrimitiveKind::Gradient |
+            PrimitiveKind::AlignedGradient |
+            PrimitiveKind::AngleGradient |
             PrimitiveKind::RadialGradient => [invalid; 3],
             PrimitiveKind::Image => {
                 let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
@@ -800,7 +792,7 @@ impl ClipBatcher {
                 segment: 0,
             };
 
-            for clip_index in 0..info.clip_range.item_count as usize {
+            for clip_index in 0..info.effective_clip_count as usize {
                 let offset = info.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * clip_index) as i32);
                 match geometry_kind {
                     MaskGeometryKind::Default => {
@@ -1261,7 +1253,7 @@ impl RenderTask {
             let (sc_index, ref clip_info) = clips[0];
 
             if clip_info.image.is_none() &&
-               clip_info.clip_range.item_count == 1 &&
+               clip_info.effective_clip_count == 1 &&
                layers[sc_index.0].xf_rect.as_ref().unwrap().kind == TransformedRectKind::AxisAligned {
                 geometry_kind = MaskGeometryKind::CornersOnly;
             }
@@ -1679,10 +1671,10 @@ impl PrimitiveBatch {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct StackingContextIndex(usize);
+pub struct StackingContextIndex(pub usize);
 
-struct StackingContext {
-    pipeline_id: PipelineId,
+pub struct StackingContext {
+    pub pipeline_id: PipelineId,
     local_transform: LayerToScrollTransform,
     local_rect: LayerRect,
     scroll_layer_id: ScrollLayerId,
@@ -1809,6 +1801,7 @@ pub struct Frame {
     pub gpu_data64: Vec<GpuBlock64>,
     pub gpu_data128: Vec<GpuBlock128>,
     pub gpu_geometry: Vec<PrimitiveGeometry>,
+    pub gpu_gradient_data: Vec<GradientData>,
     pub gpu_resource_rects: Vec<TexelRect>,
 
     // List of textures that we don't know about yet
@@ -1851,6 +1844,7 @@ impl FrameBuilder {
             ClipSource::NoClip
         };
         let clip_info = MaskCacheInfo::new(&clip_source,
+                                           false,
                                            &mut self.prim_store.gpu_data32);
 
         let prim_index = self.prim_store.add_primitive(geometry,
@@ -1882,8 +1876,9 @@ impl FrameBuilder {
                       composition_operations: &[CompositionOp]) {
         let sc_index = StackingContextIndex(self.layer_store.len());
 
-        let clip_source = clip_region.into();
+        let clip_source = ClipSource::Region(clip_region.clone());
         let clip_info = MaskCacheInfo::new(&clip_source,
+                                           true, // needs an extra clip for the clip rectangle
                                            &mut self.prim_store.gpu_data32);
 
         let sc = StackingContext {
@@ -2000,6 +1995,51 @@ impl FrameBuilder {
         let br_inner = br_outer - LayerPoint::new(radius.bottom_right.width.max(right.width),
                                                   radius.bottom_right.height.max(bottom.width));
 
+        // The border shader is quite expensive. For simple borders, we can just draw
+        // the border with a few rectangles. This generally gives better batching, and
+        // a GPU win in fragment shader time.
+        // More importantly, the software (OSMesa) implementation we run tests on is
+        // particularly slow at running our complex border shader, compared to the
+        // rectangle shader. This has the effect of making some of our tests time
+        // out more often on CI (the actual cause is simply too many Servo processes and
+        // threads being run on CI at once).
+        // TODO(gw): Detect some more simple cases and handle those with simpler shaders too.
+        // TODO(gw): Consider whether it's only worth doing this for large rectangles (since
+        //           it takes a little more CPU time to handle multiple rectangles compared
+        //           to a single border primitive).
+        if left.style == BorderStyle::Solid {
+            let same_color = left_color == top_color &&
+                             left_color == right_color &&
+                             left_color == bottom_color;
+            let same_style = left.style == top.style &&
+                             left.style == right.style &&
+                             left.style == bottom.style;
+
+            if same_color && same_style && radius.is_zero() {
+                let rects = [
+                    LayerRect::new(rect.origin,
+                                   LayerSize::new(rect.size.width, top.width)),
+                    LayerRect::new(LayerPoint::new(tl_outer.x, tl_inner.y),
+                                   LayerSize::new(left.width,
+                                                  rect.size.height - top.width - bottom.width)),
+                    LayerRect::new(tr_inner,
+                                   LayerSize::new(right.width,
+                                                  rect.size.height - top.width - bottom.width)),
+                    LayerRect::new(LayerPoint::new(bl_outer.x, bl_inner.y),
+                                   LayerSize::new(rect.size.width, bottom.width))
+                ];
+
+                for rect in &rects {
+                    self.add_solid_rectangle(rect,
+                                             clip_region,
+                                             &top_color,
+                                             PrimitiveFlags::None);
+                }
+
+                return;
+            }
+        }
+
         //Note: while similar to `ComplexClipRegion::get_inner_rect()` in spirit,
         // this code is a bit more complex and can not there for be merged.
         let inner_rect = rect_from_points_f(tl_inner.x.max(bl_inner.x),
@@ -2038,21 +2078,26 @@ impl FrameBuilder {
                         clip_region: &ClipRegion,
                         start_point: LayerPoint,
                         end_point: LayerPoint,
-                        stops: ItemRange) {
-        // Fast paths for axis-aligned gradients:
-        let mut reverse_stops = false;
-        let kind = if start_point.x == end_point.x {
-            GradientType::Vertical
-        } else if start_point.y == end_point.y {
-            GradientType::Horizontal
-        } else {
-            reverse_stops = start_point.x > end_point.x;
-            GradientType::Rotated
-        };
+                        stops: ItemRange,
+                        extend_mode: ExtendMode) {
+        // Fast path for clamped, axis-aligned gradients:
+        let aligned = extend_mode == ExtendMode::Clamp &&
+                      (start_point.x == end_point.x ||
+                       start_point.y == end_point.y);
+        // Try to ensure that if the gradient is specified in reverse, then so long as the stops
+        // are also supplied in reverse that the rendered result will be equivalent. To do this,
+        // a reference orientation for the gradient line must be chosen, somewhat arbitrarily, so
+        // just designate the reference orientation as start < end. Aligned gradient rendering
+        // manages to produce the same result regardless of orientation, so don't worry about
+        // reversing in that case.
+        let reverse_stops = !aligned &&
+                            (start_point.x > end_point.x ||
+                             (start_point.x == end_point.x &&
+                              start_point.y > end_point.y));
 
         let gradient_cpu = GradientPrimitiveCpu {
             stops_range: stops,
-            kind: kind,
+            extend_mode: extend_mode,
             reverse_stops: reverse_stops,
             cache_dirty: true,
         };
@@ -2069,13 +2114,17 @@ impl FrameBuilder {
         let gradient_gpu = GradientPrimitiveGpu {
             start_point: sp,
             end_point: ep,
+            extend_mode: pack_as_float(extend_mode as u32),
             padding: [0.0, 0.0, 0.0],
-            kind: pack_as_float(kind as u32),
         };
 
-        self.add_primitive(&rect,
-                           clip_region,
-                           PrimitiveContainer::Gradient(gradient_cpu, gradient_gpu));
+        let prim = if aligned {
+            PrimitiveContainer::AlignedGradient(gradient_cpu, gradient_gpu)
+        } else {
+            PrimitiveContainer::AngleGradient(gradient_cpu, gradient_gpu)
+        };
+
+        self.add_primitive(&rect, clip_region, prim);
     }
 
     pub fn add_radial_gradient(&mut self,
@@ -2085,9 +2134,11 @@ impl FrameBuilder {
                                start_radius: f32,
                                end_center: LayerPoint,
                                end_radius: f32,
-                               stops: ItemRange) {
+                               stops: ItemRange,
+                               extend_mode: ExtendMode) {
         let radial_gradient_cpu = RadialGradientPrimitiveCpu {
             stops_range: stops,
+            extend_mode: extend_mode,
             cache_dirty: true,
         };
 
@@ -2096,7 +2147,8 @@ impl FrameBuilder {
             end_center: end_center,
             start_radius: start_radius,
             end_radius: end_radius,
-            padding: [0.0, 0.0],
+            extend_mode: pack_as_float(extend_mode as u32),
+            padding: [0.0],
         };
 
         self.add_primitive(&rect,
@@ -2154,7 +2206,7 @@ impl FrameBuilder {
                 blur_radius: blur_radius,
                 glyph_range: sub_range,
                 cache_dirty: true,
-                glyph_indices: Vec::new(),
+                glyph_instances: Vec::new(),
                 color_texture_id: SourceTexture::Invalid,
                 color: *color,
                 render_mode: render_mode,
@@ -2342,7 +2394,8 @@ impl FrameBuilder {
                     }
 
                     let inv_layer_transform = layer.local_transform.inverse().unwrap();
-                    let local_viewport_rect = as_scroll_parent_rect(&scroll_layer.combined_local_viewport_rect);
+                    let local_viewport_rect =
+                        as_scroll_parent_rect(&scroll_layer.combined_local_viewport_rect);
                     let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
                     let local_clip_rect = layer.clip_source.to_rect().unwrap_or(layer.local_rect);
                     let layer_local_rect = layer.local_rect
@@ -2687,7 +2740,8 @@ impl FrameBuilder {
             }
         }
 
-        let deferred_resolves = self.prim_store.resolve_primitives(resource_cache, device_pixel_ratio);
+        let deferred_resolves = self.prim_store.resolve_primitives(resource_cache,
+                                                                   device_pixel_ratio);
 
         let mut passes = Vec::new();
 
@@ -2730,6 +2784,7 @@ impl FrameBuilder {
             gpu_data64: self.prim_store.gpu_data64.build(),
             gpu_data128: self.prim_store.gpu_data128.build(),
             gpu_geometry: self.prim_store.gpu_geometry.build(),
+            gpu_gradient_data: self.prim_store.gpu_gradient_data.build(),
             gpu_resource_rects: self.prim_store.gpu_resource_rects.build(),
             deferred_resolves: deferred_resolves,
         }

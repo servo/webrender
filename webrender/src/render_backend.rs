@@ -7,17 +7,16 @@ use frame::Frame;
 use internal_types::{FontTemplate, GLContextHandleWrapper, GLContextWrapper};
 use internal_types::{SourceTexture, ResultMsg, RendererFrame};
 use profiler::BackendProfileCounters;
-use record;
+use record::ApiRecordingReceiver;
 use resource_cache::ResourceCache;
 use scene::Scene;
 use std::collections::HashMap;
-use std::fs;
 use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, ImageData};
-use webrender_traits::{RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
+use webrender_traits::{PipelineId, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
 use webrender_traits::channel::{PayloadHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
 use webrender_traits::{VRCompositorCommand, VRCompositorHandler};
 use tiling::FrameBuilderConfig;
@@ -45,7 +44,7 @@ pub struct RenderBackend {
     webrender_context_handle: Option<GLContextHandleWrapper>,
     webgl_contexts: HashMap<WebGLContextId, GLContextWrapper>,
     current_bound_webgl_context_id: Option<WebGLContextId>,
-    enable_recording: bool,
+    recorder: Option<Box<ApiRecordingReceiver>>,
     main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
 
     next_webgl_id: usize,
@@ -65,7 +64,7 @@ impl RenderBackend {
                webrender_context_handle: Option<GLContextHandleWrapper>,
                config: FrameBuilderConfig,
                debug: bool,
-               enable_recording:bool,
+               recorder: Option<Box<ApiRecordingReceiver>>,
                main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
                vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>) -> RenderBackend {
 
@@ -86,7 +85,7 @@ impl RenderBackend {
             webrender_context_handle: webrender_context_handle,
             webgl_contexts: HashMap::new(),
             current_bound_webgl_context_id: None,
-            enable_recording:enable_recording,
+            recorder: recorder,
             main_thread_dispatcher: main_thread_dispatcher,
             next_webgl_id: 0,
             vr_compositor_handler: vr_compositor_handler
@@ -96,16 +95,13 @@ impl RenderBackend {
     pub fn run(&mut self) {
         let mut profile_counters = BackendProfileCounters::new();
         let mut frame_counter: u32 = 0;
-        if self.enable_recording {
-            fs::create_dir("record").ok();
-        }
 
         loop {
             let msg = self.api_rx.recv();
             match msg {
                 Ok(msg) => {
-                    if self.enable_recording {
-                        record::write_msg(frame_counter, &msg);
+                    if let Some(ref mut r) = self.recorder {
+                        r.write_msg(frame_counter, &msg);
                     }
                     match msg {
                         ApiMsg::AddRawFont(id, bytes) => {
@@ -150,7 +146,8 @@ impl RenderBackend {
                                                    pipeline_id,
                                                    viewport_size,
                                                    display_list_descriptor,
-                                                   auxiliary_lists_descriptor) => {
+                                                   auxiliary_lists_descriptor,
+                                                   preserve_frame_state) => {
                             let mut leftover_auxiliary_data = vec![];
                             let mut auxiliary_data;
                             loop {
@@ -168,8 +165,8 @@ impl RenderBackend {
                             for leftover_auxiliary_data in leftover_auxiliary_data {
                                 self.payload_tx.send_vec(leftover_auxiliary_data).unwrap()
                             }
-                            if self.enable_recording {
-                                record::write_payload(frame_counter, &auxiliary_data);
+                            if let Some(ref mut r) = self.recorder {
+                                r.write_payload(frame_counter, &auxiliary_data);
                             }
 
                             let mut auxiliary_data = Cursor::new(&mut auxiliary_data[4..]);
@@ -179,13 +176,16 @@ impl RenderBackend {
                             let built_display_list =
                                 BuiltDisplayList::from_data(built_display_list_data,
                                                             display_list_descriptor);
-
                             let mut auxiliary_lists_data =
                                 vec![0; auxiliary_lists_descriptor.size()];
                             auxiliary_data.read_exact(&mut auxiliary_lists_data[..]).unwrap();
                             let auxiliary_lists =
                                 AuxiliaryLists::from_data(auxiliary_lists_data,
                                                           auxiliary_lists_descriptor);
+
+                            if !preserve_frame_state {
+                                self.discard_frame_state_for_pipeline(pipeline_id);
+                            }
 
                             self.scene.set_root_display_list(pipeline_id,
                                                              epoch,
@@ -353,6 +353,10 @@ impl RenderBackend {
                 }
             }
         }
+    }
+
+    fn discard_frame_state_for_pipeline(&mut self, pipeline_id: PipelineId) {
+        self.frame.discard_frame_state_for_pipeline(pipeline_id);
     }
 
     fn build_scene(&mut self) {

@@ -4,13 +4,14 @@
 
 use app_units::Au;
 use clap;
+use euclid::TypedPoint2D;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use webrender_traits::*;
 use yaml_helper::YamlHelper;
 use yaml_rust::{Yaml, YamlLoader};
-use euclid::TypedPoint2D;
 
 use wrench::{Wrench, WrenchThing, layout_simple_ascii};
 use {WHITE_COLOR, BLACK_COLOR, PLATFORM_DEFAULT_FACE_NAME};
@@ -47,6 +48,14 @@ pub struct YamlFrameReader {
     include_only: Vec<String>,
 
     watch_source: bool,
+
+    /// A HashMap of offsets which specify what scroll offsets particular
+    /// scroll layers should be initialized with.
+    scroll_offsets: HashMap<ServoScrollRootId, LayerPoint>,
+
+    /// Current scroll root id used to generate new scroll root ids
+    /// for scroll layers.
+    current_scroll_root_id: usize,
 }
 
 impl YamlFrameReader {
@@ -57,11 +66,11 @@ impl YamlFrameReader {
             yaml_path: yaml_path.to_owned(),
             aux_dir: yaml_path.parent().unwrap().to_owned(),
             frame_count: 0,
-
             builder: None,
-
             queue_depth: 1,
             include_only: vec![],
+            scroll_offsets: HashMap::new(),
+            current_scroll_root_id: 1,
         }
     }
 
@@ -92,17 +101,23 @@ impl YamlFrameReader {
             let pipelines = yaml["pipelines"].as_vec().unwrap();
             for pipeline in pipelines {
                 let pipeline_id = pipeline["id"].as_pipeline_id().unwrap();
+                self.scroll_offsets.clear();
                 self.builder = Some(DisplayListBuilder::new(pipeline_id));
-                self.add_stacking_context_from_yaml(wrench, pipeline);
-                wrench.send_lists(self.frame_count, self.builder.as_ref().unwrap().clone());
+                self.add_stacking_context_from_yaml(wrench, pipeline, true);
+                wrench.send_lists(self.frame_count,
+                                  self.builder.as_ref().unwrap().clone(),
+                                  &self.scroll_offsets);
             }
 
         }
+
+        self.scroll_offsets.clear();
         self.builder = Some(DisplayListBuilder::new(wrench.root_pipeline_id));
+
         if yaml["root"].is_badvalue() {
             panic!("Missing root stacking context");
         }
-        self.add_stacking_context_from_yaml(wrench, &yaml["root"]);
+        self.add_stacking_context_from_yaml(wrench, &yaml["root"], true);
     }
 
     fn to_clip_region(&mut self, item: &Yaml, item_bounds: &LayoutRect, wrench: &mut Wrench) -> Option<ClipRegion> {
@@ -183,9 +198,14 @@ impl YamlFrameReader {
                 offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
                 color: chunk[1].as_colorf().expect("gradient stop color is not color"),
             }).collect::<Vec<_>>();
+        let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
+            ExtendMode::Repeat
+        } else {
+            ExtendMode::Clamp
+        };
 
         let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
-        self.builder().push_gradient(bounds, clip, start, end, stops);
+        self.builder().push_gradient(bounds, clip, start, end, stops, extend_mode);
     }
 
     fn handle_radial_gradient(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
@@ -200,10 +220,15 @@ impl YamlFrameReader {
                 offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
                 color: chunk[1].as_colorf().expect("gradient stop color is not color"),
             }).collect::<Vec<_>>();
+        let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
+            ExtendMode::Repeat
+        } else {
+            ExtendMode::Clamp
+        };
 
         let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
         self.builder().push_radial_gradient(bounds, clip, start_center, start_radius,
-                                            end_center, end_radius, stops);
+                                            end_center, end_radius, stops, extend_mode);
     }
 
     fn handle_border(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
@@ -397,7 +422,6 @@ impl YamlFrameReader {
                 else if !item["image"].is_badvalue() { "image" }
                 else if !item["text"].is_badvalue() { "text" }
                 else if !item["glyphs"].is_badvalue() { "glyphs" }
-                else if !item["items"].is_badvalue() { "stacking_context" }
                 // note: box_shadow shorthand check has to come before border
                 else if !item["box_shadow"].is_badvalue() { "box_shadow" }
                 else if !item["border"].is_badvalue() { "border" }
@@ -415,20 +439,44 @@ impl YamlFrameReader {
                 "rect" => self.handle_rect(wrench, &full_clip_region, &item),
                 "image" => self.handle_image(wrench, &full_clip_region, &item),
                 "text" | "glyphs" => self.handle_text(wrench, &full_clip_region, &item),
-                "stacking_context" => self.add_stacking_context_from_yaml(wrench, &item),
+                "stacking_context" => self.add_stacking_context_from_yaml(wrench, &item, false),
+                "scroll_layer" => self.add_scroll_layer_from_yaml(wrench, &item),
                 "border" => self.handle_border(wrench, &full_clip_region, &item),
                 "gradient" => self.handle_gradient(wrench, &full_clip_region, &item),
                 "radial_gradient" => self.handle_radial_gradient(wrench, &full_clip_region, &item),
                 "box_shadow" => self.handle_box_shadow(wrench, &full_clip_region, &item),
                 "iframe" => self.handle_iframe(wrench, &full_clip_region, &item),
                 _ => {
-                    //println!("Skipping {:?}", item);
+                    println!("Skipping unknown item type: {:?}", item);
                 }
             }
         }
     }
 
-    pub fn add_stacking_context_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
+    pub fn add_scroll_layer_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
+        let bounds = yaml["bounds"].as_rect().expect("scroll layer must have bounds");
+        let content_size = yaml["content-size"].as_size()
+                                               .expect("scroll layer must have content size");
+
+        let scroll_root_id = ServoScrollRootId(self.current_scroll_root_id);
+        if let Some(size) = yaml["scroll-offset"].as_point() {
+            let entry = self.scroll_offsets.entry(scroll_root_id).or_insert_with(LayerPoint::zero);
+            *entry = LayerPoint::new(size.x, size.y);
+        }
+
+        self.builder().push_scroll_layer(bounds, content_size, scroll_root_id);
+
+        if !yaml["items"].is_badvalue() {
+            self.add_display_list_items_from_yaml(wrench, &yaml["items"]);
+        }
+
+        self.builder().pop_scroll_layer();
+    }
+
+    pub fn add_stacking_context_from_yaml(&mut self,
+                                          wrench: &mut Wrench,
+                                          yaml: &Yaml,
+                                          is_root: bool) {
         let bounds = yaml["bounds"].as_rect().unwrap_or(LayoutRect::new(LayoutPoint::new(0.0, 0.0), wrench.window_size_f32()));
         let z_index = yaml["z_index"].as_i64().unwrap_or(0);
         // TODO(gw): Add support for specifying the transform origin in yaml.
@@ -443,10 +491,20 @@ impl YamlFrameReader {
         let sc_full_rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), bounds.size);
         let clip = self.to_clip_region(&yaml["clip"], &sc_full_rect, wrench).unwrap_or(ClipRegion::simple(&sc_full_rect));
 
-        // FIXME handle these
-        let filters: Vec<FilterOp> = Vec::new();
+        let scroll_policy = yaml["scroll-policy"].as_scroll_policy()
+                                                 .unwrap_or(ScrollPolicy::Scrollable);
 
-        self.builder().push_stacking_context(ScrollPolicy::Scrollable,
+        if is_root {
+            if let Some(size) = yaml["scroll-offset"].as_point() {
+                let entry = self.scroll_offsets.entry(ServoScrollRootId(0))
+                                               .or_insert_with(LayerPoint::zero);
+                *entry = LayerPoint::new(size.x, size.y);
+            }
+        }
+
+        let filters = yaml["filters"].as_vec_filter_op().unwrap_or(vec![]);
+
+        self.builder().push_stacking_context(scroll_policy,
                                              bounds,
                                              clip,
                                              z_index as i32,
@@ -474,7 +532,9 @@ impl WrenchThing for YamlFrameReader {
 
         if !self.frame_built || wrench.should_rebuild_display_lists() {
             wrench.begin_frame();
-            wrench.send_lists(self.frame_count, self.builder.as_ref().unwrap().clone());
+            wrench.send_lists(self.frame_count,
+                              self.builder.as_ref().unwrap().clone(),
+                              &self.scroll_offsets);
         } else {
             wrench.refresh();
         }

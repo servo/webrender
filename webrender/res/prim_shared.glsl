@@ -30,8 +30,8 @@
 #define UV_NORMALIZED    uint(0)
 #define UV_PIXEL         uint(1)
 
-#define MAX_STOPS_PER_ANGLE_GRADIENT 8
-#define MAX_STOPS_PER_RADIAL_GRADIENT 8
+#define EXTEND_MODE_CLAMP  0
+#define EXTEND_MODE_REPEAT 1
 
 uniform sampler2DArray sCache;
 
@@ -43,10 +43,6 @@ varying vec3 vClipMaskUv;
 #define VECS_PER_LAYER             13
 #define VECS_PER_RENDER_TASK        3
 #define VECS_PER_PRIM_GEOM          2
-
-#define GRADIENT_HORIZONTAL     0
-#define GRADIENT_VERTICAL       1
-#define GRADIENT_ROTATED        2
 
 uniform sampler2D sLayers;
 uniform sampler2D sRenderTasks;
@@ -190,7 +186,7 @@ ClipArea fetch_clip_area(int index) {
 
 struct Gradient {
     vec4 start_end_point;
-    vec4 kind;
+    vec4 extend_mode;
 };
 
 Gradient fetch_gradient(int index) {
@@ -199,7 +195,7 @@ Gradient fetch_gradient(int index) {
     ivec2 uv = get_fetch_uv_2(index);
 
     gradient.start_end_point = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    gradient.kind = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
+    gradient.extend_mode = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
 
     return gradient;
 }
@@ -222,7 +218,7 @@ GradientStop fetch_gradient_stop(int index) {
 
 struct RadialGradient {
     vec4 start_end_center;
-    vec4 start_end_radius;
+    vec4 start_end_radius_extend_mode;
 };
 
 RadialGradient fetch_radial_gradient(int index) {
@@ -231,7 +227,7 @@ RadialGradient fetch_radial_gradient(int index) {
     ivec2 uv = get_fetch_uv_2(index);
 
     gradient.start_end_center = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    gradient.start_end_radius = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
+    gradient.start_end_radius_extend_mode = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
 
     return gradient;
 }

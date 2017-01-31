@@ -28,6 +28,9 @@ pub trait YamlHelper {
     fn as_vec_string(&self) -> Option<Vec<String>>;
     fn as_border_radius(&self) -> Option<BorderRadius>;
     fn as_mix_blend_mode(&self) -> Option<MixBlendMode>;
+    fn as_scroll_policy(&self) -> Option<ScrollPolicy>;
+    fn as_filter_op(&self) -> Option<FilterOp>;
+    fn as_vec_filter_op(&self) -> Option<Vec<FilterOp>>;
 }
 
 fn string_to_color(color: &str) -> Option<ColorF> {
@@ -85,6 +88,11 @@ define_enum_conversion!(string_to_mix_blend_mode, mix_blend_mode_to_string, MixB
     ("luminosity", MixBlendMode::Luminosity)
 ]);
 
+define_enum_conversion!(string_to_scroll_policy, scroll_policy_to_string, ScrollPolicy, [
+    ("scrollable", ScrollPolicy::Scrollable),
+    ("fixed", ScrollPolicy::Fixed)
+]);
+
 impl YamlHelper for Yaml {
     fn as_force_f32(&self) -> Option<f32> {
         match *self {
@@ -132,7 +140,7 @@ impl YamlHelper for Yaml {
     }
 
     fn as_pipeline_id(&self) -> Option<PipelineId> {
-        if let Some(mut v) = self.as_vec() {
+        if let Some(v) = self.as_vec() {
             let a = v.get(0).and_then(|v| v.as_i64()).map(|v| v as u32);
             let b = v.get(1).and_then(|v| v.as_i64()).map(|v| v as u32);
             match (a, b) {
@@ -197,7 +205,7 @@ impl YamlHelper for Yaml {
     }
 
     fn as_matrix4d(&self, transform_origin: &LayoutPoint) -> Option<LayoutTransform> {
-        if let Some(mut nums) = self.as_vec_f32() {
+        if let Some(nums) = self.as_vec_f32() {
             if nums.len() != 16 {
                 panic!("expected 16 floats, got '{:?}'", self);
             }
@@ -308,5 +316,54 @@ impl YamlHelper for Yaml {
 
     fn as_mix_blend_mode(&self) -> Option<MixBlendMode> {
         return self.as_str().and_then(|x| string_to_mix_blend_mode(x));
+    }
+
+    fn as_scroll_policy(&self) -> Option<ScrollPolicy> {
+        return self.as_str().and_then(|string| string_to_scroll_policy(string))
+    }
+
+    fn as_filter_op(&self) -> Option<FilterOp> {
+        if let Some(s) = self.as_str() {
+            match parse_function(s) {
+                ("blur", ref args) if args.len() == 1 =>  {
+                    Some(FilterOp::Blur(Au(args[0].parse().unwrap())))
+                }
+                ("brightness", ref args) if args.len() == 1 =>  {
+                    Some(FilterOp::Brightness(args[0].parse().unwrap()))
+                }
+                ("contrast", ref args) if args.len() == 1 =>  {
+                    Some(FilterOp::Contrast(args[0].parse().unwrap()))
+                }
+                ("grayscale", ref args) if args.len() == 1 =>  {
+                    Some(FilterOp::Grayscale(args[0].parse().unwrap()))
+                }
+                ("hue-rotate", ref args) if args.len() == 1 =>  {
+                    Some(FilterOp::HueRotate(args[0].parse().unwrap()))
+                }
+                ("invert", ref args) if args.len() == 1 =>  {
+                    Some(FilterOp::Invert(args[0].parse().unwrap()))
+                }
+                ("opacity", ref args) if args.len() == 1 =>  {
+                    Some(FilterOp::Opacity(args[0].parse().unwrap()))
+                }
+                ("saturate", ref args) if args.len() == 1 =>  {
+                    Some(FilterOp::Saturate(args[0].parse().unwrap()))
+                }
+                ("sepia", ref args) if args.len() == 1 =>  {
+                    Some(FilterOp::Sepia(args[0].parse().unwrap()))
+                }
+                (_, _) => { None }
+            }
+        } else {
+            None
+        }
+    }
+
+    fn as_vec_filter_op(&self) -> Option<Vec<FilterOp>> {
+        if let Some(v) = self.as_vec() {
+            Some(v.iter().map(|x| x.as_filter_op().unwrap()).collect())
+        } else {
+            self.as_filter_op().map(|op| vec![op])
+        }
     }
 }

@@ -1,0 +1,12 @@
+---
+root:
+  items:
+        -
+          bounds: [10, 10, 200, 200]
+          type: stacking_context
+          filters: grayscale(1)
+          items:
+            -
+              bounds: [0, 0, 200, 200]
+              type: rect
+              color: [0, 255, 0]

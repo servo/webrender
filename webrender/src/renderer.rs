@@ -15,17 +15,21 @@ use device::{DepthFunction, Device, ProgramId, TextureId, VertexFormat, GpuMarke
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget};
 use euclid::Matrix4D;
 use fnv::FnvHasher;
+use gpu_store::{GpuStore, GpuStoreLayout};
 use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{ExternalImageUpdateList, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler, GLContextHandleWrapper};
+use prim_store::GradientData;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
+use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
 use std::cmp;
 use std::collections::HashMap;
 use std::f32;
 use std::hash::BuildHasherDefault;
+use std::marker::PhantomData;
 use std::mem;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -43,7 +47,7 @@ use webrender_traits::ImageDescriptor;
 use webrender_traits::channel;
 use webrender_traits::VRCompositorHandler;
 
-pub const VERTEX_TEXTURE_POOL: usize = 5;
+pub const GPU_DATA_TEXTURE_POOL: usize = 5;
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
 const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: debug_colors::BLACK };
@@ -73,16 +77,18 @@ pub enum BlendMode {
     Subpixel(ColorF),
 }
 
-struct VertexDataTexture {
+struct GpuDataTexture<L> {
     id: TextureId,
+    layout: PhantomData<L>,
 }
 
-impl VertexDataTexture {
-    fn new(device: &mut Device) -> VertexDataTexture {
+impl<L: GpuStoreLayout> GpuDataTexture<L> {
+    fn new(device: &mut Device) -> GpuDataTexture<L> {
         let id = device.create_texture_ids(1, TextureTarget::Default)[0];
 
-        VertexDataTexture {
+        GpuDataTexture {
             id: id,
+            layout: PhantomData,
         }
     }
 
@@ -93,11 +99,7 @@ impl VertexDataTexture {
             return;
         }
 
-        let item_size = mem::size_of::<T>();
-        debug_assert!(item_size % 16 == 0);
-        let vecs_per_item = item_size / 16;
-
-        let items_per_row = MAX_VERTEX_TEXTURE_WIDTH / vecs_per_item;
+        let items_per_row = L::items_per_row::<T>();
 
         // Extend the data array to be a multiple of the row size.
         // This ensures memory safety when the array is passed to
@@ -106,18 +108,55 @@ impl VertexDataTexture {
             data.push(T::default());
         }
 
-        let width = items_per_row * vecs_per_item;
         let height = data.len() / items_per_row;
 
         device.init_texture(self.id,
-                            width as u32,
+                            L::texture_width() as u32,
                             height as u32,
-                            ImageFormat::RGBAF32,
-                            TextureFilter::Nearest,
+                            L::image_format(),
+                            L::texture_filter(),
                             RenderTargetMode::None,
                             Some(unsafe { mem::transmute(data.as_slice()) } ));
     }
 }
+
+pub struct VertexDataTextureLayout {}
+
+impl GpuStoreLayout for VertexDataTextureLayout {
+    fn image_format() -> ImageFormat {
+        ImageFormat::RGBAF32
+    }
+
+    fn texture_width() -> usize {
+        MAX_VERTEX_TEXTURE_WIDTH
+    }
+
+    fn texture_filter() -> TextureFilter {
+        TextureFilter::Nearest
+    }
+}
+
+type VertexDataTexture = GpuDataTexture<VertexDataTextureLayout>;
+pub type VertexDataStore<T> = GpuStore<T, VertexDataTextureLayout>;
+
+pub struct GradientDataTextureLayout {}
+
+impl GpuStoreLayout for GradientDataTextureLayout {
+    fn image_format() -> ImageFormat {
+        ImageFormat::RGBA8
+    }
+
+    fn texture_width() -> usize {
+        mem::size_of::<GradientData>() / Self::texel_size()
+    }
+
+    fn texture_filter() -> TextureFilter {
+        TextureFilter::Linear
+    }
+}
+
+type GradientDataTexture = GpuDataTexture<GradientDataTextureLayout>;
+pub type GradientDataStore = GpuStore<GradientData, GradientDataTextureLayout>;
 
 const TRANSFORM_FEATURE: &'static str = "TRANSFORM";
 const SUBPIXEL_AA_FEATURE: &'static str = "SUBPIXEL_AA";
@@ -125,7 +164,7 @@ const CLIP_FEATURE: &'static str = "CLIP";
 
 enum ShaderKind {
     Primitive,
-    Cache,
+    Cache(VertexFormat),
     ClipCache,
 }
 
@@ -159,10 +198,17 @@ impl LazilyCompiledShader {
     fn get(&mut self, device: &mut Device) -> ProgramId {
         if self.id.is_none() {
             let id = match self.kind {
-                ShaderKind::Primitive | ShaderKind::Cache => {
+                ShaderKind::Primitive => {
                     create_prim_shader(self.name,
                                        device,
-                                       &self.features)
+                                       &self.features,
+                                       VertexFormat::Triangles)
+                }
+                ShaderKind::Cache(format) => {
+                    create_prim_shader(self.name,
+                                       device,
+                                       &self.features,
+                                       format)
                 }
                 ShaderKind::ClipCache => {
                     create_clip_shader(self.name, device)
@@ -242,7 +288,8 @@ impl PrimitiveShader {
 
 fn create_prim_shader(name: &'static str,
                       device: &mut Device,
-                      features: &[&'static str]) -> ProgramId {
+                      features: &[&'static str],
+                      vertex_format: VertexFormat) -> ProgramId {
     let mut prefix = format!("#define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n",
                               MAX_VERTEX_TEXTURE_WIDTH);
 
@@ -253,7 +300,8 @@ fn create_prim_shader(name: &'static str,
     let includes = &["prim_shared"];
     let program_id = device.create_program_with_prefix(name,
                                                        includes,
-                                                       Some(prefix));
+                                                       Some(prefix),
+                                                       vertex_format);
     debug!("PrimShader {}", name);
 
     program_id
@@ -267,13 +315,14 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> ProgramId {
     let includes = &["prim_shared", "clip_shared"];
     let program_id = device.create_program_with_prefix(name,
                                                        includes,
-                                                       Some(prefix));
+                                                       Some(prefix),
+                                                       VertexFormat::Clip);
     debug!("ClipShader {}", name);
 
     program_id
 }
 
-struct VertexTextures {
+struct GpuDataTextures {
     layer_texture: VertexDataTexture,
     render_task_texture: VertexDataTexture,
     prim_geom_texture: VertexDataTexture,
@@ -282,11 +331,12 @@ struct VertexTextures {
     data64_texture: VertexDataTexture,
     data128_texture: VertexDataTexture,
     resource_rects_texture: VertexDataTexture,
+    gradient_data_texture: GradientDataTexture,
 }
 
-impl VertexTextures {
-    fn new(device: &mut Device) -> VertexTextures {
-        VertexTextures {
+impl GpuDataTextures {
+    fn new(device: &mut Device) -> GpuDataTextures {
+        GpuDataTextures {
             layer_texture: VertexDataTexture::new(device),
             render_task_texture: VertexDataTexture::new(device),
             prim_geom_texture: VertexDataTexture::new(device),
@@ -295,6 +345,7 @@ impl VertexTextures {
             data64_texture: VertexDataTexture::new(device),
             data128_texture: VertexDataTexture::new(device),
             resource_rects_texture: VertexDataTexture::new(device),
+            gradient_data_texture: GradientDataTexture::new(device),
         }
     }
 
@@ -307,6 +358,7 @@ impl VertexTextures {
         self.resource_rects_texture.init(device, &mut frame.gpu_resource_rects);
         self.layer_texture.init(device, &mut frame.layer_texture_data);
         self.render_task_texture.init(device, &mut frame.render_task_data);
+        self.gradient_data_texture.init(device, &mut frame.gpu_gradient_data);
 
         device.bind_texture(TextureSampler::Layers, self.layer_texture.id);
         device.bind_texture(TextureSampler::RenderTasks, self.render_task_texture.id);
@@ -316,6 +368,7 @@ impl VertexTextures {
         device.bind_texture(TextureSampler::Data64, self.data64_texture.id);
         device.bind_texture(TextureSampler::Data128, self.data128_texture.id);
         device.bind_texture(TextureSampler::ResourceRects, self.resource_rects_texture.id);
+        device.bind_texture(TextureSampler::Gradients, self.gradient_data_texture.id);
     }
 }
 
@@ -382,8 +435,8 @@ pub struct Renderer {
     blur_vao_id: VAOId,
     clip_vao_id: VAOId,
 
-    vt_index: usize,
-    vertex_textures: [VertexTextures; VERTEX_TEXTURE_POOL],
+    gdt_index: usize,
+    gpu_data_textures: [GpuDataTextures; GPU_DATA_TEXTURE_POOL],
 
     pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
     /// Used to dispatch functions to the main thread's event loop.
@@ -448,17 +501,17 @@ impl Renderer {
         // device-pixel ratio doesn't matter here - we are just creating resources.
         device.begin_frame(1.0);
 
-        let cs_box_shadow = LazilyCompiledShader::new(ShaderKind::Cache,
+        let cs_box_shadow = LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Triangles),
                                                       "cs_box_shadow",
                                                       &[],
                                                       &mut device,
                                                       options.precache_shaders);
-        let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache,
+        let cs_text_run = LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Triangles),
                                                     "cs_text_run",
                                                     &[],
                                                     &mut device,
                                                     options.precache_shaders);
-        let cs_blur = LazilyCompiledShader::new(ShaderKind::Cache,
+        let cs_blur = LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Blur),
                                                 "cs_blur",
                                                  &[],
                                                  &mut device,
@@ -576,12 +629,12 @@ impl Renderer {
 
         let debug_renderer = DebugRenderer::new(&mut device);
 
-        let vertex_textures = [
-            VertexTextures::new(&mut device),
-            VertexTextures::new(&mut device),
-            VertexTextures::new(&mut device),
-            VertexTextures::new(&mut device),
-            VertexTextures::new(&mut device),
+        let gpu_data_textures = [
+            GpuDataTextures::new(&mut device),
+            GpuDataTextures::new(&mut device),
+            GpuDataTextures::new(&mut device),
+            GpuDataTextures::new(&mut device),
+            GpuDataTextures::new(&mut device),
         ];
 
         let x0 = 0.0;
@@ -637,7 +690,7 @@ impl Renderer {
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
         let render_target_debug = options.render_target_debug;
         let payload_tx_for_backend = payload_tx.clone();
-        let enable_recording = options.enable_recording;
+        let recorder = options.recorder;
         thread::Builder::new().name("RenderBackend".to_string()).spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  payload_rx,
@@ -650,7 +703,7 @@ impl Renderer {
                                                  context_handle,
                                                  config,
                                                  debug,
-                                                 enable_recording,
+                                                 recorder,
                                                  backend_main_thread_dispatcher,
                                                  backend_vr_compositor);
             backend.run();
@@ -696,8 +749,8 @@ impl Renderer {
             prim_vao_id: prim_vao_id,
             blur_vao_id: blur_vao_id,
             clip_vao_id: clip_vao_id,
-            vt_index: 0,
-            vertex_textures: vertex_textures,
+            gdt_index: 0,
+            gpu_data_textures: gpu_data_textures,
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
             main_thread_dispatcher: main_thread_dispatcher,
             cache_texture_id_map: Vec::new(),
@@ -1411,8 +1464,8 @@ impl Renderer {
             // We should find a better way to implement these updates rather
             // than wasting this extra memory, but for now it removes a large
             // number of driver stalls.
-            self.vertex_textures[self.vt_index].init_frame(&mut self.device, frame);
-            self.vt_index = (self.vt_index + 1) % VERTEX_TEXTURE_POOL;
+            self.gpu_data_textures[self.gdt_index].init_frame(&mut self.device, frame);
+            self.gdt_index = (self.gdt_index + 1) % GPU_DATA_TEXTURE_POOL;
 
             let mut src_id = None;
 
@@ -1535,14 +1588,13 @@ pub trait ExternalImageHandler {
     fn release(&mut self, key: ExternalImageId);
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct RendererOptions {
     pub device_pixel_ratio: f32,
     pub resource_override_path: Option<PathBuf>,
     pub enable_aa: bool,
     pub enable_profiler: bool,
     pub debug: bool,
-    pub enable_recording: bool,
     pub enable_scrollbars: bool,
     pub precache_shaders: bool,
     pub renderer_kind: RendererKind,
@@ -1550,6 +1602,7 @@ pub struct RendererOptions {
     pub clear_framebuffer: bool,
     pub clear_color: ColorF,
     pub render_target_debug: bool,
+    pub recorder: Option<Box<ApiRecordingReceiver>>,
 }
 
 impl Default for RendererOptions {
@@ -1560,7 +1613,6 @@ impl Default for RendererOptions {
             enable_aa: true,
             enable_profiler: false,
             debug: false,
-            enable_recording: false,
             enable_scrollbars: false,
             precache_shaders: false,
             renderer_kind: RendererKind::Native,
@@ -1568,6 +1620,7 @@ impl Default for RendererOptions {
             clear_framebuffer: true,
             clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
             render_target_debug: false,
+            recorder: None,
         }
     }
 }

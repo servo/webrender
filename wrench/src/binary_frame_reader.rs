@@ -22,8 +22,9 @@ enum Item {
 }
 
 pub struct BinaryFrameReader {
-    file_base: PathBuf,
-    is_dir: bool,
+    file: File,
+    eof: bool,
+    frame_offsets: Vec<u64>,
 
     skip_uploads: bool,
     replay_api: bool,
@@ -31,16 +32,31 @@ pub struct BinaryFrameReader {
 
     frame_data: Vec<Item>,
     frame_num: u32,
-    frame_built: bool,
-
-    check_apimsg: Option<bool>,
+    frame_read: bool,
 }
 
 impl BinaryFrameReader {
     pub fn new(file_path: &Path) -> BinaryFrameReader {
+        let mut file = File::open(&file_path).expect("Can't open recording file");
+        let header = file.read_u64::<LittleEndian>().unwrap();
+        if header != WEBRENDER_RECORDING_HEADER {
+            panic!("Binary recording is missing recording header!");
+        }
+
+        let apimsg_type_id = unsafe {
+            assert!(mem::size_of::<TypeId>() == mem::size_of::<u64>());
+            mem::transmute::<TypeId, u64>(TypeId::of::<ApiMsg>())
+        };
+
+        let written_apimsg_type_id = file.read_u64::<LittleEndian>().unwrap();
+        if written_apimsg_type_id != apimsg_type_id {
+            println!("Warning: binary file ApiMsg enum type mismatch: expected 0x{:x}, found 0x{:x}", apimsg_type_id, written_apimsg_type_id);
+        }
+
         BinaryFrameReader {
-            file_base: file_path.to_owned(),
-            is_dir: file_path.is_dir(),
+            file: file,
+            eof: false,
+            frame_offsets: vec![],
 
             skip_uploads: false,
             replay_api: false,
@@ -48,9 +64,7 @@ impl BinaryFrameReader {
 
             frame_data: vec![],
             frame_num: 0,
-            frame_built: false,
-
-            check_apimsg: None,
+            frame_read: false,
         }
     }
 
@@ -89,88 +103,63 @@ impl BinaryFrameReader {
         }
     }
 
-    fn frame_exists(&self, frame_num: u32) -> bool {
-        let mut file_name = self.file_base.clone();
-        file_name.push(format!("frame_{}.bin", frame_num));
-        file_name.exists()
+    // a frame exists if we either haven't hit eof yet, or if
+    // we have, then if we've seen its offset.
+    fn frame_exists(&self, frame: u32) -> bool {
+        !self.eof || (frame as usize) < self.frame_offsets.len()
     }
 }
 
 impl WrenchThing for BinaryFrameReader {
     fn do_frame(&mut self, wrench: &mut Wrench) -> u32 {
-        let first_time = !self.frame_built;
+        // save where the frame begins as we read through the file
+        if self.frame_num as usize == self.frame_offsets.len() {
+            let pos = self.file.seek(SeekFrom::Current(0)).unwrap();
+            println!("Frame {} offset: {}", self.frame_offsets.len(), pos);
+            self.frame_offsets.push(pos);
+        }
+
+        let first_time = !self.frame_read;
         if first_time {
+            let offset = self.frame_offsets[self.frame_num as usize];
+            self.file.seek(SeekFrom::Start(offset)).unwrap();
+
             wrench.set_title(&format!("frame {}", self.frame_num));
 
-            // TODO mmap instead of read
-            let mut file = if self.is_dir {
-                let mut file_name = self.file_base.clone();
-                file_name.push(format!("frame_{}.bin", self.frame_num));
-                File::open(&file_name).expect("Frame file not found!")
-            } else {
-                File::open(&self.file_base).expect("Frame file not found!")
-            };
-
-            let check_apimsg = if let Some(check_apimsg) = self.check_apimsg {
-                check_apimsg
-            } else {
-                let header = file.read_u64::<LittleEndian>().unwrap();
-                let check_apimsg = header == WEBRENDER_RECORDING_HEADER;
-                if !check_apimsg {
-                    println!("Note: Binary file is old-style recording without ApiMsg TypeId");
-                }
-
-                // reset the file back to the start
-                file.seek(SeekFrom::Start(0)).ok();
-                self.check_apimsg = Some(check_apimsg);
-                check_apimsg
-            };
-
-            if check_apimsg {
-                let apimsg_type_id = unsafe {
-                    assert!(mem::size_of::<TypeId>() == mem::size_of::<u64>());
-                    mem::transmute::<TypeId, u64>(TypeId::of::<ApiMsg>())
-                };
-
-                let header = file.read_u64::<LittleEndian>().unwrap();
-                assert!(header == WEBRENDER_RECORDING_HEADER);
-
-                let written_apimsg_type_id = file.read_u64::<LittleEndian>().unwrap();
-                if written_apimsg_type_id != apimsg_type_id {
-                    println!("Binary file ApiMsg enum type mismatch: expected 0x{:x}, found 0x{:x}", apimsg_type_id, written_apimsg_type_id);
-                }
-            }
-
             self.frame_data.clear();
-            while let Ok(mut len) = file.read_u32::<LittleEndian>() {
+            while let Ok(mut len) = self.file.read_u32::<LittleEndian>() {
                 if len > 0 {
                     let mut buffer = vec![0; len as usize];
-                    file.read_exact(&mut buffer).unwrap();
+                    self.file.read_exact(&mut buffer).unwrap();
                     let msg = deserialize(&buffer).unwrap();
+                    let found_frame_marker = match &msg { &ApiMsg::GenerateFrame => true, _ => false };
                     self.frame_data.push(Item::Message(msg));
+                    if found_frame_marker {
+                        break;
+                    }
                 } else {
-                    len = file.read_u32::<LittleEndian>().unwrap();
+                    len = self.file.read_u32::<LittleEndian>().unwrap();
                     let mut buffer = vec![0; len as usize];
-                    file.read_exact(&mut buffer).unwrap();
+                    self.file.read_exact(&mut buffer).unwrap();
                     self.frame_data.push(Item::Data(buffer));
                 }
             }
 
-            self.frame_built = true;
+            if self.eof == false &&
+               self.file.seek(SeekFrom::Current(0)).unwrap() == self.file.metadata().unwrap().len() {
+                self.eof = true;
+            }
+
+            self.frame_read = true;
         }
 
         if first_time || self.replay_api {
-            let mut seen_set_root_dl = false;
             wrench.begin_frame();
             let frame_items = self.frame_data.clone();
             for item in frame_items {
                 match item {
                     Item::Message(msg) => {
                         if !self.should_skip_upload_msg(&msg) {
-                            match &msg {
-                                &ApiMsg::SetRootDisplayList(..) => { seen_set_root_dl = true; }
-                                _ => { }
-                            }
                             wrench.api.api_sender.send(msg).unwrap();
                         }
                     }
@@ -178,10 +167,6 @@ impl WrenchThing for BinaryFrameReader {
                         wrench.api.payload_sender.send(buf).unwrap();
                     }
                 }
-            }
-            if !seen_set_root_dl && self.frame_num != 0 {
-                println!("Frame {} didn't contain a SetRootDisplayList message!", self.frame_num);
-                wrench.refresh();
             }
         } else if self.play_through {
             if !self.frame_exists(self.frame_num + 1) {
@@ -193,14 +178,7 @@ impl WrenchThing for BinaryFrameReader {
             wrench.refresh();
         }
 
-        // Frame 0 is.. weird.  It's always empty, but we can't skip it
-        // or everything else breaks.
-        if self.frame_num == 0 {
-            self.next_frame();
-            self.do_frame(wrench)
-        } else {
-            self.frame_num
-        }
+        self.frame_num
     }
 
     // note that we don't loop here; we could, but that'll require
@@ -209,14 +187,14 @@ impl WrenchThing for BinaryFrameReader {
     fn next_frame(&mut self) {
         if self.frame_exists(self.frame_num + 1) {
             self.frame_num += 1;
-            self.frame_built = false;
+            self.frame_read = false;
         }
     }
 
     fn prev_frame(&mut self) {
         if self.frame_num > 0 {
             self.frame_num -= 1;
-            self.frame_built = false;
+            self.frame_read = false;
         }
     }
 }

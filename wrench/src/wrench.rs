@@ -29,6 +29,7 @@ use {WHITE_COLOR, BLACK_COLOR};
 pub enum SaveType {
     Yaml,
     Json,
+    Binary,
 }
 
 struct Notifier {
@@ -103,7 +104,7 @@ pub fn layout_simple_ascii(face: NativeFontHandle, text: &str, size: Au) -> (Vec
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn layout_simple_ascii(face: NativeFontHandle, text: &str, size: Au) -> (Vec<u16>, Vec<f32>) {
+pub fn layout_simple_ascii(_: NativeFontHandle, _: &str, _: Au) -> (Vec<u16>, Vec<f32>) {
     panic!("Can't layout simple ascii on this platform");
 }
 
@@ -124,11 +125,7 @@ pub struct Wrench {
 
     window_title_to_set: Option<String>,
 
-    sender: RenderApiSender,
     image_map: HashMap<PathBuf, (ImageKey, LayoutSize)>,
-
-    // internal housekeeping
-    next_scroll_layer_id: usize,
 
     gl_renderer: String,
     gl_version: String,
@@ -153,20 +150,21 @@ impl Wrench {
     {
         println!("Shader override path: {:?}", shader_override_path);
 
-        if let Some(ref save_type) = save_type {
-            let recorder = match save_type {
-                &SaveType::Yaml => Box::new(YamlFrameWriterReceiver::new(&PathBuf::from("yaml_frames")))
-                    as Box<webrender::ApiRecordingReceiver>,
-                &SaveType::Json => Box::new(JsonFrameWriter::new(&PathBuf::from("json_frames")))
-                    as Box<webrender::ApiRecordingReceiver>,
-            };
-            webrender::set_recording_detour(Some(recorder));
-        }
+        let recorder = save_type.map(|save_type| {
+            match save_type {
+                SaveType::Yaml =>
+                    Box::new(YamlFrameWriterReceiver::new(&PathBuf::from("yaml_frames"))) as Box<webrender::ApiRecordingReceiver>,
+                SaveType::Json =>
+                    Box::new(JsonFrameWriter::new(&PathBuf::from("json_frames"))) as Box<webrender::ApiRecordingReceiver>,
+                SaveType::Binary =>
+                    Box::new(webrender::BinaryRecorder::new(&PathBuf::from("wr-record.bin"))) as Box<webrender::ApiRecordingReceiver>,
+            }
+        });
 
         let opts = webrender::RendererOptions {
             device_pixel_ratio: dp_ratio,
             resource_override_path: shader_override_path,
-            enable_recording: save_type.is_some(),
+            recorder: recorder,
             enable_subpixel_aa: subpixel_aa,
             debug: debug,
             .. Default::default()
@@ -175,8 +173,14 @@ impl Wrench {
         let (renderer, sender) = webrender::renderer::Renderer::new(opts);
         let api = sender.create_api();
 
+        let proxy = window.create_window_proxy();
+        // put an Awakened event into the queue to kick off the first frame
+        if let Some(ref wp) = proxy {
+            wp.wakeup_event_loop();
+        }
+
         let (timing_sender, timing_receiver) = chase_lev::deque();
-        let notifier = Box::new(Notifier::new(window.create_window_proxy(), timing_receiver, verbose));
+        let notifier = Box::new(Notifier::new(proxy, timing_receiver, verbose));
         renderer.set_render_notifier(notifier);
 
         let gl_version = gl::get_string(gl::VERSION);
@@ -186,7 +190,6 @@ impl Wrench {
             window_size: size,
 
             renderer: renderer,
-            sender: sender,
             api: api,
             window_title_to_set: None,
 
@@ -197,7 +200,6 @@ impl Wrench {
             image_map: HashMap::new(),
 
             root_pipeline_id: PipelineId(0, 0),
-            next_scroll_layer_id: 0,
 
             gl_renderer: gl_renderer,
             gl_version: gl_version,
@@ -226,12 +228,6 @@ impl Wrench {
     pub fn window_size_f32(&self) -> LayoutSize {
         return LayoutSize::new(self.window_size.width as f32,
                                self.window_size.height as f32)
-    }
-
-    pub fn next_scroll_layer_id(&mut self) -> ScrollLayerId {
-        let scroll_layer_id = ServoScrollRootId(self.next_scroll_layer_id);
-        self.next_scroll_layer_id += 1;
-        ScrollLayerId::new(self.root_pipeline_id, 0, scroll_layer_id)
     }
 
     #[cfg(target_os = "windows")]
@@ -276,19 +272,13 @@ impl Wrench {
         self.font_key_from_bytes(font)
     }
 
-
     #[cfg(not(target_os = "windows"))]
-    pub fn font_key_from_native_handle(&mut self, descriptor: &NativeFontHandle) -> FontKey {
-        panic!("Can't font_key_from_native_handle on this platform");
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    pub fn font_key_from_name(&mut self, font_name: &str) -> (FontKey, Option<NativeFontHandle>) {
+    pub fn font_key_from_name(&mut self, _font_name: &str) -> (FontKey, Option<NativeFontHandle>) {
         panic!("Can't font_key_from_name on this platform");
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-    pub fn font_key_from_yaml_table(&mut self, item: &Yaml) -> (FontKey, Option<NativeFontHandle>) {
+    pub fn font_key_from_yaml_table(&mut self, _item: &Yaml) -> (FontKey, Option<NativeFontHandle>) {
         panic!("Can't font_key_from_yaml_table on this platform");
     }
 
@@ -338,13 +328,24 @@ impl Wrench {
         self.frame_start_sender.push(time::SteadyTime::now());
     }
 
-    pub fn send_lists(&mut self, frame_number: u32, display_list: DisplayListBuilder) {
-
+    pub fn send_lists(&mut self,
+                      frame_number: u32,
+                      display_list: DisplayListBuilder,
+                      scroll_offsets: &HashMap<ServoScrollRootId, LayerPoint>) {
+        let pipeline_id = display_list.pipeline_id;
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
         self.api.set_root_display_list(root_background_color,
                                        Epoch(frame_number),
                                        self.window_size_f32(),
-                                       display_list);
+                                       display_list,
+                                       false);
+
+        for (scroll_root_id, offset) in scroll_offsets {
+            self.api.scroll_layers_with_scroll_root_id(*offset,
+                                                       pipeline_id,
+                                                       *scroll_root_id);
+        }
+
         self.api.generate_frame();
     }
 

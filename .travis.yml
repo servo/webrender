@@ -5,7 +5,7 @@ os:
   - linux
   - osx
 rust:
-  - nightly-2016-12-19
+  - nightly-2017-01-26
 notifications:
   webhooks: http://build.servo.org:54856/travis
 addons:
@@ -18,13 +18,13 @@ addons:
       - llvm-3.8-dev
       - libedit-dev
 before_install:
-  - pip install mako
+  - pip install mako servo-tidy
 script:
+  - servo-tidy
   - (cd webrender_traits && cargo test --verbose --features "ipc")
   - (cd webrender_traits && cargo test --verbose)
   - (cd webrender && cargo test --verbose)
   - (cd sample && cargo test --verbose)
-  - (cd replay && cargo test --verbose)
   - (cd wrench && cargo test --verbose)
   - (cd wrench && cargo build --release --verbose --features headless)
   - (cd wrench && python run_tests.py res/rect.yaml)

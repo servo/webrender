@@ -1,19 +1,19 @@
 extern crate yaml_rust;
 
-use app_units::Au;
 use euclid::{TypedPoint2D, TypedSize2D, TypedRect, TypedMatrix4D};
 use image::{ColorType, save_buffer};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
+use std::fmt;
 use std::fs;
 use std::fs::File;
-use std::io::{Cursor, Read, Write};
+use std::io::Write;
 use std::slice;
 use std::path::{Path, PathBuf};
 use webrender;
 use webrender_traits::*;
 use yaml_rust::{Yaml, YamlEmitter};
-use yaml_helper::mix_blend_mode_to_string;
+use yaml_helper::{mix_blend_mode_to_string, scroll_policy_to_string};
 use scene::Scene;
 use time;
 
@@ -84,7 +84,12 @@ fn matrix4d_node<U1,U2>(parent: &mut Table, key: &str, value: &TypedMatrix4D<f32
     f32_vec_node(parent, key, &value.to_row_major_array());
 }
 
+#[cfg(target_os = "windows")]
 fn u32_node(parent: &mut Table, key: &str, value: u32) {
+    yaml_node(parent, key, Yaml::Integer(value as i64));
+}
+
+fn usize_node(parent: &mut Table, key: &str, value: usize) {
     yaml_node(parent, key, Yaml::Integer(value as i64));
 }
 
@@ -110,10 +115,6 @@ fn string_vec_yaml(value: &[String], check_unique: bool) -> Yaml {
     } else {
         Yaml::Array(value.iter().map(|v| Yaml::String(v.clone())).collect())
     }
-}
-
-fn string_vec_node(parent: &mut Table, key: &str, value: &[String]) {
-    yaml_node(parent, key, string_vec_yaml(value, false));
 }
 
 fn u32_vec_yaml(value: &[u32], check_unique: bool) -> Yaml {
@@ -148,9 +149,13 @@ fn mix_blend_mode_node(parent: &mut Table, key: &str, value: MixBlendMode) {
     yaml_node(parent, key, Yaml::String(mix_blend_mode_to_string(value).to_owned()));
 }
 
+fn scroll_policy_node(parent: &mut Table, key: &str, value: ScrollPolicy) {
+    yaml_node(parent, key, Yaml::String(scroll_policy_to_string(value).to_owned()));
+}
+
 fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
     if let Some(radius) = radius.is_uniform() {
-        if radius == 0.0 {
+        if radius == LayoutSize::zero() {
             None
         } else {
             Some(Yaml::Real(radius.to_string()))
@@ -168,8 +173,10 @@ fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
 fn write_sc(parent: &mut Table, sc: &StackingContext) {
     // overwrite "bounds" with the proper one
     rect_node(parent, "bounds", &sc.bounds);
-    // scroll_policy
+
+    scroll_policy_node(parent, "scroll-policy", sc.scroll_policy);
     i32_node(parent, "z_index", sc.z_index);
+
     if sc.transform != LayoutTransform::identity() {
         matrix4d_node(parent, "transform", &sc.transform);
     }
@@ -183,6 +190,14 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
     // filters
 }
 
+fn write_scroll_layer(parent: &mut Table, scroll_layer: &PushScrollLayerItem) {
+    size_node(parent, "content_size", &scroll_layer.content_size);
+    match scroll_layer.id.info {
+        ScrollLayerInfo::Scrollable(_, id) => usize_node(parent, "id", id.0),
+        ScrollLayerInfo::ReferenceFrame(..) => unreachable!("Scroll layer had reference frame id"),
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn native_font_handle_to_yaml(handle: &NativeFontHandle, parent: &mut yaml_rust::yaml::Hash) {
     str_node(parent, "family", &handle.family_name);
@@ -192,7 +207,7 @@ fn native_font_handle_to_yaml(handle: &NativeFontHandle, parent: &mut yaml_rust:
 }
 
 #[cfg(not(target_os = "windows"))]
-fn native_font_handle_to_yaml(native_handle: &NativeFontHandle, parent: &mut yaml_rust::yaml::Hash) {
+fn native_font_handle_to_yaml(_: &NativeFontHandle, _: &mut yaml_rust::yaml::Hash) {
     panic!("Can't native_handle_to_yaml on this platform");
 }
 
@@ -239,6 +254,11 @@ impl YamlFrameWriterReceiver {
     }
 }
 
+impl fmt::Debug for YamlFrameWriterReceiver {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "YamlFrameWriterReceiver")
+    }
+}
 
 impl YamlFrameWriter {
     pub fn new(path: &Path) -> YamlFrameWriter {
@@ -290,24 +310,18 @@ impl YamlFrameWriter {
                                       viewport_size);
     }
 
-    pub fn finish_write_root_display_list(&mut self,
-                                          scene: &mut Scene,
-                                          frame: u32,
-                                          data: &[u8])
-    {
+    pub fn finish_write_root_display_list(&mut self, scene: &mut Scene, data: &[u8]) {
         let dl_desc = self.dl_descriptor.take().unwrap();
         let aux_desc = self.aux_descriptor.take().unwrap();
 
-        let mut auxiliary_data = Cursor::new(&data[4..]);
+        assert_eq!(data.len(), dl_desc.size() + aux_desc.size() + 4);
 
-        let mut built_display_list_data = vec![0; dl_desc.size()];
-        let mut aux_list_data = vec![0; aux_desc.size()];
+        // skip 4-byte epoch header
+        let dl_data = data[4..dl_desc.size()+4].to_vec();
+        let aux_data = data[dl_desc.size()+4..].to_vec();
 
-        auxiliary_data.read_exact(&mut built_display_list_data[..]).unwrap();
-        auxiliary_data.read_exact(&mut aux_list_data[..]).unwrap();
-
-        let dl = BuiltDisplayList::from_data(built_display_list_data, dl_desc);
-        let aux = AuxiliaryLists::from_data(aux_list_data, aux_desc);
+        let dl = BuiltDisplayList::from_data(dl_data, dl_desc);
+        let aux = AuxiliaryLists::from_data(aux_data, aux_desc);
 
         let mut root_dl_table = new_table();
         {
@@ -430,7 +444,7 @@ impl YamlFrameWriter {
             rect_node(&mut complex_table, "rect", &clip.main);
 
             if complex.len() > 0 {
-                let mut complex_items = complex.iter().map(|ccx|
+                let complex_items = complex.iter().map(|ccx|
                     if ccx.radii.is_zero() {
                         rect_yaml(&ccx.rect)
                     } else {
@@ -440,7 +454,6 @@ impl YamlFrameWriter {
                         Yaml::Hash(t)
                     }
                 ).collect();
-
                 vec_node(&mut complex_table, "complex", complex_items);
             }
 
@@ -580,6 +593,7 @@ impl YamlFrameWriter {
                         stops.push(Yaml::String(color_to_string(stop.color)));
                     }
                     yaml_node(&mut v, "stops", Yaml::Array(stops));
+                    bool_node(&mut v, "repeat", item.extend_mode == ExtendMode::Repeat);
                 },
                 RadialGradient(item) => {
                     str_node(&mut v, "type", "radial_gradient");
@@ -593,6 +607,7 @@ impl YamlFrameWriter {
                         stops.push(Yaml::String(color_to_string(stop.color)));
                     }
                     yaml_node(&mut v, "stops", Yaml::Array(stops));
+                    bool_node(&mut v, "repeat", item.extend_mode == ExtendMode::Repeat);
                 },
                 Iframe(item) => {
                     str_node(&mut v, "type", "iframe");
@@ -607,12 +622,11 @@ impl YamlFrameWriter {
                     return;
                 },
                 PushScrollLayer(item) => {
-                    // TODO
-                    //println!("TODO PushScrollLayer");
+                    str_node(&mut v, "type", "scroll_layer");
+                    write_scroll_layer(&mut v, &item);
                 },
                 PopScrollLayer => {
-                    //println!("TODO PopScrollLayer");
-                    // TODO
+                    return;
                 },
             }
             if !v.is_empty() {
@@ -685,17 +699,23 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                                         ref pipeline_id,
                                         ref viewport_size,
                                         ref display_list,
-                                        ref auxiliary_lists) => {
-                self.frame_writer.begin_write_root_display_list(&mut self.scene, background_color, epoch, pipeline_id,
-                                                   viewport_size, display_list, auxiliary_lists);
+                                        ref auxiliary_lists,
+                                        _preserve_frame_state) => {
+                self.frame_writer.begin_write_root_display_list(&mut self.scene,
+                                                                background_color,
+                                                                epoch,
+                                                                pipeline_id,
+                                                                viewport_size,
+                                                                display_list,
+                                                                auxiliary_lists);
             }
             _ => {}
         }
     }
 
-    fn write_payload(&mut self, frame: u32, data: &[u8]) {
+    fn write_payload(&mut self, _frame: u32, data: &[u8]) {
         if self.frame_writer.dl_descriptor.is_some() {
-            self.frame_writer.finish_write_root_display_list(&mut self.scene, frame, data);
+            self.frame_writer.finish_write_root_display_list(&mut self.scene, data);
         }
     }
 }

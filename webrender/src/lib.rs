@@ -77,7 +77,7 @@ mod shader_source {
     include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
 }
 
-pub use record::{ApiRecordingReceiver, set_recording_detour, WEBRENDER_RECORDING_HEADER};
+pub use record::{ApiRecordingReceiver, BinaryRecorder, WEBRENDER_RECORDING_HEADER};
 
 mod platform {
     #[cfg(target_os="macos")]
@@ -126,6 +126,8 @@ extern crate webrender_traits;
 extern crate offscreen_gl_context;
 extern crate byteorder;
 extern crate threadpool;
+
+#[cfg(any(target_os="macos", target_os="windows"))]
 extern crate gamma_lut;
 
 pub use renderer::{ExternalImage, ExternalImageSource, ExternalImageHandler};

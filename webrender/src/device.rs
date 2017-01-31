@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::hash::BuildHasherDefault;
 use std::io::Read;
+use std::iter::repeat;
 use std::mem;
 use std::path::PathBuf;
 //use std::sync::mpsc::{channel, Sender};
@@ -374,33 +375,45 @@ impl Program {
     fn attach_and_bind_shaders(&mut self,
                                vs_id: gl::GLuint,
                                fs_id: gl::GLuint,
+                               vertex_format: VertexFormat,
                                panic_on_fail: bool) -> bool {
         gl::attach_shader(self.id, vs_id);
         gl::attach_shader(self.id, fs_id);
 
-        gl::bind_attrib_location(self.id, VertexAttribute::Position as gl::GLuint, "aPosition");
-        gl::bind_attrib_location(self.id, VertexAttribute::Color as gl::GLuint, "aColor");
-        gl::bind_attrib_location(self.id, VertexAttribute::ColorTexCoord as gl::GLuint, "aColorTexCoord");
+        match vertex_format {
+            VertexFormat::Triangles | VertexFormat::Rectangles |
+            VertexFormat::DebugFont |  VertexFormat::DebugColor => {
+                gl::bind_attrib_location(self.id, VertexAttribute::Position as gl::GLuint, "aPosition");
+                gl::bind_attrib_location(self.id, VertexAttribute::Color as gl::GLuint, "aColor");
+                gl::bind_attrib_location(self.id, VertexAttribute::ColorTexCoord as gl::GLuint, "aColorTexCoord");
 
-        gl::bind_attrib_location(self.id, VertexAttribute::GlobalPrimId as gl::GLuint, "aGlobalPrimId");
-        gl::bind_attrib_location(self.id, VertexAttribute::PrimitiveAddress as gl::GLuint, "aPrimitiveAddress");
-        gl::bind_attrib_location(self.id, VertexAttribute::TaskIndex as gl::GLuint, "aTaskIndex");
-        gl::bind_attrib_location(self.id, VertexAttribute::ClipTaskIndex as gl::GLuint, "aClipTaskIndex");
-        gl::bind_attrib_location(self.id, VertexAttribute::LayerIndex as gl::GLuint, "aLayerIndex");
-        gl::bind_attrib_location(self.id, VertexAttribute::ElementIndex as gl::GLuint, "aElementIndex");
-        gl::bind_attrib_location(self.id, VertexAttribute::UserData as gl::GLuint, "aUserData");
-        gl::bind_attrib_location(self.id, VertexAttribute::ZIndex as gl::GLuint, "aZIndex");
-
-        gl::bind_attrib_location(self.id, ClearAttribute::Rectangle as gl::GLuint, "aClearRectangle");
-
-        gl::bind_attrib_location(self.id, BlurAttribute::RenderTaskIndex as gl::GLuint, "aBlurRenderTaskIndex");
-        gl::bind_attrib_location(self.id, BlurAttribute::SourceTaskIndex as gl::GLuint, "aBlurSourceTaskIndex");
-        gl::bind_attrib_location(self.id, BlurAttribute::Direction as gl::GLuint, "aBlurDirection");
-
-        gl::bind_attrib_location(self.id, ClipAttribute::RenderTaskIndex as gl::GLuint, "aClipRenderTaskIndex");
-        gl::bind_attrib_location(self.id, ClipAttribute::LayerIndex as gl::GLuint, "aClipLayerIndex");
-        gl::bind_attrib_location(self.id, ClipAttribute::DataIndex as gl::GLuint, "aClipDataIndex");
-        gl::bind_attrib_location(self.id, ClipAttribute::SegmentIndex as gl::GLuint, "aClipSegmentIndex");
+                gl::bind_attrib_location(self.id, VertexAttribute::GlobalPrimId as gl::GLuint, "aGlobalPrimId");
+                gl::bind_attrib_location(self.id, VertexAttribute::PrimitiveAddress as gl::GLuint, "aPrimitiveAddress");
+                gl::bind_attrib_location(self.id, VertexAttribute::TaskIndex as gl::GLuint, "aTaskIndex");
+                gl::bind_attrib_location(self.id, VertexAttribute::ClipTaskIndex as gl::GLuint, "aClipTaskIndex");
+                gl::bind_attrib_location(self.id, VertexAttribute::LayerIndex as gl::GLuint, "aLayerIndex");
+                gl::bind_attrib_location(self.id, VertexAttribute::ElementIndex as gl::GLuint, "aElementIndex");
+                gl::bind_attrib_location(self.id, VertexAttribute::UserData as gl::GLuint, "aUserData");
+                gl::bind_attrib_location(self.id, VertexAttribute::ZIndex as gl::GLuint, "aZIndex");
+            }
+            VertexFormat::Clear => {
+                gl::bind_attrib_location(self.id, ClearAttribute::Position as gl::GLuint, "aPosition");
+                gl::bind_attrib_location(self.id, ClearAttribute::Rectangle as gl::GLuint, "aClearRectangle");
+            }
+            VertexFormat::Blur => {
+                gl::bind_attrib_location(self.id, BlurAttribute::Position as gl::GLuint, "aPosition");
+                gl::bind_attrib_location(self.id, BlurAttribute::RenderTaskIndex as gl::GLuint, "aBlurRenderTaskIndex");
+                gl::bind_attrib_location(self.id, BlurAttribute::SourceTaskIndex as gl::GLuint, "aBlurSourceTaskIndex");
+                gl::bind_attrib_location(self.id, BlurAttribute::Direction as gl::GLuint, "aBlurDirection");
+            }
+            VertexFormat::Clip => {
+                gl::bind_attrib_location(self.id, ClipAttribute::Position as gl::GLuint, "aPosition");
+                gl::bind_attrib_location(self.id, ClipAttribute::RenderTaskIndex as gl::GLuint, "aClipRenderTaskIndex");
+                gl::bind_attrib_location(self.id, ClipAttribute::LayerIndex as gl::GLuint, "aClipLayerIndex");
+                gl::bind_attrib_location(self.id, ClipAttribute::DataIndex as gl::GLuint, "aClipDataIndex");
+                gl::bind_attrib_location(self.id, ClipAttribute::SegmentIndex as gl::GLuint, "aClipSegmentIndex");
+            }
+        }
 
         gl::link_program(self.id);
         if gl::get_program_iv(self.id, gl::LINK_STATUS) == (0 as gl::GLint) {
@@ -1109,13 +1122,22 @@ impl Device {
             RenderTargetMode::None => {
                 self.bind_texture(DEFAULT_TEXTURE, texture_id);
                 self.set_texture_parameters(texture_id.target, filter);
+                let expanded_data: Vec<u8>;
+                let actual_pixels = if pixels.is_some() &&
+                                       format == ImageFormat::A8 &&
+                                       cfg!(any(target_arch="arm", target_arch="aarch64")) {
+                    expanded_data = pixels.unwrap().iter().flat_map(|&byte| repeat(byte).take(4)).collect();
+                    Some(expanded_data.as_slice())
+                } else {
+                    pixels
+                };
                 self.upload_texture_image(texture_id.target,
                                           width,
                                           height,
                                           internal_format as u32,
                                           gl_format,
                                           type_,
-                                          pixels);
+                                          actual_pixels);
             }
         }
     }
@@ -1311,14 +1333,16 @@ impl Device {
 
     pub fn create_program(&mut self,
                           base_filename: &str,
-                          include_filename: &str) -> ProgramId {
-        self.create_program_with_prefix(base_filename, &[include_filename], None)
+                          include_filename: &str,
+                          vertex_format: VertexFormat) -> ProgramId {
+        self.create_program_with_prefix(base_filename, &[include_filename], None, vertex_format)
     }
 
     pub fn create_program_with_prefix(&mut self,
                                       base_filename: &str,
                                       include_filenames: &[&str],
-                                      prefix: Option<String>) -> ProgramId {
+                                      prefix: Option<String>,
+                                      vertex_format: VertexFormat) -> ProgramId {
         debug_assert!(self.inside_frame);
 
         let pid = gl::create_program();
@@ -1355,7 +1379,7 @@ impl Device {
         debug_assert!(self.programs.contains_key(&program_id) == false);
         self.programs.insert(program_id, program);
 
-        self.load_program(program_id, include, true);
+        self.load_program(program_id, include, vertex_format, true);
 
         program_id
     }
@@ -1363,6 +1387,7 @@ impl Device {
     fn load_program(&mut self,
                     program_id: ProgramId,
                     include: String,
+                    vertex_format: VertexFormat,
                     panic_on_fail: bool) {
         debug_assert!(self.inside_frame);
 
@@ -1418,7 +1443,7 @@ impl Device {
                     gl::detach_shader(program.id, fs_id);
                 }
 
-                if program.attach_and_bind_shaders(vs_id, fs_id, panic_on_fail) {
+                if program.attach_and_bind_shaders(vs_id, fs_id, vertex_format, panic_on_fail) {
                     if let Some(vs_id) = program.vs_id {
                         gl::delete_shader(vs_id);
                     }
@@ -1432,7 +1457,7 @@ impl Device {
                 } else {
                     let vs_id = program.vs_id.unwrap();
                     let fs_id = program.fs_id.unwrap();
-                    program.attach_and_bind_shaders(vs_id, fs_id, true);
+                    program.attach_and_bind_shaders(vs_id, fs_id, vertex_format, true);
                 }
 
                 program.u_transform = gl::get_uniform_location(program.id, "uTransform");
@@ -1499,6 +1524,11 @@ impl Device {
                 let u_resource_rects = gl::get_uniform_location(program.id, "sResourceRects");
                 if u_resource_rects != -1 {
                     gl::uniform_1i(u_resource_rects, TextureSampler::ResourceRects as i32);
+                }
+
+                let u_gradients = gl::get_uniform_location(program.id, "sGradients");
+                if u_gradients != -1 {
+                    gl::uniform_1i(u_gradients, TextureSampler::Gradients as i32);
                 }
             }
         }

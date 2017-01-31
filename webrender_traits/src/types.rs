@@ -10,6 +10,7 @@ use channel::{PayloadSender, MsgSender};
 #[cfg(feature = "nightly")]
 use core::nonzero::NonZero;
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
+use std::fmt;
 use std::sync::Arc;
 
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
@@ -43,7 +44,8 @@ pub enum ApiMsg {
                        PipelineId,
                        LayoutSize,
                        BuiltDisplayListDescriptor,
-                       AuxiliaryListsDescriptor),
+                       AuxiliaryListsDescriptor,
+                       bool),
     SetRootPipeline(PipelineId),
     Scroll(ScrollLocation, WorldPoint, ScrollEventPhase),
     ScrollLayersWithScrollId(LayoutPoint, PipelineId, ServoScrollRootId),
@@ -64,6 +66,7 @@ pub enum ApiMsg {
 }
 
 /// An opaque pointer-sized value.
+#[repr(C)]
 #[derive(Clone, Deserialize, Serialize)]
 pub struct ExternalEvent {
     raw: usize,
@@ -77,6 +80,7 @@ impl ExternalEvent {
     pub fn unwrap(self) -> usize { self.raw }
 }
 
+#[repr(C)]
 #[derive(Copy, Clone, Deserialize, Serialize, Debug)]
 pub struct GlyphDimensions {
     pub left: i32,
@@ -122,6 +126,7 @@ pub struct BorderRadius {
     pub bottom_right: LayoutSize,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BorderSide {
     pub width: f32,
@@ -129,25 +134,27 @@ pub struct BorderSide {
     pub style: BorderStyle,
 }
 
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum BorderStyle {
-    None,
-    Solid,
-    Double,
-    Dotted,
-    Dashed,
-    Hidden,
-    Groove,
-    Ridge,
-    Inset,
-    Outset,
+    None    = 0,
+    Solid   = 1,
+    Double  = 2,
+    Dotted  = 3,
+    Dashed  = 4,
+    Hidden  = 5,
+    Groove  = 6,
+    Ridge   = 7,
+    Inset   = 8,
+    Outset  = 9,
 }
 
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum BoxShadowClipMode {
-    None,
-    Outset,
-    Inset,
+    None    = 0,
+    Outset  = 1,
+    Inset   = 2,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -182,6 +189,7 @@ pub struct BuiltDisplayListDescriptor {
     display_items_size: usize,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ColorF {
     pub r: f32,
@@ -191,6 +199,7 @@ pub struct ColorF {
 }
 known_heap_size!(0, ColorF);
 
+#[repr(C)]
 #[derive(Clone, Copy, Hash, Eq, Debug, Deserialize, PartialEq, PartialOrd, Ord, Serialize)]
 pub struct ColorU {
     pub r: u8,
@@ -278,15 +287,23 @@ pub struct DisplayItem {
     pub clip: ClipRegion,
 }
 
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum DisplayListMode {
-    Default,
-    PseudoFloat,
-    PseudoPositionedContent,
+    Default                 = 0,
+    PseudoFloat             = 1,
+    PseudoPositionedContent = 2,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Epoch(pub u32);
+
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize, Ord, PartialOrd)]
+pub enum ExtendMode {
+    Clamp,
+    Repeat,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum FilterOp {
@@ -301,14 +318,56 @@ pub enum FilterOp {
     Sepia(f32),
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize, Ord, PartialOrd)]
-pub struct FontKey(u32, u32);
+pub struct FontKey(pub u32, pub u32);
 
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize, Ord, PartialOrd)]
 pub enum FontRenderMode {
     Mono,
     Alpha,
     Subpixel,
+}
+
+impl FontRenderMode {
+    // Skia quantizes subpixel offets into 1/4 increments.
+    // Given the absolute position, return the quantized increment
+    fn subpixel_quantize_offset(&self, pos: f32) -> SubpixelOffset {
+        if *self != FontRenderMode::Subpixel {
+            return SubpixelOffset::Zero;
+        }
+
+        const SUBPIXEL_ROUNDING :f32 = 0.125; // Skia chosen value.
+        let fraction = (pos + SUBPIXEL_ROUNDING).fract();
+
+        match fraction {
+            0.0...0.25 => SubpixelOffset::Zero,
+            0.25...0.5 => SubpixelOffset::Quarter,
+            0.5...0.75 => SubpixelOffset::Half,
+            0.75...1.0 => SubpixelOffset::ThreeQuarters,
+            _ => panic!("Should only be given the fractional part"),
+        }
+    }
+}
+
+#[repr(u32)]
+#[derive(Hash, Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub enum SubpixelOffset {
+    Zero            = 0,
+    Quarter         = 1,
+    Half            = 2,
+    ThreeQuarters   = 3,
+}
+
+impl Into<f64> for SubpixelOffset {
+    fn into(self) -> f64 {
+        match self {
+            SubpixelOffset::Zero => 0.0,
+            SubpixelOffset::Quarter => 0.25,
+            SubpixelOffset::Half => 0.5,
+            SubpixelOffset::ThreeQuarters => 0.75,
+        }
+    }
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Deserialize, Serialize, Ord, PartialOrd)]
@@ -322,29 +381,43 @@ pub struct GlyphKey {
     pub size: Au,
     pub index: u32,
     pub color: ColorU,
+    pub x_suboffset: SubpixelOffset,
+    pub y_suboffset: SubpixelOffset,
 }
 
 impl GlyphKey {
     pub fn new(font_key: FontKey,
                size: Au,
                color: ColorF,
-               index: u32) -> GlyphKey {
+               index: u32,
+               x: f32,
+               y: f32,
+               render_mode: FontRenderMode) -> GlyphKey {
         GlyphKey {
             font_key: font_key,
             size: size,
             color: ColorU::from(color),
             index: index,
+            x_suboffset: render_mode.subpixel_quantize_offset(x),
+            y_suboffset: render_mode.subpixel_quantize_offset(y),
         }
+    }
+
+    pub fn set_subpixel_offset(&mut self, x: f32, y: f32, render_mode: FontRenderMode) {
+        self.x_suboffset = render_mode.subpixel_quantize_offset(x);
+        self.y_suboffset = render_mode.subpixel_quantize_offset(y);
     }
 }
 
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum FragmentType {
-    FragmentBody,
-    BeforePseudoContent,
-    AfterPseudoContent,
+    FragmentBody        = 0,
+    BeforePseudoContent = 1,
+    AfterPseudoContent  = 2,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GlyphInstance {
     pub index: u32,
@@ -357,6 +430,7 @@ pub struct GradientDisplayItem {
     pub start_point: LayoutPoint,
     pub end_point: LayoutPoint,
     pub stops: ItemRange,
+    pub extend_mode: ExtendMode,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -373,6 +447,7 @@ pub struct RadialGradientDisplayItem {
     pub end_center: LayoutPoint,
     pub end_radius: f32,
     pub stops: ItemRange,
+    pub extend_mode: ExtendMode,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -391,6 +466,7 @@ pub struct IframeDisplayItem {
     pub pipeline_id: PipelineId,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct IdNamespace(pub u32);
 
@@ -410,13 +486,15 @@ pub struct YuvImageDisplayItem {
     pub color_space: YuvColorSpace,
 }
 
+#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ImageFormat {
-    Invalid,
-    A8,
-    RGB8,
-    RGBA8,
-    RGBAF32,
+    Invalid  = 0,
+    A8       = 1,
+    RGB8     = 2,
+    RGBA8    = 3,
+    RGBAF32  = 4,
 }
 
 impl ImageFormat {
@@ -431,6 +509,8 @@ impl ImageFormat {
     }
 }
 
+#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum YuvColorSpace {
     Rec601 = 1, // The values must match the ones in prim_shared.glsl
@@ -460,7 +540,7 @@ impl ImageData {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct ImageKey(u32, u32);
+pub struct ImageKey(pub u32, pub u32);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ImageRendering {
@@ -475,24 +555,26 @@ pub struct ItemRange {
     pub length: usize,
 }
 
+#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum MixBlendMode {
-    Normal,
-    Multiply,
-    Screen,
-    Overlay,
-    Darken,
-    Lighten,
-    ColorDodge,
-    ColorBurn,
-    HardLight,
-    SoftLight,
-    Difference,
-    Exclusion,
-    Hue,
-    Saturation,
-    Color,
-    Luminosity,
+    Normal      = 0,
+    Multiply    = 1,
+    Screen      = 2,
+    Overlay     = 3,
+    Darken      = 4,
+    Lighten     = 5,
+    ColorDodge  = 6,
+    ColorBurn   = 7,
+    HardLight   = 8,
+    SoftLight   = 9,
+    Difference  = 10,
+    Exclusion   = 11,
+    Hue         = 12,
+    Saturation  = 13,
+    Color       = 14,
+    Luminosity  = 15,
 }
 
 #[cfg(target_os = "macos")]
@@ -506,6 +588,7 @@ pub struct NativeFontHandle;
 #[cfg(target_os = "windows")]
 pub type NativeFontHandle = FontDescriptor;
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct PipelineId(pub u32, pub u32);
 
@@ -532,6 +615,7 @@ pub trait RenderDispatcher: Send {
     fn dispatch(&self, Box<Fn() + Send>);
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct ResourceId(pub u32);
 
@@ -553,25 +637,32 @@ pub struct ScrollLayerId {
 }
 
 impl ScrollLayerId {
-    pub fn root(pipeline_id: PipelineId) -> ScrollLayerId {
+    pub fn root_scroll_layer(pipeline_id: PipelineId) -> ScrollLayerId {
         ScrollLayerId {
             pipeline_id: pipeline_id,
             info: ScrollLayerInfo::Scrollable(0, ServoScrollRootId(0)),
         }
     }
 
+    pub fn root_reference_frame(pipeline_id: PipelineId) -> ScrollLayerId {
+        ScrollLayerId {
+            pipeline_id: pipeline_id,
+            info: ScrollLayerInfo::ReferenceFrame(0),
+        }
+    }
+
     pub fn scroll_root_id(&self) -> Option<ServoScrollRootId> {
         match self.info {
             ScrollLayerInfo::Scrollable(_, scroll_root_id) => Some(scroll_root_id),
-            ScrollLayerInfo::Fixed => None,
+            ScrollLayerInfo::ReferenceFrame(..) => None,
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ScrollLayerInfo {
-    Fixed,
-    Scrollable(usize, ServoScrollRootId)
+    Scrollable(usize, ServoScrollRootId),
+    ReferenceFrame(usize),
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -581,10 +672,12 @@ pub struct ScrollLayerState {
     pub scroll_offset: LayoutPoint,
 }
 
+#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ScrollPolicy {
-    Scrollable,
-    Fixed,
+    Scrollable  = 0,
+    Fixed       = 1,
 }
 known_heap_size!(0, ScrollPolicy);
 
@@ -598,6 +691,7 @@ pub enum ScrollLocation {
     End 
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ServoScrollRootId(pub usize);
 
@@ -633,8 +727,8 @@ pub struct StackingContext {
 #[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize)]
 pub struct GlyphOptions {
     // These are currently only used on windows for dwrite fonts.
-    use_embedded_bitmap: bool,
-    force_gdi_rendering: bool,
+    pub use_embedded_bitmap: bool,
+    pub force_gdi_rendering: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -914,4 +1008,32 @@ pub enum VRCompositorCommand {
 // Receives the texture_id associated to the WebGLContext.
 pub trait VRCompositorHandler: Send {
     fn handle(&mut self, command: VRCompositorCommand, texture_id: Option<u32>);
+}
+
+impl fmt::Debug for ApiMsg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &ApiMsg::AddRawFont(..) => { write!(f, "ApiMsg::AddRawFont") }
+            &ApiMsg::AddNativeFont(..) => { write!(f, "ApiMsg::AddNativeFont") }
+            &ApiMsg::GetGlyphDimensions(..) => { write!(f, "ApiMsg::GetGlyphDimensions") }
+            &ApiMsg::AddImage(..) => { write!(f, "ApiMsg::AddImage") }
+            &ApiMsg::UpdateImage(..) => { write!(f, "ApiMsg::UpdateImage") }
+            &ApiMsg::DeleteImage(..) => { write!(f, "ApiMsg::DeleteImage") }
+            &ApiMsg::CloneApi(..) => { write!(f, "ApiMsg::CloneApi") }
+            &ApiMsg::SetRootDisplayList(..) => { write!(f, "ApiMsg::SetRootDisplayList") }
+            &ApiMsg::SetRootPipeline(..) => { write!(f, "ApiMsg::SetRootPipeline") }
+            &ApiMsg::Scroll(..) => { write!(f, "ApiMsg::Scroll") }
+            &ApiMsg::ScrollLayersWithScrollId(..) => { write!(f, "ApiMsg::ScrollLayersWithScrollId") }
+            &ApiMsg::TickScrollingBounce => { write!(f, "ApiMsg::TickScrollingBounce") }
+            &ApiMsg::TranslatePointToLayerSpace(..) => { write!(f, "ApiMsg::TranslatePointToLayerSpace") }
+            &ApiMsg::GetScrollLayerState(..) => { write!(f, "ApiMsg::GetScrollLayerState") }
+            &ApiMsg::RequestWebGLContext(..) => { write!(f, "ApiMsg::RequestWebGLContext") }
+            &ApiMsg::ResizeWebGLContext(..) => { write!(f, "ApiMsg::ResizeWebGLContext") }
+            &ApiMsg::WebGLCommand(..) => { write!(f, "ApiMsg::WebGLCommand") }
+            &ApiMsg::GenerateFrame => { write!(f, "ApiMsg::GenerateFrame") }
+            &ApiMsg::VRCompositorCommand(..) => { write!(f, "ApiMsg::VRCompositorCommand") }
+            &ApiMsg::ExternalEvent(..) => { write!(f, "ApiMsg::ExternalEvent") }
+            &ApiMsg::ShutDown => { write!(f, "ApiMsg::ShutDown") }
+        }
+    }
 }

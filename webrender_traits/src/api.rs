@@ -148,13 +148,17 @@ impl RenderApi {
     /// * `viewport_size`: The size of the viewport for this frame.
     /// * `display_list`: The root Display list used in this frame.
     /// * `auxiliary_lists`: Various items that the display lists and stacking contexts reference.
+    /// * `preserve_frame_state`: If a previous frame exists which matches this pipeline
+    ///                           id, this setting determines if frame state (such as scrolling
+    ///                           position) should be preserved for this new display list.
     ///
     /// [notifier]: trait.RenderNotifier.html#tymethod.new_frame_ready
     pub fn set_root_display_list(&self,
                                  background_color: Option<ColorF>,
                                  epoch: Epoch,
                                  viewport_size: LayoutSize,
-                                 builder: DisplayListBuilder) {
+                                 builder: DisplayListBuilder,
+                                 preserve_frame_state: bool) {
         let pipeline_id = builder.pipeline_id;
         let (display_list, auxiliary_lists) = builder.finalize();
         let msg = ApiMsg::SetRootDisplayList(background_color,
@@ -162,7 +166,8 @@ impl RenderApi {
                                              pipeline_id,
                                              viewport_size,
                                              display_list.descriptor().clone(),
-                                             *auxiliary_lists.descriptor());
+                                             *auxiliary_lists.descriptor(),
+                                             preserve_frame_state);
         self.api_sender.send(msg).unwrap();
 
         let mut payload = vec![];

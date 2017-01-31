@@ -4,6 +4,7 @@
 
 extern crate app_units;
 extern crate byteorder;
+extern crate base64;
 extern crate bincode;
 extern crate webrender;
 extern crate glutin;
@@ -17,7 +18,6 @@ extern crate image;
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
-extern crate serde;
 extern crate serde_json;
 extern crate crossbeam;
 
@@ -80,13 +80,16 @@ lazy_static! {
 pub static mut CURRENT_FRAME_NUMBER: u32 = 0;
 
 fn percentile(values: &[f64], pct_int: u32) -> f64 {
-    let pct = pct_int as f32 / 100.;
-    let index_f = (values.len()-1) as f32 * pct;
-    let index = f32::floor(index_f) as usize;
-    if index == index_f as usize {
-        values[index]
+    if values.len() > 0 {
+        let index_big = (values.len() - 1) * (pct_int as usize);
+        let index = index_big / 100;
+        if index * 100 == index_big {
+            values[index]
+        } else {
+            (values[index] + values[index+1]) / 2.
+        }
     } else {
-        (values[index] + values[index+1]) / 2.
+        1.0
     }
 }
 
@@ -269,7 +272,8 @@ fn main() {
     let save_type = args.value_of("save").map(|s| {
         if s == "yaml" { wrench::SaveType::Yaml }
         else if s == "json" { wrench::SaveType::Json }
-        else { panic!("Save type must be json or yaml"); }
+        else if s == "binary" { wrench::SaveType::Binary }
+        else { panic!("Save type must be json, yaml, or binary"); }
     });
     let size = args.value_of("size").map(|s| {
         if s == "720p" {
@@ -343,7 +347,7 @@ fn main() {
     let mut max_time = time::Duration::min_value();
     let mut max_max_time = time::Duration::min_value();
     let mut sum_time = time::Duration::zero();
-    let mut block_avg_ms = vec![];
+    let mut block_avg_time = vec![];
     let mut warmed_up = false;
 
     fn as_ms(f: time::Duration) -> f64 { f.num_microseconds().unwrap() as f64 / 1000. }
@@ -356,7 +360,9 @@ fn main() {
 
         if let Some(limit) = limit_seconds {
             if (time::SteadyTime::now() - time_start) >= limit {
-                let mut block_avg_ms = block_avg_ms.iter().map(|v| as_ms(*v)).collect::<Vec<f64>>();
+                let mut block_avg_ms = block_avg_time.iter()
+                                                     .map(|v| as_ms(*v))
+                                                     .collect::<Vec<f64>>();
                 block_avg_ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
                 let avg_ms = block_avg_ms.iter().fold(0., |sum, v| sum + v) / block_avg_ms.len() as f64;
                 let val_10th_pct = percentile(&block_avg_ms, 10);
@@ -423,7 +429,7 @@ fn main() {
                     if frame_count == frames_between_dumps {
                         let avg_time = sum_time / frame_count;
                         if warmed_up {
-                            block_avg_ms.push(avg_time);
+                            block_avg_time.push(avg_time);
                         }
 
                         if wrench.verbose {
