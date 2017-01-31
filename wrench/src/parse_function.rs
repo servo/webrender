@@ -1,6 +1,11 @@
 use std::str::CharIndices;
-// A crapy parser for parsing strings like "translate(1, 3)"
 
+// support arguments like '4', 'ab', '4.0'
+fn acceptable_arg_character(c: char) -> bool {
+    c.is_alphanumeric() || c == '.'
+}
+
+// A crapy parser for parsing strings like "translate(1, 3)"
 pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
     // XXX: This it not particular easy to read. Sorry.
     struct Parser<'a> {
@@ -53,7 +58,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
 
         let mut end = p.start;
         while let Some(k) = p.o {
-            if !k.1.is_alphanumeric() {
+            if !acceptable_arg_character(k.1) {
                 break;
             }
             end = k.0 + 1;

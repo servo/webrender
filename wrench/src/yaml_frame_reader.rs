@@ -492,8 +492,7 @@ impl YamlFrameReader {
             }
         }
 
-        // FIXME handle these
-        let filters: Vec<FilterOp> = Vec::new();
+        let filters = yaml["filters"].as_vec_filter_op().unwrap_or(vec![]);
 
         self.builder().push_stacking_context(scroll_policy,
                                              bounds,
