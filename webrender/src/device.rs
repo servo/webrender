@@ -1525,6 +1525,11 @@ impl Device {
                 if u_resource_rects != -1 {
                     gl::uniform_1i(u_resource_rects, TextureSampler::ResourceRects as i32);
                 }
+
+                let u_gradients = gl::get_uniform_location(program.id, "sGradients");
+                if u_gradients != -1 {
+                    gl::uniform_1i(u_gradients, TextureSampler::Gradients as i32);
+                }
             }
         }
     }

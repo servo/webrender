@@ -581,7 +581,8 @@ impl Frame {
                                                  &item.clip,
                                                  info.start_point,
                                                  info.end_point,
-                                                 info.stops);
+                                                 info.stops,
+                                                 info.extend_mode);
                 }
                 SpecificDisplayItem::RadialGradient(ref info) => {
                     context.builder.add_radial_gradient(item.rect,
@@ -590,7 +591,8 @@ impl Frame {
                                                         info.start_radius,
                                                         info.end_center,
                                                         info.end_radius,
-                                                        info.stops);
+                                                        info.stops,
+                                                        info.extend_mode);
                 }
                 SpecificDisplayItem::BoxShadow(ref box_shadow_info) => {
                     context.builder.add_box_shadow(&box_shadow_info.box_bounds,
