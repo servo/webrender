@@ -134,7 +134,6 @@ pub struct BorderSide {
     pub style: BorderStyle,
 }
 
-#[repr(C)]
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum BorderStyle {
@@ -150,7 +149,6 @@ pub enum BorderStyle {
     Outset  = 9,
 }
 
-#[repr(C)]
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum BoxShadowClipMode {
@@ -289,7 +287,6 @@ pub struct DisplayItem {
     pub clip: ClipRegion,
 }
 
-#[repr(C)]
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum DisplayListMode {
@@ -353,7 +350,6 @@ impl FontRenderMode {
     }
 }
 
-#[repr(C)]
 #[repr(u32)]
 #[derive(Hash, Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum SubpixelOffset {
@@ -413,7 +409,6 @@ impl GlyphKey {
     }
 }
 
-#[repr(C)]
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum FragmentType {
