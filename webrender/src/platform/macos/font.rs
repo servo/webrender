@@ -237,7 +237,8 @@ impl FontContext {
                            render_mode: FontRenderMode,
                            x_suboffset: SubpixelOffset,
                            y_suboffset: SubpixelOffset,
-                           glyph_options: Option<GlyphOptions>) -> Option<RasterizedGlyph> {
+                           _glyph_options: Option<GlyphOptions>)
+                           -> Option<RasterizedGlyph> {
         match self.get_ct_font(font_key, size) {
             Some(ref ct_font) => {
                 let glyph = character as CGGlyph;

@@ -1,6 +1,5 @@
 extern crate yaml_rust;
 
-use app_units::Au;
 use euclid::{TypedPoint2D, TypedSize2D, TypedRect, TypedMatrix4D};
 use image::{ColorType, save_buffer};
 use std::borrow::BorrowMut;
@@ -8,7 +7,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::fs::File;
-use std::io::{Cursor, Read, Write};
+use std::io::Write;
 use std::slice;
 use std::path::{Path, PathBuf};
 use webrender;
@@ -85,6 +84,7 @@ fn matrix4d_node<U1,U2>(parent: &mut Table, key: &str, value: &TypedMatrix4D<f32
     f32_vec_node(parent, key, &value.to_row_major_array());
 }
 
+#[cfg(target_os = "windows")]
 fn u32_node(parent: &mut Table, key: &str, value: u32) {
     yaml_node(parent, key, Yaml::Integer(value as i64));
 }
@@ -115,10 +115,6 @@ fn string_vec_yaml(value: &[String], check_unique: bool) -> Yaml {
     } else {
         Yaml::Array(value.iter().map(|v| Yaml::String(v.clone())).collect())
     }
-}
-
-fn string_vec_node(parent: &mut Table, key: &str, value: &[String]) {
-    yaml_node(parent, key, string_vec_yaml(value, false));
 }
 
 fn u32_vec_yaml(value: &[u32], check_unique: bool) -> Yaml {
@@ -211,7 +207,7 @@ fn native_font_handle_to_yaml(handle: &NativeFontHandle, parent: &mut yaml_rust:
 }
 
 #[cfg(not(target_os = "windows"))]
-fn native_font_handle_to_yaml(native_handle: &NativeFontHandle, parent: &mut yaml_rust::yaml::Hash) {
+fn native_font_handle_to_yaml(_: &NativeFontHandle, _: &mut yaml_rust::yaml::Hash) {
     panic!("Can't native_handle_to_yaml on this platform");
 }
 
@@ -314,11 +310,7 @@ impl YamlFrameWriter {
                                       viewport_size);
     }
 
-    pub fn finish_write_root_display_list(&mut self,
-                                          scene: &mut Scene,
-                                          frame: u32,
-                                          data: &[u8])
-    {
+    pub fn finish_write_root_display_list(&mut self, scene: &mut Scene, data: &[u8]) {
         let dl_desc = self.dl_descriptor.take().unwrap();
         let aux_desc = self.aux_descriptor.take().unwrap();
 
@@ -721,9 +713,9 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
         }
     }
 
-    fn write_payload(&mut self, frame: u32, data: &[u8]) {
+    fn write_payload(&mut self, _frame: u32, data: &[u8]) {
         if self.frame_writer.dl_descriptor.is_some() {
-            self.frame_writer.finish_write_root_display_list(&mut self.scene, frame, data);
+            self.frame_writer.finish_write_root_display_list(&mut self.scene, data);
         }
     }
 }

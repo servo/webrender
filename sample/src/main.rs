@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 extern crate app_units;
-extern crate euclid;
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;

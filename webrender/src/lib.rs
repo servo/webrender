@@ -126,6 +126,8 @@ extern crate webrender_traits;
 extern crate offscreen_gl_context;
 extern crate byteorder;
 extern crate threadpool;
+
+#[cfg(any(target_os="macos", target_os="windows"))]
 extern crate gamma_lut;
 
 pub use renderer::{ExternalImage, ExternalImageSource, ExternalImageHandler};

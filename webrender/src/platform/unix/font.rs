@@ -116,8 +116,9 @@ impl FontContext {
                                 font_key: FontKey,
                                 size: Au,
                                 character: u32,
-                                x_subpixel: SubpixelOffset,
-                                y_subpixel: SubpixelOffset) -> Option<GlyphDimensions> {
+                                _x_subpixel: SubpixelOffset,
+                                _y_subpixel: SubpixelOffset)
+                                -> Option<GlyphDimensions> {
         self.load_glyph(font_key, size, character).and_then(|slot| {
             let metrics = unsafe { &(*slot).metrics };
             if metrics.width == 0 || metrics.height == 0 {
@@ -139,9 +140,10 @@ impl FontContext {
                            _color: ColorU,
                            character: u32,
                            render_mode: FontRenderMode,
-                           x_suboffset: SubpixelOffset,
-                           y_suboffset: SubpixelOffset,
-                           glyph_options: Option<GlyphOptions>) -> Option<RasterizedGlyph> {
+                           _x_suboffset: SubpixelOffset,
+                           _y_suboffset: SubpixelOffset,
+                           _glyph_options: Option<GlyphOptions>)
+                           -> Option<RasterizedGlyph> {
         let mut glyph = None;
 
         if let Some(slot) = self.load_glyph(font_key,

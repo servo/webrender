@@ -199,8 +199,9 @@ impl FontContext {
                                 font_key: FontKey,
                                 size: Au,
                                 glyph: u32,
-                                x_subpixel: SubpixelOffset,
-                                y_subpixel: SubpixelOffset) -> Option<GlyphDimensions> {
+                                _x_subpixel: SubpixelOffset,
+                                _y_subpixel: SubpixelOffset)
+                                -> Option<GlyphDimensions> {
         // Probably have to default to something else here.
         let render_mode = FontRenderMode::Subpixel;
         let analysis = self.create_glyph_analysis(font_key, size,
@@ -263,9 +264,10 @@ impl FontContext {
                            color: ColorU,
                            glyph: u32,
                            render_mode: FontRenderMode,
-                           x_suboffset: SubpixelOffset,
-                           y_suboffset: SubpixelOffset,
-                           glyph_options: Option<GlyphOptions>) -> Option<RasterizedGlyph> {
+                           _x_suboffset: SubpixelOffset,
+                           _y_suboffset: SubpixelOffset,
+                           glyph_options: Option<GlyphOptions>)
+                           -> Option<RasterizedGlyph> {
         let analysis = self.create_glyph_analysis(font_key, size, glyph,
                                                   render_mode, glyph_options);
         let texture_type = dwrite_texture_type(render_mode);
