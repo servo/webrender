@@ -6,6 +6,7 @@ build = "build.rs"
 workspace = ".."
 
 [dependencies]
+base64 = "0.3"
 bincode = "0.6"
 byteorder = "0.5"
 euclid = "0.10"

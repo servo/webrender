@@ -4,6 +4,7 @@
 
 extern crate app_units;
 extern crate byteorder;
+extern crate base64;
 extern crate bincode;
 extern crate webrender;
 extern crate glutin;
