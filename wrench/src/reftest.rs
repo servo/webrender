@@ -1,3 +1,4 @@
+use std::cmp;
 use std::io::BufReader;
 use std::io::BufRead;
 use std::fs::File;
@@ -5,6 +6,10 @@ use wrench::{Wrench, WrenchThing};
 use std::path::Path;
 use gleam::gl;
 use std::sync::mpsc::{channel, Sender, Receiver};
+
+use base64;
+use image::ColorType;
+use image::png::PNGEncoder;
 
 use yaml_frame_reader::YamlFrameReader;
 use webrender_traits::*;
@@ -21,6 +26,80 @@ pub struct Reftest<'a> {
     test: &'a Path,
     reference: &'a Path,
 }
+
+struct ReftestImage {
+    data: Vec<u8>,
+    size: (u32, u32),
+}
+enum ReftestImageComparison {
+    Equal,
+    NotEqual(usize, usize),
+}
+impl ReftestImage {
+    fn compare(&self, other: &ReftestImage) -> ReftestImageComparison {
+        assert!(self.size == other.size);
+        assert!(self.data.len() == other.data.len());
+        assert!(self.data.len() % 4 == 0);
+
+        let pixels = self.data.len() / 4;
+
+        let mut count = 0;
+
+        for i in 0..pixels {
+            let r = i * 4;
+            let g = i * 4 + 1;
+            let b = i * 4 + 2;
+            let a = i * 4 + 3;
+
+            if self.data[r] != other.data[r] ||
+               self.data[g] != other.data[g] ||
+               self.data[b] != other.data[b] ||
+               self.data[a] != other.data[a] {
+                count += 1;
+            }
+        }
+
+        if count != 0 {
+            let mut max = 0;
+            for i in 0..self.data.len() {
+                let a = self.data[i] as isize;
+                let b = other.data[i] as isize;
+                max = cmp::max(max, (a - b).abs());
+            }
+
+            ReftestImageComparison::NotEqual(max as usize, count)
+        } else {
+            ReftestImageComparison::Equal
+        }
+    }
+
+    fn create_data_uri(mut self) -> String {
+        let width = self.size.0;
+        let height = self.size.1;
+
+        // flip image vertically (texture is upside down)
+        let orig_pixels = self.data.clone();
+        let stride = width as usize * 4;
+        for y in 0..height as usize {
+            let dst_start = y * stride;
+            let src_start = (height as usize - y - 1) * stride;
+            let src_slice = &orig_pixels[src_start .. src_start + stride];
+            (&mut self.data[dst_start .. dst_start + stride]).clone_from_slice(&src_slice[..stride]);
+        }
+
+        let mut png: Vec<u8> = vec![];
+        {
+            let encoder = PNGEncoder::new(&mut png);
+            encoder.encode(&self.data[..],
+                            width,
+                            height,
+                            ColorType::RGBA(8)).expect("Unable to encode PNG!");
+        }
+        let png_base64 = base64::encode(&png);
+        format!("data:image/png;base64,{}", png_base64)
+    }
+}
+
 
 fn parse_reftests<F>(manifest: &Path, runner: &mut F)
     where F: FnMut(Reftest)
@@ -65,12 +144,11 @@ fn parse_reftests<F>(manifest: &Path, runner: &mut F)
 
 }
 
-
 fn render_yaml(wrench: &mut Wrench,
                window: &mut WindowWrapper,
                filename: &Path,
                rx: &Receiver<()>)
-               -> Vec<u8> {
+               -> ReftestImage {
     let mut reader = YamlFrameReader::new(filename);
     reader.do_frame(wrench);
     // wait for the frame
@@ -85,7 +163,11 @@ fn render_yaml(wrench: &mut Wrench,
                                  gl::RGBA,
                                  gl::UNSIGNED_BYTE);
     window.swap_buffers();
-    pixels
+
+    ReftestImage {
+        data: pixels,
+        size: size
+    }
 }
 
 pub fn run_reftests(wrench: &mut Wrench, window: &mut WindowWrapper, filename: &str) {
@@ -103,13 +185,58 @@ pub fn run_reftests(wrench: &mut Wrench, window: &mut WindowWrapper, filename: &
     let (tx, rx) = channel();
     wrench.renderer.set_render_notifier(Box::new(Notifier { tx: tx }));
 
+    let mut total_passing = 0;
+    let mut total_failing = 0;
+
     parse_reftests(Path::new(filename), &mut |t: Reftest| {
-        println!("{} {}", t.test.display(), t.reference.display());
+        let name = match t.op {
+            ReftestOp::Equal => format!("{} == {}", t.test.display(), t.reference.display()),
+            ReftestOp::NotEqual => format!("{} != {}", t.test.display(), t.reference.display()),
+        };
+
+        println!("REFTEST {}", name);
+
         let test = render_yaml(wrench, window, t.test, &rx);
         let reference = render_yaml(wrench, window, t.reference, &rx);
-        match t.op {
-            ReftestOp::Equal => assert!(test == reference),
-            ReftestOp::NotEqual => assert!(test != reference),
+        let comparison = test.compare(&reference);
+
+        let success = match t.op {
+            ReftestOp::Equal => {
+                match comparison {
+                    ReftestImageComparison::Equal => true,
+                    ReftestImageComparison::NotEqual(max, count) => {
+                        println!("REFTEST TEST-UNEXPECTED-FAIL | {} | image comparison, max difference: {}, number of differing pixels: {}", name, max, count);
+                        println!("REFTEST   IMAGE 1 (TEST): {}", test.create_data_uri());
+                        println!("REFTEST   IMAGE 2 (REFERENCE): {}", reference.create_data_uri());
+                        println!("REFTEST TEST-END | {}", name);
+
+                        false
+                    },
+                }
+            },
+            ReftestOp::NotEqual => {
+                match comparison {
+                    ReftestImageComparison::Equal => {
+                        println!("REFTEST TEST-UNEXPECTED-FAIL | {} | image comparison", name);
+                        println!("REFTEST TEST-END | {}", name);
+
+                        false
+                    },
+                    ReftestImageComparison::NotEqual(..) => true,
+                }
+            },
+        };
+
+        if success {
+            total_passing += 1;
+        } else {
+            total_failing += 1;
         }
     });
+
+    println!("REFTEST INFO | {} passing, {} failing", total_passing, total_failing);
+
+    if total_failing > 0 {
+        panic!();
+    }
 }
