@@ -3,7 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use webrender_traits::{FontKey, ColorU, FontRenderMode, GlyphDimensions, NativeFontHandle, GlyphOptions};
+use webrender_traits::{FontKey, ColorU, FontRenderMode, GlyphDimensions};
+use webrender_traits::{NativeFontHandle, GlyphOptions,  SubpixelOffset};
 
 use freetype::freetype::{FT_Render_Mode, FT_Pixel_Mode};
 use freetype::freetype::{FT_Done_FreeType, FT_Library_SetLcdFilter};
@@ -114,7 +115,9 @@ impl FontContext {
     pub fn get_glyph_dimensions(&self,
                                 font_key: FontKey,
                                 size: Au,
-                                character: u32) -> Option<GlyphDimensions> {
+                                character: u32,
+                                x_subpixel: SubpixelOffset,
+                                y_subpixel: SubpixelOffset) -> Option<GlyphDimensions> {
         self.load_glyph(font_key, size, character).and_then(|slot| {
             let metrics = unsafe { &(*slot).metrics };
             if metrics.width == 0 || metrics.height == 0 {
@@ -136,7 +139,9 @@ impl FontContext {
                            _color: ColorU,
                            character: u32,
                            render_mode: FontRenderMode,
-                           _glyph_options: Option<GlyphOptions>) -> Option<RasterizedGlyph> {
+                           x_suboffset: SubpixelOffset,
+                           y_suboffset: SubpixelOffset,
+                           glyph_options: Option<GlyphOptions>) -> Option<RasterizedGlyph> {
         let mut glyph = None;
 
         if let Some(slot) = self.load_glyph(font_key,
