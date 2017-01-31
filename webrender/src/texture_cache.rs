@@ -16,7 +16,7 @@ use std::slice::Iter;
 use std::sync::Arc;
 use time;
 use util;
-use webrender_traits::{ImageFormat, DevicePixel, DeviceIntPoint};
+use webrender_traits::{ImageData, ImageFormat, DevicePixel, DeviceIntPoint};
 use webrender_traits::{DeviceUintRect, DeviceUintSize, DeviceUintPoint};
 use webrender_traits::ImageDescriptor;
 
@@ -594,6 +594,37 @@ impl TextureCache {
         }
     }
 
+    // The fn is a closure(x: u32, y: u32, w: u32, h: u32, src: Arc<Vec<u8>>, stride: Option<u32>).
+    pub fn insert_image_border<F>(src: &[u8],
+                               allocated_rect: DeviceUintRect,
+                               requested_rect: DeviceUintRect,
+                               stride: Option<u32>,
+                               bpp: u32,
+                               mut op: F) where F: FnMut(u32, u32, u32, u32, Arc<Vec<u8>>, Option<u32>){
+        let mut top_row_data = Vec::new();
+        let mut bottom_row_data = Vec::new();
+        let mut left_column_data = Vec::new();
+        let mut right_column_data = Vec::new();
+
+        copy_pixels(&src, &mut top_row_data, 0, 0, 1, requested_rect.size.width, stride, bpp);
+        copy_pixels(&src, &mut top_row_data, 0, 0, requested_rect.size.width, requested_rect.size.width, stride, bpp);
+        copy_pixels(&src, &mut top_row_data, requested_rect.size.width - 1, 0, 1, requested_rect.size.width, stride, bpp);
+
+        copy_pixels(&src, &mut bottom_row_data, 0, requested_rect.size.height - 1, 1, requested_rect.size.width, stride, bpp);
+        copy_pixels(&src, &mut bottom_row_data, 0, requested_rect.size.height - 1, requested_rect.size.width, requested_rect.size.width, stride, bpp);
+        copy_pixels(&src, &mut bottom_row_data, requested_rect.size.width - 1, requested_rect.size.height - 1, 1, requested_rect.size.width, stride, bpp);
+
+        for y in 0..requested_rect.size.height {
+            copy_pixels(&src, &mut left_column_data, 0, y, 1, requested_rect.size.width, stride, bpp);
+            copy_pixels(&src, &mut right_column_data, requested_rect.size.width - 1, y, 1, requested_rect.size.width, stride, bpp);
+        }
+
+        op(allocated_rect.origin.x, allocated_rect.origin.y, allocated_rect.size.width, 1, Arc::new(top_row_data), None);
+        op(allocated_rect.origin.x, allocated_rect.origin.y + requested_rect.size.height + 1, allocated_rect.size.width, 1, Arc::new(bottom_row_data), None);
+        op(allocated_rect.origin.x, requested_rect.origin.y, 1, requested_rect.size.height, Arc::new(left_column_data), None);
+        op(allocated_rect.origin.x + requested_rect.size.width + 1, requested_rect.origin.y, 1, requested_rect.size.height, Arc::new(right_column_data), None);
+    }
+
     pub fn pending_updates(&mut self) -> TextureUpdateList {
         mem::replace(&mut self.pending_updates, TextureUpdateList::new())
     }
@@ -742,19 +773,28 @@ impl TextureCache {
     pub fn update(&mut self,
                   image_id: TextureCacheItemId,
                   descriptor: ImageDescriptor,
-                  bytes: Arc<Vec<u8>>) {
+                  data: ImageData) {
         let existing_item = self.items.get(image_id);
 
         // TODO(gw): Handle updates to size/format!
         debug_assert!(existing_item.requested_rect.size.width == descriptor.width);
         debug_assert!(existing_item.requested_rect.size.height == descriptor.height);
 
-        let op = TextureUpdateOp::Update(existing_item.requested_rect.origin.x,
-                                         existing_item.requested_rect.origin.y,
-                                         descriptor.width,
-                                         descriptor.height,
-                                         bytes,
-                                         descriptor.stride);
+        let op = match data {
+            ImageData::ExternalHandle(..) | ImageData::ExternalBuffer(..)=> {
+                panic!("Doesn't support Update() for external image.");
+            }
+            ImageData::Raw(bytes) => {
+                TextureUpdateOp::Update {
+                    page_pos_x: existing_item.requested_rect.origin.x,
+                    page_pos_y: existing_item.requested_rect.origin.y,
+                    width: descriptor.width,
+                    height: descriptor.height,
+                    data: bytes,
+                    stride: descriptor.stride,
+                }
+            }
+        };
 
         let update_op = TextureUpdate {
             id: existing_item.texture_id,
@@ -768,7 +808,7 @@ impl TextureCache {
                   image_id: TextureCacheItemId,
                   descriptor: ImageDescriptor,
                   filter: TextureFilter,
-                  bytes: Arc<Vec<u8>>) {
+                  data: ImageData) {
         let width = descriptor.width;
         let height = descriptor.height;
         let format = descriptor.format;
@@ -780,99 +820,82 @@ impl TextureCache {
                                    format,
                                    filter);
 
-        let op = match result.kind {
+        let bpp = format.bytes_per_pixel().unwrap();
+
+        match result.kind {
             AllocationKind::TexturePage => {
-                let bpp = format.bytes_per_pixel().unwrap();
+                match data {
+                    ImageData::ExternalHandle(..) => {
+                        panic!("External handle should not go through texture_cache.");
+                    }
+                    ImageData::Raw(bytes) => {
+                        let mut op = |x , y , w , h , src , stride| {
+                            let update_op = TextureUpdate {
+                                id: result.item.texture_id,
+                                op: TextureUpdateOp::Update {
+                                    page_pos_x: x,
+                                    page_pos_y: y,
+                                    width: w,
+                                    height: h,
+                                    data: src,
+                                    stride: stride,
+                                },
+                            };
 
-                let mut top_row_bytes = Vec::new();
-                let mut bottom_row_bytes = Vec::new();
-                let mut left_column_bytes = Vec::new();
-                let mut right_column_bytes = Vec::new();
+                            self.pending_updates.push(update_op);
+                        };
 
-                copy_pixels(&bytes, &mut top_row_bytes, 0, 0, 1, width, stride, bpp);
-                copy_pixels(&bytes, &mut top_row_bytes, 0, 0, width, width, stride, bpp);
-                copy_pixels(&bytes, &mut top_row_bytes, width-1, 0, 1, width, stride, bpp);
+                        // image's borders
+                        TextureCache::insert_image_border(&bytes,
+                                                          result.item.allocated_rect,
+                                                          result.item.requested_rect,
+                                                          stride,
+                                                          bpp,
+                                                          &mut op);
+                        // image itself
+                        op(result.item.requested_rect.origin.x, result.item.requested_rect.origin.y,
+                           result.item.requested_rect.size.width, result.item.requested_rect.size.height,
+                           bytes, stride);
+                    }
+                    ImageData::ExternalBuffer(id) => {
+                        let update_op = TextureUpdate {
+                            id: result.item.texture_id,
+                            op: TextureUpdateOp::UpdateForExternalBuffer {
+                                allocated_rect: result.item.allocated_rect,
+                                requested_rect: result.item.requested_rect,
+                                id: id,
+                                bpp: bpp,
+                                stride: stride,
+                            },
+                        };
 
-                copy_pixels(&bytes, &mut bottom_row_bytes, 0, height-1, 1, width, stride, bpp);
-                copy_pixels(&bytes, &mut bottom_row_bytes, 0, height-1, width, width, stride, bpp);
-                copy_pixels(&bytes, &mut bottom_row_bytes, width-1, height-1, 1, width, stride, bpp);
-
-                for y in 0..height {
-                    copy_pixels(&bytes, &mut left_column_bytes, 0, y, 1, width, stride, bpp);
-                    copy_pixels(&bytes, &mut right_column_bytes, width-1, y, 1, width, stride, bpp);
+                        self.pending_updates.push(update_op);
+                    }
                 }
-
-                let border_update_op_top = TextureUpdate {
-                    id: result.item.texture_id,
-                    op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x,
-                                                result.item.allocated_rect.origin.y,
-                                                result.item.allocated_rect.size.width,
-                                                1,
-                                                Arc::new(top_row_bytes),
-                                                None)
-                };
-
-                let border_update_op_bottom = TextureUpdate {
-                    id: result.item.texture_id,
-                    op: TextureUpdateOp::Update(
-                        result.item.allocated_rect.origin.x,
-                        result.item.allocated_rect.origin.y +
-                            result.item.requested_rect.size.height + 1,
-                        result.item.allocated_rect.size.width,
-                        1,
-                        Arc::new(bottom_row_bytes),
-                        None)
-                };
-
-                let border_update_op_left = TextureUpdate {
-                    id: result.item.texture_id,
-                    op: TextureUpdateOp::Update(
-                        result.item.allocated_rect.origin.x,
-                        result.item.requested_rect.origin.y,
-                        1,
-                        result.item.requested_rect.size.height,
-                        Arc::new(left_column_bytes),
-                        None)
-                };
-
-                let border_update_op_right = TextureUpdate {
-                    id: result.item.texture_id,
-                    op: TextureUpdateOp::Update(result.item.allocated_rect.origin.x + result.item.requested_rect.size.width + 1,
-                                                result.item.requested_rect.origin.y,
-                                                1,
-                                                result.item.requested_rect.size.height,
-                                                Arc::new(right_column_bytes),
-                                                None)
-                };
-
-                self.pending_updates.push(border_update_op_top);
-                self.pending_updates.push(border_update_op_bottom);
-                self.pending_updates.push(border_update_op_left);
-                self.pending_updates.push(border_update_op_right);
-
-                TextureUpdateOp::Update(result.item.requested_rect.origin.x,
-                                        result.item.requested_rect.origin.y,
-                                        width,
-                                        height,
-                                        bytes,
-                                        stride)
             }
             AllocationKind::Standalone => {
-                TextureUpdateOp::Create(width,
-                                        height,
-                                        format,
-                                        filter,
-                                        RenderTargetMode::None,
-                                        Some(bytes))
+                match data {
+                    ImageData::ExternalHandle(..) => {
+                        panic!("External handle should not go through texture_cache.");
+                    }
+                    _ => {
+                        let update_op = TextureUpdate {
+                            id: result.item.texture_id,
+                            op: TextureUpdateOp::Create {
+                                width: width,
+                                height: height,
+                                format: format,
+                                filter: filter,
+                                mode: RenderTargetMode::None,
+                                data: Some(data),
+                            },
+                        };
+
+                        self.pending_updates.push(update_op);
+                    }
+                }
             }
-        };
-
-        let update_op = TextureUpdate {
-            id: result.item.texture_id,
-            op: op,
-        };
-
-        self.pending_updates.push(update_op);
+        }
     }
 
     pub fn get(&self, id: TextureCacheItemId) -> &TextureCacheItem {
@@ -902,18 +925,27 @@ impl TextureCache {
 
 fn texture_create_op(texture_size: DeviceUintSize, format: ImageFormat, mode: RenderTargetMode)
                      -> TextureUpdateOp {
-    TextureUpdateOp::Create(texture_size.width, texture_size.height, format, TextureFilter::Linear, mode, None)
+    TextureUpdateOp::Create {
+        width: texture_size.width,
+        height: texture_size.height,
+        format: format,
+        filter: TextureFilter::Linear,
+        mode: mode,
+        data: None,
+    }
 }
 
 fn texture_grow_op(texture_size: DeviceUintSize,
                    format: ImageFormat,
                    mode: RenderTargetMode)
                    -> TextureUpdateOp {
-    TextureUpdateOp::Grow(texture_size.width,
-                          texture_size.height,
-                          format,
-                          TextureFilter::Linear,
-                          mode)
+    TextureUpdateOp::Grow {
+        width: texture_size.width,
+        height: texture_size.height,
+        format: format,
+        filter: TextureFilter::Linear,
+        mode: mode,
+    }
 }
 
 trait FitsInside {
