@@ -30,8 +30,8 @@ use std::mem;
 use std::hash::{BuildHasherDefault};
 use std::usize;
 use texture_cache::TexturePage;
-use util::{self, rect_from_points_f};
-use util::{TransformedRect, TransformedRectKind, subtract_rect, pack_as_float};
+use util::{self, pack_as_float, rect_from_points_f, subtract_rect};
+use util::{TransformedRect, TransformedRectKind};
 use webrender_traits::{ColorF, FontKey, ImageKey, ImageRendering, MixBlendMode};
 use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle, YuvColorSpace};
 use webrender_traits::{AuxiliaryLists, ItemRange, BoxShadowClipMode, ClipRegion};
@@ -800,7 +800,7 @@ impl ClipBatcher {
                 segment: 0,
             };
 
-            for clip_index in 0..info.clip_range.item_count as usize {
+            for clip_index in 0..info.effective_clip_count as usize {
                 let offset = info.clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * clip_index) as i32);
                 match geometry_kind {
                     MaskGeometryKind::Default => {
@@ -1261,7 +1261,7 @@ impl RenderTask {
             let (sc_index, ref clip_info) = clips[0];
 
             if clip_info.image.is_none() &&
-               clip_info.clip_range.item_count == 1 &&
+               clip_info.effective_clip_count == 1 &&
                layers[sc_index.0].xf_rect.as_ref().unwrap().kind == TransformedRectKind::AxisAligned {
                 geometry_kind = MaskGeometryKind::CornersOnly;
             }
@@ -1851,6 +1851,7 @@ impl FrameBuilder {
             ClipSource::NoClip
         };
         let clip_info = MaskCacheInfo::new(&clip_source,
+                                           false,
                                            &mut self.prim_store.gpu_data32);
 
         let prim_index = self.prim_store.add_primitive(geometry,
@@ -1882,8 +1883,9 @@ impl FrameBuilder {
                       composition_operations: &[CompositionOp]) {
         let sc_index = StackingContextIndex(self.layer_store.len());
 
-        let clip_source = clip_region.into();
+        let clip_source = ClipSource::Region(clip_region.clone());
         let clip_info = MaskCacheInfo::new(&clip_source,
+                                           true, // needs an extra clip for the clip rectangle
                                            &mut self.prim_store.gpu_data32);
 
         let sc = StackingContext {
