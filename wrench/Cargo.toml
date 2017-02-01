@@ -1,6 +1,6 @@
 [package]
 name = "wrench"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Vladimir Vukicevic <vladimir@pobox.com>"]
 build = "build.rs"
 workspace = ".."
@@ -8,12 +8,12 @@ workspace = ".."
 [dependencies]
 base64 = "0.3"
 bincode = "0.6"
-byteorder = "0.5"
+byteorder = "1.0"
 euclid = "0.10"
 gleam = "0.2"
 glutin = "0.7"
 app_units = "0.3"
-image = "0.10"
+image = "0.12"
 clap = { version = "2", features = ["yaml"] }
 lazy_static = "0.2"
 yaml-rust = { git = "https://github.com/vvuk/yaml-rust" }
