@@ -340,12 +340,12 @@ impl Frame {
         let layer_rect = LayerRect::new(LayerPoint::zero(),
                                         LayerSize::new(content_size.width + clip.origin.x,
                                                        content_size.height + clip.origin.y));
-        context.builder.push_layer(layer_rect,
-                                   &ClipRegion::simple(&layer_rect),
-                                   LayerToScrollTransform::identity(),
-                                   pipeline_id,
-                                   current_scroll_layer_id,
-                                   &[]);
+        context.builder.push_stacking_context(layer_rect,
+                                              &ClipRegion::simple(&layer_rect),
+                                              LayerToScrollTransform::identity(),
+                                              pipeline_id,
+                                              current_scroll_layer_id,
+                                              &[]);
 
         self.flatten_items(traversal,
                            pipeline_id,
@@ -355,7 +355,7 @@ impl Frame {
                            LayerToScrollTransform::identity(),
                            level);
 
-        context.builder.pop_layer();
+        context.builder.pop_stacking_context();
     }
 
     fn flatten_stacking_context<'a>(&mut self,
@@ -423,12 +423,12 @@ impl Frame {
 
                     // Adding a dummy layer for this rectangle in order to disable clipping.
                     let no_clip = ClipRegion::simple(&clip_region.main);
-                    context.builder.push_layer(clip_region.main,
-                                               &no_clip,
-                                               transform,
-                                               pipeline_id,
-                                               scroll_layer_id,
-                                               &composition_operations);
+                    context.builder.push_stacking_context(clip_region.main,
+                                                          &no_clip,
+                                                          transform,
+                                                          pipeline_id,
+                                                          scroll_layer_id,
+                                                          &composition_operations);
 
                     //Note: we don't use the original clip region here,
                     // it's already processed by the layer we just pushed.
@@ -437,18 +437,18 @@ impl Frame {
                                                         &bg_color,
                                                         PrimitiveFlags::None);
 
-                    context.builder.pop_layer();
+                    context.builder.pop_stacking_context();
                 }
             }
         }
 
          // TODO(gw): Int with overflow etc
-        context.builder.push_layer(clip_region.main,
-                                   &clip_region,
-                                   transform,
-                                   pipeline_id,
-                                   scroll_layer_id,
-                                   &composition_operations);
+        context.builder.push_stacking_context(clip_region.main,
+                                              &clip_region,
+                                              transform,
+                                              pipeline_id,
+                                              scroll_layer_id,
+                                              &composition_operations);
 
         self.flatten_items(traversal,
                            pipeline_id,
@@ -467,7 +467,7 @@ impl Frame {
                 PrimitiveFlags::Scrollbar(self.scroll_tree.topmost_scroll_layer_id, 4.0));
         }
 
-        context.builder.pop_layer();
+        context.builder.pop_stacking_context();
     }
 
     fn flatten_iframe<'a>(&mut self,
