@@ -5,6 +5,7 @@
 flat varying vec2 vTextureOffset; // Offset of this image into the texture atlas.
 flat varying vec2 vTextureSize;   // Size of the image in the texture atlas.
 flat varying vec2 vTileSpacing;   // Amount of space between tiled instances of this image.
+flat varying vec2 vHalfTexel;     // Normalized length of the half of a texel.
 
 #ifdef WR_FEATURE_TRANSFORM
 varying vec3 vLocalPos;
