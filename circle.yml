@@ -1,0 +1,8 @@
+machine:
+        pre:
+                - curl -sS https://static.rust-lang.org/rustup.sh | sudo sh -- --channel=nightly
+
+test:
+        override:
+                - cargo build -v
+                - cargo test -v
