@@ -60,13 +60,13 @@ trait AlphaBatchHelpers {
     fn add_prim_to_batch(&self,
                          prim_index: PrimitiveIndex,
                          batch: &mut PrimitiveBatch,
-                         layer_index: StackingContextIndex,
+                         packed_layer_index: PackedLayerIndex,
                          task_index: RenderTaskIndex,
                          render_tasks: &RenderTaskCollection,
                          pass_index: RenderPassIndex,
                          z_sort_index: i32);
     fn add_blend_to_batch(&self,
-                          layer_index: StackingContextIndex,
+                          stacking_context_index: StackingContextIndex,
                           batch: &mut PrimitiveBatch,
                           task_index: RenderTaskIndex,
                           src_task_index: RenderTaskIndex,
@@ -150,7 +150,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
     }
 
     fn add_blend_to_batch(&self,
-                          layer_index: StackingContextIndex,
+                          stacking_context_index: StackingContextIndex,
                           batch: &mut PrimitiveBatch,
                           task_index: RenderTaskIndex,
                           src_task_index: RenderTaskIndex,
@@ -170,7 +170,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
 
         let amount = (amount * 65535.0).round() as i32;
 
-        batch.items.push(PrimitiveBatchItem::StackingContext(layer_index));
+        batch.items.push(PrimitiveBatchItem::StackingContext(stacking_context_index));
 
         match batch.data {
             PrimitiveBatchData::Instances(ref mut data) => {
@@ -192,13 +192,13 @@ impl AlphaBatchHelpers for PrimitiveStore {
     fn add_prim_to_batch(&self,
                          prim_index: PrimitiveIndex,
                          batch: &mut PrimitiveBatch,
-                         layer_index: StackingContextIndex,
+                         packed_layer_index: PackedLayerIndex,
                          task_index: RenderTaskIndex,
                          render_tasks: &RenderTaskCollection,
                          child_pass_index: RenderPassIndex,
                          z_sort_index: i32) {
         let metadata = self.get_metadata(prim_index);
-        let layer_index = layer_index.0 as i32;
+        let packed_layer_index = packed_layer_index.0 as i32;
         let global_prim_id = prim_index.0 as i32;
         let prim_address = metadata.gpu_prim_index;
         let clip_task_index = match metadata.clip_task {
@@ -223,7 +223,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         data.push(PrimitiveInstance {
                             task_index: task_index,
                             clip_task_index: clip_task_index,
-                            layer_index: layer_index,
+                            layer_index: packed_layer_index,
                             global_prim_id: global_prim_id,
                             prim_address: prim_address,
                             sub_index: 0,
@@ -238,7 +238,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                             data.push(PrimitiveInstance {
                                 task_index: task_index,
                                 clip_task_index: clip_task_index,
-                                layer_index: layer_index,
+                                layer_index: packed_layer_index,
                                 global_prim_id: global_prim_id,
                                 prim_address: prim_address,
                                 sub_index: metadata.gpu_data_address.0 + glyph_index,
@@ -253,7 +253,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         data.push(PrimitiveInstance {
                             task_index: task_index,
                             clip_task_index: clip_task_index,
-                            layer_index: layer_index,
+                            layer_index: packed_layer_index,
                             global_prim_id: global_prim_id,
                             prim_address: prim_address,
                             sub_index: 0,
@@ -265,7 +265,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         data.push(PrimitiveInstance {
                             task_index: task_index,
                             clip_task_index: clip_task_index,
-                            layer_index: layer_index,
+                            layer_index: packed_layer_index,
                             global_prim_id: global_prim_id,
                             prim_address: prim_address,
                             sub_index: 0,
@@ -278,7 +278,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                             data.push(PrimitiveInstance {
                                 task_index: task_index,
                                 clip_task_index: clip_task_index,
-                                layer_index: layer_index,
+                                layer_index: packed_layer_index,
                                 global_prim_id: global_prim_id,
                                 prim_address: prim_address,
                                 sub_index: border_segment,
@@ -292,7 +292,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                             data.push(PrimitiveInstance {
                                 task_index: task_index,
                                 clip_task_index: clip_task_index,
-                                layer_index: layer_index,
+                                layer_index: packed_layer_index,
                                 global_prim_id: global_prim_id,
                                 prim_address: prim_address,
                                 sub_index: metadata.gpu_data_address.0 + part_index,
@@ -305,7 +305,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         data.push(PrimitiveInstance {
                             task_index: task_index,
                             clip_task_index: clip_task_index,
-                            layer_index: layer_index,
+                            layer_index: packed_layer_index,
                             global_prim_id: global_prim_id,
                             prim_address: prim_address,
                             sub_index: metadata.gpu_data_address.0,
@@ -317,7 +317,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         data.push(PrimitiveInstance {
                             task_index: task_index,
                             clip_task_index: clip_task_index,
-                            layer_index: layer_index,
+                            layer_index: packed_layer_index,
                             global_prim_id: global_prim_id,
                             prim_address: prim_address,
                             sub_index: metadata.gpu_data_address.0,
@@ -334,7 +334,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                             data.push(PrimitiveInstance {
                                 task_index: task_index,
                                 clip_task_index: clip_task_index,
-                                layer_index: layer_index,
+                                layer_index: packed_layer_index,
                                 global_prim_id: global_prim_id,
                                 prim_address: prim_address,
                                 sub_index: metadata.gpu_data_address.0 + rect_index,
@@ -355,7 +355,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         data.push(PrimitiveInstance {
                             task_index: task_index,
                             clip_task_index: clip_task_index,
-                            layer_index: layer_index,
+                            layer_index: packed_layer_index,
                             global_prim_id: global_prim_id,
                             prim_address: prim_address,
                             sub_index: 0,
@@ -564,20 +564,24 @@ impl AlphaBatcher {
 
             for item in &task.alpha_items {
                 let (batch_key, item_bounding_rect) = match item {
-                    &AlphaRenderItem::Blend(sc_index, ..) => {
-                        let layer = &ctx.layer_store[sc_index.0];
+                    &AlphaRenderItem::Blend(stacking_context_index, ..) => {
+                        let stacking_context = &ctx.stacking_context_store[stacking_context_index.0];
                         (AlphaBatchKey::new(AlphaBatchKind::Blend,
                                             AlphaBatchKeyFlags::empty(),
                                             BlendMode::Alpha,
                                             BatchTextures::no_texture()),
-                         &layer.xf_rect.as_ref().unwrap().bounding_rect)
+                         &stacking_context.xf_rect.as_ref().unwrap().bounding_rect)
                     }
-                    &AlphaRenderItem::Composite(sc_index, backdrop_id, src_id, info, z) => {
+                    &AlphaRenderItem::Composite(stacking_context_index,
+                                                backdrop_id,
+                                                src_id,
+                                                info,
+                                                z) => {
                         // Composites always get added to their own batch.
                         // This is because the result of a composite can affect
                         // the input to the next composite. Perhaps we can
                         // optimize this in the future.
-                        let batch = PrimitiveBatch::new_composite(sc_index,
+                        let batch = PrimitiveBatch::new_composite(stacking_context_index,
                                                                   task_index,
                                                                   render_tasks.get_task_index(&backdrop_id, child_pass_index),
                                                                   render_tasks.get_static_task_index(&src_id),
@@ -586,10 +590,11 @@ impl AlphaBatcher {
                         alpha_batches.push(batch);
                         continue;
                     }
-                    &AlphaRenderItem::Primitive(sc_index, prim_index, _) => {
-                        let layer = &ctx.layer_store[sc_index.0];
+                    &AlphaRenderItem::Primitive(stacking_context_index, prim_index, _) => {
+                        let stacking_context =
+                            &ctx.stacking_context_store[stacking_context_index.0];
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
-                        let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
+                        let transform_kind = stacking_context.xf_rect.as_ref().unwrap().kind;
                         let needs_clipping = prim_metadata.clip_task.is_some();
                         let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                              !prim_metadata.is_opaque ||
@@ -631,9 +636,14 @@ impl AlphaBatcher {
                     // check for intersections
                     for item in &batch.items {
                         let intersects = match *item {
-                            PrimitiveBatchItem::StackingContext(sc_index) => {
-                                let layer = &ctx.layer_store[sc_index.0];
-                                layer.xf_rect.as_ref().unwrap().bounding_rect.intersects(item_bounding_rect)
+                            PrimitiveBatchItem::StackingContext(stacking_context_index) => {
+                                let stacking_context =
+                                    &ctx.stacking_context_store[stacking_context_index.0];
+                                stacking_context.xf_rect
+                                                .as_ref()
+                                                .unwrap()
+                                                .bounding_rect
+                                                .intersects(item_bounding_rect)
                             }
                             PrimitiveBatchItem::Primitive(prim_index) => {
                                 let bounding_rect = &ctx.prim_store.cpu_bounding_rects[prim_index.0];
@@ -666,18 +676,20 @@ impl AlphaBatcher {
                 let batch = &mut alpha_batches[alpha_batch_index.unwrap()];
                 match item {
                     &AlphaRenderItem::Composite(..) => unreachable!(),
-                    &AlphaRenderItem::Blend(sc_index, src_id, info, z) => {
-                        ctx.prim_store.add_blend_to_batch(sc_index,
+                    &AlphaRenderItem::Blend(stacking_context_index, src_id, info, z) => {
+                        ctx.prim_store.add_blend_to_batch(stacking_context_index,
                                                           batch,
                                                           task_index,
                                                           render_tasks.get_static_task_index(&src_id),
                                                           info,
                                                           z);
                     }
-                    &AlphaRenderItem::Primitive(sc_index, prim_index, z) => {
+                    &AlphaRenderItem::Primitive(stacking_context_index, prim_index, z) => {
+                        let stacking_context =
+                            &ctx.stacking_context_store[stacking_context_index.0];
                         ctx.prim_store.add_prim_to_batch(prim_index,
                                                          batch,
-                                                         sc_index,
+                                                         stacking_context.packed_layer_index,
                                                          task_index,
                                                          render_tasks,
                                                          child_pass_index,
@@ -690,10 +702,10 @@ impl AlphaBatcher {
                 let batch_key = match item {
                     &AlphaRenderItem::Composite(..) => unreachable!(),
                     &AlphaRenderItem::Blend(..) => unreachable!(),
-                    &AlphaRenderItem::Primitive(sc_index, prim_index, _) => {
-                        let layer = &ctx.layer_store[sc_index.0];
+                    &AlphaRenderItem::Primitive(stacking_context_index, prim_index, _) => {
+                        let stacking_context = &ctx.stacking_context_store[stacking_context_index.0];
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
-                        let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
+                        let transform_kind = stacking_context.xf_rect.as_ref().unwrap().kind;
                         let needs_clipping = prim_metadata.clip_task.is_some();
                         let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                              !prim_metadata.is_opaque ||
@@ -743,10 +755,12 @@ impl AlphaBatcher {
                 match item {
                     &AlphaRenderItem::Composite(..) => unreachable!(),
                     &AlphaRenderItem::Blend(..) => unreachable!(),
-                    &AlphaRenderItem::Primitive(sc_index, prim_index, z) => {
+                    &AlphaRenderItem::Primitive(stacking_context_index, prim_index, z) => {
+                        let stacking_context =
+                            &ctx.stacking_context_store[stacking_context_index.0];
                         ctx.prim_store.add_prim_to_batch(prim_index,
                                                          batch,
-                                                         sc_index,
+                                                         stacking_context.packed_layer_index,
                                                          task_index,
                                                          render_tasks,
                                                          child_pass_index,
@@ -778,16 +792,18 @@ impl ClipBatcher {
         }
     }
 
-    fn add(&mut self,
-           task_index: RenderTaskIndex,
-           clips: &[(StackingContextIndex, MaskCacheInfo)],
-           resource_cache: &ResourceCache,
-           geometry_kind: MaskGeometryKind) {
+    fn add<'a>(&mut self,
+               task_index: RenderTaskIndex,
+               clips: &[(StackingContextIndex, MaskCacheInfo)],
+               resource_cache: &ResourceCache,
+               stacking_context_store: &'a [StackingContext],
+               geometry_kind: MaskGeometryKind) {
 
-        for &(layer_id, ref info) in clips.iter() {
+        for &(stacking_context_index, ref info) in clips.iter() {
+            let stacking_context = &stacking_context_store[stacking_context_index.0];
             let instance = CacheClipInstance {
                 task_id: task_index.0 as i32,
-                layer_index: layer_id.0 as i32,
+                layer_index: stacking_context.packed_layer_index.0 as i32,
                 address: GpuStoreAddress(0),
                 segment: 0,
             };
@@ -843,7 +859,7 @@ impl ClipBatcher {
 }
 
 struct RenderTargetContext<'a> {
-    layer_store: &'a [StackingContext],
+    stacking_context_store: &'a [StackingContext],
     prim_store: &'a PrimitiveStore,
     resource_cache: &'a ResourceCache,
 }
@@ -992,6 +1008,7 @@ impl RenderTarget {
                 self.clip_batcher.add(task_index,
                                       &task_info.clips,
                                       &ctx.resource_cache,
+                                      &ctx.stacking_context_store,
                                       task_info.geometry_kind);
             }
             RenderTaskKind::Readback(device_rect) => {
@@ -1218,7 +1235,7 @@ impl RenderTask {
     fn new_mask(actual_rect: DeviceIntRect,
                 mask_key: MaskCacheKey,
                 clips: &[(StackingContextIndex, MaskCacheInfo)],
-                layers: &[StackingContext])
+                stacking_context_store: &[StackingContext])
                 -> MaskResult {
         if clips.is_empty() {
             return MaskResult::Outside;
@@ -1250,11 +1267,11 @@ impl RenderTask {
         let mut geometry_kind = MaskGeometryKind::Default;
 
         if inner_rect.is_some() && clips.len() == 1 {
-            let (sc_index, ref clip_info) = clips[0];
+            let (stacking_context_index, ref clip_info) = clips[0];
+            let stacking_context = &stacking_context_store[stacking_context_index.0];
 
-            if clip_info.image.is_none() &&
-               clip_info.effective_clip_count == 1 &&
-               layers[sc_index.0].xf_rect.as_ref().unwrap().kind == TransformedRectKind::AxisAligned {
+            if clip_info.image.is_none() && clip_info.effective_clip_count == 1 &&
+               stacking_context.xf_rect.as_ref().unwrap().kind == TransformedRectKind::AxisAligned {
                 geometry_kind = MaskGeometryKind::CornersOnly;
             }
         }
@@ -1640,7 +1657,7 @@ impl PrimitiveBatch {
         }
     }
 
-    fn new_composite(layer_index: StackingContextIndex,
+    fn new_composite(stacking_context_index: StackingContextIndex,
                      task_index: RenderTaskIndex,
                      backdrop_task: RenderTaskIndex,
                      src_task_index: RenderTaskIndex,
@@ -1665,10 +1682,13 @@ impl PrimitiveBatch {
         PrimitiveBatch {
             key: key,
             data: data,
-            items: vec![PrimitiveBatchItem::StackingContext(layer_index)],
+            items: vec![PrimitiveBatchItem::StackingContext(stacking_context_index)],
         }
     }
 }
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct PackedLayerIndex(pub usize);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct StackingContextIndex(pub usize);
@@ -1682,20 +1702,21 @@ pub struct StackingContext {
     composite_ops: CompositeOps,
     clip_source: ClipSource,
     clip_cache_info: Option<MaskCacheInfo>,
+    packed_layer_index: PackedLayerIndex,
 }
 
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct PackedStackingContext {
+pub struct PackedLayer {
     transform: LayerToWorldTransform,
     inv_transform: WorldToLayerTransform,
     local_clip_rect: LayerRect,
     screen_vertices: [WorldPoint4D; 4],
 }
 
-impl Default for PackedStackingContext {
-    fn default() -> PackedStackingContext {
-        PackedStackingContext {
+impl Default for PackedLayer {
+    fn default() -> PackedLayer {
+        PackedLayer {
             transform: LayerToWorldTransform::identity(),
             inv_transform: WorldToLayerTransform::identity(),
             local_clip_rect: LayerRect::zero(),
@@ -1776,8 +1797,8 @@ pub struct FrameBuilder {
     _debug: bool,                   // Unused for now, but handy to keep around
     config: FrameBuilderConfig,
 
-    layer_store: Vec<StackingContext>,
-    packed_layers: Vec<PackedStackingContext>,
+    stacking_context_store: Vec<StackingContext>,
+    packed_layers: Vec<PackedLayer>,
 
     scrollbar_prims: Vec<ScrollbarPrimitive>,
 }
@@ -1792,7 +1813,7 @@ pub struct Frame {
     pub passes: Vec<RenderPass>,
     pub profile_counters: FrameProfileCounters,
 
-    pub layer_texture_data: Vec<PackedStackingContext>,
+    pub layer_texture_data: Vec<PackedLayer>,
     pub render_task_data: Vec<RenderTaskData>,
     pub gpu_data16: Vec<GpuBlock16>,
     pub gpu_data32: Vec<GpuBlock32>,
@@ -1817,7 +1838,7 @@ impl FrameBuilder {
         FrameBuilder {
             screen_rect: LayerRect::new(LayerPoint::zero(), viewport_size),
             background_color: background_color,
-            layer_store: Vec::new(),
+            stacking_context_store: Vec::new(),
             prim_store: PrimitiveStore::new(),
             cmds: Vec::new(),
             _debug: debug,
@@ -1865,21 +1886,22 @@ impl FrameBuilder {
         prim_index
     }
 
-    pub fn push_layer(&mut self,
-                      rect: LayerRect,
-                      clip_region: &ClipRegion,
-                      transform: LayerToScrollTransform,
-                      pipeline_id: PipelineId,
-                      scroll_layer_id: ScrollLayerId,
-                      composite_ops: CompositeOps) {
-        let sc_index = StackingContextIndex(self.layer_store.len());
+    pub fn push_stacking_context(&mut self,
+                                 rect: LayerRect,
+                                 clip_region: &ClipRegion,
+                                 transform: LayerToScrollTransform,
+                                 pipeline_id: PipelineId,
+                                 scroll_layer_id: ScrollLayerId,
+                                 composite_ops: CompositeOps) {
+        let stacking_context_index = StackingContextIndex(self.stacking_context_store.len());
+        let packed_layer_index = PackedLayerIndex(self.packed_layers.len());
 
         let clip_source = ClipSource::Region(clip_region.clone());
         let clip_info = MaskCacheInfo::new(&clip_source,
                                            true, // needs an extra clip for the clip rectangle
                                            &mut self.prim_store.gpu_data32);
 
-        let sc = StackingContext {
+        self.stacking_context_store.push(StackingContext {
             local_rect: rect,
             local_transform: transform,
             scroll_layer_id: scroll_layer_id,
@@ -1888,20 +1910,14 @@ impl FrameBuilder {
             composite_ops: composite_ops,
             clip_source: clip_source,
             clip_cache_info: clip_info,
-        };
-        self.layer_store.push(sc);
-
-        self.packed_layers.push(PackedStackingContext {
-            transform: LayerToWorldTransform::identity(),
-            inv_transform: WorldToLayerTransform::identity(),
-            screen_vertices: [WorldPoint4D::zero(); 4],
-            local_clip_rect: LayerRect::zero(),
+            packed_layer_index: packed_layer_index,
         });
 
-        self.cmds.push(PrimitiveRunCmd::PushStackingContext(sc_index));
+        self.packed_layers.push(Default::default());
+        self.cmds.push(PrimitiveRunCmd::PushStackingContext(stacking_context_index));
     }
 
-    pub fn pop_layer(&mut self) {
+    pub fn pop_stacking_context(&mut self) {
         self.cmds.push(PrimitiveRunCmd::PopStackingContext);
     }
 
@@ -2369,36 +2385,40 @@ impl FrameBuilder {
         // TODO(gw): This can be done earlier once update_layer_transforms() is fixed.
 
         // TODO(gw): Remove this stack once the layers refactor is done!
-        let mut layer_stack: Vec<StackingContextIndex> = Vec::new();
+        let mut stacking_context_stack: Vec<StackingContextIndex> = Vec::new();
         let mut clip_info_stack = Vec::new();
 
         for cmd in &self.cmds {
             match cmd {
-                &PrimitiveRunCmd::PushStackingContext(sc_index) => {
-                    layer_stack.push(sc_index);
-                    let layer = &mut self.layer_store[sc_index.0];
-                    let packed_layer = &mut self.packed_layers[sc_index.0];
+                &PrimitiveRunCmd::PushStackingContext(stacking_context_index) => {
+                    stacking_context_stack.push(stacking_context_index);
+                    let stacking_context =
+                        &mut self.stacking_context_store[stacking_context_index.0];
+                    let packed_layer =
+                        &mut self.packed_layers[stacking_context.packed_layer_index.0];
 
-                    layer.xf_rect = None;
+                    stacking_context.xf_rect = None;
 
-                    let scroll_layer = &scroll_tree.layers[&layer.scroll_layer_id];
+                    let scroll_layer = &scroll_tree.layers[&stacking_context.scroll_layer_id];
                     packed_layer.transform = scroll_layer.world_content_transform
                                                          .with_source::<ScrollLayerPixel>() // the scroll layer is considered a parent of layer
-                                                         .pre_mul(&layer.local_transform);
+                                                         .pre_mul(&stacking_context.local_transform);
                     packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
 
-                    if !layer.can_contribute_to_scene() {
+                    if !stacking_context.can_contribute_to_scene() {
                         continue;
                     }
 
-                    let inv_layer_transform = layer.local_transform.inverse().unwrap();
+                    let inv_layer_transform = stacking_context.local_transform.inverse().unwrap();
                     let local_viewport_rect =
                         as_scroll_parent_rect(&scroll_layer.combined_local_viewport_rect);
                     let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
-                    let local_clip_rect = layer.clip_source.to_rect().unwrap_or(layer.local_rect);
-                    let layer_local_rect = layer.local_rect
-                                                .intersection(&viewport_rect)
-                                                .and_then(|rect| rect.intersection(&local_clip_rect));
+                    let local_clip_rect =
+                        stacking_context.clip_source.to_rect().unwrap_or(stacking_context.local_rect);
+                    let layer_local_rect =
+                         stacking_context.local_rect
+                                         .intersection(&viewport_rect)
+                                         .and_then(|rect| rect.intersection(&local_clip_rect));
 
                     if let Some(layer_local_rect) = layer_local_rect {
                         let layer_xf_rect = TransformedRect::new(&layer_local_rect,
@@ -2408,38 +2428,38 @@ impl FrameBuilder {
                         if layer_xf_rect.bounding_rect.intersects(&screen_rect) {
                             packed_layer.screen_vertices = layer_xf_rect.vertices.clone();
                             packed_layer.local_clip_rect = layer_local_rect;
-                            layer.xf_rect = Some(layer_xf_rect);
+                            stacking_context.xf_rect = Some(layer_xf_rect);
                         }
                     }
 
-                    if let Some(ref mut clip_info) = layer.clip_cache_info {
-                        let auxiliary_lists = auxiliary_lists_map.get(&layer.pipeline_id)
+                    if let Some(ref mut clip_info) = stacking_context.clip_cache_info {
+                        let auxiliary_lists = auxiliary_lists_map.get(&stacking_context.pipeline_id)
                                                                  .expect("No auxiliary lists?");
-                        clip_info.update(&layer.clip_source,
+                        clip_info.update(&stacking_context.clip_source,
                                          &packed_layer.transform,
                                          &mut self.prim_store.gpu_data32,
                                          device_pixel_ratio,
                                          auxiliary_lists);
-                        if let ClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }) = layer.clip_source {
+                        if let ClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }) = stacking_context.clip_source {
                             resource_cache.request_image(mask.image, ImageRendering::Auto);
-                            //Note: no need to add the layer for resolve, all layers get resolved
+                            //Note: no need to add the stacking context for resolve, all layers get resolved
                         }
 
-                        // Create a task for the layer mask, if needed,
-                        // i.e. if there are rounded corners or image masks for the layer.
-                        clip_info_stack.push((sc_index, clip_info.clone()));
+                        // Create a task for the stacking context mask, if needed, i.e. if there
+                        // are rounded corners or image masks for the stacking context.
+                        clip_info_stack.push((stacking_context_index, clip_info.clone()));
                     }
 
                 }
                 &PrimitiveRunCmd::PrimitiveRun(prim_index, prim_count) => {
-                    let sc_index = layer_stack.last().unwrap();
-                    let layer = &self.layer_store[sc_index.0];
-                    if !layer.is_visible() {
+                    let stacking_context_index = stacking_context_stack.last().unwrap();
+                    let stacking_context = &self.stacking_context_store[stacking_context_index.0];
+                    if !stacking_context.is_visible() {
                         continue;
                     }
 
-                    let packed_layer = &self.packed_layers[sc_index.0];
-                    let auxiliary_lists = auxiliary_lists_map.get(&layer.pipeline_id)
+                    let packed_layer = &self.packed_layers[stacking_context.packed_layer_index.0];
+                    let auxiliary_lists = auxiliary_lists_map.get(&stacking_context.pipeline_id)
                                                              .expect("No auxiliary lists?");
 
                     for i in 0..prim_count {
@@ -2470,7 +2490,7 @@ impl FrameBuilder {
                                 let mut visible = true;
 
                                 if let Some(info) = prim_clip_info {
-                                    clip_info_stack.push((*sc_index, info.clone()));
+                                    clip_info_stack.push((*stacking_context_index, info.clone()));
                                 }
 
                                 // Try to create a mask if we may need to.
@@ -2485,14 +2505,15 @@ impl FrameBuilder {
                                             (MaskCacheKey::Primitive(prim_index), prim_bounding_rect)
                                         }
                                         None => {
-                                            let layer_rect = layer.xf_rect.as_ref().unwrap().bounding_rect;
-                                            (MaskCacheKey::StackingContext(*sc_index), layer_rect)
+                                            (MaskCacheKey::StackingContext(*stacking_context_index),
+                                             stacking_context.xf_rect.as_ref().unwrap().bounding_rect)
                                         }
                                     };
-                                    let mask_opt = RenderTask::new_mask(mask_rect,
-                                                                        mask_key,
-                                                                        &clip_info_stack,
-                                                                        &self.layer_store);
+                                    let mask_opt =
+                                        RenderTask::new_mask(mask_rect,
+                                                             mask_key,
+                                                             &clip_info_stack,
+                                                             &self.stacking_context_store);
                                     match mask_opt {
                                         MaskResult::Outside => {
                                             // Primitive is completely clipped out.
@@ -2519,15 +2540,15 @@ impl FrameBuilder {
                     }
                 }
                 &PrimitiveRunCmd::PopStackingContext => {
-                    let sc_index = *layer_stack.last().unwrap();
-                    let layer = &mut self.layer_store[sc_index.0];
-                    if layer.can_contribute_to_scene() {
-                        if layer.clip_cache_info.is_some() {
+                    let stacking_context_index = *stacking_context_stack.last().unwrap();
+                    let stacking_context = &self.stacking_context_store[stacking_context_index.0];
+                    if stacking_context.can_contribute_to_scene() {
+                        if stacking_context.clip_cache_info.is_some() {
                             clip_info_stack.pop().unwrap();
                         }
                     }
 
-                    layer_stack.pop().unwrap();
+                    stacking_context_stack.pop().unwrap();
                 }
             }
         }
@@ -2591,20 +2612,21 @@ impl FrameBuilder {
 
         for cmd in &self.cmds {
             match *cmd {
-                PrimitiveRunCmd::PushStackingContext(sc_index) => {
-                    let layer = &self.layer_store[sc_index.0];
-                    sc_stack.push(sc_index);
+                PrimitiveRunCmd::PushStackingContext(stacking_context_index) => {
+                    let stacking_context = &self.stacking_context_store[stacking_context_index.0];
+                    sc_stack.push(stacking_context_index);
 
-                    if !layer.is_visible() {
+                    if !stacking_context.is_visible() {
                         continue;
                     }
 
-                    let composite_count = layer.composite_ops.count();
+                    let composite_count = stacking_context.composite_ops.count();
                     for _ in 0..composite_count {
-                        let layer_rect = layer.xf_rect.as_ref().unwrap().bounding_rect;
-                        let location = RenderTaskLocation::Dynamic(None, layer_rect.size);
+                        let stacking_context_rect =
+                            stacking_context.xf_rect.as_ref().unwrap().bounding_rect;
+                        let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
                         let new_task = RenderTask::new_alpha_batch(next_task_index,
-                                                                   layer_rect.origin,
+                                                                   stacking_context_rect.origin,
                                                                    location);
                         next_task_index.0 += 1;
                         let prev_task = mem::replace(&mut current_task, new_task);
@@ -2612,27 +2634,36 @@ impl FrameBuilder {
                     }
                 }
                 PrimitiveRunCmd::PopStackingContext => {
-                    let sc_index = sc_stack.pop().unwrap();
-                    let layer = &self.layer_store[sc_index.0];
+                    let stacking_context_index = sc_stack.pop().unwrap();
+                    let stacking_context = &self.stacking_context_store[stacking_context_index.0];
 
-                    if !layer.is_visible() {
+                    if !stacking_context.is_visible() {
                         continue;
                     }
 
-                    for filter in &layer.composite_ops.filters {
+                    for filter in &stacking_context.composite_ops.filters {
                         let mut prev_task = alpha_task_stack.pop().unwrap();
-                        let item = AlphaRenderItem::Blend(sc_index, current_task.id, *filter, next_z);
+                        let item = AlphaRenderItem::Blend(stacking_context_index,
+                                                          current_task.id,
+                                                          *filter,
+                                                          next_z);
                         next_z += 1;
                         prev_task.as_alpha_batch().alpha_items.push(item);
                         prev_task.children.push(current_task);
                         current_task = prev_task;
                     }
-                    if let Some(mix_blend_mode) = layer.composite_ops.mix_blend_mode {
-                        let layer_rect = layer.xf_rect.as_ref().unwrap().bounding_rect;
-                        let readback_task = RenderTask::new_readback(sc_index, layer_rect);
+                    if let Some(mix_blend_mode) = stacking_context.composite_ops.mix_blend_mode {
+                        let stacking_context_rect =
+                            stacking_context.xf_rect.as_ref().unwrap().bounding_rect;
+                        let readback_task =
+                            RenderTask::new_readback(stacking_context_index, stacking_context_rect);
 
                         let mut prev_task = alpha_task_stack.pop().unwrap();
-                        let item = AlphaRenderItem::Composite(sc_index, readback_task.id, current_task.id, mix_blend_mode, next_z);
+                        let item = AlphaRenderItem::Composite(stacking_context_index,
+                                                              readback_task.id,
+                                                              current_task.id,
+                                                              mix_blend_mode,
+                                                              next_z);
                         next_z += 1;
                         prev_task.as_alpha_batch().alpha_items.push(item);
                         prev_task.children.push(current_task);
@@ -2641,10 +2672,10 @@ impl FrameBuilder {
                     }
                 }
                 PrimitiveRunCmd::PrimitiveRun(first_prim_index, prim_count) => {
-                    let sc_index = *sc_stack.last().unwrap();
-                    let layer = &self.layer_store[sc_index.0];
+                    let stacking_context_index = *sc_stack.last().unwrap();
+                    let stacking_context = &self.stacking_context_store[stacking_context_index.0];
 
-                    if !layer.is_visible() {
+                    if !stacking_context.is_visible() {
                         continue;
                     }
 
@@ -2662,7 +2693,7 @@ impl FrameBuilder {
                                 current_task.children.push(clip_task.clone());
                             }
 
-                            let transform_kind = layer.xf_rect.as_ref().unwrap().kind;
+                            let transform_kind = stacking_context.xf_rect.as_ref().unwrap().kind;
                             let needs_clipping = prim_metadata.clip_task.is_some();
                             let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                                  !prim_metadata.is_opaque ||
@@ -2673,7 +2704,9 @@ impl FrameBuilder {
                             } else {
                                 &mut current_task.as_alpha_batch().opaque_items
                             };
-                            items.push(AlphaRenderItem::Primitive(sc_index, prim_index, next_z));
+                            items.push(AlphaRenderItem::Primitive(stacking_context_index,
+                                                                  prim_index,
+                                                                  next_z));
                             next_z += 1;
                         }
                     }
@@ -2727,8 +2760,8 @@ impl FrameBuilder {
 
         resource_cache.block_until_all_resources_added();
 
-        for layer in self.layer_store.iter() {
-            if let Some(ref clip_info) = layer.clip_cache_info {
+        for stacking_context in self.stacking_context_store.iter() {
+            if let Some(ref clip_info) = stacking_context.clip_cache_info {
                 self.prim_store.resolve_clip_cache(clip_info, resource_cache);
             }
         }
@@ -2750,7 +2783,7 @@ impl FrameBuilder {
 
         for pass in &mut passes {
             let ctx = RenderTargetContext {
-                layer_store: &self.layer_store,
+                stacking_context_store: &self.stacking_context_store,
                 prim_store: &self.prim_store,
                 resource_cache: resource_cache,
             };
