@@ -39,10 +39,12 @@ impl Notifier {
 
 impl webrender_traits::RenderNotifier for Notifier {
     fn new_frame_ready(&mut self) {
+        #[cfg(not(target_os = "android"))]
         self.window_proxy.wakeup_event_loop();
     }
 
     fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {
+        #[cfg(not(target_os = "android"))]
         self.window_proxy.wakeup_event_loop();
     }
 
@@ -62,7 +64,10 @@ fn main() {
 
     let window = glutin::WindowBuilder::new()
                 .with_title("WebRender Sample")
-                .with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGl, (3, 2)))
+                .with_gl(glutin::GlRequest::GlThenGles {
+                    opengl_version: (3, 2),
+                    opengles_version: (3, 0)
+                })
                 .build()
                 .unwrap();
 
@@ -70,7 +75,7 @@ fn main() {
         window.make_current().ok();
     }
     // Android uses the static generator (as opposed to a global generator) at the moment
-    #[cfg(not(target_os="android"))]
+    #[cfg(not(target_os = "android"))]
     gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
 
     println!("OpenGL version {}", gl::get_string(gl::VERSION));

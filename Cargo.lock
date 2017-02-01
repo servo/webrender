@@ -1139,7 +1139,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "wr-sample"
+name = "wr_sample"
 version = "0.1.0"
 dependencies = [
  "app_units 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",

@@ -243,7 +243,10 @@ fn make_window(size: DeviceUintSize,
                                                      size.height))
     } else {
         let mut window = glutin::WindowBuilder::new()
-            .with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGl, (3, 2)))
+            .with_gl(glutin::GlRequest::GlThenGles {
+                opengl_version: (3, 2),
+                opengles_version: (3, 1)
+            })
             .with_dimensions(size.width, size.height);
         window.opengl.vsync = vsync;
         let window = window.build().unwrap();

@@ -67,12 +67,14 @@ impl RenderNotifier for Notifier {
             }
         }
         if let Some(ref window_proxy) = self.window_proxy {
+            #[cfg(not(target_os = "android"))]
             window_proxy.wakeup_event_loop();
         }
     }
 
     fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {
         if let Some(ref window_proxy) = self.window_proxy {
+            #[cfg(not(target_os = "android"))]
             window_proxy.wakeup_event_loop();
         }
     }
@@ -176,6 +178,7 @@ impl Wrench {
         let proxy = window.create_window_proxy();
         // put an Awakened event into the queue to kick off the first frame
         if let Some(ref wp) = proxy {
+            #[cfg(not(target_os = "android"))]
             wp.wakeup_event_loop();
         }
 
