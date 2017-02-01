@@ -9,5 +9,5 @@ checkout:
 
 test:
         override:
-                - cargo build -v
-                - cargo test -v
+                - (cd wrench && cargo build -v)
+                - (cd wrench && cargo test -v)
