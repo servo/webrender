@@ -1,6 +1,6 @@
 [package]
 name = "webrender"
-version = "0.13.1"
+version = "0.14.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 repository = "https://github.com/servo/webrender"
@@ -41,5 +41,5 @@ freetype = { version = "0.2", default-features = false }
 dwrote = "0.1.7"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-core-graphics = "0.5.0"
-core-text = "2.0"
+core-graphics = "0.6.0"
+core-text = "3.0"
