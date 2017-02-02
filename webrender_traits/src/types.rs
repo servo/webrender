@@ -433,6 +433,7 @@ pub struct GradientDisplayItem {
     pub extend_mode: ExtendMode,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GradientStop {
     pub offset: f32,
@@ -539,16 +540,19 @@ impl ImageData {
     }
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ImageKey(pub u32, pub u32);
 
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ImageRendering {
-    Auto,
-    CrispEdges,
-    Pixelated,
+    Auto        = 0,
+    CrispEdges  = 1,
+    Pixelated   = 2,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ItemRange {
     pub start: usize,
