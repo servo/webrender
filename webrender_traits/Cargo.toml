@@ -1,6 +1,6 @@
 [package]
 name = "webrender_traits"
-version = "0.12.0"
+version = "0.12.1"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 repository = "https://github.com/servo/webrender"
@@ -15,7 +15,7 @@ ipc = ["ipc-channel"]
 
 [dependencies]
 app_units = "0.3.0"
-byteorder = "0.5"
+byteorder = "1.0"
 euclid = "0.10.3"
 gleam = "0.2"
 heapsize = "0.3.6"

@@ -1,6 +1,6 @@
 [package]
 name = "webrender"
-version = "0.13.0"
+version = "0.13.1"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 repository = "https://github.com/servo/webrender"
@@ -17,7 +17,7 @@ serde_derive = ["webrender_traits/serde_derive"]
 app_units = "0.3"
 bincode = "0.6"
 bit-set = "0.4"
-byteorder = "0.5"
+byteorder = "1.0"
 euclid = "0.10.3"
 fnv="1.0"
 gleam = "0.2.30"
