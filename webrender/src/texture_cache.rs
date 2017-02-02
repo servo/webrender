@@ -13,7 +13,6 @@ use std::collections::hash_map::Entry;
 use std::hash::BuildHasherDefault;
 use std::mem;
 use std::slice::Iter;
-use std::sync::Arc;
 use time;
 use util;
 use webrender_traits::{ImageData, ImageFormat, DevicePixel, DeviceIntPoint};
@@ -567,37 +566,6 @@ impl TextureCache {
         }
     }
 
-    // The fn is a closure(x: u32, y: u32, w: u32, h: u32, src: Arc<Vec<u8>>, stride: Option<u32>).
-    pub fn insert_image_border<F>(src: &[u8],
-                               allocated_rect: DeviceUintRect,
-                               requested_rect: DeviceUintRect,
-                               stride: Option<u32>,
-                               bpp: u32,
-                               mut op: F) where F: FnMut(u32, u32, u32, u32, Arc<Vec<u8>>, Option<u32>){
-        let mut top_row_data = Vec::new();
-        let mut bottom_row_data = Vec::new();
-        let mut left_column_data = Vec::new();
-        let mut right_column_data = Vec::new();
-
-        copy_pixels(&src, &mut top_row_data, 0, 0, 1, requested_rect.size.width, stride, bpp);
-        copy_pixels(&src, &mut top_row_data, 0, 0, requested_rect.size.width, requested_rect.size.width, stride, bpp);
-        copy_pixels(&src, &mut top_row_data, requested_rect.size.width - 1, 0, 1, requested_rect.size.width, stride, bpp);
-
-        copy_pixels(&src, &mut bottom_row_data, 0, requested_rect.size.height - 1, 1, requested_rect.size.width, stride, bpp);
-        copy_pixels(&src, &mut bottom_row_data, 0, requested_rect.size.height - 1, requested_rect.size.width, requested_rect.size.width, stride, bpp);
-        copy_pixels(&src, &mut bottom_row_data, requested_rect.size.width - 1, requested_rect.size.height - 1, 1, requested_rect.size.width, stride, bpp);
-
-        for y in 0..requested_rect.size.height {
-            copy_pixels(&src, &mut left_column_data, 0, y, 1, requested_rect.size.width, stride, bpp);
-            copy_pixels(&src, &mut right_column_data, requested_rect.size.width - 1, y, 1, requested_rect.size.width, stride, bpp);
-        }
-
-        op(allocated_rect.origin.x, allocated_rect.origin.y, allocated_rect.size.width, 1, Arc::new(top_row_data), None);
-        op(allocated_rect.origin.x, allocated_rect.origin.y + requested_rect.size.height + 1, allocated_rect.size.width, 1, Arc::new(bottom_row_data), None);
-        op(allocated_rect.origin.x, requested_rect.origin.y, 1, requested_rect.size.height, Arc::new(left_column_data), None);
-        op(allocated_rect.origin.x + requested_rect.size.width + 1, requested_rect.origin.y, 1, requested_rect.size.height, Arc::new(right_column_data), None);
-    }
-
     pub fn pending_updates(&mut self) -> TextureUpdateList {
         mem::replace(&mut self.pending_updates, TextureUpdateList::new())
     }
@@ -782,8 +750,6 @@ impl TextureCache {
                                    format,
                                    filter);
 
-        let bpp = format.bytes_per_pixel().unwrap();
-
         match result.kind {
             AllocationKind::TexturePage => {
                 match data {
@@ -791,42 +757,26 @@ impl TextureCache {
                         panic!("External handle should not go through texture_cache.");
                     }
                     ImageData::Raw(bytes) => {
-                        let mut op = |x , y , w , h , src , stride| {
-                            let update_op = TextureUpdate {
-                                id: result.item.texture_id,
-                                op: TextureUpdateOp::Update {
-                                    page_pos_x: x,
-                                    page_pos_y: y,
-                                    width: w,
-                                    height: h,
-                                    data: src,
-                                    stride: stride,
-                                },
-                            };
-
-                            self.pending_updates.push(update_op);
+                        let update_op = TextureUpdate {
+                            id: result.item.texture_id,
+                            op: TextureUpdateOp::Update {
+                                page_pos_x: result.item.allocated_rect.origin.x,
+                                page_pos_y: result.item.allocated_rect.origin.y,
+                                width: result.item.allocated_rect.size.width,
+                                height: result.item.allocated_rect.size.height,
+                                data: bytes,
+                                stride: stride,
+                            },
                         };
 
-                        // image's borders
-                        TextureCache::insert_image_border(&bytes,
-                                                          result.item.allocated_rect,
-                                                          result.item.allocated_rect,
-                                                          stride,
-                                                          bpp,
-                                                          &mut op);
-                        // image itself
-                        op(result.item.allocated_rect.origin.x, result.item.requested_rect.origin.y,
-                           result.item.allocated_rect.size.width, result.item.requested_rect.size.height,
-                           bytes, stride);
+                        self.pending_updates.push(update_op);
                     }
                     ImageData::ExternalBuffer(id) => {
                         let update_op = TextureUpdate {
                             id: result.item.texture_id,
                             op: TextureUpdateOp::UpdateForExternalBuffer {
-                                allocated_rect: result.item.allocated_rect,
-                                requested_rect: result.item.requested_rect,
+                                rect: result.item.allocated_rect,
                                 id: id,
-                                bpp: bpp,
                                 stride: stride,
                             },
                         };

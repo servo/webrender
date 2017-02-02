@@ -1080,7 +1080,7 @@ impl Renderer {
                                                    width, height, stride,
                                                    data.as_slice());
                     }
-                    TextureUpdateOp::UpdateForExternalBuffer { allocated_rect, requested_rect, id, bpp, stride } => {
+                    TextureUpdateOp::UpdateForExternalBuffer { rect, id, stride } => {
                         let handler = self.external_image_handler
                                           .as_mut()
                                           .expect("Found external image, but no handler set!");
@@ -1089,23 +1089,12 @@ impl Renderer {
 
                         match handler.lock(id).source {
                             ExternalImageSource::RawData(data) => {
-                                // image itself
                                 device.update_texture(cached_id,
-                                                      requested_rect.origin.x,
-                                                      requested_rect.origin.y,
-                                                      requested_rect.size.width,
-                                                      requested_rect.size.height,
+                                                      rect.origin.x,
+                                                      rect.origin.y,
+                                                      rect.size.width,
+                                                      rect.size.height,
                                                       stride, data);
-                                // image's borders
-                                let op = |x , y , w , h , src: Arc<Vec<u8>> , stride| {
-                                    device.update_texture(cached_id, x, y, w, h, stride, src.as_slice());
-                                };
-                                TextureCache::insert_image_border(data,
-                                                                  allocated_rect,
-                                                                  requested_rect,
-                                                                  stride,
-                                                                  bpp,
-                                                                  op);
                             }
                             _ => panic!("No external buffer found"),
                         };
