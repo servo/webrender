@@ -37,4 +37,5 @@ void main(void) {
 
     vColor = text.color;
     vUv = mix(st0, st1, f);
+    vUvBorder = (res.uv_rect + vec4(0.5, 0.5, -0.5, -0.5)) / texture_size.xyxy;
 }
