@@ -4,8 +4,8 @@
 
 use app_units::Au;
 use std::collections::HashMap;
-use webrender_traits::{FontKey, ColorU, FontRenderMode, GlyphDimensions};
-use webrender_traits::{GlyphOptions, SubpixelOffset};
+use webrender_traits::{FontKey, FontRenderMode, GlyphDimensions};
+use webrender_traits::{GlyphKey, GlyphOptions, SubpixelOffset};
 use gamma_lut::{GammaLut, Color as ColorLut};
 
 use dwrote;
@@ -156,23 +156,18 @@ impl FontContext {
         }
     }
 
-    fn create_glyph_analysis(&self, font_key: FontKey,
-                            size: Au, glyph: u32,
+    fn create_glyph_analysis(&self, key: &GlyphKey,
                             render_mode: FontRenderMode,
-                            x_suboffset: SubpixelOffset,
-                            y_suboffset: SubpixelOffset,
                             options: Option<GlyphOptions>) ->
                             dwrote::GlyphRunAnalysis {
-        let face = self.fonts.get(&font_key).unwrap();
-        let glyph = glyph as u16;
-
-        let glyph = glyph as u16;
+        let face = self.fonts.get(&key.font_key).unwrap();
+        let glyph = key.index as u16;
         let advance = 0.0f32;
         let offset = dwrote::GlyphOffset { advanceOffset: 0.0, ascenderOffset: 0.0 };
 
         let glyph_run = dwrote::DWRITE_GLYPH_RUN {
             fontFace: unsafe { face.as_ptr() },
-            fontEmSize: size.to_f32_px(), // size in DIPs (1/96", same as CSS pixels)
+            fontEmSize: key.size.to_f32_px(), // size in DIPs (1/96", same as CSS pixels)
             glyphCount: 1,
             glyphIndices: &glyph,
             glyphAdvances: &advance,
@@ -184,12 +179,12 @@ impl FontContext {
         let dwrite_measure_mode = dwrite_measure_mode(render_mode, options);
         let dwrite_render_mode = dwrite_render_mode(face,
                                                     render_mode,
-                                                    size.to_f32_px(),
+                                                    key.size.to_f32_px(),
                                                     dwrite_measure_mode,
                                                     options);
 
-        let x_offset: f32 = Into::<f64>::into(x_suboffset) as f32;
-        let y_offset: f32 = Into::<f64>::into(y_suboffset) as f32;
+        let x_offset: f32 = Into::<f64>::into(key.x_suboffset) as f32;
+        let y_offset: f32 = Into::<f64>::into(key.y_suboffset) as f32;
         let transform = Some(
                         dwrote::DWRITE_MATRIX { m11: 1.0, m12: 0.0, m21: 0.0, m22: 1.0,
                                                 dx: x_offset, dy: y_offset }
@@ -203,18 +198,11 @@ impl FontContext {
 
     // TODO: Pipe GlyphOptions into glyph_dimensions too
     pub fn get_glyph_dimensions(&self,
-                                font_key: FontKey,
-                                size: Au,
-                                glyph: u32,
-                                x_suboffset: SubpixelOffset,
-                                y_suboffset: SubpixelOffset)
+                                key: &GlyphKey)
                                 -> Option<GlyphDimensions> {
         // Probably have to default to something else here.
         let render_mode = FontRenderMode::Subpixel;
-        let analysis = self.create_glyph_analysis(font_key, size,
-                                                  glyph, render_mode,
-                                                  x_suboffset, y_suboffset,
-                                                  None);
+        let analysis = self.create_glyph_analysis(key, render_mode, None);
 
         let texture_type = dwrite_texture_type(render_mode);
         Some(get_glyph_dimensions_with_analysis(analysis, texture_type))
@@ -267,19 +255,12 @@ impl FontContext {
     }
 
     pub fn rasterize_glyph(&mut self,
-                           font_key: FontKey,
-                           size: Au,
-                           color: ColorU,
-                           glyph: u32,
+                           key: &GlyphKey,
                            render_mode: FontRenderMode,
-                           x_suboffset: SubpixelOffset,
-                           y_suboffset: SubpixelOffset,
                            glyph_options: Option<GlyphOptions>)
                            -> Option<RasterizedGlyph> {
-        let analysis = self.create_glyph_analysis(font_key, size, glyph,
+        let analysis = self.create_glyph_analysis(key,
                                                   render_mode,
-                                                  x_suboffset,
-                                                  y_suboffset,
                                                   glyph_options);
         let texture_type = dwrite_texture_type(render_mode);
 
@@ -301,7 +282,10 @@ impl FontContext {
         };
 
         lut_correction.preblend_rgb(&mut pixels, width, height,
-                                    ColorLut::new(color.r, color.g, color.b, color.a));
+                                    ColorLut::new(key.color.r,
+                                                  key.color.g,
+                                                  key.color.b,
+                                                  key.color.a));
 
         let rgba_pixels = self.convert_to_rgba(&mut pixels, render_mode);
 

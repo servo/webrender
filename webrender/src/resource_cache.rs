@@ -417,11 +417,7 @@ impl ResourceCache {
                         }
                     }
 
-                    dimensions = font_context.get_glyph_dimensions(glyph_key.font_key,
-                                                                   glyph_key.size,
-                                                                   glyph_key.index,
-                                                                   glyph_key.x_suboffset,
-                                                                   glyph_key.y_suboffset);
+                    dimensions = font_context.get_glyph_dimensions(glyph_key);
                 });
 
                 *entry.insert(dimensions)
@@ -708,13 +704,8 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                             thread_pool.execute(move || {
                                 FONT_CONTEXT.with(move |font_context| {
                                     let mut font_context = font_context.borrow_mut();
-                                    let result = font_context.rasterize_glyph(glyph_key.key.font_key,
-                                                                              glyph_key.key.size,
-                                                                              glyph_key.key.color,
-                                                                              glyph_key.key.index,
+                                    let result = font_context.rasterize_glyph(&glyph_key.key,
                                                                               render_mode,
-                                                                              glyph_key.key.x_suboffset,
-                                                                              glyph_key.key.y_suboffset,
                                                                               glyph_options);
                                     glyph_tx.send((glyph_key, result)).unwrap();
                                 });
