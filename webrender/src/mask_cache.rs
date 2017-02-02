@@ -18,11 +18,11 @@ pub enum ClipSource {
 }
 
 impl ClipSource {
-    pub fn to_rect(&self) -> Option<LayerRect> {
+    pub fn image_mask(&self) -> Option<ImageMask> {
         match self {
             &ClipSource::NoClip => None,
-            &ClipSource::Complex(rect, _) => Some(rect),
-            &ClipSource::Region(ref region) => Some(region.main),
+            &ClipSource::Complex(..) => None,
+            &ClipSource::Region(ref region) => region.image_mask,
         }
     }
 }
@@ -42,6 +42,7 @@ pub struct MaskCacheInfo {
     pub local_inner: Option<LayerRect>,
     pub inner_rect: DeviceIntRect,
     pub outer_rect: DeviceIntRect,
+    pub is_aligned: bool,
 }
 
 impl MaskCacheInfo {
@@ -83,6 +84,7 @@ impl MaskCacheInfo {
             local_inner: None,
             inner_rect: DeviceIntRect::zero(),
             outer_rect: DeviceIntRect::zero(),
+            is_aligned: true,
         })
     }
 
@@ -92,6 +94,8 @@ impl MaskCacheInfo {
                   clip_store: &mut VertexDataStore<GpuBlock32>,
                   device_pixel_ratio: f32,
                   aux_lists: &AuxiliaryLists) {
+
+        self.is_aligned = transform.can_losslessly_transform_and_perspective_project_a_2d_rect();
 
         if self.local_rect.is_none() {
             let mut local_rect;
@@ -118,9 +122,8 @@ impl MaskCacheInfo {
                         None => local_rect,
                     };
 
-                    let is_aligned = transform.can_losslessly_transform_and_perspective_project_a_2d_rect();
                     let clips = aux_lists.complex_clip_regions(&region.complex);
-                    self.effective_clip_count = if !is_aligned && self.clip_range.item_count > clips.len() as u32 {
+                    self.effective_clip_count = if !self.is_aligned && self.clip_range.item_count > clips.len() as u32 {
                         // we have an extra clip rect coming from the transformed layer
                         assert_eq!(self.clip_range.item_count, clips.len() as u32 + 1);
                         let address = GpuStoreAddress(self.clip_range.start.0 + (CLIP_DATA_GPU_SIZE * clips.len()) as i32);
