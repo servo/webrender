@@ -32,8 +32,8 @@ use std::usize;
 use texture_cache::TexturePage;
 use util::{self, pack_as_float, rect_from_points_f, subtract_rect};
 use util::{TransformedRect, TransformedRectKind};
-use webrender_traits::{ColorF, ExtendMode, FontKey, ImageKey, ImageRendering, MixBlendMode};
-use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle, YuvColorSpace};
+use webrender_traits::{ColorF, ExtendMode, FontKey, ImageKey, ImageRendering};
+use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle, MixBlendMode, YuvColorSpace};
 use webrender_traits::{AuxiliaryLists, ItemRange, BoxShadowClipMode, ClipRegion};
 use webrender_traits::{PipelineId, ScrollLayerId, WebGLContextId, FontRenderMode};
 use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize, DeviceIntLength, device_length};
@@ -378,8 +378,12 @@ struct ScrollbarPrimitive {
 
 enum PrimitiveRunCmd {
     PushStackingContext(StackingContextIndex),
-    PrimitiveRun(PrimitiveIndex, usize),
     PopStackingContext,
+
+    PushScrollLayer(ScrollLayerIndex),
+    PopScrollLayer,
+
+    PrimitiveRun(PrimitiveIndex, usize),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -407,7 +411,7 @@ pub struct RenderTaskIndex(usize);
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum MaskCacheKey {
     Primitive(PrimitiveIndex),
-    StackingContext(StackingContextIndex),
+    ScrollLayer(ScrollLayerIndex),
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -794,16 +798,14 @@ impl ClipBatcher {
 
     fn add<'a>(&mut self,
                task_index: RenderTaskIndex,
-               clips: &[(StackingContextIndex, MaskCacheInfo)],
+               clips: &[(PackedLayerIndex, MaskCacheInfo)],
                resource_cache: &ResourceCache,
-               stacking_context_store: &'a [StackingContext],
                geometry_kind: MaskGeometryKind) {
 
-        for &(stacking_context_index, ref info) in clips.iter() {
-            let stacking_context = &stacking_context_store[stacking_context_index.0];
+        for &(packed_layer_index, ref info) in clips.iter() {
             let instance = CacheClipInstance {
                 task_id: task_index.0 as i32,
-                layer_index: stacking_context.packed_layer_index.0 as i32,
+                layer_index: packed_layer_index.0 as i32,
                 address: GpuStoreAddress(0),
                 segment: 0,
             };
@@ -1008,7 +1010,6 @@ impl RenderTarget {
                 self.clip_batcher.add(task_index,
                                       &task_info.clips,
                                       &ctx.resource_cache,
-                                      &ctx.stacking_context_store,
                                       task_info.geometry_kind);
             }
             RenderTaskKind::Readback(device_rect) => {
@@ -1162,7 +1163,7 @@ enum MaskGeometryKind {
 pub struct CacheMaskTask {
     actual_rect: DeviceIntRect,
     inner_rect: DeviceIntRect,
-    clips: Vec<(StackingContextIndex, MaskCacheInfo)>,
+    clips: Vec<(PackedLayerIndex, MaskCacheInfo)>,
     geometry_kind: MaskGeometryKind,
 }
 
@@ -1234,8 +1235,7 @@ impl RenderTask {
 
     fn new_mask(actual_rect: DeviceIntRect,
                 mask_key: MaskCacheKey,
-                clips: &[(StackingContextIndex, MaskCacheInfo)],
-                stacking_context_store: &[StackingContext])
+                clips: &[(PackedLayerIndex, MaskCacheInfo)])
                 -> MaskResult {
         if clips.is_empty() {
             return MaskResult::Outside;
@@ -1265,13 +1265,11 @@ impl RenderTask {
         //           In the future, we'll expand this to handle the
         //           more complex types of clip mask geometry.
         let mut geometry_kind = MaskGeometryKind::Default;
-
         if inner_rect.is_some() && clips.len() == 1 {
-            let (stacking_context_index, ref clip_info) = clips[0];
-            let stacking_context = &stacking_context_store[stacking_context_index.0];
-
-            if clip_info.image.is_none() && clip_info.effective_clip_count == 1 &&
-               stacking_context.xf_rect.as_ref().unwrap().kind == TransformedRectKind::AxisAligned {
+            let (_, ref clip_info) = clips[0];
+            if clip_info.image.is_none() &&
+               clip_info.effective_clip_count == 1 &&
+               clip_info.is_aligned {
                 geometry_kind = MaskGeometryKind::CornersOnly;
             }
         }
@@ -1700,9 +1698,18 @@ pub struct StackingContext {
     scroll_layer_id: ScrollLayerId,
     xf_rect: Option<TransformedRect>,
     composite_ops: CompositeOps,
+    packed_layer_index: PackedLayerIndex,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct ScrollLayerIndex(pub usize);
+
+pub struct ScrollLayer {
+    scroll_layer_id: ScrollLayerId,
     clip_source: ClipSource,
     clip_cache_info: Option<MaskCacheInfo>,
     packed_layer_index: PackedLayerIndex,
+    xf_rect: Option<TransformedRect>,
 }
 
 #[derive(Debug, Clone)]
@@ -1798,6 +1805,7 @@ pub struct FrameBuilder {
     config: FrameBuilderConfig,
 
     stacking_context_store: Vec<StackingContext>,
+    scroll_layer_store: Vec<ScrollLayer>,
     packed_layers: Vec<PackedLayer>,
 
     scrollbar_prims: Vec<ScrollbarPrimitive>,
@@ -1839,6 +1847,7 @@ impl FrameBuilder {
             screen_rect: LayerRect::new(LayerPoint::zero(), viewport_size),
             background_color: background_color,
             stacking_context_store: Vec::new(),
+            scroll_layer_store: Vec::new(),
             prim_store: PrimitiveStore::new(),
             cmds: Vec::new(),
             _debug: debug,
@@ -1878,7 +1887,9 @@ impl FrameBuilder {
                 return prim_index;
             }
             &mut PrimitiveRunCmd::PushStackingContext(..) |
-            &mut PrimitiveRunCmd::PopStackingContext => {}
+            &mut PrimitiveRunCmd::PopStackingContext |
+            &mut PrimitiveRunCmd::PushScrollLayer(..) |
+            &mut PrimitiveRunCmd::PopScrollLayer => {}
         }
 
         self.cmds.push(PrimitiveRunCmd::PrimitiveRun(prim_index, 1));
@@ -1888,18 +1899,12 @@ impl FrameBuilder {
 
     pub fn push_stacking_context(&mut self,
                                  rect: LayerRect,
-                                 clip_region: &ClipRegion,
                                  transform: LayerToScrollTransform,
                                  pipeline_id: PipelineId,
                                  scroll_layer_id: ScrollLayerId,
                                  composite_ops: CompositeOps) {
         let stacking_context_index = StackingContextIndex(self.stacking_context_store.len());
         let packed_layer_index = PackedLayerIndex(self.packed_layers.len());
-
-        let clip_source = ClipSource::Region(clip_region.clone());
-        let clip_info = MaskCacheInfo::new(&clip_source,
-                                           true, // needs an extra clip for the clip rectangle
-                                           &mut self.prim_store.gpu_data32);
 
         self.stacking_context_store.push(StackingContext {
             local_rect: rect,
@@ -1908,8 +1913,6 @@ impl FrameBuilder {
             pipeline_id: pipeline_id,
             xf_rect: None,
             composite_ops: composite_ops,
-            clip_source: clip_source,
-            clip_cache_info: clip_info,
             packed_layer_index: packed_layer_index,
         });
 
@@ -1919,6 +1922,48 @@ impl FrameBuilder {
 
     pub fn pop_stacking_context(&mut self) {
         self.cmds.push(PrimitiveRunCmd::PopStackingContext);
+    }
+
+    pub fn push_scroll_layer(&mut self,
+                             scroll_layer_id: ScrollLayerId,
+                             clip_region: &ClipRegion,
+                             iframe_origin: &LayerPoint,
+                             content_size: &LayerSize) {
+        let scroll_layer_index = ScrollLayerIndex(self.scroll_layer_store.len());
+        let packed_layer_index = PackedLayerIndex(self.packed_layers.len());
+
+        let clip_source = ClipSource::Region(clip_region.clone());
+        let clip_info = MaskCacheInfo::new(&clip_source,
+                                           true, // needs an extra clip for the clip rectangle
+                                           &mut self.prim_store.gpu_data32);
+
+        self.scroll_layer_store.push(ScrollLayer {
+            scroll_layer_id: scroll_layer_id,
+            clip_source: clip_source,
+            clip_cache_info: clip_info,
+            xf_rect: None,
+            packed_layer_index: packed_layer_index,
+        });
+
+        self.packed_layers.push(Default::default());
+        self.cmds.push(PrimitiveRunCmd::PushScrollLayer(scroll_layer_index));
+
+        // We need to push a fake stacking context here, because primitives that are
+        // direct children of this stacking context, need to be adjusted by the scroll
+        // offset of this layer. Eventually we should be able to remove this.
+        let rect = LayerRect::new(LayerPoint::zero(),
+                                  LayerSize::new(content_size.width + iframe_origin.x,
+                                                 content_size.height + iframe_origin.y));
+        self.push_stacking_context(rect,
+                                   LayerToScrollTransform::identity(),
+                                   scroll_layer_id.pipeline_id,
+                                   scroll_layer_id,
+                                   CompositeOps::empty());
+    }
+
+    pub fn pop_scroll_layer(&mut self) {
+        self.pop_stacking_context();
+        self.cmds.push(PrimitiveRunCmd::PopScrollLayer);
     }
 
     pub fn add_solid_rectangle(&mut self,
@@ -2386,6 +2431,7 @@ impl FrameBuilder {
 
         // TODO(gw): Remove this stack once the layers refactor is done!
         let mut stacking_context_stack: Vec<StackingContextIndex> = Vec::new();
+        let mut scroll_layer_stack: Vec<ScrollLayerIndex> = Vec::new();
         let mut clip_info_stack = Vec::new();
 
         for cmd in &self.cmds {
@@ -2410,15 +2456,14 @@ impl FrameBuilder {
                     }
 
                     let inv_layer_transform = stacking_context.local_transform.inverse().unwrap();
+
                     let local_viewport_rect =
                         as_scroll_parent_rect(&scroll_layer.combined_local_viewport_rect);
+
                     let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
-                    let local_clip_rect =
-                        stacking_context.clip_source.to_rect().unwrap_or(stacking_context.local_rect);
+
                     let layer_local_rect =
-                         stacking_context.local_rect
-                                         .intersection(&viewport_rect)
-                                         .and_then(|rect| rect.intersection(&local_clip_rect));
+                         stacking_context.local_rect.intersection(&viewport_rect);
 
                     if let Some(layer_local_rect) = layer_local_rect {
                         let layer_xf_rect = TransformedRect::new(&layer_local_rect,
@@ -2431,25 +2476,51 @@ impl FrameBuilder {
                             stacking_context.xf_rect = Some(layer_xf_rect);
                         }
                     }
+                }
+                &PrimitiveRunCmd::PushScrollLayer(scroll_layer_index) => {
+                    scroll_layer_stack.push(scroll_layer_index);
+                    let scroll_layer = &mut self.scroll_layer_store[scroll_layer_index.0];
+                    let packed_layer_index = scroll_layer.packed_layer_index;
 
-                    if let Some(ref mut clip_info) = stacking_context.clip_cache_info {
-                        let auxiliary_lists = auxiliary_lists_map.get(&stacking_context.pipeline_id)
+                    let scroll_tree_layer = &scroll_tree.layers[&scroll_layer.scroll_layer_id];
+                    let packed_layer = &mut self.packed_layers[packed_layer_index.0];
+
+                    packed_layer.transform = scroll_tree_layer.world_viewport_transform;
+                    packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
+
+                    let local_rect = &scroll_tree_layer.combined_local_viewport_rect
+                                                       .translate(&scroll_tree_layer.scrolling.offset);
+                    if !local_rect.is_empty() {
+                        let layer_xf_rect = TransformedRect::new(local_rect,
+                                                                 &packed_layer.transform,
+                                                                 device_pixel_ratio);
+
+                        if layer_xf_rect.bounding_rect.intersects(&screen_rect) {
+                            packed_layer.screen_vertices = layer_xf_rect.vertices.clone();
+                            packed_layer.local_clip_rect = *local_rect;
+                            scroll_layer.xf_rect = Some(layer_xf_rect);
+                        }
+                    }
+
+                    if let Some(ref mut clip_info) = scroll_layer.clip_cache_info {
+                        let pipeline_id = scroll_layer.scroll_layer_id.pipeline_id;
+                        let auxiliary_lists = auxiliary_lists_map.get(&pipeline_id)
                                                                  .expect("No auxiliary lists?");
-                        clip_info.update(&stacking_context.clip_source,
-                                         &packed_layer.transform,
+                        clip_info.update(&scroll_layer.clip_source,
+                                         &packed_layer.transform, /// XXX Get tform here
                                          &mut self.prim_store.gpu_data32,
                                          device_pixel_ratio,
                                          auxiliary_lists);
-                        if let ClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }) = stacking_context.clip_source {
+                        if let Some(mask) = scroll_layer.clip_source.image_mask() {
+                            // Note: no need to add the image mask for resolution, because all
+                            // layer masks get resolved later.
                             resource_cache.request_image(mask.image, ImageRendering::Auto);
-                            //Note: no need to add the stacking context for resolve, all layers get resolved
                         }
 
                         // Create a task for the stacking context mask, if needed, i.e. if there
                         // are rounded corners or image masks for the stacking context.
-                        clip_info_stack.push((stacking_context_index, clip_info.clone()));
+                        clip_info_stack.push((packed_layer_index, clip_info.clone()));
                     }
-
                 }
                 &PrimitiveRunCmd::PrimitiveRun(prim_index, prim_count) => {
                     let stacking_context_index = stacking_context_stack.last().unwrap();
@@ -2458,7 +2529,11 @@ impl FrameBuilder {
                         continue;
                     }
 
-                    let packed_layer = &self.packed_layers[stacking_context.packed_layer_index.0];
+                    let scroll_layer_index = scroll_layer_stack.last().unwrap();
+                    let scroll_layer = &self.scroll_layer_store[scroll_layer_index.0];
+
+                    let packed_layer_index = stacking_context.packed_layer_index;
+                    let packed_layer = &self.packed_layers[packed_layer_index.0];
                     let auxiliary_lists = auxiliary_lists_map.get(&stacking_context.pipeline_id)
                                                              .expect("No auxiliary lists?");
 
@@ -2489,8 +2564,10 @@ impl FrameBuilder {
                                 let prim_clip_info = prim_metadata.clip_cache_info.as_ref();
                                 let mut visible = true;
 
+                                // XXX We need to get the clip relative to a stacking context or
+                                // allow passing a stacking context or a scroll layer.
                                 if let Some(info) = prim_clip_info {
-                                    clip_info_stack.push((*stacking_context_index, info.clone()));
+                                    clip_info_stack.push((packed_layer_index, info.clone()));
                                 }
 
                                 // Try to create a mask if we may need to.
@@ -2505,15 +2582,12 @@ impl FrameBuilder {
                                             (MaskCacheKey::Primitive(prim_index), prim_bounding_rect)
                                         }
                                         None => {
-                                            (MaskCacheKey::StackingContext(*stacking_context_index),
-                                             stacking_context.xf_rect.as_ref().unwrap().bounding_rect)
+                                            (MaskCacheKey::ScrollLayer(*scroll_layer_index),
+                                             scroll_layer.xf_rect.as_ref().unwrap().bounding_rect)
                                         }
                                     };
                                     let mask_opt =
-                                        RenderTask::new_mask(mask_rect,
-                                                             mask_key,
-                                                             &clip_info_stack,
-                                                             &self.stacking_context_store);
+                                        RenderTask::new_mask(mask_rect, mask_key, &clip_info_stack);
                                     match mask_opt {
                                         MaskResult::Outside => {
                                             // Primitive is completely clipped out.
@@ -2540,15 +2614,16 @@ impl FrameBuilder {
                     }
                 }
                 &PrimitiveRunCmd::PopStackingContext => {
-                    let stacking_context_index = *stacking_context_stack.last().unwrap();
-                    let stacking_context = &self.stacking_context_store[stacking_context_index.0];
-                    if stacking_context.can_contribute_to_scene() {
-                        if stacking_context.clip_cache_info.is_some() {
-                            clip_info_stack.pop().unwrap();
-                        }
+                    stacking_context_stack.pop();
+                }
+                &PrimitiveRunCmd::PopScrollLayer => {
+                    let scroll_layer_index = *scroll_layer_stack.last().unwrap();
+                    let scroll_layer = &self.scroll_layer_store[scroll_layer_index.0];
+                    if scroll_layer.clip_cache_info.is_some() {
+                        clip_info_stack.pop().unwrap();
                     }
+                    scroll_layer_stack.pop().unwrap();
 
-                    stacking_context_stack.pop().unwrap();
                 }
             }
         }
@@ -2711,6 +2786,7 @@ impl FrameBuilder {
                         }
                     }
                 }
+                PrimitiveRunCmd::PushScrollLayer(_) | PrimitiveRunCmd::PopScrollLayer => { }
             }
         }
 
@@ -2760,8 +2836,8 @@ impl FrameBuilder {
 
         resource_cache.block_until_all_resources_added();
 
-        for stacking_context in self.stacking_context_store.iter() {
-            if let Some(ref clip_info) = stacking_context.clip_cache_info {
+        for scroll_layer in self.scroll_layer_store.iter() {
+            if let Some(ref clip_info) = scroll_layer.clip_cache_info {
                 self.prim_store.resolve_clip_cache(clip_info, resource_cache);
             }
         }
