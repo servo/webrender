@@ -4,8 +4,8 @@
 
 use app_units::Au;
 use std::collections::HashMap;
-use webrender_traits::{FontKey, ColorU, FontRenderMode, GlyphDimensions, GlyphOptions};
-use webrender_traits::{SubpixelOffset};
+use webrender_traits::{FontKey, ColorU, FontRenderMode, GlyphDimensions};
+use webrender_traits::{GlyphOptions, SubpixelOffset};
 use gamma_lut::{GammaLut, Color as ColorLut};
 
 use dwrote;
@@ -159,6 +159,8 @@ impl FontContext {
     fn create_glyph_analysis(&self, font_key: FontKey,
                             size: Au, glyph: u32,
                             render_mode: FontRenderMode,
+                            x_suboffset: SubpixelOffset,
+                            y_suboffset: SubpixelOffset,
                             options: Option<GlyphOptions>) ->
                             dwrote::GlyphRunAnalysis {
         let face = self.fonts.get(&font_key).unwrap();
@@ -186,9 +188,14 @@ impl FontContext {
                                                     dwrite_measure_mode,
                                                     options);
 
-        // XX use the xform to handle subpixel positioning (what skia does), I believe that keeps
-        //let xform = dwrote::DWRITE_MATRIX { m11: 1.0, m12: 0.0, m21: 0.0, m22: 1.0, dx: 0.0, dy: 0.0 };
-        dwrote::GlyphRunAnalysis::create(&glyph_run, 1.0, None,
+        let x_offset: f32 = Into::<f64>::into(x_suboffset) as f32;
+        let y_offset: f32 = Into::<f64>::into(y_suboffset) as f32;
+        let transform = Some(
+                        dwrote::DWRITE_MATRIX { m11: 1.0, m12: 0.0, m21: 0.0, m22: 1.0,
+                                                dx: x_offset, dy: y_offset }
+                        );
+
+        dwrote::GlyphRunAnalysis::create(&glyph_run, 1.0, transform,
                                          dwrite_render_mode,
                                          dwrite_measure_mode,
                                          0.0, 0.0)
@@ -199,13 +206,14 @@ impl FontContext {
                                 font_key: FontKey,
                                 size: Au,
                                 glyph: u32,
-                                _x_subpixel: SubpixelOffset,
-                                _y_subpixel: SubpixelOffset)
+                                x_suboffset: SubpixelOffset,
+                                y_suboffset: SubpixelOffset)
                                 -> Option<GlyphDimensions> {
         // Probably have to default to something else here.
         let render_mode = FontRenderMode::Subpixel;
         let analysis = self.create_glyph_analysis(font_key, size,
                                                   glyph, render_mode,
+                                                  x_suboffset, y_suboffset,
                                                   None);
 
         let texture_type = dwrite_texture_type(render_mode);
@@ -264,12 +272,15 @@ impl FontContext {
                            color: ColorU,
                            glyph: u32,
                            render_mode: FontRenderMode,
-                           _x_suboffset: SubpixelOffset,
-                           _y_suboffset: SubpixelOffset,
+                           x_suboffset: SubpixelOffset,
+                           y_suboffset: SubpixelOffset,
                            glyph_options: Option<GlyphOptions>)
                            -> Option<RasterizedGlyph> {
         let analysis = self.create_glyph_analysis(font_key, size, glyph,
-                                                  render_mode, glyph_options);
+                                                  render_mode,
+                                                  x_suboffset,
+                                                  y_suboffset,
+                                                  glyph_options);
         let texture_type = dwrite_texture_type(render_mode);
 
         let bounds = analysis.get_alpha_texture_bounds(texture_type);
