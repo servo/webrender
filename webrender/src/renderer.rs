@@ -42,7 +42,7 @@ use tiling::{BlurCommand, CacheClipInstance, PrimitiveInstance, RenderTarget, Re
 use time::precise_time_ns;
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
-use webrender_traits::{ExternalImageId, ImageFormat, RenderApiSender, RendererKind};
+use webrender_traits::{ExternalImageId, ImageData, ImageFormat, RenderApiSender, RendererKind};
 use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use webrender_traits::ImageDescriptor;
 use webrender_traits::channel;
@@ -677,7 +677,7 @@ impl Renderer {
                                 is_opaque: false,
                              },
                              TextureFilter::Linear,
-                             Arc::new(white_pixels));
+                             ImageData::Raw(Arc::new(white_pixels)));
 
         let dummy_mask_image_id = texture_cache.new_item_id();
         texture_cache.insert(dummy_mask_image_id,
@@ -689,7 +689,7 @@ impl Renderer {
                                 is_opaque: false,
                              },
                              TextureFilter::Linear,
-                             Arc::new(mask_pixels));
+                             ImageData::Raw(Arc::new(mask_pixels)));
 
         let debug_renderer = DebugRenderer::new(&mut device);
 
@@ -1009,45 +1009,107 @@ impl Renderer {
         for update_list in pending_texture_updates.drain(..) {
             for update in update_list.updates {
                 match update.op {
-                    TextureUpdateOp::Create(width, height, format, filter, mode, maybe_bytes) => {
+                    TextureUpdateOp::Create { width, height, format, filter, mode, data } => {
                         let CacheTextureId(cache_texture_index) = update.id;
                         if self.cache_texture_id_map.len() == cache_texture_index {
                             // Create a new native texture, as requested by the texture cache.
                             let texture_id = self.device
-                                             .create_texture_ids(1, TextureTarget::Default)[0];
+                                                 .create_texture_ids(1, TextureTarget::Default)[0];
                             self.cache_texture_id_map.push(texture_id);
                         }
                         let texture_id = self.cache_texture_id_map[cache_texture_index];
 
-                        let maybe_slice = maybe_bytes.as_ref().map(|bytes|{ bytes.as_slice() });
-                        self.device.init_texture(texture_id,
-                                                 width,
-                                                 height,
-                                                 format,
-                                                 filter,
-                                                 mode,
-                                                 maybe_slice);
+                        if let Some(image) = data {
+                            match image {
+                                ImageData::Raw(raw) => {
+                                    self.device.init_texture(texture_id,
+                                                             width,
+                                                             height,
+                                                             format,
+                                                             filter,
+                                                             mode,
+                                                             Some(raw.as_slice()));
+                                }
+                                ImageData::ExternalBuffer(id) => {
+                                    let handler = self.external_image_handler
+                                                      .as_mut()
+                                                      .expect("Found external image, but no handler set!");
+
+                                    match handler.lock(id).source {
+                                        ExternalImageSource::RawData(raw) => {
+                                            self.device.init_texture(texture_id,
+                                                                     width,
+                                                                     height,
+                                                                     format,
+                                                                     filter,
+                                                                     mode,
+                                                                     Some(raw));
+                                        }
+                                        _ => panic!("No external buffer found"),
+                                    };
+                                    handler.unlock(id);
+                                }
+                                _ => {
+                                    panic!("No suitable image buffer for TextureUpdateOp::Create.");
+                                }
+                            }
+                        } else {
+                            self.device.init_texture(texture_id,
+                                                     width,
+                                                     height,
+                                                     format,
+                                                     filter,
+                                                     mode,
+                                                     None);
+                        }
                     }
-                    TextureUpdateOp::Grow(new_width,
-                                          new_height,
-                                          format,
-                                          filter,
-                                          mode) => {
+                    TextureUpdateOp::Grow { width, height, format, filter, mode } => {
                         let texture_id = self.cache_texture_id_map[update.id.0];
                         self.device.resize_texture(texture_id,
-                                                   new_width,
-                                                   new_height,
+                                                   width,
+                                                   height,
                                                    format,
                                                    filter,
                                                    mode);
                     }
-                    TextureUpdateOp::Update(x, y, width, height, bytes, stride) => {
+                    TextureUpdateOp::Update { page_pos_x, page_pos_y, width, height, data, stride } => {
                         let texture_id = self.cache_texture_id_map[update.id.0];
                         self.device.update_texture(texture_id,
-                                                   x,
-                                                   y,
+                                                   page_pos_x,
+                                                   page_pos_y,
                                                    width, height, stride,
-                                                   bytes.as_slice());
+                                                   data.as_slice());
+                    }
+                    TextureUpdateOp::UpdateForExternalBuffer { allocated_rect, requested_rect, id, bpp, stride } => {
+                        let handler = self.external_image_handler
+                                          .as_mut()
+                                          .expect("Found external image, but no handler set!");
+                        let device = &mut self.device;
+                        let cached_id = self.cache_texture_id_map[update.id.0];
+
+                        match handler.lock(id).source {
+                            ExternalImageSource::RawData(data) => {
+                                // image itself
+                                device.update_texture(cached_id,
+                                                      requested_rect.origin.x,
+                                                      requested_rect.origin.y,
+                                                      requested_rect.size.width,
+                                                      requested_rect.size.height,
+                                                      stride, data);
+                                // image's borders
+                                let op = |x , y , w , h , src: Arc<Vec<u8>> , stride| {
+                                    device.update_texture(cached_id, x, y, w, h, stride, src.as_slice());
+                                };
+                                TextureCache::insert_image_border(data,
+                                                                  allocated_rect,
+                                                                  requested_rect,
+                                                                  stride,
+                                                                  bpp,
+                                                                  op);
+                            }
+                            _ => panic!("No external buffer found"),
+                        };
+                        handler.unlock(id);
                     }
                     TextureUpdateOp::Free => {
                         let texture_id = self.cache_texture_id_map[update.id.0];
@@ -1449,6 +1511,7 @@ impl Renderer {
 
                 let texture_id = match image.source {
                     ExternalImageSource::NativeTexture(texture_id) => TextureId::new(texture_id),
+                    _ => panic!("No native texture found."),
                 };
 
                 self.external_images.insert(external_id, texture_id);
@@ -1615,10 +1678,9 @@ impl Renderer {
     }
 }
 
-pub enum ExternalImageSource {
-    // TODO(gw): Work out the API for raw buffers.
-    //RawData(*const u8, usize),
-    NativeTexture(u32),                // Is a gl::GLuint texture handle
+pub enum ExternalImageSource<'a> {
+    RawData(&'a [u8]),      // raw buffers.
+    NativeTexture(u32),     // Is a gl::GLuint texture handle
 }
 
 /// The data that an external client should provide about
@@ -1630,12 +1692,12 @@ pub enum ExternalImageSource {
 /// the returned timestamp for a given image, the renderer
 /// will know to re-upload the image data to the GPU.
 /// Note that the UV coords are supplied in texel-space!
-pub struct ExternalImage {
+pub struct ExternalImage<'a> {
     pub u0: f32,
     pub v0: f32,
     pub u1: f32,
     pub v1: f32,
-    pub source: ExternalImageSource,
+    pub source: ExternalImageSource<'a>,
 }
 
 /// The interfaces that an application can implement to support providing
