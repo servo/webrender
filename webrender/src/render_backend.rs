@@ -361,8 +361,6 @@ impl RenderBackend {
 
     fn build_scene(&mut self) {
         // Flatten the stacking context hierarchy
-        let mut new_pipeline_sizes = HashMap::new();
-
         if let Some(id) = self.current_bound_webgl_context_id {
             self.webgl_contexts[&id].unbind();
             self.current_bound_webgl_context_id = None;
@@ -381,52 +379,7 @@ impl RenderBackend {
             webgl_context.unbind();
         }
 
-        self.frame.create(&self.scene, &mut new_pipeline_sizes);
-
-        let mut updated_pipeline_sizes = HashMap::new();
-
-        for (pipeline_id, old_size) in self.scene.pipeline_sizes.drain() {
-            let new_size = new_pipeline_sizes.remove(&pipeline_id);
-
-            match new_size {
-                Some(new_size) => {
-                    // Exists in both old and new -> check if size changed
-                    if new_size != old_size {
-                        let mut notifier = self.notifier.lock();
-                        notifier.as_mut()
-                                .unwrap()
-                                .as_mut()
-                                .unwrap()
-                                .pipeline_size_changed(pipeline_id, Some(new_size));
-                    }
-
-                    // Re-insert
-                    updated_pipeline_sizes.insert(pipeline_id, new_size);
-                }
-                None => {
-                    // Was existing, not in current frame anymore
-                        let mut notifier = self.notifier.lock();
-                        notifier.as_mut()
-                                .unwrap()
-                                .as_mut()
-                                .unwrap()
-                                .pipeline_size_changed(pipeline_id, None);
-                }
-            }
-        }
-
-        // Any remaining items are new pipelines
-        for (pipeline_id, new_size) in new_pipeline_sizes.drain() {
-            let mut notifier = self.notifier.lock();
-            notifier.as_mut()
-                    .unwrap()
-                    .as_mut()
-                    .unwrap()
-                    .pipeline_size_changed(pipeline_id, Some(new_size));
-            updated_pipeline_sizes.insert(pipeline_id, new_size);
-        }
-
-        self.scene.pipeline_sizes = updated_pipeline_sizes;
+        self.frame.create(&self.scene);
     }
 
     fn render(&mut self) -> RendererFrame {

@@ -78,11 +78,6 @@ impl RenderNotifier for Notifier {
             window_proxy.wakeup_event_loop();
         }
     }
-
-    fn pipeline_size_changed(&mut self,
-                             _: PipelineId,
-                             _: Option<LayoutSize>) {
-    }
 }
 
 #[cfg(target_os = "windows")]

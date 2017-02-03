@@ -27,7 +27,6 @@ static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF { r: 0.3, g: 0.3, b: 0.3, a: 0.6
 
 struct FlattenContext<'a> {
     scene: &'a Scene,
-    pipeline_sizes: &'a mut HashMap<PipelineId, LayerSize>,
     builder: &'a mut FrameBuilder,
 }
 
@@ -223,9 +222,7 @@ impl Frame {
         self.scroll_tree.discard_frame_state_for_pipeline(pipeline_id);
     }
 
-    pub fn create(&mut self,
-                  scene: &Scene,
-                  pipeline_sizes: &mut HashMap<PipelineId, LayerSize>) {
+    pub fn create(&mut self, scene: &Scene) {
         let root_pipeline_id = match scene.root_pipeline_id {
             Some(root_pipeline_id) => root_pipeline_id,
             None => return,
@@ -275,7 +272,6 @@ impl Frame {
         {
             let mut context = FlattenContext {
                 scene: scene,
-                pipeline_sizes: pipeline_sizes,
                 builder: &mut frame_builder,
             };
 
@@ -453,7 +449,6 @@ impl Frame {
                           context: &mut FlattenContext,
                           current_scroll_layer_id: ScrollLayerId,
                           layer_relative_transform: LayerToScrollTransform) {
-        context.pipeline_sizes.insert(pipeline_id, bounds.size);
 
         let pipeline = match context.scene.pipeline_map.get(&pipeline_id) {
             Some(pipeline) => pipeline,
