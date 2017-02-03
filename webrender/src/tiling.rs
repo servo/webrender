@@ -40,7 +40,7 @@ use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize, DeviceIntLe
 use webrender_traits::{DeviceUintSize, DeviceUintPoint};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
 use webrender_traits::{LayerToScrollTransform, LayerToWorldTransform, WorldToLayerTransform};
-use webrender_traits::{WorldPoint4D, WorldRect, ScrollLayerPixel, as_scroll_parent_rect};
+use webrender_traits::{WorldPoint4D, ScrollLayerPixel, as_scroll_parent_rect};
 use webrender_traits::{GlyphOptions};
 
 // Special sentinel value recognized by the shader. It is considered to be
@@ -384,7 +384,6 @@ enum PrimitiveRunCmd {
     PopScrollLayer,
 
     PrimitiveRun(PrimitiveIndex, usize),
-    PopStackingContext,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -2523,14 +2522,17 @@ impl FrameBuilder {
                             // Create a task for the layer mask, if needed,
                             // i.e. if there are rounded corners or image masks for the layer.
                             clip_info_stack.push((packed_layer_index, clip_info.clone()));
-                        } else if let Some(TransformedRect{ kind: TransformedRectKind::AxisAligned, ..}) = layer.xf_rect {
+                        } else if let Some(TransformedRect{ kind: TransformedRectKind::AxisAligned, ..}) = scroll_layer.xf_rect {
                             let world_rect = packed_layer.transform.transform_rect(&packed_layer.local_clip_rect);
                             let combined_rect = match world_clip_rect_stack.last() {
                                 Some(ref last) => {
-                                    let result = world_rect.intersection(last).unwrap_or(WorldRect::zero());
+                                    // Careful! transformations here are in 3D, while the rectangles are in 2D, so
+                                    // we can't assume that transforming a rectangle back and forth results in the same thing.
                                     // Patch the local clip rectangle according to the accumulated axis-aligned clip
-                                    packed_layer.local_clip_rect = packed_layer.inv_transform.transform_rect(&result);
-                                    result
+                                    packed_layer.local_clip_rect = packed_layer.inv_transform.transform_rect(&last)
+                                                                               .intersection(&packed_layer.local_clip_rect)
+                                                                               .unwrap_or(LayerRect::zero());
+                                    packed_layer.transform.transform_rect(&packed_layer.local_clip_rect)
                                 },
                                 None => world_rect,
                             };
@@ -2628,24 +2630,17 @@ impl FrameBuilder {
                     }
                 }
                 &PrimitiveRunCmd::PopStackingContext => {
-                    let stacking_context_index = *stacking_context_stack.last().unwrap();
-                    let stacking_context = &self.stacking_context_store[stacking_context_index.0];
-                    if stacking_context.can_contribute_to_scene() {
-                        if let Some(ref clip_info) = stacking_context.clip_cache_info {
-                            if clip_info.is_some() {
-                                clip_info_stack.pop().unwrap();
-                            } else if let Some(TransformedRect{ kind: TransformedRectKind::AxisAligned, ..}) = layer.xf_rect {
-                                world_clip_rect_stack.pop().unwrap();
-                            }
-                        }
-                    }
                     stacking_context_stack.pop();
                 }
                 &PrimitiveRunCmd::PopScrollLayer => {
                     let scroll_layer_index = *scroll_layer_stack.last().unwrap();
                     let scroll_layer = &self.scroll_layer_store[scroll_layer_index.0];
-                    if scroll_layer.clip_cache_info.is_some() {
-                        clip_info_stack.pop().unwrap();
+                    if let Some(ref clip_info) = scroll_layer.clip_cache_info {
+                        if clip_info.is_some() {
+                            clip_info_stack.pop().unwrap();
+                        } else if let Some(TransformedRect{ kind: TransformedRectKind::AxisAligned, ..}) = scroll_layer.xf_rect {
+                            world_clip_rect_stack.pop().unwrap();
+                        }
                     }
                     scroll_layer_stack.pop().unwrap();
 
