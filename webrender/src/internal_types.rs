@@ -388,10 +388,8 @@ pub enum TextureUpdateOp {
         stride: Option<u32>,
     },
     UpdateForExternalBuffer {
-        allocated_rect: DeviceUintRect,
-        requested_rect: DeviceUintRect,
+        rect: DeviceUintRect,
         id: ExternalImageId,
-        bpp: u32,
         stride: Option<u32>,
     },
     Grow {

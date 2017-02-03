@@ -45,6 +45,9 @@ void main(void) {
 
     vStretchSize = image.size;
 
+    vHalfTexelY = vec2(0.5) / y_texture_size;
+    vHalfTexelUv = vec2(0.5) / uv_texture_size;
+
     // The constants added to the Y, U and V components are applied in the fragment shader.
     if (image.color_space == YUV_REC601) {
         // From Rec601:
