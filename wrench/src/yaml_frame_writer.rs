@@ -492,7 +492,8 @@ impl YamlFrameWriter {
                     let mut offsets: Vec<f32> = vec![];
                     for ref g in gi.iter() {
                         indices.push(g.index);
-                        offsets.push(g.x); offsets.push(g.y);
+                        offsets.push(g.point.x);
+                        offsets.push(g.point.y);
                     }
                     u32_vec_node(&mut v, "glyphs", &indices);
                     f32_vec_node(&mut v, "offsets", &offsets);

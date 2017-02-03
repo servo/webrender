@@ -6,6 +6,7 @@
 // for the serde implementations.
 
 use app_units::Au;
+use euclid::Point2D;
 use channel::{PayloadSender, MsgSender};
 #[cfg(feature = "nightly")]
 use core::nonzero::NonZero;
@@ -390,16 +391,15 @@ impl GlyphKey {
                size: Au,
                color: ColorF,
                index: u32,
-               x: f32,
-               y: f32,
+               point: Point2D<f32>,
                render_mode: FontRenderMode) -> GlyphKey {
         GlyphKey {
             font_key: font_key,
             size: size,
             color: ColorU::from(color),
             index: index,
-            x_suboffset: render_mode.subpixel_quantize_offset(x),
-            y_suboffset: render_mode.subpixel_quantize_offset(y),
+            x_suboffset: render_mode.subpixel_quantize_offset(point.x),
+            y_suboffset: render_mode.subpixel_quantize_offset(point.y),
         }
     }
 
@@ -421,8 +421,7 @@ pub enum FragmentType {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GlyphInstance {
     pub index: u32,
-    pub x: f32,
-    pub y: f32,
+    pub point: Point2D<f32>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
