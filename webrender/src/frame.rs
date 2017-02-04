@@ -278,6 +278,19 @@ impl Frame {
             let mut traversal = DisplayListTraversal::new_skipping_first(display_list);
             let reference_frame_id = self.scroll_tree.root_reference_frame_id();
             let topmost_scroll_layer_id = self.scroll_tree.topmost_scroll_layer_id();
+            debug_assert!(reference_frame_id != topmost_scroll_layer_id);
+
+            let viewport_rect = LayerRect::new(LayerPoint::zero(), root_pipeline.viewport_size);
+            let clip = ClipRegion::simple(&viewport_rect);
+            context.builder.push_scroll_layer(reference_frame_id,
+                                              &clip,
+                                              &LayerPoint::zero(),
+                                              &root_pipeline.viewport_size);
+            context.builder.push_scroll_layer(topmost_scroll_layer_id,
+                                              &clip,
+                                              &LayerPoint::zero(),
+                                              &root_clip.main.size);
+
             self.flatten_stacking_context(&mut traversal,
                                           root_pipeline_id,
                                           &mut context,
@@ -287,6 +300,9 @@ impl Frame {
                                           0,
                                           &root_stacking_context,
                                           root_clip);
+
+            context.builder.pop_scroll_layer();
+            context.builder.pop_scroll_layer();
         }
 
         self.frame_builder = Some(frame_builder);
@@ -298,10 +314,10 @@ impl Frame {
                                 pipeline_id: PipelineId,
                                 context: &mut FlattenContext,
                                 current_reference_frame_id: ScrollLayerId,
-                                mut current_scroll_layer_id: ScrollLayerId,
+                                parent_scroll_layer_id: ScrollLayerId,
                                 layer_relative_transform: LayerToScrollTransform,
                                 level: i32,
-                                clip: &LayerRect,
+                                clip: &ClipRegion,
                                 content_size: &LayerSize,
                                 new_scroll_layer_id: ScrollLayerId) {
         // Avoid doing unnecessary work for empty stacking contexts.
@@ -310,29 +326,23 @@ impl Frame {
             return;
         }
 
-        let layer = Layer::new(&clip, *content_size, &layer_relative_transform, pipeline_id);
-        self.scroll_tree.add_layer(layer, new_scroll_layer_id, current_scroll_layer_id);
-        current_scroll_layer_id = new_scroll_layer_id;
-
-        let layer_rect = LayerRect::new(LayerPoint::zero(),
-                                        LayerSize::new(content_size.width + clip.origin.x,
-                                                       content_size.height + clip.origin.y));
-        context.builder.push_stacking_context(layer_rect,
-                                              &ClipRegion::simple(&layer_rect),
-                                              LayerToScrollTransform::identity(),
-                                              pipeline_id,
-                                              current_scroll_layer_id,
-                                              CompositeOps::empty());
+        let clip_rect = clip.main;
+        let layer = Layer::new(&clip_rect, *content_size, &layer_relative_transform, pipeline_id);
+        self.scroll_tree.add_layer(layer, new_scroll_layer_id, parent_scroll_layer_id);
+        context.builder.push_scroll_layer(new_scroll_layer_id,
+                                          clip,
+                                          &clip_rect.origin,
+                                          &content_size);
 
         self.flatten_items(traversal,
                            pipeline_id,
                            context,
                            current_reference_frame_id,
-                           current_scroll_layer_id,
+                           new_scroll_layer_id,
                            LayerToScrollTransform::identity(),
                            level);
 
-        context.builder.pop_stacking_context();
+        context.builder.pop_scroll_layer();
     }
 
     fn flatten_stacking_context<'a>(&mut self,
@@ -397,7 +407,6 @@ impl Frame {
                     // Adding a dummy layer for this rectangle in order to disable clipping.
                     let no_clip = ClipRegion::simple(&clip_region.main);
                     context.builder.push_stacking_context(clip_region.main,
-                                                          &no_clip,
                                                           transform,
                                                           pipeline_id,
                                                           scroll_layer_id,
@@ -417,7 +426,6 @@ impl Frame {
 
          // TODO(gw): Int with overflow etc
         context.builder.push_stacking_context(clip_region.main,
-                                              &clip_region,
                                               transform,
                                               pipeline_id,
                                               scroll_layer_id,
@@ -489,6 +497,15 @@ impl Frame {
                                    iframe_scroll_layer_id,
                                    iframe_reference_frame_id);
 
+        context.builder.push_scroll_layer(iframe_reference_frame_id,
+                                          iframe_clip,
+                                          &LayerPoint::zero(),
+                                          &iframe_rect.size);
+        context.builder.push_scroll_layer(iframe_scroll_layer_id,
+                                          iframe_clip,
+                                          &LayerPoint::zero(),
+                                          &iframe_clip.main.size);
+
         let mut traversal = DisplayListTraversal::new_skipping_first(display_list);
 
         self.flatten_stacking_context(&mut traversal,
@@ -500,6 +517,9 @@ impl Frame {
                                       0,
                                       &iframe_stacking_context,
                                       iframe_clip);
+
+        context.builder.pop_scroll_layer();
+        context.builder.pop_scroll_layer();
     }
 
     fn flatten_items<'a>(&mut self,
@@ -598,7 +618,7 @@ impl Frame {
                                               current_scroll_layer_id,
                                               layer_relative_transform,
                                               level,
-                                              &item.rect,
+                                              &item.clip,
                                               &info.content_size,
                                               info.id);
                 }

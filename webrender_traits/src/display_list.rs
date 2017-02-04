@@ -326,7 +326,7 @@ impl DisplayListBuilder {
     }
 
     pub fn push_scroll_layer(&mut self,
-                             clip: LayoutRect,
+                             clip: ClipRegion,
                              content_size: LayoutSize,
                              scroll_root_id: ServoScrollRootId) {
         let scroll_layer_id = self.next_scroll_layer_id;
@@ -339,8 +339,8 @@ impl DisplayListBuilder {
 
         let item = DisplayItem {
             item: SpecificDisplayItem::PushScrollLayer(item),
-            rect: clip,
-            clip: ClipRegion::simple(&LayoutRect::zero()),
+            rect: clip.main,
+            clip: clip,
         };
         self.list.push(item);
     }

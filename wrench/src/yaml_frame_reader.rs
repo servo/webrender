@@ -457,6 +457,8 @@ impl YamlFrameReader {
         let bounds = yaml["bounds"].as_rect().expect("scroll layer must have bounds");
         let content_size = yaml["content-size"].as_size()
                                                .expect("scroll layer must have content size");
+        let clip = self.to_clip_region(&yaml["clip"], &bounds, wrench)
+                       .unwrap_or(ClipRegion::simple(&bounds));
 
         let scroll_root_id = ServoScrollRootId(self.current_scroll_root_id);
         if let Some(size) = yaml["scroll-offset"].as_point() {
@@ -464,7 +466,7 @@ impl YamlFrameReader {
             *entry = LayerPoint::new(size.x, size.y);
         }
 
-        self.builder().push_scroll_layer(bounds, content_size, scroll_root_id);
+        self.builder().push_scroll_layer(clip, content_size, scroll_root_id);
 
         if !yaml["items"].is_badvalue() {
             self.add_display_list_items_from_yaml(wrench, &yaml["items"]);
