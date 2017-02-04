@@ -26,7 +26,7 @@ extern crate osmesa_sys;
 
 #[cfg(target_os = "windows")]
 extern crate dwrote;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 extern crate font_loader;
 
 use gleam::gl;

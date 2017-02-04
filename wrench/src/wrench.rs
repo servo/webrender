@@ -5,7 +5,7 @@
 use app_units::Au;
 #[cfg(windows)]
 use dwrote;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use font_loader::system_fonts;
 
 use gleam::gl;
@@ -262,7 +262,7 @@ impl Wrench {
         (self.font_key_from_native_handle(&desc), Some(desc))
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub fn font_key_from_yaml_table(&mut self, item: &Yaml) -> (FontKey, Option<NativeFontHandle>) {
         let family = item["family"].as_str().unwrap();
         let property = system_fonts::FontPropertyBuilder::new().family(family).build();
@@ -273,11 +273,6 @@ impl Wrench {
     #[cfg(not(target_os = "windows"))]
     pub fn font_key_from_name(&mut self, _font_name: &str) -> (FontKey, Option<NativeFontHandle>) {
         panic!("Can't font_key_from_name on this platform");
-    }
-
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-    pub fn font_key_from_yaml_table(&mut self, _item: &Yaml) -> (FontKey, Option<NativeFontHandle>) {
-        panic!("Can't font_key_from_yaml_table on this platform");
     }
 
     pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>) -> (FontKey, Option<NativeFontHandle>) {

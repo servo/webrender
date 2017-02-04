@@ -10,7 +10,7 @@ dependencies = [
  "crossbeam 0.2.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "dwrote 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "euclid 0.10.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "font-loader 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "font-loader 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.2.32 (registry+https://github.com/rust-lang/crates.io-index)",
  "glutin 0.7.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "image 0.12.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -341,9 +341,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "font-loader"
-version = "0.1.0"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
+ "core-foundation 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "core-text 3.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gdi32-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
  "silverknife-fontconfig-sys 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1251,7 +1253,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum error-chain 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)" = "318cb3c71ee4cdea69fdc9e15c173b245ed6063e1709029e8fd32525a881120f"
 "checksum euclid 0.10.5 (registry+https://github.com/rust-lang/crates.io-index)" = "f93a556290e09f379cbfaa4f75ac52a72a3d2deb7d04076f312cdb2e6acba28e"
 "checksum fnv 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)" = "6cc484842f1e2884faf56f529f960cc12ad8c71ce96cc7abba0a067c98fee344"
-"checksum font-loader 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "0658a43445357800293fd652716dde29bd38f63f59a45c515d6aee176827e16c"
+"checksum font-loader 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "c9dfc5316eb59a5cbc7ae2cf4e70a0ab880cec8156d3efadfcd04d78ca9238c2"
 "checksum freetype 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fde23272c687e4570aefec06cb71174ec0f5284b725deac4e77ba2665d635faf"
 "checksum fs2 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)" = "bcd414e5a1a979b931bb92f41b7a54106d3f6d2e6c253e9ce943b7cd468251ef"
 "checksum gamma-lut 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "4ca6b9023d24a7faff85abfa82fabd382f7ecbbde95af5143f1c215fd94e91cd"
