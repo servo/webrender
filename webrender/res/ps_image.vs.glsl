@@ -36,5 +36,7 @@ void main(void) {
     vTextureOffset = st0;
     vTileSpacing = image.stretch_size_and_tile_spacing.zw;
     vStretchSize = image.stretch_size_and_tile_spacing.xy;
-    vHalfTexel = vec2(0.5) / texture_size;
+
+    vec2 half_texel = vec2(0.5) / texture_size;
+    vStRect = vec4(min(st0, st1) + half_texel, max(st0, st1) - half_texel);
 }
