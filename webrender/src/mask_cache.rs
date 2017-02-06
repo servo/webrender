@@ -162,4 +162,12 @@ impl MaskCacheInfo {
             DeviceIntRect::new(self.outer_rect.origin, DeviceIntSize::zero())
         }
     }
+
+    /// Check if this `MaskCacheInfo` actually carries any masks.
+    /// For stacking contexts, we always create the `MaskCacheInfo` and
+    /// change `effective_clip_count` during the `update` call
+    /// depending on the transformation. So the mask may appear to be empty.
+    pub fn is_masking(&self) -> bool {
+        self.image.is_some() || self.effective_clip_count != 0
+    }
 }
