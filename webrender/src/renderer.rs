@@ -15,6 +15,7 @@ use device::{DepthFunction, Device, ProgramId, TextureId, VertexFormat, GpuMarke
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use euclid::Matrix4D;
 use fnv::FnvHasher;
+use frame_builder::FrameBuilderConfig;
 use gpu_store::{GpuStore, GpuStoreLayout};
 use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{ExternalImageUpdateList, TextureUpdateList, PackedVertex, RenderTargetMode};
@@ -37,8 +38,8 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::TextureCache;
-use tiling::{AlphaBatchKind, Frame, FrameBuilderConfig, PrimitiveBatch, PrimitiveBatchData};
-use tiling::{BlurCommand, CacheClipInstance, PrimitiveInstance, RenderTarget, RenderTaskData};
+use tiling::{AlphaBatchKind, BlurCommand, Frame, PrimitiveBatch, PrimitiveBatchData};
+use tiling::{CacheClipInstance, PrimitiveInstance, RenderTarget, RenderTaskData};
 use time::precise_time_ns;
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
@@ -748,9 +749,9 @@ impl Renderer {
         };
 
         let config = FrameBuilderConfig::new(options.enable_scrollbars,
-                                             options.enable_subpixel_aa);
+                                             options.enable_subpixel_aa,
+                                             options.debug);
 
-        let debug = options.debug;
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
         let render_target_debug = options.render_target_debug;
         let payload_tx_for_backend = payload_tx.clone();
@@ -766,7 +767,6 @@ impl Renderer {
                                                  backend_notifier,
                                                  context_handle,
                                                  config,
-                                                 debug,
                                                  recorder,
                                                  backend_main_thread_dispatcher,
                                                  backend_vr_compositor);

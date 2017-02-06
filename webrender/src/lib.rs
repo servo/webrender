@@ -55,6 +55,7 @@ mod debug_font_data;
 mod debug_render;
 mod device;
 mod frame;
+mod frame_builder;
 mod freelist;
 mod geometry;
 mod gpu_store;

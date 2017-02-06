@@ -7,13 +7,14 @@ use fnv::FnvHasher;
 use internal_types::{ANGLE_FLOAT_TO_FIXED, AxisDirection};
 use internal_types::{LowLevelFilterOp};
 use internal_types::{RendererFrame};
+use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use layer::Layer;
 use resource_cache::ResourceCache;
 use scene::Scene;
 use scroll_tree::{ScrollTree, ScrollStates};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
-use tiling::{AuxiliaryListsMap, CompositeOps, FrameBuilder, FrameBuilderConfig, PrimitiveFlags};
+use tiling::{AuxiliaryListsMap, CompositeOps, PrimitiveFlags};
 use webrender_traits::{AuxiliaryLists, ClipRegion, ColorF, DisplayItem, Epoch, FilterOp};
 use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform, LayoutTransform};
 use webrender_traits::{MixBlendMode, PipelineId, ScrollEventPhase, ScrollLayerId, ScrollLayerState};
@@ -36,7 +37,6 @@ pub struct Frame {
     pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
     pub pipeline_auxiliary_lists: AuxiliaryListsMap,
     id: FrameId,
-    debug: bool,
     frame_builder_config: FrameBuilderConfig,
     frame_builder: Option<FrameBuilder>,
 }
@@ -171,13 +171,12 @@ impl<'a> Iterator for DisplayListTraversal<'a> {
 }
 
 impl Frame {
-    pub fn new(debug: bool, config: FrameBuilderConfig) -> Frame {
+    pub fn new(config: FrameBuilderConfig) -> Frame {
         Frame {
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
             pipeline_auxiliary_lists: HashMap::with_hasher(Default::default()),
             scroll_tree: ScrollTree::new(),
             id: FrameId(0),
-            debug: debug,
             frame_builder: None,
             frame_builder_config: config,
         }
@@ -266,7 +265,6 @@ impl Frame {
 
         let mut frame_builder = FrameBuilder::new(root_pipeline.viewport_size,
                                                   background_color,
-                                                  self.debug,
                                                   self.frame_builder_config);
 
         {
