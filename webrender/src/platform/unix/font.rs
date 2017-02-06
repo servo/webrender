@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use webrender_traits::{FontKey, ColorU, FontRenderMode, GlyphDimensions};
-use webrender_traits::{NativeFontHandle, GlyphOptions,  SubpixelOffset};
+use webrender_traits::{FontKey, FontRenderMode, GlyphDimensions};
+use webrender_traits::{NativeFontHandle, GlyphOptions};
 use webrender_traits::{GlyphKey};
 
 use freetype::freetype::{FT_Render_Mode, FT_Pixel_Mode};
