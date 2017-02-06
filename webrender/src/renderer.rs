@@ -15,6 +15,7 @@ use device::{DepthFunction, Device, ProgramId, TextureId, VertexFormat, GpuMarke
 use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use euclid::Matrix4D;
 use fnv::FnvHasher;
+use frame_builder::FrameBuilderConfig;
 use gpu_store::{GpuStore, GpuStoreLayout};
 use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{ExternalImageUpdateList, TextureUpdateList, PackedVertex, RenderTargetMode};
@@ -37,8 +38,8 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::TextureCache;
-use tiling::{AlphaBatchKind, Frame, FrameBuilderConfig, PrimitiveBatch, PrimitiveBatchData};
-use tiling::{BlurCommand, CacheClipInstance, PrimitiveInstance, RenderTarget, RenderTaskData};
+use tiling::{AlphaBatchKind, BlurCommand, Frame, PrimitiveBatch, PrimitiveBatchData};
+use tiling::{CacheClipInstance, PrimitiveInstance, RenderTarget, RenderTaskData};
 use time::precise_time_ns;
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};

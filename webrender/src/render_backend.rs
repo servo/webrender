@@ -4,6 +4,7 @@
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use frame::Frame;
+use frame_builder::FrameBuilderConfig;
 use internal_types::{FontTemplate, GLContextHandleWrapper, GLContextWrapper};
 use internal_types::{SourceTexture, ResultMsg, RendererFrame};
 use profiler::BackendProfileCounters;
@@ -19,7 +20,6 @@ use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, Im
 use webrender_traits::{PipelineId, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
 use webrender_traits::channel::{PayloadHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
 use webrender_traits::{VRCompositorCommand, VRCompositorHandler};
-use tiling::FrameBuilderConfig;
 use offscreen_gl_context::GLContextDispatcher;
 
 /// The render backend is responsible for transforming high level display lists into
