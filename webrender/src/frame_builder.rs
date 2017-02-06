@@ -39,14 +39,18 @@ use webrender_traits::{YuvColorSpace, as_scroll_parent_rect, device_length};
 pub struct FrameBuilderConfig {
     pub enable_scrollbars: bool,
     pub enable_subpixel_aa: bool,
+    pub debug: bool,
 }
 
 impl FrameBuilderConfig {
     pub fn new(enable_scrollbars: bool,
-               enable_subpixel_aa: bool) -> FrameBuilderConfig {
+               enable_subpixel_aa: bool,
+               debug: bool)
+               -> FrameBuilderConfig {
         FrameBuilderConfig {
             enable_scrollbars: enable_scrollbars,
             enable_subpixel_aa: enable_subpixel_aa,
+            debug: debug,
         }
     }
 }
@@ -56,7 +60,6 @@ pub struct FrameBuilder {
     background_color: Option<ColorF>,
     prim_store: PrimitiveStore,
     cmds: Vec<PrimitiveRunCmd>,
-    _debug: bool,                   // Unused for now, but handy to keep around
     config: FrameBuilderConfig,
 
     stacking_context_store: Vec<StackingContext>,
@@ -69,7 +72,6 @@ pub struct FrameBuilder {
 impl FrameBuilder {
     pub fn new(viewport_size: LayerSize,
                background_color: Option<ColorF>,
-               debug: bool,
                config: FrameBuilderConfig) -> FrameBuilder {
         FrameBuilder {
             screen_rect: LayerRect::new(LayerPoint::zero(), viewport_size),
@@ -78,7 +80,6 @@ impl FrameBuilder {
             scroll_layer_store: Vec::new(),
             prim_store: PrimitiveStore::new(),
             cmds: Vec::new(),
-            _debug: debug,
             packed_layers: Vec::new(),
             scrollbar_prims: Vec::new(),
             config: config,

@@ -63,7 +63,6 @@ impl RenderBackend {
                notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
                webrender_context_handle: Option<GLContextHandleWrapper>,
                config: FrameBuilderConfig,
-               debug: bool,
                recorder: Option<Box<ApiRecordingReceiver>>,
                main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
                vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>) -> RenderBackend {
@@ -79,7 +78,7 @@ impl RenderBackend {
             device_pixel_ratio: device_pixel_ratio,
             resource_cache: resource_cache,
             scene: Scene::new(),
-            frame: Frame::new(debug, config),
+            frame: Frame::new(config),
             next_namespace_id: IdNamespace(1),
             notifier: notifier,
             webrender_context_handle: webrender_context_handle,

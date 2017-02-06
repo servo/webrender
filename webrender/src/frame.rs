@@ -37,7 +37,6 @@ pub struct Frame {
     pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
     pub pipeline_auxiliary_lists: AuxiliaryListsMap,
     id: FrameId,
-    debug: bool,
     frame_builder_config: FrameBuilderConfig,
     frame_builder: Option<FrameBuilder>,
 }
@@ -172,13 +171,12 @@ impl<'a> Iterator for DisplayListTraversal<'a> {
 }
 
 impl Frame {
-    pub fn new(debug: bool, config: FrameBuilderConfig) -> Frame {
+    pub fn new(config: FrameBuilderConfig) -> Frame {
         Frame {
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
             pipeline_auxiliary_lists: HashMap::with_hasher(Default::default()),
             scroll_tree: ScrollTree::new(),
             id: FrameId(0),
-            debug: debug,
             frame_builder: None,
             frame_builder_config: config,
         }
@@ -267,7 +265,6 @@ impl Frame {
 
         let mut frame_builder = FrameBuilder::new(root_pipeline.viewport_size,
                                                   background_color,
-                                                  self.debug,
                                                   self.frame_builder_config);
 
         {

@@ -749,9 +749,9 @@ impl Renderer {
         };
 
         let config = FrameBuilderConfig::new(options.enable_scrollbars,
-                                             options.enable_subpixel_aa);
+                                             options.enable_subpixel_aa,
+                                             options.debug);
 
-        let debug = options.debug;
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
         let render_target_debug = options.render_target_debug;
         let payload_tx_for_backend = payload_tx.clone();
@@ -767,7 +767,6 @@ impl Renderer {
                                                  backend_notifier,
                                                  context_handle,
                                                  config,
-                                                 debug,
                                                  recorder,
                                                  backend_main_thread_dispatcher,
                                                  backend_vr_compositor);
