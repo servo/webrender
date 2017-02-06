@@ -7,7 +7,64 @@ use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use tiling::AuxiliaryListsMap;
 use webrender_traits::{AuxiliaryLists, BuiltDisplayList, PipelineId, Epoch, ColorF};
-use webrender_traits::{DisplayItem, LayerSize};
+use webrender_traits::{DisplayItem, LayerSize, LayoutTransform};
+use webrender_traits::{FloatProperty, LayoutTransformProperty, PropertyBindingKey, PropertyValue, SpecificPropertyValue};
+
+/// Stores a map of the animated property bindings for the current display list. These
+/// can be used to animate the transform and/or opacity of a display list without
+/// re-submitting the display list itself.
+pub struct SceneProperties {
+    properties: HashMap<PropertyBindingKey, SpecificPropertyValue, BuildHasherDefault<FnvHasher>>,
+}
+
+impl SceneProperties {
+    pub fn new() -> SceneProperties {
+        SceneProperties {
+            properties: HashMap::with_hasher(Default::default()),
+        }
+    }
+
+    /// Set the current property list for this display list.
+    pub fn set_properties(&mut self, values: Vec<PropertyValue>) {
+        self.properties.clear();
+
+        for property in values {
+            self.properties.insert(property.key, property.value);
+        }
+    }
+
+    /// Get the current value for a transform property.
+    pub fn resolve_layout_transform(&self, property: &LayoutTransformProperty) -> LayoutTransform {
+        match *property {
+            LayoutTransformProperty::Value(matrix) => matrix,
+            LayoutTransformProperty::Binding(ref key) => {
+                match self.properties.get(key) {
+                    Some(&SpecificPropertyValue::LayoutTransform(matrix)) => matrix,
+                    Some(..) | None => {
+                        warn!("Property binding {:?} has an invalid value.", key);
+                        LayoutTransform::identity()
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get the current value for a float property.
+    pub fn resolve_float(&self, property: &FloatProperty, default_value: f32) -> f32 {
+        match *property {
+            FloatProperty::Value(value) => value,
+            FloatProperty::Binding(ref key) => {
+                match self.properties.get(key) {
+                    Some(&SpecificPropertyValue::Float(value)) => value,
+                    Some(..) | None => {
+                        warn!("Property binding {:?} has an invalid value.", key);
+                        default_value
+                    }
+                }
+            }
+        }
+    }
+}
 
 /// A representation of the layout within the display port for a given document or iframe.
 #[derive(Debug)]
@@ -24,6 +81,7 @@ pub struct Scene {
     pub pipeline_map: HashMap<PipelineId, ScenePipeline, BuildHasherDefault<FnvHasher>>,
     pub pipeline_auxiliary_lists: AuxiliaryListsMap,
     pub display_lists: HashMap<PipelineId, Vec<DisplayItem>, BuildHasherDefault<FnvHasher>>,
+    pub properties: SceneProperties,
 }
 
 impl Scene {
@@ -33,6 +91,7 @@ impl Scene {
             pipeline_map: HashMap::with_hasher(Default::default()),
             pipeline_auxiliary_lists: HashMap::with_hasher(Default::default()),
             display_lists: HashMap::with_hasher(Default::default()),
+            properties: SceneProperties::new(),
         }
     }
 

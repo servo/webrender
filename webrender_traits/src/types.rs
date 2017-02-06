@@ -56,7 +56,7 @@ pub enum ApiMsg {
     RequestWebGLContext(DeviceIntSize, GLContextAttributes, MsgSender<Result<(WebGLContextId, GLLimits), String>>),
     ResizeWebGLContext(WebGLContextId, DeviceIntSize),
     WebGLCommand(WebGLContextId, WebGLCommand),
-    GenerateFrame,
+    GenerateFrame(Option<Vec<PropertyValue>>),
     // WebVR commands that must be called in the WebGL render thread.
     VRCompositorCommand(WebGLContextId, VRCompositorCommand),
     /// An opaque handle that must be passed to the render notifier. It is used by Gecko
@@ -79,6 +79,63 @@ impl ExternalEvent {
     pub fn from_raw(raw: usize) -> Self { ExternalEvent { raw: raw } }
     /// Consumes self to make it obvious that the event should be forwarded only once.
     pub fn unwrap(self) -> usize { self.raw }
+}
+
+/// A unique key that is used for connecting animated property
+/// values to bindings in the display list.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, Eq, Hash)]
+pub struct PropertyBindingKey(u32, u32);
+
+/// A layout transform property can either be a specific matrix
+/// (the normal, non-animated case) or point to a binding location
+/// to fetch the current value from.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum LayoutTransformProperty {
+    Value(LayoutTransform),
+    Binding(PropertyBindingKey),
+}
+
+/// A float property can either be a specific float
+/// (the normal, non-animated case) or point to a binding location
+/// to fetch the current value from.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum FloatProperty {
+    Value(f32),
+    Binding(PropertyBindingKey),
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum SpecificPropertyValue {
+    LayoutTransform(LayoutTransform),
+    Float(f32),
+}
+
+/// When using generate_frame(), a list of PropertyValue structures
+/// can optionally be supplied to provide the current value of any
+/// animated properties.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct PropertyValue {
+    pub key: PropertyBindingKey,
+    pub value: SpecificPropertyValue,
+}
+
+impl PropertyValue {
+    /// Construct a new property value that is a transform.
+    pub fn new_layout_transform(key: PropertyBindingKey, value: LayoutTransform) -> PropertyValue {
+        PropertyValue {
+            key: key,
+            value: SpecificPropertyValue::LayoutTransform(value),
+        }
+    }
+
+    /// Construct a new property value that is a float.
+    pub fn new_float(key: PropertyBindingKey, value: f32) -> PropertyValue {
+        PropertyValue {
+            key: key,
+            value: SpecificPropertyValue::Float(value)
+        }
+    }
 }
 
 #[repr(C)]
@@ -314,7 +371,7 @@ pub enum FilterOp {
     Grayscale(f32),
     HueRotate(f32),
     Invert(f32),
-    Opacity(f32),
+    Opacity(FloatProperty),
     Saturate(f32),
     Sepia(f32),
 }
@@ -722,7 +779,7 @@ pub struct StackingContext {
     pub scroll_policy: ScrollPolicy,
     pub bounds: LayoutRect,
     pub z_index: i32,
-    pub transform: LayoutTransform,
+    pub transform: LayoutTransformProperty,
     pub perspective: LayoutTransform,
     pub mix_blend_mode: MixBlendMode,
     pub filters: ItemRange,
@@ -1034,7 +1091,7 @@ impl fmt::Debug for ApiMsg {
             &ApiMsg::RequestWebGLContext(..) => { write!(f, "ApiMsg::RequestWebGLContext") }
             &ApiMsg::ResizeWebGLContext(..) => { write!(f, "ApiMsg::ResizeWebGLContext") }
             &ApiMsg::WebGLCommand(..) => { write!(f, "ApiMsg::WebGLCommand") }
-            &ApiMsg::GenerateFrame => { write!(f, "ApiMsg::GenerateFrame") }
+            &ApiMsg::GenerateFrame(..) => { write!(f, "ApiMsg::GenerateFrame") }
             &ApiMsg::VRCompositorCommand(..) => { write!(f, "ApiMsg::VRCompositorCommand") }
             &ApiMsg::ExternalEvent(..) => { write!(f, "ApiMsg::ExternalEvent") }
             &ApiMsg::ShutDown => { write!(f, "ApiMsg::ShutDown") }

@@ -316,7 +316,22 @@ impl RenderBackend {
                         ApiMsg::VRCompositorCommand(context_id, command) => {
                             self.handle_vr_compositor_command(context_id, command);
                         }
-                        ApiMsg::GenerateFrame => {
+                        ApiMsg::GenerateFrame(property_bindings) => {
+                            // Ideally, when there are property bindings present,
+                            // we won't need to rebuild the entire frame here.
+                            // However, to avoid conflicts with the ongoing work to
+                            // refactor how scroll roots + transforms work, this
+                            // just rebuilds the frame if there are animated property
+                            // bindings present for now.
+                            // TODO(gw): Once the scrolling / reference frame changes
+                            //           are completed, optimize the internals of
+                            //           animated properties to not require a full
+                            //           rebuild of the frame!
+                            if let Some(property_bindings) = property_bindings {
+                                self.scene.properties.set_properties(property_bindings);
+                                self.build_scene();
+                            }
+
                             let frame = profile_counters.total_time.profile(|| {
                                 self.render()
                             });

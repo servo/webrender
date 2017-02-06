@@ -15,7 +15,7 @@ use {PushScrollLayerItem, PushStackingContextDisplayItem, RectangleDisplayItem, 
 use {ScrollPolicy, ServoScrollRootId, SpecificDisplayItem, StackingContext, TextDisplayItem};
 use {WebGLContextId, WebGLDisplayItem, YuvImageDisplayItem};
 use {LayoutTransform, LayoutPoint, LayoutRect, LayoutSize};
-use {GlyphOptions};
+use {GlyphOptions, LayoutTransformProperty};
 
 impl BuiltDisplayListDescriptor {
     pub fn size(&self) -> usize {
@@ -292,16 +292,16 @@ impl DisplayListBuilder {
                                  bounds: LayoutRect,
                                  clip: ClipRegion,
                                  z_index: i32,
-                                 transform: &LayoutTransform,
-                                 perspective: &LayoutTransform,
+                                 transform: LayoutTransformProperty,
+                                 perspective: LayoutTransform,
                                  mix_blend_mode: MixBlendMode,
                                  filters: Vec<FilterOp>) {
         let stacking_context = StackingContext {
             scroll_policy: scroll_policy,
             bounds: bounds,
             z_index: z_index,
-            transform: transform.clone(),
-            perspective: perspective.clone(),
+            transform: transform,
+            perspective: perspective,
             mix_blend_mode: mix_blend_mode,
             filters: self.auxiliary_lists_builder.add_filters(&filters),
         };
