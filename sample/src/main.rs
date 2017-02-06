@@ -3,12 +3,14 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 extern crate app_units;
+extern crate euclid;
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
 extern crate webrender_traits;
 
 use app_units::Au;
+use euclid::Point2D;
 use gleam::gl;
 use std::env;
 use std::fs::File;
@@ -166,63 +168,51 @@ fn main() {
         let glyphs = vec![
             GlyphInstance {
                 index: 48,
-                x: 100.0,
-                y: 100.0,
+                point: Point2D::new(100.0, 100.0),
             },
             GlyphInstance {
                 index: 68,
-                x: 150.0,
-                y: 100.0,
+                point: Point2D::new(150.0, 100.0),
             },
             GlyphInstance {
                 index: 80,
-                x: 200.0,
-                y: 100.0,
+                point: Point2D::new(200.0, 100.0),
             },
             GlyphInstance {
                 index: 82,
-                x: 250.0,
-                y: 100.0,
+                point: Point2D::new(250.0, 100.0),
             },
             GlyphInstance {
                 index: 81,
-                x: 300.0,
-                y: 100.0,
+                point: Point2D::new(300.0, 100.0),
             },
             GlyphInstance {
                 index: 3,
-                x: 350.0,
-                y: 100.0,
+                point: Point2D::new(350.0, 100.0),
             },
             GlyphInstance {
                 index: 86,
-                x: 400.0,
-                y: 100.0,
+                point: Point2D::new(400.0, 100.0),
             },
             GlyphInstance {
                 index: 79,
-                x: 450.0,
-                y: 100.0,
+                point: Point2D::new(450.0, 100.0),
             },
             GlyphInstance {
                 index: 72,
-                x: 500.0,
-                y: 100.0,
+                point: Point2D::new(500.0, 100.0),
             },
             GlyphInstance {
                 index: 83,
-                x: 550.0,
-                y: 100.0,
+                point: Point2D::new(550.0, 100.0),
             },
             GlyphInstance {
                 index: 87,
-                x: 600.0,
-                y: 100.0,
+                point: Point2D::new(600.0, 100.0),
             },
             GlyphInstance {
                 index: 17,
-                x: 650.0,
-                y: 100.0,
+                point: Point2D::new(650.0, 100.0),
             },
         ];
 

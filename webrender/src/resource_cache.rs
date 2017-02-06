@@ -24,6 +24,7 @@ use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextI
 use webrender_traits::{DevicePoint, DeviceIntSize, ImageDescriptor, ColorF};
 use webrender_traits::{ExternalImageId, GlyphOptions, GlyphInstance};
 use threadpool::ThreadPool;
+use euclid::Point2D;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
@@ -74,12 +75,12 @@ impl RenderedGlyphKey {
                size: Au,
                color: ColorF,
                index: u32,
-               x: f32,
-               y: f32,
+               point: Point2D<f32>,
                render_mode: FontRenderMode,
                glyph_options: Option<GlyphOptions>) -> RenderedGlyphKey {
         RenderedGlyphKey {
-            key: GlyphKey::new(font_key, size, color, index, x, y, render_mode),
+            key: GlyphKey::new(font_key, size, color, index,
+                               point, render_mode),
             render_mode: render_mode,
             glyph_options: glyph_options,
         }
@@ -372,13 +373,14 @@ impl ResourceCache {
                                                   size,
                                                   color,
                                                   0,
-                                                  0.0, 0.0,
+                                                  Point2D::new(0.0, 0.0),
                                                   render_mode,
                                                   glyph_options);
         let mut texture_id = None;
         for (loop_index, glyph_instance) in glyph_instances.iter().enumerate() {
             glyph_key.key.index = glyph_instance.index;
-            glyph_key.key.set_subpixel_offset(glyph_instance.x, glyph_instance.y,
+            glyph_key.key.set_subpixel_offset(glyph_instance.point.x,
+                                              glyph_instance.point.y,
                                               render_mode);
 
             let image_id = cache.get(&glyph_key, self.current_frame_id);
@@ -693,8 +695,7 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                                                               size,
                                                               color,
                                                               glyph_instance.index,
-                                                              glyph_instance.x,
-                                                              glyph_instance.y,
+                                                              glyph_instance.point,
                                                               render_mode,
                                                               glyph_options);
 

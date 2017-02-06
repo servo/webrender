@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use euclid::Size2D;
+use euclid::{Point2D, Size2D};
 use gpu_store::GpuStoreAddress;
 use internal_types::{SourceTexture, PackedTexel};
 use mask_cache::{ClipSource, MaskCacheInfo};
@@ -1068,15 +1068,14 @@ impl PrimitiveStore {
                                                       font_size_dp,
                                                       text.color,
                                                       src_glyphs[0].index,
-                                                      src_glyphs[0].x,
-                                                      src_glyphs[0].y,
+                                                      src_glyphs[0].point,
                                                       text.render_mode);
                     let mut local_rect = LayerRect::zero();
                     let mut actual_glyph_count = 0;
 
                     for src in src_glyphs {
                         glyph_key.index = src.index;
-                        glyph_key.set_subpixel_offset(src.x, src.y, text.render_mode);
+                        glyph_key.set_subpixel_offset(src.point.x, src.point.y, text.render_mode);
 
                         let dimensions = match resource_cache.get_glyph_dimensions(&glyph_key) {
                             None => continue,
@@ -1086,8 +1085,8 @@ impl PrimitiveStore {
                         // TODO(gw): Check for this and ensure platforms return None in this case!!!
                         debug_assert!(dimensions.width > 0 && dimensions.height > 0);
 
-                        let x = src.x + dimensions.left as f32 / device_pixel_ratio;
-                        let y = src.y - dimensions.top as f32 / device_pixel_ratio;
+                        let x = src.point.x + dimensions.left as f32 / device_pixel_ratio;
+                        let y = src.point.y - dimensions.top as f32 / device_pixel_ratio;
 
                         let width = dimensions.width as f32 / device_pixel_ratio;
                         let height = dimensions.height as f32 / device_pixel_ratio;
@@ -1103,8 +1102,7 @@ impl PrimitiveStore {
 
                         text.glyph_instances.push(GlyphInstance {
                             index: src.index,
-                            x: x,
-                            y: y,
+                            point: Point2D::new(src.point.x, src.point.y),
                         });
 
                         actual_glyph_count += 1;
