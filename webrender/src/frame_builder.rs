@@ -32,7 +32,7 @@ use webrender_traits::{BorderDisplayItem, BorderSide, BorderStyle, BoxShadowClip
 use webrender_traits::{ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintSize};
 use webrender_traits::{ExtendMode, FontKey, FontRenderMode, GlyphOptions, ImageKey, ImageRendering};
 use webrender_traits::{ItemRange, LayerPoint, LayerRect, LayerSize, LayerToScrollTransform};
-use webrender_traits::{PipelineId, ScrollLayerId, ScrollLayerPixel, WebGLContextId};
+use webrender_traits::{PipelineId, ScrollLayerId, ScrollLayerPixel, WebGLContextId, WorldRect};
 use webrender_traits::{YuvColorSpace, as_scroll_parent_rect, device_length};
 
 #[derive(Clone, Copy)]
@@ -648,237 +648,20 @@ impl FrameBuilder {
 
     /// Compute the contribution (bounding rectangles, and resources) of layers and their
     /// primitives in screen space.
-    fn cull_layers(&mut self,
-                   screen_rect: &DeviceIntRect,
-                   scroll_tree: &ScrollTree,
-                   auxiliary_lists_map: &AuxiliaryListsMap,
-                   resource_cache: &mut ResourceCache,
-                   profile_counters: &mut FrameProfileCounters,
-                   device_pixel_ratio: f32) {
-        // Build layer screen rects.
-        // TODO(gw): This can be done earlier once update_layer_transforms() is fixed.
-
-        // TODO(gw): Remove this stack once the layers refactor is done!
-        let mut stacking_context_stack: Vec<StackingContextIndex> = Vec::new();
-        let mut scroll_layer_stack: Vec<ScrollLayerIndex> = Vec::new();
-        let mut clip_info_stack = Vec::new();
-        let mut world_clip_rect_stack = Vec::new();
-
-        for cmd in &self.cmds {
-            match cmd {
-                &PrimitiveRunCmd::PushStackingContext(stacking_context_index) => {
-                    stacking_context_stack.push(stacking_context_index);
-                    let stacking_context =
-                        &mut self.stacking_context_store[stacking_context_index.0];
-                    let packed_layer =
-                        &mut self.packed_layers[stacking_context.packed_layer_index.0];
-
-                    stacking_context.xf_rect = None;
-
-                    let scroll_layer = &scroll_tree.layers[&stacking_context.scroll_layer_id];
-                    packed_layer.transform = scroll_layer.world_content_transform
-                                                         .with_source::<ScrollLayerPixel>() // the scroll layer is considered a parent of layer
-                                                         .pre_mul(&stacking_context.local_transform);
-                    packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
-
-                    if !stacking_context.can_contribute_to_scene() {
-                        continue;
-                    }
-
-                    let inv_layer_transform = stacking_context.local_transform.inverse().unwrap();
-
-                    let local_viewport_rect =
-                        as_scroll_parent_rect(&scroll_layer.combined_local_viewport_rect);
-
-                    let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
-
-                    let layer_local_rect =
-                         stacking_context.local_rect.intersection(&viewport_rect);
-
-                    if let Some(layer_local_rect) = layer_local_rect {
-                        let layer_xf_rect = TransformedRect::new(&layer_local_rect,
-                                                                 &packed_layer.transform,
-                                                                 device_pixel_ratio);
-
-                        if layer_xf_rect.bounding_rect.intersects(&screen_rect) {
-                            packed_layer.screen_vertices = layer_xf_rect.vertices.clone();
-                            packed_layer.local_clip_rect = layer_local_rect;
-                            stacking_context.xf_rect = Some(layer_xf_rect);
-                        }
-                    }
-                }
-                &PrimitiveRunCmd::PushScrollLayer(scroll_layer_index) => {
-                    scroll_layer_stack.push(scroll_layer_index);
-                    let scroll_layer = &mut self.scroll_layer_store[scroll_layer_index.0];
-                    let packed_layer_index = scroll_layer.packed_layer_index;
-
-                    let scroll_tree_layer = &scroll_tree.layers[&scroll_layer.scroll_layer_id];
-                    let packed_layer = &mut self.packed_layers[packed_layer_index.0];
-
-                    packed_layer.transform = scroll_tree_layer.world_viewport_transform;
-                    packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
-
-                    let local_rect = &scroll_tree_layer.combined_local_viewport_rect
-                                                       .translate(&scroll_tree_layer.scrolling.offset);
-                    if !local_rect.is_empty() {
-                        let layer_xf_rect = TransformedRect::new(local_rect,
-                                                                 &packed_layer.transform,
-                                                                 device_pixel_ratio);
-
-                        if layer_xf_rect.bounding_rect.intersects(&screen_rect) {
-                            packed_layer.screen_vertices = layer_xf_rect.vertices.clone();
-                            packed_layer.local_clip_rect = *local_rect;
-                            scroll_layer.xf_rect = Some(layer_xf_rect);
-                        }
-                    }
-
-                    if let Some(ref mut clip_info) = scroll_layer.clip_cache_info {
-                        let pipeline_id = scroll_layer.scroll_layer_id.pipeline_id;
-                        let auxiliary_lists = auxiliary_lists_map.get(&pipeline_id)
-                                                                 .expect("No auxiliary lists?");
-                        clip_info.update(&scroll_layer.clip_source,
-                                         &packed_layer.transform,
-                                         &mut self.prim_store.gpu_data32,
-                                         device_pixel_ratio,
-                                         auxiliary_lists);
-                        if let Some(mask) = scroll_layer.clip_source.image_mask() {
-                            // Note: no need to add the image mask for resolution, because all
-                            // layer masks get resolved later.
-                            resource_cache.request_image(mask.image, ImageRendering::Auto);
-                        }
-
-                        if clip_info.is_masking() {
-                            // Create a task for the layer mask, if needed,
-                            // i.e. if there are rounded corners or image masks for the layer.
-                            clip_info_stack.push((packed_layer_index, clip_info.clone()));
-                        } else if let Some(TransformedRect{ kind: TransformedRectKind::AxisAligned, ..}) = scroll_layer.xf_rect {
-                            let world_rect = packed_layer.transform.transform_rect(&packed_layer.local_clip_rect);
-                            let combined_rect = match world_clip_rect_stack.last() {
-                                Some(ref last) => {
-                                    // Careful! transformations here are in 3D, while the rectangles are in 2D, so
-                                    // we can't assume that transforming a rectangle back and forth results in the same thing.
-                                    // Patch the local clip rectangle according to the accumulated axis-aligned clip
-                                    packed_layer.local_clip_rect = packed_layer.inv_transform.transform_rect(&last)
-                                                                               .intersection(&packed_layer.local_clip_rect)
-                                                                               .unwrap_or(LayerRect::zero());
-                                    packed_layer.transform.transform_rect(&packed_layer.local_clip_rect)
-                                },
-                                None => world_rect,
-                            };
-                            world_clip_rect_stack.push(combined_rect);
-                        }
-                    }
-                }
-                &PrimitiveRunCmd::PrimitiveRun(prim_index, prim_count) => {
-                    let stacking_context_index = stacking_context_stack.last().unwrap();
-                    let stacking_context = &self.stacking_context_store[stacking_context_index.0];
-                    if !stacking_context.is_visible() {
-                        continue;
-                    }
-
-                    let scroll_layer_index = scroll_layer_stack.last().unwrap();
-                    let scroll_layer = &self.scroll_layer_store[scroll_layer_index.0];
-
-                    let packed_layer_index = stacking_context.packed_layer_index;
-                    let packed_layer = &self.packed_layers[packed_layer_index.0];
-                    let auxiliary_lists = auxiliary_lists_map.get(&stacking_context.pipeline_id)
-                                                             .expect("No auxiliary lists?");
-
-                    for i in 0..prim_count {
-                        let prim_index = PrimitiveIndex(prim_index.0 + i);
-                        if self.prim_store.build_bounding_rect(prim_index,
-                                                               screen_rect,
-                                                               &packed_layer.transform,
-                                                               &packed_layer.local_clip_rect,
-                                                               device_pixel_ratio) {
-                            if self.prim_store.prepare_prim_for_render(prim_index,
-                                                                       resource_cache,
-                                                                       &packed_layer.transform,
-                                                                       device_pixel_ratio,
-                                                                       auxiliary_lists) {
-                                self.prim_store.build_bounding_rect(prim_index,
-                                                                    screen_rect,
-                                                                    &packed_layer.transform,
-                                                                    &packed_layer.local_clip_rect,
-                                                                    device_pixel_ratio);
-                            }
-
-                            // If the primitive is visible, consider culling it via clip rect(s).
-                            // If it is visible but has clips, create the clip task for it.
-                            if let Some(prim_bounding_rect) = self.prim_store
-                                                                  .cpu_bounding_rects[prim_index.0] {
-                                let prim_metadata = &mut self.prim_store.cpu_metadata[prim_index.0];
-                                let prim_clip_info = prim_metadata.clip_cache_info.as_ref();
-                                let mut visible = true;
-
-                                if let Some(info) = prim_clip_info {
-                                    clip_info_stack.push((packed_layer_index, info.clone()));
-                                }
-
-                                // Try to create a mask if we may need to.
-                                if !clip_info_stack.is_empty() {
-                                    // If the primitive doesn't have a specific clip,
-                                    // key the task ID off the stacking context. This means
-                                    // that two primitives which are only clipped by the
-                                    // stacking context stack can share clip masks during
-                                    // render task assignment to targets.
-                                    let (mask_key, mask_rect) = match prim_clip_info {
-                                        Some(..) => {
-                                            (MaskCacheKey::Primitive(prim_index), prim_bounding_rect)
-                                        }
-                                        None => {
-                                            (MaskCacheKey::ScrollLayer(*scroll_layer_index),
-                                             scroll_layer.xf_rect.as_ref().unwrap().bounding_rect)
-                                        }
-                                    };
-                                    let mask_opt =
-                                        RenderTask::new_mask(mask_rect, mask_key, &clip_info_stack);
-                                    match mask_opt {
-                                        MaskResult::Outside => {
-                                            // Primitive is completely clipped out.
-                                            prim_metadata.clip_task = None;
-                                            self.prim_store.cpu_bounding_rects[prim_index.0] = None;
-                                            visible = false;
-                                        }
-                                        MaskResult::Inside(task) => {
-                                            // Got a valid clip task, so store it for this primitive.
-                                            prim_metadata.clip_task = Some(task);
-                                        }
-                                    }
-                                }
-
-                                if prim_clip_info.is_some() {
-                                    clip_info_stack.pop();
-                                }
-
-                                if visible {
-                                    profile_counters.visible_primitives.inc();
-                                }
-                            }
-                        }
-                    }
-                }
-                &PrimitiveRunCmd::PopStackingContext => {
-                    stacking_context_stack.pop();
-                }
-                &PrimitiveRunCmd::PopScrollLayer => {
-                    let scroll_layer_index = *scroll_layer_stack.last().unwrap();
-                    let scroll_layer = &self.scroll_layer_store[scroll_layer_index.0];
-                    if let Some(ref clip_info) = scroll_layer.clip_cache_info {
-                        if clip_info.is_masking() {
-                            clip_info_stack.pop().unwrap();
-                        } else if let Some(TransformedRect{ kind: TransformedRectKind::AxisAligned, ..}) = scroll_layer.xf_rect {
-                            world_clip_rect_stack.pop().unwrap();
-                        }
-                     }
-                    scroll_layer_stack.pop().unwrap();
-
-                }
-            }
-        }
-
-        assert!(clip_info_stack.is_empty());
-        assert!(world_clip_rect_stack.is_empty());
+    fn build_layer_screen_rects_and_cull_layers(&mut self,
+                                                screen_rect: &DeviceIntRect,
+                                                scroll_tree: &ScrollTree,
+                                                auxiliary_lists_map: &AuxiliaryListsMap,
+                                                resource_cache: &mut ResourceCache,
+                                                profile_counters: &mut FrameProfileCounters,
+                                                device_pixel_ratio: f32) {
+        LayerRectCalculationAndCullingPass::create_and_run(self,
+                                                           screen_rect,
+                                                           scroll_tree,
+                                                           auxiliary_lists_map,
+                                                           resource_cache,
+                                                           profile_counters,
+                                                           device_pixel_ratio);
     }
 
     fn update_scroll_bars(&mut self, scroll_tree: &ScrollTree) {
@@ -1073,12 +856,12 @@ impl FrameBuilder {
 
         self.update_scroll_bars(scroll_tree);
 
-        self.cull_layers(&screen_rect,
-                         scroll_tree,
-                         auxiliary_lists_map,
-                         resource_cache,
-                         &mut profile_counters,
-                         device_pixel_ratio);
+        self.build_layer_screen_rects_and_cull_layers(&screen_rect,
+                                                      scroll_tree,
+                                                      auxiliary_lists_map,
+                                                      resource_cache,
+                                                      &mut profile_counters,
+                                                      device_pixel_ratio);
 
         let (main_render_task, static_render_task_count) = self.build_render_task();
         let mut render_tasks = RenderTaskCollection::new(static_render_task_count);
@@ -1142,5 +925,285 @@ impl FrameBuilder {
             gpu_resource_rects: self.prim_store.gpu_resource_rects.build(),
             deferred_resolves: deferred_resolves,
         }
+    }
+}
+
+struct LayerRectCalculationAndCullingPass<'a> {
+    frame_builder: &'a mut FrameBuilder,
+    screen_rect: &'a DeviceIntRect,
+    scroll_tree: &'a ScrollTree,
+    auxiliary_lists_map: &'a AuxiliaryListsMap,
+    resource_cache: &'a mut ResourceCache,
+    profile_counters: &'a mut FrameProfileCounters,
+    device_pixel_ratio: f32,
+    stacking_context_stack: Vec<StackingContextIndex>,
+    scroll_layer_stack: Vec<ScrollLayerIndex>,
+    clip_info_stack: Vec<(PackedLayerIndex, MaskCacheInfo)>,
+    world_clip_rect_stack: Vec<WorldRect>,
+}
+
+impl<'a> LayerRectCalculationAndCullingPass<'a> {
+    fn create_and_run(frame_builder: &'a mut FrameBuilder,
+                      screen_rect: &'a DeviceIntRect,
+                      scroll_tree: &'a ScrollTree,
+                      auxiliary_lists_map: &'a AuxiliaryListsMap,
+                      resource_cache: &'a mut ResourceCache,
+                      profile_counters: &'a mut FrameProfileCounters,
+                      device_pixel_ratio: f32) {
+
+        let mut pass = LayerRectCalculationAndCullingPass {
+            frame_builder: frame_builder,
+            screen_rect: screen_rect,
+            scroll_tree: scroll_tree,
+            auxiliary_lists_map: auxiliary_lists_map,
+            resource_cache: resource_cache,
+            profile_counters: profile_counters,
+            device_pixel_ratio: device_pixel_ratio,
+            stacking_context_stack: Vec::new(),
+            scroll_layer_stack: Vec::new(),
+            clip_info_stack: Vec::new(),
+            world_clip_rect_stack: Vec::new(),
+        };
+        pass.run();
+    }
+
+    fn run(&mut self) {
+        let commands = mem::replace(&mut self.frame_builder.cmds, Vec::new());
+        for cmd in &commands {
+            match cmd {
+                &PrimitiveRunCmd::PushStackingContext(stacking_context_index) =>
+                    self.handle_push_stacking_context(stacking_context_index),
+                &PrimitiveRunCmd::PushScrollLayer(scroll_layer_index) =>
+                    self.handle_push_scroll_layer(scroll_layer_index),
+                &PrimitiveRunCmd::PrimitiveRun(prim_index, prim_count) =>
+                    self.handle_primitive_run(prim_index, prim_count),
+                &PrimitiveRunCmd::PopStackingContext => {
+                    self.stacking_context_stack.pop();
+                }
+                &PrimitiveRunCmd::PopScrollLayer => self.handle_pop_scroll_layer(),
+            }
+        }
+
+        mem::replace(&mut self.frame_builder.cmds, commands);
+        assert!(self.clip_info_stack.is_empty());
+        assert!(self.world_clip_rect_stack.is_empty());
+    }
+
+    fn handle_push_scroll_layer(&mut self, scroll_layer_index: ScrollLayerIndex) {
+        self.scroll_layer_stack.push(scroll_layer_index);
+
+        let scroll_layer = &mut self.frame_builder.scroll_layer_store[scroll_layer_index.0];
+        let packed_layer_index = scroll_layer.packed_layer_index;
+        let scroll_tree_layer = &self.scroll_tree.layers[&scroll_layer.scroll_layer_id];
+        let packed_layer = &mut self.frame_builder.packed_layers[packed_layer_index.0];
+
+        packed_layer.transform = scroll_tree_layer.world_viewport_transform;
+        packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
+
+        let local_rect = &scroll_tree_layer.combined_local_viewport_rect
+                                           .translate(&scroll_tree_layer.scrolling.offset);
+        if !local_rect.is_empty() {
+            let layer_xf_rect = TransformedRect::new(local_rect,
+                                                     &packed_layer.transform,
+                                                     self.device_pixel_ratio);
+
+            if layer_xf_rect.bounding_rect.intersects(&self.screen_rect) {
+                packed_layer.screen_vertices = layer_xf_rect.vertices.clone();
+                packed_layer.local_clip_rect = *local_rect;
+                scroll_layer.xf_rect = Some(layer_xf_rect);
+            }
+        }
+
+        let clip_info = match scroll_layer.clip_cache_info {
+            Some(ref mut clip_info) => clip_info,
+            None => return,
+        };
+
+        let packed_layer_index = scroll_layer.packed_layer_index;
+        let pipeline_id = scroll_layer.scroll_layer_id.pipeline_id;
+        let auxiliary_lists = self.auxiliary_lists_map.get(&pipeline_id)
+                                                       .expect("No auxiliary lists?");
+        clip_info.update(&scroll_layer.clip_source,
+                         &packed_layer.transform,
+                         &mut self.frame_builder.prim_store.gpu_data32,
+                         self.device_pixel_ratio,
+                         auxiliary_lists);
+
+        if let Some(mask) = scroll_layer.clip_source.image_mask() {
+            // We don't add the image mask for resolution, because layer masks are resolved later.
+            self.resource_cache.request_image(mask.image, ImageRendering::Auto);
+        }
+
+        if clip_info.is_masking() {
+            // Create a task for the layer mask, if needed,
+            // i.e. if there are rounded corners or image masks for the layer.
+            self.clip_info_stack.push((packed_layer_index, clip_info.clone()));
+            return;
+        }
+
+        // If we get here, the mask does not do any masking, so we attempt to create
+        // a mask for this scroll root based on the parent mask region.
+        match scroll_layer.xf_rect {
+            Some(ref xf_rect) if xf_rect.kind == TransformedRectKind::AxisAligned => {},
+            _ => return,
+        };
+
+        // Careful! Transformations here are in 3D, while the rectangles are in 2D, so
+        // we can't assume that transforming a rectangle back and forth results in the same thing.
+        // Patch the local clip rectangle according to the accumulated axis-aligned clip
+        let world_rect = packed_layer.transform.transform_rect(&packed_layer.local_clip_rect);
+        let combined_rect = match self.world_clip_rect_stack.last() {
+            Some(ref last) => {
+                packed_layer.local_clip_rect =
+                    packed_layer.inv_transform.transform_rect(*last)
+                                              .intersection(&packed_layer.local_clip_rect)
+                                              .unwrap_or(LayerRect::zero());
+                packed_layer.transform.transform_rect(&packed_layer.local_clip_rect)
+            },
+            None => world_rect,
+        };
+        self.world_clip_rect_stack.push(combined_rect);
+    }
+
+    fn handle_push_stacking_context(&mut self, stacking_context_index: StackingContextIndex) {
+        self.stacking_context_stack.push(stacking_context_index);
+
+        let stacking_context = &mut self.frame_builder
+                                        .stacking_context_store[stacking_context_index.0];
+        let packed_layer = &mut self.frame_builder
+                                    .packed_layers[stacking_context.packed_layer_index.0];
+        let scroll_layer = &self.scroll_tree.layers[&stacking_context.scroll_layer_id];
+        packed_layer.transform = scroll_layer.world_content_transform
+                                             .with_source::<ScrollLayerPixel>()
+                                             .pre_mul(&stacking_context.local_transform);
+        packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
+
+        if !stacking_context.can_contribute_to_scene() {
+            return;
+        }
+
+        let inv_layer_transform = stacking_context.local_transform.inverse().unwrap();
+        let local_viewport_rect = as_scroll_parent_rect(&scroll_layer.combined_local_viewport_rect);
+        let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
+        let layer_local_rect = stacking_context.local_rect.intersection(&viewport_rect);
+
+        if let Some(layer_local_rect) = layer_local_rect {
+            let layer_xf_rect = TransformedRect::new(&layer_local_rect,
+                                                     &packed_layer.transform,
+                                                     self.device_pixel_ratio);
+
+            if layer_xf_rect.bounding_rect.intersects(&self.screen_rect) {
+                packed_layer.screen_vertices = layer_xf_rect.vertices.clone();
+                packed_layer.local_clip_rect = layer_local_rect;
+                stacking_context.xf_rect = Some(layer_xf_rect);
+            }
+        }
+    }
+
+    fn handle_primitive_run(&mut self, prim_index: PrimitiveIndex, prim_count: usize) {
+        let stacking_context_index = self.stacking_context_stack.last().unwrap();
+        let stacking_context = &self.frame_builder.stacking_context_store[stacking_context_index.0];
+        if !stacking_context.is_visible() {
+            return;
+        }
+
+        let scroll_layer_index = self.scroll_layer_stack.last().unwrap();
+        let scroll_layer = &self.frame_builder.scroll_layer_store[scroll_layer_index.0];
+
+        let packed_layer_index = stacking_context.packed_layer_index;
+        let packed_layer = &self.frame_builder.packed_layers[packed_layer_index.0];
+        let auxiliary_lists = self.auxiliary_lists_map.get(&stacking_context.pipeline_id)
+                                                      .expect("No auxiliary lists?");
+
+        for i in 0..prim_count {
+            let prim_index = PrimitiveIndex(prim_index.0 + i);
+            if self.frame_builder.prim_store.build_bounding_rect(prim_index,
+                                                                 self.screen_rect,
+                                                                 &packed_layer.transform,
+                                                                 &packed_layer.local_clip_rect,
+                                                                 self.device_pixel_ratio) {
+                if self.frame_builder.prim_store.prepare_prim_for_render(prim_index,
+                                                                         self.resource_cache,
+                                                                         &packed_layer.transform,
+                                                                         self.device_pixel_ratio,
+                                                                         auxiliary_lists) {
+                    self.frame_builder.prim_store.build_bounding_rect(prim_index,
+                                                                      self.screen_rect,
+                                                                      &packed_layer.transform,
+                                                                      &packed_layer.local_clip_rect,
+                                                                      self.device_pixel_ratio);
+                }
+
+                // If the primitive is visible, consider culling it via clip rect(s).
+                // If it is visible but has clips, create the clip task for it.
+                let prim_bounding_rect =
+                    match self.frame_builder.prim_store.cpu_bounding_rects[prim_index.0] {
+                    Some(rect) => rect,
+                    _ => continue,
+                };
+
+                let prim_metadata = &mut self.frame_builder.prim_store.cpu_metadata[prim_index.0];
+                let prim_clip_info = prim_metadata.clip_cache_info.as_ref();
+                let mut visible = true;
+
+                if let Some(info) = prim_clip_info {
+                    self.clip_info_stack.push((packed_layer_index, info.clone()));
+                }
+
+                // Try to create a mask if we may need to.
+                if !self.clip_info_stack.is_empty() {
+                    // If the primitive doesn't have a specific clip, key the task ID off the
+                    // stacking context. This means that two primitives which are only clipped
+                    // by the stacking context stack can share clip masks during render task
+                    // assignment to targets.
+                    let (mask_key, mask_rect) = match prim_clip_info {
+                        Some(..) => (MaskCacheKey::Primitive(prim_index), prim_bounding_rect),
+                        None => (MaskCacheKey::ScrollLayer(*scroll_layer_index),
+                                 scroll_layer.xf_rect.as_ref().unwrap().bounding_rect),
+                    };
+                    let mask_opt =
+                        RenderTask::new_mask(mask_rect, mask_key, &self.clip_info_stack);
+                    match mask_opt {
+                        MaskResult::Outside => { // Primitive is completely clipped out.
+                            prim_metadata.clip_task = None;
+                            self.frame_builder.prim_store.cpu_bounding_rects[prim_index.0] = None;
+                            visible = false;
+                        }
+                        MaskResult::Inside(task) => prim_metadata.clip_task = Some(task),
+                    }
+                }
+
+                if prim_clip_info.is_some() {
+                    self.clip_info_stack.pop();
+                }
+
+                if visible {
+                    self.profile_counters.visible_primitives.inc();
+                }
+            }
+        }
+    }
+
+    fn handle_pop_scroll_layer(&mut self) {
+        let scroll_layer_index = self.scroll_layer_stack.pop().unwrap();
+        let scroll_layer = &self.frame_builder.scroll_layer_store[scroll_layer_index.0];
+
+        let clip_info = match scroll_layer.clip_cache_info {
+            Some(ref clip_info) => clip_info,
+            None => return,
+        };
+
+        if clip_info.is_masking() {
+            self.clip_info_stack.pop().unwrap();
+            return;
+        }
+
+        match scroll_layer.xf_rect {
+            Some(ref xf_rect) if xf_rect.kind == TransformedRectKind::AxisAligned => {
+                self.world_clip_rect_stack.pop().unwrap();
+            }
+            _ => {}
+        };
+
     }
 }
