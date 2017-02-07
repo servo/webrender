@@ -10,7 +10,7 @@ use internal_types::{RendererFrame};
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use layer::Layer;
 use resource_cache::ResourceCache;
-use scene::Scene;
+use scene::{Scene, SceneProperties};
 use scroll_tree::{ScrollTree, ScrollStates};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
@@ -58,7 +58,9 @@ impl DisplayListHelpers for Vec<DisplayItem> {
 
 trait StackingContextHelpers {
     fn mix_blend_mode_for_compositing(&self) -> Option<MixBlendMode>;
-    fn filter_ops_for_compositing(&self, auxiliary_lists: &AuxiliaryLists) -> Vec<LowLevelFilterOp>;
+    fn filter_ops_for_compositing(&self,
+                                  auxiliary_lists: &AuxiliaryLists,
+                                  properties: &SceneProperties) -> Vec<LowLevelFilterOp>;
 }
 
 impl StackingContextHelpers for StackingContext {
@@ -69,7 +71,9 @@ impl StackingContextHelpers for StackingContext {
         }
     }
 
-    fn filter_ops_for_compositing(&self, auxiliary_lists: &AuxiliaryLists) -> Vec<LowLevelFilterOp> {
+    fn filter_ops_for_compositing(&self,
+                                  auxiliary_lists: &AuxiliaryLists,
+                                  properties: &SceneProperties) -> Vec<LowLevelFilterOp> {
         let mut filters = vec![];
         for filter in auxiliary_lists.filters(&self.filters) {
             match *filter {
@@ -102,7 +106,8 @@ impl StackingContextHelpers for StackingContext {
                     filters.push(
                             LowLevelFilterOp::Invert(Au::from_f32_px(amount)));
                 }
-                FilterOp::Opacity(amount) => {
+                FilterOp::Opacity(ref value) => {
+                    let amount = properties.resolve_float(value, 1.0);
                     filters.push(
                             LowLevelFilterOp::Opacity(Au::from_f32_px(amount)));
                 }
@@ -364,7 +369,7 @@ impl Frame {
                                       .get(&pipeline_id)
                                       .expect("No auxiliary lists?!");
             CompositeOps::new(
-                stacking_context.filter_ops_for_compositing(auxiliary_lists),
+                stacking_context.filter_ops_for_compositing(auxiliary_lists, &context.scene.properties),
                 stacking_context.mix_blend_mode_for_compositing())
         };
 
@@ -373,11 +378,15 @@ impl Frame {
             return;
         }
 
+        let stacking_context_transform = context.scene
+                                                .properties
+                                                .resolve_layout_transform(&stacking_context.transform);
+
         let mut transform =
             layer_relative_transform.pre_translated(stacking_context.bounds.origin.x,
                                                     stacking_context.bounds.origin.y,
                                                     0.0)
-                                     .pre_mul(&stacking_context.transform)
+                                     .pre_mul(&stacking_context_transform)
                                      .pre_mul(&stacking_context.perspective);
 
         let mut reference_frame_id = current_reference_frame_id;
@@ -388,7 +397,7 @@ impl Frame {
 
         // If we have a transformation, we establish a new reference frame. This means
         // that fixed position stacking contexts are positioned relative to us.
-        if stacking_context.transform != LayoutTransform::identity() ||
+        if stacking_context_transform != LayoutTransform::identity() ||
            stacking_context.perspective != LayoutTransform::identity() {
             scroll_layer_id = self.scroll_tree.add_reference_frame(clip_region.main,
                                                                    transform,

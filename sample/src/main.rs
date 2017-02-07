@@ -112,8 +112,8 @@ fn main() {
                                   bounds,
                                   clip_region,
                                   0,
-                                  &LayoutTransform::identity(),
-                                  &LayoutTransform::identity(),
+                                  LayoutTransform::identity().into(),
+                                  LayoutTransform::identity(),
                                   webrender_traits::MixBlendMode::Normal,
                                   Vec::new());
 
@@ -235,7 +235,7 @@ fn main() {
         builder,
         true);
     api.set_root_pipeline(pipeline_id);
-    api.generate_frame();
+    api.generate_frame(None);
 
     for event in window.wait_events() {
         renderer.update();

@@ -132,7 +132,7 @@ impl WrenchThing for BinaryFrameReader {
                     let mut buffer = vec![0; len as usize];
                     self.file.read_exact(&mut buffer).unwrap();
                     let msg = deserialize(&buffer).unwrap();
-                    let found_frame_marker = match &msg { &ApiMsg::GenerateFrame => true, _ => false };
+                    let found_frame_marker = match &msg { &ApiMsg::GenerateFrame(..) => true, _ => false };
                     self.frame_data.push(Item::Message(msg));
                     if found_frame_marker {
                         break;

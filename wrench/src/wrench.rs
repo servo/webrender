@@ -339,7 +339,7 @@ impl Wrench {
                                                        *scroll_root_id);
         }
 
-        self.api.generate_frame();
+        self.api.generate_frame(None);
     }
 
     pub fn render(&mut self) {
@@ -349,7 +349,7 @@ impl Wrench {
 
     pub fn refresh(&mut self) {
         self.begin_frame();
-        self.api.generate_frame();
+        self.api.generate_frame(None);
     }
 
     pub fn show_onscreen_help(&mut self) {

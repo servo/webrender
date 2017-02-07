@@ -68,7 +68,7 @@ pub fn should_record_msg(msg: &ApiMsg) -> bool {
         &ApiMsg::AddRawFont(..) |
         &ApiMsg::AddNativeFont(..) |
         &ApiMsg::AddImage(..) |
-        &ApiMsg::GenerateFrame |
+        &ApiMsg::GenerateFrame(..) |
         &ApiMsg::UpdateImage(..) |
         &ApiMsg::DeleteImage(..) |
         &ApiMsg::SetRootDisplayList(..) |
