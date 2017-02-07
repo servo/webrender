@@ -142,25 +142,23 @@ impl YamlFrameReader {
             }
             &Yaml::Hash(_) => {
                 let bounds = item["rect"].as_rect().unwrap_or(*item_bounds);
-                let complex = if let Some(complex) = item["complex"].as_vec() {
-                    complex.iter().map(|item|
-                        match item {
-                            &Yaml::String(_) | &Yaml::Array(_) => {
-                                ComplexClipRegion::new(item.as_rect().expect("not a rect"), BorderRadius::zero())
-                            }
-                            &Yaml::Hash(_) => {
-                                let rect = item["rect"].as_rect().expect("complex clip entry must have rect");
-                                let radius = item["radius"].as_border_radius().unwrap_or(BorderRadius::zero());
-                                ComplexClipRegion::new(rect, radius)
-                            }
-                            _ => {
-                                panic!("Invalid complex clip region item entry");
-                            }
+                let complex = item["complex"].as_vec().unwrap_or(&Vec::new()).iter().filter_map(|item|
+                    match item {
+                        &Yaml::String(_) | &Yaml::Array(_) => {
+                            let rect = item.as_rect().expect("not a rect");
+                            Some(ComplexClipRegion::new(rect, BorderRadius::zero()))
                         }
-                    ).collect()
-                } else {
-                    vec![]
-                };
+                        &Yaml::Hash(_) => {
+                            let rect = item["rect"].as_rect().expect("complex clip entry must have rect");
+                            let radius = item["radius"].as_border_radius().unwrap_or(BorderRadius::zero());
+                            Some(ComplexClipRegion::new(rect, radius))
+                        }
+                        _ => {
+                            println!("Invalid complex clip region item entry {:?}", item);
+                            None
+                        }
+                    }
+                ).collect();
 
                 let image_mask = if item["image_mask"].as_hash().is_some() {
                     let image_mask = &item["image_mask"];
@@ -173,7 +171,11 @@ impl YamlFrameReader {
                 };
                 Some(self.builder().new_clip_region(&bounds, complex, image_mask))
             }
+            &Yaml::BadValue => {
+                None
+            }
             _ => {
+                println!("Unable to parse clip region {:?}", item);
                 None
             }
         }
@@ -399,8 +401,7 @@ impl YamlFrameReader {
         self.builder().push_text(rect, clip, glyphs, font_key, color, size, blur_radius, None);
     }
 
-    fn handle_iframe(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml)
-    {
+    fn handle_iframe(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
         let bounds = item["bounds"].as_rect().expect("iframe must have bounds");
         let pipeline_id = item["id"].as_pipeline_id().unwrap();
 
@@ -492,6 +493,10 @@ impl YamlFrameReader {
         let mix_blend_mode = yaml["mix-blend-mode"].as_mix_blend_mode().unwrap_or(MixBlendMode::Normal);
         let sc_full_rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), bounds.size);
         let clip = self.to_clip_region(&yaml["clip"], &sc_full_rect, wrench).unwrap_or(ClipRegion::simple(&sc_full_rect));
+        //let clip = ClipRegion::simple(&sc_full_rect);
+        //if !yaml["clip"].is_badvalue() {
+        //    println!("Clip region on stacking_context is deprecated. Put it on scroll_layer instead.");
+        //}
 
         let scroll_policy = yaml["scroll-policy"].as_scroll_policy()
                                                  .unwrap_or(ScrollPolicy::Scrollable);
