@@ -108,12 +108,15 @@ fn main() {
         builder.new_clip_region(&bounds, vec![complex], None)
     };
 
+    let transform = LayoutTransform::identity();
+    let transform = webrender_traits::PropertyBinding::Value(transform);
+
     builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
                                   bounds,
                                   clip_region,
                                   0,
-                                  &LayoutTransform::identity(),
-                                  &LayoutTransform::identity(),
+                                  transform,
+                                  LayoutTransform::identity(),
                                   webrender_traits::MixBlendMode::Normal,
                                   Vec::new());
 
@@ -235,7 +238,7 @@ fn main() {
         builder,
         true);
     api.set_root_pipeline(pipeline_id);
-    api.generate_frame();
+    api.generate_frame(None);
 
     for event in window.wait_events() {
         renderer.update();

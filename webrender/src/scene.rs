@@ -7,60 +7,67 @@ use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use tiling::AuxiliaryListsMap;
 use webrender_traits::{AuxiliaryLists, BuiltDisplayList, PipelineId, Epoch, ColorF};
-use webrender_traits::{DisplayItem, LayerSize, LayoutTransform};
-use webrender_traits::{FloatProperty, LayoutTransformProperty, PropertyBindingKey, PropertyValue, SpecificPropertyValue};
+use webrender_traits::{DisplayItem, DynamicProperties, LayerSize, LayoutTransform};
+use webrender_traits::{PropertyBinding, PropertyBindingId};
 
 /// Stores a map of the animated property bindings for the current display list. These
 /// can be used to animate the transform and/or opacity of a display list without
 /// re-submitting the display list itself.
 pub struct SceneProperties {
-    properties: HashMap<PropertyBindingKey, SpecificPropertyValue, BuildHasherDefault<FnvHasher>>,
+    transform_properties: HashMap<PropertyBindingId, LayoutTransform>,
+    float_properties: HashMap<PropertyBindingId, f32>,
 }
 
 impl SceneProperties {
     pub fn new() -> SceneProperties {
         SceneProperties {
-            properties: HashMap::with_hasher(Default::default()),
+            transform_properties: HashMap::with_hasher(Default::default()),
+            float_properties: HashMap::with_hasher(Default::default()),
         }
     }
 
     /// Set the current property list for this display list.
-    pub fn set_properties(&mut self, values: Vec<PropertyValue>) {
-        self.properties.clear();
+    pub fn set_properties(&mut self, properties: DynamicProperties) {
+        self.transform_properties.clear();
+        self.float_properties.clear();
 
-        for property in values {
-            self.properties.insert(property.key, property.value);
+        for property in properties.transforms {
+            self.transform_properties.insert(property.key.id, property.value);
+        }
+
+        for property in properties.floats {
+            self.float_properties.insert(property.key.id, property.value);
         }
     }
 
     /// Get the current value for a transform property.
-    pub fn resolve_layout_transform(&self, property: &LayoutTransformProperty) -> LayoutTransform {
+    pub fn resolve_layout_transform(&self, property: &PropertyBinding<LayoutTransform>) -> LayoutTransform {
         match *property {
-            LayoutTransformProperty::Value(matrix) => matrix,
-            LayoutTransformProperty::Binding(ref key) => {
-                match self.properties.get(key) {
-                    Some(&SpecificPropertyValue::LayoutTransform(matrix)) => matrix,
-                    Some(..) | None => {
+            PropertyBinding::Value(matrix) => matrix,
+            PropertyBinding::Binding(ref key) => {
+                self.transform_properties
+                    .get(&key.id)
+                    .map(|m| *m)
+                    .unwrap_or_else(|| {
                         warn!("Property binding {:?} has an invalid value.", key);
                         LayoutTransform::identity()
-                    }
-                }
+                    })
             }
         }
     }
 
     /// Get the current value for a float property.
-    pub fn resolve_float(&self, property: &FloatProperty, default_value: f32) -> f32 {
+    pub fn resolve_float(&self, property: &PropertyBinding<f32>, default_value: f32) -> f32 {
         match *property {
-            FloatProperty::Value(value) => value,
-            FloatProperty::Binding(ref key) => {
-                match self.properties.get(key) {
-                    Some(&SpecificPropertyValue::Float(value)) => value,
-                    Some(..) | None => {
+            PropertyBinding::Value(value) => value,
+            PropertyBinding::Binding(ref key) => {
+                self.float_properties
+                    .get(&key.id)
+                    .map(|v| *v)
+                    .unwrap_or_else(|| {
                         warn!("Property binding {:?} has an invalid value.", key);
                         default_value
-                    }
-                }
+                    })
             }
         }
     }

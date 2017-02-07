@@ -4,13 +4,13 @@
 
 use display_list::AuxiliaryListsBuilder;
 use {FilterOp, MixBlendMode, ScrollPolicy, StackingContext};
-use {LayoutTransform, LayoutRect, LayoutTransformProperty};
+use {LayoutTransform, LayoutRect, PropertyBinding};
 
 impl StackingContext {
     pub fn new(scroll_policy: ScrollPolicy,
                bounds: LayoutRect,
                z_index: i32,
-               transform: LayoutTransformProperty,
+               transform: PropertyBinding<LayoutTransform>,
                perspective: LayoutTransform,
                mix_blend_mode: MixBlendMode,
                filters: Vec<FilterOp>,
