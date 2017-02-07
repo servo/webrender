@@ -42,7 +42,7 @@ pub trait MatrixHelpers<Src, Dst> {
     /// 2D rectangle.
     fn can_losslessly_transform_a_2d_rect(&self) -> bool;
 
-    /// Returns true if this matrix will transforms an axis-aligned 2D rectangle to another axis-
+    /// Returns true if this matrix transforms an axis-aligned 2D rectangle to another axis-
     /// aligned 2D rectangle after perspective divide.
     fn can_losslessly_transform_and_perspective_project_a_2d_rect(&self) -> bool;
 

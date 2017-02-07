@@ -662,6 +662,7 @@ impl FrameBuilder {
         let mut stacking_context_stack: Vec<StackingContextIndex> = Vec::new();
         let mut scroll_layer_stack: Vec<ScrollLayerIndex> = Vec::new();
         let mut clip_info_stack = Vec::new();
+        let mut world_clip_rect_stack = Vec::new();
 
         for cmd in &self.cmds {
             match cmd {
@@ -746,9 +747,26 @@ impl FrameBuilder {
                             resource_cache.request_image(mask.image, ImageRendering::Auto);
                         }
 
-                        // Create a task for the stacking context mask, if needed, i.e. if there
-                        // are rounded corners or image masks for the stacking context.
-                        clip_info_stack.push((scroll_layer.packed_layer_index, clip_info.clone()));
+                        if clip_info.is_masking() {
+                            // Create a task for the layer mask, if needed,
+                            // i.e. if there are rounded corners or image masks for the layer.
+                            clip_info_stack.push((packed_layer_index, clip_info.clone()));
+                        } else if let Some(TransformedRect{ kind: TransformedRectKind::AxisAligned, ..}) = scroll_layer.xf_rect {
+                            let world_rect = packed_layer.transform.transform_rect(&packed_layer.local_clip_rect);
+                            let combined_rect = match world_clip_rect_stack.last() {
+                                Some(ref last) => {
+                                    // Careful! transformations here are in 3D, while the rectangles are in 2D, so
+                                    // we can't assume that transforming a rectangle back and forth results in the same thing.
+                                    // Patch the local clip rectangle according to the accumulated axis-aligned clip
+                                    packed_layer.local_clip_rect = packed_layer.inv_transform.transform_rect(&last)
+                                                                               .intersection(&packed_layer.local_clip_rect)
+                                                                               .unwrap_or(LayerRect::zero());
+                                    packed_layer.transform.transform_rect(&packed_layer.local_clip_rect)
+                                },
+                                None => world_rect,
+                            };
+                            world_clip_rect_stack.push(combined_rect);
+                        }
                     }
                 }
                 &PrimitiveRunCmd::PrimitiveRun(prim_index, prim_count) => {
@@ -829,7 +847,7 @@ impl FrameBuilder {
                                     }
                                 }
 
-                                if let Some(..) = prim_clip_info {
+                                if prim_clip_info.is_some() {
                                     clip_info_stack.pop();
                                 }
 
@@ -846,14 +864,21 @@ impl FrameBuilder {
                 &PrimitiveRunCmd::PopScrollLayer => {
                     let scroll_layer_index = *scroll_layer_stack.last().unwrap();
                     let scroll_layer = &self.scroll_layer_store[scroll_layer_index.0];
-                    if scroll_layer.clip_cache_info.is_some() {
-                        clip_info_stack.pop().unwrap();
-                    }
+                    if let Some(ref clip_info) = scroll_layer.clip_cache_info {
+                        if clip_info.is_masking() {
+                            clip_info_stack.pop().unwrap();
+                        } else if let Some(TransformedRect{ kind: TransformedRectKind::AxisAligned, ..}) = scroll_layer.xf_rect {
+                            world_clip_rect_stack.pop().unwrap();
+                        }
+                     }
                     scroll_layer_stack.pop().unwrap();
 
                 }
             }
         }
+
+        assert!(clip_info_stack.is_empty());
+        assert!(world_clip_rect_stack.is_empty());
     }
 
     fn update_scroll_bars(&mut self, scroll_tree: &ScrollTree) {
