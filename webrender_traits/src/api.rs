@@ -10,9 +10,10 @@ use {ApiMsg, ColorF, DisplayListBuilder, Epoch, ImageDescriptor};
 use {FontKey, IdNamespace, ImageKey, NativeFontHandle, PipelineId};
 use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState, ScrollLocation, ServoScrollRootId};
 use {GlyphKey, GlyphDimensions, ImageData, WebGLContextId, WebGLCommand};
-use {DeviceIntSize, LayoutPoint, LayoutSize, WorldPoint};
+use {DeviceIntSize, DynamicProperties, LayoutPoint, LayoutSize, WorldPoint, PropertyBindingKey, PropertyBindingId};
 use VRCompositorCommand;
 use ExternalEvent;
+use std::marker::PhantomData;
 
 impl RenderApiSender {
     pub fn new(api_sender: MsgSender<ApiMsg>,
@@ -233,8 +234,11 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
     }
 
-    pub fn generate_frame(&self) {
-        let msg = ApiMsg::GenerateFrame;
+    /// Generate a new frame. Optionally, supply a list of animated
+    /// property bindings that should be used to resolve bindings
+    /// in the current display list.
+    pub fn generate_frame(&self, property_bindings: Option<DynamicProperties>) {
+        let msg = ApiMsg::GenerateFrame(property_bindings);
         self.api_sender.send(msg).unwrap();
     }
 
@@ -250,6 +254,19 @@ impl RenderApi {
 
     pub fn shut_down(&self) {
         self.api_sender.send(ApiMsg::ShutDown).unwrap();
+    }
+
+    /// Create a new unique key that can be used for
+    /// animated property bindings.
+    pub fn generate_property_binding_key<T: Copy>(&self) -> PropertyBindingKey<T> {
+        let new_id = self.next_unique_id();
+        PropertyBindingKey {
+            id: PropertyBindingId {
+                namespace: new_id.0,
+                uid: new_id.1,
+            },
+            _phantom: PhantomData,
+        }
     }
 
     #[inline]

@@ -12,6 +12,7 @@ use channel::{PayloadSender, MsgSender};
 use core::nonzero::NonZero;
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::fmt;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
@@ -56,7 +57,7 @@ pub enum ApiMsg {
     RequestWebGLContext(DeviceIntSize, GLContextAttributes, MsgSender<Result<(WebGLContextId, GLLimits), String>>),
     ResizeWebGLContext(WebGLContextId, DeviceIntSize),
     WebGLCommand(WebGLContextId, WebGLCommand),
-    GenerateFrame,
+    GenerateFrame(Option<DynamicProperties>),
     // WebVR commands that must be called in the WebGL render thread.
     VRCompositorCommand(WebGLContextId, VRCompositorCommand),
     /// An opaque handle that must be passed to the render notifier. It is used by Gecko
@@ -79,6 +80,69 @@ impl ExternalEvent {
     pub fn from_raw(raw: usize) -> Self { ExternalEvent { raw: raw } }
     /// Consumes self to make it obvious that the event should be forwarded only once.
     pub fn unwrap(self) -> usize { self.raw }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, Eq, Hash)]
+pub struct PropertyBindingId {
+    namespace: u32,
+    uid: u32,
+}
+
+/// A unique key that is used for connecting animated property
+/// values to bindings in the display list.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct PropertyBindingKey<T> {
+    pub id: PropertyBindingId,
+    _phantom: PhantomData<T>,
+}
+
+/// Construct a property value from a given key and value.
+impl<T: Copy> PropertyBindingKey<T> {
+    pub fn with(&self, value: T) -> PropertyValue<T> {
+        PropertyValue {
+            key: *self,
+            value: value,
+        }
+    }
+}
+
+/// A binding property can either be a specific value
+/// (the normal, non-animated case) or point to a binding location
+/// to fetch the current value from.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum PropertyBinding<T> {
+    Value(T),
+    Binding(PropertyBindingKey<T>),
+}
+
+impl<T> From<T> for PropertyBinding<T> {
+    fn from(value: T) -> PropertyBinding<T> {
+        PropertyBinding::Value(value)
+    }
+}
+
+impl<T> From<PropertyBindingKey<T>> for PropertyBinding<T> {
+    fn from(key: PropertyBindingKey<T>) -> PropertyBinding<T> {
+        PropertyBinding::Binding(key)
+    }
+}
+
+/// The current value of an animated property. This is
+/// supplied by the calling code.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct PropertyValue<T> {
+    pub key: PropertyBindingKey<T>,
+    pub value: T,
+}
+
+/// When using generate_frame(), a list of PropertyValue structures
+/// can optionally be supplied to provide the current value of any
+/// animated properties.
+#[derive(Clone, Deserialize, Serialize, Debug)]
+pub struct DynamicProperties {
+    pub transforms: Vec<PropertyValue<LayoutTransform>>,
+    pub floats: Vec<PropertyValue<f32>>,
 }
 
 #[repr(C)]
@@ -314,7 +378,7 @@ pub enum FilterOp {
     Grayscale(f32),
     HueRotate(f32),
     Invert(f32),
-    Opacity(f32),
+    Opacity(PropertyBinding<f32>),
     Saturate(f32),
     Sepia(f32),
 }
@@ -722,7 +786,7 @@ pub struct StackingContext {
     pub scroll_policy: ScrollPolicy,
     pub bounds: LayoutRect,
     pub z_index: i32,
-    pub transform: LayoutTransform,
+    pub transform: PropertyBinding<LayoutTransform>,
     pub perspective: LayoutTransform,
     pub mix_blend_mode: MixBlendMode,
     pub filters: ItemRange,
@@ -1034,7 +1098,7 @@ impl fmt::Debug for ApiMsg {
             &ApiMsg::RequestWebGLContext(..) => { write!(f, "ApiMsg::RequestWebGLContext") }
             &ApiMsg::ResizeWebGLContext(..) => { write!(f, "ApiMsg::ResizeWebGLContext") }
             &ApiMsg::WebGLCommand(..) => { write!(f, "ApiMsg::WebGLCommand") }
-            &ApiMsg::GenerateFrame => { write!(f, "ApiMsg::GenerateFrame") }
+            &ApiMsg::GenerateFrame(..) => { write!(f, "ApiMsg::GenerateFrame") }
             &ApiMsg::VRCompositorCommand(..) => { write!(f, "ApiMsg::VRCompositorCommand") }
             &ApiMsg::ExternalEvent(..) => { write!(f, "ApiMsg::ExternalEvent") }
             &ApiMsg::ShutDown => { write!(f, "ApiMsg::ShutDown") }

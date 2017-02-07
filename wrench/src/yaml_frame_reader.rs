@@ -511,8 +511,8 @@ impl YamlFrameReader {
                                              bounds,
                                              clip,
                                              z_index as i32,
-                                             &transform,
-                                             &perspective,
+                                             transform.into(),
+                                             perspective,
                                              mix_blend_mode,
                                              filters);
 

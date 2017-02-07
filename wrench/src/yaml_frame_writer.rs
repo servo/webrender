@@ -177,8 +177,12 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
     scroll_policy_node(parent, "scroll-policy", sc.scroll_policy);
     i32_node(parent, "z_index", sc.z_index);
 
-    if sc.transform != LayoutTransform::identity() {
-        matrix4d_node(parent, "transform", &sc.transform);
+    let transform = match sc.transform {
+        PropertyBinding::Value(m) => m,
+        PropertyBinding::Binding(..) => panic!("TODO: Handle property bindings in wrench!"),
+    };
+    if transform != LayoutTransform::identity() {
+        matrix4d_node(parent, "transform", &transform);
     }
     if sc.perspective != LayoutTransform::identity() {
         matrix4d_node(parent, "perspective", &sc.perspective);
