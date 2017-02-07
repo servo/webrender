@@ -515,9 +515,10 @@ impl YamlFrameReader {
             None => LayoutTransform::identity()
         };
         let mix_blend_mode = yaml["mix-blend-mode"].as_mix_blend_mode().unwrap_or(MixBlendMode::Normal);
-        let sc_full_rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), bounds.size);
-        let clip = self.to_clip_region(&yaml["clip"], &sc_full_rect, wrench)
-                       .unwrap_or(ClipRegion::simple(&sc_full_rect));
+
+        if !yaml["clip"].is_badvalue() || !yaml["content-size"].is_badvalue() || !yaml["scroll_offset"].is_badvalue() {
+            println!("Stacking contexts can not have 'clip', 'context_size', or 'scroll_offset' properties. These are moved to scroll layers.");
+        }
 
         let scroll_policy = yaml["scroll-policy"].as_scroll_policy()
                                                  .unwrap_or(ScrollPolicy::Scrollable);
@@ -534,7 +535,6 @@ impl YamlFrameReader {
 
         self.builder().push_stacking_context(scroll_policy,
                                              bounds,
-                                             clip,
                                              z_index as i32,
                                              transform.into(),
                                              perspective,

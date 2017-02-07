@@ -18,7 +18,7 @@ const CAN_OVERSCROLL: bool = false;
 
 
 /// Contains scrolling and transform information stacking contexts.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Layer {
     /// Manages scrolling offset, overscroll state etc.
     pub scrolling: ScrollingState,
@@ -265,7 +265,7 @@ impl Layer {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct ScrollingState {
     pub offset: LayerPoint,
     pub spring: Spring,
