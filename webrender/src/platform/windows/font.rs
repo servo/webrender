@@ -182,11 +182,10 @@ impl FontContext {
                                                     dwrite_measure_mode,
                                                     options);
 
-        let x_offset: f32 = Into::<f64>::into(key.x_suboffset) as f32;
-        let y_offset: f32 = Into::<f64>::into(key.y_suboffset) as f32;
+        let (x_offset, y_offset) = key.subpixel_point.to_f64();
         let transform = Some(
                         dwrote::DWRITE_MATRIX { m11: 1.0, m12: 0.0, m21: 0.0, m22: 1.0,
-                                                dx: x_offset, dy: y_offset }
+                                                dx: x_offset as f32, dy: y_offset as f32 }
                         );
 
         dwrote::GlyphRunAnalysis::create(&glyph_run, 1.0, transform,

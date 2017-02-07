@@ -379,9 +379,7 @@ impl ResourceCache {
         let mut texture_id = None;
         for (loop_index, glyph_instance) in glyph_instances.iter().enumerate() {
             glyph_key.key.index = glyph_instance.index;
-            glyph_key.key.set_subpixel_offset(glyph_instance.point.x,
-                                              glyph_instance.point.y,
-                                              render_mode);
+            glyph_key.key.subpixel_point.set_offset(glyph_instance.point, render_mode);
 
             let image_id = cache.get(&glyph_key, self.current_frame_id);
             let cache_item = image_id.map(|image_id| self.texture_cache.get(image_id));
