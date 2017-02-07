@@ -506,13 +506,14 @@ impl YamlFrameReader {
         }
 
         let filters = yaml["filters"].as_vec_filter_op().unwrap_or(vec![]);
+        let transform = PropertyBinding::Value(transform);
 
         self.builder().push_stacking_context(scroll_policy,
                                              bounds,
                                              clip,
                                              z_index as i32,
-                                             &transform,
-                                             &perspective,
+                                             transform,
+                                             perspective,
                                              mix_blend_mode,
                                              filters);
 

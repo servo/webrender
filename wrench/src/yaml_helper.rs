@@ -344,7 +344,8 @@ impl YamlHelper for Yaml {
                     Some(FilterOp::Invert(args[0].parse().unwrap()))
                 }
                 ("opacity", ref args) if args.len() == 1 =>  {
-                    Some(FilterOp::Opacity(args[0].parse().unwrap()))
+                    let amount = args[0].parse().unwrap();
+                    Some(FilterOp::Opacity(PropertyBinding::Value(amount)))
                 }
                 ("saturate", ref args) if args.len() == 1 =>  {
                     Some(FilterOp::Saturate(args[0].parse().unwrap()))
