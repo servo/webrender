@@ -1075,7 +1075,7 @@ impl PrimitiveStore {
 
                     for src in src_glyphs {
                         glyph_key.index = src.index;
-                        glyph_key.set_subpixel_offset(src.point.x, src.point.y, text.render_mode);
+                        glyph_key.subpixel_point.set_offset(src.point, text.render_mode);
 
                         let dimensions = match resource_cache.get_glyph_dimensions(&glyph_key) {
                             None => continue,
