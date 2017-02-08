@@ -10,7 +10,7 @@ use image::png::PNGEncoder;
 use std::cmp;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use webrender_traits::*;
 use wrench::{Wrench, WrenchThing};
@@ -20,11 +20,10 @@ pub enum ReftestOp {
     Equal,
     NotEqual,
 }
-
-pub struct Reftest<'a> {
+pub struct Reftest {
     op: ReftestOp,
-    test: &'a Path,
-    reference: &'a Path,
+    test: PathBuf,
+    reference: PathBuf,
 }
 
 struct ReftestImage {
@@ -35,6 +34,7 @@ enum ReftestImageComparison {
     Equal,
     NotEqual { max_difference: usize, count_different: usize },
 }
+
 impl ReftestImage {
     fn compare(&self, other: &ReftestImage) -> ReftestImageComparison {
         assert!(self.size == other.size);
@@ -93,94 +93,118 @@ impl ReftestImage {
     }
 }
 
+struct ReftestManifest {
+    reftests: Vec<Reftest>,
+}
+impl ReftestManifest {
+    fn new(manifest: &Path) -> ReftestManifest {
+        let dir = manifest.parent().unwrap();
+        let f = File::open(manifest).expect(&format!("couldn't open manifest: {}", manifest.display()));
+        let file = BufReader::new(&f);
 
-fn parse_reftests<F>(manifest: &Path, runner: &mut F)
-    where F: FnMut(Reftest)
-{
-    let dir = manifest.parent().unwrap();
-    let f = File::open(manifest).expect(&format!("couldn't open manifest: {}", manifest.display()));
-    let file = BufReader::new(&f);
-    for line in file.lines() {
-        let l = line.unwrap();
+        let mut reftests = Vec::new();
 
-        // strip the comments
-        let s = &l[0..l.find("#").unwrap_or(l.len())];
-        let s = s.trim();
-        if s.len() == 0 {
-            continue;
+        for line in file.lines() {
+            let l = line.unwrap();
+
+            // strip the comments
+            let s = &l[0..l.find("#").unwrap_or(l.len())];
+            let s = s.trim();
+            if s.len() == 0 {
+                continue;
+            }
+
+            let mut items = s.split_whitespace();
+
+            match items.next() {
+                Some("include") => {
+                    let include = dir.join(items.next().unwrap());
+
+                    reftests.append(&mut ReftestManifest::new(include.as_path()).reftests);
+                }
+                Some(x) => {
+                    let kind = match x {
+                        "==" => ReftestOp::Equal,
+                        "!=" => ReftestOp::NotEqual,
+                        _ => panic!("unexpected match operator"),
+                    };
+                    let test = dir.join(items.next().unwrap());
+                    let reference = dir.join(items.next().unwrap());
+                    reftests.push(Reftest {
+                        op: kind,
+                        test: test,
+                        reference: reference,
+                    });
+                }
+                _ => panic!(),
+            };
         }
 
-        let mut items = s.split_whitespace();
+        ReftestManifest {
+            reftests: reftests
+        }
+    }
 
-        match items.next() {
-            Some("include") => {
-                let include = dir.join(items.next().unwrap());
-                parse_reftests(include.as_path(), runner);
-            }
-            Some(x) => {
-                let kind = match x {
-                    "==" => ReftestOp::Equal,
-                    "!=" => ReftestOp::NotEqual,
-                    _ => panic!("unexpected match operator"),
-                };
-                let test = dir.join(items.next().unwrap());
-                let reference = dir.join(items.next().unwrap());
-                runner(Reftest {
-                    op: kind,
-                    test: test.as_path(),
-                    reference: reference.as_path(),
-                });
-            }
-            _ => panic!(),
+    fn find(&self, prefix: &Path) -> Vec<&Reftest> {
+        self.reftests.iter().filter(|x| {
+            x.test.starts_with(prefix) || x.reference.starts_with(prefix)
+        }).collect()
+    }
+}
+
+pub struct ReftestHarness<'a> {
+    wrench: &'a mut Wrench,
+    window: &'a mut WindowWrapper,
+    rx: Receiver<()>,
+}
+impl<'a> ReftestHarness<'a> {
+    pub fn new(wrench: &'a mut Wrench,
+               window: &'a mut WindowWrapper) -> ReftestHarness<'a>
+    {
+        // setup a notifier so we can wait for frames to be finished
+        struct Notifier {
+            tx: Sender<()>,
         };
-    }
-
-}
-
-fn render_yaml(wrench: &mut Wrench,
-               window: &mut WindowWrapper,
-               filename: &Path,
-               rx: &Receiver<()>)
-               -> ReftestImage {
-    let mut reader = YamlFrameReader::new(filename);
-    reader.do_frame(wrench);
-    // wait for the frame
-    rx.recv().unwrap();
-    wrench.render();
-
-    let size = window.get_inner_size_pixels();
-    let pixels = gl::read_pixels(0,
-                                 0,
-                                 size.0 as gl::GLsizei,
-                                 size.1 as gl::GLsizei,
-                                 gl::RGBA,
-                                 gl::UNSIGNED_BYTE);
-    window.swap_buffers();
-
-    ReftestImage {
-        data: pixels,
-        size: DeviceUintSize::new(size.0, size.1)
-    }
-}
-
-pub fn run_reftests(wrench: &mut Wrench, window: &mut WindowWrapper, filename: &str) {
-    // setup a notifier so we can wait for frames to be finished
-    struct Notifier {
-        tx: Sender<()>,
-    };
-    impl RenderNotifier for Notifier {
-        fn new_frame_ready(&mut self) {
-            self.tx.send(()).unwrap();
+        impl RenderNotifier for Notifier {
+            fn new_frame_ready(&mut self) {
+                self.tx.send(()).unwrap();
+            }
+            fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {}
         }
-        fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {}
+        let (tx, rx) = channel();
+        wrench.renderer.set_render_notifier(Box::new(Notifier { tx: tx }));
+
+        ReftestHarness {
+            wrench: wrench,
+            window: window,
+            rx: rx,
+        }
     }
-    let (tx, rx) = channel();
-    wrench.renderer.set_render_notifier(Box::new(Notifier { tx: tx }));
 
-    let mut total_passing = 0;
-    let mut total_failing = 0;
+    pub fn run(mut self, base_manifest: &Path, reftests: Option<&Path>) {
+        let manifest = ReftestManifest::new(base_manifest);
+        let reftests = manifest.find(reftests.unwrap_or(&PathBuf::new()));
 
-    parse_reftests(Path::new(filename), &mut |t: Reftest| {
+        let mut total_passing = 0;
+        let mut total_failing = 0;
+
+        for t in reftests {
+            if self.run_reftest(&t) {
+                total_passing += 1;
+            } else {
+                total_failing += 1;
+            }
+        }
+
+        println!("REFTEST INFO | {} passing, {} failing", total_passing, total_failing);
+
+        if total_failing > 0 {
+            // panic here so that we fail CI
+            panic!();
+        }
+    }
+
+    fn run_reftest(&mut self, t: &Reftest) -> bool {
         let name = match t.op {
             ReftestOp::Equal => format!("{} == {}", t.test.display(), t.reference.display()),
             ReftestOp::NotEqual => format!("{} != {}", t.test.display(), t.reference.display()),
@@ -188,14 +212,14 @@ pub fn run_reftests(wrench: &mut Wrench, window: &mut WindowWrapper, filename: &
 
         println!("REFTEST {}", name);
 
-        let test = render_yaml(wrench, window, t.test, &rx);
-        let reference = render_yaml(wrench, window, t.reference, &rx);
+        let test = self.render_yaml(t.test.as_path());
+        let reference = self.render_yaml(t.reference.as_path());
         let comparison = test.compare(&reference);
 
-        let success = match (t.op, comparison) {
-            (ReftestOp::Equal, ReftestImageComparison::Equal) => true,
-            (ReftestOp::Equal,
-             ReftestImageComparison::NotEqual { max_difference, count_different }) => {
+        match (&t.op, comparison) {
+            (&ReftestOp::Equal, ReftestImageComparison::Equal) => true,
+            (&ReftestOp::Equal,
+              ReftestImageComparison::NotEqual { max_difference, count_different }) => {
                 println!("{} | {} | {}: {}, {}: {}",
                          "REFTEST TEST-UNEXPECTED-FAIL", name,
                          "image comparison, max difference", max_difference,
@@ -206,25 +230,36 @@ pub fn run_reftests(wrench: &mut Wrench, window: &mut WindowWrapper, filename: &
 
                 false
             },
-            (ReftestOp::NotEqual, ReftestImageComparison::Equal) => {
+            (&ReftestOp::NotEqual, ReftestImageComparison::Equal) => {
                 println!("REFTEST TEST-UNEXPECTED-FAIL | {} | image comparison", name);
                 println!("REFTEST TEST-END | {}", name);
 
                 false
             },
-            (ReftestOp::NotEqual, ReftestImageComparison::NotEqual { .. }) => true,
-        };
-
-        if success {
-            total_passing += 1;
-        } else {
-            total_failing += 1;
+            (&ReftestOp::NotEqual, ReftestImageComparison::NotEqual { .. }) => true,
         }
-    });
+    }
 
-    println!("REFTEST INFO | {} passing, {} failing", total_passing, total_failing);
+    fn render_yaml(&mut self, filename: &Path) -> ReftestImage {
+        let mut reader = YamlFrameReader::new(filename);
+        reader.do_frame(self.wrench);
 
-    if total_failing > 0 {
-        panic!();
+        // wait for the frame
+        self.rx.recv().unwrap();
+        self.wrench.render();
+
+        let size = self.window.get_inner_size_pixels();
+        let pixels = gl::read_pixels(0,
+                                     0,
+                                     size.0 as gl::GLsizei,
+                                     size.1 as gl::GLsizei,
+                                     gl::RGBA,
+                                     gl::UNSIGNED_BYTE);
+        self.window.swap_buffers();
+
+        ReftestImage {
+            data: pixels,
+            size: DeviceUintSize::new(size.0, size.1)
+        }
     }
 }
