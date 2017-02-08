@@ -66,6 +66,7 @@ mod prim_store;
 mod profiler;
 mod record;
 mod render_backend;
+mod render_task;
 mod resource_cache;
 mod scene;
 mod scroll_tree;
