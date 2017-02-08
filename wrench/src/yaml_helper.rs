@@ -214,8 +214,8 @@ impl YamlHelper for Yaml {
                                                    nums[8], nums[9], nums[10], nums[11],
                                                    nums[12], nums[13], nums[14], nums[15]))
         }
-        if let Some(s) = self.as_str() {
-            match parse_function(s) {
+        match self {
+            &Yaml::String(ref string) => match parse_function(string) {
                 ("translate", ref args) if args.len() == 2 =>  {
                     return Some(LayoutTransform::create_translation(args[0].parse().unwrap(),
                                                                     args[1].parse().unwrap(),
@@ -237,12 +237,19 @@ impl YamlHelper for Yaml {
                                                                             1.0,
                                                                             Radians::new(theta));
 
-                    return Some(pre_transform.pre_mul(&transform).pre_mul(&post_transform))
+                    Some(pre_transform.pre_mul(&transform).pre_mul(&post_transform))
                 }
-                (name, _) => { panic!("unknown function {}", name); }
+                (name, _) => {
+                    println!("unknown function {}", name);
+                    None
+                }
+            },
+            &Yaml::BadValue => None,
+            _ => {
+                println!("unknown transform {:?}", self);
+                None
             }
         }
-        None
     }
 
     fn as_colorf(&self) -> Option<ColorF> {
