@@ -148,7 +148,7 @@ fn render_yaml(wrench: &mut Wrench,
     rx.recv().unwrap();
     wrench.render();
 
-    let size = window.get_inner_size();
+    let size = window.get_inner_size_pixels();
     let pixels = gl::read_pixels(0,
                                  0,
                                  size.0 as gl::GLsizei,
