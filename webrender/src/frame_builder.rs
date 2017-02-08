@@ -31,7 +31,7 @@ use webrender_traits::{BoxShadowClipMode, ClipRegion, ColorF, device_length, Dev
 use webrender_traits::{DeviceIntRect, DeviceIntSize, DeviceUintSize, ExtendMode, FontKey};
 use webrender_traits::{FontRenderMode, GlyphOptions, ImageKey, ImageRendering, ItemRange};
 use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform, PipelineId};
-use webrender_traits::{ScrollLayerId, ScrollLayerPixel, WebGLContextId, WorldRect, YuvColorSpace};
+use webrender_traits::{ScrollLayerId, ScrollLayerPixel, WebGLContextId, YuvColorSpace};
 
 #[derive(Clone, Copy)]
 pub struct FrameBuilderConfig {
@@ -65,6 +65,9 @@ pub struct FrameBuilder {
     packed_layers: Vec<PackedLayer>,
 
     scrollbar_prims: Vec<ScrollbarPrimitive>,
+
+    /// A stack of scroll layers used during building to properly parent new scroll layers.
+    scroll_layer_stack: Vec<ScrollLayerIndex>,
 }
 
 impl FrameBuilder {
@@ -81,6 +84,7 @@ impl FrameBuilder {
             packed_layers: Vec::new(),
             scrollbar_prims: Vec::new(),
             config: config,
+            scroll_layer_stack: Vec::new(),
         }
     }
 
@@ -164,8 +168,10 @@ impl FrameBuilder {
                                            true, // needs an extra clip for the clip rectangle
                                            &mut self.prim_store.gpu_data32);
 
+        let parent_index = *self.scroll_layer_stack.last().unwrap_or(&scroll_layer_index);
         self.scroll_layer_store.push(ScrollLayer {
             scroll_layer_id: scroll_layer_id,
+            parent_index: parent_index,
             clip_source: clip_source,
             clip_cache_info: clip_info,
             xf_rect: None,
@@ -186,11 +192,14 @@ impl FrameBuilder {
                                    scroll_layer_id.pipeline_id,
                                    scroll_layer_id,
                                    CompositeOps::empty());
+
+        self.scroll_layer_stack.push(scroll_layer_index);
     }
 
     pub fn pop_scroll_layer(&mut self) {
         self.pop_stacking_context();
         self.cmds.push(PrimitiveRunCmd::PopScrollLayer);
+        self.scroll_layer_stack.pop();
     }
 
     pub fn add_solid_rectangle(&mut self,
@@ -936,8 +945,14 @@ struct LayerRectCalculationAndCullingPass<'a> {
     device_pixel_ratio: f32,
     stacking_context_stack: Vec<StackingContextIndex>,
     scroll_layer_stack: Vec<ScrollLayerIndex>,
-    clip_info_stack: Vec<(PackedLayerIndex, MaskCacheInfo)>,
-    world_clip_rect_stack: Vec<WorldRect>,
+
+    /// A cached clip info stack, which should handle the most common situation,
+    /// which is that we are using the same clip info stack that we were using
+    /// previously.
+    current_clip_stack: Vec<(PackedLayerIndex, MaskCacheInfo)>,
+
+    /// The scroll layer that defines the previous scroll layer info stack.
+    current_clip_stack_scroll_layer: Option<ScrollLayerIndex>
 }
 
 impl<'a> LayerRectCalculationAndCullingPass<'a> {
@@ -959,8 +974,8 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             device_pixel_ratio: device_pixel_ratio,
             stacking_context_stack: Vec::new(),
             scroll_layer_stack: Vec::new(),
-            clip_info_stack: Vec::new(),
-            world_clip_rect_stack: Vec::new(),
+            current_clip_stack: Vec::new(),
+            current_clip_stack_scroll_layer: None,
         };
         pass.run();
     }
@@ -983,8 +998,6 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         }
 
         mem::replace(&mut self.frame_builder.cmds, commands);
-        assert!(self.clip_info_stack.is_empty());
-        assert!(self.world_clip_rect_stack.is_empty());
     }
 
     fn handle_push_scroll_layer(&mut self, scroll_layer_index: ScrollLayerIndex) {
@@ -1017,7 +1030,6 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             None => return,
         };
 
-        let packed_layer_index = scroll_layer.packed_layer_index;
         let pipeline_id = scroll_layer.scroll_layer_id.pipeline_id;
         let auxiliary_lists = self.auxiliary_lists_map.get(&pipeline_id)
                                                        .expect("No auxiliary lists?");
@@ -1031,36 +1043,6 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             // We don't add the image mask for resolution, because layer masks are resolved later.
             self.resource_cache.request_image(mask.image, ImageRendering::Auto);
         }
-
-        if clip_info.is_masking() {
-            // Create a task for the layer mask, if needed,
-            // i.e. if there are rounded corners or image masks for the layer.
-            self.clip_info_stack.push((packed_layer_index, clip_info.clone()));
-            return;
-        }
-
-        // If we get here, the mask does not do any masking, so we attempt to create
-        // a mask for this scroll root based on the parent mask region.
-        match scroll_layer.xf_rect {
-            Some(ref xf_rect) if xf_rect.kind == TransformedRectKind::AxisAligned => {},
-            _ => return,
-        };
-
-        // Careful! Transformations here are in 3D, while the rectangles are in 2D, so
-        // we can't assume that transforming a rectangle back and forth results in the same thing.
-        // Patch the local clip rectangle according to the accumulated axis-aligned clip
-        let world_rect = packed_layer.transform.transform_rect(&packed_layer.local_clip_rect);
-        let combined_rect = match self.world_clip_rect_stack.last() {
-            Some(ref last) => {
-                packed_layer.local_clip_rect =
-                    packed_layer.inv_transform.transform_rect(*last)
-                                              .intersection(&packed_layer.local_clip_rect)
-                                              .unwrap_or(LayerRect::zero());
-                packed_layer.transform.transform_rect(&packed_layer.local_clip_rect)
-            },
-            None => world_rect,
-        };
-        self.world_clip_rect_stack.push(combined_rect);
     }
 
     fn handle_push_stacking_context(&mut self, stacking_context_index: StackingContextIndex) {
@@ -1098,15 +1080,44 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         }
     }
 
+    fn rebuild_clip_info_stack_if_necessary(&mut self, mut scroll_layer_index: ScrollLayerIndex) {
+        if let Some(previous_scroll_layer) = self.current_clip_stack_scroll_layer {
+            if previous_scroll_layer == scroll_layer_index {
+                return;
+            }
+        }
+
+        // TODO(mrobinson): If we notice that this process is expensive, we can special-case
+        // more common situations, such as moving from a child or a parent.
+        self.current_clip_stack_scroll_layer = Some(scroll_layer_index);
+        let mut new_clip_info_stack = Vec::new();
+        loop {
+            let scroll_layer = &self.frame_builder.scroll_layer_store[scroll_layer_index.0];
+            match scroll_layer.clip_cache_info {
+                Some(ref clip_info) if clip_info.is_masking() =>
+                    new_clip_info_stack.push((scroll_layer.packed_layer_index, clip_info.clone())),
+                _ => {},
+            };
+
+            if scroll_layer.parent_index == scroll_layer_index {
+                break;
+            }
+            scroll_layer_index = scroll_layer.parent_index;
+        }
+
+        new_clip_info_stack.reverse();
+        mem::replace(&mut self.current_clip_stack, new_clip_info_stack);
+    }
+
     fn handle_primitive_run(&mut self, prim_index: PrimitiveIndex, prim_count: usize) {
+        let scroll_layer_index = *self.scroll_layer_stack.last().unwrap();
+        self.rebuild_clip_info_stack_if_necessary(scroll_layer_index);
+
         let stacking_context_index = self.stacking_context_stack.last().unwrap();
         let stacking_context = &self.frame_builder.stacking_context_store[stacking_context_index.0];
         if !stacking_context.is_visible() {
             return;
         }
-
-        let scroll_layer_index = self.scroll_layer_stack.last().unwrap();
-        let scroll_layer = &self.frame_builder.scroll_layer_store[scroll_layer_index.0];
 
         let packed_layer_index = stacking_context.packed_layer_index;
         let packed_layer = &self.frame_builder.packed_layers[packed_layer_index.0];
@@ -1145,22 +1156,26 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                 let mut visible = true;
 
                 if let Some(info) = prim_clip_info {
-                    self.clip_info_stack.push((packed_layer_index, info.clone()));
+                    self.current_clip_stack.push((packed_layer_index, info.clone()));
                 }
 
                 // Try to create a mask if we may need to.
-                if !self.clip_info_stack.is_empty() {
+                if !self.current_clip_stack.is_empty() {
                     // If the primitive doesn't have a specific clip, key the task ID off the
                     // stacking context. This means that two primitives which are only clipped
                     // by the stacking context stack can share clip masks during render task
                     // assignment to targets.
                     let (mask_key, mask_rect) = match prim_clip_info {
                         Some(..) => (MaskCacheKey::Primitive(prim_index), prim_bounding_rect),
-                        None => (MaskCacheKey::ScrollLayer(*scroll_layer_index),
-                                 scroll_layer.xf_rect.as_ref().unwrap().bounding_rect),
+                        None => {
+                            let scroll_layer =
+                                &self.frame_builder.scroll_layer_store[scroll_layer_index.0];
+                            (MaskCacheKey::ScrollLayer(scroll_layer_index),
+                             scroll_layer.xf_rect.as_ref().unwrap().bounding_rect)
+                        }
                     };
                     let mask_opt =
-                        RenderTask::new_mask(mask_rect, mask_key, &self.clip_info_stack);
+                        RenderTask::new_mask(mask_rect, mask_key, &self.current_clip_stack);
                     match mask_opt {
                         MaskResult::Outside => { // Primitive is completely clipped out.
                             prim_metadata.clip_task = None;
@@ -1172,7 +1187,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                 }
 
                 if prim_clip_info.is_some() {
-                    self.clip_info_stack.pop();
+                    self.current_clip_stack.pop();
                 }
 
                 if visible {
@@ -1183,25 +1198,6 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
     }
 
     fn handle_pop_scroll_layer(&mut self) {
-        let scroll_layer_index = self.scroll_layer_stack.pop().unwrap();
-        let scroll_layer = &self.frame_builder.scroll_layer_store[scroll_layer_index.0];
-
-        let clip_info = match scroll_layer.clip_cache_info {
-            Some(ref clip_info) => clip_info,
-            None => return,
-        };
-
-        if clip_info.is_masking() {
-            self.clip_info_stack.pop().unwrap();
-            return;
-        }
-
-        match scroll_layer.xf_rect {
-            Some(ref xf_rect) if xf_rect.kind == TransformedRectKind::AxisAligned => {
-                self.world_clip_rect_stack.pop().unwrap();
-            }
-            _ => {}
-        };
-
+        self.scroll_layer_stack.pop();
     }
 }
