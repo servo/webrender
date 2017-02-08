@@ -3,67 +3,58 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 extern crate app_units;
-extern crate byteorder;
 extern crate base64;
 extern crate bincode;
-extern crate webrender;
-extern crate glutin;
-extern crate gleam;
-extern crate webrender_traits;
-extern crate euclid;
-extern crate yaml_rust;
-extern crate time;
-extern crate image;
+extern crate byteorder;
 #[macro_use]
 extern crate clap;
-#[macro_use]
-extern crate lazy_static;
-extern crate serde_json;
 extern crate crossbeam;
-
-#[cfg(feature = "headless")]
-extern crate osmesa_sys;
-
 #[cfg(target_os = "windows")]
 extern crate dwrote;
+extern crate euclid;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 extern crate font_loader;
+extern crate gleam;
+extern crate glutin;
+extern crate image;
+#[macro_use]
+extern crate lazy_static;
+#[cfg(feature = "headless")]
+extern crate osmesa_sys;
+extern crate serde_json;
+extern crate time;
+extern crate webrender;
+extern crate webrender_traits;
+extern crate yaml_rust;
 
+mod binary_frame_reader;
+mod json_frame_writer;
+mod parse_function;
+mod reftest;
+mod scene;
+mod wrench;
+mod yaml_frame_reader;
+mod yaml_frame_writer;
+mod yaml_helper;
+
+use binary_frame_reader::BinaryFrameReader;
 use gleam::gl;
 use glutin::{ElementState, VirtualKeyCode, WindowProxy};
 use image::ColorType;
 use image::png::PNGEncoder;
-use std::path::PathBuf;
-use std::cmp::{min, max};
-use std::fs::File;
-use std::os::raw::c_void;
-use std::ptr;
-use webrender_traits::*;
-
+use reftest::run_reftests;
+use std::cmp::{max, min};
 #[cfg(feature = "headless")]
 use std::ffi::CString;
+use std::fs::File;
 #[cfg(feature = "headless")]
 use std::mem;
-
-mod wrench;
+use std::os::raw::c_void;
+use std::path::PathBuf;
+use std::ptr;
+use webrender_traits::*;
 use wrench::{Wrench, WrenchThing};
-
-mod yaml_helper;
-
-mod yaml_frame_reader;
 use yaml_frame_reader::YamlFrameReader;
-
-mod yaml_frame_writer;
-mod json_frame_writer;
-mod scene;
-
-mod parse_function;
-
-mod reftest;
-use reftest::run_reftests;
-
-mod binary_frame_reader;
-use binary_frame_reader::BinaryFrameReader;
 
 lazy_static! {
     static ref PLATFORM_DEFAULT_FACE_NAME: String =
@@ -86,7 +77,7 @@ fn percentile(values: &[f64], pct_int: u32) -> f64 {
         if index * 100 == index_big {
             values[index]
         } else {
-            (values[index] + values[index+1]) / 2.
+            (values[index] + values[index + 1]) / 2.
         }
     } else {
         1.0
@@ -184,11 +175,11 @@ impl WindowWrapper {
                     window.make_current().expect("unable to make context current!");
                 }
                 // Android uses the static generator (as opposed to a global generator) at the moment
-                #[cfg(not(target_os="android"))]
+                #[cfg(not(target_os = "android"))]
                 gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
             }
             WindowWrapper::Headless(..) => {
-                #[cfg(not(target_os="android"))]
+                #[cfg(not(target_os = "android"))]
                 gl::load_with(|s| {
                     HeadlessContext::get_proc_address(s)
                 });
@@ -276,10 +267,15 @@ fn main() {
     let dp_ratio = args.value_of("dp_ratio").map(|v| v.parse::<f32>().unwrap());
     let limit_seconds = args.value_of("time").map(|s| time::Duration::seconds(s.parse::<i64>().unwrap()));
     let save_type = args.value_of("save").map(|s| {
-        if s == "yaml" { wrench::SaveType::Yaml }
-        else if s == "json" { wrench::SaveType::Json }
-        else if s == "binary" { wrench::SaveType::Binary }
-        else { panic!("Save type must be json, yaml, or binary"); }
+        if s == "yaml" {
+            wrench::SaveType::Yaml
+        } else if s == "json" {
+            wrench::SaveType::Json
+        } else if s == "binary" {
+            wrench::SaveType::Binary
+        } else {
+            panic!("Save type must be json, yaml, or binary");
+        }
     });
     let size = args.value_of("size").map(|s| {
         if s == "720p" {
@@ -291,7 +287,7 @@ fn main() {
         } else {
             let x = s.find('x').expect("Size must be specified exactly as 720p, 1080p, 4k, or widthxheight");
             let w = s[0..x].parse::<u32>().expect("Invalid size width");
-            let h = s[x+1..].parse::<u32>().expect("Invalid size height");
+            let h = s[x + 1..].parse::<u32>().expect("Invalid size height");
             DeviceUintSize::new(w, h)
         }
     }).unwrap_or(DeviceUintSize::new(1920, 1080));

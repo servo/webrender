@@ -1,20 +1,20 @@
-use std::cmp;
-use std::io::BufReader;
-use std::io::BufRead;
-use std::fs::File;
-use wrench::{Wrench, WrenchThing};
-use std::path::Path;
-use gleam::gl;
-use std::sync::mpsc::{channel, Sender, Receiver};
-
-use base64;
-use image::ColorType;
-use image::png::PNGEncoder;
-
-use yaml_frame_reader::YamlFrameReader;
-use webrender_traits::*;
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use WindowWrapper;
+use base64;
+use gleam::gl;
+use image::ColorType;
+use image::png::PNGEncoder;
+use std::cmp;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use webrender_traits::*;
+use wrench::{Wrench, WrenchThing};
+use yaml_frame_reader::YamlFrameReader;
 
 pub enum ReftestOp {
     Equal,
@@ -194,11 +194,12 @@ pub fn run_reftests(wrench: &mut Wrench, window: &mut WindowWrapper, filename: &
 
         let success = match (t.op, comparison) {
             (ReftestOp::Equal, ReftestImageComparison::Equal) => true,
-            (ReftestOp::Equal, ReftestImageComparison::NotEqual { max_difference, count_different }) => {
-                println!("REFTEST TEST-UNEXPECTED-FAIL | {} | image comparison, max difference: {}, number of differing pixels: {}",
-                         name,
-                         max_difference,
-                         count_different);
+            (ReftestOp::Equal,
+             ReftestImageComparison::NotEqual { max_difference, count_different }) => {
+                println!("{} | {} | {}: {}, {}: {}",
+                         "REFTEST TEST-UNEXPECTED-FAIL", name,
+                         "image comparison, max difference", max_difference,
+                         "number of differing pixels", count_different);
                 println!("REFTEST   IMAGE 1 (TEST): {}", test.create_data_uri());
                 println!("REFTEST   IMAGE 2 (REFERENCE): {}", reference.create_data_uri());
                 println!("REFTEST TEST-END | {}", name);
@@ -211,7 +212,7 @@ pub fn run_reftests(wrench: &mut Wrench, window: &mut WindowWrapper, filename: &
 
                 false
             },
-            (ReftestOp::NotEqual, ReftestImageComparison::NotEqual{..}) => true,
+            (ReftestOp::NotEqual, ReftestImageComparison::NotEqual { .. }) => true,
         };
 
         if success {

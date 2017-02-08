@@ -10,14 +10,12 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use webrender_traits::*;
+use wrench::{Wrench, WrenchThing, layout_simple_ascii};
 use yaml_helper::YamlHelper;
 use yaml_rust::{Yaml, YamlLoader};
-
-use wrench::{Wrench, WrenchThing, layout_simple_ascii};
 use {WHITE_COLOR, BLACK_COLOR, PLATFORM_DEFAULT_FACE_NAME};
 
-fn broadcast<T: Clone>(base_vals: &[T], num_items: usize) -> Vec<T>
-{
+fn broadcast<T: Clone>(base_vals: &[T], num_items: usize) -> Vec<T> {
     if base_vals.len() == num_items {
         return base_vals.to_vec();
     }
@@ -120,10 +118,15 @@ impl YamlFrameReader {
         self.add_stacking_context_from_yaml(wrench, &yaml["root"], true);
     }
 
-    fn to_clip_region(&mut self, item: &Yaml, item_bounds: &LayoutRect, wrench: &mut Wrench) -> Option<ClipRegion> {
+    fn to_clip_region(&mut self,
+                      item: &Yaml,
+                      item_bounds: &LayoutRect,
+                      wrench: &mut Wrench)
+                      -> Option<ClipRegion> {
         match item {
             &Yaml::String(_) => {
-                let rect = item.as_rect().expect(&format!("clip region '{:?}', thought it was a rect string but it's not?", item));
+                let rect = item.as_rect().expect(&format!("Could not parse rect string: '{:?}'",
+                                                          item));
                 Some(self.builder().new_clip_region(&rect, vec![], None))
             }
             &Yaml::Array(ref v) => {
@@ -133,10 +136,12 @@ impl YamlFrameReader {
                 } else {
                     // it may be an array of simple rects
                     let rects = v.iter().map(|v| {
-                         v.as_rect().map(|r| ComplexClipRegion::new(r, BorderRadius::zero())).ok_or(())
+                         v.as_rect().map(|r| {
+                            ComplexClipRegion::new(r, BorderRadius::zero())
+                        }).ok_or(())
                      })
-                     .collect::<Result<Vec<_>,_>>()
-                     .expect(&format!("clip region array '{:?}', tried to do array of rects but failed", item));
+                     .collect::<Result<Vec<_>, _>>()
+                     .expect(&format!("Could not parse clip region array: '{:?}'", item));
                     Some(self.builder().new_clip_region(item_bounds, rects, None))
                 }
             }
@@ -149,8 +154,10 @@ impl YamlFrameReader {
                             Some(ComplexClipRegion::new(rect, BorderRadius::zero()))
                         }
                         &Yaml::Hash(_) => {
-                            let rect = item["rect"].as_rect().expect("complex clip entry must have rect");
-                            let radius = item["radius"].as_border_radius().unwrap_or(BorderRadius::zero());
+                            let rect = item["rect"].as_rect()
+                                                   .expect("complex clip entry must have rect");
+                            let radius = item["radius"].as_border_radius()
+                                                       .unwrap_or(BorderRadius::zero());
                             Some(ComplexClipRegion::new(rect, radius))
                         }
                         _ => {
@@ -162,8 +169,11 @@ impl YamlFrameReader {
 
                 let image_mask = if item["image_mask"].as_hash().is_some() {
                     let image_mask = &item["image_mask"];
-                    let (image_key, image_dims) = wrench.add_or_get_image(&self.rsrc_path(&image_mask["image"]));
-                    let image_rect = image_mask["rect"].as_rect().unwrap_or(LayoutRect::new(LayoutPoint::zero(), image_dims));
+                    let (image_key, image_dims) =
+                        wrench.add_or_get_image(&self.rsrc_path(&image_mask["image"]));
+                    let image_rect =
+                        image_mask["rect"].as_rect().unwrap_or(LayoutRect::new(LayoutPoint::zero(),
+                                                                               image_dims));
                     let image_repeat = image_mask["repeat"].as_bool().expect("expected boolean");
                     Some(ImageMask { image: image_key, rect: image_rect, repeat: image_repeat })
                 } else {
@@ -362,8 +372,8 @@ impl YamlFrameReader {
             let glyphs = glyph_indices.iter().enumerate().map(|k| {
                 GlyphInstance {
                     index: *k.1,
-                    point: Point2D::new(origin.x + glyph_offsets[k.0*2],
-                                        origin.y + glyph_offsets[k.0*2+1])
+                    point: Point2D::new(origin.x + glyph_offsets[k.0 * 2],
+                                        origin.y + glyph_offsets[k.0 * 2 + 1])
                 }
             }).collect();
             // TODO(gw): We could optionally use the WR API to query glyph dimensions
@@ -420,16 +430,26 @@ impl YamlFrameReader {
         for ref item in yaml.as_vec().unwrap() {
             // an explicit type can be skipped with some shorthand
             let item_type =
-                if !item["rect"].is_badvalue() { "rect" }
-                else if !item["image"].is_badvalue() { "image" }
-                else if !item["text"].is_badvalue() { "text" }
-                else if !item["glyphs"].is_badvalue() { "glyphs" }
-                // note: box_shadow shorthand check has to come before border
-                else if !item["box_shadow"].is_badvalue() { "box_shadow" }
-                else if !item["border"].is_badvalue() { "border" }
-                else if !item["gradient"].is_badvalue() { "gradient" }
-                else if !item["radial_gradient"].is_badvalue() { "radial_gradient" }
-                else { item["type"].as_str().unwrap_or("unknown") };
+                if !item["rect"].is_badvalue() {
+                    "rect"
+                } else if !item["image"].is_badvalue() {
+                    "image"
+                } else if !item["text"].is_badvalue() {
+                     "text"
+                } else if !item["glyphs"].is_badvalue() {
+                    "glyphs"
+                } else if !item["box_shadow"].is_badvalue() {
+                    // Note: box_shadow shorthand check has to come before border.
+                    "box_shadow"
+                } else if !item["border"].is_badvalue() {
+                    "border"
+                } else if !item["gradient"].is_badvalue() {
+                    "gradient"
+                } else if !item["radial_gradient"].is_badvalue() {
+                    "radial_gradient"
+                } else {
+                    item["type"].as_str().unwrap_or("unknown")
+                };
 
             if item_type != "stacking_context" &&
                !self.include_only.is_empty() &&
@@ -481,7 +501,8 @@ impl YamlFrameReader {
                                           wrench: &mut Wrench,
                                           yaml: &Yaml,
                                           is_root: bool) {
-        let bounds = yaml["bounds"].as_rect().unwrap_or(LayoutRect::new(LayoutPoint::new(0.0, 0.0), wrench.window_size_f32()));
+        let default_bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.0), wrench.window_size_f32());
+        let bounds = yaml["bounds"].as_rect().unwrap_or(default_bounds);
         let z_index = yaml["z_index"].as_i64().unwrap_or(0);
         // TODO(gw): Add support for specifying the transform origin in yaml.
         let transform_origin = LayoutPoint::new(bounds.origin.x + bounds.size.width * 0.5,
@@ -495,7 +516,8 @@ impl YamlFrameReader {
         };
         let mix_blend_mode = yaml["mix-blend-mode"].as_mix_blend_mode().unwrap_or(MixBlendMode::Normal);
         let sc_full_rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), bounds.size);
-        let clip = self.to_clip_region(&yaml["clip"], &sc_full_rect, wrench).unwrap_or(ClipRegion::simple(&sc_full_rect));
+        let clip = self.to_clip_region(&yaml["clip"], &sc_full_rect, wrench)
+                       .unwrap_or(ClipRegion::simple(&sc_full_rect));
 
         let scroll_policy = yaml["scroll-policy"].as_scroll_policy()
                                                  .unwrap_or(ScrollPolicy::Scrollable);

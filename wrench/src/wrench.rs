@@ -2,28 +2,27 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+
+use WindowWrapper;
 use app_units::Au;
+use crossbeam::sync::chase_lev;
 #[cfg(windows)]
 use dwrote;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use font_loader::system_fonts;
-
 use gleam::gl;
 use glutin::WindowProxy;
 use image;
 use image::GenericImage;
+use json_frame_writer::JsonFrameWriter;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use time;
 use webrender;
 use webrender_traits::*;
-use yaml_rust::Yaml;
 use yaml_frame_writer::YamlFrameWriterReceiver;
-use json_frame_writer::JsonFrameWriter;
-use time;
-use crossbeam::sync::chase_lev;
-use WindowWrapper;
-
+use yaml_rust::Yaml;
 use {WHITE_COLOR, BLACK_COLOR};
 
 pub enum SaveType {
@@ -40,7 +39,10 @@ struct Notifier {
 }
 
 impl Notifier {
-    fn new(window_proxy: Option<WindowProxy>, timing_receiver: chase_lev::Stealer<time::SteadyTime>, verbose: bool) -> Notifier {
+    fn new(window_proxy: Option<WindowProxy>,
+           timing_receiver: chase_lev::Stealer<time::SteadyTime>,
+           verbose: bool)
+           -> Notifier {
         Notifier {
             window_proxy: window_proxy,
             frames_notified: 0,
@@ -150,11 +152,14 @@ impl Wrench {
         let recorder = save_type.map(|save_type| {
             match save_type {
                 SaveType::Yaml =>
-                    Box::new(YamlFrameWriterReceiver::new(&PathBuf::from("yaml_frames"))) as Box<webrender::ApiRecordingReceiver>,
+                    Box::new(YamlFrameWriterReceiver::new(&PathBuf::from("yaml_frames")))
+                        as Box<webrender::ApiRecordingReceiver>,
                 SaveType::Json =>
-                    Box::new(JsonFrameWriter::new(&PathBuf::from("json_frames"))) as Box<webrender::ApiRecordingReceiver>,
+                    Box::new(JsonFrameWriter::new(&PathBuf::from("json_frames")))
+                        as Box<webrender::ApiRecordingReceiver>,
                 SaveType::Binary =>
-                    Box::new(webrender::BinaryRecorder::new(&PathBuf::from("wr-record.bin"))) as Box<webrender::ApiRecordingReceiver>,
+                    Box::new(webrender::BinaryRecorder::new(&PathBuf::from("wr-record.bin")))
+                        as Box<webrender::ApiRecordingReceiver>,
             }
         });
 

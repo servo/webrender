@@ -2,15 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::f32;
-use std::str::FromStr;
 use app_units::Au;
 use euclid::{Radians, TypedSize2D};
-
-use yaml_rust::Yaml;
-
-use webrender_traits::*;
 use parse_function::parse_function;
+use std::f32;
+use std::str::FromStr;
+use webrender_traits::*;
+use yaml_rust::Yaml;
 
 pub trait YamlHelper {
     fn as_force_f32(&self) -> Option<f32>;
@@ -110,7 +108,7 @@ impl YamlHelper for Yaml {
             Yaml::String(ref s) | Yaml::Real(ref s) => {
                 s.split_whitespace()
                  .map(|v| f32::from_str(v))
-                 .collect::<Result<Vec<_>,_>>()
+                 .collect::<Result<Vec<_>, _>>()
                  .ok()
             }
             Yaml::Array(ref v) => {
@@ -122,7 +120,7 @@ impl YamlHelper for Yaml {
                         },
                         _ => Err(false),
                     }
-                }).collect::<Result<Vec<_>,_>>().ok()
+                }).collect::<Result<Vec<_>, _>>().ok()
             }
             Yaml::Integer(k) => {
                 Some(vec![k as f32])
@@ -216,12 +214,12 @@ impl YamlHelper for Yaml {
         }
         match self {
             &Yaml::String(ref string) => match parse_function(string) {
-                ("translate", ref args) if args.len() == 2 =>  {
+                ("translate", ref args) if args.len() == 2 => {
                     return Some(LayoutTransform::create_translation(args[0].parse().unwrap(),
                                                                     args[1].parse().unwrap(),
                                                                     0.))
                 }
-                ("rotate", ref args) if args.len() == 1 =>  {
+                ("rotate", ref args) if args.len() == 1 => {
                     // rotate takes a single parameter of degrees and rotates in X-Y plane
                     let pre_transform = LayoutTransform::create_translation(transform_origin.x,
                                                                             transform_origin.y,
@@ -332,32 +330,32 @@ impl YamlHelper for Yaml {
     fn as_filter_op(&self) -> Option<FilterOp> {
         if let Some(s) = self.as_str() {
             match parse_function(s) {
-                ("blur", ref args) if args.len() == 1 =>  {
+                ("blur", ref args) if args.len() == 1 => {
                     Some(FilterOp::Blur(Au(args[0].parse().unwrap())))
                 }
-                ("brightness", ref args) if args.len() == 1 =>  {
+                ("brightness", ref args) if args.len() == 1 => {
                     Some(FilterOp::Brightness(args[0].parse().unwrap()))
                 }
-                ("contrast", ref args) if args.len() == 1 =>  {
+                ("contrast", ref args) if args.len() == 1 => {
                     Some(FilterOp::Contrast(args[0].parse().unwrap()))
                 }
-                ("grayscale", ref args) if args.len() == 1 =>  {
+                ("grayscale", ref args) if args.len() == 1 => {
                     Some(FilterOp::Grayscale(args[0].parse().unwrap()))
                 }
-                ("hue-rotate", ref args) if args.len() == 1 =>  {
+                ("hue-rotate", ref args) if args.len() == 1 => {
                     Some(FilterOp::HueRotate(args[0].parse().unwrap()))
                 }
-                ("invert", ref args) if args.len() == 1 =>  {
+                ("invert", ref args) if args.len() == 1 => {
                     Some(FilterOp::Invert(args[0].parse().unwrap()))
                 }
-                ("opacity", ref args) if args.len() == 1 =>  {
+                ("opacity", ref args) if args.len() == 1 => {
                     let amount: f32 = args[0].parse().unwrap();
                     Some(FilterOp::Opacity(amount.into()))
                 }
-                ("saturate", ref args) if args.len() == 1 =>  {
+                ("saturate", ref args) if args.len() == 1 => {
                     Some(FilterOp::Saturate(args[0].parse().unwrap()))
                 }
-                ("sepia", ref args) if args.len() == 1 =>  {
+                ("sepia", ref args) if args.len() == 1 => {
                     Some(FilterOp::Sepia(args[0].parse().unwrap()))
                 }
                 (_, _) => { None }
@@ -375,3 +373,4 @@ impl YamlHelper for Yaml {
         }
     }
 }
+

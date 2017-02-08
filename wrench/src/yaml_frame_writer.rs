@@ -1,23 +1,24 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 extern crate yaml_rust;
 
-use euclid::{TypedPoint2D, TypedSize2D, TypedRect, TypedMatrix4D};
+use euclid::{TypedMatrix4D, TypedPoint2D, TypedRect, TypedSize2D};
 use image::{ColorType, save_buffer};
+use scene::Scene;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
-use std::fmt;
-use std::fs;
 use std::fs::File;
 use std::io::Write;
-use std::slice;
 use std::path::{Path, PathBuf};
+use std::{fmt, fs, slice};
+use super::CURRENT_FRAME_NUMBER;
+use time;
 use webrender;
 use webrender_traits::*;
-use yaml_rust::{Yaml, YamlEmitter};
 use yaml_helper::{mix_blend_mode_to_string, scroll_policy_to_string};
-use scene::Scene;
-use time;
-
-use super::CURRENT_FRAME_NUMBER;
+use yaml_rust::{Yaml, YamlEmitter};
 
 type Table = yaml_rust::yaml::Hash;
 
@@ -80,7 +81,7 @@ fn rect_node<U>(parent: &mut Table, key: &str, value: &TypedRect<f32, U>) {
     yaml_node(parent, key, rect_yaml(value));
 }
 
-fn matrix4d_node<U1,U2>(parent: &mut Table, key: &str, value: &TypedMatrix4D<f32, U1, U2>) {
+fn matrix4d_node<U1, U2>(parent: &mut Table, key: &str, value: &TypedMatrix4D<f32, U1, U2>) {
     f32_vec_node(parent, key, &value.to_row_major_array());
 }
 
@@ -321,8 +322,8 @@ impl YamlFrameWriter {
         assert_eq!(data.len(), dl_desc.size() + aux_desc.size() + 4);
 
         // skip 4-byte epoch header
-        let dl_data = data[4..dl_desc.size()+4].to_vec();
-        let aux_data = data[dl_desc.size()+4..].to_vec();
+        let dl_data = data[4..dl_desc.size() + 4].to_vec();
+        let aux_data = data[dl_desc.size() + 4..].to_vec();
 
         let dl = BuiltDisplayList::from_data(dl_data, dl_desc);
         let aux = AuxiliaryLists::from_data(aux_data, aux_desc);
@@ -403,7 +404,11 @@ impl YamlFrameWriter {
         // Remove the data to munge it
         let mut data = self.images.remove(&key).unwrap();
         let bytes = data.bytes.take().unwrap();
-        let (path_file, path) = Self::next_rsrc_paths(&self.rsrc_prefix, &mut self.next_rsrc_num, &self.rsrc_base, "img", "png");
+        let (path_file, path) = Self::next_rsrc_paths(&self.rsrc_prefix,
+                                                      &mut self.next_rsrc_num,
+                                                      &self.rsrc_base,
+                                                      "img",
+                                                      "png");
 
         assert!(data.stride > 0);
         let (color_type, bpp) = match data.format {
@@ -515,7 +520,12 @@ impl YamlFrameWriter {
                         }
                         &mut CachedFont::Raw(ref mut bytes_opt, ref mut path_opt) => {
                             if let Some(bytes) = bytes_opt.take() {
-                                let (path_file, path) = Self::next_rsrc_paths(&self.rsrc_prefix, &mut self.next_rsrc_num, &self.rsrc_base, "font", "ttf");
+                                let (path_file, path) =
+                                    Self::next_rsrc_paths(&self.rsrc_prefix,
+                                                          &mut self.next_rsrc_num,
+                                                          &self.rsrc_base,
+                                                          "font",
+                                                          "ttf");
                                 let mut file = File::create(&path_file).unwrap();
                                 file.write_all(&bytes).unwrap();
                                 *path_opt = Some(path);
