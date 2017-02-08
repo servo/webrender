@@ -33,7 +33,7 @@ use gleam::gl;
 use glutin::{ElementState, VirtualKeyCode, WindowProxy};
 use image::ColorType;
 use image::png::PNGEncoder;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::cmp::{min, max};
 use std::fs::File;
 use std::os::raw::c_void;
@@ -60,7 +60,7 @@ mod scene;
 mod parse_function;
 
 mod reftest;
-use reftest::run_reftests;
+use reftest::ReftestHarness;
 
 mod binary_frame_reader;
 use binary_frame_reader::BinaryFrameReader;
@@ -317,8 +317,11 @@ fn main() {
             Box::new(YamlFrameReader::new_from_args(subargs)) as Box<WrenchThing>
         } else if let Some(subargs) = args.subcommand_matches("replay") {
             Box::new(BinaryFrameReader::new_from_args(subargs)) as Box<WrenchThing>
-        } else if let Some(_) = args.subcommand_matches("reftest") {
-            run_reftests(&mut wrench, &mut window, "reftests/reftest.list");
+        } else if let Some(subargs) = args.subcommand_matches("reftest") {
+            let harness = ReftestHarness::new(&mut wrench, &mut window);
+            let base_manifest = Path::new("reftests/reftest.list");
+            let specific_reftest = subargs.value_of("REFTEST").map(|x| Path::new(x));
+            harness.run(&base_manifest, specific_reftest);
             return;
         } else {
             panic!("Should never have gotten here");
