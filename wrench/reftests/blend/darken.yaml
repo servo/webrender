@@ -1,0 +1,16 @@
+---
+root:
+  items:
+        -
+          bounds: [0, 0, 100, 100]
+          type: rect
+          color: [10, 20, 30]
+        -
+          bounds: [0, 0, 100, 100]
+          type: stacking_context
+          mix-blend-mode: darken
+          items:
+            -
+              bounds: [0, 0, 100, 100]
+              type: rect
+              color: [30, 20, 10]

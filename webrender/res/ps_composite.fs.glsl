@@ -168,6 +168,14 @@ void main(void) {
         case 3:
             result.rgb = HardLight(Cs.rgb, Cb.rgb);        // Overlay is inverse of Hardlight
             break;
+        case 4:
+            // mix-blend-mode: darken
+            result.rgb = min(Cs.rgb, Cb.rgb);
+            break;
+        case 5:
+            // mix-blend-mode: lighten
+            result.rgb = max(Cs.rgb, Cb.rgb);
+            break;
         case 6:
             result.r = ColorDodge(Cb.r, Cs.r);
             result.g = ColorDodge(Cb.g, Cs.g);
