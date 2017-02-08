@@ -205,9 +205,9 @@ impl WindowWrapper {
         }
     }
 
-    fn get_inner_size(&self) -> (u32, u32) {
+    fn get_inner_size_pixels(&self) -> (u32, u32) {
         match *self {
-            WindowWrapper::Window(ref window) => window.get_inner_size().unwrap(),
+            WindowWrapper::Window(ref window) => window.get_inner_size_pixels().unwrap(),
             WindowWrapper::Headless(ref context) => (context.width, context.height),
         }
     }
@@ -330,7 +330,7 @@ fn main() {
 
     let queue_frames = thing.queue_frames();
     for _ in 0..queue_frames {
-        let (width, height) = window.get_inner_size();
+        let (width, height) = window.get_inner_size_pixels();
         let dim = DeviceUintSize::new(width, height);
         wrench.update(dim);
 
@@ -401,7 +401,7 @@ fn main() {
 
             match event {
                 glutin::Event::Awakened => {
-                    let (width, height) = window.get_inner_size();
+                    let (width, height) = window.get_inner_size_pixels();
                     let dim = DeviceUintSize::new(width, height);
                     wrench.update(dim);
 
