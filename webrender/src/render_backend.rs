@@ -9,7 +9,7 @@ use internal_types::{FontTemplate, GLContextHandleWrapper, GLContextWrapper};
 use internal_types::{SourceTexture, ResultMsg, RendererFrame};
 use profiler::BackendProfileCounters;
 use record::ApiRecordingReceiver;
-use resource_cache::ResourceCache;
+use resource_cache::{ResourceCache, VectorCacheMsg};
 use scene::Scene;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
@@ -57,6 +57,7 @@ impl RenderBackend {
                payload_rx: PayloadReceiver,
                payload_tx: PayloadSender,
                result_tx: Sender<ResultMsg>,
+               vector_cache_tx: Sender<VectorCacheMsg>,
                device_pixel_ratio: f32,
                texture_cache: TextureCache,
                enable_aa: bool,
@@ -68,6 +69,7 @@ impl RenderBackend {
                vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>) -> RenderBackend {
 
         let resource_cache = ResourceCache::new(texture_cache,
+                                                vector_cache_tx,
                                                 enable_aa);
 
         RenderBackend {
