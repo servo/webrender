@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 use std::str::CharIndices;
 
 // support arguments like '4', 'ab', '4.0'
@@ -27,7 +31,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
     }
     let mut c = s.char_indices();
     let o = c.next();
-    let mut p = Parser{itr: c, start: 0, o: o};
+    let mut p = Parser { itr: c, start: 0, o: o };
 
     p.skip_whitespace();
 

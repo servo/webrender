@@ -2,15 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use bincode::serde::deserialize;
+use byteorder::{LittleEndian, ReadBytesExt};
 use clap;
-use std::mem;
 use std::any::TypeId;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::process;
-use bincode::serde::deserialize;
-use byteorder::{LittleEndian, ReadBytesExt};
+use std::{mem, process};
 use webrender::WEBRENDER_RECORDING_HEADER;
 use webrender_traits::ApiMsg;
 use wrench::{Wrench, WrenchThing};
@@ -50,7 +49,9 @@ impl BinaryFrameReader {
 
         let written_apimsg_type_id = file.read_u64::<LittleEndian>().unwrap();
         if written_apimsg_type_id != apimsg_type_id {
-            println!("Warning: binary file ApiMsg enum type mismatch: expected 0x{:x}, found 0x{:x}", apimsg_type_id, written_apimsg_type_id);
+            println!("Warning: binary file ApiMsg type mismatch: expected 0x{:x}, found 0x{:x}",
+                     apimsg_type_id,
+                     written_apimsg_type_id);
         }
 
         BinaryFrameReader {

@@ -1,21 +1,23 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 // the json code is largely unfinished; allow these to silence a bunch of warnings
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
 use image::{ColorType, save_buffer};
+use serde_json;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
-use std::fmt;
-use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::{fmt, fs};
+use super::CURRENT_FRAME_NUMBER;
+use time;
 use webrender;
 use webrender_traits::*;
-use serde_json;
-use time;
-
-use super::CURRENT_FRAME_NUMBER;
 
 enum CachedFont {
     Native(NativeFontHandle),
@@ -97,8 +99,8 @@ impl JsonFrameWriter {
         assert_eq!(data.len(), dl_desc.size() + aux_desc.size() + 4);
 
         // there's a 4 byte epoch header that we skip
-        let dl_data = data[4..dl_desc.size()+4].to_vec();
-        let aux_data = data[dl_desc.size()+4..].to_vec();
+        let dl_data = data[4..dl_desc.size() + 4].to_vec();
+        let aux_data = data[dl_desc.size() + 4..].to_vec();
 
         let dl = BuiltDisplayList::from_data(dl_data, dl_desc);
         let aux = AuxiliaryLists::from_data(aux_data, aux_desc);
@@ -140,7 +142,11 @@ impl JsonFrameWriter {
         // Remove the data to munge it
         let mut data = self.images.remove(&key).unwrap();
         let bytes = data.bytes.take().unwrap();
-        let (path_file, path) = Self::next_rsrc_paths(&self.rsrc_prefix, &mut self.next_rsrc_num, &self.rsrc_base, "img", "png");
+        let (path_file, path) = Self::next_rsrc_paths(&self.rsrc_prefix,
+                                                      &mut self.next_rsrc_num,
+                                                      &self.rsrc_base,
+                                                      "img",
+                                                      "png");
 
         let ok = match data.format {
             ImageFormat::RGB8 => {
