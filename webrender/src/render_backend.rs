@@ -16,6 +16,7 @@ use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
+use thread_profiler::register_thread_with_profiler;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, ImageData};
 use webrender_traits::{PipelineId, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
 use webrender_traits::channel::{PayloadHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
@@ -70,6 +71,8 @@ impl RenderBackend {
         let resource_cache = ResourceCache::new(texture_cache,
                                                 enable_aa);
 
+        register_thread_with_profiler("Backend".to_string());
+
         RenderBackend {
             api_rx: api_rx,
             payload_rx: payload_rx,
@@ -97,6 +100,7 @@ impl RenderBackend {
 
         loop {
             let msg = self.api_rx.recv();
+            profile_scope!("handle_msg");
             match msg {
                 Ok(msg) => {
                     if let Some(ref mut r) = self.recorder {
@@ -147,6 +151,7 @@ impl RenderBackend {
                                                    display_list_descriptor,
                                                    auxiliary_lists_descriptor,
                                                    preserve_frame_state) => {
+                            profile_scope!("SetRootDisplayList");
                             let mut leftover_auxiliary_data = vec![];
                             let mut auxiliary_data;
                             loop {
@@ -195,6 +200,7 @@ impl RenderBackend {
                             self.build_scene();
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
+                            profile_scope!("SetRootPipeline");
                             self.scene.set_root_pipeline_id(pipeline_id);
 
                             if self.scene.display_lists.get(&pipeline_id).is_none() {
@@ -204,6 +210,7 @@ impl RenderBackend {
                             self.build_scene();
                         }
                         ApiMsg::Scroll(delta, cursor, move_phase) => {
+                            profile_scope!("Scroll");
                             let frame = profile_counters.total_time.profile(|| {
                                 if self.frame.scroll(delta, cursor, move_phase) {
                                     Some(self.render())
@@ -221,6 +228,7 @@ impl RenderBackend {
                             }
                         }
                         ApiMsg::ScrollLayersWithScrollId(origin, pipeline_id, scroll_root_id) => {
+                            profile_scope!("ScrollLayersWithScrollId");
                             let frame = profile_counters.total_time.profile(|| {
                                 if self.frame.scroll_layers(origin, pipeline_id, scroll_root_id) {
                                     Some(self.render())
@@ -239,6 +247,7 @@ impl RenderBackend {
 
                         }
                         ApiMsg::TickScrollingBounce => {
+                            profile_scope!("TickScrollingBounce");
                             let frame = profile_counters.total_time.profile(|| {
                                 self.frame.tick_scrolling_bounce_animations();
                                 self.render()
@@ -250,6 +259,7 @@ impl RenderBackend {
                             panic!("unused api - remove from webrender_traits");
                         }
                         ApiMsg::GetScrollLayerState(tx) => {
+                            profile_scope!("GetScrollLayerState");
                             tx.send(self.frame.get_scroll_layer_state())
                               .unwrap()
                         }
@@ -317,6 +327,8 @@ impl RenderBackend {
                             self.handle_vr_compositor_command(context_id, command);
                         }
                         ApiMsg::GenerateFrame(property_bindings) => {
+                            profile_scope!("GenerateFrame");
+
                             // Ideally, when there are property bindings present,
                             // we won't need to rebuild the entire frame here.
                             // However, to avoid conflicts with the ongoing work to

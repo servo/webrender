@@ -653,6 +653,7 @@ impl FrameBuilder {
                                                 resource_cache: &mut ResourceCache,
                                                 profile_counters: &mut FrameProfileCounters,
                                                 device_pixel_ratio: f32) {
+        profile_scope!("cull");
         LayerRectCalculationAndCullingPass::create_and_run(self,
                                                            screen_rect,
                                                            scroll_tree,
@@ -708,6 +709,8 @@ impl FrameBuilder {
     }
 
     fn build_render_task(&self) -> (RenderTask, usize) {
+        profile_scope!("build_render_task");
+
         let mut next_z = 0;
         let mut next_task_index = RenderTaskIndex(0);
 
@@ -833,6 +836,8 @@ impl FrameBuilder {
                  scroll_tree: &ScrollTree,
                  auxiliary_lists_map: &AuxiliaryListsMap,
                  device_pixel_ratio: f32) -> Frame {
+        profile_scope!("build");
+
         let mut profile_counters = FrameProfileCounters::new();
         profile_counters.total_primitives.set(self.prim_store.prim_count());
 

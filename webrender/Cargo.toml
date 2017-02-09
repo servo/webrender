@@ -30,6 +30,7 @@ threadpool = "1.3.2"
 webrender_traits = {path = "../webrender_traits", default-features = false}
 bitflags = "0.7"
 gamma-lut = "0.1"
+thread_profiler = "0.1"
 
 [dev-dependencies]
 angle = {git = "https://github.com/servo/angle", branch = "servo"}

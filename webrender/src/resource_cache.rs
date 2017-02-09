@@ -19,6 +19,7 @@ use std::sync::{Arc, Barrier};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::{TextureCache, TextureCacheItemId};
+use thread_profiler::register_thread_with_profiler;
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRendering};
 use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
 use webrender_traits::{DevicePoint, DeviceIntSize, ImageDescriptor, ColorF};
@@ -486,6 +487,8 @@ impl ResourceCache {
     }
 
     pub fn block_until_all_resources_added(&mut self) {
+        profile_scope!("block_until_all_resources_added");
+
         debug_assert!(self.state == State::AddResources);
         self.state = State::QueryResources;
 
@@ -637,6 +640,17 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
         let mut glyph_cache = None;
         let mut current_frame_id = FrameId(0);
 
+        register_thread_with_profiler("GlyphCache".to_string());
+
+        let barrier = Arc::new(Barrier::new(worker_count));
+        for i in 0..worker_count {
+            let barrier = barrier.clone();
+            thread_pool.execute(move || {
+                register_thread_with_profiler(format!("Glyph Worker {}", i));
+                barrier.wait();
+            });
+        }
+
         // Maintain a set of glyphs that have been requested this
         // frame. This ensures the glyph thread won't rasterize
         // the same glyph more than once in a frame. This is required
@@ -646,8 +660,11 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
         let mut pending_glyphs = HashSet::new();
 
         while let Ok(msg) = msg_rx.recv() {
+            profile_scope!("handle_msg");
             match msg {
                 GlyphCacheMsg::BeginFrame(frame_id, cache) => {
+                    profile_scope!("BeginFrame");
+
                     // We are beginning a new frame. Take ownership of the glyph
                     // cache hash map, so we can easily see which glyph requests
                     // actually need to be rasterized.
@@ -655,6 +672,8 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                     glyph_cache = Some(cache);
                 }
                 GlyphCacheMsg::AddFont(font_key, font_template) => {
+                    profile_scope!("AddFont");
+
                     // Add a new font to the font context in each worker thread.
                     // Use a barrier to ensure that each worker in the pool handles
                     // one of these messages, to ensure that the new font gets
@@ -682,6 +701,8 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                     }
                 }
                 GlyphCacheMsg::RequestGlyphs(key, size, color, glyph_instances, render_mode, glyph_options) => {
+                    profile_scope!("RequestGlyphs");
+
                     // Request some glyphs for a text run.
                     // For any glyph that isn't currently in the cache,
                     // immeediately push a job to the worker thread pool
@@ -703,6 +724,7 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                             let glyph_tx = glyph_tx.clone();
                             pending_glyphs.insert(glyph_key.clone());
                             thread_pool.execute(move || {
+                                profile_scope!("glyph");
                                 FONT_CONTEXT.with(move |font_context| {
                                     let mut font_context = font_context.borrow_mut();
                                     let result = font_context.rasterize_glyph(&glyph_key.key,
@@ -715,6 +737,8 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                     }
                 }
                 GlyphCacheMsg::EndFrame => {
+                    profile_scope!("EndFrame");
+
                     // The resource cache has finished requesting glyphs. Block
                     // on completion of any pending glyph rasterizing jobs, and then
                     // return the list of new glyphs to the resource cache.

@@ -42,7 +42,6 @@ fn float_to_fixed_ft(f: f64) -> i32 {
 
 impl FontContext {
     pub fn new() -> FontContext {
-//        let _pf = util::ProfileScope::new("  FontContext::new");
         let mut lib: FT_Library = ptr::null_mut();
         unsafe {
             let result = FT_Init_FreeType(&mut lib);
