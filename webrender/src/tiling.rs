@@ -1257,6 +1257,7 @@ pub struct ScrollLayerIndex(pub usize);
 
 pub struct ScrollLayer {
     pub scroll_layer_id: ScrollLayerId,
+    pub parent_index: ScrollLayerIndex,
     pub clip_source: ClipSource,
     pub clip_cache_info: Option<MaskCacheInfo>,
     pub packed_layer_index: PackedLayerIndex,
