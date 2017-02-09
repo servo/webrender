@@ -422,13 +422,13 @@ VertexInfo write_vertex(vec4 instance_rect,
                         float z,
                         Layer layer,
                         AlphaBatchTask task) {
-    vec2 p0 = floor(0.5 + instance_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
-    vec2 p1 = floor(0.5 + (instance_rect.xy + instance_rect.zw) * uDevicePixelRatio) / uDevicePixelRatio;
+    vec2 p0 = instance_rect.xy;
+    vec2 p1 = instance_rect.xy + instance_rect.zw;
 
     vec2 local_pos = mix(p0, p1, aPosition.xy);
 
-    vec2 cp0 = floor(0.5 + local_clip_rect.xy * uDevicePixelRatio) / uDevicePixelRatio;
-    vec2 cp1 = floor(0.5 + (local_clip_rect.xy + local_clip_rect.zw) * uDevicePixelRatio) / uDevicePixelRatio;
+    vec2 cp0 = local_clip_rect.xy;
+    vec2 cp1 = local_clip_rect.xy + local_clip_rect.zw;
     local_pos = clamp(local_pos, cp0, cp1);
 
     local_pos = clamp_rect(local_pos, layer.local_clip_rect);
@@ -437,6 +437,21 @@ VertexInfo write_vertex(vec4 instance_rect,
     world_pos.xyz /= world_pos.w;
 
     vec2 device_pos = world_pos.xy * uDevicePixelRatio;
+
+    // NOTE: The pixel snapping here relies on an assumption to
+    //       avoid stretching the UV surface in local space. We
+    //       assume that the fractional part of all the vertex
+    //       coords are the same for the entire quad. This is
+    //       *guaranteed* by the text run vertex shader. It's also
+    //       the default case for images (that use an implicit size).
+    //       For other cases, where a fractional width is explictly
+    //       set in CSS, this may result in a small amount of
+    //       stretching.
+
+    // Snap the position to device pixels. We can't rely on round()
+    // here due to the following language in the specification:
+    // "The fraction 0.5 will round in a direction chosen by the implementation, presumably the direction that is fastest."
+    device_pos = floor(device_pos + 0.5);
 
     vec2 final_pos = device_pos - task.screen_space_origin + task.render_target_origin;
 
