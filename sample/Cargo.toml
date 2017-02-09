@@ -1,6 +1,6 @@
 [package]
 name = "wr_sample"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 
@@ -15,7 +15,7 @@ default_features = false
 profiler = [ "webrender/profiler" ]
 
 [dependencies]
-app_units = "0.3"
-euclid = "0.10"
+app_units = "0.4"
+euclid = "0.11"
 gleam = "0.2"
 glutin = "0.7"
