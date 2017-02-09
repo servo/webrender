@@ -28,25 +28,7 @@ use euclid::Point2D;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
-type GlyphCache = ResourceClassCache<RenderedGlyphKey, Option<TextureCacheItemId>>;
-
-/// Message sent from the resource cache to the glyph cache thread.
-enum GlyphCacheMsg {
-    /// Begin the frame - pass ownership of the glyph cache to the thread.
-    BeginFrame(FrameId, GlyphCache),
-    /// Add a new font.
-    AddFont(FontKey, FontTemplate),
-    /// Request glyphs for a text run.
-    RequestGlyphs(FontKey, Au, ColorF, Vec<GlyphInstance>, FontRenderMode, Option<GlyphOptions>),
-    /// Finished requesting glyphs. Reply with new glyphs.
-    EndFrame,
-}
-
-/// Results send from glyph cache thread back to main resource cache.
-enum GlyphCacheResultMsg {
-    /// Return the glyph cache, and a list of newly rasterized glyphs.
-    EndFrame(GlyphCache, Vec<GlyphRasterJob>),
-}
+pub type GlyphCache = ResourceClassCache<RenderedGlyphKey, Option<TextureCacheItemId>>;
 
 // These coordinates are always in texels.
 // They are converted to normalized ST
@@ -177,11 +159,6 @@ struct ImageRequest {
     rendering: ImageRendering,
 }
 
-struct GlyphRasterJob {
-    key: RenderedGlyphKey,
-    result: Option<RasterizedGlyph>,
-}
-
 struct WebGLTexture {
     id: SourceTexture,
     size: DeviceIntSize,
@@ -205,15 +182,17 @@ pub struct ResourceCache {
     // TODO(gw): We should expire (parts of) this cache semi-regularly!
     cached_glyph_dimensions: HashMap<GlyphKey, Option<GlyphDimensions>, BuildHasherDefault<FnvHasher>>,
     pending_image_requests: Vec<ImageRequest>,
-    glyph_cache_tx: Sender<GlyphCacheMsg>,
-    glyph_cache_result_queue: Receiver<GlyphCacheResultMsg>,
+    vector_cache_sender: Sender<VectorCacheMsg>,
+    vector_cache_result_queue: Receiver<VectorCacheResultMsg>,
+    vector_cache_result_sender: Sender<VectorCacheResultMsg>,
     pending_external_image_update_list: ExternalImageUpdateList,
 }
 
 impl ResourceCache {
     pub fn new(texture_cache: TextureCache,
+               vector_cache_sender: Sender<VectorCacheMsg>,
                enable_aa: bool) -> ResourceCache {
-        let (glyph_cache_tx, glyph_cache_result_queue) = spawn_glyph_cache_thread();
+        let (vector_cache_result_sender, vector_cache_result_queue) = channel();
 
         ResourceCache {
             cached_glyphs: Some(ResourceClassCache::new()),
@@ -227,8 +206,9 @@ impl ResourceCache {
             enable_aa: enable_aa,
             current_frame_id: FrameId(0),
             pending_image_requests: Vec::new(),
-            glyph_cache_tx: glyph_cache_tx,
-            glyph_cache_result_queue: glyph_cache_result_queue,
+            vector_cache_sender: vector_cache_sender,
+            vector_cache_result_queue: vector_cache_result_queue,
+            vector_cache_result_sender: vector_cache_result_sender,
             pending_external_image_update_list: ExternalImageUpdateList::new(),
         }
     }
@@ -236,8 +216,8 @@ impl ResourceCache {
     pub fn add_font_template(&mut self, font_key: FontKey, template: FontTemplate) {
         // Push the new font to the glyph cache thread, and also store
         // it locally for glyph metric requests.
-        self.glyph_cache_tx
-            .send(GlyphCacheMsg::AddFont(font_key, template.clone()))
+        self.vector_cache_sender
+            .send(VectorCacheMsg::AddFont(font_key, template.clone()))
             .unwrap();
         self.font_templates.insert(font_key, template);
     }
@@ -341,13 +321,13 @@ impl ResourceCache {
         // Immediately request that the glyph cache thread start
         // rasterizing glyphs from this request if they aren't
         // already cached.
-        let msg = GlyphCacheMsg::RequestGlyphs(key,
-                                               size,
-                                               color,
-                                               glyph_instances.to_vec(),
-                                               render_mode,
-                                               glyph_options);
-        self.glyph_cache_tx.send(msg).unwrap();
+        let msg = VectorCacheMsg::RequestGlyphs(key,
+                                                size,
+                                                color,
+                                                glyph_instances.to_vec(),
+                                                render_mode,
+                                                glyph_options);
+        self.vector_cache_sender.send(msg).unwrap();
     }
 
     pub fn pending_updates(&mut self) -> TextureUpdateList {
@@ -482,7 +462,7 @@ impl ResourceCache {
         self.state = State::AddResources;
         self.current_frame_id = frame_id;
         let glyph_cache = self.cached_glyphs.take().unwrap();
-        self.glyph_cache_tx.send(GlyphCacheMsg::BeginFrame(frame_id, glyph_cache)).ok();
+        self.vector_cache_sender.send(VectorCacheMsg::BeginFrame(frame_id, glyph_cache)).ok();
     }
 
     pub fn block_until_all_resources_added(&mut self) {
@@ -496,15 +476,15 @@ impl ResourceCache {
         // available in the cache, render with those, and then re-render at
         // a later point when the correct resolution glyphs finally become
         // available.
-        self.glyph_cache_tx.send(GlyphCacheMsg::EndFrame).unwrap();
+        self.vector_cache_sender.send(VectorCacheMsg::EndFrame(self.vector_cache_result_sender.clone())).unwrap();
 
         // Loop until the end frame message is retrieved here. This loop
         // doesn't serve any real purpose right now, but in the future
         // it will be receiving small amounts of glyphs at a time, up until
         // it decides that it should just render the frame.
-        while let Ok(result) = self.glyph_cache_result_queue.recv() {
+        while let Ok(result) = self.vector_cache_result_queue.recv() {
             match result {
-                GlyphCacheResultMsg::EndFrame(mut cache, glyph_jobs) => {
+                VectorCacheResultMsg::EndFrame(mut cache, glyph_jobs) => {
                     // Add any newly rasterized glyphs to the texture cache.
                     for job in glyph_jobs {
                         let image_id = job.result.and_then(|glyph| {
@@ -621,18 +601,40 @@ impl Resource for CachedImageInfo {
     }
 }
 
-fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResultMsg>) {
-    // Used for messages from resource cache -> glyph cache thread.
+
+/// Message sent from the resource cache to the vector cache thread.
+pub enum VectorCacheMsg {
+    /// Begin the frame - pass ownership of the vector cache to the thread.
+    BeginFrame(FrameId, GlyphCache),
+    /// Add a new font.
+    AddFont(FontKey, FontTemplate),
+    /// Request glyphs for a text run.
+    RequestGlyphs(FontKey, Au, ColorF, Vec<GlyphInstance>, FontRenderMode, Option<GlyphOptions>),
+    /// Finished requesting glyphs. Reply with new glyphs.
+    EndFrame(Sender<VectorCacheResultMsg>),
+}
+
+/// Results send from glyph cache thread back to main resource cache.
+pub enum VectorCacheResultMsg {
+    /// Return the glyph cache, and a list of newly rasterized glyphs.
+    EndFrame(GlyphCache, Vec<GlyphRasterJob>),
+}
+
+pub struct GlyphRasterJob {
+    pub key: RenderedGlyphKey,
+    pub result: Option<RasterizedGlyph>,
+}
+
+pub fn spawn_vector_cache_thread(worker_count: usize) -> Sender<VectorCacheMsg> {
+    let worker_count = if worker_count > 0 { worker_count } else { 1 };
+
+    // Used for messages from resource cache -> vector cache thread.
     let (msg_tx, msg_rx) = channel();
-    // Used for returning results from glyph cache thread -> resource cache.
-    let (result_tx, result_rx) = channel();
     // Used for rasterizer worker threads to send glyphs -> glyph cache thread.
     let (glyph_tx, glyph_rx) = channel();
 
-    thread::Builder::new().name("GlyphCache".to_string()).spawn(move|| {
-        // TODO(gw): Use a heuristic to select best # of worker threads.
-        let worker_count = 4;
-        let thread_pool = ThreadPool::new(worker_count);
+    thread::Builder::new().name("VectorCache".to_string()).spawn(move|| {
+        let thread_pool = ThreadPool::new_with_name("RasterizerWorker".to_string(), worker_count);
 
         let mut glyph_cache = None;
         let mut current_frame_id = FrameId(0);
@@ -647,14 +649,14 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
 
         while let Ok(msg) = msg_rx.recv() {
             match msg {
-                GlyphCacheMsg::BeginFrame(frame_id, cache) => {
+                VectorCacheMsg::BeginFrame(frame_id, cache) => {
                     // We are beginning a new frame. Take ownership of the glyph
                     // cache hash map, so we can easily see which glyph requests
                     // actually need to be rasterized.
                     current_frame_id = frame_id;
                     glyph_cache = Some(cache);
                 }
-                GlyphCacheMsg::AddFont(font_key, font_template) => {
+                VectorCacheMsg::AddFont(font_key, font_template) => {
                     // Add a new font to the font context in each worker thread.
                     // Use a barrier to ensure that each worker in the pool handles
                     // one of these messages, to ensure that the new font gets
@@ -681,7 +683,7 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                         });
                     }
                 }
-                GlyphCacheMsg::RequestGlyphs(key, size, color, glyph_instances, render_mode, glyph_options) => {
+                VectorCacheMsg::RequestGlyphs(key, size, color, glyph_instances, render_mode, glyph_options) => {
                     // Request some glyphs for a text run.
                     // For any glyph that isn't currently in the cache,
                     // immeediately push a job to the worker thread pool
@@ -714,7 +716,7 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                         }
                     }
                 }
-                GlyphCacheMsg::EndFrame => {
+                VectorCacheMsg::EndFrame(result_tx) => {
                     // The resource cache has finished requesting glyphs. Block
                     // on completion of any pending glyph rasterizing jobs, and then
                     // return the list of new glyphs to the resource cache.
@@ -738,11 +740,11 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                     rasterized_glyphs.sort_by(|a, b| {
                         a.key.cmp(&b.key)
                     });
-                    result_tx.send(GlyphCacheResultMsg::EndFrame(cache, rasterized_glyphs)).unwrap();
+                    result_tx.send(VectorCacheResultMsg::EndFrame(cache, rasterized_glyphs)).unwrap();
                 }
             }
         }
     }).unwrap();
 
-    (msg_tx, result_rx)
+    msg_tx
 }

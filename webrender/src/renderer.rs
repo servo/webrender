@@ -27,6 +27,7 @@ use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
 use render_task::RenderTaskData;
+use resource_cache::{VectorCacheMsg, spawn_vector_cache_thread};
 use std;
 use std::cmp;
 use std::collections::HashMap;
@@ -499,7 +500,7 @@ impl Renderer {
     /// };
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
-    pub fn new(options: RendererOptions) -> Result<(Renderer, RenderApiSender), InitError> {
+    pub fn new(mut options: RendererOptions) -> Result<(Renderer, RenderApiSender), InitError> {
         let (api_tx, api_rx) = try!{ channel::msg_channel() };
         let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
         let (result_tx, result_rx) = channel();
@@ -757,11 +758,15 @@ impl Renderer {
         let render_target_debug = options.render_target_debug;
         let payload_tx_for_backend = payload_tx.clone();
         let recorder = options.recorder;
+        let vector_cache_tx = mem::replace(&mut options.vector_cache_sender, None).unwrap_or_else(||{
+            spawn_vector_cache_thread(4)
+        });
         try!{ thread::Builder::new().name("RenderBackend".to_string()).spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  payload_rx,
                                                  payload_tx_for_backend,
                                                  result_tx,
+                                                 vector_cache_tx,
                                                  device_pixel_ratio,
                                                  texture_cache,
                                                  enable_aa,
@@ -1721,6 +1726,7 @@ pub struct RendererOptions {
     pub clear_color: ColorF,
     pub render_target_debug: bool,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
+    pub vector_cache_sender: Option<Sender<VectorCacheMsg>>,
 }
 
 impl Default for RendererOptions {
@@ -1739,6 +1745,7 @@ impl Default for RendererOptions {
             clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
             render_target_debug: false,
             recorder: None,
+            vector_cache_sender: None,
         }
     }
 }
