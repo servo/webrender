@@ -47,7 +47,7 @@ use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ExternalImageId, ImageData, ImageFormat, RenderApiSender, RendererKind};
 use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
-use webrender_traits::ImageDescriptor;
+use webrender_traits::{ImageDescriptor, VectorImageRenderer, VectorImageData};
 use webrender_traits::channel;
 use webrender_traits::VRCompositorHandler;
 
@@ -500,7 +500,7 @@ impl Renderer {
     /// };
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
-    pub fn new(options: RendererOptions) -> Result<(Renderer, RenderApiSender), InitError> {
+    pub fn new(mut options: RendererOptions) -> Result<(Renderer, RenderApiSender), InitError> {
         let (api_tx, api_rx) = try!{ channel::msg_channel() };
         let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
         let (result_tx, result_rx) = channel();
@@ -760,6 +760,7 @@ impl Renderer {
         let render_target_debug = options.render_target_debug;
         let payload_tx_for_backend = payload_tx.clone();
         let recorder = options.recorder;
+        let vector_image_renderer = options.vector_image_renderer.take();
         try!{ thread::Builder::new().name("RenderBackend".to_string()).spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  payload_rx,
@@ -773,6 +774,7 @@ impl Renderer {
                                                  config,
                                                  recorder,
                                                  backend_main_thread_dispatcher,
+                                                 vector_image_renderer,
                                                  backend_vr_compositor);
             backend.run();
         })};
@@ -1717,7 +1719,6 @@ pub trait ExternalImageHandler {
     fn release(&mut self, key: ExternalImageId);
 }
 
-#[derive(Debug)]
 pub struct RendererOptions {
     pub device_pixel_ratio: f32,
     pub resource_override_path: Option<PathBuf>,
@@ -1731,6 +1732,7 @@ pub struct RendererOptions {
     pub clear_framebuffer: bool,
     pub clear_color: ColorF,
     pub render_target_debug: bool,
+    pub vector_image_renderer: Option<Box<VectorImageRenderer>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
 }
 
@@ -1749,6 +1751,7 @@ impl Default for RendererOptions {
             clear_framebuffer: true,
             clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
             render_target_debug: false,
+            vector_image_renderer: None,
             recorder: None,
         }
     }

@@ -23,7 +23,8 @@ use thread_profiler::register_thread_with_profiler;
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRendering};
 use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
 use webrender_traits::{DevicePoint, DeviceIntSize, ImageDescriptor, ColorF};
-use webrender_traits::{ExternalImageId, GlyphOptions, GlyphInstance};
+use webrender_traits::{ExternalImageId, GlyphOptions, GlyphInstance, VectorImageData};
+use webrender_traits::{VectorImageRenderer, RasterizedVectorImage};
 use threadpool::ThreadPool;
 use euclid::Point2D;
 
@@ -209,10 +210,14 @@ pub struct ResourceCache {
     glyph_cache_tx: Sender<GlyphCacheMsg>,
     glyph_cache_result_queue: Receiver<GlyphCacheResultMsg>,
     pending_external_image_update_list: ExternalImageUpdateList,
+
+    vector_image_renderer: Option<Box<VectorImageRenderer>>,
+    vector_image_requests: Vec<ImageKey>,
 }
 
 impl ResourceCache {
     pub fn new(texture_cache: TextureCache,
+               vector_image_renderer: Option<Box<VectorImageRenderer>>,
                enable_aa: bool) -> ResourceCache {
         let (glyph_cache_tx, glyph_cache_result_queue) = spawn_glyph_cache_thread();
 
@@ -231,6 +236,9 @@ impl ResourceCache {
             glyph_cache_tx: glyph_cache_tx,
             glyph_cache_result_queue: glyph_cache_result_queue,
             pending_external_image_update_list: ExternalImageUpdateList::new(),
+
+            vector_image_renderer: vector_image_renderer,
+            vector_image_requests: Vec::new(),
         }
     }
 
@@ -320,14 +328,26 @@ impl ResourceCache {
         webgl_texture.size = size;
     }
 
-    pub fn request_image(&mut self,
-                         key: ImageKey,
-                         rendering: ImageRendering) {
+    pub fn request_image(&mut self, key: ImageKey, rendering: ImageRendering) {
         debug_assert!(self.state == State::AddResources);
-        self.pending_image_requests.push(ImageRequest {
+        let request = ImageRequest {
             key: key,
             rendering: rendering,
-        });
+        };
+
+        let template = self.image_templates.get(&key).unwrap();
+        if !self.cached_images.contains_key(&request) {
+            if let ImageData::Vector(ref data) = template.data {
+                if let Some(ref mut renderer) = self.vector_image_renderer {
+                    // TODO(nical): figure out the scale factor (should change with zoom).
+                    renderer.request_vector_image(key, data.clone(), &template.descriptor, 1.0);
+                    self.vector_image_requests.push(key);
+                } else {
+                    println!(" WAT ");
+                }
+            }
+        }
+        self.pending_image_requests.push(request);
     }
 
     pub fn request_glyphs(&mut self,
@@ -452,7 +472,7 @@ impl ResourceCache {
         let external_id = match image_template.data {
             ImageData::ExternalHandle(id) => Some(id),
             // raw and externalBuffer are all use resource_cache.
-            ImageData::Raw(..) | ImageData::ExternalBuffer(..) => None,
+            ImageData::Raw(..) | ImageData::ExternalBuffer(..) | ImageData::Vector(..) => None,
         };
 
         ImageProperties {
@@ -541,13 +561,20 @@ impl ResourceCache {
         for request in self.pending_image_requests.drain(..) {
             let cached_images = &mut self.cached_images;
             let image_template = &self.image_templates[&request.key];
-            let image_data = image_template.data.clone();
+            let mut image_data = image_template.data.clone();
+
+            if let Some(ref mut renderer) = self.vector_image_renderer {
+                if self.vector_image_requests.contains(&request.key) {
+                    let image = renderer.resolve_vector_image(request.key);
+                    image_data = ImageData::new(image.data)
+                }
+            }
 
             match image_template.data {
                 ImageData::ExternalHandle(..) => {
                     // external handle doesn't need to update the texture_cache.
                 }
-                ImageData::Raw(..) | ImageData::ExternalBuffer(..) => {
+                ImageData::Raw(..) | ImageData::ExternalBuffer(..) | ImageData::Vector(..) => {
                     match cached_images.entry(request.clone(), self.current_frame_id) {
                         Occupied(entry) => {
                             let image_id = entry.get().texture_cache_id;
@@ -586,6 +613,8 @@ impl ResourceCache {
                 }
             }
         }
+
+        self.vector_image_requests.clear();
     }
 
     pub fn end_frame(&mut self) {

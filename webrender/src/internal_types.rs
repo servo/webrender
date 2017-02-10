@@ -21,7 +21,7 @@ use tiling;
 use webrender_traits::{Epoch, ColorF, PipelineId, DeviceIntSize};
 use webrender_traits::{ImageFormat, NativeFontHandle};
 use webrender_traits::{ExternalImageId, ScrollLayerId, WebGLCommand};
-use webrender_traits::{ImageData};
+use webrender_traits::{ImageKey, ImageDescriptor, ImageData, VectorImageData};
 use webrender_traits::{DeviceUintRect};
 
 // An ID for a texture that is owned by the

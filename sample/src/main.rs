@@ -16,9 +16,13 @@ use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
-use webrender_traits::{ColorF, Epoch, GlyphInstance};
+use std::sync::Arc;
+use std::collections::HashMap;
+use webrender_traits::{ColorF, Epoch, GlyphInstance, ClipRegion, ImageRendering};
 use webrender_traits::{ImageDescriptor, ImageData, ImageFormat, PipelineId};
 use webrender_traits::{LayoutSize, LayoutPoint, LayoutRect, LayoutTransform, DeviceUintSize};
+use webrender_traits::{ImageKey, VectorImageData, VectorImageRenderer, RasterizedVectorImage};
+
 
 fn load_file(name: &str) -> Vec<u8> {
     let mut file = File::open(name).unwrap();
@@ -84,6 +88,7 @@ fn main() {
         resource_override_path: res_path,
         debug: true,
         precache_shaders: true,
+        vector_image_renderer: Some(Box::new(FakeVectorImageRenderer::new())),
         .. Default::default()
     };
 
@@ -95,6 +100,17 @@ fn main() {
 
     let epoch = Epoch(0);
     let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
+
+    let vector_img = api.add_image(
+        ImageDescriptor {
+            format: ImageFormat::RGBA8,
+            width: 100,
+            height: 100,
+            stride: None,
+            is_opaque: true,
+        },
+        ImageData::new_vector_image(Vec::new()),
+    );
 
     let pipeline_id = PipelineId(0, 0);
     let mut builder = webrender_traits::DisplayListBuilder::new(pipeline_id);
@@ -116,6 +132,14 @@ fn main() {
                                   LayoutTransform::identity(),
                                   webrender_traits::MixBlendMode::Normal,
                                   Vec::new());
+    builder.push_image(
+        LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(100.0, 100.0)),
+        ClipRegion::simple(&bounds),
+        LayoutSize::new(100.0, 100.0),
+        LayoutSize::new(0.0, 0.0),
+        ImageRendering::Auto,
+        vector_img,
+    );
 
     let sub_clip = {
         let mask = webrender_traits::ImageMask {
@@ -253,5 +277,40 @@ fn main() {
             }
             _ => ()
         }
+    }
+}
+
+struct FakeVectorImageRenderer {
+    images: HashMap<ImageKey, RasterizedVectorImage>,
+}
+
+impl FakeVectorImageRenderer {
+    fn new() -> Self {
+        FakeVectorImageRenderer { images: HashMap::new() }
+    }
+}
+
+impl VectorImageRenderer for FakeVectorImageRenderer {
+    fn request_vector_image(&mut self, key: ImageKey, _: Arc<VectorImageData>, descriptor: &ImageDescriptor, _: f32) {
+        let mut texels = Vec::with_capacity((descriptor.width * descriptor.height * 4) as usize);
+        for y in 0..descriptor.height {
+            for x in 0..descriptor.width {
+                let a = if (x % 20 >= 10) != (y % 20 >= 10) { 255 } else { 0 };
+                texels.push(a);
+                texels.push(a);
+                texels.push(a);
+                texels.push(255);
+            }
+        }
+
+        self.images.insert(key, RasterizedVectorImage {
+            data: texels,
+            width: descriptor.width,
+            height: descriptor.height,
+        });
+    }
+
+    fn resolve_vector_image(&mut self, key: ImageKey) -> RasterizedVectorImage {
+        self.images.remove(&key).unwrap()
     }
 }
