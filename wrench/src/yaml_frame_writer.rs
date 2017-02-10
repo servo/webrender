@@ -429,7 +429,7 @@ impl YamlFrameWriter {
         };
 
         if data.stride == data.width * bpp {
-            save_buffer(&path_file, &bytes, data.width, data.height, ColorType::RGB(8)).unwrap();
+            save_buffer(&path_file, &bytes, data.width, data.height, color_type).unwrap();
         } else {
             // takes a buffer with a stride and copies it into a new buffer that has stride == width
             assert!(data.stride > data.width * bpp);
