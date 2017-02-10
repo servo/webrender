@@ -110,7 +110,6 @@ fn main() {
 
     builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
                                   bounds,
-                                  //clip_region,
                                   0,
                                   LayoutTransform::identity().into(),
                                   LayoutTransform::identity(),

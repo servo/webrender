@@ -1,12 +1,19 @@
 ---
 root:
   items:
+    -
+      type: scroll_layer
+      # note: the scroll layer here is just to clip the contents,
+      # see https://github.com/servo/webrender/issues/859
+      bounds: [50, 50, 200, 200]
+      content-size: [250, 250]
+      items:
         -
-          bounds: [10, 10, 200, 200]
           type: stacking_context
+          bounds: [0, 0, 300, 300]
           filters: grayscale(1)
           items:
             -
-              bounds: [0, 0, 200, 200]
+              bounds: [0, 0, 300, 300]
               type: rect
               color: [0, 255, 0]

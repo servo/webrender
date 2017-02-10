@@ -384,8 +384,8 @@ impl Frame {
             layer_relative_transform.pre_translated(stacking_context.bounds.origin.x,
                                                     stacking_context.bounds.origin.y,
                                                     0.0)
-                                     .pre_mul(&stacking_context_transform)
-                                     .pre_mul(&stacking_context.perspective);
+                                    .pre_mul(&stacking_context_transform)
+                                    .pre_mul(&stacking_context.perspective);
 
         let mut reference_frame_id = current_reference_frame_id;
         let mut scroll_layer_id = match stacking_context.scroll_policy {
@@ -393,13 +393,13 @@ impl Frame {
             ScrollPolicy::Scrollable => current_scroll_layer_id,
         };
 
-        let clip_rect = stacking_context.bounds;
+        let local_rect = stacking_context.bounds;
 
         // If we have a transformation, we establish a new reference frame. This means
         // that fixed position stacking contexts are positioned relative to us.
         if stacking_context_transform != LayoutTransform::identity() ||
            stacking_context.perspective != LayoutTransform::identity() {
-            scroll_layer_id = self.scroll_tree.add_reference_frame(clip_rect,
+            scroll_layer_id = self.scroll_tree.add_reference_frame(local_rect,
                                                                    transform,
                                                                    pipeline_id,
                                                                    scroll_layer_id);
@@ -412,8 +412,8 @@ impl Frame {
                 if let Some(bg_color) = pipeline.background_color {
 
                     // Adding a dummy layer for this rectangle in order to disable clipping.
-                    let no_clip = ClipRegion::simple(&clip_rect);
-                    context.builder.push_stacking_context(clip_rect,
+                    let no_clip = ClipRegion::simple(&local_rect);
+                    context.builder.push_stacking_context(local_rect,
                                                           transform,
                                                           pipeline_id,
                                                           scroll_layer_id,
@@ -421,7 +421,7 @@ impl Frame {
 
                     //Note: we don't use the original clip region here,
                     // it's already processed by the layer we just pushed.
-                    context.builder.add_solid_rectangle(&clip_rect,
+                    context.builder.add_solid_rectangle(&local_rect,
                                                         &no_clip,
                                                         &bg_color,
                                                         PrimitiveFlags::None);
@@ -432,7 +432,7 @@ impl Frame {
         }
 
          // TODO(gw): Int with overflow etc
-        context.builder.push_stacking_context(clip_rect,
+        context.builder.push_stacking_context(local_rect,
                                               transform,
                                               pipeline_id,
                                               scroll_layer_id,
