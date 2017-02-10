@@ -605,9 +605,44 @@ pub enum YuvColorSpace {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ExternalImageId(pub u64);
 
+pub trait VectorImageRenderer: Send {
+    fn request_vector_image(&mut self,
+                            key: ImageKey,
+                            data: Arc<VectorImageData>,
+                            descriptor: &VectorImageDescriptor);
+    fn resolve_vector_image(&mut self, key: ImageKey) -> VectorImageResult;
+}
+
+pub type VectorImageData = Vec<u8>;
+
+#[derive(Copy, Clone, Debug)]
+pub struct VectorImageDescriptor {
+    pub width: u32,
+    pub height: u32,
+    pub format: ImageFormat,
+    pub scale_factor: f32,
+}
+
+pub struct RasterizedVectorImage {
+    pub width: u32,
+    pub height: u32,
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub enum VectorImageError {
+    Oom,
+    InvalidKey,
+    InvalidData,
+    Other(String),
+}
+
+pub type VectorImageResult = Result<RasterizedVectorImage, VectorImageError>;
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ImageData {
     Raw(Arc<Vec<u8>>),
+    Vector(Arc<VectorImageData>),
     ExternalHandle(ExternalImageId),
     ExternalBuffer(ExternalImageId),
 }
@@ -619,6 +654,14 @@ impl ImageData {
 
     pub fn new_shared(bytes: Arc<Vec<u8>>) -> ImageData {
         ImageData::Raw(bytes)
+    }
+
+    pub fn new_vector_image(commands: Vec<u8>) -> ImageData {
+        ImageData::Vector(Arc::new(commands))
+    }
+
+    pub fn new_shared_vector_image(commands: Arc<Vec<u8>>) -> ImageData {
+        ImageData::Vector(commands)
     }
 }
 

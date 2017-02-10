@@ -220,6 +220,7 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                     &ImageData::Raw(ref v) => { (**v).clone() }
                     &ImageData::ExternalHandle(_) => { return; }
                     &ImageData::ExternalBuffer(_) => { return; }
+                    &ImageData::Vector(_) => { return; }
                 };
                 self.images.insert(*key, CachedImage {
                     width: descriptor.width,

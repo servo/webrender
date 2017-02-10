@@ -21,7 +21,7 @@ use threadpool::ThreadPool;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, ImageData};
 use webrender_traits::{PipelineId, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
 use webrender_traits::channel::{PayloadHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
-use webrender_traits::{VRCompositorCommand, VRCompositorHandler};
+use webrender_traits::{VectorImageRenderer, VRCompositorCommand, VRCompositorHandler};
 use offscreen_gl_context::GLContextDispatcher;
 
 /// The render backend is responsible for transforming high level display lists into
@@ -68,9 +68,10 @@ impl RenderBackend {
                config: FrameBuilderConfig,
                recorder: Option<Box<ApiRecordingReceiver>>,
                main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
+               vector_image_renderer: Option<Box<VectorImageRenderer>>,
                vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>) -> RenderBackend {
 
-        let resource_cache = ResourceCache::new(texture_cache, workers, enable_aa);
+        let resource_cache = ResourceCache::new(texture_cache, workers, vector_image_renderer, enable_aa);
 
         register_thread_with_profiler("Backend".to_string());
 
