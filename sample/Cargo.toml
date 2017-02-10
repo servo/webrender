@@ -2,7 +2,6 @@
 name = "wr_sample"
 version = "0.1.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
-workspace = ".."
 license = "MPL-2.0"
 
 [dependencies.webrender]

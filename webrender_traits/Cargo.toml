@@ -5,7 +5,6 @@ authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 repository = "https://github.com/servo/webrender"
 build = "build.rs"
-workspace = ".."
 
 [features]
 default = ["codegen"]

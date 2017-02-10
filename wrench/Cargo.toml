@@ -3,7 +3,6 @@ name = "wrench"
 version = "0.1.1"
 authors = ["Vladimir Vukicevic <vladimir@pobox.com>"]
 build = "build.rs"
-workspace = ".."
 license = "MPL-2.0"
 
 [dependencies]
