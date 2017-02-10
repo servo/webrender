@@ -118,6 +118,7 @@ pub struct FrameBuilder {
     /// A stack of scroll nodes used during display list processing to properly
     /// parent new scroll nodes.
     clip_scroll_node_stack: Vec<ScrollLayerIndex>,
+    stacking_context_stack: Vec<StackingContextIndex>,
 }
 
 impl FrameBuilder {
@@ -136,6 +137,7 @@ impl FrameBuilder {
             scrollbar_prims: Vec::new(),
             config: config,
             clip_scroll_node_stack: Vec::new(),
+            stacking_context_stack: Vec::new(),
         }
     }
 
@@ -203,14 +205,30 @@ impl FrameBuilder {
                                  rect: LayerRect,
                                  pipeline_id: PipelineId,
                                  scroll_layer_id: ScrollLayerId,
+                                 is_page_root: bool,
                                  composite_ops: CompositeOps) {
         let stacking_context_index = StackingContextIndex(self.stacking_context_store.len());
+        let parent_index = self.stacking_context_stack.last().map(|x| x.0);
+        self.stacking_context_stack.push(stacking_context_index);
+
+        if let Some(parent_index) = parent_index {
+            let parent_is_root = self.stacking_context_store[parent_index].is_page_root;
+
+            if composite_ops.mix_blend_mode.is_some() && !parent_is_root {
+                // the parent stacking context of a stacking context with mix-blend-mode
+                // must be drawn with a transparent background, unless the parent stacking context
+                // is the root of the page
+                self.stacking_context_store[parent_index].should_isolate = true;
+            }
+        }
+
         let group_index = self.create_clip_scroll_group(stacking_context_index,
                                                         scroll_layer_id,
                                                         pipeline_id);
         self.stacking_context_store.push(StackingContext::new(pipeline_id,
                                                               reference_frame_offset,
                                                               rect,
+                                                              is_page_root,
                                                               composite_ops,
                                                               group_index));
         self.cmds.push(PrimitiveRunCmd::PushStackingContext(stacking_context_index));
@@ -218,6 +236,7 @@ impl FrameBuilder {
 
     pub fn pop_stacking_context(&mut self) {
         self.cmds.push(PrimitiveRunCmd::PopStackingContext);
+        self.stacking_context_stack.pop();
     }
 
     pub fn push_clip_scroll_node(&mut self,
@@ -941,6 +960,7 @@ impl FrameBuilder {
         let mut sc_stack = Vec::new();
         let mut current_task = RenderTask::new_alpha_batch(next_task_index,
                                                            DeviceIntPoint::zero(),
+                                                           false,
                                                            RenderTaskLocation::Fixed);
         next_task_index.0 += 1;
         let mut alpha_task_stack = Vec::new();
@@ -957,10 +977,23 @@ impl FrameBuilder {
 
                     let stacking_context_rect = &stacking_context.bounding_rect;
                     let composite_count = stacking_context.composite_ops.count();
+
+                    if composite_count == 0 && stacking_context.should_isolate {
+                        let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
+                        let new_task = RenderTask::new_alpha_batch(next_task_index,
+                                                                   stacking_context_rect.origin,
+                                                                   stacking_context.should_isolate,
+                                                                   location);
+                        next_task_index.0 += 1;
+                        let prev_task = mem::replace(&mut current_task, new_task);
+                        alpha_task_stack.push(prev_task);
+                    }
+
                     for _ in 0..composite_count {
                         let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
                         let new_task = RenderTask::new_alpha_batch(next_task_index,
                                                                    stacking_context_rect.origin,
+                                                                   stacking_context.should_isolate,
                                                                    location);
                         next_task_index.0 += 1;
                         let prev_task = mem::replace(&mut current_task, new_task);
@@ -975,6 +1008,20 @@ impl FrameBuilder {
                         continue;
                     }
 
+                    let composite_count = stacking_context.composite_ops.count();
+
+                    if composite_count == 0 && stacking_context.should_isolate {
+                        let mut prev_task = alpha_task_stack.pop().unwrap();
+                        let item = AlphaRenderItem::HardwareComposite(stacking_context_index,
+                                                                      current_task.id,
+                                                                      HardwareCompositeOp::Alpha,
+                                                                      next_z);
+                        next_z += 1;
+                        prev_task.as_alpha_batch().alpha_items.push(item);
+                        prev_task.children.push(current_task);
+                        current_task = prev_task;
+                    }
+
                     for filter in &stacking_context.composite_ops.filters {
                         let mut prev_task = alpha_task_stack.pop().unwrap();
                         let item = AlphaRenderItem::Blend(stacking_context_index,
@@ -987,36 +1034,21 @@ impl FrameBuilder {
                         current_task = prev_task;
                     }
                     if let Some(mix_blend_mode) = stacking_context.composite_ops.mix_blend_mode {
-                        match HardwareCompositeOp::from_mix_blend_mode(mix_blend_mode) {
-                            Some(op) => {
-                                let mut prev_task = alpha_task_stack.pop().unwrap();
-                                let item = AlphaRenderItem::HardwareComposite(stacking_context_index,
-                                                                              current_task.id,
-                                                                              op,
-                                                                              next_z);
-                                next_z += 1;
-                                prev_task.as_alpha_batch().alpha_items.push(item);
-                                prev_task.children.push(current_task);
-                                current_task = prev_task;
-                            }
-                            None => {
-                                let readback_task =
-                                    RenderTask::new_readback(stacking_context_index,
-                                                             stacking_context.bounding_rect);
+                        let readback_task =
+                            RenderTask::new_readback(stacking_context_index,
+                                                     stacking_context.bounding_rect);
 
-                                let mut prev_task = alpha_task_stack.pop().unwrap();
-                                let item = AlphaRenderItem::Composite(stacking_context_index,
-                                                                      readback_task.id,
-                                                                      current_task.id,
-                                                                      mix_blend_mode,
-                                                                      next_z);
-                                next_z += 1;
-                                prev_task.as_alpha_batch().alpha_items.push(item);
-                                prev_task.children.push(current_task);
-                                prev_task.children.push(readback_task);
-                                current_task = prev_task;
-                            }
-                        }
+                        let mut prev_task = alpha_task_stack.pop().unwrap();
+                        let item = AlphaRenderItem::Composite(stacking_context_index,
+                                                              readback_task.id,
+                                                              current_task.id,
+                                                              mix_blend_mode,
+                                                              next_z);
+                        next_z += 1;
+                        prev_task.as_alpha_batch().alpha_items.push(item);
+                        prev_task.children.push(current_task);
+                        prev_task.children.push(readback_task);
+                        current_task = prev_task;
                     }
                 }
                 PrimitiveRunCmd::PrimitiveRun(first_prim_index, prim_count) => {

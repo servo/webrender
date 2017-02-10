@@ -1,0 +1,28 @@
+# A sample page for spot checking if compositing is working, should be two gradients
+# overlaid on an image, the left with opacity, the right with mix-blend-mode
+---
+root:
+  items:
+    - type: image
+      bounds: 0 0 1024 768
+      src: "landscape.jpg"
+
+    - type: stacking_context
+      bounds: 100 100 412 568
+      filters: opacity(0.5)
+      items:
+        - type: gradient
+          bounds: 0 0 412 568
+          start: 0 0
+          end: 412 568
+          stops: [0.0, [255, 0, 0], 1.0, [0, 0, 255]]
+
+    - type: stacking_context
+      bounds: 512 100 412 568
+      mix-blend-mode: color-dodge
+      items:
+        - type: gradient
+          bounds: 0 0 412 568
+          start: 0 0
+          end: 412 568
+          stops: [0.0, [255, 0, 0], 1.0, [0, 0, 255]]
