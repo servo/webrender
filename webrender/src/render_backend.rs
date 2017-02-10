@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use thread_profiler::register_thread_with_profiler;
+use threadpool::ThreadPool;
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, ImageData};
 use webrender_traits::{PipelineId, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
 use webrender_traits::channel::{PayloadHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
@@ -61,6 +62,7 @@ impl RenderBackend {
                device_pixel_ratio: f32,
                texture_cache: TextureCache,
                enable_aa: bool,
+               workers: Arc<Mutex<ThreadPool>>,
                notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
                webrender_context_handle: Option<GLContextHandleWrapper>,
                config: FrameBuilderConfig,
@@ -68,8 +70,7 @@ impl RenderBackend {
                main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
                vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>) -> RenderBackend {
 
-        let resource_cache = ResourceCache::new(texture_cache,
-                                                enable_aa);
+        let resource_cache = ResourceCache::new(texture_cache, workers, enable_aa);
 
         register_thread_with_profiler("Backend".to_string());
 

@@ -15,7 +15,7 @@ use std::fmt::Debug;
 use std::hash::BuildHasherDefault;
 use std::hash::Hash;
 use std::mem;
-use std::sync::{Arc, Barrier};
+use std::sync::{Arc, Barrier, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::{TextureCache, TextureCacheItemId};
@@ -213,8 +213,9 @@ pub struct ResourceCache {
 
 impl ResourceCache {
     pub fn new(texture_cache: TextureCache,
+               workers: Arc<Mutex<ThreadPool>>,
                enable_aa: bool) -> ResourceCache {
-        let (glyph_cache_tx, glyph_cache_result_queue) = spawn_glyph_cache_thread();
+        let (glyph_cache_tx, glyph_cache_result_queue) = spawn_glyph_cache_thread(workers);
 
         ResourceCache {
             cached_glyphs: Some(ResourceClassCache::new()),
@@ -624,7 +625,10 @@ impl Resource for CachedImageInfo {
     }
 }
 
-fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResultMsg>) {
+fn spawn_glyph_cache_thread(workers: Arc<Mutex<ThreadPool>>) -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResultMsg>) {
+    let worker_count = {
+        workers.lock().unwrap().max_count()
+    };
     // Used for messages from resource cache -> glyph cache thread.
     let (msg_tx, msg_rx) = channel();
     // Used for returning results from glyph cache thread -> resource cache.
@@ -633,10 +637,6 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
     let (glyph_tx, glyph_rx) = channel();
 
     thread::Builder::new().name("GlyphCache".to_string()).spawn(move|| {
-        // TODO(gw): Use a heuristic to select best # of worker threads.
-        let worker_count = 4;
-        let thread_pool = ThreadPool::new(worker_count);
-
         let mut glyph_cache = None;
         let mut current_frame_id = FrameId(0);
 
@@ -645,7 +645,7 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
         let barrier = Arc::new(Barrier::new(worker_count));
         for i in 0..worker_count {
             let barrier = barrier.clone();
-            thread_pool.execute(move || {
+            workers.lock().unwrap().execute(move || {
                 register_thread_with_profiler(format!("Glyph Worker {}", i));
                 barrier.wait();
             });
@@ -682,7 +682,7 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                     for _ in 0..worker_count {
                         let barrier = barrier.clone();
                         let font_template = font_template.clone();
-                        thread_pool.execute(move || {
+                        workers.lock().unwrap().execute(move || {
                             FONT_CONTEXT.with(|font_context| {
                                 let mut font_context = font_context.borrow_mut();
                                 match font_template {
@@ -723,7 +723,7 @@ fn spawn_glyph_cache_thread() -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResu
                            !pending_glyphs.contains(&glyph_key) {
                             let glyph_tx = glyph_tx.clone();
                             pending_glyphs.insert(glyph_key.clone());
-                            thread_pool.execute(move || {
+                            workers.lock().unwrap().execute(move || {
                                 profile_scope!("glyph");
                                 FONT_CONTEXT.with(move |font_context| {
                                     let mut font_context = font_context.borrow_mut();

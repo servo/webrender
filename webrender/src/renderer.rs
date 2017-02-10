@@ -39,6 +39,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::TextureCache;
+use threadpool::ThreadPool;
 use tiling::{AlphaBatchKind, BlurCommand, Frame, PrimitiveBatch, PrimitiveBatchData};
 use tiling::{CacheClipInstance, PrimitiveInstance, RenderTarget};
 use time::precise_time_ns;
@@ -500,7 +501,7 @@ impl Renderer {
     /// };
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
-    pub fn new(options: RendererOptions) -> Result<(Renderer, RenderApiSender), InitError> {
+    pub fn new(mut options: RendererOptions) -> Result<(Renderer, RenderApiSender), InitError> {
         let (api_tx, api_rx) = try!{ channel::msg_channel() };
         let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
         let (result_tx, result_rx) = channel();
@@ -760,6 +761,10 @@ impl Renderer {
         let render_target_debug = options.render_target_debug;
         let payload_tx_for_backend = payload_tx.clone();
         let recorder = options.recorder;
+        let workers = options.workers.take().unwrap_or_else(||{
+            // TODO(gw): Use a heuristic to select best # of worker threads.
+            Arc::new(Mutex::new(ThreadPool::new_with_name("WebRender:Worker".to_string(), 4)))
+        });
         try!{ thread::Builder::new().name("RenderBackend".to_string()).spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  payload_rx,
@@ -768,6 +773,7 @@ impl Renderer {
                                                  device_pixel_ratio,
                                                  texture_cache,
                                                  enable_aa,
+                                                 workers,
                                                  backend_notifier,
                                                  context_handle,
                                                  config,
@@ -1731,6 +1737,7 @@ pub struct RendererOptions {
     pub clear_framebuffer: bool,
     pub clear_color: ColorF,
     pub render_target_debug: bool,
+    pub workers: Option<Arc<Mutex<ThreadPool>>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
 }
 
@@ -1749,6 +1756,7 @@ impl Default for RendererOptions {
             clear_framebuffer: true,
             clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
             render_target_debug: false,
+            workers: None,
             recorder: None,
         }
     }
