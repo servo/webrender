@@ -7,31 +7,6 @@ use euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedPoint4D, TypedMatrix4D};
 use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize};
 use webrender_traits::{LayerRect, WorldPoint4D, LayerPoint4D, LayerToWorldTransform};
 use num_traits::Zero;
-use time::precise_time_ns;
-
-#[allow(dead_code)]
-pub struct ProfileScope {
-    name: &'static str,
-    t0: u64,
-}
-
-impl ProfileScope {
-    #[allow(dead_code)]
-    pub fn new(name: &'static str) -> ProfileScope {
-        ProfileScope {
-            name: name,
-            t0: precise_time_ns(),
-        }
-    }
-}
-
-impl Drop for ProfileScope {
-    fn drop(&mut self) {
-            let t1 = precise_time_ns();
-            let ms = (t1 - self.t0) as f64 / 1000000f64;
-            println!("{} {}", self.name, ms);
-    }
-}
 
 // TODO: Implement these in euclid!
 pub trait MatrixHelpers<Src, Dst> {

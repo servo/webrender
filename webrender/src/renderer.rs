@@ -42,6 +42,7 @@ use texture_cache::TextureCache;
 use tiling::{AlphaBatchKind, BlurCommand, Frame, PrimitiveBatch, PrimitiveBatchData};
 use tiling::{CacheClipInstance, PrimitiveInstance, RenderTarget};
 use time::precise_time_ns;
+use thread_profiler::{register_thread_with_profiler, write_profile};
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ExternalImageId, ImageData, ImageFormat, RenderApiSender, RendererKind};
@@ -504,6 +505,8 @@ impl Renderer {
         let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
         let (result_tx, result_rx) = channel();
 
+        register_thread_with_profiler("Compositor".to_owned());
+
         let notifier = Arc::new(Mutex::new(None));
 
         let file_watch_handler = FileWatcher {
@@ -869,6 +872,8 @@ impl Renderer {
     ///
     /// Should be called before `render()`, as texture cache updates are done here.
     pub fn update(&mut self) {
+        profile_scope!("update");
+
         // Pull any pending results and return the most recent.
         while let Ok(msg) = self.result_rx.try_recv() {
             match msg {
@@ -926,6 +931,8 @@ impl Renderer {
     /// A Frame is supplied by calling [set_root_stacking_context()][newframe].
     /// [newframe]: ../../webrender_traits/struct.RenderApi.html#method.set_root_stacking_context
     pub fn render(&mut self, framebuffer_size: DeviceUintSize) {
+        profile_scope!("render");
+
         if let Some(mut frame) = self.current_frame.take() {
             if let Some(ref mut frame) = frame.frame {
                 let mut profile_timers = RendererProfileTimers::new();
@@ -1630,6 +1637,10 @@ impl Renderer {
 
     pub fn set_profiler_enabled(&mut self, enabled: bool) {
         self.enable_profiler = enabled;
+    }
+
+    pub fn save_cpu_profile(&self, filename: &str) {
+        write_profile(filename);
     }
 
     fn draw_render_target_debug(&mut self,

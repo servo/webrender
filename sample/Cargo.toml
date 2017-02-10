@@ -12,6 +12,9 @@ path = "../webrender"
 path = "../webrender_traits"
 default_features = false
 
+[features]
+profiler = [ "webrender/profiler" ]
+
 [dependencies]
 app_units = "0.3"
 euclid = "0.10"

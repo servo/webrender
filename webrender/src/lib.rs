@@ -48,6 +48,8 @@ extern crate lazy_static;
 extern crate log;
 #[macro_use]
 extern crate bitflags;
+#[macro_use]
+extern crate thread_profiler;
 
 mod batch_builder;
 mod debug_colors;

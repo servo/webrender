@@ -1001,6 +1001,8 @@ impl RenderPass {
 
 
     pub fn build(&mut self, ctx: &RenderTargetContext, render_tasks: &mut RenderTaskCollection) {
+        profile_scope!("RenderPass::build");
+
         // Step through each task, adding to batches as appropriate.
         let tasks = mem::replace(&mut self.tasks, Vec::new());
         for mut task in tasks {

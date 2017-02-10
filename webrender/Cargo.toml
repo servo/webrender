@@ -12,6 +12,7 @@ default = ["codegen", "freetype-lib"]
 codegen = ["webrender_traits/codegen"]
 freetype-lib = ["freetype/servo-freetype-sys"]
 serde_derive = ["webrender_traits/serde_derive"]
+profiler = ["thread_profiler/thread_profiler"]
 
 [dependencies]
 app_units = "0.3"
@@ -30,6 +31,7 @@ threadpool = "1.3.2"
 webrender_traits = {path = "../webrender_traits", default-features = false}
 bitflags = "0.7"
 gamma-lut = "0.1"
+thread_profiler = "0.1"
 
 [dev-dependencies]
 angle = {git = "https://github.com/servo/angle", branch = "servo"}

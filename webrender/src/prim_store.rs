@@ -848,6 +848,7 @@ impl PrimitiveStore {
     pub fn resolve_primitives(&mut self,
                               resource_cache: &ResourceCache,
                               device_pixel_ratio: f32) -> Vec<DeferredResolve> {
+        profile_scope!("resolve_primitives");
         let mut deferred_resolves = Vec::new();
 
         for prim_index in self.prims_to_resolve.drain(..) {
