@@ -91,3 +91,8 @@ subcommands:
               index: 1
     - reftest:
         about: run reftests
+        args:
+          - REFTEST:
+              help: a specific reftest or directory to run
+              required: false
+              index: 1
