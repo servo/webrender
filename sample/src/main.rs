@@ -12,13 +12,18 @@ extern crate webrender_traits;
 use app_units::Au;
 use euclid::Point2D;
 use gleam::gl;
+use std::collections::HashMap;
 use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
-use webrender_traits::{ColorF, Epoch, GlyphInstance};
+use std::sync::Arc;
+use webrender_traits::{BlobImageResult, BlobImageError, BlobImageDescriptor};
+use webrender_traits::{ColorF, Epoch, GlyphInstance, ClipRegion, ImageRendering};
 use webrender_traits::{ImageDescriptor, ImageData, ImageFormat, PipelineId};
+use webrender_traits::{ImageKey, BlobImageData, BlobImageRenderer, RasterizedBlobImage};
 use webrender_traits::{LayoutSize, LayoutPoint, LayoutRect, LayoutTransform, DeviceUintSize};
+
 
 fn load_file(name: &str) -> Vec<u8> {
     let mut file = File::open(name).unwrap();
@@ -84,6 +89,7 @@ fn main() {
         resource_override_path: res_path,
         debug: true,
         precache_shaders: true,
+        blob_image_renderer: Some(Box::new(FakeBlobImageRenderer::new())),
         .. Default::default()
     };
 
@@ -95,6 +101,17 @@ fn main() {
 
     let epoch = Epoch(0);
     let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
+
+    let vector_img = api.add_image(
+        ImageDescriptor {
+            format: ImageFormat::RGBA8,
+            width: 100,
+            height: 100,
+            stride: None,
+            is_opaque: true,
+        },
+        ImageData::new_blob_image(Vec::new()),
+    );
 
     let pipeline_id = PipelineId(0, 0);
     let mut builder = webrender_traits::DisplayListBuilder::new(pipeline_id);
@@ -116,6 +133,14 @@ fn main() {
                                   LayoutTransform::identity(),
                                   webrender_traits::MixBlendMode::Normal,
                                   Vec::new());
+    builder.push_image(
+        LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(100.0, 100.0)),
+        ClipRegion::simple(&bounds),
+        LayoutSize::new(100.0, 100.0),
+        LayoutSize::new(0.0, 0.0),
+        ImageRendering::Auto,
+        vector_img,
+    );
 
     let sub_clip = {
         let mask = webrender_traits::ImageMask {
@@ -253,5 +278,57 @@ fn main() {
             }
             _ => ()
         }
+    }
+}
+
+struct FakeBlobImageRenderer {
+    images: HashMap<ImageKey, BlobImageResult>,
+}
+
+impl FakeBlobImageRenderer {
+    fn new() -> Self {
+        FakeBlobImageRenderer { images: HashMap::new() }
+    }
+}
+
+impl BlobImageRenderer for FakeBlobImageRenderer {
+    fn request_blob_image(&mut self, key: ImageKey, _: Arc<BlobImageData>, descriptor: &BlobImageDescriptor) {
+        let mut texels = Vec::with_capacity((descriptor.width * descriptor.height * 4) as usize);
+        for y in 0..descriptor.height {
+            for x in 0..descriptor.width {
+                // render a simple checkerboard pattern
+                let a = if (x % 20 >= 10) != (y % 20 >= 10) { 255 } else { 0 };
+                match descriptor.format {
+                    ImageFormat::RGBA8 => {
+                        texels.push(a);
+                        texels.push(a);
+                        texels.push(a);
+                        texels.push(255);
+                    }
+                    ImageFormat::A8 => {
+                        texels.push(a);
+                    }
+                    _ => {
+                        self.images.insert(key,
+                            Err(BlobImageError::Other(format!(
+                                "Usupported image format {:?}",
+                                descriptor.format
+                            )))
+                        );
+                        return;
+                    }
+                }
+            }
+        }
+
+        self.images.insert(key, Ok(RasterizedBlobImage {
+            data: texels,
+            width: descriptor.width,
+            height: descriptor.height,
+        }));
+    }
+
+    fn resolve_blob_image(&mut self, key: ImageKey) -> BlobImageResult {
+        self.images.remove(&key).unwrap_or(Err(BlobImageError::InvalidKey))
     }
 }

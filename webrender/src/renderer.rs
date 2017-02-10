@@ -48,7 +48,7 @@ use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ExternalImageId, ImageData, ImageFormat, RenderApiSender, RendererKind};
 use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
-use webrender_traits::ImageDescriptor;
+use webrender_traits::{ImageDescriptor, BlobImageRenderer};
 use webrender_traits::channel;
 use webrender_traits::VRCompositorHandler;
 
@@ -780,6 +780,8 @@ impl Renderer {
             // TODO(gw): Use a heuristic to select best # of worker threads.
             Arc::new(Mutex::new(ThreadPool::new_with_name("WebRender:Worker".to_string(), 4)))
         });
+
+        let blob_image_renderer = options.blob_image_renderer.take();
         try!{ thread::Builder::new().name("RenderBackend".to_string()).spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  payload_rx,
@@ -794,6 +796,7 @@ impl Renderer {
                                                  config,
                                                  recorder,
                                                  backend_main_thread_dispatcher,
+                                                 blob_image_renderer,
                                                  backend_vr_compositor);
             backend.run();
         })};
@@ -1756,7 +1759,6 @@ pub trait ExternalImageHandler {
     fn release(&mut self, key: ExternalImageId);
 }
 
-#[derive(Debug)]
 pub struct RendererOptions {
     pub device_pixel_ratio: f32,
     pub resource_override_path: Option<PathBuf>,
@@ -1771,6 +1773,7 @@ pub struct RendererOptions {
     pub clear_color: ColorF,
     pub render_target_debug: bool,
     pub workers: Option<Arc<Mutex<ThreadPool>>>,
+    pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
 }
 
@@ -1790,6 +1793,7 @@ impl Default for RendererOptions {
             clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
             render_target_debug: false,
             workers: None,
+            blob_image_renderer: None,
             recorder: None,
         }
     }

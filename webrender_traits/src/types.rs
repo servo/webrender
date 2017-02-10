@@ -605,9 +605,44 @@ pub enum YuvColorSpace {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ExternalImageId(pub u64);
 
+pub trait BlobImageRenderer: Send {
+    fn request_blob_image(&mut self,
+                            key: ImageKey,
+                            data: Arc<BlobImageData>,
+                            descriptor: &BlobImageDescriptor);
+    fn resolve_blob_image(&mut self, key: ImageKey) -> BlobImageResult;
+}
+
+pub type BlobImageData = Vec<u8>;
+
+#[derive(Copy, Clone, Debug)]
+pub struct BlobImageDescriptor {
+    pub width: u32,
+    pub height: u32,
+    pub format: ImageFormat,
+    pub scale_factor: f32,
+}
+
+pub struct RasterizedBlobImage {
+    pub width: u32,
+    pub height: u32,
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub enum BlobImageError {
+    Oom,
+    InvalidKey,
+    InvalidData,
+    Other(String),
+}
+
+pub type BlobImageResult = Result<RasterizedBlobImage, BlobImageError>;
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ImageData {
     Raw(Arc<Vec<u8>>),
+    Vector(Arc<BlobImageData>),
     ExternalHandle(ExternalImageId),
     ExternalBuffer(ExternalImageId),
 }
@@ -619,6 +654,14 @@ impl ImageData {
 
     pub fn new_shared(bytes: Arc<Vec<u8>>) -> ImageData {
         ImageData::Raw(bytes)
+    }
+
+    pub fn new_blob_image(commands: Vec<u8>) -> ImageData {
+        ImageData::Vector(Arc::new(commands))
+    }
+
+    pub fn new_shared_blob_image(commands: Arc<Vec<u8>>) -> ImageData {
+        ImageData::Vector(commands)
     }
 }
 
