@@ -1,0 +1,21 @@
+---
+root:
+  items:
+        -
+          bounds: [0, 0, 100, 100]
+          type: rect
+          color: [255, 0, 0]
+        -
+          bounds: [0, 0, 100, 100]
+          type: stacking_context
+          filters: opacity(1.0)
+          items:
+            -
+              bounds: [0, 0, 100, 100]
+              type: stacking_context
+              mix-blend-mode: difference
+              items:
+                -
+                  bounds: [0, 0, 100, 100]
+                  type: rect
+                  color: [255, 255, 0]

@@ -3,3 +3,6 @@
 == difference.yaml difference-ref.yaml
 == darken.yaml darken-ref.yaml
 == lighten.yaml lighten-ref.yaml
+== isolated.yaml isolated-ref.yaml
+== isolated-with-filter.yaml isolated-ref.yaml
+== repeated-difference.yaml repeated-difference-ref.yaml

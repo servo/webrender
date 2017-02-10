@@ -1372,6 +1372,11 @@ impl Renderer {
 
             self.device.clear_target(clear_color, clear_depth);
 
+            let isolate_clear_color = Some([0.0, 0.0, 0.0, 0.0]);
+            for isolate_clear in &target.isolate_clears {
+                self.device.clear_target_rect(isolate_clear_color, None, *isolate_clear);
+            }
+
             projection
         };
 

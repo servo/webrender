@@ -1,0 +1,20 @@
+---
+root:
+  items:
+        -
+          bounds: [0, 0, 100, 100]
+          type: rect
+          color: [0, 0, 0]
+        -
+          bounds: [0, 0, 100, 100]
+          type: stacking_context
+          items:
+            -
+              bounds: [0, 0, 100, 100]
+              type: stacking_context
+              filters: opacity(0.5)
+              items:
+                -
+                  bounds: [0, 0, 100, 100]
+                  type: rect
+                  color: [0, 255, 0]

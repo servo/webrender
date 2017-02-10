@@ -491,6 +491,7 @@ pub enum LowLevelFilterOp {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum HardwareCompositeOp {
+    Alpha,
     Multiply,
     Max,
     Min,
@@ -508,6 +509,7 @@ impl HardwareCompositeOp {
 
     pub fn to_blend_mode(&self) -> BlendMode {
         match self {
+            &HardwareCompositeOp::Alpha => BlendMode::Alpha,
             &HardwareCompositeOp::Multiply => BlendMode::Multiply,
             &HardwareCompositeOp::Max => BlendMode::Max,
             &HardwareCompositeOp::Min => BlendMode::Min,

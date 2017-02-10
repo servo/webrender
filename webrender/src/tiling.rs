@@ -870,6 +870,7 @@ pub struct RenderTarget {
     pub vertical_blurs: Vec<BlurCommand>,
     pub horizontal_blurs: Vec<BlurCommand>,
     pub readbacks: Vec<DeviceIntRect>,
+    pub isolate_clears: Vec<DeviceIntRect>,
     page_allocator: TexturePage,
 }
 
@@ -884,6 +885,7 @@ impl RenderTarget {
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
             readbacks: Vec::new(),
+            isolate_clears: Vec::new(),
             page_allocator: TexturePage::new(CacheTextureId(0), size),
         }
     }
@@ -909,6 +911,16 @@ impl RenderTarget {
                     opaque_items: info.opaque_items,
                     alpha_items: info.alpha_items,
                 });
+
+                if info.isolate_clear {
+                    let location = match task.location {
+                        RenderTaskLocation::Dynamic(origin, size) => {
+                            DeviceIntRect::new(origin.unwrap().0, size)
+                        }
+                        RenderTaskLocation::Fixed => panic!()
+                    };
+                    self.isolate_clears.push(location);
+                }
             }
             RenderTaskKind::VerticalBlur(_, prim_index) => {
                 // Find the child render task that we are applying
@@ -1306,6 +1318,10 @@ pub struct StackingContext {
     pub bounding_rect: DeviceIntRect,
     pub composite_ops: CompositeOps,
     pub clip_scroll_groups: Vec<ClipScrollGroupIndex>,
+    // Signifies that this stacking context should be drawn in a separate render pass
+    // with a transparent background and then composited back to its parent. Used to
+    // support mix blend mode in certain cases.
+    pub should_isolate: bool,
     pub is_visible: bool,
 }
 
@@ -1323,6 +1339,7 @@ impl StackingContext {
             bounding_rect: DeviceIntRect::zero(),
             composite_ops: composite_ops,
             clip_scroll_groups: vec![clip_scroll_group_index],
+            should_isolate: false,
             is_visible: false,
         }
     }
