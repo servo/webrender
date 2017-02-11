@@ -639,6 +639,7 @@ impl YamlFrameWriter {
                 PushScrollLayer(item) => {
                     str_node(&mut v, "type", "scroll_layer");
                     write_scroll_layer(&mut v, &item);
+                    self.write_dl(&mut v, dl_iter, aux);
                 },
                 PopScrollLayer => {
                     return;
