@@ -1,4 +1,5 @@
 == multiply.yaml multiply-ref.yaml
+== multiply-2.yaml multiply-2-ref.yaml
 == difference.yaml difference-ref.yaml
 == darken.yaml darken-ref.yaml
 == lighten.yaml lighten-ref.yaml

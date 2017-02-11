@@ -55,6 +55,12 @@ trait AlphaBatchHelpers {
                           src_task_index: RenderTaskIndex,
                           filter: LowLevelFilterOp,
                           z_sort_index: i32);
+    fn add_hardware_composite_to_batch(&self,
+                                       stacking_context_index: StackingContextIndex,
+                                       batch: &mut PrimitiveBatch,
+                                       task_index: RenderTaskIndex,
+                                       src_task_index: RenderTaskIndex,
+                                       z_sort_index: i32);
 }
 
 impl AlphaBatchHelpers for PrimitiveStore {
@@ -172,6 +178,31 @@ impl AlphaBatchHelpers for PrimitiveStore {
         }
     }
 
+    fn add_hardware_composite_to_batch(&self,
+                                       stacking_context_index: StackingContextIndex,
+                                       batch: &mut PrimitiveBatch,
+                                       task_index: RenderTaskIndex,
+                                       src_task_index: RenderTaskIndex,
+                                       z_sort_index: i32) {
+        batch.items.push(PrimitiveBatchItem::StackingContext(stacking_context_index));
+
+        match batch.data {
+            PrimitiveBatchData::Instances(ref mut data) => {
+                data.push(PrimitiveInstance {
+                    global_prim_id: -1,
+                    prim_address: GpuStoreAddress(0),
+                    task_index: task_index.0 as i32,
+                    clip_task_index: -1,
+                    layer_index: -1,
+                    sub_index: -1,
+                    user_data: [src_task_index.0 as i32, 0],
+                    z_sort_index: z_sort_index,
+                });
+            }
+            _ => unreachable!(),
+        }
+    }
+
     fn add_prim_to_batch(&self,
                          prim_index: PrimitiveIndex,
                          batch: &mut PrimitiveBatch,
@@ -201,6 +232,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
             &mut PrimitiveBatchData::Instances(ref mut data) => {
                 match batch.key.kind {
                     AlphaBatchKind::Composite => unreachable!(),
+                    AlphaBatchKind::HardwareComposite => unreachable!(),
                     AlphaBatchKind::Blend => unreachable!(),
                     AlphaBatchKind::Rectangle => {
                         data.push(PrimitiveInstance {
@@ -509,6 +541,14 @@ impl AlphaBatcher {
                                             BatchTextures::no_texture()),
                          &stacking_context.xf_rect.as_ref().unwrap().bounding_rect)
                     }
+                    &AlphaRenderItem::HardwareComposite(stacking_context_index, _, composite_op, ..) => {
+                        let stacking_context = &ctx.stacking_context_store[stacking_context_index.0];
+                        (AlphaBatchKey::new(AlphaBatchKind::HardwareComposite,
+                                            AlphaBatchKeyFlags::empty(),
+                                            composite_op.to_blend_mode(),
+                                            BatchTextures::no_texture()),
+                         &stacking_context.xf_rect.as_ref().unwrap().bounding_rect)
+                    }
                     &AlphaRenderItem::Composite(stacking_context_index,
                                                 backdrop_id,
                                                 src_id,
@@ -597,6 +637,9 @@ impl AlphaBatcher {
                 if alpha_batch_index.is_none() {
                     let new_batch = match item {
                         &AlphaRenderItem::Composite(..) => unreachable!(),
+                        &AlphaRenderItem::HardwareComposite(..) => {
+                            PrimitiveBatch::new_instances(AlphaBatchKind::HardwareComposite, batch_key)
+                        }
                         &AlphaRenderItem::Blend(..) => {
                             PrimitiveBatch::new_instances(AlphaBatchKind::Blend, batch_key)
                         }
@@ -621,6 +664,13 @@ impl AlphaBatcher {
                                                           info,
                                                           z);
                     }
+                    &AlphaRenderItem::HardwareComposite(stacking_context_index, src_id, _, z) => {
+                        ctx.prim_store.add_hardware_composite_to_batch(stacking_context_index,
+                                                                       batch,
+                                                                       task_index,
+                                                                       render_tasks.get_static_task_index(&src_id),
+                                                                       z);
+                    }
                     &AlphaRenderItem::Primitive(stacking_context_index, prim_index, z) => {
                         let stacking_context =
                             &ctx.stacking_context_store[stacking_context_index.0];
@@ -639,6 +689,7 @@ impl AlphaBatcher {
                 let batch_key = match item {
                     &AlphaRenderItem::Composite(..) => unreachable!(),
                     &AlphaRenderItem::Blend(..) => unreachable!(),
+                    &AlphaRenderItem::HardwareComposite(..) => unreachable!(),
                     &AlphaRenderItem::Primitive(stacking_context_index, prim_index, _) => {
                         let stacking_context = &ctx.stacking_context_store[stacking_context_index.0];
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
@@ -679,6 +730,7 @@ impl AlphaBatcher {
                     let new_batch = match item {
                         &AlphaRenderItem::Composite(..) => unreachable!(),
                         &AlphaRenderItem::Blend(..) => unreachable!(),
+                        &AlphaRenderItem::HardwareComposite(..) => unreachable!(),
                         &AlphaRenderItem::Primitive(_, prim_index, _) => {
                             let prim_metadata = ctx.prim_store.get_metadata(prim_index);
                             let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
@@ -692,6 +744,7 @@ impl AlphaBatcher {
                 match item {
                     &AlphaRenderItem::Composite(..) => unreachable!(),
                     &AlphaRenderItem::Blend(..) => unreachable!(),
+                    &AlphaRenderItem::HardwareComposite(..) => unreachable!(),
                     &AlphaRenderItem::Primitive(stacking_context_index, prim_index, z) => {
                         let stacking_context =
                             &ctx.stacking_context_store[stacking_context_index.0];
@@ -1054,6 +1107,7 @@ impl RenderPass {
 #[repr(u8)]
 pub enum AlphaBatchKind {
     Composite = 0,
+    HardwareComposite,
     Blend,
     Rectangle,
     TextRun,
@@ -1195,6 +1249,7 @@ impl PrimitiveBatch {
             AlphaBatchKind::RadialGradient |
             AlphaBatchKind::BoxShadow |
             AlphaBatchKind::Blend |
+            AlphaBatchKind::HardwareComposite |
             AlphaBatchKind::CacheImage => {
                 PrimitiveBatchData::Instances(Vec::new())
             }

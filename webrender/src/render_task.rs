@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use internal_types::LowLevelFilterOp;
+use internal_types::{HardwareCompositeOp, LowLevelFilterOp};
 use mask_cache::MaskCacheInfo;
 use prim_store::{PrimitiveCacheKey, PrimitiveIndex};
 use std::{cmp, f32, i32, mem, usize};
@@ -54,6 +54,7 @@ pub enum AlphaRenderItem {
     Primitive(StackingContextIndex, PrimitiveIndex, i32),
     Blend(StackingContextIndex, RenderTaskId, LowLevelFilterOp, i32),
     Composite(StackingContextIndex, RenderTaskId, RenderTaskId, MixBlendMode, i32),
+    HardwareComposite(StackingContextIndex, RenderTaskId, HardwareCompositeOp, i32),
 }
 
 #[derive(Debug, Clone)]
