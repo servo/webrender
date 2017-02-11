@@ -1,0 +1,28 @@
+---
+root:
+  items:
+    -
+      type: stacking_context
+      bounds: [0, 0, 200, 200]
+      transform: translate(400, 0)
+      items:
+        -
+          type: scroll_layer
+          bounds: [0, 0, 200, 200]
+          content-size: [200, 200]
+          clip:
+            complex:
+              -
+                rect: [0, 0, 200, 200]
+                radius: 20
+          items:
+            -
+              type: stacking_context
+              bounds: [0, 0, 200, 200]
+              transform: rotate(10)
+              perspective: project(100)
+              items:
+                -
+                  bounds: [0, 0, 200, 200]
+                  type: rect
+                  color: red

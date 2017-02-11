@@ -290,7 +290,6 @@ impl DisplayListBuilder {
     pub fn push_stacking_context(&mut self,
                                  scroll_policy: ScrollPolicy,
                                  bounds: LayoutRect,
-                                 clip: ClipRegion,
                                  z_index: i32,
                                  transform: PropertyBinding<LayoutTransform>,
                                  perspective: LayoutTransform,
@@ -311,7 +310,7 @@ impl DisplayListBuilder {
                 stacking_context: stacking_context
             }),
             rect: LayoutRect::zero(),
-            clip: clip,
+            clip: ClipRegion::simple(&LayoutRect::zero()),
         };
         self.list.push(item);
     }
