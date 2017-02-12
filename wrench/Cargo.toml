@@ -16,7 +16,7 @@ app_units = "0.3"
 image = "0.12"
 clap = { version = "2", features = ["yaml"] }
 lazy_static = "0.2"
-yaml-rust = { git = "https://github.com/vvuk/yaml-rust" }
+yaml-rust = { git = "https://github.com/vvuk/yaml-rust", features = ["preserve_order"] }
 serde_json = "0.8"
 time = "0.1"
 crossbeam = "0.2"
