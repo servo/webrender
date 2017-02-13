@@ -27,7 +27,7 @@ void main(void) {
     // We clamp the texture coordinates to the half-pixel offset from the borders
     // in order to avoid sampling outside of the texture area.
     vec2 st = vTextureOffset + ((position_in_tile / vStretchSize) * vTextureSize);
-    st = clamp(vStRect.xy, st, vStRect.zw);
+    st = clamp(st, vStRect.xy, vStRect.zw);
 
     alpha = alpha * float(all(bvec2(step(position_in_tile, vStretchSize))));
 
