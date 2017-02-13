@@ -422,42 +422,49 @@ VertexInfo write_vertex(vec4 instance_rect,
                         float z,
                         Layer layer,
                         AlphaBatchTask task) {
-    vec2 p0 = instance_rect.xy;
-    vec2 p1 = instance_rect.xy + instance_rect.zw;
+    // Get the min/max local space coords of the rectangle.
+    vec2 local_p0 = instance_rect.xy;
+    vec2 local_p1 = instance_rect.xy + instance_rect.zw;
 
-    vec2 local_pos = mix(p0, p1, aPosition.xy);
+    // Get the min/max coords of the local space clip rect.
+    vec2 local_clip_p0 = local_clip_rect.xy;
+    vec2 local_clip_p1 = local_clip_rect.xy + local_clip_rect.zw;
 
-    vec2 cp0 = local_clip_rect.xy;
-    vec2 cp1 = local_clip_rect.xy + local_clip_rect.zw;
-    local_pos = clamp(local_pos, cp0, cp1);
+    // Get the min/max coords of the layer clip rect.
+    vec2 layer_clip_p0 = layer.local_clip_rect.xy;
+    vec2 layer_clip_p1 = layer.local_clip_rect.xy + layer.local_clip_rect.zw;
 
-    local_pos = clamp_rect(local_pos, layer.local_clip_rect);
+    // Select the corner of the local rect that we are processing.
+    vec2 local_pos = mix(local_p0, local_p1, aPosition.xy);
 
-    vec4 world_pos = layer.transform * vec4(local_pos, 0.0, 1.0);
+    // xy = top left corner of the local rect, zw = position of current vertex.
+    vec4 local_p0_pos = vec4(local_p0, local_pos);
+
+    // Clamp to the two local clip rects.
+    local_p0_pos = clamp(local_p0_pos, local_clip_p0.xyxy, local_clip_p1.xyxy);
+    local_p0_pos = clamp(local_p0_pos, layer_clip_p0.xyxy, layer_clip_p1.xyxy);
+
+    // Transform the top corner and current vertex to world space.
+    vec4 world_p0 = layer.transform * vec4(local_p0_pos.xy, 0.0, 1.0);
+    world_p0.xyz /= world_p0.w;
+    vec4 world_pos = layer.transform * vec4(local_p0_pos.zw, 0.0, 1.0);
     world_pos.xyz /= world_pos.w;
 
-    vec2 device_pos = world_pos.xy * uDevicePixelRatio;
+    // Convert the world positions to device pixel space. xy=top left corner. zw=current vertex.
+    vec4 device_p0_pos = vec4(world_p0.xy, world_pos.xy) * uDevicePixelRatio;
 
-    // NOTE: The pixel snapping here relies on an assumption to
-    //       avoid stretching the UV surface in local space. We
-    //       assume that the fractional part of all the vertex
-    //       coords are the same for the entire quad. This is
-    //       *guaranteed* by the text run vertex shader. It's also
-    //       the default case for images (that use an implicit size).
-    //       For other cases, where a fractional width is explictly
-    //       set in CSS, this may result in a small amount of
-    //       stretching.
+    // Calculate the distance to snap the vertex by (snap top left corner).
+    vec2 snap_delta = device_p0_pos.xy - floor(device_p0_pos.xy + 0.5);
 
-    // Snap the position to device pixels. We can't rely on round()
-    // here due to the following language in the specification:
-    // "The fraction 0.5 will round in a direction chosen by the implementation, presumably the direction that is fastest."
-    device_pos = floor(device_pos + 0.5);
-
-    vec2 final_pos = device_pos - task.screen_space_origin + task.render_target_origin;
+    // Apply offsets for the render task to get correct screen location.
+    vec2 final_pos = device_p0_pos.zw -
+                     snap_delta -
+                     task.screen_space_origin +
+                     task.render_target_origin;
 
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
 
-    VertexInfo vi = VertexInfo(Rect(p0, p1), local_pos.xy, device_pos.xy);
+    VertexInfo vi = VertexInfo(Rect(local_p0, local_p1), local_p0_pos.zw, device_p0_pos.zw);
     return vi;
 }
 
