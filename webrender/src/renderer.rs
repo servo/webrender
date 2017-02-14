@@ -675,7 +675,12 @@ impl Renderer {
                                      options.precache_shaders)
         };
 
-        let mut texture_cache = TextureCache::new();
+        let device_max_size = device.max_texture_size();
+        let max_texture_size = options.max_texture_size
+                                      .map(|size|{ cmp::min(size, device_max_size) })
+                                      .unwrap_or(device_max_size);
+
+        let mut texture_cache = TextureCache::new(max_texture_size);
 
         let white_pixels: Vec<u8> = vec![
             0xff, 0xff, 0xff, 0xff,
@@ -1770,6 +1775,7 @@ pub struct RendererOptions {
     pub clear_framebuffer: bool,
     pub clear_color: ColorF,
     pub render_target_debug: bool,
+    pub max_texture_size: Option<u32>,
     pub workers: Option<Arc<Mutex<ThreadPool>>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
 }
@@ -1789,6 +1795,7 @@ impl Default for RendererOptions {
             clear_framebuffer: true,
             clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
             render_target_debug: false,
+            max_texture_size: None,
             workers: None,
             recorder: None,
         }
