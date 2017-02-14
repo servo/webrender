@@ -1,0 +1,16 @@
+---
+root:
+  items:
+        -
+          bounds: [0, 0, 100, 100]
+          type: rect
+          color: [0, 255, 0]
+        -
+          bounds: [0, 0, 100, 100]
+          type: stacking_context
+          mix-blend-mode: multiply
+          items:
+            -
+              bounds: [0, 0, 100, 100]
+              type: rect
+              color: [255, 128, 0]

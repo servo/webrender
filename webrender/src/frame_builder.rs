@@ -6,7 +6,7 @@ use app_units::Au;
 use batch_builder::BorderSideHelpers;
 use frame::FrameId;
 use gpu_store::GpuStoreAddress;
-use internal_types::SourceTexture;
+use internal_types::{HardwareCompositeOp, SourceTexture};
 use mask_cache::{ClipSource, MaskCacheInfo};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu, ImagePrimitiveGpu};
@@ -773,22 +773,37 @@ impl FrameBuilder {
                         current_task = prev_task;
                     }
                     if let Some(mix_blend_mode) = stacking_context.composite_ops.mix_blend_mode {
-                        let stacking_context_rect =
-                            stacking_context.xf_rect.as_ref().unwrap().bounding_rect;
-                        let readback_task =
-                            RenderTask::new_readback(stacking_context_index, stacking_context_rect);
+                        match HardwareCompositeOp::from_mix_blend_mode(mix_blend_mode) {
+                            Some(op) => {
+                                let mut prev_task = alpha_task_stack.pop().unwrap();
+                                let item = AlphaRenderItem::HardwareComposite(stacking_context_index,
+                                                                              current_task.id,
+                                                                              op,
+                                                                              next_z);
+                                next_z += 1;
+                                prev_task.as_alpha_batch().alpha_items.push(item);
+                                prev_task.children.push(current_task);
+                                current_task = prev_task;
+                            }
+                            None => {
+                                let stacking_context_rect =
+                                    stacking_context.xf_rect.as_ref().unwrap().bounding_rect;
+                                let readback_task =
+                                    RenderTask::new_readback(stacking_context_index, stacking_context_rect);
 
-                        let mut prev_task = alpha_task_stack.pop().unwrap();
-                        let item = AlphaRenderItem::Composite(stacking_context_index,
-                                                              readback_task.id,
-                                                              current_task.id,
-                                                              mix_blend_mode,
-                                                              next_z);
-                        next_z += 1;
-                        prev_task.as_alpha_batch().alpha_items.push(item);
-                        prev_task.children.push(current_task);
-                        prev_task.children.push(readback_task);
-                        current_task = prev_task;
+                                let mut prev_task = alpha_task_stack.pop().unwrap();
+                                let item = AlphaRenderItem::Composite(stacking_context_index,
+                                                                      readback_task.id,
+                                                                      current_task.id,
+                                                                      mix_blend_mode,
+                                                                      next_z);
+                                next_z += 1;
+                                prev_task.as_alpha_batch().alpha_items.push(item);
+                                prev_task.children.push(current_task);
+                                prev_task.children.push(readback_task);
+                                current_task = prev_task;
+                            }
+                        }
                     }
                 }
                 PrimitiveRunCmd::PrimitiveRun(first_prim_index, prim_count) => {

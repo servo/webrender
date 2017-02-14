@@ -64,6 +64,7 @@ const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: d
 const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: debug_colors::GREEN };
 const GPU_TAG_PRIM_YUV_IMAGE: GpuProfileTag = GpuProfileTag { label: "YuvImage", color: debug_colors::DARKGREEN };
 const GPU_TAG_PRIM_BLEND: GpuProfileTag = GpuProfileTag { label: "Blend", color: debug_colors::LIGHTBLUE };
+const GPU_TAG_PRIM_HW_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "HwComposite", color: debug_colors::DODGERBLUE };
 const GPU_TAG_PRIM_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "Composite", color: debug_colors::MAGENTA };
 const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "TextRun", color: debug_colors::BLUE };
 const GPU_TAG_PRIM_GRADIENT: GpuProfileTag = GpuProfileTag { label: "Gradient", color: debug_colors::YELLOW };
@@ -78,6 +79,11 @@ const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag { label: "Blur", color: debug_
 pub enum BlendMode {
     None,
     Alpha,
+
+    Multiply,
+    Max,
+    Min,
+
     // Use the color of the text itself as a constant color blend factor.
     Subpixel(ColorF),
 }
@@ -417,6 +423,7 @@ pub struct Renderer {
     ps_cache_image: PrimitiveShader,
 
     ps_blend: LazilyCompiledShader,
+    ps_hw_composite: LazilyCompiledShader,
     ps_composite: LazilyCompiledShader,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
@@ -660,6 +667,14 @@ impl Renderer {
                                       options.precache_shaders)
         };
 
+        let ps_hw_composite = try!{
+            LazilyCompiledShader::new(ShaderKind::Primitive,
+                                     "ps_hardware_composite",
+                                     &[],
+                                     &mut device,
+                                     options.precache_shaders)
+        };
+
         let mut texture_cache = TextureCache::new();
 
         let white_pixels: Vec<u8> = vec![
@@ -807,6 +822,7 @@ impl Renderer {
             ps_radial_gradient: ps_radial_gradient,
             ps_cache_image: ps_cache_image,
             ps_blend: ps_blend,
+            ps_hw_composite: ps_hw_composite,
             ps_composite: ps_composite,
             notifier: notifier,
             debug: debug_renderer,
@@ -1158,6 +1174,10 @@ impl Renderer {
             PrimitiveBatchData::Instances(ref data) => {
                 let (marker, shader) = match batch.key.kind {
                     AlphaBatchKind::Composite => unreachable!(),
+                    AlphaBatchKind::HardwareComposite => {
+                        let shader = self.ps_hw_composite.get(&mut self.device);
+                        (GPU_TAG_PRIM_HW_COMPOSITE, shader)
+                    }
                     AlphaBatchKind::Blend => {
                         let shader = self.ps_blend.get(&mut self.device);
                         (GPU_TAG_PRIM_BLEND, shader)
@@ -1174,6 +1194,7 @@ impl Renderer {
                         let shader = match batch.key.blend_mode {
                             BlendMode::Subpixel(..) => self.ps_text_run_subpixel.get(&mut self.device, transform_kind),
                             BlendMode::Alpha | BlendMode::None => self.ps_text_run.get(&mut self.device, transform_kind),
+                            _ => unreachable!(),
                         };
                         (GPU_TAG_PRIM_TEXT_RUN, shader)
                     }
@@ -1470,6 +1491,18 @@ impl Renderer {
                 match batch.key.blend_mode {
                     BlendMode::None => {
                         self.device.set_blend(false);
+                    }
+                    BlendMode::Multiply => {
+                        self.device.set_blend(true);
+                        self.device.set_blend_mode_multiply();
+                    }
+                    BlendMode::Max => {
+                        self.device.set_blend(true);
+                        self.device.set_blend_mode_max();
+                    }
+                    BlendMode::Min => {
+                        self.device.set_blend(true);
+                        self.device.set_blend_mode_min();
                     }
                     BlendMode::Alpha => {
                         self.device.set_blend(true);

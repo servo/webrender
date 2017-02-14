@@ -1937,6 +1937,16 @@ impl Device {
                                 gl::ZERO, gl::SRC_ALPHA);
         gl::blend_equation(gl::FUNC_ADD);
     }
+    pub fn set_blend_mode_max(&self) {
+        gl::blend_func_separate(gl::ONE, gl::ONE,
+                                gl::ONE, gl::ONE);
+        gl::blend_equation_separate(gl::MAX, gl::FUNC_ADD);
+    }
+    pub fn set_blend_mode_min(&self) {
+        gl::blend_func_separate(gl::ONE, gl::ONE,
+                                gl::ONE, gl::ONE);
+        gl::blend_equation_separate(gl::MIN, gl::FUNC_ADD);
+    }
 }
 
 impl Drop for Device {
