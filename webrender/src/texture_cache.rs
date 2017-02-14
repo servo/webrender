@@ -731,6 +731,7 @@ impl TextureCache {
                     height: descriptor.height,
                     data: bytes,
                     stride: descriptor.stride,
+                    offset: descriptor.offset,
                 }
             }
         };
@@ -782,6 +783,7 @@ impl TextureCache {
                                 height: result.item.allocated_rect.size.height,
                                 data: bytes,
                                 stride: stride,
+                                offset: descriptor.offset,
                             },
                         };
 

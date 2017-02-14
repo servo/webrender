@@ -308,8 +308,9 @@ impl Wrench {
             ImageDescriptor {
                 width: image_dims.0,
                 height: image_dims.1,
-                stride: None,
                 format: format,
+                stride: None,
+                offset: 0,
                 is_opaque: is_image_opaque(format, &bytes[..]),
             },
             ImageData::Raw(Arc::new(bytes)));

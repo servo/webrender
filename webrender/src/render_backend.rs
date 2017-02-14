@@ -407,7 +407,7 @@ impl RenderBackend {
             webgl_context.unbind();
         }
 
-        self.frame.create(&self.scene);
+        self.frame.create(&self.scene, &mut self.resource_cache);
     }
 
     fn render(&mut self) -> RendererFrame {

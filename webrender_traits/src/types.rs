@@ -363,7 +363,14 @@ pub struct ImageDescriptor {
     pub width: u32,
     pub height: u32,
     pub stride: Option<u32>,
+    pub offset: u32,
     pub is_opaque: bool,
+}
+
+impl ImageDescriptor {
+    pub fn compute_stride(&self) -> u32 {
+        self.stride.unwrap_or(self.width * self.format.bytes_per_pixel().unwrap())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
