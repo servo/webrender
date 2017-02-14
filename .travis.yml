@@ -17,15 +17,18 @@ addons:
       - libgles2-mesa-dev
       - llvm-3.8-dev
       - libedit-dev
+env:
+  - BUILD_KIND=DEBUG
+  - BUILD_KIND=RELEASE
 before_install:
   - pip install mako servo-tidy
 script:
   - servo-tidy
-  - (cd webrender_traits && cargo test --verbose --features "ipc")
-  - (cd webrender_traits && cargo test --verbose)
-  - (cd webrender && cargo test --verbose)
-  - (cd sample && cargo test --verbose)
-  - (cd sample && cargo build --verbose --features=profiler)
-  - (cd wrench && cargo test --verbose)
-  - (cd wrench && cargo build --release --verbose --features headless)
-  - (cd wrench && python run_tests.py res/rect.yaml)
+  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_traits && cargo test --verbose --features "ipc"); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_traits && cargo test --verbose); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo test --verbose); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cd sample && cargo test --verbose); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cd sample && cargo build --verbose --features=profiler); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cd wrench && cargo test --verbose); fi
+  - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && cargo build --release --verbose --features headless); fi
+  - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python run_tests.py res/rect.yaml); fi
