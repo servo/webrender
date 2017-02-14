@@ -23,7 +23,7 @@ use thread_profiler::register_thread_with_profiler;
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRendering};
 use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
 use webrender_traits::{DevicePoint, DeviceIntSize, ImageDescriptor, ColorF};
-use webrender_traits::{ExternalImageId, GlyphOptions, GlyphInstance};
+use webrender_traits::{ExternalImageId, GlyphOptions, GlyphInstance, TileOffset};
 use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError};
 use threadpool::ThreadPool;
 use euclid::Point2D;
@@ -92,6 +92,7 @@ impl RenderedGlyphKey {
 pub struct ImageProperties {
     pub descriptor: ImageDescriptor,
     pub external_id: Option<ExternalImageId>,
+    pub tiling: Option<u16>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -105,6 +106,7 @@ struct ImageResource {
     data: ImageData,
     descriptor: ImageDescriptor,
     epoch: Epoch,
+    tiling: Option<u16>,
 }
 
 struct CachedImageInfo {
@@ -177,6 +179,7 @@ impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resourc
 struct ImageRequest {
     key: ImageKey,
     rendering: ImageRendering,
+    tile: Option<TileOffset>,
 }
 
 struct GlyphRasterJob {
@@ -270,6 +273,7 @@ impl ResourceCache {
             descriptor: descriptor,
             data: data,
             epoch: Epoch(0),
+            tiling: None,
         };
 
         self.image_templates.insert(image_key, resource);
@@ -301,6 +305,7 @@ impl ResourceCache {
             descriptor: descriptor,
             data: ImageData::new(bytes),
             epoch: next_epoch,
+            tiling: None,
         };
 
         self.image_templates.insert(image_key, resource);
@@ -339,11 +344,16 @@ impl ResourceCache {
         webgl_texture.size = size;
     }
 
-    pub fn request_image(&mut self, key: ImageKey, rendering: ImageRendering) {
+    pub fn request_image(&mut self,
+                         key: ImageKey,
+                         rendering: ImageRendering,
+                         tile: Option<TileOffset>) {
+
         debug_assert!(self.state == State::AddResources);
         let request = ImageRequest {
             key: key,
             rendering: rendering,
+            tile: tile,
         };
 
         let template = self.image_templates.get(&key).unwrap();
@@ -472,11 +482,13 @@ impl ResourceCache {
     #[inline]
     pub fn get_cached_image(&self,
                             image_key: ImageKey,
-                            image_rendering: ImageRendering) -> CacheItem {
+                            image_rendering: ImageRendering,
+                            tile: Option<TileOffset>) -> CacheItem {
         debug_assert!(self.state == State::QueryResources);
         let key = ImageRequest {
             key: image_key,
             rendering: image_rendering,
+            tile: tile,
         };
         let image_info = &self.cached_images.get(&key, self.current_frame_id);
         let item = self.texture_cache.get(image_info.texture_cache_id);
@@ -501,6 +513,7 @@ impl ResourceCache {
         ImageProperties {
             descriptor: image_template.descriptor,
             external_id: external_id,
+            tiling: image_template.tiling,
         }
     }
 
@@ -563,6 +576,7 @@ impl ResourceCache {
                                                               stride: None,
                                                               format: ImageFormat::RGBA8,
                                                               is_opaque: false,
+                                                              offset: 0,
                                                           },
                                                           TextureFilter::Linear,
                                                           ImageData::Raw(Arc::new(glyph.bytes)));
@@ -650,10 +664,48 @@ impl ResourceCache {
                             ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
                         };
 
-                        self.texture_cache.insert(image_id,
-                                                  image_template.descriptor,
-                                                  filter,
-                                                  image_data);
+                        if let Some(tile) = request.tile {
+                            let tile_size = image_template.tiling.unwrap() as u32;
+                            let image_descriptor = image_template.descriptor.clone();
+                            let stride = image_descriptor.compute_stride();
+                            let bpp = image_descriptor.format.bytes_per_pixel().unwrap();
+
+                            // Storage for the tiles on the right and bottom edges is shrunk to
+                            // fit the image data (See decompose_tiled_image in frame.rs).
+                            let actual_width = if (tile.x as u32) < image_descriptor.width / tile_size {
+                                tile_size
+                            } else {
+                                image_descriptor.width % tile_size
+                            };
+
+                            let actual_height = if (tile.y as u32) < image_descriptor.height / tile_size {
+                                tile_size
+                            } else {
+                                image_descriptor.height % tile_size
+                            };
+
+                            let offset = image_descriptor.offset + tile.y as u32 * tile_size * stride
+                                                                 + tile.x as u32 * tile_size * bpp;
+
+                            let tile_descriptor = ImageDescriptor {
+                                width: actual_width,
+                                height: actual_height,
+                                stride: Some(stride),
+                                offset: offset,
+                                format: image_descriptor.format,
+                                is_opaque: image_descriptor.is_opaque,
+                            };
+
+                            self.texture_cache.insert(image_id,
+                                                      tile_descriptor,
+                                                      filter,
+                                                      image_data);
+                        } else {
+                            self.texture_cache.insert(image_id,
+                                                      image_template.descriptor,
+                                                      filter,
+                                                      image_data);
+                        }
 
                         entry.insert(CachedImageInfo {
                             texture_cache_id: image_id,

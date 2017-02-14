@@ -697,6 +697,7 @@ impl Renderer {
                                 width: 2,
                                 height: 2,
                                 stride: None,
+                                offset: 0,
                                 format: ImageFormat::RGBA8,
                                 is_opaque: false,
                              },
@@ -709,6 +710,7 @@ impl Renderer {
                                 width: 2,
                                 height: 2,
                                 stride: None,
+                                offset: 0,
                                 format: ImageFormat::A8,
                                 is_opaque: false,
                              },
@@ -1108,13 +1110,13 @@ impl Renderer {
                                                    filter,
                                                    mode);
                     }
-                    TextureUpdateOp::Update { page_pos_x, page_pos_y, width, height, data, stride } => {
+                    TextureUpdateOp::Update { page_pos_x, page_pos_y, width, height, data, stride, offset } => {
                         let texture_id = self.cache_texture_id_map[update.id.0];
                         self.device.update_texture(texture_id,
                                                    page_pos_x,
                                                    page_pos_y,
                                                    width, height, stride,
-                                                   data.as_slice());
+                                                   &data[offset as usize..]);
                     }
                     TextureUpdateOp::UpdateForExternalBuffer { rect, id, stride } => {
                         let handler = self.external_image_handler

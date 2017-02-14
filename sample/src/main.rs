@@ -109,6 +109,7 @@ fn main() {
             height: 100,
             stride: None,
             is_opaque: true,
+            offset: 0,
         },
         ImageData::new_blob_image(Vec::new()),
     );
@@ -151,6 +152,7 @@ fn main() {
                     stride: None,
                     format: ImageFormat::A8,
                     is_opaque: true,
+                    offset: 0,
                 },
                 ImageData::new(vec![0, 80, 180, 255])
             ),

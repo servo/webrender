@@ -16,10 +16,10 @@ use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use tiling::{AuxiliaryListsMap, CompositeOps, PrimitiveFlags};
 use webrender_traits::{AuxiliaryLists, ClipRegion, ColorF, DisplayItem, Epoch, FilterOp};
-use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform, LayoutTransform};
+use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform, LayoutTransform, TileOffset};
 use webrender_traits::{MixBlendMode, PipelineId, ScrollEventPhase, ScrollLayerId, ScrollLayerState};
 use webrender_traits::{ScrollLocation, ScrollPolicy, ServoScrollRootId, SpecificDisplayItem};
-use webrender_traits::{StackingContext, WorldPoint};
+use webrender_traits::{StackingContext, WorldPoint, ImageDisplayItem, DeviceUintSize};
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
 pub struct FrameId(pub u32);
@@ -226,7 +226,7 @@ impl Frame {
         self.clip_scroll_tree.discard_frame_state_for_pipeline(pipeline_id);
     }
 
-    pub fn create(&mut self, scene: &Scene) {
+    pub fn create(&mut self, scene: &Scene, resource_cache: &mut ResourceCache) {
         let root_pipeline_id = match scene.root_pipeline_id {
             Some(root_pipeline_id) => root_pipeline_id,
             None => return,
@@ -295,6 +295,7 @@ impl Frame {
                                                   &root_clip.main.size);
 
             self.flatten_stacking_context(&mut traversal,
+                                          resource_cache,
                                           root_pipeline_id,
                                           &mut context,
                                           reference_frame_id,
@@ -314,6 +315,7 @@ impl Frame {
 
     fn flatten_scroll_layer<'a>(&mut self,
                                 traversal: &mut DisplayListTraversal<'a>,
+                                resource_cache: &mut ResourceCache,
                                 pipeline_id: PipelineId,
                                 context: &mut FlattenContext,
                                 current_reference_frame_id: ScrollLayerId,
@@ -341,6 +343,7 @@ impl Frame {
                                               &content_size);
 
         self.flatten_items(traversal,
+                           resource_cache,
                            pipeline_id,
                            context,
                            current_reference_frame_id,
@@ -353,6 +356,7 @@ impl Frame {
 
     fn flatten_stacking_context<'a>(&mut self,
                                     traversal: &mut DisplayListTraversal<'a>,
+                                    resource_cache: &mut ResourceCache,
                                     pipeline_id: PipelineId,
                                     context: &mut FlattenContext,
                                     current_reference_frame_id: ScrollLayerId,
@@ -442,6 +446,7 @@ impl Frame {
                                               composition_operations);
 
         self.flatten_items(traversal,
+                           resource_cache,
                            pipeline_id,
                            context,
                            reference_frame_id,
@@ -462,6 +467,7 @@ impl Frame {
     }
 
     fn flatten_iframe<'a>(&mut self,
+                          resource_cache: &mut ResourceCache,
                           pipeline_id: PipelineId,
                           bounds: &LayerRect,
                           context: &mut FlattenContext,
@@ -519,6 +525,7 @@ impl Frame {
         let mut traversal = DisplayListTraversal::new_skipping_first(display_list);
 
         self.flatten_stacking_context(&mut traversal,
+                                      resource_cache,
                                       pipeline_id,
                                       context,
                                       iframe_reference_frame_id,
@@ -534,6 +541,7 @@ impl Frame {
 
     fn flatten_items<'a>(&mut self,
                          traversal: &mut DisplayListTraversal<'a>,
+                         resource_cache: &mut ResourceCache,
                          pipeline_id: PipelineId,
                          context: &mut FlattenContext,
                          current_reference_frame_id: ScrollLayerId,
@@ -547,12 +555,21 @@ impl Frame {
                                                         &item.clip, info.context_id);
                 }
                 SpecificDisplayItem::Image(ref info) => {
-                    context.builder.add_image(item.rect,
-                                              &item.clip,
-                                              &info.stretch_size,
-                                              &info.tile_spacing,
-                                              info.image_key,
-                                              info.image_rendering);
+                    let image = resource_cache.get_image_properties(info.image_key);
+                    if let Some(tile_size) = image.tiling {
+                        // The image resource is tiled. We have to generate an image primitive
+                        // for each tile.
+                        let image_size = DeviceUintSize::new(image.descriptor.width, image.descriptor.height);
+                        self.decompose_tiled_image(context, &item, info, image_size, tile_size as u32);
+                    } else {
+                        context.builder.add_image(item.rect,
+                                                  &item.clip,
+                                                  &info.stretch_size,
+                                                  &info.tile_spacing,
+                                                  info.image_key,
+                                                  info.image_rendering,
+                                                  None);
+                    }
                 }
                 SpecificDisplayItem::YuvImage(ref info) => {
                     context.builder.add_yuv_image(item.rect,
@@ -611,6 +628,7 @@ impl Frame {
                 }
                 SpecificDisplayItem::PushStackingContext(ref info) => {
                     self.flatten_stacking_context(traversal,
+                                                  resource_cache,
                                                   pipeline_id,
                                                   context,
                                                   current_reference_frame_id,
@@ -622,6 +640,7 @@ impl Frame {
                 }
                 SpecificDisplayItem::PushScrollLayer(ref info) => {
                     self.flatten_scroll_layer(traversal,
+                                              resource_cache,
                                               pipeline_id,
                                               context,
                                               current_reference_frame_id,
@@ -633,7 +652,8 @@ impl Frame {
                                               info.id);
                 }
                 SpecificDisplayItem::Iframe(ref info) => {
-                    self.flatten_iframe(info.pipeline_id,
+                    self.flatten_iframe(resource_cache,
+                                        info.pipeline_id,
                                         &item.rect,
                                         context,
                                         current_scroll_layer_id,
@@ -643,6 +663,205 @@ impl Frame {
                 SpecificDisplayItem::PopScrollLayer => return,
             }
         }
+    }
+
+    fn decompose_tiled_image(&mut self,
+                             context: &mut FlattenContext,
+                             item: &DisplayItem,
+                             info: &ImageDisplayItem,
+                             image_size: DeviceUintSize,
+                             tile_size: u32) {
+        // The image resource is tiled. We have to generate an image primitive
+        // for each tile.
+        // We need to do this because the image is borken up into smaller tiles in the texture
+        // cache and the image shader is not able to work with this type of sparse representation.
+
+        // The tiling logic works as follows:
+        //
+        //  ###################-+  -+
+        //  #    |    |    |//# |   | image size
+        //  #    |    |    |//# |   |
+        //  #----+----+----+--#-+   |  -+ 
+        //  #    |    |    |//# |   |   | regular tile size
+        //  #    |    |    |//# |   |   |
+        //  #----+----+----+--#-+   |  -+-+
+        //  #////|////|////|//# |   |     | "leftover" height
+        //  ################### |  -+  ---+
+        //  #----+----+----+----+
+        //
+        // In the ascii diagram above, a large image is plit into tiles of almost regular size.
+        // The tiles on the right and bottom edges (hatched in the diagram) are smaller than
+        // the regular tiles and are handled separately in the code see leftover_width/height.
+        // each generated image primitive corresponds to a tile in the texture cache, with the
+        // assumption that the smaller tiles with leftover sizes are sized to fit their own
+        // irregular size in the texture cache.
+
+        // TODO(nical) supporting tiled repeated images isn't implemented yet.
+        // One way to implement this is to have another level of decomposition on top of this one,
+        // and generate a set of image primitive per repetition just like we have a primitive
+        // per tile here.
+        //
+        // For the case where we don't tile along an axis, we can still perform the repetition in
+        // the shader (for this particular axis), and it is worth special-casing for this to avoid
+        // generating many primitives.
+        // This can happen with very tall and thin images used as a repeating background.
+        // Apparently web authors do that...
+
+        let mut stretch_size = info.stretch_size;
+
+        let mut repeat_x = false;
+        let mut repeat_y = false;
+
+        if stretch_size.width < item.rect.size.width {
+            if image_size.width < tile_size {
+                // we don't actually tile in this dimmension so repeating can be done in the shader.
+                repeat_x = true;
+            } else {
+                println!("Unimplemented! repeating a tiled image (x axis)");
+                stretch_size.width = item.rect.size.width;
+            }
+        }
+
+        if stretch_size.height < item.rect.size.height {
+                // we don't actually tile in this dimmension so repeating can be done in the shader.
+            if image_size.height < tile_size {
+                repeat_y = true;
+            } else {
+                println!("Unimplemented! repeating a tiled image (y axis)");
+                stretch_size.height = item.rect.size.height;
+            }
+        }
+
+        let tile_size_f32 = tile_size as f32;
+
+        // Note: this rounds down so it excludes the partially filled tiles on the right and
+        // bottom edges (we handle them separately below).
+        let num_tiles_x = (image_size.width / tile_size) as u16;
+        let num_tiles_y = (image_size.height / tile_size) as u16;
+
+        // Ratio between (image space) tile size and image size.
+        let img_dw = tile_size_f32 / (image_size.width as f32);
+        let img_dh = tile_size_f32 / (image_size.height as f32);
+
+        // Strected size of the tile in layout space.
+        let stretched_tile_size = LayerSize::new(
+            img_dw * stretch_size.width,
+            img_dh * stretch_size.height
+        );
+
+        // The size in pixels of the tiles on the right and bottom edges, smaller
+        // than the regular tile size if the image is not a multiple of the tile size.
+        // Zero means the image size is a multiple of the tile size.
+        let leftover = DeviceUintSize::new(image_size.width % tile_size, image_size.height % tile_size);
+
+        for ty in 0..num_tiles_y {
+            for tx in 0..num_tiles_x {
+                self.add_tile_primitive(context, item, info,
+                                        TileOffset::new(tx, ty),
+                                        stretched_tile_size,
+                                        1.0, 1.0,
+                                        repeat_x, repeat_y);
+            }
+            if leftover.width != 0 {
+                // Tiles on the right edge that are smaller than the tile size.
+                self.add_tile_primitive(context, item, info,
+                                        TileOffset::new(num_tiles_x, ty),
+                                        stretched_tile_size,
+                                        (leftover.width as f32) / tile_size_f32,
+                                        1.0,
+                                        repeat_x, repeat_y);
+            }
+        }
+
+        if leftover.height != 0 {
+            for tx in 0..num_tiles_x {
+                // Tiles on the bottom edge that are smaller than the tile size.
+                self.add_tile_primitive(context, item, info,
+                                        TileOffset::new(tx, num_tiles_y),
+                                        stretched_tile_size,
+                                        1.0,
+                                        (leftover.height as f32) / tile_size_f32,
+                                        repeat_x, repeat_y);
+            }
+
+            if leftover.width != 0 {
+                // Finally, the bottom-right tile with a "leftover" size.
+                self.add_tile_primitive(context, item, info,
+                                        TileOffset::new(num_tiles_x, num_tiles_y),
+                                        stretched_tile_size,
+                                        (leftover.width as f32) / tile_size_f32,
+                                        (leftover.height as f32) / tile_size_f32,
+                                        repeat_x, repeat_y);
+            }
+        }
+    }
+
+    fn add_tile_primitive(&mut self,
+                          context: &mut FlattenContext,
+                          item: &DisplayItem,
+                          info: &ImageDisplayItem,
+                          tile_offset: TileOffset,
+                          stretched_tile_size: LayerSize,
+                          tile_ratio_width: f32,
+                          tile_ratio_height: f32,
+                          repeat_x: bool,
+                          repeat_y: bool) {
+        // If the the image is tiled along a given axis, we can't have the shader compute
+        // the image repetition pattern. In this case we base the primitive's rectangle size
+        // on the stretched tile size which effectively cancels the repetion (and repetition
+        // has to be emulated by generating more primitives).
+        // If the image is not tiling along this axis, we can perform the repetition in the
+        // shader. in this case we use the item's size in the primitive (on that particular
+        // axis).
+        // See the repeat_x/y code below.
+
+        let stretched_size = LayerSize::new(
+            stretched_tile_size.width * tile_ratio_width,
+            stretched_tile_size.height * tile_ratio_height,
+        );
+
+        let mut prim_rect = LayerRect::new(
+            item.rect.origin + LayerPoint::new(
+                tile_offset.x as f32 * stretched_tile_size.width,
+                tile_offset.y as f32 * stretched_tile_size.height,
+            ),
+            stretched_size,
+        );
+
+        if !item.rect.contains(&prim_rect.origin) {
+            // Due to stretching, this tile is outside of the item's rectangle,
+            // so it isn't visible.
+            return;
+        }
+
+        if repeat_x {
+            assert_eq!(tile_offset.x, 0);
+            prim_rect.size.width = item.rect.size.width;
+        }
+
+        if repeat_y {
+            assert_eq!(tile_offset.y, 0);
+            prim_rect.size.height = item.rect.size.height;
+        }
+
+        // Fix up the primitive's rect if it overflows the original item rect.
+        let x_overflow = prim_rect.max_x() - item.rect.max_x();
+        if x_overflow > 0.0 {
+            prim_rect.size.width -= x_overflow;
+        }
+
+        let y_overflow = prim_rect.max_y() - item.rect.max_y();
+        if y_overflow > 0.0 {
+            prim_rect.size.height -= y_overflow;
+        }
+
+        context.builder.add_image(prim_rect,
+                                  &item.clip,
+                                  &stretched_size,
+                                  &info.tile_spacing,
+                                  info.image_key,
+                                  info.image_rendering,
+                                  Some(tile_offset));
     }
 
     pub fn build(&mut self,

@@ -31,7 +31,7 @@ use webrender_traits::{BoxShadowClipMode, ClipRegion, ColorF, device_length, Dev
 use webrender_traits::{DeviceIntRect, DeviceIntSize, DeviceUintSize, ExtendMode, FontKey};
 use webrender_traits::{FontRenderMode, GlyphOptions, ImageKey, ImageRendering, ItemRange};
 use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform, PipelineId};
-use webrender_traits::{ScrollLayerId, ScrollLayerPixel, WebGLContextId, YuvColorSpace};
+use webrender_traits::{ScrollLayerId, ScrollLayerPixel, WebGLContextId, YuvColorSpace, TileOffset};
 
 #[derive(Clone, Copy)]
 pub struct FrameBuilderConfig {
@@ -628,10 +628,12 @@ impl FrameBuilder {
                      stretch_size: &LayerSize,
                      tile_spacing: &LayerSize,
                      image_key: ImageKey,
-                     image_rendering: ImageRendering) {
+                     image_rendering: ImageRendering,
+                     tile: Option<TileOffset>) {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::Image(image_key,
                                             image_rendering,
+                                            tile,
                                             *tile_spacing),
             color_texture_id: SourceTexture::Invalid,
             resource_address: GpuStoreAddress(0),
@@ -1155,7 +1157,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
 
         if let Some(mask) = scroll_layer.clip_source.image_mask() {
             // We don't add the image mask for resolution, because layer masks are resolved later.
-            self.resource_cache.request_image(mask.image, ImageRendering::Auto);
+            self.resource_cache.request_image(mask.image, ImageRendering::Auto, None);
         }
     }
 
