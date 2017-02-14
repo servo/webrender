@@ -235,6 +235,10 @@ impl ResourceCache {
         }
     }
 
+    pub fn max_texture_size(&self) -> u32 {
+        self.texture_cache.max_texture_size()
+    }
+
     pub fn add_font_template(&mut self, font_key: FontKey, template: FontTemplate) {
         // Push the new font to the glyph cache thread, and also store
         // it locally for glyph metric requests.
@@ -248,6 +252,12 @@ impl ResourceCache {
                               image_key: ImageKey,
                               descriptor: ImageDescriptor,
                               data: ImageData) {
+        if descriptor.width > self.max_texture_size() || descriptor.height > self.max_texture_size() {
+            // TODO: we need to support handle this case gracefully, cf. issue #620.
+            println!("Warning: texture size ({} {}) larger than the maximum size",
+                     descriptor.width, descriptor.height);
+        }
+
         let resource = ImageResource {
             descriptor: descriptor,
             data: data,
