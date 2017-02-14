@@ -23,7 +23,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
                 if !k.1.is_whitespace() {
                     break;
                 }
-                self.start = k.0 + 1;
+                self.start = k.0 + k.1.len_utf8();
                 self.o = self.itr.next();
             }
 
@@ -40,7 +40,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
         if !k.1.is_alphabetic() {
             break;
         }
-        end = k.0 + 1;
+        end = k.0 + k.1.len_utf8();
         p.o = p.itr.next();
     }
 
@@ -53,7 +53,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
         if !(k.1 == '(') {
             return (name, args);
         }
-        p.start = k.0 + 1;
+        p.start = k.0 + k.1.len_utf8();
         p.o = p.itr.next();
     }
 
@@ -65,7 +65,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
             if !acceptable_arg_character(k.1) {
                 break;
             }
-            end = k.0 + 1;
+            end = k.0 + k.1.len_utf8();
             p.o = p.itr.next();
         }
 
@@ -78,7 +78,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
             if k.1 != ',' {
                 break;
             }
-            p.start = k.0 + 1;
+            p.start = k.0 + k.1.len_utf8();
             p.o = p.itr.next();
         }
 
