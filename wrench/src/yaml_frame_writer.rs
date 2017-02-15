@@ -155,11 +155,11 @@ fn scroll_policy_node(parent: &mut Table, key: &str, value: ScrollPolicy) {
 }
 
 fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
-    if let Some(radius) = radius.is_uniform() {
+    if let Some(radius) = radius.is_uniform_size() {
         if radius == LayoutSize::zero() {
             None
         } else {
-            Some(Yaml::Real(radius.to_string()))
+            Some(f32_vec_yaml(&vec![radius.width, radius.height], false))
         }
     } else {
         let mut table = new_table();
@@ -196,7 +196,7 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
 }
 
 fn write_scroll_layer(parent: &mut Table, scroll_layer: &PushScrollLayerItem) {
-    size_node(parent, "content_size", &scroll_layer.content_size);
+    size_node(parent, "content-size", &scroll_layer.content_size);
     match scroll_layer.id.info {
         ScrollLayerInfo::Scrollable(_, id) => usize_node(parent, "id", id.0),
         ScrollLayerInfo::ReferenceFrame(..) => unreachable!("Scroll layer had reference frame id"),

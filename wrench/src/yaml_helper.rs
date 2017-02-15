@@ -183,11 +183,13 @@ impl YamlHelper for Yaml {
             return None;
         }
 
-        let nums = self.as_vec_f32().unwrap();
-        if nums.len() != 2 {
-            panic!("size expected 2 float values, got {} instead ('{:?}')", nums.len(), self);
+        if let Some(nums) = self.as_vec_f32() {
+            if nums.len() == 2 {
+                return Some(LayoutSize::new(nums[0], nums[1]));
+            }
         }
-        Some(LayoutSize::new(nums[0], nums[1]))
+
+        None
     }
 
     fn as_point(&self) -> Option<LayoutPoint> {
@@ -195,11 +197,13 @@ impl YamlHelper for Yaml {
             return None;
         }
 
-        let nums = self.as_vec_f32().unwrap();
-        if nums.len() != 2 {
-            panic!("point expected 2 float values, got {} instead ('{:?}')", nums.len(), self);
+        if let Some(nums) = self.as_vec_f32() {
+            if nums.len() == 2 {
+                return Some(LayoutPoint::new(nums[0], nums[1]));
+            }
         }
-        Some(LayoutPoint::new(nums[0], nums[1]))
+
+        None
     }
 
     fn as_matrix4d(&self, transform_origin: &LayoutPoint) -> Option<LayoutTransform> {
@@ -292,6 +296,10 @@ impl YamlHelper for Yaml {
     }
 
     fn as_border_radius(&self) -> Option<BorderRadius> {
+        if let Some(size) = self.as_size() {
+            return Some(BorderRadius::uniform_size(size));
+        }
+
         match *self {
             Yaml::BadValue => { None }
             Yaml::String(ref s) | Yaml::Real(ref s) => {
