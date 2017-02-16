@@ -40,7 +40,9 @@ mod display_item;
 mod display_list;
 mod stacking_context;
 mod webgl;
+mod premultiply;
 
 pub use api::RenderApi;
 pub use display_list::DisplayListBuilder;
 pub use units::*;
+pub use premultiply::*;
