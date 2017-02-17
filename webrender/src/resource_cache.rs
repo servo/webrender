@@ -23,7 +23,7 @@ use thread_profiler::register_thread_with_profiler;
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRendering};
 use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
 use webrender_traits::{DevicePoint, DeviceIntSize, ImageDescriptor, ColorF};
-use webrender_traits::{ExternalImageId, GlyphOptions, GlyphInstance};
+use webrender_traits::{ExternalImageId, GlyphOptions, GlyphInstance, NativeFontHandle};
 use threadpool::ThreadPool;
 use euclid::Point2D;
 
@@ -414,8 +414,8 @@ impl ResourceCache {
                             font_context.add_raw_font(&glyph_key.font_key, &**bytes);
                         }
                         FontTemplate::Native(ref native_font_handle) => {
-                            font_context.add_native_font(&glyph_key.font_key,
-                                                         (*native_font_handle).clone());
+                            let NativeFontHandle(ref font) = *native_font_handle;
+                            font_context.add_native_font(&glyph_key.font_key, font.clone());
                         }
                     }
 
@@ -690,8 +690,8 @@ fn spawn_glyph_cache_thread(workers: Arc<Mutex<ThreadPool>>) -> (Sender<GlyphCac
                                         font_context.add_raw_font(&font_key, &**bytes);
                                     }
                                     FontTemplate::Native(ref native_font_handle) => {
-                                        font_context.add_native_font(&font_key,
-                                                                     (*native_font_handle).clone());
+                                        let NativeFontHandle(ref font) = *native_font_handle;
+                                        font_context.add_native_font(&font_key, font.clone());
                                     }
                                 }
                             });
