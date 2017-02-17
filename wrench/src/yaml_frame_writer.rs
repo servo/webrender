@@ -334,24 +334,30 @@ impl YamlFrameWriter {
             self.write_dl(&mut root_dl_table, &mut iter, &aux);
         }
 
-        scene.finish_root_display_list(self.pipeline_id.unwrap(), dl, aux);
 
         let mut root = new_table();
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
             u32_vec_node(&mut root_dl_table, "id", &vec![root_pipeline_id.0, root_pipeline_id.1]);
 
+            let referenced_pipeline_ids = dl.all_display_items().iter()
+                .flat_map(|base| {
+                    if let SpecificDisplayItem::Iframe(k) = base.item {
+                        Some(k.pipeline_id)
+                    } else {
+                        None
+                    }
+                });
+
             let mut pipelines = vec![];
-            for pipeline_id in scene.pipeline_map.keys() {
-                // write out all pipelines other than the root one
-                if *pipeline_id == root_pipeline_id {
+            for pipeline_id in referenced_pipeline_ids {
+                if !scene.display_lists.contains_key(&pipeline_id) {
                     continue;
                 }
-
                 let mut pipeline = new_table();
                 u32_vec_node(&mut pipeline, "id", &vec![pipeline_id.0, pipeline_id.1]);
 
-                let dl = scene.display_lists.get(pipeline_id).unwrap();
-                let aux = scene.pipeline_auxiliary_lists.get(pipeline_id).unwrap();
+                let dl = scene.display_lists.get(&pipeline_id).unwrap();
+                let aux = scene.pipeline_auxiliary_lists.get(&pipeline_id).unwrap();
                 let mut iter = dl.iter();
                 self.write_dl(&mut pipeline, &mut iter, &aux);
                 pipelines.push(Yaml::Hash(pipeline));
@@ -377,6 +383,7 @@ impl YamlFrameWriter {
 
         }
 
+        scene.finish_root_display_list(self.pipeline_id.unwrap(), dl, aux);
     }
 
     fn next_rsrc_paths(prefix: &str, counter: &mut u32, base_path: &Path, base: &str, ext: &str) -> (PathBuf, PathBuf) {
