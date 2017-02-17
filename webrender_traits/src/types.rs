@@ -15,7 +15,10 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+#[cfg(target_os = "macos")] use core_foundation::string::CFString;
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
+#[cfg(target_os = "macos")] use serde::de::{self, Deserialize, Deserializer};
+#[cfg(target_os = "macos")] use serde::ser::{Serialize, Serializer};
 #[cfg(target_os = "windows")] use dwrote::FontDescriptor;
 
 #[derive(Debug, Copy, Clone)]
@@ -664,7 +667,27 @@ pub enum MixBlendMode {
 }
 
 #[cfg(target_os = "macos")]
-pub type NativeFontHandle = CGFont;
+#[derive(Clone)]
+pub struct NativeFontHandle(pub CGFont);
+
+#[cfg(target_os = "macos")]
+impl Serialize for NativeFontHandle {
+    fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
+        let NativeFontHandle(ref font) = *self;
+        let postscript_name = font.postscript_name().to_string();
+        postscript_name.serialize(serializer)
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Deserialize for NativeFontHandle {
+    fn deserialize<D>(deserializer: &mut D) -> Result<NativeFontHandle, D::Error> where D: Deserializer {
+        let postscript_name: String = try!(Deserialize::deserialize(deserializer));
+        CGFont::from_name(&CFString::new(&*postscript_name))
+            .map(|font| NativeFontHandle(font))
+            .map_err(|_| de::Error::invalid_value("Couldn't find a font with that PostScript name!"))
+    }
+}
 
 /// Native fonts are not used on Linux; all fonts are raw.
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]

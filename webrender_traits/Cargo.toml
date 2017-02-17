@@ -25,6 +25,7 @@ serde_derive = {version = "0.8", optional = true}
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.6"
+core-foundation = "0.3"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 dwrote = "0.1.1"
