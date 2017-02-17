@@ -92,9 +92,10 @@ impl RenderApi {
     /// Adds an image and returns the corresponding `ImageKey`.
     pub fn add_image(&self,
                      descriptor: ImageDescriptor,
-                     data: ImageData) -> ImageKey {
+                     data: ImageData,
+                     tiling: Option<u16>) -> ImageKey {
         let key = self.alloc_image();
-        let msg = ApiMsg::AddImage(key, descriptor, data);
+        let msg = ApiMsg::AddImage(key, descriptor, data, tiling);
         self.api_sender.send(msg).unwrap();
         key
     }

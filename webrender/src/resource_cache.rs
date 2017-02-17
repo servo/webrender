@@ -262,7 +262,8 @@ impl ResourceCache {
     pub fn add_image_template(&mut self,
                               image_key: ImageKey,
                               descriptor: ImageDescriptor,
-                              data: ImageData) {
+                              data: ImageData,
+                              tiling: Option<u16>) {
         if descriptor.width > self.max_texture_size() || descriptor.height > self.max_texture_size() {
             // TODO: we need to support handle this case gracefully, cf. issue #620.
             println!("Warning: texture size ({} {}) larger than the maximum size",
@@ -273,7 +274,7 @@ impl ResourceCache {
             descriptor: descriptor,
             data: data,
             epoch: Epoch(0),
-            tiling: None,
+            tiling: tiling,
         };
 
         self.image_templates.insert(image_key, resource);

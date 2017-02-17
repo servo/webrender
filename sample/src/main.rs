@@ -105,6 +105,7 @@ fn main() {
     let vector_img = api.add_image(
         ImageDescriptor::new(100, 100, ImageFormat::RGBA8).with_opaque_flag(true),
         ImageData::new_blob_image(Vec::new()),
+        None,
     );
 
     let pipeline_id = PipelineId(0, 0);
@@ -141,6 +142,7 @@ fn main() {
             image: api.add_image(
                 ImageDescriptor::new(2, 2, ImageFormat::A8).with_opaque_flag(true),
                 ImageData::new(vec![0, 80, 180, 255]),
+                None,
             ),
             rect: LayoutRect::new(LayoutPoint::new(75.0, 75.0), LayoutSize::new(100.0, 100.0)),
             repeat: false,
