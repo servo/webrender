@@ -103,14 +103,7 @@ fn main() {
     let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
 
     let vector_img = api.add_image(
-        ImageDescriptor {
-            format: ImageFormat::RGBA8,
-            width: 100,
-            height: 100,
-            stride: None,
-            is_opaque: true,
-            offset: 0,
-        },
+        ImageDescriptor::new(100, 100, ImageFormat::RGBA8).with_opaque_flag(true),
         ImageData::new_blob_image(Vec::new()),
     );
 
@@ -146,15 +139,8 @@ fn main() {
     let sub_clip = {
         let mask = webrender_traits::ImageMask {
             image: api.add_image(
-                ImageDescriptor {
-                    width: 2,
-                    height: 2,
-                    stride: None,
-                    format: ImageFormat::A8,
-                    is_opaque: true,
-                    offset: 0,
-                },
-                ImageData::new(vec![0, 80, 180, 255])
+                ImageDescriptor::new(2, 2, ImageFormat::A8).with_opaque_flag(true),
+                ImageData::new(vec![0, 80, 180, 255]),
             ),
             rect: LayoutRect::new(LayoutPoint::new(75.0, 75.0), LayoutSize::new(100.0, 100.0)),
             repeat: false,
