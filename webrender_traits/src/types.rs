@@ -368,6 +368,27 @@ pub struct ImageDescriptor {
 }
 
 impl ImageDescriptor {
+    pub fn new(width: u32, height: u32, format: ImageFormat) -> Self {
+        ImageDescriptor {
+            width: width,
+            height: height,
+            format: format,
+            stride: None,
+            offset: 0,
+            is_opaque: format == ImageFormat::RGB8,
+        }
+    }
+
+    pub fn with_opaque_flag(mut self, is_opaque: bool) -> Self {
+        self.is_opaque = is_opaque;
+        return self;
+    }
+
+    pub fn with_stride(mut self, stride: u32) -> Self {
+        self.stride = Some(stride);
+        return self;
+    }
+
     pub fn compute_stride(&self) -> u32 {
         self.stride.unwrap_or(self.width * self.format.bytes_per_pixel().unwrap())
     }
