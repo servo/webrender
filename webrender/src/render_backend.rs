@@ -231,7 +231,7 @@ impl RenderBackend {
                         ApiMsg::ScrollLayersWithScrollId(origin, pipeline_id, scroll_root_id) => {
                             profile_scope!("ScrollLayersWithScrollId");
                             let frame = profile_counters.total_time.profile(|| {
-                                if self.frame.scroll_layers(origin, pipeline_id, scroll_root_id) {
+                                if self.frame.scroll_nodes(origin, pipeline_id, scroll_root_id) {
                                     Some(self.render())
                                 } else {
                                     None
@@ -261,7 +261,7 @@ impl RenderBackend {
                         }
                         ApiMsg::GetScrollLayerState(tx) => {
                             profile_scope!("GetScrollLayerState");
-                            tx.send(self.frame.get_scroll_layer_state())
+                            tx.send(self.frame.get_scroll_node_state())
                               .unwrap()
                         }
                         ApiMsg::RequestWebGLContext(size, attributes, tx) => {
