@@ -263,11 +263,11 @@ impl ResourceCache {
                               image_key: ImageKey,
                               descriptor: ImageDescriptor,
                               data: ImageData,
-                              tiling: Option<u16>) {
+                              mut tiling: Option<u16>) {
         if descriptor.width > self.max_texture_size() || descriptor.height > self.max_texture_size() {
-            // TODO: we need to support handle this case gracefully, cf. issue #620.
-            println!("Warning: texture size ({} {}) larger than the maximum size",
-                     descriptor.width, descriptor.height);
+            // We aren't going to be able to upload a texture this big, so tile it, even
+            // if tiling was not requested.
+            tiling = Some(512);
         }
 
         let resource = ImageResource {
