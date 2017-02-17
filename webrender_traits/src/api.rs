@@ -92,8 +92,9 @@ impl RenderApi {
     pub fn add_image(&self,
                      key: ImageKey,
                      descriptor: ImageDescriptor,
-                     data: ImageData) {
-        let msg = ApiMsg::AddImage(key, descriptor, data);
+                     data: ImageData,
+                     tiling: Option<u16>) {
+        let msg = ApiMsg::AddImage(key, descriptor, data, tiling);
         self.api_sender.send(msg).unwrap();
     }
 

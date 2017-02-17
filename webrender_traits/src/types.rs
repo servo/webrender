@@ -31,7 +31,7 @@ pub enum ApiMsg {
     /// Gets the glyph dimensions
     GetGlyphDimensions(Vec<GlyphKey>, MsgSender<Vec<Option<GlyphDimensions>>>),
     /// Adds an image from the resource cache.
-    AddImage(ImageKey, ImageDescriptor, ImageData),
+    AddImage(ImageKey, ImageDescriptor, ImageData, Option<u16>),
     /// Updates the the resource cache with the new image data.
     UpdateImage(ImageKey, ImageDescriptor, Vec<u8>),
     /// Drops an image from the resource cache.
