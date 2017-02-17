@@ -13,7 +13,7 @@ use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu, 
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
 use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
-use prim_store::{YuvImagePrimitiveCpu, YuvImagePrimitiveGpu};
+use prim_store::{TexelRect, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu};
 use profiler::FrameProfileCounters;
 use render_task::{AlphaRenderItem, MaskCacheKey, MaskResult, RenderTask, RenderTaskIndex};
 use render_task::RenderTaskLocation;
@@ -25,13 +25,61 @@ use tiling::{PrimitiveFlags, PrimitiveRunCmd, RenderPass, RenderTargetContext};
 use tiling::{RenderTaskCollection, ScrollbarPrimitive, ScrollLayer, ScrollLayerIndex};
 use tiling::{StackingContext, StackingContextIndex};
 use util::{self, pack_as_float, rect_from_points_f, subtract_rect, TransformedRect};
-use util::TransformedRectKind;
-use webrender_traits::{as_scroll_parent_rect, BorderDisplayItem, BorderSide, BorderStyle};
+use util::{RectHelpers, TransformedRectKind};
+use webrender_traits::{as_scroll_parent_rect, BorderDetails, BorderDisplayItem, BorderSide, BorderStyle};
 use webrender_traits::{BoxShadowClipMode, ClipRegion, ColorF, device_length, DeviceIntPoint};
 use webrender_traits::{DeviceIntRect, DeviceIntSize, DeviceUintSize, ExtendMode, FontKey};
 use webrender_traits::{FontRenderMode, GlyphOptions, ImageKey, ImageRendering, ItemRange};
 use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform, PipelineId};
-use webrender_traits::{ScrollLayerId, ScrollLayerPixel, WebGLContextId, YuvColorSpace};
+use webrender_traits::{RepeatMode, ScrollLayerId, ScrollLayerPixel, WebGLContextId, YuvColorSpace};
+
+#[derive(Debug, Clone)]
+struct ImageBorderSegment {
+    geom_rect: LayerRect,
+    sub_rect: TexelRect,
+    stretch_size: LayerSize,
+    tile_spacing: LayerSize,
+}
+
+impl ImageBorderSegment {
+    fn new(rect: LayerRect,
+           sub_rect: TexelRect,
+           repeat_horizontal: RepeatMode,
+           repeat_vertical: RepeatMode) -> ImageBorderSegment {
+        let tile_spacing = LayerSize::zero();
+
+        debug_assert!(sub_rect.uv1.x >= sub_rect.uv0.x);
+        debug_assert!(sub_rect.uv1.y >= sub_rect.uv0.y);
+
+        let image_size = LayerSize::new(sub_rect.uv1.x - sub_rect.uv0.x,
+                                        sub_rect.uv1.y - sub_rect.uv0.y);
+
+        let stretch_size_x = match repeat_horizontal {
+            RepeatMode::Stretch => rect.size.width,
+            RepeatMode::Repeat => image_size.width,
+            RepeatMode::Round | RepeatMode::Space => {
+                println!("Round/Space not supported yet!");
+                rect.size.width
+            }
+        };
+
+        let stretch_size_y = match repeat_vertical {
+            RepeatMode::Stretch => rect.size.height,
+            RepeatMode::Repeat => image_size.height,
+            RepeatMode::Round | RepeatMode::Space => {
+                println!("Round/Space not supported yet!");
+                rect.size.height
+            }
+        };
+
+        ImageBorderSegment {
+            geom_rect: rect,
+            sub_rect: sub_rect,
+            stretch_size: LayerSize::new(stretch_size_x, stretch_size_y),
+            tile_spacing: tile_spacing,
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct FrameBuilderConfig {
@@ -254,118 +302,223 @@ impl FrameBuilder {
     pub fn add_border(&mut self,
                       rect: LayerRect,
                       clip_region: &ClipRegion,
-                      border: &BorderDisplayItem) {
-        let radius = &border.radius;
-        let left = &border.left;
-        let right = &border.right;
-        let top = &border.top;
-        let bottom = &border.bottom;
+                      border_item: &BorderDisplayItem) {
+        match border_item.details {
+            BorderDetails::Image(ref border) => {
+                // Calculate the modified rect as specific by border-image-outset
+                let origin = LayerPoint::new(rect.origin.x - border.outset.left,
+                                             rect.origin.y - border.outset.top);
+                let size = LayerSize::new(rect.size.width + border.outset.left + border.outset.right,
+                                          rect.size.height + border.outset.top + border.outset.bottom);
+                let rect = LayerRect::new(origin, size);
 
-        if !self.supported_style(left) || !self.supported_style(right) ||
-           !self.supported_style(top) || !self.supported_style(bottom) {
-            println!("Unsupported border style, not rendering border");
-            return;
-        }
+                // Calculate the local texel coords of the slices.
+                let px0 = 0;
+                let px1 = border.patch.slice.left;
+                let px2 = border.patch.width - border.patch.slice.right;
+                let px3 = border.patch.width;
 
-        // These colors are used during inset/outset scaling.
-        let left_color      = left.border_color(1.0, 2.0/3.0, 0.3, 0.7);
-        let top_color       = top.border_color(1.0, 2.0/3.0, 0.3, 0.7);
-        let right_color     = right.border_color(2.0/3.0, 1.0, 0.7, 0.3);
-        let bottom_color    = bottom.border_color(2.0/3.0, 1.0, 0.7, 0.3);
+                let py0 = 0;
+                let py1 = border.patch.slice.top;
+                let py2 = border.patch.height - border.patch.slice.bottom;
+                let py3 = border.patch.height;
 
-        let tl_outer = LayerPoint::new(rect.origin.x, rect.origin.y);
-        let tl_inner = tl_outer + LayerPoint::new(radius.top_left.width.max(left.width),
-                                                  radius.top_left.height.max(top.width));
+                let tl_outer = LayerPoint::new(rect.origin.x, rect.origin.y);
+                let tl_inner = tl_outer + LayerPoint::new(border_item.widths.left, border_item.widths.top);
 
-        let tr_outer = LayerPoint::new(rect.origin.x + rect.size.width, rect.origin.y);
-        let tr_inner = tr_outer + LayerPoint::new(-radius.top_right.width.max(right.width),
-                                                  radius.top_right.height.max(top.width));
+                let tr_outer = LayerPoint::new(rect.origin.x + rect.size.width, rect.origin.y);
+                let tr_inner = tr_outer + LayerPoint::new(-border_item.widths.right, border_item.widths.top);
 
-        let bl_outer = LayerPoint::new(rect.origin.x, rect.origin.y + rect.size.height);
-        let bl_inner = bl_outer + LayerPoint::new(radius.bottom_left.width.max(left.width),
-                                                  -radius.bottom_left.height.max(bottom.width));
+                let bl_outer = LayerPoint::new(rect.origin.x, rect.origin.y + rect.size.height);
+                let bl_inner = bl_outer + LayerPoint::new(border_item.widths.left, -border_item.widths.bottom);
 
-        let br_outer = LayerPoint::new(rect.origin.x + rect.size.width,
-                                       rect.origin.y + rect.size.height);
-        let br_inner = br_outer - LayerPoint::new(radius.bottom_right.width.max(right.width),
-                                                  radius.bottom_right.height.max(bottom.width));
+                let br_outer = LayerPoint::new(rect.origin.x + rect.size.width,
+                                               rect.origin.y + rect.size.height);
+                let br_inner = br_outer - LayerPoint::new(border_item.widths.right, border_item.widths.bottom);
 
-        // The border shader is quite expensive. For simple borders, we can just draw
-        // the border with a few rectangles. This generally gives better batching, and
-        // a GPU win in fragment shader time.
-        // More importantly, the software (OSMesa) implementation we run tests on is
-        // particularly slow at running our complex border shader, compared to the
-        // rectangle shader. This has the effect of making some of our tests time
-        // out more often on CI (the actual cause is simply too many Servo processes and
-        // threads being run on CI at once).
-        // TODO(gw): Detect some more simple cases and handle those with simpler shaders too.
-        // TODO(gw): Consider whether it's only worth doing this for large rectangles (since
-        //           it takes a little more CPU time to handle multiple rectangles compared
-        //           to a single border primitive).
-        if left.style == BorderStyle::Solid {
-            let same_color = left_color == top_color &&
-                             left_color == right_color &&
-                             left_color == bottom_color;
-            let same_style = left.style == top.style &&
-                             left.style == right.style &&
-                             left.style == bottom.style;
+                // Build the list of image segments
+                let mut segments = vec![
+                    // Top left
+                    ImageBorderSegment::new(LayerRect::from_floats(tl_outer.x, tl_outer.y, tl_inner.x, tl_inner.y),
+                                            TexelRect::new(px0, py0, px1, py1),
+                                            RepeatMode::Stretch,
+                                            RepeatMode::Stretch),
 
-            if same_color && same_style && radius.is_zero() {
-                let rects = [
-                    LayerRect::new(rect.origin,
-                                   LayerSize::new(rect.size.width, top.width)),
-                    LayerRect::new(LayerPoint::new(tl_outer.x, tl_inner.y),
-                                   LayerSize::new(left.width,
-                                                  rect.size.height - top.width - bottom.width)),
-                    LayerRect::new(tr_inner,
-                                   LayerSize::new(right.width,
-                                                  rect.size.height - top.width - bottom.width)),
-                    LayerRect::new(LayerPoint::new(bl_outer.x, bl_inner.y),
-                                   LayerSize::new(rect.size.width, bottom.width))
+                    // Top right
+                    ImageBorderSegment::new(LayerRect::from_floats(tr_inner.x, tr_outer.y, tr_outer.x, tr_inner.y),
+                                            TexelRect::new(px2, py0, px3, py1),
+                                            RepeatMode::Stretch,
+                                            RepeatMode::Stretch),
+
+                    // Bottom right
+                    ImageBorderSegment::new(LayerRect::from_floats(br_inner.x, br_inner.y, br_outer.x, br_outer.y),
+                                            TexelRect::new(px2, py2, px3, py3),
+                                            RepeatMode::Stretch,
+                                            RepeatMode::Stretch),
+
+                    // Bottom left
+                    ImageBorderSegment::new(LayerRect::from_floats(bl_outer.x, bl_inner.y, bl_inner.x, bl_outer.y),
+                                            TexelRect::new(px0, py2, px1, py3),
+                                            RepeatMode::Stretch,
+                                            RepeatMode::Stretch),
                 ];
 
-                for rect in &rects {
-                    self.add_solid_rectangle(rect,
-                                             clip_region,
-                                             &top_color,
-                                             PrimitiveFlags::None);
+                // Add edge segments if valid size.
+                if px1 < px2 && py1 < py2 {
+                    segments.extend_from_slice(&[
+                        // Top
+                        ImageBorderSegment::new(LayerRect::from_floats(tl_inner.x, tl_outer.y, tr_inner.x, tl_inner.y),
+                                                TexelRect::new(px1, py0, px2, py1),
+                                                border.repeat_horizontal,
+                                                RepeatMode::Stretch),
+
+                        // Bottom
+                        ImageBorderSegment::new(LayerRect::from_floats(bl_inner.x, bl_inner.y, br_inner.x, bl_outer.y),
+                                                TexelRect::new(px1, py2, px2, py3),
+                                                border.repeat_horizontal,
+                                                RepeatMode::Stretch),
+
+                        // Left
+                        ImageBorderSegment::new(LayerRect::from_floats(tl_outer.x, tl_inner.y, tl_inner.x, bl_inner.y),
+                                                TexelRect::new(px0, py1, px1, py2),
+                                                RepeatMode::Stretch,
+                                                border.repeat_vertical),
+
+                        // Right
+                        ImageBorderSegment::new(LayerRect::from_floats(tr_inner.x, tr_inner.y, br_outer.x, br_inner.y),
+                                                TexelRect::new(px2, py1, px3, py2),
+                                                RepeatMode::Stretch,
+                                                border.repeat_vertical),
+                    ]);
                 }
 
-                return;
+                for segment in segments {
+                    self.add_image(segment.geom_rect,
+                                   clip_region,
+                                   &segment.stretch_size,
+                                   &segment.tile_spacing,
+                                   Some(segment.sub_rect),
+                                   border.image_key,
+                                   ImageRendering::Auto);
+                }
+            }
+            BorderDetails::Normal(ref border) => {
+                let radius = &border.radius;
+                let left = &border.left;
+                let right = &border.right;
+                let top = &border.top;
+                let bottom = &border.bottom;
+
+                if !self.supported_style(left) || !self.supported_style(right) ||
+                   !self.supported_style(top) || !self.supported_style(bottom) {
+                    println!("Unsupported border style, not rendering border");
+                    return;
+                }
+
+                // These colors are used during inset/outset scaling.
+                let left_color      = left.border_color(1.0, 2.0/3.0, 0.3, 0.7);
+                let top_color       = top.border_color(1.0, 2.0/3.0, 0.3, 0.7);
+                let right_color     = right.border_color(2.0/3.0, 1.0, 0.7, 0.3);
+                let bottom_color    = bottom.border_color(2.0/3.0, 1.0, 0.7, 0.3);
+
+                let tl_outer = LayerPoint::new(rect.origin.x, rect.origin.y);
+                let tl_inner = tl_outer + LayerPoint::new(radius.top_left.width.max(border_item.widths.left),
+                                                          radius.top_left.height.max(border_item.widths.top));
+
+                let tr_outer = LayerPoint::new(rect.origin.x + rect.size.width, rect.origin.y);
+                let tr_inner = tr_outer + LayerPoint::new(-radius.top_right.width.max(border_item.widths.right),
+                                                          radius.top_right.height.max(border_item.widths.top));
+
+                let bl_outer = LayerPoint::new(rect.origin.x, rect.origin.y + rect.size.height);
+                let bl_inner = bl_outer + LayerPoint::new(radius.bottom_left.width.max(border_item.widths.left),
+                                                          -radius.bottom_left.height.max(border_item.widths.bottom));
+
+                let br_outer = LayerPoint::new(rect.origin.x + rect.size.width,
+                                               rect.origin.y + rect.size.height);
+                let br_inner = br_outer - LayerPoint::new(radius.bottom_right.width.max(border_item.widths.right),
+                                                          radius.bottom_right.height.max(border_item.widths.bottom));
+
+                // The border shader is quite expensive. For simple borders, we can just draw
+                // the border with a few rectangles. This generally gives better batching, and
+                // a GPU win in fragment shader time.
+                // More importantly, the software (OSMesa) implementation we run tests on is
+                // particularly slow at running our complex border shader, compared to the
+                // rectangle shader. This has the effect of making some of our tests time
+                // out more often on CI (the actual cause is simply too many Servo processes and
+                // threads being run on CI at once).
+                // TODO(gw): Detect some more simple cases and handle those with simpler shaders too.
+                // TODO(gw): Consider whether it's only worth doing this for large rectangles (since
+                //           it takes a little more CPU time to handle multiple rectangles compared
+                //           to a single border primitive).
+                if left.style == BorderStyle::Solid {
+                    let same_color = left_color == top_color &&
+                                     left_color == right_color &&
+                                     left_color == bottom_color;
+                    let same_style = left.style == top.style &&
+                                     left.style == right.style &&
+                                     left.style == bottom.style;
+
+                    if same_color && same_style && radius.is_zero() {
+                        let rects = [
+                            LayerRect::new(rect.origin,
+                                           LayerSize::new(rect.size.width, border_item.widths.top)),
+                            LayerRect::new(LayerPoint::new(tl_outer.x, tl_inner.y),
+                                           LayerSize::new(border_item.widths.left,
+                                                          rect.size.height - border_item.widths.top - border_item.widths.bottom)),
+                            LayerRect::new(tr_inner,
+                                           LayerSize::new(border_item.widths.right,
+                                                          rect.size.height - border_item.widths.top - border_item.widths.bottom)),
+                            LayerRect::new(LayerPoint::new(bl_outer.x, bl_inner.y),
+                                           LayerSize::new(rect.size.width, border_item.widths.bottom))
+                        ];
+
+                        for rect in &rects {
+                            self.add_solid_rectangle(rect,
+                                                     clip_region,
+                                                     &top_color,
+                                                     PrimitiveFlags::None);
+                        }
+
+                        return;
+                    }
+                }
+
+                //Note: while similar to `ComplexClipRegion::get_inner_rect()` in spirit,
+                // this code is a bit more complex and can not there for be merged.
+                let inner_rect = rect_from_points_f(tl_inner.x.max(bl_inner.x),
+                                                    tl_inner.y.max(tr_inner.y),
+                                                    tr_inner.x.min(br_inner.x),
+                                                    bl_inner.y.min(br_inner.y));
+
+                let prim_cpu = BorderPrimitiveCpu {
+                    inner_rect: LayerRect::from_untyped(&inner_rect),
+                };
+
+                let prim_gpu = BorderPrimitiveGpu {
+                    colors: [ left_color, top_color, right_color, bottom_color ],
+                    widths: [ border_item.widths.left,
+                              border_item.widths.top,
+                              border_item.widths.right,
+                              border_item.widths.bottom ],
+                    style: [
+                        pack_as_float(left.style as u32),
+                        pack_as_float(top.style as u32),
+                        pack_as_float(right.style as u32),
+                        pack_as_float(bottom.style as u32),
+                    ],
+                    radii: [
+                        radius.top_left,
+                        radius.top_right,
+                        radius.bottom_right,
+                        radius.bottom_left,
+                    ],
+                };
+
+                self.add_primitive(&rect,
+                                   clip_region,
+                                   PrimitiveContainer::Border(prim_cpu, prim_gpu));
             }
         }
-
-        //Note: while similar to `ComplexClipRegion::get_inner_rect()` in spirit,
-        // this code is a bit more complex and can not there for be merged.
-        let inner_rect = rect_from_points_f(tl_inner.x.max(bl_inner.x),
-                                            tl_inner.y.max(tr_inner.y),
-                                            tr_inner.x.min(br_inner.x),
-                                            bl_inner.y.min(br_inner.y));
-
-        let prim_cpu = BorderPrimitiveCpu {
-            inner_rect: LayerRect::from_untyped(&inner_rect),
-        };
-
-        let prim_gpu = BorderPrimitiveGpu {
-            colors: [ left_color, top_color, right_color, bottom_color ],
-            widths: [ left.width, top.width, right.width, bottom.width ],
-            style: [
-                pack_as_float(left.style as u32),
-                pack_as_float(top.style as u32),
-                pack_as_float(right.style as u32),
-                pack_as_float(bottom.style as u32),
-            ],
-            radii: [
-                radius.top_left,
-                radius.top_right,
-                radius.bottom_right,
-                radius.bottom_left,
-            ],
-        };
-
-        self.add_primitive(&rect,
-                           clip_region,
-                           PrimitiveContainer::Border(prim_cpu, prim_gpu));
     }
 
     pub fn add_gradient(&mut self,
@@ -592,6 +745,7 @@ impl FrameBuilder {
             kind: ImagePrimitiveKind::WebGL(context_id),
             color_texture_id: SourceTexture::Invalid,
             resource_address: GpuStoreAddress(0),
+            sub_rect: None,
         };
 
         let prim_gpu = ImagePrimitiveGpu {
@@ -609,6 +763,7 @@ impl FrameBuilder {
                      clip_region: &ClipRegion,
                      stretch_size: &LayerSize,
                      tile_spacing: &LayerSize,
+                     sub_rect: Option<TexelRect>,
                      image_key: ImageKey,
                      image_rendering: ImageRendering) {
         let prim_cpu = ImagePrimitiveCpu {
@@ -617,6 +772,7 @@ impl FrameBuilder {
                                             *tile_spacing),
             color_texture_id: SourceTexture::Invalid,
             resource_address: GpuStoreAddress(0),
+            sub_rect: sub_rect,
         };
 
         let prim_gpu = ImagePrimitiveGpu {
