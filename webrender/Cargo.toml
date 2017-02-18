@@ -39,7 +39,7 @@ angle = {git = "https://github.com/servo/angle", branch = "servo"}
 freetype = { version = "0.2", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-dwrote = {git = "https://github.com/servo/dwrote-rs.git", rev = "servo"}
+servo-dwrote = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.7.0"
