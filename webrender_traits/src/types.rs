@@ -987,12 +987,12 @@ macro_rules! define_resource_id {
         define_resource_id_struct!($name);
 
         impl ::serde::Deserialize for $name {
-            fn deserialize<D>(deserializer: &mut D) -> Result<Self, D::Error>
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
                 where D: ::serde::Deserializer
             {
                 let id = try!(u32::deserialize(deserializer));
                 if id == 0 {
-                    Err(::serde::Error::invalid_value("expected a non-zero value"))
+                    Err(::serde::de::Error::custom("expected a non-zero value"))
                 } else {
                     Ok(unsafe { $name::new(id) })
                 }
@@ -1000,7 +1000,7 @@ macro_rules! define_resource_id {
         }
 
         impl ::serde::Serialize for $name {
-            fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error>
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
                 where S: ::serde::Serializer
             {
                 self.get().serialize(serializer)
