@@ -562,7 +562,10 @@ impl YamlFrameWriter {
                     match item.details {
                         BorderDetails::Normal(ref details) => {
                             let trbl = vec![&details.top, &details.right, &details.bottom, &details.left];
-                            let widths: Vec<f32> = vec![item.widths.top, item.widths.right, item.widths.bottom, item.widths.left];
+                            let widths: Vec<f32> = vec![ item.widths.top,
+                                                         item.widths.right,
+                                                         item.widths.bottom,
+                                                         item.widths.left ];
                             let colors: Vec<String> = trbl.iter().map(|x| color_to_string(x.color)).collect();
                             let styles: Vec<String> = trbl.iter().map(|x| {
                                 match x.style {
