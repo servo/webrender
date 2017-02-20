@@ -2,3 +2,4 @@ include blend/reftest.list
 include mask/reftest.list
 include scrolling/reftest.list
 include filters/reftest.list
+include boxshadow/reftest.list

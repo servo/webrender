@@ -288,7 +288,7 @@ impl YamlFrameReader {
         let blur_radius = item["blur_radius"].as_force_f32().unwrap_or(0.0);
         let spread_radius = item["spread_radius"].as_force_f32().unwrap_or(0.0);
         let border_radius = item["border_radius"].as_force_f32().unwrap_or(0.0);
-        let clip_mode = if let Some(mode) = item.as_str() {
+        let clip_mode = if let Some(mode) = item["clip_mode"].as_str() {
             match mode {
                 "none" => BoxShadowClipMode::None,
                 "outset" => BoxShadowClipMode::Outset,
