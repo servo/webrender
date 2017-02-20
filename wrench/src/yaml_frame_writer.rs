@@ -85,7 +85,6 @@ fn matrix4d_node<U1, U2>(parent: &mut Table, key: &str, value: &TypedMatrix4D<f3
     f32_vec_node(parent, key, &value.to_row_major_array());
 }
 
-#[cfg(target_os = "windows")]
 fn u32_node(parent: &mut Table, key: &str, value: u32) {
     yaml_node(parent, key, Yaml::Integer(value as i64));
 }
@@ -228,6 +227,7 @@ struct CachedImage {
     format: ImageFormat,
     bytes: Option<Vec<u8>>,
     path: Option<PathBuf>,
+    tiling: Option<u16>,
 }
 
 pub struct YamlFrameWriter {
@@ -546,6 +546,9 @@ impl YamlFrameWriter {
                     if let Some(path) = self.path_for_image(&item.image_key) {
                         path_node(&mut v, "image", &path);
                     }
+                    if let Some(&CachedImage { tiling: Some(tile_size), .. }) = self.images.get(&item.image_key) {
+                        u32_node(&mut v, "tile-size", tile_size as u32);
+                    }
                     size_node(&mut v, "strech", &item.stretch_size);
                     size_node(&mut v, "spacing", &item.tile_spacing);
                     match item.image_rendering {
@@ -684,7 +687,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 self.frame_writer.fonts.insert(*key, CachedFont::Native(native_font_handle.clone()));
             }
 
-            &ApiMsg::AddImage(ref key, ref descriptor, ref data) => {
+            &ApiMsg::AddImage(ref key, ref descriptor, ref data, ref tiling) => {
                 let stride = descriptor.stride.unwrap_or(
                     descriptor.width * descriptor.format.bytes_per_pixel().unwrap()
                 );
@@ -701,6 +704,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                     format: descriptor.format,
                     bytes: Some(bytes),
                     path: None,
+                    tiling: *tiling,
                 });
             }
 

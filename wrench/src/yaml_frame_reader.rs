@@ -170,7 +170,7 @@ impl YamlFrameReader {
                 let image_mask = if item["image_mask"].as_hash().is_some() {
                     let image_mask = &item["image_mask"];
                     let (image_key, image_dims) =
-                        wrench.add_or_get_image(&self.rsrc_path(&image_mask["image"]));
+                        wrench.add_or_get_image(&self.rsrc_path(&image_mask["image"]), None);
                     let image_rect =
                         image_mask["rect"].as_rect().unwrap_or(LayoutRect::new(LayoutPoint::zero(),
                                                                                image_dims));
@@ -313,7 +313,8 @@ impl YamlFrameReader {
 
     fn handle_image(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
         let filename = &item[if item["type"].is_badvalue() { "image" } else { "src" }];
-        let (image_key, image_dims) = wrench.add_or_get_image(&self.rsrc_path(filename));
+        let tiling = item["tile-size"].as_i64();
+        let (image_key, image_dims) = wrench.add_or_get_image(&self.rsrc_path(filename), tiling);
 
         let bounds_raws = item["bounds"].as_vec_f32().unwrap();
         let bounds = if bounds_raws.len() == 2 {

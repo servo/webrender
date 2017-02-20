@@ -212,7 +212,7 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                 self.fonts.insert(*key, CachedFont::Native(native_font_handle.clone()));
             }
 
-            &ApiMsg::AddImage(ref key, ref descriptor, ref data) => {
+            &ApiMsg::AddImage(ref key, ref descriptor, ref data, _) => {
                 let stride = descriptor.stride.unwrap_or(
                     descriptor.width * descriptor.format.bytes_per_pixel().unwrap()
                 );
