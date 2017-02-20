@@ -20,10 +20,10 @@ use render_task::RenderTaskLocation;
 use resource_cache::ResourceCache;
 use scroll_tree::ScrollTree;
 use std::{cmp, f32, i32, mem, usize};
-use tiling::{AuxiliaryListsMap, CompositeOps, Frame, PackedLayer, PackedLayerIndex};
-use tiling::{PrimitiveFlags, PrimitiveRunCmd, RenderPass, RenderTargetContext};
-use tiling::{RenderTaskCollection, ScrollbarPrimitive, ScrollLayer, ScrollLayerIndex};
-use tiling::{StackingContext, StackingContextIndex};
+use tiling::{AuxiliaryListsMap, ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, Frame};
+use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
+use tiling::{RenderTargetContext, RenderTaskCollection, ScrollbarPrimitive, ScrollLayer};
+use tiling::{ScrollLayerIndex, StackingContext, StackingContextIndex};
 use util::{self, pack_as_float, rect_from_points_f, subtract_rect, TransformedRect};
 use util::TransformedRectKind;
 use webrender_traits::{as_scroll_parent_rect, BorderDisplayItem, BorderSide, BorderStyle};
@@ -62,11 +62,13 @@ pub struct FrameBuilder {
 
     stacking_context_store: Vec<StackingContext>,
     scroll_layer_store: Vec<ScrollLayer>,
+    clip_scroll_group_store: Vec<ClipScrollGroup>,
     packed_layers: Vec<PackedLayer>,
 
     scrollbar_prims: Vec<ScrollbarPrimitive>,
 
-    /// A stack of scroll layers used during building to properly parent new scroll layers.
+    /// A stack of scroll layers used during display list processing to properly
+    /// parent new scroll layers.
     scroll_layer_stack: Vec<ScrollLayerIndex>,
 }
 
@@ -79,6 +81,7 @@ impl FrameBuilder {
             background_color: background_color,
             stacking_context_store: Vec::new(),
             scroll_layer_store: Vec::new(),
+            clip_scroll_group_store: Vec::new(),
             prim_store: PrimitiveStore::new(),
             cmds: Vec::new(),
             packed_layers: Vec::new(),
@@ -128,6 +131,25 @@ impl FrameBuilder {
         prim_index
     }
 
+    pub fn create_clip_scroll_group(&mut self,
+                                    stacking_context_index: StackingContextIndex,
+                                    scroll_layer_id: ScrollLayerId,
+                                    pipeline_id: PipelineId)
+                                    -> ClipScrollGroupIndex {
+        let packed_layer_index = PackedLayerIndex(self.packed_layers.len());
+        self.packed_layers.push(PackedLayer::empty());
+
+        self.clip_scroll_group_store.push(ClipScrollGroup {
+            stacking_context_index: stacking_context_index,
+            scroll_layer_id: scroll_layer_id,
+            packed_layer_index: packed_layer_index,
+            pipeline_id: pipeline_id,
+            xf_rect: None,
+         });
+
+        ClipScrollGroupIndex(self.clip_scroll_group_store.len() - 1)
+    }
+
     pub fn push_stacking_context(&mut self,
                                  rect: LayerRect,
                                  transform: LayerToScrollTransform,
@@ -135,20 +157,15 @@ impl FrameBuilder {
                                  scroll_layer_id: ScrollLayerId,
                                  composite_ops: CompositeOps) {
         let stacking_context_index = StackingContextIndex(self.stacking_context_store.len());
-        let packed_layer_index = PackedLayerIndex(self.packed_layers.len());
-
-        self.stacking_context_store.push(StackingContext {
-            local_rect: rect,
-            local_transform: transform,
-            scroll_layer_id: scroll_layer_id,
-            pipeline_id: pipeline_id,
-            xf_rect: None,
-            composite_ops: composite_ops,
-            packed_layer_index: packed_layer_index,
-        });
-        self.packed_layers.push(PackedLayer::empty());
+        let group_index = self.create_clip_scroll_group(stacking_context_index,
+                                                        scroll_layer_id,
+                                                        pipeline_id);
+        self.stacking_context_store.push(StackingContext::new(pipeline_id,
+                                                              transform,
+                                                              rect,
+                                                              composite_ops,
+                                                              group_index));
         self.cmds.push(PrimitiveRunCmd::PushStackingContext(stacking_context_index));
-
     }
 
     pub fn pop_stacking_context(&mut self) {
@@ -158,9 +175,12 @@ impl FrameBuilder {
     pub fn push_scroll_layer(&mut self,
                              scroll_layer_id: ScrollLayerId,
                              clip_region: &ClipRegion,
-                             iframe_origin: &LayerPoint,
+                             scroll_layer_origin: &LayerPoint,
                              content_size: &LayerSize) {
         let scroll_layer_index = ScrollLayerIndex(self.scroll_layer_store.len());
+        let parent_index = *self.scroll_layer_stack.last().unwrap_or(&scroll_layer_index);
+        self.scroll_layer_stack.push(scroll_layer_index);
+
         let packed_layer_index = PackedLayerIndex(self.packed_layers.len());
 
         let clip_source = ClipSource::Region(clip_region.clone());
@@ -168,7 +188,6 @@ impl FrameBuilder {
                                            true, // needs an extra clip for the clip rectangle
                                            &mut self.prim_store.gpu_data32);
 
-        let parent_index = *self.scroll_layer_stack.last().unwrap_or(&scroll_layer_index);
         self.scroll_layer_store.push(ScrollLayer {
             scroll_layer_id: scroll_layer_id,
             parent_index: parent_index,
@@ -185,15 +204,14 @@ impl FrameBuilder {
         // direct children of this stacking context, need to be adjusted by the scroll
         // offset of this layer. Eventually we should be able to remove this.
         let rect = LayerRect::new(LayerPoint::zero(),
-                                  LayerSize::new(content_size.width + iframe_origin.x,
-                                                 content_size.height + iframe_origin.y));
+                                  LayerSize::new(content_size.width + scroll_layer_origin.x,
+                                                 content_size.height + scroll_layer_origin.y));
         self.push_stacking_context(rect,
                                    LayerToScrollTransform::identity(),
                                    scroll_layer_id.pipeline_id,
                                    scroll_layer_id,
                                    CompositeOps::empty());
 
-        self.scroll_layer_stack.push(scroll_layer_index);
     }
 
     pub fn pop_scroll_layer(&mut self) {
@@ -736,14 +754,13 @@ impl FrameBuilder {
                     let stacking_context = &self.stacking_context_store[stacking_context_index.0];
                     sc_stack.push(stacking_context_index);
 
-                    if !stacking_context.is_visible() {
+                    if !stacking_context.is_visible {
                         continue;
                     }
 
+                    let stacking_context_rect = &stacking_context.bounding_rect;
                     let composite_count = stacking_context.composite_ops.count();
                     for _ in 0..composite_count {
-                        let stacking_context_rect =
-                            stacking_context.xf_rect.as_ref().unwrap().bounding_rect;
                         let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
                         let new_task = RenderTask::new_alpha_batch(next_task_index,
                                                                    stacking_context_rect.origin,
@@ -757,7 +774,7 @@ impl FrameBuilder {
                     let stacking_context_index = sc_stack.pop().unwrap();
                     let stacking_context = &self.stacking_context_store[stacking_context_index.0];
 
-                    if !stacking_context.is_visible() {
+                    if !stacking_context.is_visible {
                         continue;
                     }
 
@@ -786,10 +803,9 @@ impl FrameBuilder {
                                 current_task = prev_task;
                             }
                             None => {
-                                let stacking_context_rect =
-                                    stacking_context.xf_rect.as_ref().unwrap().bounding_rect;
                                 let readback_task =
-                                    RenderTask::new_readback(stacking_context_index, stacking_context_rect);
+                                    RenderTask::new_readback(stacking_context_index,
+                                                             stacking_context.bounding_rect);
 
                                 let mut prev_task = alpha_task_stack.pop().unwrap();
                                 let item = AlphaRenderItem::Composite(stacking_context_index,
@@ -810,9 +826,14 @@ impl FrameBuilder {
                     let stacking_context_index = *sc_stack.last().unwrap();
                     let stacking_context = &self.stacking_context_store[stacking_context_index.0];
 
-                    if !stacking_context.is_visible() {
+                    if !stacking_context.is_visible {
                         continue;
                     }
+
+                    let stacking_context_index = *sc_stack.last().unwrap();
+                    let group_index =
+                        self.stacking_context_store[stacking_context_index.0].clip_scroll_group();
+                    let clip_scroll_group = &self.clip_scroll_group_store[group_index.0];
 
                     for i in 0..prim_count {
                         let prim_index = PrimitiveIndex(first_prim_index.0 + i);
@@ -828,7 +849,7 @@ impl FrameBuilder {
                                 current_task.children.push(clip_task.clone());
                             }
 
-                            let transform_kind = stacking_context.xf_rect.as_ref().unwrap().kind;
+                            let transform_kind = clip_scroll_group.xf_rect.as_ref().unwrap().kind;
                             let needs_clipping = prim_metadata.clip_task.is_some();
                             let needs_blending = transform_kind == TransformedRectKind::Complex ||
                                                  !prim_metadata.is_opaque ||
@@ -839,9 +860,7 @@ impl FrameBuilder {
                             } else {
                                 &mut current_task.as_alpha_batch().opaque_items
                             };
-                            items.push(AlphaRenderItem::Primitive(stacking_context_index,
-                                                                  prim_index,
-                                                                  next_z));
+                            items.push(AlphaRenderItem::Primitive(group_index, prim_index, next_z));
                             next_z += 1;
                         }
                     }
@@ -922,6 +941,7 @@ impl FrameBuilder {
         for pass in &mut passes {
             let ctx = RenderTargetContext {
                 stacking_context_store: &self.stacking_context_store,
+                clip_scroll_group_store: &self.clip_scroll_group_store,
                 prim_store: &self.prim_store,
                 resource_cache: resource_cache,
             };
@@ -953,6 +973,7 @@ impl FrameBuilder {
             deferred_resolves: deferred_resolves,
         }
     }
+
 }
 
 struct LayerRectCalculationAndCullingPass<'a> {
@@ -1001,6 +1022,9 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
     }
 
     fn run(&mut self) {
+        self.recalculate_clip_scroll_groups();
+        self.compute_stacking_context_visibility();
+
         let commands = mem::replace(&mut self.frame_builder.cmds, Vec::new());
         for cmd in &commands {
             match cmd {
@@ -1010,14 +1034,80 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                     self.handle_push_scroll_layer(scroll_layer_index),
                 &PrimitiveRunCmd::PrimitiveRun(prim_index, prim_count) =>
                     self.handle_primitive_run(prim_index, prim_count),
-                &PrimitiveRunCmd::PopStackingContext => {
-                    self.stacking_context_stack.pop();
-                }
+                &PrimitiveRunCmd::PopStackingContext => self.handle_pop_stacking_context(),
                 &PrimitiveRunCmd::PopScrollLayer => self.handle_pop_scroll_layer(),
             }
         }
 
         mem::replace(&mut self.frame_builder.cmds, commands);
+    }
+
+    fn recalculate_clip_scroll_groups(&mut self) {
+        for ref mut group in &mut self.frame_builder.clip_scroll_group_store {
+            let stacking_context_index = group.stacking_context_index;
+            let stacking_context = &mut self.frame_builder
+                                            .stacking_context_store[stacking_context_index.0];
+
+            let scroll_tree_layer = &self.scroll_tree.layers[&group.scroll_layer_id];
+            let packed_layer = &mut self.frame_builder.packed_layers[group.packed_layer_index.0];
+            packed_layer.transform = scroll_tree_layer.world_content_transform
+                                                      .with_source::<ScrollLayerPixel>()
+                                                      .pre_mul(&stacking_context.local_transform);
+            packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
+
+            if !stacking_context.can_contribute_to_scene() {
+                return;
+            }
+
+            let inv_layer_transform = stacking_context.local_transform.inverse().unwrap();
+            let local_viewport_rect =
+                as_scroll_parent_rect(&scroll_tree_layer.combined_local_viewport_rect);
+            let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
+            let layer_local_rect = stacking_context.local_rect.intersection(&viewport_rect);
+
+            group.xf_rect = None;
+            if let Some(layer_local_rect) = layer_local_rect {
+                let layer_xf_rect = TransformedRect::new(&layer_local_rect,
+                                                         &packed_layer.transform,
+                                                         self.device_pixel_ratio);
+
+                if layer_xf_rect.bounding_rect.intersects(&self.screen_rect) {
+                    packed_layer.screen_vertices = layer_xf_rect.vertices.clone();
+                    packed_layer.local_clip_rect = layer_local_rect;
+                    group.xf_rect = Some(layer_xf_rect);
+                }
+            }
+        }
+    }
+
+    fn compute_stacking_context_visibility(&mut self) {
+        for context_index in 0..self.frame_builder.stacking_context_store.len() {
+            let is_visible = {
+                let stacking_context = &self.frame_builder.stacking_context_store[context_index];
+                stacking_context.clip_scroll_groups.iter().any(|group_index| {
+                    self.frame_builder.clip_scroll_group_store[group_index.0].is_visible()
+                })
+            };
+            self.frame_builder.stacking_context_store[context_index].is_visible = is_visible;
+        }
+    }
+
+    fn handle_pop_stacking_context(&mut self) {
+        let stacking_context_index = self.stacking_context_stack.pop().unwrap();
+
+        let bounding_rect = {
+            let stacking_context =
+                &mut self.frame_builder.stacking_context_store[stacking_context_index.0];
+            stacking_context.bounding_rect = stacking_context.bounding_rect
+                                                             .intersection(self.screen_rect)
+                                                             .unwrap_or(DeviceIntRect::zero());
+            stacking_context.bounding_rect.clone()
+        };
+
+        if let Some(ref mut parent_index) = self.stacking_context_stack.last_mut() {
+            let parent = &mut self.frame_builder.stacking_context_store[parent_index.0];
+            parent.bounding_rect = parent.bounding_rect.union(&bounding_rect);
+        }
     }
 
     fn handle_push_scroll_layer(&mut self, scroll_layer_index: ScrollLayerIndex) {
@@ -1068,36 +1158,14 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
     fn handle_push_stacking_context(&mut self, stacking_context_index: StackingContextIndex) {
         self.stacking_context_stack.push(stacking_context_index);
 
+        // Reset bounding rect to zero. We will calculate it as we collect primitives
+        // from various scroll layers. In handle_pop_stacking_context , we use this to
+        // calculate the device bounding rect. In the future, we could cache this during
+        // the initial adding of items for the common case (where there is only a single
+        // scroll layer for items in a stacking context).
         let stacking_context = &mut self.frame_builder
                                         .stacking_context_store[stacking_context_index.0];
-        let packed_layer = &mut self.frame_builder
-                                    .packed_layers[stacking_context.packed_layer_index.0];
-        let scroll_layer = &self.scroll_tree.layers[&stacking_context.scroll_layer_id];
-        packed_layer.transform = scroll_layer.world_content_transform
-                                             .with_source::<ScrollLayerPixel>()
-                                             .pre_mul(&stacking_context.local_transform);
-        packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
-
-        if !stacking_context.can_contribute_to_scene() {
-            return;
-        }
-
-        let inv_layer_transform = stacking_context.local_transform.inverse().unwrap();
-        let local_viewport_rect = as_scroll_parent_rect(&scroll_layer.combined_local_viewport_rect);
-        let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
-        let layer_local_rect = stacking_context.local_rect.intersection(&viewport_rect);
-
-        if let Some(layer_local_rect) = layer_local_rect {
-            let layer_xf_rect = TransformedRect::new(&layer_local_rect,
-                                                     &packed_layer.transform,
-                                                     self.device_pixel_ratio);
-
-            if layer_xf_rect.bounding_rect.intersects(&self.screen_rect) {
-                packed_layer.screen_vertices = layer_xf_rect.vertices.clone();
-                packed_layer.local_clip_rect = layer_local_rect;
-                stacking_context.xf_rect = Some(layer_xf_rect);
-            }
-        }
+        stacking_context.bounding_rect = DeviceIntRect::zero();
     }
 
     fn rebuild_clip_info_stack_if_necessary(&mut self, mut scroll_layer_index: ScrollLayerIndex) {
@@ -1130,18 +1198,28 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
     }
 
     fn handle_primitive_run(&mut self, prim_index: PrimitiveIndex, prim_count: usize) {
+        let stacking_context_index = *self.stacking_context_stack.last().unwrap();
+        let (packed_layer_index, pipeline_id) = {
+            let stacking_context =
+                &self.frame_builder.stacking_context_store[stacking_context_index.0];
+
+            if !stacking_context.is_visible {
+                return;
+            }
+
+            let group_index = stacking_context.clip_scroll_group();
+            let clip_scroll_group = &self.frame_builder.clip_scroll_group_store[group_index.0];
+            (clip_scroll_group.packed_layer_index, stacking_context.pipeline_id)
+        };
+
         let scroll_layer_index = *self.scroll_layer_stack.last().unwrap();
         self.rebuild_clip_info_stack_if_necessary(scroll_layer_index);
 
-        let stacking_context_index = self.stacking_context_stack.last().unwrap();
-        let stacking_context = &self.frame_builder.stacking_context_store[stacking_context_index.0];
-        if !stacking_context.is_visible() {
-            return;
-        }
+        let stacking_context =
+            &mut self.frame_builder.stacking_context_store[stacking_context_index.0];
 
-        let packed_layer_index = stacking_context.packed_layer_index;
         let packed_layer = &self.frame_builder.packed_layers[packed_layer_index.0];
-        let auxiliary_lists = self.auxiliary_lists_map.get(&stacking_context.pipeline_id)
+        let auxiliary_lists = self.auxiliary_lists_map.get(&pipeline_id)
                                                       .expect("No auxiliary lists?");
 
         for i in 0..prim_count {
@@ -1174,6 +1252,9 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                 let prim_metadata = &mut self.frame_builder.prim_store.cpu_metadata[prim_index.0];
                 let prim_clip_info = prim_metadata.clip_cache_info.as_ref();
                 let mut visible = true;
+
+                stacking_context.bounding_rect =
+                    stacking_context.bounding_rect.union(&prim_bounding_rect);
 
                 if let Some(info) = prim_clip_info {
                     self.current_clip_stack.push((packed_layer_index, info.clone()));
