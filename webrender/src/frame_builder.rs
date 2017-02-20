@@ -1066,16 +1066,20 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             let layer_local_rect = stacking_context.local_rect.intersection(&viewport_rect);
 
             group.xf_rect = None;
-            if let Some(layer_local_rect) = layer_local_rect {
-                let layer_xf_rect = TransformedRect::new(&layer_local_rect,
-                                                         &packed_layer.transform,
-                                                         self.device_pixel_ratio);
 
-                if layer_xf_rect.bounding_rect.intersects(&self.screen_rect) {
-                    packed_layer.screen_vertices = layer_xf_rect.vertices.clone();
-                    packed_layer.local_clip_rect = layer_local_rect;
-                    group.xf_rect = Some(layer_xf_rect);
-                }
+            let layer_local_rect = match layer_local_rect {
+                Some(layer_local_rect) if !layer_local_rect.is_empty() => layer_local_rect,
+                _ => continue,
+            };
+
+            let layer_xf_rect = TransformedRect::new(&layer_local_rect,
+                                                     &packed_layer.transform,
+                                                     self.device_pixel_ratio);
+
+            if layer_xf_rect.bounding_rect.intersects(&self.screen_rect) {
+                packed_layer.screen_vertices = layer_xf_rect.vertices.clone();
+                packed_layer.local_clip_rect = layer_local_rect;
+                group.xf_rect = Some(layer_xf_rect);
             }
         }
     }
