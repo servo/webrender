@@ -18,7 +18,7 @@ use profiler::FrameProfileCounters;
 use render_task::{AlphaRenderItem, MaskCacheKey, MaskResult, RenderTask, RenderTaskIndex};
 use render_task::RenderTaskLocation;
 use resource_cache::ResourceCache;
-use scroll_tree::ScrollTree;
+use clip_scroll_tree::ClipScrollTree;
 use std::{cmp, f32, i32, mem, usize};
 use tiling::{AuxiliaryListsMap, ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, Frame};
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
@@ -67,9 +67,9 @@ pub struct FrameBuilder {
 
     scrollbar_prims: Vec<ScrollbarPrimitive>,
 
-    /// A stack of scroll layers used during display list processing to properly
-    /// parent new scroll layers.
-    scroll_layer_stack: Vec<ScrollLayerIndex>,
+    /// A stack of scroll nodes used during display list processing to properly
+    /// parent new scroll nodes.
+    clip_scroll_node_stack: Vec<ScrollLayerIndex>,
 }
 
 impl FrameBuilder {
@@ -87,7 +87,7 @@ impl FrameBuilder {
             packed_layers: Vec::new(),
             scrollbar_prims: Vec::new(),
             config: config,
-            scroll_layer_stack: Vec::new(),
+            clip_scroll_node_stack: Vec::new(),
         }
     }
 
@@ -172,14 +172,14 @@ impl FrameBuilder {
         self.cmds.push(PrimitiveRunCmd::PopStackingContext);
     }
 
-    pub fn push_scroll_layer(&mut self,
-                             scroll_layer_id: ScrollLayerId,
-                             clip_region: &ClipRegion,
-                             scroll_layer_origin: &LayerPoint,
-                             content_size: &LayerSize) {
+    pub fn push_clip_scroll_node(&mut self,
+                                 scroll_layer_id: ScrollLayerId,
+                                 clip_region: &ClipRegion,
+                                 node_origin: &LayerPoint,
+                                 content_size: &LayerSize) {
         let scroll_layer_index = ScrollLayerIndex(self.scroll_layer_store.len());
-        let parent_index = *self.scroll_layer_stack.last().unwrap_or(&scroll_layer_index);
-        self.scroll_layer_stack.push(scroll_layer_index);
+        let parent_index = *self.clip_scroll_node_stack.last().unwrap_or(&scroll_layer_index);
+        self.clip_scroll_node_stack.push(scroll_layer_index);
 
         let packed_layer_index = PackedLayerIndex(self.packed_layers.len());
 
@@ -204,8 +204,8 @@ impl FrameBuilder {
         // direct children of this stacking context, need to be adjusted by the scroll
         // offset of this layer. Eventually we should be able to remove this.
         let rect = LayerRect::new(LayerPoint::zero(),
-                                  LayerSize::new(content_size.width + scroll_layer_origin.x,
-                                                 content_size.height + scroll_layer_origin.y));
+                                  LayerSize::new(content_size.width + node_origin.x,
+                                                 content_size.height + node_origin.y));
         self.push_stacking_context(rect,
                                    LayerToScrollTransform::identity(),
                                    scroll_layer_id.pipeline_id,
@@ -214,10 +214,10 @@ impl FrameBuilder {
 
     }
 
-    pub fn pop_scroll_layer(&mut self) {
+    pub fn pop_clip_scroll_node(&mut self) {
         self.pop_stacking_context();
         self.cmds.push(PrimitiveRunCmd::PopScrollLayer);
-        self.scroll_layer_stack.pop();
+        self.clip_scroll_node_stack.pop();
     }
 
     pub fn add_solid_rectangle(&mut self,
@@ -675,7 +675,7 @@ impl FrameBuilder {
     /// primitives in screen space.
     fn build_layer_screen_rects_and_cull_layers(&mut self,
                                                 screen_rect: &DeviceIntRect,
-                                                scroll_tree: &ScrollTree,
+                                                clip_scroll_tree: &ClipScrollTree,
                                                 auxiliary_lists_map: &AuxiliaryListsMap,
                                                 resource_cache: &mut ResourceCache,
                                                 profile_counters: &mut FrameProfileCounters,
@@ -683,21 +683,21 @@ impl FrameBuilder {
         profile_scope!("cull");
         LayerRectCalculationAndCullingPass::create_and_run(self,
                                                            screen_rect,
-                                                           scroll_tree,
+                                                           clip_scroll_tree,
                                                            auxiliary_lists_map,
                                                            resource_cache,
                                                            profile_counters,
                                                            device_pixel_ratio);
     }
 
-    fn update_scroll_bars(&mut self, scroll_tree: &ScrollTree) {
+    fn update_scroll_bars(&mut self, clip_scroll_tree: &ClipScrollTree) {
         let distance_from_edge = 8.0;
 
         for scrollbar_prim in &self.scrollbar_prims {
             let mut geom = (*self.prim_store.gpu_geometry.get(GpuStoreAddress(scrollbar_prim.prim_index.0 as i32))).clone();
-            let scroll_layer = &scroll_tree.layers[&scrollbar_prim.scroll_layer_id];
+            let clip_scroll_node = &clip_scroll_tree.nodes[&scrollbar_prim.scroll_layer_id];
 
-            let scrollable_distance = scroll_layer.scrollable_height();
+            let scrollable_distance = clip_scroll_node.scrollable_height();
 
             if scrollable_distance <= 0.0 {
                 geom.local_clip_rect.size = LayerSize::zero();
@@ -705,20 +705,20 @@ impl FrameBuilder {
                 continue;
             }
 
-            let f = -scroll_layer.scrolling.offset.y / scrollable_distance;
+            let f = -clip_scroll_node.scrolling.offset.y / scrollable_distance;
 
-            let min_y = scroll_layer.local_viewport_rect.origin.y -
-                        scroll_layer.scrolling.offset.y +
+            let min_y = clip_scroll_node.local_viewport_rect.origin.y -
+                        clip_scroll_node.scrolling.offset.y +
                         distance_from_edge;
 
-            let max_y = scroll_layer.local_viewport_rect.origin.y +
-                        scroll_layer.local_viewport_rect.size.height -
-                        scroll_layer.scrolling.offset.y -
+            let max_y = clip_scroll_node.local_viewport_rect.origin.y +
+                        clip_scroll_node.local_viewport_rect.size.height -
+                        clip_scroll_node.scrolling.offset.y -
                         geom.local_rect.size.height -
                         distance_from_edge;
 
-            geom.local_rect.origin.x = scroll_layer.local_viewport_rect.origin.x +
-                                       scroll_layer.local_viewport_rect.size.width -
+            geom.local_rect.origin.x = clip_scroll_node.local_viewport_rect.origin.x +
+                                       clip_scroll_node.local_viewport_rect.size.width -
                                        geom.local_rect.size.width -
                                        distance_from_edge;
 
@@ -876,7 +876,7 @@ impl FrameBuilder {
     pub fn build(&mut self,
                  resource_cache: &mut ResourceCache,
                  frame_id: FrameId,
-                 scroll_tree: &ScrollTree,
+                 clip_scroll_tree: &ClipScrollTree,
                  auxiliary_lists_map: &AuxiliaryListsMap,
                  device_pixel_ratio: f32) -> Frame {
         profile_scope!("build");
@@ -900,10 +900,10 @@ impl FrameBuilder {
         let cache_size = DeviceUintSize::new(cmp::max(1024, screen_rect.size.width as u32),
                                              cmp::max(1024, screen_rect.size.height as u32));
 
-        self.update_scroll_bars(scroll_tree);
+        self.update_scroll_bars(clip_scroll_tree);
 
         self.build_layer_screen_rects_and_cull_layers(&screen_rect,
-                                                      scroll_tree,
+                                                      clip_scroll_tree,
                                                       auxiliary_lists_map,
                                                       resource_cache,
                                                       &mut profile_counters,
@@ -979,7 +979,7 @@ impl FrameBuilder {
 struct LayerRectCalculationAndCullingPass<'a> {
     frame_builder: &'a mut FrameBuilder,
     screen_rect: &'a DeviceIntRect,
-    scroll_tree: &'a ScrollTree,
+    clip_scroll_tree: &'a ClipScrollTree,
     auxiliary_lists_map: &'a AuxiliaryListsMap,
     resource_cache: &'a mut ResourceCache,
     profile_counters: &'a mut FrameProfileCounters,
@@ -999,7 +999,7 @@ struct LayerRectCalculationAndCullingPass<'a> {
 impl<'a> LayerRectCalculationAndCullingPass<'a> {
     fn create_and_run(frame_builder: &'a mut FrameBuilder,
                       screen_rect: &'a DeviceIntRect,
-                      scroll_tree: &'a ScrollTree,
+                      clip_scroll_tree: &'a ClipScrollTree,
                       auxiliary_lists_map: &'a AuxiliaryListsMap,
                       resource_cache: &'a mut ResourceCache,
                       profile_counters: &'a mut FrameProfileCounters,
@@ -1008,7 +1008,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         let mut pass = LayerRectCalculationAndCullingPass {
             frame_builder: frame_builder,
             screen_rect: screen_rect,
-            scroll_tree: scroll_tree,
+            clip_scroll_tree: clip_scroll_tree,
             auxiliary_lists_map: auxiliary_lists_map,
             resource_cache: resource_cache,
             profile_counters: profile_counters,
@@ -1048,7 +1048,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             let stacking_context = &mut self.frame_builder
                                             .stacking_context_store[stacking_context_index.0];
 
-            let scroll_tree_layer = &self.scroll_tree.layers[&group.scroll_layer_id];
+            let scroll_tree_layer = &self.clip_scroll_tree.nodes[&group.scroll_layer_id];
             let packed_layer = &mut self.frame_builder.packed_layers[group.packed_layer_index.0];
             packed_layer.transform = scroll_tree_layer.world_content_transform
                                                       .with_source::<ScrollLayerPixel>()
@@ -1115,7 +1115,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
 
         let scroll_layer = &mut self.frame_builder.scroll_layer_store[scroll_layer_index.0];
         let packed_layer_index = scroll_layer.packed_layer_index;
-        let scroll_tree_layer = &self.scroll_tree.layers[&scroll_layer.scroll_layer_id];
+        let scroll_tree_layer = &self.clip_scroll_tree.nodes[&scroll_layer.scroll_layer_id];
         let packed_layer = &mut self.frame_builder.packed_layers[packed_layer_index.0];
 
         packed_layer.transform = scroll_tree_layer.world_viewport_transform;
