@@ -270,13 +270,23 @@ impl YamlFrameReader {
         let colors = broadcast(&colors, 4);
         let styles = broadcast(&styles, 4);
 
-        let top = BorderSide { width: widths[0], color: colors[0], style: styles[0] };
-        let left = BorderSide { width: widths[1], color: colors[1], style: styles[1] };
-        let bottom = BorderSide { width: widths[2], color: colors[2], style: styles[2] };
-        let right = BorderSide { width: widths[3], color: colors[3], style: styles[3] };
-
+        let widths = BorderWidths { top: widths[0], left: widths[1], bottom: widths[2], right: widths[3] };
+        let top = BorderSide { color: colors[0], style: styles[0] };
+        let left = BorderSide { color: colors[1], style: styles[1] };
+        let bottom = BorderSide { color: colors[2], style: styles[2] };
+        let right = BorderSide { color: colors[3], style: styles[3] };
+        let details = BorderDetails::Normal(NormalBorder {
+            top: top,
+            left: left,
+            bottom: bottom,
+            right: right,
+            radius: radius,
+        });
         let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
-        self.builder().push_border(bounds, clip, left, top, right, bottom, radius);
+        self.builder().push_border(bounds,
+                                   clip,
+                                   widths,
+                                   details);
     }
 
     fn handle_box_shadow(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {

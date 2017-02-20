@@ -559,28 +559,35 @@ impl YamlFrameWriter {
                 },
                 Border(item) => {
                     str_node(&mut v, "type", "border");
-                    let trbl = vec![&item.top, &item.right, &item.bottom, &item.left];
-                    let widths: Vec<f32> = trbl.iter().map(|x| x.width).collect();
-                    let colors: Vec<String> = trbl.iter().map(|x| color_to_string(x.color)).collect();
-                    let styles: Vec<String> = trbl.iter().map(|x| {
-                        match x.style {
-                            BorderStyle::None => "none",
-                            BorderStyle::Solid => "solid",
-                            BorderStyle::Double => "double",
-                            BorderStyle::Dotted => "dotted",
-                            BorderStyle::Dashed => "dashed",
-                            BorderStyle::Hidden => "hidden",
-                            BorderStyle::Ridge => "ridge",
-                            BorderStyle::Inset => "inset",
-                            BorderStyle::Outset => "outset",
-                            BorderStyle::Groove => "groove",
-                        }.to_owned()
-                    }).collect();
-                    yaml_node(&mut v, "width", f32_vec_yaml(&widths, true));
-                    yaml_node(&mut v, "color", string_vec_yaml(&colors, true));
-                    yaml_node(&mut v, "style", string_vec_yaml(&styles, true));
-                    if let Some(radius_node) = maybe_radius_yaml(&item.radius) {
-                        yaml_node(&mut v, "radius", radius_node);
+                    match item.details {
+                        BorderDetails::Normal(ref details) => {
+                            let trbl = vec![&details.top, &details.right, &details.bottom, &details.left];
+                            let widths: Vec<f32> = vec![item.widths.top, item.widths.right, item.widths.bottom, item.widths.left];
+                            let colors: Vec<String> = trbl.iter().map(|x| color_to_string(x.color)).collect();
+                            let styles: Vec<String> = trbl.iter().map(|x| {
+                                match x.style {
+                                    BorderStyle::None => "none",
+                                    BorderStyle::Solid => "solid",
+                                    BorderStyle::Double => "double",
+                                    BorderStyle::Dotted => "dotted",
+                                    BorderStyle::Dashed => "dashed",
+                                    BorderStyle::Hidden => "hidden",
+                                    BorderStyle::Ridge => "ridge",
+                                    BorderStyle::Inset => "inset",
+                                    BorderStyle::Outset => "outset",
+                                    BorderStyle::Groove => "groove",
+                                }.to_owned()
+                            }).collect();
+                            yaml_node(&mut v, "width", f32_vec_yaml(&widths, true));
+                            yaml_node(&mut v, "color", string_vec_yaml(&colors, true));
+                            yaml_node(&mut v, "style", string_vec_yaml(&styles, true));
+                            if let Some(radius_node) = maybe_radius_yaml(&details.radius) {
+                                yaml_node(&mut v, "radius", radius_node);
+                            }
+                        }
+                        BorderDetails::Image(..) => {
+                            println!("TODO: image border");
+                        }
                     }
                 },
                 BoxShadow(item) => {
