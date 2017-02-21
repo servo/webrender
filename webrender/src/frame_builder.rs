@@ -559,46 +559,96 @@ impl FrameBuilder {
             return;
         }
 
+        // The local space box shadow rect. It is the element rect
+        // translated by the box shadow offset and inflated by the
+        // box shadow spread.
         let bs_rect = box_bounds.translate(box_offset)
                                 .inflate(spread_radius, spread_radius);
 
+        // Get the outer rectangle, based on the blur radius.
         let outside_edge_size = 2.0 * blur_radius;
         let inside_edge_size = outside_edge_size.max(border_radius);
         let edge_size = outside_edge_size + inside_edge_size;
         let outer_rect = bs_rect.inflate(outside_edge_size, outside_edge_size);
-        let mut instance_rects = Vec::new();
-        let (prim_rect, inverted) = match clip_mode {
+
+        // Box shadows are often used for things like text underline and other
+        // simple primitives, so we want to draw these simple cases with the
+        // solid rectangle shader wherever possible, to avoid invoking the
+        // expensive box-shadow shader.
+        enum BoxShadowKind {
+            Simple(Vec<LayerRect>),     // Can be drawn via simple rectangles only
+            Shadow(Vec<LayerRect>),     // Requires the full box-shadow code path
+        }
+
+        let shadow_kind = match clip_mode {
             BoxShadowClipMode::Outset | BoxShadowClipMode::None => {
-                subtract_rect(&outer_rect, box_bounds, &mut instance_rects);
-                (outer_rect, 0.0)
+                // For outset shadows, subtracting the element rectangle
+                // from the outer rectangle gives the rectangles we need
+                // to draw. In the simple case (no blur radius), we can
+                // just draw these as solid colors.
+                let mut rects = Vec::new();
+                subtract_rect(&outer_rect, box_bounds, &mut rects);
+                if edge_size == 0.0 {
+                    BoxShadowKind::Simple(rects)
+                } else {
+                    BoxShadowKind::Shadow(rects)
+                }
             }
             BoxShadowClipMode::Inset => {
-                subtract_rect(box_bounds, &bs_rect, &mut instance_rects);
-                (*box_bounds, 1.0)
+                // For inset shadows, in the simple case (no blur) we
+                // can draw the shadow area by subtracting the box
+                // shadow rect from the element rect (since inset box
+                // shadows never extend past the element rect). However,
+                // in the case of an inset box shadow with blur, we
+                // currently just draw the box shadow over the entire
+                // rect. The opaque parts of the shadow (past the outside
+                // edge of the box-shadow) are handled by the shadow
+                // shader.
+                // TODO(gw): We should be able to optimize the complex
+                //           inset shadow case to touch fewer pixels. We
+                //           can probably calculate the inner rect that
+                //           can't be affected, and subtract that from
+                //           the element rect?
+                let mut rects = Vec::new();
+                if edge_size == 0.0 {
+                    subtract_rect(box_bounds, &bs_rect, &mut rects);
+                    BoxShadowKind::Simple(rects)
+                } else {
+                    rects.push(*box_bounds);
+                    BoxShadowKind::Shadow(rects)
+                }
             }
         };
 
-        if edge_size == 0.0 {
-            for rect in &instance_rects {
-                self.add_solid_rectangle(rect,
-                                         clip_region,
-                                         color,
-                                         PrimitiveFlags::None)
+        match shadow_kind {
+            BoxShadowKind::Simple(rects) => {
+                for rect in &rects {
+                    self.add_solid_rectangle(rect,
+                                             clip_region,
+                                             color,
+                                             PrimitiveFlags::None)
+                }
             }
-        } else {
-            let prim_gpu = BoxShadowPrimitiveGpu {
-                src_rect: *box_bounds,
-                bs_rect: bs_rect,
-                color: *color,
-                blur_radius: blur_radius,
-                border_radius: border_radius,
-                edge_size: edge_size,
-                inverted: inverted,
-            };
+            BoxShadowKind::Shadow(rects) => {
+                let inverted = match clip_mode {
+                    BoxShadowClipMode::Outset | BoxShadowClipMode::None => 0.0,
+                    BoxShadowClipMode::Inset => 1.0,
+                };
 
-            self.add_primitive(&prim_rect,
-                               clip_region,
-                               PrimitiveContainer::BoxShadow(prim_gpu, instance_rects));
+                let prim_gpu = BoxShadowPrimitiveGpu {
+                    src_rect: *box_bounds,
+                    bs_rect: bs_rect,
+                    color: *color,
+                    blur_radius: blur_radius,
+                    border_radius: border_radius,
+                    edge_size: edge_size,
+                    inverted: inverted,
+                };
+
+                self.add_primitive(&outer_rect,
+                                   clip_region,
+                                   PrimitiveContainer::BoxShadow(prim_gpu, rects));
+            }
         }
     }
 
