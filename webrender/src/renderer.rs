@@ -463,6 +463,11 @@ pub struct Renderer {
     /// use a hashmap, and allows a flat vector for performance.
     cache_texture_id_map: Vec<TextureId>,
 
+    /// A special 2x2 dummy cache texture used for shaders that expect to work
+    /// with the cache but are actually running in the first pass
+    /// when no target is yet provided as a cache texture input.
+    dummy_cache_texture_id: TextureId,
+
     /// Optional trait object that allows the client
     /// application to provide external buffers for image data.
     external_image_handler: Option<Box<ExternalImageHandler>>,
@@ -715,6 +720,15 @@ impl Renderer {
                              TextureFilter::Linear,
                              ImageData::Raw(Arc::new(mask_pixels)));
 
+        let dummy_cache_texture_id = device.create_texture_ids(1, TextureTarget::Array)[0];
+        device.init_texture(dummy_cache_texture_id,
+                            1,
+                            1,
+                            ImageFormat::RGBA8,
+                            TextureFilter::Linear,
+                            RenderTargetMode::LayerRenderTarget(1),
+                            None);
+
         let debug_renderer = DebugRenderer::new(&mut device);
 
         let gpu_data_textures = [
@@ -850,6 +864,7 @@ impl Renderer {
             pipeline_epoch_map: HashMap::with_hasher(Default::default()),
             main_thread_dispatcher: main_thread_dispatcher,
             cache_texture_id_map: Vec::new(),
+            dummy_cache_texture_id: dummy_cache_texture_id,
             external_image_handler: None,
             external_images: HashMap::with_hasher(Default::default()),
             vr_compositor_handler: vr_compositor
@@ -1169,7 +1184,7 @@ impl Renderer {
                     batch: &PrimitiveBatch,
                     projection: &Matrix4D<f32>,
                     render_task_data: &Vec<RenderTaskData>,
-                    cache_texture: Option<TextureId>,
+                    cache_texture: TextureId,
                     render_target: Option<(TextureId, i32)>,
                     target_dimensions: DeviceUintSize) {
         let transform_kind = batch.key.flags.transform_kind();
@@ -1262,8 +1277,7 @@ impl Renderer {
                 // Before submitting the composite batch, do the
                 // framebuffer readbacks that are needed for each
                 // composite operation in this batch.
-                let cache_texture_id = cache_texture.unwrap();
-                let cache_texture_dimensions = self.device.get_texture_dimensions(cache_texture_id);
+                let cache_texture_dimensions = self.device.get_texture_dimensions(cache_texture);
 
                 let backdrop = &render_task_data[instance.task_index as usize];
                 let readback = &render_task_data[instance.user_data[0] as usize];
@@ -1273,7 +1287,7 @@ impl Renderer {
                 // Called per-instance in case the layer (and therefore FBO)
                 // changes. The device will skip the GL call if the requested
                 // target is already bound.
-                let cache_draw_target = (cache_texture_id, readback.data[4] as i32);
+                let cache_draw_target = (cache_texture, readback.data[4] as i32);
                 self.device.bind_draw_target(Some(cache_draw_target), Some(cache_texture_dimensions));
 
                 let src_x = backdrop.data[0] - backdrop.data[4] + source.data[4];
@@ -1320,7 +1334,7 @@ impl Renderer {
                    render_target: Option<(TextureId, i32)>,
                    target: &RenderTarget,
                    target_size: DeviceUintSize,
-                   cache_texture: Option<TextureId>,
+                   cache_texture: TextureId,
                    should_clear: bool,
                    background_color: Option<ColorF>,
                    render_task_data: &Vec<RenderTaskData>) {
@@ -1333,9 +1347,7 @@ impl Renderer {
 
             self.device.set_blend(false);
             self.device.set_blend_mode_alpha();
-            if let Some(cache_texture) = cache_texture {
-                self.device.bind_texture(TextureSampler::Cache, cache_texture);
-            }
+            self.device.bind_texture(TextureSampler::Cache, cache_texture);
 
             let (color, projection) = match render_target {
                 Some(..) => (
@@ -1638,7 +1650,7 @@ impl Renderer {
             self.gpu_data_textures[self.gdt_index].init_frame(&mut self.device, frame);
             self.gdt_index = (self.gdt_index + 1) % GPU_DATA_TEXTURE_POOL;
 
-            let mut src_id = None;
+            let mut src_id = self.dummy_cache_texture_id;
 
             for (pass_index, pass) in frame.passes.iter().enumerate() {
                 let (do_clear, size, target_id) = if pass.is_framebuffer {
@@ -1663,7 +1675,7 @@ impl Renderer {
 
                 }
 
-                src_id = target_id;
+                src_id = target_id.unwrap_or(self.dummy_cache_texture_id);
             }
 
             self.draw_render_target_debug(framebuffer_size);
