@@ -642,7 +642,7 @@ pub type BlobImageResult = Result<RasterizedBlobImage, BlobImageError>;
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ImageData {
     Raw(Arc<Vec<u8>>),
-    Vector(Arc<BlobImageData>),
+    Blob(Arc<BlobImageData>),
     ExternalHandle(ExternalImageId),
     ExternalBuffer(ExternalImageId),
 }
@@ -657,11 +657,11 @@ impl ImageData {
     }
 
     pub fn new_blob_image(commands: Vec<u8>) -> ImageData {
-        ImageData::Vector(Arc::new(commands))
+        ImageData::Blob(Arc::new(commands))
     }
 
     pub fn new_shared_blob_image(commands: Arc<Vec<u8>>) -> ImageData {
-        ImageData::Vector(commands)
+        ImageData::Blob(commands)
     }
 }
 
