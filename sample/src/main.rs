@@ -194,8 +194,9 @@ fn main() {
 
 
     if false { // draw text?
+        let font_key = api.generate_font_key();
         let font_bytes = load_file("res/FreeSans.ttf");
-        let font_key = api.add_raw_font(font_bytes);
+        api.add_raw_font(font_key, font_bytes);
 
         let text_bounds = LayoutRect::new(LayoutPoint::new(100.0, 200.0), LayoutSize::new(700.0, 300.0));
 
