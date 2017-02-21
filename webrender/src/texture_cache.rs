@@ -720,7 +720,7 @@ impl TextureCache {
             ImageData::ExternalHandle(..) | ImageData::ExternalBuffer(..)=> {
                 panic!("Doesn't support Update() for external image.");
             }
-            ImageData::Vector(..) => {
+            ImageData::Blob(..) => {
                 panic!("The vector image should have been rasterized into a raw image.");
             }
             ImageData::Raw(bytes) => {
@@ -748,7 +748,7 @@ impl TextureCache {
                   descriptor: ImageDescriptor,
                   filter: TextureFilter,
                   data: ImageData) {
-        if let ImageData::Vector(..) = data {
+        if let ImageData::Blob(..) = data {
             panic!("must rasterize the vector image before adding to the cache");
         }
 
@@ -769,7 +769,7 @@ impl TextureCache {
                     ImageData::ExternalHandle(..) => {
                         panic!("External handle should not go through texture_cache.");
                     }
-                    ImageData::Vector(..) => {
+                    ImageData::Blob(..) => {
                         panic!("The vector image should have been rasterized.");
                     }
                     ImageData::Raw(bytes) => {

@@ -692,7 +692,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                     &ImageData::Raw(ref v) => { (**v).clone() }
                     &ImageData::ExternalHandle(_) => { return; }
                     &ImageData::ExternalBuffer(_) => { return; }
-                    &ImageData::Vector(_) => { return; }
+                    &ImageData::Blob(_) => { return; }
                 };
                 self.frame_writer.images.insert(*key, CachedImage {
                     width: descriptor.width,

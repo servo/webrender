@@ -347,7 +347,7 @@ impl ResourceCache {
         };
 
         let template = self.image_templates.get(&key).unwrap();
-        if let ImageData::Vector(ref data) = template.data {
+        if let ImageData::Blob(ref data) = template.data {
             if let Some(ref mut renderer) = self.blob_image_renderer {
                 let same_epoch = match self.cached_images.resources.get(&request) {
                     Some(entry) => entry.epoch == template.epoch,
@@ -495,7 +495,7 @@ impl ResourceCache {
         let external_id = match image_template.data {
             ImageData::ExternalHandle(id) => Some(id),
             // raw and externalBuffer are all use resource_cache.
-            ImageData::Raw(..) | ImageData::ExternalBuffer(..) | ImageData::Vector(..) => None,
+            ImageData::Raw(..) | ImageData::ExternalBuffer(..) | ImageData::Blob(..) => None,
         };
 
         ImageProperties {
@@ -625,7 +625,7 @@ impl ResourceCache {
             ImageData::ExternalHandle(..) => {
                 // external handle doesn't need to update the texture_cache.
             }
-            ImageData::Raw(..) | ImageData::ExternalBuffer(..) | ImageData::Vector(..) => {
+            ImageData::Raw(..) | ImageData::ExternalBuffer(..) | ImageData::Blob(..) => {
                 match self.cached_images.entry(request.clone(), self.current_frame_id) {
                     Occupied(entry) => {
                         let image_id = entry.get().texture_cache_id;
