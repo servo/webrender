@@ -102,7 +102,9 @@ fn main() {
     let epoch = Epoch(0);
     let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
 
-    let vector_img = api.add_image(
+    let vector_img = api.generate_image_key();
+    api.add_image(
+        vector_img,
         ImageDescriptor {
             format: ImageFormat::RGBA8,
             width: 100,
@@ -143,17 +145,20 @@ fn main() {
     );
 
     let sub_clip = {
+        let mask_image = api.generate_image_key();
+        api.add_image(
+            mask_image,
+            ImageDescriptor {
+                width: 2,
+                height: 2,
+                stride: None,
+                format: ImageFormat::A8,
+                is_opaque: true,
+            },
+            ImageData::new(vec![0, 80, 180, 255])
+        );
         let mask = webrender_traits::ImageMask {
-            image: api.add_image(
-                ImageDescriptor {
-                    width: 2,
-                    height: 2,
-                    stride: None,
-                    format: ImageFormat::A8,
-                    is_opaque: true,
-                },
-                ImageData::new(vec![0, 80, 180, 255])
-            ),
+            image: mask_image,
             rect: LayoutRect::new(LayoutPoint::new(75.0, 75.0), LayoutSize::new(100.0, 100.0)),
             repeat: false,
         };
@@ -194,8 +199,9 @@ fn main() {
 
 
     if false { // draw text?
+        let font_key = api.generate_font_key();
         let font_bytes = load_file("res/FreeSans.ttf");
-        let font_key = api.add_raw_font(font_bytes);
+        api.add_raw_font(font_key, font_bytes);
 
         let text_bounds = LayoutRect::new(LayoutPoint::new(100.0, 200.0), LayoutSize::new(700.0, 300.0));
 

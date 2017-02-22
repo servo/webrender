@@ -235,7 +235,9 @@ impl Wrench {
 
     #[cfg(target_os = "windows")]
     pub fn font_key_from_native_handle(&mut self, descriptor: &NativeFontHandle) -> FontKey {
-        self.api.add_native_font(descriptor.clone())
+        let key = self.api.generate_font_key();
+        self.api.add_native_font(key, descriptor.clone());
+        key
     }
 
     #[cfg(target_os = "windows")]
@@ -246,8 +248,7 @@ impl Wrench {
                                                   dwrote::FontStretch::Normal,
                                                   dwrote::FontStyle::Normal);
         let descriptor = font.to_descriptor();
-        let key = self.api.add_native_font(descriptor.clone());
-        (key, Some(descriptor))
+        (self.font_key_from_native_handle(&descriptor), Some(descriptor))
     }
 
     #[cfg(target_os = "windows")]
@@ -281,7 +282,8 @@ impl Wrench {
     }
 
     pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>) -> (FontKey, Option<NativeFontHandle>) {
-        let key = self.api.add_raw_font(bytes);
+        let key = self.api.generate_font_key();
+        self.api.add_raw_font(key, bytes);
         (key, None)
     }
 
@@ -300,7 +302,9 @@ impl Wrench {
             _ => panic!("We don't support whatever your crazy image type is, come on"),
         };
         let bytes = image.raw_pixels();
-        let image_key = self.api.add_image(
+        let image_key = self.api.generate_image_key();
+        self.api.add_image(
+            image_key,
             ImageDescriptor {
                 width: image_dims.0,
                 height: image_dims.1,
