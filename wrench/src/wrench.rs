@@ -302,7 +302,9 @@ impl Wrench {
             _ => panic!("We don't support whatever your crazy image type is, come on"),
         };
         let bytes = image.raw_pixels();
-        let image_key = self.api.add_image(
+        let image_key = self.api.generate_image_key();
+        self.api.add_image(
+            image_key,
             ImageDescriptor {
                 width: image_dims.0,
                 height: image_dims.1,

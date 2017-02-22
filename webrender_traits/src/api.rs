@@ -83,19 +83,18 @@ impl RenderApi {
     }
 
     /// Creates an `ImageKey`.
-    pub fn alloc_image(&self) -> ImageKey {
+    pub fn generate_image_key(&self) -> ImageKey {
         let new_id = self.next_unique_id();
         ImageKey::new(new_id.0, new_id.1)
     }
 
-    /// Adds an image and returns the corresponding `ImageKey`.
+    /// Adds an image identified by the `ImageKey`.
     pub fn add_image(&self,
+                     key: ImageKey,
                      descriptor: ImageDescriptor,
-                     data: ImageData) -> ImageKey {
-        let key = self.alloc_image();
+                     data: ImageData) {
         let msg = ApiMsg::AddImage(key, descriptor, data);
         self.api_sender.send(msg).unwrap();
-        key
     }
 
     /// Updates a specific image.
