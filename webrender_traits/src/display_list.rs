@@ -19,7 +19,7 @@ use {BorderDetails, BorderWidths, GlyphOptions, PropertyBinding};
 
 impl BuiltDisplayListDescriptor {
     pub fn size(&self) -> usize {
-        self.display_list_items_size + self.display_items_size
+        self.display_list_items_size
     }
 }
 
@@ -371,7 +371,6 @@ impl DisplayListBuilder {
             (BuiltDisplayList {
                  descriptor: BuiltDisplayListDescriptor {
                      display_list_items_size: display_list_items_size,
-                     display_items_size: 0,
                  },
                  data: blob,
              },

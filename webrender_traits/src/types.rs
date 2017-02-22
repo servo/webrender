@@ -291,8 +291,6 @@ pub struct BuiltDisplayList {
 pub struct BuiltDisplayListDescriptor {
     /// The size in bytes of the display list items in this display list.
     display_list_items_size: usize,
-    /// The size in bytes of the display items in this display list.
-    display_items_size: usize,
 }
 
 #[repr(C)]
