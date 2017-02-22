@@ -1734,11 +1734,13 @@ impl Renderer {
             }
         }
     }
-}
 
-impl Drop for Renderer {
-    fn drop(&mut self) {
+    // De-initialize the Renderer safely, assuming the GL is still alive and active.
+    pub fn deinit(mut self) {
+        //Note: this is a fake frame, only needed because texture deletion is require to happen inside a frame
+        self.device.begin_frame(1.0);
         self.device.deinit_texture(self.dummy_cache_texture_id);
+        self.device.end_frame();
     }
 }
 
