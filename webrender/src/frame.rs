@@ -29,6 +29,7 @@ static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF { r: 0.3, g: 0.3, b: 0.3, a: 0.6
 struct FlattenContext<'a> {
     scene: &'a Scene,
     builder: &'a mut FrameBuilder,
+    resource_cache: &'a mut ResourceCache,
 }
 
 // TODO: doc
@@ -276,6 +277,7 @@ impl Frame {
             let mut context = FlattenContext {
                 scene: scene,
                 builder: &mut frame_builder,
+                resource_cache: resource_cache
             };
 
             let mut traversal = DisplayListTraversal::new_skipping_first(display_list);
@@ -295,7 +297,6 @@ impl Frame {
                                                   &root_clip.main.size);
 
             self.flatten_stacking_context(&mut traversal,
-                                          resource_cache,
                                           root_pipeline_id,
                                           &mut context,
                                           reference_frame_id,
@@ -315,7 +316,6 @@ impl Frame {
 
     fn flatten_scroll_layer<'a>(&mut self,
                                 traversal: &mut DisplayListTraversal<'a>,
-                                resource_cache: &mut ResourceCache,
                                 pipeline_id: PipelineId,
                                 context: &mut FlattenContext,
                                 current_reference_frame_id: ScrollLayerId,
@@ -343,7 +343,6 @@ impl Frame {
                                               &content_size);
 
         self.flatten_items(traversal,
-                           resource_cache,
                            pipeline_id,
                            context,
                            current_reference_frame_id,
@@ -356,7 +355,6 @@ impl Frame {
 
     fn flatten_stacking_context<'a>(&mut self,
                                     traversal: &mut DisplayListTraversal<'a>,
-                                    resource_cache: &mut ResourceCache,
                                     pipeline_id: PipelineId,
                                     context: &mut FlattenContext,
                                     current_reference_frame_id: ScrollLayerId,
@@ -446,7 +444,6 @@ impl Frame {
                                               composition_operations);
 
         self.flatten_items(traversal,
-                           resource_cache,
                            pipeline_id,
                            context,
                            reference_frame_id,
@@ -467,7 +464,6 @@ impl Frame {
     }
 
     fn flatten_iframe<'a>(&mut self,
-                          resource_cache: &mut ResourceCache,
                           pipeline_id: PipelineId,
                           bounds: &LayerRect,
                           context: &mut FlattenContext,
@@ -525,7 +521,6 @@ impl Frame {
         let mut traversal = DisplayListTraversal::new_skipping_first(display_list);
 
         self.flatten_stacking_context(&mut traversal,
-                                      resource_cache,
                                       pipeline_id,
                                       context,
                                       iframe_reference_frame_id,
@@ -541,7 +536,6 @@ impl Frame {
 
     fn flatten_items<'a>(&mut self,
                          traversal: &mut DisplayListTraversal<'a>,
-                         resource_cache: &mut ResourceCache,
                          pipeline_id: PipelineId,
                          context: &mut FlattenContext,
                          current_reference_frame_id: ScrollLayerId,
@@ -555,7 +549,7 @@ impl Frame {
                                                         &item.clip, info.context_id);
                 }
                 SpecificDisplayItem::Image(ref info) => {
-                    let image = resource_cache.get_image_properties(info.image_key);
+                    let image = context.resource_cache.get_image_properties(info.image_key);
                     if let Some(tile_size) = image.tiling {
                         // The image resource is tiled. We have to generate an image primitive
                         // for each tile.
@@ -629,7 +623,6 @@ impl Frame {
                 }
                 SpecificDisplayItem::PushStackingContext(ref info) => {
                     self.flatten_stacking_context(traversal,
-                                                  resource_cache,
                                                   pipeline_id,
                                                   context,
                                                   current_reference_frame_id,
@@ -641,7 +634,6 @@ impl Frame {
                 }
                 SpecificDisplayItem::PushScrollLayer(ref info) => {
                     self.flatten_scroll_layer(traversal,
-                                              resource_cache,
                                               pipeline_id,
                                               context,
                                               current_reference_frame_id,
@@ -653,8 +645,7 @@ impl Frame {
                                               info.id);
                 }
                 SpecificDisplayItem::Iframe(ref info) => {
-                    self.flatten_iframe(resource_cache,
-                                        info.pipeline_id,
+                    self.flatten_iframe(info.pipeline_id,
                                         &item.rect,
                                         context,
                                         current_scroll_layer_id,
@@ -674,7 +665,7 @@ impl Frame {
                              tile_size: u32) {
         // The image resource is tiled. We have to generate an image primitive
         // for each tile.
-        // We need to do this because the image is borken up into smaller tiles in the texture
+        // We need to do this because the image is broken up into smaller tiles in the texture
         // cache and the image shader is not able to work with this type of sparse representation.
 
         // The tiling logic works as follows:
@@ -829,12 +820,6 @@ impl Frame {
             stretched_size,
         );
 
-        if !item.rect.contains(&prim_rect.origin) {
-            // Due to stretching, this tile is outside of the item's rectangle,
-            // so it isn't visible.
-            return;
-        }
-
         if repeat_x {
             assert_eq!(tile_offset.x, 0);
             prim_rect.size.width = item.rect.size.width;
@@ -846,24 +831,16 @@ impl Frame {
         }
 
         // Fix up the primitive's rect if it overflows the original item rect.
-        let x_overflow = prim_rect.max_x() - item.rect.max_x();
-        if x_overflow > 0.0 {
-            prim_rect.size.width -= x_overflow;
+        if let Some(prim_rect) = prim_rect.intersection(&item.rect) {
+            context.builder.add_image(prim_rect,
+                                      &item.clip,
+                                      &stretched_size,
+                                      &info.tile_spacing,
+                                      None,
+                                      info.image_key,
+                                      info.image_rendering,
+                                      Some(tile_offset));
         }
-
-        let y_overflow = prim_rect.max_y() - item.rect.max_y();
-        if y_overflow > 0.0 {
-            prim_rect.size.height -= y_overflow;
-        }
-
-        context.builder.add_image(prim_rect,
-                                  &item.clip,
-                                  &stretched_size,
-                                  &info.tile_spacing,
-                                  None,
-                                  info.image_key,
-                                  info.image_rendering,
-                                  Some(tile_offset));
     }
 
     pub fn build(&mut self,

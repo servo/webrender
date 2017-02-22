@@ -303,8 +303,10 @@ impl Wrench {
                     _ => panic!("We don't support whatever your crazy image type is, come on"),
                 };
                 let bytes = image.raw_pixels();
-                let descriptor = ImageDescriptor::new(image_dims.0, image_dims.1, format)
-                                    .with_opaque_flag(is_image_opaque(format, &bytes[..]));
+                let descriptor = ImageDescriptor::new(image_dims.0,
+                                                      image_dims.1,
+                                                      format,
+                                                      is_image_opaque(format, &bytes[..]));
                 let data = ImageData::new(bytes);
                 (descriptor, data)
             }
@@ -425,7 +427,7 @@ fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
 }
 
 fn generate_xy_gradient_image(w: u32, h: u32) -> (ImageDescriptor, ImageData) {
-    let mut pixels = Vec::with_capacity((w*h*4) as usize);
+    let mut pixels = Vec::with_capacity((w * h * 4) as usize);
     for y in 0..h {
         for x in 0..w {
             let grid = if x % 100 < 3 || y % 100 < 3 { 0.9 } else { 1.0 };
@@ -437,22 +439,22 @@ fn generate_xy_gradient_image(w: u32, h: u32) -> (ImageDescriptor, ImageData) {
     }
 
     return (
-        ImageDescriptor::new(w, h, ImageFormat::RGBA8).with_opaque_flag(true),
+        ImageDescriptor::new(w, h, ImageFormat::RGBA8, true),
         ImageData::new(pixels)
     );
 }
 
 fn generate_solid_color_image(r: u8, g: u8, b: u8, a: u8, w: u32, h: u32) -> (ImageDescriptor, ImageData) {
-    let buf_size = (w*h*4) as usize;
+    let buf_size = (w * h * 4) as usize;
     let mut pixels = Vec::with_capacity(buf_size);
     // Unsafely filling the buffer is horrible. Unfortunately doing this idiomatically
     // is terribly slow in debug builds to the point that reftests/image/very-big.yaml
     // takes more than 20 seconds to run on a recent laptop.
     unsafe {
         pixels.set_len(buf_size);
-        let color: u32 = ::std::mem::transmute([b,g,r,a]);
+        let color: u32 = ::std::mem::transmute([b, g, r, a]);
         let mut ptr: *mut u32 = ::std::mem::transmute(&mut pixels[0]);
-        let end = ptr.offset((w*h) as isize);
+        let end = ptr.offset((w * h) as isize);
         while ptr < end {
             *ptr = color;
             ptr = ptr.offset(1);
@@ -460,7 +462,7 @@ fn generate_solid_color_image(r: u8, g: u8, b: u8, a: u8, w: u32, h: u32) -> (Im
     }
 
     return (
-        ImageDescriptor::new(w, h, ImageFormat::RGBA8).with_opaque_flag(a == 255),
+        ImageDescriptor::new(w, h, ImageFormat::RGBA8, a == 255),
         ImageData::new(pixels)
     );
 }

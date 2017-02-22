@@ -23,7 +23,7 @@ use thread_profiler::register_thread_with_profiler;
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRendering};
 use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
 use webrender_traits::{DevicePoint, DeviceIntSize, ImageDescriptor, ColorF};
-use webrender_traits::{ExternalImageId, GlyphOptions, GlyphInstance, TileOffset};
+use webrender_traits::{ExternalImageId, GlyphOptions, GlyphInstance, TileOffset, TileSize};
 use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError};
 use threadpool::ThreadPool;
 use euclid::Point2D;
@@ -92,7 +92,7 @@ impl RenderedGlyphKey {
 pub struct ImageProperties {
     pub descriptor: ImageDescriptor,
     pub external_id: Option<ExternalImageId>,
-    pub tiling: Option<u16>,
+    pub tiling: Option<TileSize>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -106,7 +106,7 @@ struct ImageResource {
     data: ImageData,
     descriptor: ImageDescriptor,
     epoch: Epoch,
-    tiling: Option<u16>,
+    tiling: Option<TileSize>,
 }
 
 struct CachedImageInfo {
@@ -263,7 +263,7 @@ impl ResourceCache {
                               image_key: ImageKey,
                               descriptor: ImageDescriptor,
                               data: ImageData,
-                              mut tiling: Option<u16>) {
+                              mut tiling: Option<TileSize>) {
         if descriptor.width > self.max_texture_size() || descriptor.height > self.max_texture_size() {
             // We aren't going to be able to upload a texture this big, so tile it, even
             // if tiling was not requested.

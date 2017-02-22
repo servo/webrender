@@ -105,7 +105,7 @@ fn main() {
     let vector_img = api.generate_image_key();
     api.add_image(
         vector_img,
-        ImageDescriptor::new(100, 100, ImageFormat::RGBA8).with_opaque_flag(true),
+        ImageDescriptor::new(100, 100, ImageFormat::RGBA8, true),
         ImageData::new_blob_image(Vec::new()),
         None,
     );
@@ -143,7 +143,7 @@ fn main() {
         let mask_image = api.generate_image_key();
         api.add_image(
             mask_image,
-            ImageDescriptor::new(2, 2, ImageFormat::A8).with_opaque_flag(true),
+            ImageDescriptor::new(2, 2, ImageFormat::A8, true),
             ImageData::new(vec![0, 80, 180, 255]),
             None,
         );

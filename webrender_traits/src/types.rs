@@ -24,6 +24,8 @@ pub enum RendererKind {
     OSMesa,
 }
 
+pub type TileSize = u16;
+
 #[derive(Clone, Deserialize, Serialize)]
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>),
@@ -31,7 +33,7 @@ pub enum ApiMsg {
     /// Gets the glyph dimensions
     GetGlyphDimensions(Vec<GlyphKey>, MsgSender<Vec<Option<GlyphDimensions>>>),
     /// Adds an image from the resource cache.
-    AddImage(ImageKey, ImageDescriptor, ImageData, Option<u16>),
+    AddImage(ImageKey, ImageDescriptor, ImageData, Option<TileSize>),
     /// Updates the the resource cache with the new image data.
     UpdateImage(ImageKey, ImageDescriptor, Vec<u8>),
     /// Drops an image from the resource cache.
@@ -368,25 +370,15 @@ pub struct ImageDescriptor {
 }
 
 impl ImageDescriptor {
-    pub fn new(width: u32, height: u32, format: ImageFormat) -> Self {
+    pub fn new(width: u32, height: u32, format: ImageFormat, is_opaque: bool) -> Self {
         ImageDescriptor {
             width: width,
             height: height,
             format: format,
             stride: None,
             offset: 0,
-            is_opaque: format == ImageFormat::RGB8,
+            is_opaque: is_opaque,
         }
-    }
-
-    pub fn with_opaque_flag(mut self, is_opaque: bool) -> Self {
-        self.is_opaque = is_opaque;
-        return self;
-    }
-
-    pub fn with_stride(mut self, stride: u32) -> Self {
-        self.stride = Some(stride);
-        return self;
     }
 
     pub fn compute_stride(&self) -> u32 {
