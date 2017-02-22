@@ -551,6 +551,7 @@ impl Frame {
                                               &item.clip,
                                               &info.stretch_size,
                                               &info.tile_spacing,
+                                              None,
                                               info.image_key,
                                               info.image_rendering);
                 }

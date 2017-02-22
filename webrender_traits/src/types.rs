@@ -6,7 +6,7 @@
 // for the serde implementations.
 
 use app_units::Au;
-use euclid::Point2D;
+use euclid::{Point2D, SideOffsets2D};
 use channel::{PayloadSender, MsgSender};
 #[cfg(feature = "nightly")]
 use core::nonzero::NonZero;
@@ -175,12 +175,48 @@ pub struct AuxiliaryListsDescriptor {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-pub struct BorderDisplayItem {
+pub struct NormalBorder {
     pub left: BorderSide,
     pub right: BorderSide,
     pub top: BorderSide,
     pub bottom: BorderSide,
     pub radius: BorderRadius,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+pub enum RepeatMode {
+    Stretch,
+    Repeat,
+    Round,
+    Space,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct NinePatchDescriptor {
+    pub width: u32,
+    pub height: u32,
+    pub slice: SideOffsets2D<u32>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ImageBorder {
+    pub image_key: ImageKey,
+    pub patch: NinePatchDescriptor,
+    pub outset: SideOffsets2D<f32>,
+    pub repeat_horizontal: RepeatMode,
+    pub repeat_vertical: RepeatMode,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum BorderDetails {
+    Normal(NormalBorder),
+    Image(ImageBorder),
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct BorderDisplayItem {
+    pub widths: BorderWidths,
+    pub details: BorderDetails,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -191,10 +227,17 @@ pub struct BorderRadius {
     pub bottom_right: LayoutSize,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct BorderWidths {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BorderSide {
-    pub width: f32,
     pub color: ColorF,
     pub style: BorderStyle,
 }

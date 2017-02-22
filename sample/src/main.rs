@@ -171,17 +171,26 @@ fn main() {
                       sub_clip,
                       ColorF::new(0.0, 1.0, 0.0, 1.0));
     let border_side = webrender_traits::BorderSide {
-        width: 10.0,
         color: ColorF::new(0.0, 0.0, 1.0, 1.0),
         style: webrender_traits::BorderStyle::Groove,
     };
+    let border_widths = webrender_traits::BorderWidths {
+        top: 10.0,
+        left: 10.0,
+        bottom: 10.0,
+        right: 10.0,
+    };
+    let border_details = webrender_traits::BorderDetails::Normal(webrender_traits::NormalBorder {
+        top: border_side,
+        right: border_side,
+        bottom: border_side,
+        left: border_side,
+        radius: webrender_traits::BorderRadius::uniform(20.0),
+    });
     builder.push_border(LayoutRect::new(LayoutPoint::new(100.0, 100.0), LayoutSize::new(100.0, 100.0)),
                         sub_clip,
-                        border_side,
-                        border_side,
-                        border_side,
-                        border_side,
-                        webrender_traits::BorderRadius::uniform(20.0));
+                        border_widths,
+                        border_details);
 
 
     if false { // draw text?
