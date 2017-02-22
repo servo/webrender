@@ -289,8 +289,6 @@ pub struct BuiltDisplayList {
 /// items.
 #[derive(Copy, Clone, Deserialize, Serialize)]
 pub struct BuiltDisplayListDescriptor {
-    pub mode: DisplayListMode,
-
     /// The size in bytes of the display list items in this display list.
     display_list_items_size: usize,
     /// The size in bytes of the display items in this display list.
@@ -393,14 +391,6 @@ pub struct DisplayItem {
     pub item: SpecificDisplayItem,
     pub rect: LayoutRect,
     pub clip: ClipRegion,
-}
-
-#[repr(u32)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub enum DisplayListMode {
-    Default                 = 0,
-    PseudoFloat             = 1,
-    PseudoPositionedContent = 2,
 }
 
 #[repr(C)]
