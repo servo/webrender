@@ -94,55 +94,29 @@ impl TexturePage {
         smallest_index_and_area.map(|(index, _)| FreeListIndex(bin, index))
     }
 
+    /// Find a suitable rect in the free list. We choose the smallest such rect
+    /// in terms of area (Best-Area-Fit, BAF).
     fn find_index_of_best_rect(&self, requested_dimensions: &DeviceUintSize)
                                -> Option<FreeListIndex> {
-        match FreeListBin::for_size(requested_dimensions) {
-            FreeListBin::Large => {
-                self.find_index_of_best_rect_in_bin(FreeListBin::Large, requested_dimensions)
-            }
-            FreeListBin::Medium => {
-                match self.find_index_of_best_rect_in_bin(FreeListBin::Medium,
-                                                          requested_dimensions) {
-                    Some(index) => Some(index),
-                    None => {
-                        self.find_index_of_best_rect_in_bin(FreeListBin::Large,
-                                                            requested_dimensions)
-                    }
-                }
-            }
-            FreeListBin::Small => {
-                match self.find_index_of_best_rect_in_bin(FreeListBin::Small,
-                                                          requested_dimensions) {
-                    Some(index) => Some(index),
-                    None => {
-                        match self.find_index_of_best_rect_in_bin(FreeListBin::Medium,
-                                                                  requested_dimensions) {
-                            Some(index) => Some(index),
-                            None => {
-                                self.find_index_of_best_rect_in_bin(FreeListBin::Large,
-                                                                    requested_dimensions)
-                            }
-                        }
-                    }
+        let bin = FreeListBin::for_size(requested_dimensions);
+        for &target_bin in &[FreeListBin::Small, FreeListBin::Medium, FreeListBin::Large] {
+            if bin <= target_bin {
+                if let Some(index) = self.find_index_of_best_rect_in_bin(target_bin,
+                                                                         requested_dimensions) {
+                    return Some(index);
                 }
             }
         }
+        None
+    }
+
+    pub fn can_allocate(&self, requested_dimensions: &DeviceUintSize) -> bool {
+        self.find_index_of_best_rect(requested_dimensions).is_some()
     }
 
     pub fn allocate(&mut self,
                     requested_dimensions: &DeviceUintSize) -> Option<DeviceUintPoint> {
-        // First, try to find a suitable rect in the free list. We choose the smallest such rect
-        // in terms of area (Best-Area-Fit, BAF).
-        let mut index = self.find_index_of_best_rect(requested_dimensions);
-
-        // If one couldn't be found and we're dirty, coalesce rects and try again.
-        if index.is_none() && self.dirty {
-            self.coalesce();
-            index = self.find_index_of_best_rect(requested_dimensions)
-        }
-
-        // If a rect still can't be found, fail.
-        let index = match index {
+        let index = match self.find_index_of_best_rect(requested_dimensions) {
             None => return None,
             Some(index) => index,
         };
@@ -199,7 +173,11 @@ impl TexturePage {
     }
 
     #[inline(never)]
-    fn coalesce(&mut self) {
+    pub fn coalesce(&mut self) -> bool {
+        if !self.dirty {
+            return false
+        }
+
         // Iterate to a fixed point or until a timeout is reached.
         let deadline = time::precise_time_ns() + COALESCING_TIMEOUT;
         let mut free_list = mem::replace(&mut self.free_list, FreeRectList::new()).into_vec();
@@ -218,7 +196,7 @@ impl TexturePage {
                     time::precise_time_ns() >= deadline {
                 self.free_list = FreeRectList::from_slice(&free_list[..]);
                 self.dirty = true;
-                return
+                return true
             }
 
             if free_list[work_index].size.width == 0 {
@@ -255,7 +233,7 @@ impl TexturePage {
                     time::precise_time_ns() >= deadline {
                 self.free_list = FreeRectList::from_slice(&free_list[..]);
                 self.dirty = true;
-                return
+                return true
             }
 
             if free_list[work_index].size.height == 0 {
@@ -280,7 +258,8 @@ impl TexturePage {
         free_list = new_free_list;
 
         self.free_list = FreeRectList::from_slice(&free_list[..]);
-        self.dirty = changed
+        self.dirty = changed;
+        changed
     }
 
     pub fn clear(&mut self) {
@@ -391,7 +370,7 @@ impl FreeRectList {
 #[derive(Debug, Clone, Copy)]
 struct FreeListIndex(FreeListBin, usize);
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 enum FreeListBin {
     Small,
     Medium,
@@ -635,74 +614,84 @@ impl TextureCache {
         assert!(requested_size.width < self.max_texture_size);
         assert!(requested_size.height < self.max_texture_size);
 
-        // Loop until an allocation succeeds, growing or adding new
-        // texture pages as required.
-        loop {
-            let location = page_list.last_mut().and_then(|last_page| {
-                last_page.allocate(&requested_size)
-            });
-
-            if let Some(location) = location {
-                let page = page_list.last_mut().unwrap();
-
-                let requested_rect = DeviceUintRect::new(location, requested_size);
-                let cache_item = TextureCacheItem::new(page.texture_id,
-                                                       requested_rect,
-                                                       &page.texture_size);
-                *self.items.get_mut(image_id) = cache_item;
-
-                return AllocationResult {
-                    item: self.items.get(image_id).clone(),
-                    kind: AllocationKind::TexturePage,
-                }
+        let mut page_id = None; //using ID here to please the borrow checker
+        for (i, page) in page_list.iter_mut().enumerate() {
+            if page.can_allocate(&requested_size) {
+                page_id = Some(i);
+                break;
             }
-
-            if !page_list.is_empty() && page_list.last().unwrap().can_grow(self.max_texture_size) {
-                let last_page = page_list.last_mut().unwrap();
-                // Grow the texture.
-                let new_width = cmp::min(last_page.texture_size.width * 2, self.max_texture_size);
-                let new_height = cmp::min(last_page.texture_size.height * 2, self.max_texture_size);
+            // try to coalesce it
+            if page.coalesce() && page.can_allocate(&requested_size) {
+                page_id = Some(i);
+                break;
+            }
+            if page.can_grow(self.max_texture_size) {
+                // try to grow it
+                let new_width = cmp::min(page.texture_size.width * 2, self.max_texture_size);
+                let new_height = cmp::min(page.texture_size.height * 2, self.max_texture_size);
                 let texture_size = DeviceUintSize::new(new_width, new_height);
                 self.pending_updates.push(TextureUpdate {
-                    id: last_page.texture_id,
+                    id: page.texture_id,
                     op: texture_grow_op(texture_size, format, mode),
                 });
-                last_page.grow(texture_size);
+                page.grow(texture_size);
 
                 self.items.for_each_item(|item| {
-                    if item.texture_id == last_page.texture_id {
+                    if item.texture_id == page.texture_id {
                         item.texture_size = texture_size;
                     }
                 });
 
-                continue;
+                if page.can_allocate(&requested_size) {
+                    page_id = Some(i);
+                    break;
+                }
             }
+        }
 
-            // We need a new page.
-            let texture_size = initial_texture_size(self.max_texture_size);
-            let free_texture_levels_entry = self.free_texture_levels.entry(format);
-            let mut free_texture_levels = match free_texture_levels_entry {
-                Entry::Vacant(entry) => entry.insert(Vec::new()),
-                Entry::Occupied(entry) => entry.into_mut(),
-            };
-            if free_texture_levels.is_empty() {
-                let texture_id = self.cache_id_list.allocate();
-
-                let update_op = TextureUpdate {
-                    id: texture_id,
-                    op: texture_create_op(texture_size, format, mode),
+        let mut page = match page_id {
+            Some(index) => &mut page_list[index],
+            None => {
+                let init_texture_size = initial_texture_size(self.max_texture_size);
+                let texture_size = DeviceUintSize::new(cmp::max(requested_width, init_texture_size.width),
+                                                       cmp::max(requested_height, init_texture_size.height));
+                let free_texture_levels_entry = self.free_texture_levels.entry(format);
+                let mut free_texture_levels = match free_texture_levels_entry {
+                    Entry::Vacant(entry) => entry.insert(Vec::new()),
+                    Entry::Occupied(entry) => entry.into_mut(),
                 };
-                self.pending_updates.push(update_op);
+                if free_texture_levels.is_empty() {
+                    let texture_id = self.cache_id_list.allocate();
 
-                free_texture_levels.push(FreeTextureLevel {
-                    texture_id: texture_id,
-                });
-            }
-            let free_texture_level = free_texture_levels.pop().unwrap();
-            let texture_id = free_texture_level.texture_id;
+                    let update_op = TextureUpdate {
+                        id: texture_id,
+                        op: texture_create_op(texture_size, format, mode),
+                    };
+                    self.pending_updates.push(update_op);
 
-            let page = TexturePage::new(texture_id, texture_size);
-            page_list.push(page);
+                    free_texture_levels.push(FreeTextureLevel {
+                        texture_id: texture_id,
+                    });
+                }
+                let free_texture_level = free_texture_levels.pop().unwrap();
+                let texture_id = free_texture_level.texture_id;
+
+                let page = TexturePage::new(texture_id, texture_size);
+                page_list.push(page);
+                page_list.last_mut().unwrap()
+            },
+        };
+
+        let location = page.allocate(&requested_size)
+                           .expect("All the checks have passed till now, there is no way back.");
+        let cache_item = TextureCacheItem::new(page.texture_id,
+                                               DeviceUintRect::new(location, requested_size),
+                                               &page.texture_size);
+        *self.items.get_mut(image_id) = cache_item.clone();
+
+        AllocationResult {
+            item: cache_item,
+            kind: AllocationKind::TexturePage,
         }
     }
 
