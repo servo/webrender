@@ -1736,6 +1736,12 @@ impl Renderer {
     }
 }
 
+impl Drop for Renderer {
+    fn drop(&mut self) {
+        self.device.deinit_texture(self.dummy_cache_texture_id);
+    }
+}
+
 pub enum ExternalImageSource<'a> {
     RawData(&'a [u8]),      // raw buffers.
     NativeTexture(u32),     // Is a gl::GLuint texture handle
