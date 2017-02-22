@@ -24,6 +24,8 @@ pub enum RendererKind {
     OSMesa,
 }
 
+pub type TileSize = u16;
+
 #[derive(Clone, Deserialize, Serialize)]
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>),
@@ -31,7 +33,7 @@ pub enum ApiMsg {
     /// Gets the glyph dimensions
     GetGlyphDimensions(Vec<GlyphKey>, MsgSender<Vec<Option<GlyphDimensions>>>),
     /// Adds an image from the resource cache.
-    AddImage(ImageKey, ImageDescriptor, ImageData, Option<u16>),
+    AddImage(ImageKey, ImageDescriptor, ImageData, Option<TileSize>),
     /// Updates the the resource cache with the new image data.
     UpdateImage(ImageKey, ImageDescriptor, Vec<u8>),
     /// Drops an image from the resource cache.

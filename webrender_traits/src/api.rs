@@ -9,7 +9,7 @@ use std::cell::Cell;
 use {ApiMsg, ColorF, DisplayListBuilder, Epoch, ImageDescriptor};
 use {FontKey, IdNamespace, ImageKey, NativeFontHandle, PipelineId};
 use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState, ScrollLocation, ServoScrollRootId};
-use {GlyphKey, GlyphDimensions, ImageData, WebGLContextId, WebGLCommand};
+use {GlyphKey, GlyphDimensions, ImageData, WebGLContextId, WebGLCommand, TileSize};
 use {DeviceIntSize, DynamicProperties, LayoutPoint, LayoutSize, WorldPoint, PropertyBindingKey, PropertyBindingId};
 use VRCompositorCommand;
 use ExternalEvent;
@@ -93,7 +93,7 @@ impl RenderApi {
     pub fn add_image(&self,
                      descriptor: ImageDescriptor,
                      data: ImageData,
-                     tiling: Option<u16>) -> ImageKey {
+                     tiling: Option<TileSize>) -> ImageKey {
         let key = self.alloc_image();
         let msg = ApiMsg::AddImage(key, descriptor, data, tiling);
         self.api_sender.send(msg).unwrap();

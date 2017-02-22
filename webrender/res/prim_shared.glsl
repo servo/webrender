@@ -485,7 +485,7 @@ VertexInfo write_vertex(RectWithSize instance_rect,
 
     // Apply offsets for the render task to get correct screen location.
     vec2 final_pos = device_p0_pos.zw -
-                     snap_delta -
+                     //snap_delta -
                      task.screen_space_origin +
                      task.render_target_origin;
 

@@ -422,7 +422,7 @@ fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
 }
 
 fn generate_xy_gradient_image(w: u32, h: u32) -> (ImageDescriptor, ImageData) {
-    let mut pixels = Vec::with_capacity((w*h*4) as usize);
+    let mut pixels = Vec::with_capacity((w * h * 4) as usize);
     for y in 0..h {
         for x in 0..w {
             let grid = if x % 100 < 3 || y % 100 < 3 { 0.9 } else { 1.0 };
@@ -440,16 +440,16 @@ fn generate_xy_gradient_image(w: u32, h: u32) -> (ImageDescriptor, ImageData) {
 }
 
 fn generate_solid_color_image(r: u8, g: u8, b: u8, a: u8, w: u32, h: u32) -> (ImageDescriptor, ImageData) {
-    let buf_size = (w*h*4) as usize;
+    let buf_size = (w * h * 4) as usize;
     let mut pixels = Vec::with_capacity(buf_size);
     // Unsafely filling the buffer is horrible. Unfortunately doing this idiomatically
     // is terribly slow in debug builds to the point that reftests/image/very-big.yaml
     // takes more than 20 seconds to run on a recent laptop.
     unsafe {
         pixels.set_len(buf_size);
-        let color: u32 = ::std::mem::transmute([b,g,r,a]);
+        let color: u32 = ::std::mem::transmute([b, g, r, a]);
         let mut ptr: *mut u32 = ::std::mem::transmute(&mut pixels[0]);
-        let end = ptr.offset((w*h) as isize);
+        let end = ptr.offset((w * h) as isize);
         while ptr < end {
             *ptr = color;
             ptr = ptr.offset(1);
