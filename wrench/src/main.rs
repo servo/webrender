@@ -466,32 +466,28 @@ fn main() {
                     break 'outer;
                 }
 
-                glutin::Event::KeyboardInput(kstate, _scan_code, maybe_vk) => {
-                    if kstate == ElementState::Pressed {
-                        if let Some(vk) = maybe_vk {
-                            match vk {
-                                VirtualKeyCode::Escape | VirtualKeyCode::Q => {
-                                    break 'outer;
-                                },
-                                VirtualKeyCode::P => {
-                                    profiler = !profiler;
-                                    wrench.renderer.set_profiler_enabled(profiler);
-                                },
-                                VirtualKeyCode::L => {
-                                    do_loop = !do_loop;
-                                },
-                                VirtualKeyCode::Left => {
-                                    thing.prev_frame();
-                                },
-                                VirtualKeyCode::Right => {
-                                    thing.next_frame();
-                                },
-                                VirtualKeyCode::H => {
-                                    show_help = !show_help;
-                                },
-                                _ => ()
-                            }
-                        }
+                glutin::Event::KeyboardInput(ElementState::Pressed, _scan_code, Some(vk)) => {
+                    match vk {
+                        VirtualKeyCode::Escape | VirtualKeyCode::Q => {
+                            break 'outer;
+                        },
+                        VirtualKeyCode::P => {
+                            profiler = !profiler;
+                            wrench.renderer.set_profiler_enabled(profiler);
+                        },
+                        VirtualKeyCode::L => {
+                            do_loop = !do_loop;
+                        },
+                        VirtualKeyCode::Left => {
+                            thing.prev_frame();
+                        },
+                        VirtualKeyCode::Right => {
+                            thing.next_frame();
+                        },
+                        VirtualKeyCode::H => {
+                            show_help = !show_help;
+                        },
+                        _ => ()
                     }
                 }
                 _ => ()

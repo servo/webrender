@@ -285,12 +285,9 @@ fn main() {
         window.swap_buffers().ok();
 
         match event {
-            glutin::Event::Closed => break,
-            glutin::Event::KeyboardInput(_element_state, scan_code, _virtual_key_code) => {
-                if scan_code == 9 {
-                    break;
-                }
-            }
+            glutin::Event::Closed |
+            glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Escape)) |
+            glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Q)) => break,
             _ => ()
         }
     }
