@@ -24,14 +24,14 @@ use tiling::{AuxiliaryListsMap, ClipScrollGroup, ClipScrollGroupIndex, Composite
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
 use tiling::{RenderTargetContext, RenderTaskCollection, ScrollbarPrimitive, ScrollLayer};
 use tiling::{ScrollLayerIndex, StackingContext, StackingContextIndex};
-use util::{self, pack_as_float, rect_from_points_f, subtract_rect, TransformedRect};
+use util::{self, pack_as_float, rect_from_points_f, subtract_rect};
 use util::{RectHelpers, TransformedRectKind};
-use webrender_traits::{as_scroll_parent_rect, BorderDetails, BorderDisplayItem, BorderSide, BorderStyle};
+use webrender_traits::{BorderDetails, BorderDisplayItem, BorderSide, BorderStyle};
 use webrender_traits::{BoxShadowClipMode, ClipRegion, ColorF, device_length, DeviceIntPoint};
 use webrender_traits::{DeviceIntRect, DeviceIntSize, DeviceUintSize, ExtendMode, FontKey};
 use webrender_traits::{FontRenderMode, GlyphOptions, ImageKey, ImageRendering, ItemRange};
-use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform, PipelineId};
-use webrender_traits::{RepeatMode, ScrollLayerId, ScrollLayerPixel, WebGLContextId, YuvColorSpace};
+use webrender_traits::{LayerPoint, LayerRect, LayerSize, PipelineId, RepeatMode, ScrollLayerId};
+use webrender_traits::{WebGLContextId, YuvColorSpace};
 
 #[derive(Debug, Clone)]
 struct ImageBorderSegment {
@@ -199,8 +199,8 @@ impl FrameBuilder {
     }
 
     pub fn push_stacking_context(&mut self,
+                                 reference_frame_offset: LayerPoint,
                                  rect: LayerRect,
-                                 transform: LayerToScrollTransform,
                                  pipeline_id: PipelineId,
                                  scroll_layer_id: ScrollLayerId,
                                  composite_ops: CompositeOps) {
@@ -209,7 +209,7 @@ impl FrameBuilder {
                                                         scroll_layer_id,
                                                         pipeline_id);
         self.stacking_context_store.push(StackingContext::new(pipeline_id,
-                                                              transform,
+                                                              reference_frame_offset,
                                                               rect,
                                                               composite_ops,
                                                               group_index));
@@ -222,9 +222,7 @@ impl FrameBuilder {
 
     pub fn push_clip_scroll_node(&mut self,
                                  scroll_layer_id: ScrollLayerId,
-                                 clip_region: &ClipRegion,
-                                 node_origin: &LayerPoint,
-                                 content_size: &LayerSize) {
+                                 clip_region: &ClipRegion) {
         let scroll_layer_index = ScrollLayerIndex(self.scroll_layer_store.len());
         let parent_index = *self.clip_scroll_node_stack.last().unwrap_or(&scroll_layer_index);
         self.clip_scroll_node_stack.push(scroll_layer_index);
@@ -246,24 +244,9 @@ impl FrameBuilder {
         });
         self.packed_layers.push(PackedLayer::empty());
         self.cmds.push(PrimitiveRunCmd::PushScrollLayer(scroll_layer_index));
-
-
-        // We need to push a fake stacking context here, because primitives that are
-        // direct children of this stacking context, need to be adjusted by the scroll
-        // offset of this layer. Eventually we should be able to remove this.
-        let rect = LayerRect::new(LayerPoint::zero(),
-                                  LayerSize::new(content_size.width + node_origin.x,
-                                                 content_size.height + node_origin.y));
-        self.push_stacking_context(rect,
-                                   LayerToScrollTransform::identity(),
-                                   scroll_layer_id.pipeline_id,
-                                   scroll_layer_id,
-                                   CompositeOps::empty());
-
     }
 
     pub fn pop_clip_scroll_node(&mut self) {
-        self.pop_stacking_context();
         self.cmds.push(PrimitiveRunCmd::PopScrollLayer);
         self.clip_scroll_node_stack.pop();
     }
@@ -1254,39 +1237,33 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             let stacking_context = &mut self.frame_builder
                                             .stacking_context_store[stacking_context_index.0];
 
-            let scroll_tree_layer = &self.clip_scroll_tree.nodes[&group.scroll_layer_id];
+            let node = &self.clip_scroll_tree.nodes[&group.scroll_layer_id];
             let packed_layer = &mut self.frame_builder.packed_layers[group.packed_layer_index.0];
-            packed_layer.transform = scroll_tree_layer.world_content_transform
-                                                      .with_source::<ScrollLayerPixel>()
-                                                      .pre_mul(&stacking_context.local_transform);
-            packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
+
+            // The world content transform is relative to the containing reference frame,
+            // so we translate into the origin of the stacking context itself.
+            let transform = node.world_content_transform
+                                .pre_translated(stacking_context.reference_frame_offset.x,
+                                                stacking_context.reference_frame_offset.y,
+                                                0.0);
+            packed_layer.set_transform(transform);
 
             if !stacking_context.can_contribute_to_scene() {
                 return;
             }
 
-            let inv_layer_transform = stacking_context.local_transform.inverse().unwrap();
-            let local_viewport_rect =
-                as_scroll_parent_rect(&scroll_tree_layer.combined_local_viewport_rect);
-            let viewport_rect = inv_layer_transform.transform_rect(&local_viewport_rect);
-            let layer_local_rect = stacking_context.local_rect.intersection(&viewport_rect);
+            // Here we want to find the intersection between the clipping region and the
+            // stacking context content, so we move the viewport rectangle into the coordinate
+            // system of the stacking context content.
+            let viewport_rect =
+                &node.combined_local_viewport_rect
+                     .translate(&-stacking_context.reference_frame_offset)
+                     .translate(&-node.scrolling.offset);
+            let intersected_rect = stacking_context.local_rect.intersection(viewport_rect);
 
-            group.xf_rect = None;
-
-            let layer_local_rect = match layer_local_rect {
-                Some(layer_local_rect) if !layer_local_rect.is_empty() => layer_local_rect,
-                _ => continue,
-            };
-
-            let layer_xf_rect = TransformedRect::new(&layer_local_rect,
-                                                     &packed_layer.transform,
-                                                     self.device_pixel_ratio);
-
-            if layer_xf_rect.bounding_rect.intersects(&self.screen_rect) {
-                packed_layer.screen_vertices = layer_xf_rect.vertices.clone();
-                packed_layer.local_clip_rect = layer_local_rect;
-                group.xf_rect = Some(layer_xf_rect);
-            }
+            group.xf_rect = packed_layer.set_rect(intersected_rect,
+                                                  self.screen_rect,
+                                                  self.device_pixel_ratio);
         }
     }
 
@@ -1324,26 +1301,15 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         self.scroll_layer_stack.push(scroll_layer_index);
 
         let scroll_layer = &mut self.frame_builder.scroll_layer_store[scroll_layer_index.0];
+        let node = &self.clip_scroll_tree.nodes[&scroll_layer.scroll_layer_id];
+
         let packed_layer_index = scroll_layer.packed_layer_index;
-        let scroll_tree_layer = &self.clip_scroll_tree.nodes[&scroll_layer.scroll_layer_id];
         let packed_layer = &mut self.frame_builder.packed_layers[packed_layer_index.0];
 
-        packed_layer.transform = scroll_tree_layer.world_viewport_transform;
-        packed_layer.inv_transform = packed_layer.transform.inverse().unwrap();
-
-        let local_rect = &scroll_tree_layer.combined_local_viewport_rect
-                                           .translate(&scroll_tree_layer.scrolling.offset);
-        if !local_rect.is_empty() {
-            let layer_xf_rect = TransformedRect::new(local_rect,
-                                                     &packed_layer.transform,
+        packed_layer.set_transform(node.world_viewport_transform);
+        scroll_layer.xf_rect = packed_layer.set_rect(Some(node.combined_local_viewport_rect),
+                                                     self.screen_rect,
                                                      self.device_pixel_ratio);
-
-            if layer_xf_rect.bounding_rect.intersects(&self.screen_rect) {
-                packed_layer.screen_vertices = layer_xf_rect.vertices.clone();
-                packed_layer.local_clip_rect = *local_rect;
-                scroll_layer.xf_rect = Some(layer_xf_rect);
-            }
-        }
 
         let clip_info = match scroll_layer.clip_cache_info {
             Some(ref mut clip_info) => clip_info,
