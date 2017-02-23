@@ -28,7 +28,7 @@ use util::{self, pack_as_float, rect_from_points_f, subtract_rect, TransformedRe
 use util::{RectHelpers, TransformedRectKind};
 use webrender_traits::{as_scroll_parent_rect, BorderDetails, BorderDisplayItem, BorderSide, BorderStyle};
 use webrender_traits::{BoxShadowClipMode, ClipRegion, ColorF, device_length, DeviceIntPoint};
-use webrender_traits::{DeviceIntRect, DeviceIntSize, DeviceUintSize, ExtendMode, FontKey};
+use webrender_traits::{DeviceIntRect, DeviceIntSize, DeviceUintSize, ExtendMode, FontKey, TileOffset};
 use webrender_traits::{FontRenderMode, GlyphOptions, ImageKey, ImageRendering, ItemRange};
 use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform, PipelineId};
 use webrender_traits::{RepeatMode, ScrollLayerId, ScrollLayerPixel, WebGLContextId, YuvColorSpace};
@@ -417,7 +417,8 @@ impl FrameBuilder {
                                    &segment.tile_spacing,
                                    Some(segment.sub_rect),
                                    border.image_key,
-                                   ImageRendering::Auto);
+                                   ImageRendering::Auto,
+                                   None);
                 }
             }
             BorderDetails::Normal(ref border) => {
@@ -833,10 +834,12 @@ impl FrameBuilder {
                      tile_spacing: &LayerSize,
                      sub_rect: Option<TexelRect>,
                      image_key: ImageKey,
-                     image_rendering: ImageRendering) {
+                     image_rendering: ImageRendering,
+                     tile: Option<TileOffset>) {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::Image(image_key,
                                             image_rendering,
+                                            tile,
                                             *tile_spacing),
             color_texture_id: SourceTexture::Invalid,
             resource_address: GpuStoreAddress(0),
@@ -1361,7 +1364,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
 
         if let Some(mask) = scroll_layer.clip_source.image_mask() {
             // We don't add the image mask for resolution, because layer masks are resolved later.
-            self.resource_cache.request_image(mask.image, ImageRendering::Auto);
+            self.resource_cache.request_image(mask.image, ImageRendering::Auto, None);
         }
     }
 

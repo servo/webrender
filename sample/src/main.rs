@@ -105,14 +105,9 @@ fn main() {
     let vector_img = api.generate_image_key();
     api.add_image(
         vector_img,
-        ImageDescriptor {
-            format: ImageFormat::RGBA8,
-            width: 100,
-            height: 100,
-            stride: None,
-            is_opaque: true,
-        },
+        ImageDescriptor::new(100, 100, ImageFormat::RGBA8, true),
         ImageData::new_blob_image(Vec::new()),
+        None,
     );
 
     let pipeline_id = PipelineId(0, 0);
@@ -148,14 +143,9 @@ fn main() {
         let mask_image = api.generate_image_key();
         api.add_image(
             mask_image,
-            ImageDescriptor {
-                width: 2,
-                height: 2,
-                stride: None,
-                format: ImageFormat::A8,
-                is_opaque: true,
-            },
-            ImageData::new(vec![0, 80, 180, 255])
+            ImageDescriptor::new(2, 2, ImageFormat::A8, true),
+            ImageData::new(vec![0, 80, 180, 255]),
+            None,
         );
         let mask = webrender_traits::ImageMask {
             image: mask_image,

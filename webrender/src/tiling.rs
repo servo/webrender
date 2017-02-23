@@ -832,7 +832,7 @@ impl ClipBatcher {
             }
 
             if let Some((ref mask, address)) = info.image {
-                let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto);
+                let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto, None);
                 self.images.entry(cache_item.texture_id)
                            .or_insert(Vec::new())
                            .push(CacheClipInstance {

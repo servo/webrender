@@ -698,25 +698,13 @@ impl Renderer {
         // TODO: Ensure that the white texture can never get evicted when the cache supports LRU eviction!
         let white_image_id = texture_cache.new_item_id();
         texture_cache.insert(white_image_id,
-                             ImageDescriptor {
-                                width: 2,
-                                height: 2,
-                                stride: None,
-                                format: ImageFormat::RGBA8,
-                                is_opaque: false,
-                             },
+                             ImageDescriptor::new(2, 2, ImageFormat::RGBA8, false),
                              TextureFilter::Linear,
                              ImageData::Raw(Arc::new(white_pixels)));
 
         let dummy_mask_image_id = texture_cache.new_item_id();
         texture_cache.insert(dummy_mask_image_id,
-                             ImageDescriptor {
-                                width: 2,
-                                height: 2,
-                                stride: None,
-                                format: ImageFormat::A8,
-                                is_opaque: false,
-                             },
+                             ImageDescriptor::new(2, 2, ImageFormat::A8, false),
                              TextureFilter::Linear,
                              ImageData::Raw(Arc::new(mask_pixels)));
 
@@ -1123,13 +1111,13 @@ impl Renderer {
                                                    filter,
                                                    mode);
                     }
-                    TextureUpdateOp::Update { page_pos_x, page_pos_y, width, height, data, stride } => {
+                    TextureUpdateOp::Update { page_pos_x, page_pos_y, width, height, data, stride, offset } => {
                         let texture_id = self.cache_texture_id_map[update.id.0];
                         self.device.update_texture(texture_id,
                                                    page_pos_x,
                                                    page_pos_y,
                                                    width, height, stride,
-                                                   data.as_slice());
+                                                   &data[offset as usize..]);
                     }
                     TextureUpdateOp::UpdateForExternalBuffer { rect, id, stride } => {
                         let handler = self.external_image_handler
