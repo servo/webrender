@@ -408,6 +408,12 @@ pub struct TextureCacheItem {
 
 // Structure squat the width/height fields to maintain the free list information :)
 impl FreeListItem for TextureCacheItem {
+    fn take(&mut self) -> Self {
+        let data = self.clone();
+        self.texture_id = CacheTextureId(0);
+        data
+    }
+
     fn next_free_id(&self) -> Option<FreeListItemId> {
         if self.allocated_rect.size.width == 0 {
             debug_assert_eq!(self.allocated_rect.size.height, 0);
@@ -560,17 +566,9 @@ impl TextureCache {
     //           then use it). But it has to be that way for now due to
     //           how the raster_jobs code works.
     pub fn new_item_id(&mut self) -> TextureCacheItemId {
-        let new_item = TextureCacheItem {
-            pixel_rect: RectUv {
-                top_left: DeviceIntPoint::zero(),
-                top_right: DeviceIntPoint::zero(),
-                bottom_left: DeviceIntPoint::zero(),
-                bottom_right: DeviceIntPoint::zero(),
-            },
-            allocated_rect: DeviceUintRect::zero(),
-            texture_size: DeviceUintSize::zero(),
-            texture_id: CacheTextureId(0),
-        };
+        let new_item = TextureCacheItem::new(CacheTextureId(0),
+                                             DeviceUintRect::zero(),
+                                             &DeviceUintSize::zero());
         self.items.insert(new_item)
     }
 
@@ -834,23 +832,19 @@ impl TextureCache {
     }
 
     pub fn free(&mut self, id: TextureCacheItemId) {
-        {
-            let item = self.items.get(id);
-            match self.arena.texture_page_for_id(item.texture_id) {
-                Some(texture_page) => texture_page.free(&item.allocated_rect),
-                None => {
-                    // This is a standalone texture allocation. Just push it back onto the free
-                    // list.
-                    self.pending_updates.push(TextureUpdate {
-                        id: item.texture_id,
-                        op: TextureUpdateOp::Free,
-                    });
-                    self.cache_id_list.free(item.texture_id);
-                }
+        let item = self.items.free(id);
+        match self.arena.texture_page_for_id(item.texture_id) {
+            Some(texture_page) => texture_page.free(&item.allocated_rect),
+            None => {
+                // This is a standalone texture allocation. Just push it back onto the free
+                // list.
+                self.pending_updates.push(TextureUpdate {
+                    id: item.texture_id,
+                    op: TextureUpdateOp::Free,
+                });
+                self.cache_id_list.free(item.texture_id);
             }
         }
-
-        self.items.free(id)
     }
 }
 

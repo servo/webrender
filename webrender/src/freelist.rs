@@ -20,6 +20,7 @@ impl FreeListItemId {
 }
 
 pub trait FreeListItem {
+    fn take(&mut self) -> Self;
     fn next_free_id(&self) -> Option<FreeListItemId>;
     fn set_next_free_id(&mut self, id: Option<FreeListItemId>);
 }
@@ -94,12 +95,14 @@ impl<T: FreeListItem> FreeList<T> {
         self.alloc_count
     }
 
-    pub fn free(&mut self, id: FreeListItemId) {
+    pub fn free(&mut self, id: FreeListItemId) -> T {
         self.alloc_count -= 1;
         let FreeListItemId(index) = id;
         let item = &mut self.items[index as usize];
+        let data = item.take();
         item.set_next_free_id(self.first_free_index);
         self.first_free_index = Some(id);
+        data
     }
 
     pub fn for_each_item<F>(&mut self, f: F) where F: Fn(&mut T) {
