@@ -716,8 +716,13 @@ impl FrameBuilder {
         // The local space box shadow rect. It is the element rect
         // translated by the box shadow offset and inflated by the
         // box shadow spread.
-        let bs_rect = box_bounds.translate(box_offset)
-                                .inflate(spread_radius, spread_radius);
+        let mut bs_rect = box_bounds.translate(box_offset);
+        if clip_mode == BoxShadowClipMode::Inset {
+            // Spread radius goes inward for inset box shadows.
+            bs_rect = bs_rect.inflate(-spread_radius, -spread_radius);
+        } else {
+            bs_rect = bs_rect.inflate(spread_radius, spread_radius);
+        }
 
         // Get the outer rectangle, based on the blur radius.
         let outside_edge_size = 2.0 * blur_radius;
