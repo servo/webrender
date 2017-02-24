@@ -114,7 +114,8 @@ impl BinaryFrameReader {
 impl WrenchThing for BinaryFrameReader {
     fn do_frame(&mut self, wrench: &mut Wrench) -> u32 {
         // save where the frame begins as we read through the file
-        if self.frame_num as usize == self.frame_offsets.len() {
+        if self.frame_num as usize >= self.frame_offsets.len() {
+            self.frame_num = self.frame_offsets.len() as u32;
             let pos = self.file.seek(SeekFrom::Current(0)).unwrap();
             println!("Frame {} offset: {}", self.frame_offsets.len(), pos);
             self.frame_offsets.push(pos);
