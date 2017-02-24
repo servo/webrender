@@ -709,12 +709,34 @@ impl TextureCache {
     pub fn update(&mut self,
                   image_id: TextureCacheItemId,
                   descriptor: ImageDescriptor,
+                  filter: TextureFilter,
                   data: ImageData) {
-        let existing_item = self.items.get(image_id);
+        let existing_item = self.items.get(image_id).clone();
 
-        // TODO(gw): Handle updates to size/format!
-        debug_assert_eq!(existing_item.allocated_rect.size.width, descriptor.width);
-        debug_assert_eq!(existing_item.allocated_rect.size.height, descriptor.height);
+        println!(" -- update {:?}", image_id);
+
+        if existing_item.allocated_rect.size.width != descriptor.width ||
+           existing_item.allocated_rect.size.height != descriptor.height {
+            match self.arena.texture_page_for_id(existing_item.texture_id) {
+                Some(texture_page) => texture_page.free(&existing_item.allocated_rect),
+                None => {
+                    // This is a standalone texture allocation. Just push it back onto the free
+                    // list.
+                    self.pending_updates.push(TextureUpdate {
+                        id: existing_item.texture_id,
+                        op: TextureUpdateOp::Free,
+                    });
+                    self.cache_id_list.free(existing_item.texture_id);
+                }
+            }
+
+            self.allocate(image_id,
+                          descriptor.width,
+                          descriptor.height,
+                          descriptor.format,
+                          filter);
+            return;
+        }
 
         let op = match data {
             ImageData::ExternalHandle(..) | ImageData::ExternalBuffer(..)=> {
@@ -752,6 +774,8 @@ impl TextureCache {
         if let ImageData::Blob(..) = data {
             panic!("must rasterize the vector image before adding to the cache");
         }
+
+        println!(" -- insert {:?}", image_id);
 
         let width = descriptor.width;
         let height = descriptor.height;
