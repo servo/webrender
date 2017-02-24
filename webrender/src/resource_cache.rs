@@ -8,6 +8,7 @@ use fnv::FnvHasher;
 use frame::FrameId;
 use internal_types::{ExternalImageUpdateList, FontTemplate, SourceTexture, TextureUpdateList};
 use platform::font::{FontContext, RasterizedGlyph};
+use profiler::TextureCacheProfileCounters;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
@@ -543,7 +544,8 @@ impl ResourceCache {
         self.glyph_cache_tx.send(GlyphCacheMsg::BeginFrame(frame_id, glyph_cache)).ok();
     }
 
-    pub fn block_until_all_resources_added(&mut self) {
+    pub fn block_until_all_resources_added(&mut self,
+                                           texture_cache_profile: &mut TextureCacheProfileCounters) {
         profile_scope!("block_until_all_resources_added");
 
         debug_assert!(self.state == State::AddResources);
@@ -580,7 +582,8 @@ impl ResourceCache {
                                                               offset: 0,
                                                           },
                                                           TextureFilter::Linear,
-                                                          ImageData::Raw(Arc::new(glyph.bytes)));
+                                                          ImageData::Raw(Arc::new(glyph.bytes)),
+                                                          texture_cache_profile);
                                 Some(image_id)
                             } else {
                                 None
@@ -598,7 +601,7 @@ impl ResourceCache {
 
         let mut image_requests = mem::replace(&mut self.pending_image_requests, Vec::new());
         for request in image_requests.drain(..) {
-            self.finalize_image_request(request, None);
+            self.finalize_image_request(request, None, texture_cache_profile);
         }
 
         let mut blob_image_requests = mem::replace(&mut self.blob_image_requests, HashSet::new());
@@ -607,7 +610,9 @@ impl ResourceCache {
                 match self.blob_image_renderer.as_mut().unwrap()
                                                 .resolve_blob_image(request.key) {
                     Ok(image) => {
-                        self.finalize_image_request(request, Some(ImageData::new(image.data)));
+                        self.finalize_image_request(request,
+                                                    Some(ImageData::new(image.data)),
+                                                    texture_cache_profile);
                     }
                     // TODO(nical): I think that we should handle these somewhat gracefully,
                     // at least in the out-of-memory scenario.
@@ -630,7 +635,10 @@ impl ResourceCache {
         }
     }
 
-    fn finalize_image_request(&mut self, request: ImageRequest, image_data: Option<ImageData>) {
+    fn finalize_image_request(&mut self,
+                              request: ImageRequest,
+                              image_data: Option<ImageData>,
+                              texture_cache_profile: &mut TextureCacheProfileCounters) {
         let image_template = &self.image_templates[&request.key];
         let image_data = image_data.unwrap_or_else(||{
             image_template.data.clone()
@@ -700,12 +708,14 @@ impl ResourceCache {
                             self.texture_cache.insert(image_id,
                                                       tile_descriptor,
                                                       filter,
-                                                      image_data);
+                                                      image_data,
+                                                      texture_cache_profile);
                         } else {
                             self.texture_cache.insert(image_id,
                                                       image_template.descriptor,
                                                       filter,
-                                                      image_data);
+                                                      image_data,
+                                                      texture_cache_profile);
                         }
 
                         entry.insert(CachedImageInfo {
