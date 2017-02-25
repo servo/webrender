@@ -278,22 +278,24 @@ impl FontContext {
 
         let mut pixels = analysis.create_alpha_texture(texture_type, bounds);
 
-        let lut_correction = match glyph_options {
-            Some(option) => {
-                if option.force_gdi_rendering {
-                    &self.gdi_gamma_lut
-                } else {
-                    &self.gamma_lut
-                }
-            },
-            None => &self.gamma_lut
-        };
+        if render_mode != FontRenderMode::Mono {
+            let lut_correction = match glyph_options {
+                Some(option) => {
+                    if option.force_gdi_rendering {
+                        &self.gdi_gamma_lut
+                    } else {
+                        &self.gamma_lut
+                    }
+                },
+                None => &self.gamma_lut
+            };
 
-        lut_correction.preblend_rgb(&mut pixels, width, height,
-                                    ColorLut::new(key.color.r,
-                                                  key.color.g,
-                                                  key.color.b,
-                                                  key.color.a));
+            lut_correction.preblend_rgb(&mut pixels, width, height,
+                                        ColorLut::new(key.color.r,
+                                                    key.color.g,
+                                                    key.color.b,
+                                                    key.color.a));
+        }
 
         let rgba_pixels = self.convert_to_rgba(&mut pixels, render_mode);
 
