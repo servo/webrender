@@ -363,12 +363,13 @@ impl DisplayListBuilder {
         ClipRegion::new(rect, complex, image_mask, &mut self.auxiliary_lists_builder)
     }
 
-    pub fn finalize(self) -> (BuiltDisplayList, AuxiliaryLists) {
+    pub fn finalize(self) -> (PipelineId, BuiltDisplayList, AuxiliaryLists) {
         unsafe {
             let blob = convert_pod_to_blob(&self.list).to_vec();
             let display_list_items_size = blob.len();
 
-            (BuiltDisplayList {
+            (self.pipeline_id,
+             BuiltDisplayList {
                  descriptor: BuiltDisplayListDescriptor {
                      display_list_items_size: display_list_items_size,
                  },

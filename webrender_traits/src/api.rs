@@ -11,6 +11,7 @@ use {FontKey, IdNamespace, ImageKey, NativeFontHandle, PipelineId};
 use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState, ScrollLocation, ServoScrollRootId};
 use {GlyphKey, GlyphDimensions, ImageData, WebGLContextId, WebGLCommand, TileSize};
 use {DeviceIntSize, DynamicProperties, LayoutPoint, LayoutSize, WorldPoint, PropertyBindingKey, PropertyBindingId};
+use {BuiltDisplayList, AuxiliaryLists};
 use VRCompositorCommand;
 use ExternalEvent;
 use std::marker::PhantomData;
@@ -157,10 +158,8 @@ impl RenderApi {
                                  background_color: Option<ColorF>,
                                  epoch: Epoch,
                                  viewport_size: LayoutSize,
-                                 builder: DisplayListBuilder,
+                                 (pipeline_id, display_list, auxiliary_lists): (PipelineId, BuiltDisplayList, AuxiliaryLists),
                                  preserve_frame_state: bool) {
-        let pipeline_id = builder.pipeline_id;
-        let (display_list, auxiliary_lists) = builder.finalize();
         let msg = ApiMsg::SetRootDisplayList(background_color,
                                              epoch,
                                              pipeline_id,

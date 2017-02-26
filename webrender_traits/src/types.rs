@@ -168,6 +168,7 @@ pub struct AuxiliaryLists {
 ///
 /// Auxiliary lists consist of some number of gradient stops, complex clip regions, filters, and
 /// glyph instances, in that order.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct AuxiliaryListsDescriptor {
     gradient_stops_size: usize,
@@ -289,6 +290,7 @@ pub struct BuiltDisplayList {
 ///
 /// A display list consists of some number of display list items, followed by a number of display
 /// items.
+#[repr(C)]
 #[derive(Copy, Clone, Deserialize, Serialize)]
 pub struct BuiltDisplayListDescriptor {
     /// The size in bytes of the display list items in this display list.
