@@ -1,1 +1,2 @@
 != inset-simple.yaml inset-simple-ref.yaml
+!= inset-spread.yaml inset-spread-ref.yaml
