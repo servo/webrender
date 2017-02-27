@@ -50,6 +50,7 @@ pub enum ApiMsg {
                        BuiltDisplayListDescriptor,
                        AuxiliaryListsDescriptor,
                        bool),
+    SetPageZoom(PageZoomFactor),
     SetRootPipeline(PipelineId),
     Scroll(ScrollLocation, WorldPoint, ScrollEventPhase),
     ScrollLayersWithScrollId(LayoutPoint, PipelineId, ServoScrollRootId),
@@ -1186,6 +1187,22 @@ pub enum VRCompositorCommand {
     Release(VRCompositorId)
 }
 
+/// Represents a desktop style page zoom factor.
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
+pub struct PageZoomFactor(f32);
+
+impl PageZoomFactor {
+    /// Construct a new page zoom factor.
+    pub fn new(scale: f32) -> PageZoomFactor {
+        PageZoomFactor(scale)
+    }
+
+    /// Get the page zoom factor as an untyped float.
+    pub fn get(&self) -> f32 {
+        self.0
+    }
+}
+
 // Trait object that handles WebVR commands.
 // Receives the texture_id associated to the WebGLContext.
 pub trait VRCompositorHandler: Send {
@@ -1216,6 +1233,7 @@ impl fmt::Debug for ApiMsg {
             &ApiMsg::VRCompositorCommand(..) => { write!(f, "ApiMsg::VRCompositorCommand") }
             &ApiMsg::ExternalEvent(..) => { write!(f, "ApiMsg::ExternalEvent") }
             &ApiMsg::ShutDown => { write!(f, "ApiMsg::ShutDown") }
+            &ApiMsg::SetPageZoom(..) => { write!(f, "ApiMsg::SetPageZoom") }
         }
     }
 }

@@ -35,6 +35,7 @@ pub struct RenderBackend {
     result_tx: Sender<ResultMsg>,
 
     device_pixel_ratio: f32,
+    page_zoom_factor: f32,
     next_namespace_id: IdNamespace,
 
     resource_cache: ResourceCache,
@@ -81,6 +82,7 @@ impl RenderBackend {
             payload_tx: payload_tx,
             result_tx: result_tx,
             device_pixel_ratio: device_pixel_ratio,
+            page_zoom_factor: 1.0,
             resource_cache: resource_cache,
             scene: Scene::new(),
             frame: Frame::new(config),
@@ -136,6 +138,9 @@ impl RenderBackend {
                         }
                         ApiMsg::DeleteImage(id) => {
                             self.resource_cache.delete_image_template(id);
+                        }
+                        ApiMsg::SetPageZoom(factor) => {
+                            self.page_zoom_factor = factor.get();
                         }
                         ApiMsg::CloneApi(sender) => {
                             let result = self.next_namespace_id;
@@ -424,11 +429,11 @@ impl RenderBackend {
     fn render(&mut self,
               texture_cache_profile: &mut TextureCacheProfileCounters)
               -> RendererFrame {
+        let device_pixel_ratio = self.device_pixel_ratio * self.page_zoom_factor;
         let frame = self.frame.build(&mut self.resource_cache,
                                      &self.scene.pipeline_auxiliary_lists,
-                                     self.device_pixel_ratio,
+                                     device_pixel_ratio,
                                      texture_cache_profile);
-
         frame
     }
 
