@@ -13,7 +13,7 @@ use {GlyphKey, GlyphDimensions, ImageData, WebGLContextId, WebGLCommand, TileSiz
 use {DeviceIntSize, DynamicProperties, LayoutPoint, LayoutSize, WorldPoint, PropertyBindingKey, PropertyBindingId};
 use {BuiltDisplayList, AuxiliaryLists};
 use VRCompositorCommand;
-use ExternalEvent;
+use {ExternalEvent, PageZoomFactor};
 use std::marker::PhantomData;
 
 impl RenderApiSender {
@@ -190,6 +190,11 @@ impl RenderApi {
                                              pipeline_id: PipelineId,
                                              scroll_root_id: ServoScrollRootId) {
         let msg = ApiMsg::ScrollLayersWithScrollId(new_scroll_origin, pipeline_id, scroll_root_id);
+        self.api_sender.send(msg).unwrap();
+    }
+
+    pub fn set_page_zoom(&self, page_zoom: PageZoomFactor) {
+        let msg = ApiMsg::SetPageZoom(page_zoom);
         self.api_sender.send(msg).unwrap();
     }
 
