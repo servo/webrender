@@ -14,7 +14,7 @@ use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, Prim
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
 use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
 use prim_store::{TexelRect, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu};
-use profiler::FrameProfileCounters;
+use profiler::{FrameProfileCounters, TextureCacheProfileCounters};
 use render_task::{AlphaRenderItem, MaskCacheKey, MaskResult, RenderTask, RenderTaskIndex};
 use render_task::RenderTaskLocation;
 use resource_cache::ResourceCache;
@@ -1092,7 +1092,9 @@ impl FrameBuilder {
                  frame_id: FrameId,
                  clip_scroll_tree: &ClipScrollTree,
                  auxiliary_lists_map: &AuxiliaryListsMap,
-                 device_pixel_ratio: f32) -> Frame {
+                 device_pixel_ratio: f32,
+                 texture_cache_profile: &mut TextureCacheProfileCounters)
+                 -> Frame {
         profile_scope!("build");
 
         let mut profile_counters = FrameProfileCounters::new();
@@ -1129,7 +1131,7 @@ impl FrameBuilder {
         let mut required_pass_count = 0;
         main_render_task.max_depth(0, &mut required_pass_count);
 
-        resource_cache.block_until_all_resources_added();
+        resource_cache.block_until_all_resources_added(texture_cache_profile);
 
         for scroll_layer in self.scroll_layer_store.iter() {
             if let Some(ref clip_info) = scroll_layer.clip_cache_info {

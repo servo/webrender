@@ -684,6 +684,7 @@ impl Renderer {
         let max_texture_size = cmp::min(device_max_size, options.max_texture_size.unwrap_or(device_max_size));
 
         let mut texture_cache = TextureCache::new(max_texture_size);
+        let mut backend_profile_counters = BackendProfileCounters::new();
 
         let white_pixels: Vec<u8> = vec![
             0xff, 0xff, 0xff, 0xff,
@@ -700,13 +701,15 @@ impl Renderer {
         texture_cache.insert(white_image_id,
                              ImageDescriptor::new(2, 2, ImageFormat::RGBA8, false),
                              TextureFilter::Linear,
-                             ImageData::Raw(Arc::new(white_pixels)));
+                             ImageData::Raw(Arc::new(white_pixels)),
+                             &mut backend_profile_counters.texture_cache);
 
         let dummy_mask_image_id = texture_cache.new_item_id();
         texture_cache.insert(dummy_mask_image_id,
                              ImageDescriptor::new(2, 2, ImageFormat::A8, false),
                              TextureFilter::Linear,
-                             ImageData::Raw(Arc::new(mask_pixels)));
+                             ImageData::Raw(Arc::new(mask_pixels)),
+                             &mut backend_profile_counters.texture_cache);
 
         let dummy_cache_texture_id = device.create_texture_ids(1, TextureTarget::Array)[0];
         device.init_texture(dummy_cache_texture_id,
@@ -803,7 +806,7 @@ impl Renderer {
                                                  backend_main_thread_dispatcher,
                                                  blob_image_renderer,
                                                  backend_vr_compositor);
-            backend.run();
+            backend.run(backend_profile_counters);
         })};
 
         let renderer = Renderer {
