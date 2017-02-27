@@ -128,6 +128,13 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     BlendMode::Alpha
                 }
             }
+            PrimitiveKind::Image => {
+                if needs_blending {
+                    BlendMode::PremultipliedAlpha
+                } else {
+                    BlendMode::None
+                }
+            }
             _ => {
                 if needs_blending {
                     BlendMode::Alpha

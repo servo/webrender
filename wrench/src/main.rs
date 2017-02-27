@@ -31,6 +31,7 @@ mod binary_frame_reader;
 mod json_frame_writer;
 mod parse_function;
 mod png;
+mod premultiply;
 mod reftest;
 mod scene;
 mod wrench;

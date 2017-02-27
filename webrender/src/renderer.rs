@@ -79,6 +79,7 @@ const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag { label: "Blur", color: debug_
 pub enum BlendMode {
     None,
     Alpha,
+    PremultipliedAlpha,
 
     // Use the color of the text itself as a constant color blend factor.
     Subpixel(ColorF),
@@ -1178,7 +1179,9 @@ impl Renderer {
                     target_dimensions: DeviceUintSize) {
         let transform_kind = batch.key.flags.transform_kind();
         let needs_clipping = batch.key.flags.needs_clipping();
-        debug_assert!(!needs_clipping || batch.key.blend_mode == BlendMode::Alpha);
+        debug_assert!(!needs_clipping ||
+                      batch.key.blend_mode == BlendMode::Alpha ||
+                      batch.key.blend_mode == BlendMode::PremultipliedAlpha);
 
         match batch.data {
             PrimitiveBatchData::Instances(ref data) => {
@@ -1203,7 +1206,7 @@ impl Renderer {
                     AlphaBatchKind::TextRun => {
                         let shader = match batch.key.blend_mode {
                             BlendMode::Subpixel(..) => self.ps_text_run_subpixel.get(&mut self.device, transform_kind),
-                            BlendMode::Alpha | BlendMode::None => self.ps_text_run.get(&mut self.device, transform_kind),
+                            BlendMode::Alpha | BlendMode::PremultipliedAlpha | BlendMode::None => self.ps_text_run.get(&mut self.device, transform_kind),
                         };
                         (GPU_TAG_PRIM_TEXT_RUN, shader)
                     }
@@ -1504,6 +1507,10 @@ impl Renderer {
                     BlendMode::Alpha => {
                         self.device.set_blend(true);
                         self.device.set_blend_mode_alpha();
+                    }
+                    BlendMode::PremultipliedAlpha => {
+                        self.device.set_blend(true);
+                        self.device.set_blend_mode_premultiplied_alpha();
                     }
                     BlendMode::Subpixel(color) => {
                         self.device.set_blend(true);
