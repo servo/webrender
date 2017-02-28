@@ -229,7 +229,7 @@ void main(void) {
             break;
     }
 
-    result.rgb = (1 - Cb.a) * Cs.rgb + Cb.a * result.rgb;
+    result.rgb = (1.0 - Cb.a) * Cs.rgb + Cb.a * result.rgb;
     result.a = Cs.a;
 
     oFragColor = result;
