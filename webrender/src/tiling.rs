@@ -23,9 +23,9 @@ use std::hash::BuildHasherDefault;
 use texture_cache::TexturePage;
 use util::{TransformedRect, TransformedRectKind};
 use webrender_traits::{AuxiliaryLists, ColorF, DeviceIntPoint, DeviceIntRect, DeviceUintPoint};
-use webrender_traits::{DeviceUintSize, FontRenderMode, ImageRendering, LayerRect, LayerSize};
-use webrender_traits::{LayerToScrollTransform, LayerToWorldTransform, MixBlendMode, PipelineId};
-use webrender_traits::{ScrollLayerId, WorldPoint4D, WorldToLayerTransform};
+use webrender_traits::{DeviceUintSize, FontRenderMode, ImageRendering, LayerPoint, LayerRect};
+use webrender_traits::{LayerSize, LayerToWorldTransform, MixBlendMode, PipelineId, ScrollLayerId};
+use webrender_traits::{WorldPoint4D, WorldToLayerTransform};
 
 // Special sentinel value recognized by the shader. It is considered to be
 // a dummy task that doesn't mask out anything.
@@ -1301,8 +1301,14 @@ pub struct StackingContextIndex(pub usize);
 #[derive(Debug)]
 pub struct StackingContext {
     pub pipeline_id: PipelineId,
-    pub local_transform: LayerToScrollTransform,
+
+    // Offset in the parent reference frame to the origin of this stacking
+    // context's coordinate system.
+    pub reference_frame_offset: LayerPoint,
+
+    // Bounds of this stacking context in its own coordinate system.
     pub local_rect: LayerRect,
+
     pub bounding_rect: DeviceIntRect,
     pub composite_ops: CompositeOps,
     pub clip_scroll_groups: Vec<ClipScrollGroupIndex>,
@@ -1311,14 +1317,14 @@ pub struct StackingContext {
 
 impl StackingContext {
     pub fn new(pipeline_id: PipelineId,
-               local_transform: LayerToScrollTransform,
+               reference_frame_offset: LayerPoint,
                local_rect: LayerRect,
                composite_ops: CompositeOps,
                clip_scroll_group_index: ClipScrollGroupIndex)
                -> StackingContext {
         StackingContext {
             pipeline_id: pipeline_id,
-            local_transform: local_transform,
+            reference_frame_offset: reference_frame_offset,
             local_rect: local_rect,
             bounding_rect: DeviceIntRect::zero(),
             composite_ops: composite_ops,
@@ -1392,6 +1398,31 @@ impl Default for PackedLayer {
 impl PackedLayer {
     pub fn empty() -> PackedLayer {
         Default::default()
+    }
+
+    pub fn set_transform(&mut self, transform: LayerToWorldTransform) {
+        self.transform = transform;
+        self.inv_transform = self.transform.inverse().unwrap();
+    }
+
+    pub fn set_rect(&mut self,
+                    local_rect: Option<LayerRect>,
+                    screen_rect: &DeviceIntRect,
+                    device_pixel_ratio: f32)
+                    -> Option<TransformedRect> {
+        let local_rect = match local_rect {
+            Some(rect) if !rect.is_empty() => rect,
+            _ => return None,
+        };
+
+        let xf_rect = TransformedRect::new(&local_rect, &self.transform, device_pixel_ratio);
+        if !xf_rect.bounding_rect.intersects(screen_rect) {
+            return None;
+        }
+
+        self.screen_vertices = xf_rect.vertices.clone();
+        self.local_clip_rect = local_rect;
+        Some(xf_rect)
     }
 }
 
