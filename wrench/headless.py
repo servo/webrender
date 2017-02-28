@@ -8,7 +8,6 @@ import contextlib
 import os
 import subprocess
 import sys
-import hashlib
 from os import path
 from glob import glob
 
@@ -64,7 +63,6 @@ def set_osmesa_env(bin_path):
         os.environ["GALLIUM_DRIVER"] = "softpipe"
 
 
+subprocess.check_call(['cargo', 'build', '--release', '--features', 'headless'])
 set_osmesa_env('../target/release/')
-subprocess.check_call(['../target/release/wrench', '-t', '1', '-h', 'show', sys.argv[1]])
-subprocess.check_call(['../target/release/wrench', '-h', 'reftest'])
-print('md5 = ' + hashlib.md5(open('screenshot.png', 'rb').read()).hexdigest())
+subprocess.check_call(['../target/release/wrench', '-h'] + sys.argv[1:])

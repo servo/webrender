@@ -31,4 +31,5 @@ script:
   - if [ $BUILD_KIND = DEBUG ]; then (cd sample && cargo build --verbose --features=profiler); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd wrench && cargo test --verbose); fi
   - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && cargo build --release --verbose --features headless); fi
-  - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python run_tests.py res/rect.yaml); fi
+  - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python headless.py -t 1 show res/rect.yaml); fi
+  - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python headless.py reftest); fi
