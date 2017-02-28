@@ -1,12 +1,10 @@
 root:
   items:
-    -
-      type: scroll_layer
+    - type: scroll_layer
       bounds: [0, 0, 100, 100]
       content-size: [1000, 1000]
       scroll-offset: [50, 50]
       items:
-        -
+        - type: rect
           bounds: [50, 50, 50, 50]
-          type: rect
           color: green
