@@ -414,6 +414,7 @@ pub struct DisplayItem {
     pub item: SpecificDisplayItem,
     pub rect: LayoutRect,
     pub clip: ClipRegion,
+    pub scroll_layer_id: ScrollLayerId,
 }
 
 #[repr(C)]
@@ -840,6 +841,23 @@ impl ScrollLayerId {
         match self.info {
             ScrollLayerInfo::Scrollable(_, scroll_root_id) => Some(scroll_root_id),
             ScrollLayerInfo::ReferenceFrame(..) => None,
+        }
+    }
+
+    pub fn is_reference_frame(&self) -> bool {
+        match self.info {
+            ScrollLayerInfo::Scrollable(..) => false,
+            ScrollLayerInfo::ReferenceFrame(..) => true,
+        }
+    }
+
+    pub fn new(pipeline_id: PipelineId,
+               index: usize,
+               scroll_root_id: ServoScrollRootId)
+               -> ScrollLayerId {
+        ScrollLayerId {
+            pipeline_id: pipeline_id,
+            info: ScrollLayerInfo::Scrollable(index, scroll_root_id),
         }
     }
 }

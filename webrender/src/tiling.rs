@@ -7,7 +7,7 @@ use fnv::FnvHasher;
 use gpu_store::GpuStoreAddress;
 use internal_types::{ANGLE_FLOAT_TO_FIXED, BatchTextures, CacheTextureId, LowLevelFilterOp};
 use internal_types::SourceTexture;
-use mask_cache::{ClipSource, MaskCacheInfo};
+use mask_cache::MaskCacheInfo;
 use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve, GpuBlock128, GpuBlock16, GpuBlock32};
 use prim_store::{GpuBlock64, GradientData, PrimitiveCacheKey, PrimitiveGeometry, PrimitiveIndex};
 use prim_store::{PrimitiveKind, PrimitiveMetadata, PrimitiveStore, TexelRect};
@@ -391,13 +391,10 @@ pub struct ScrollbarPrimitive {
     pub border_radius: f32,
 }
 
+#[derive(Debug)]
 pub enum PrimitiveRunCmd {
     PushStackingContext(StackingContextIndex),
     PopStackingContext,
-
-    PushScrollLayer(ScrollLayerIndex),
-    PopScrollLayer,
-
     PrimitiveRun(PrimitiveIndex, usize, ScrollLayerId),
 }
 
@@ -1395,18 +1392,6 @@ impl ClipScrollGroup {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct ScrollLayerIndex(pub usize);
-
-pub struct ScrollLayer {
-    pub scroll_layer_id: ScrollLayerId,
-    pub parent_index: ScrollLayerIndex,
-    pub clip_source: ClipSource,
-    pub clip_cache_info: Option<MaskCacheInfo>,
-    pub packed_layer_index: PackedLayerIndex,
-    pub xf_rect: Option<TransformedRect>,
-}
-
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct PackedLayer {
@@ -1472,13 +1457,6 @@ impl CompositeOps {
         CompositeOps {
             filters: filters,
             mix_blend_mode: mix_blend_mode
-        }
-    }
-
-    pub fn empty() -> CompositeOps {
-        CompositeOps {
-            filters: Vec::new(),
-            mix_blend_mode: None,
         }
     }
 
