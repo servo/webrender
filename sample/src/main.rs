@@ -90,6 +90,7 @@ fn main() {
         debug: true,
         precache_shaders: true,
         blob_image_renderer: Some(Box::new(FakeBlobImageRenderer::new())),
+        device_pixel_ratio: window.hidpi_factor(),
         .. Default::default()
     };
 
