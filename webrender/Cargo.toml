@@ -1,6 +1,6 @@
 [package]
 name = "webrender"
-version = "0.19.0"
+version = "0.20.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 repository = "https://github.com/servo/webrender"
@@ -39,7 +39,7 @@ angle = {git = "https://github.com/servo/angle", branch = "servo"}
 freetype = { version = "0.2", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-servo-dwrote = "0.2"
+dwrote = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.7.0"
