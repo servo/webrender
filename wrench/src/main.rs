@@ -30,6 +30,7 @@ extern crate yaml_rust;
 mod binary_frame_reader;
 mod json_frame_writer;
 mod parse_function;
+mod png;
 mod reftest;
 mod scene;
 mod wrench;
@@ -313,6 +314,10 @@ fn main() {
             Box::new(YamlFrameReader::new_from_args(subargs)) as Box<WrenchThing>
         } else if let Some(subargs) = args.subcommand_matches("replay") {
             Box::new(BinaryFrameReader::new_from_args(subargs)) as Box<WrenchThing>
+        } else if let Some(subargs) = args.subcommand_matches("png") {
+            let reader = YamlFrameReader::new_from_args(subargs);
+            png::png(&mut wrench, &mut window, reader);
+            return;
         } else if let Some(subargs) = args.subcommand_matches("reftest") {
             let harness = ReftestHarness::new(&mut wrench, &mut window);
             let base_manifest = Path::new("reftests/reftest.list");

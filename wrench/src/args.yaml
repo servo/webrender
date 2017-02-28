@@ -52,6 +52,13 @@ args:
       help: Enable vsync for OpenGL window
 
 subcommands:
+    - png:
+        about: render frame described by YAML and save it to a png file
+        args:
+          - INPUT:
+              help: The input YAML file
+              required: true
+              index: 1
     - show:
         about: show frame(s) described by YAML
         args:
