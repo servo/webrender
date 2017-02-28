@@ -8,7 +8,6 @@ import contextlib
 import os
 import subprocess
 import sys
-import hashlib
 from os import path
 from glob import glob
 
@@ -29,6 +28,8 @@ def find_dep_path_newest(package, bin_path):
     with cd(deps_path):
         candidates = glob(package + '-*')
     candidates = (path.join(deps_path, c) for c in candidates)
+    """ For some reason cargo can create an extra osmesa-src without libs """
+    candidates = (c for c in candidates if path.exists(path.join(c, 'out')))
     candidate_times = sorted(((path.getmtime(c), c) for c in candidates), reverse=True)
     if len(candidate_times) > 0:
         return candidate_times[0][1]
@@ -64,7 +65,6 @@ def set_osmesa_env(bin_path):
         os.environ["GALLIUM_DRIVER"] = "softpipe"
 
 
+subprocess.check_call(['cargo', 'build', '--release', '--verbose', '--features', 'headless'])
 set_osmesa_env('../target/release/')
-subprocess.check_call(['../target/release/wrench', '-t', '1', '-h', 'show', sys.argv[1]])
-subprocess.check_call(['../target/release/wrench', '-h', 'reftest'])
-print('md5 = ' + hashlib.md5(open('screenshot.png', 'rb').read()).hexdigest())
+subprocess.check_call(['../target/release/wrench', '-h'] + sys.argv[1:])
