@@ -1,7 +1,6 @@
 ---
 root:
   items:
-        - 
+        - type: rect
           bounds: [0, 0, 95, 88]
-          type: rect
           color: green

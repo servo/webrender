@@ -1,9 +1,8 @@
 ---
 root:
   items:
-        -
+        - type: stacking_context
           bounds: [50, 50, 100, 100]
-          type: stacking_context
           items:
             - type: rect
               bounds: [ 10, 10, 80, 80 ]

@@ -1,21 +1,18 @@
 ---
 root:
   items:
-    - 
-      type: scroll_layer
+    - type: scroll_layer
       bounds: [0, 0, 95, 88]
       content-size: [95, 88]
       clip:
         rect: [9, 9, 10, 10]
       items:
-        - 
-          type: scroll_layer
+        - type: scroll_layer
           bounds: [0, 0, 95, 88]
           content-size: [95, 88]
           clip:
               rect: [0, 0, 100, 100]
           items:
-            - 
+            - type: rect
               bounds: [0, 0, 100, 100]
-              type: rect
               color: blue

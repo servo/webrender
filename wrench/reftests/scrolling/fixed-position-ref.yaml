@@ -1,10 +1,8 @@
 root:
   items:
-    -
+    - type: rect
       bounds: [0, 0, 50, 50]
-      type: rect
       color: green
-    -
+    - type: rect
       bounds: [60, 0, 50, 50]
-      type: rect
       color: green

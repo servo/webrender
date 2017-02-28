@@ -4,30 +4,25 @@ root:
   scroll-offset: [0, 100]
   items:
     # This stacking context should not scroll out of view because it is fixed position.
-    -
-      type: stacking_context
+    - type: stacking_context
       bounds: [0, 0, 50, 50]
       scroll-policy: fixed
       items:
-        -
+        - type: rect
           bounds: [0, 0, 50, 50]
-          type: rect
           color: green
     # Even though there is a fixed position stacking context, it should scroll,
     # because it is fixed relative to its reference frame. The reference frame
     # of this stacking context is the stacking context parent because it has
     # a transformation.
-    -
-      type: stacking_context
+    - type: stacking_context
       bounds: [0, 0, 50, 50]
       transform: translate(60, 100),
       items:
-        -
-          type: stacking_context
+        - type: stacking_context
           bounds: [0, 0, 50, 50]
           scroll-policy: fixed
           items:
-            -
+            - type: rect
               bounds: [0, 0, 50, 50]
-              type: rect
               color: green
