@@ -16,8 +16,8 @@ To use a custom webrender with servo, go to your servo build directory and:
 
 ```
 [replace]
-"https://github.com/servo/webrender#0.11.0" = { path = 'Path/To/webrender/webrender/' }
-"https://github.com/servo/webrender#webrender_traits:0.11.0" = { path = 'Path/To/webrender/webrender_traits' }
+"https://github.com/servo/webrender#0.20.0" = { path = 'Path/To/webrender/webrender/' }
+"https://github.com/servo/webrender#webrender_traits:0.21.0" = { path = 'Path/To/webrender/webrender_traits' }
 ```
 
   * Build as normal
