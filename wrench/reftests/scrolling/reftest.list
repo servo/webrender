@@ -2,3 +2,4 @@
 == root-scroll.yaml root-scroll-ref.yaml
 == fixed-position.yaml fixed-position-ref.yaml
 == scroll-layer.yaml scroll-layer-ref.yaml
+== scroll-layer-with-mask.yaml scroll-layer-with-mask-ref.yaml
