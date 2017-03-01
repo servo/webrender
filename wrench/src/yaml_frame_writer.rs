@@ -549,8 +549,8 @@ impl YamlFrameWriter {
                     if let Some(&CachedImage { tiling: Some(tile_size), .. }) = self.images.get(&item.image_key) {
                         u32_node(&mut v, "tile-size", tile_size as u32);
                     }
-                    size_node(&mut v, "strech", &item.stretch_size);
-                    size_node(&mut v, "spacing", &item.tile_spacing);
+                    size_node(&mut v, "strech_size", &item.stretch_size);
+                    size_node(&mut v, "tile_spacing", &item.tile_spacing);
                     match item.image_rendering {
                         ImageRendering::Auto => (),
                         ImageRendering::CrispEdges => str_node(&mut v, "rendering", "crisp-edges"),
