@@ -518,13 +518,17 @@ impl YamlFrameReader {
         // TODO(gw): Add support for specifying the transform origin in yaml.
         let transform_origin = LayoutPoint::new(bounds.origin.x + bounds.size.width * 0.5,
                                                 bounds.origin.y + bounds.size.height * 0.5);
-        let transform = yaml["transform"].as_matrix4d(&transform_origin)
-                                         .unwrap_or(LayoutTransform::identity());
+
+        let transform = yaml["transform"].as_matrix4d(&transform_origin).map(
+            |transform| transform.into());
+
         // TODO(gw): Support perspective-origin.
         let perspective = match yaml["perspective"].as_force_f32() {
-            Some(persp) => LayoutTransform::create_perspective(persp),
-            None => LayoutTransform::identity()
+            Some(perspective) if perspective == 0.0 => None,
+            Some(perspective) => Some(LayoutTransform::create_perspective(perspective)),
+            None => None,
         };
+
         let mix_blend_mode = yaml["mix-blend-mode"].as_mix_blend_mode().unwrap_or(MixBlendMode::Normal);
         let sc_full_rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), bounds.size);
         let clip = self.to_clip_region(&yaml["clip"], &sc_full_rect, wrench)

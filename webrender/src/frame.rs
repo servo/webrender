@@ -372,9 +372,6 @@ impl Frame {
             return;
         }
 
-        let stacking_context_transform =
-            context.scene.properties.resolve_layout_transform(&stacking_context.transform);
-
         let mut reference_frame_id = current_reference_frame_id;
         let mut scroll_layer_id = match stacking_context.scroll_policy {
             ScrollPolicy::Fixed => current_reference_frame_id,
@@ -383,8 +380,11 @@ impl Frame {
 
         // If we have a transformation, we establish a new reference frame. This means
         // that fixed position stacking contexts are positioned relative to us.
-        if stacking_context_transform != LayoutTransform::identity() ||
-           stacking_context.perspective != LayoutTransform::identity() {
+        if stacking_context.transform.is_some() || stacking_context.perspective.is_some() {
+            let transform =
+                context.scene.properties.resolve_layout_transform(&stacking_context.transform);
+            let perspective =
+                stacking_context.perspective.unwrap_or_else(LayoutTransform::identity);
             let transform =
                 LayerToScrollTransform::create_translation(reference_frame_relative_offset.x,
                                                            reference_frame_relative_offset.y,
@@ -392,8 +392,8 @@ impl Frame {
                                         .pre_translated(stacking_context.bounds.origin.x,
                                                         stacking_context.bounds.origin.y,
                                                         0.0)
-                                        .pre_mul(&stacking_context_transform)
-                                        .pre_mul(&stacking_context.perspective);
+                                        .pre_mul(&transform)
+                                        .pre_mul(&perspective);
             scroll_layer_id = self.clip_scroll_tree.add_reference_frame(clip_region.main,
                                                                         transform,
                                                                         pipeline_id,

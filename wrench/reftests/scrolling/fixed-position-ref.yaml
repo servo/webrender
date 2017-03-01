@@ -6,3 +6,12 @@ root:
     - type: rect
       bounds: [60, 0, 50, 50]
       color: green
+    - type: rect
+      bounds: [120, 0, 50, 50]
+      color: green
+    - type: rect
+      bounds: [180, 0, 50, 50]
+      color: green
+    - type: rect
+      bounds: [240, 0, 50, 50]
+      color: green
