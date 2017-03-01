@@ -7,3 +7,4 @@ flat varying vec4 vColor;
 varying vec3 vUv;
 flat varying vec2 vMirrorPoint;
 flat varying vec4 vCacheUvRectCoords;
+flat varying float vIsInset;

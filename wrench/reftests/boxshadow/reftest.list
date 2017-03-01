@@ -1,2 +1,4 @@
+
 != inset-simple.yaml inset-simple-ref.yaml
 != inset-spread.yaml inset-spread-ref.yaml
+!= box-border-radius.yaml box-border-radius-ref.yaml
