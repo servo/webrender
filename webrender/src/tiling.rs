@@ -398,7 +398,7 @@ pub enum PrimitiveRunCmd {
     PushScrollLayer(ScrollLayerIndex),
     PopScrollLayer,
 
-    PrimitiveRun(PrimitiveIndex, usize),
+    PrimitiveRun(PrimitiveIndex, usize, ScrollLayerId),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1324,13 +1324,16 @@ pub struct StackingContext {
     pub bounding_rect: DeviceIntRect,
     pub composite_ops: CompositeOps,
     pub clip_scroll_groups: Vec<ClipScrollGroupIndex>,
+
     // Signifies that this stacking context should be drawn in a separate render pass
     // with a transparent background and then composited back to its parent. Used to
     // support mix-blend-mode in certain cases.
     pub should_isolate: bool,
+
     // Set for the root stacking context of a display list or an iframe. Used for determining
     // when to isolate a mix-blend-mode composite.
     pub is_page_root: bool,
+
     pub is_visible: bool,
 }
 
@@ -1339,8 +1342,7 @@ impl StackingContext {
                reference_frame_offset: LayerPoint,
                local_rect: LayerRect,
                is_page_root: bool,
-               composite_ops: CompositeOps,
-               clip_scroll_group_index: ClipScrollGroupIndex)
+               composite_ops: CompositeOps)
                -> StackingContext {
         StackingContext {
             pipeline_id: pipeline_id,
@@ -1348,34 +1350,42 @@ impl StackingContext {
             local_rect: local_rect,
             bounding_rect: DeviceIntRect::zero(),
             composite_ops: composite_ops,
-            clip_scroll_groups: vec![clip_scroll_group_index],
+            clip_scroll_groups: Vec::new(),
             should_isolate: false,
             is_page_root: is_page_root,
             is_visible: false,
         }
     }
 
-    pub fn clip_scroll_group(&self) -> ClipScrollGroupIndex {
+    pub fn clip_scroll_group(&self, scroll_layer_id: ScrollLayerId) -> ClipScrollGroupIndex {
         // Currently there is only one scrolled stacking context per context,
         // but eventually this will be selected from the vector based on the
         // scroll layer of this primitive.
-        self.clip_scroll_groups[0]
+        for group in &self.clip_scroll_groups {
+            if group.1 == scroll_layer_id {
+                return *group;
+            }
+        }
+        unreachable!("Looking for non-existent ClipScrollGroup");
     }
 
     pub fn can_contribute_to_scene(&self) -> bool {
         !self.composite_ops.will_make_invisible()
     }
+
+    pub fn has_clip_scroll_group(&self, id: ScrollLayerId) -> bool {
+        self.clip_scroll_groups.iter().rev().any(|index| index.1 == id)
+    }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct ClipScrollGroupIndex(pub usize);
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct ClipScrollGroupIndex(pub usize, pub ScrollLayerId);
 
 #[derive(Debug)]
 pub struct ClipScrollGroup {
     pub stacking_context_index: StackingContextIndex,
     pub scroll_layer_id: ScrollLayerId,
     pub packed_layer_index: PackedLayerIndex,
-    pub pipeline_id: PipelineId,
     pub xf_rect: Option<TransformedRect>,
 }
 
