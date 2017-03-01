@@ -18,11 +18,10 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
-use webrender_traits::{BlobImageResult, BlobImageError, BlobImageDescriptor};
-use webrender_traits::{ColorF, Epoch, GlyphInstance, ClipRegion, ImageRendering};
-use webrender_traits::{ImageDescriptor, ImageData, ImageFormat, PipelineId};
-use webrender_traits::{ImageKey, BlobImageData, BlobImageRenderer, RasterizedBlobImage};
-use webrender_traits::{LayoutSize, LayoutPoint, LayoutRect, LayoutTransform, DeviceUintSize};
+use webrender_traits::{BlobImageData, BlobImageDescriptor, BlobImageError, BlobImageRenderer};
+use webrender_traits::{BlobImageResult, ClipRegion, ColorF, DeviceUintSize, Epoch, GlyphInstance};
+use webrender_traits::{ImageData, ImageDescriptor, ImageFormat, ImageKey, ImageRendering};
+use webrender_traits::{LayoutPoint, LayoutRect, LayoutSize, PipelineId, RasterizedBlobImage};
 
 
 fn load_file(name: &str) -> Vec<u8> {
@@ -126,8 +125,8 @@ fn main() {
                                   bounds,
                                   clip_region,
                                   0,
-                                  LayoutTransform::identity().into(),
-                                  LayoutTransform::identity(),
+                                  None,
+                                  None,
                                   webrender_traits::MixBlendMode::Normal,
                                   Vec::new());
     builder.push_image(

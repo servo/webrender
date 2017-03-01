@@ -901,8 +901,8 @@ pub struct StackingContext {
     pub scroll_policy: ScrollPolicy,
     pub bounds: LayoutRect,
     pub z_index: i32,
-    pub transform: PropertyBinding<LayoutTransform>,
-    pub perspective: LayoutTransform,
+    pub transform: Option<PropertyBinding<LayoutTransform>>,
+    pub perspective: Option<LayoutTransform>,
     pub mix_blend_mode: MixBlendMode,
     pub filters: ItemRange,
 }
