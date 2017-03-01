@@ -30,6 +30,7 @@ pub type TileSize = u16;
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>),
     AddNativeFont(FontKey, NativeFontHandle),
+    DeleteFont(FontKey),
     /// Gets the glyph dimensions
     GetGlyphDimensions(Vec<GlyphKey>, MsgSender<Vec<Option<GlyphDimensions>>>),
     /// Adds an image from the resource cache.
@@ -1214,6 +1215,7 @@ impl fmt::Debug for ApiMsg {
         match self {
             &ApiMsg::AddRawFont(..) => { write!(f, "ApiMsg::AddRawFont") }
             &ApiMsg::AddNativeFont(..) => { write!(f, "ApiMsg::AddNativeFont") }
+            &ApiMsg::DeleteFont(..) => { write!(f, "ApiMsg::DeleteFont") }
             &ApiMsg::GetGlyphDimensions(..) => { write!(f, "ApiMsg::GetGlyphDimensions") }
             &ApiMsg::AddImage(..) => { write!(f, "ApiMsg::AddImage") }
             &ApiMsg::UpdateImage(..) => { write!(f, "ApiMsg::UpdateImage") }

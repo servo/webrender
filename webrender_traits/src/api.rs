@@ -70,6 +70,11 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
     }
 
+    pub fn delete_font(&self, key: FontKey) {
+        let msg = ApiMsg::DeleteFont(key);
+        self.api_sender.send(msg).unwrap();
+    }
+
     /// Gets the dimensions for the supplied glyph keys
     ///
     /// Note: Internally, the internal texture cache doesn't store

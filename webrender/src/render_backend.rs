@@ -119,6 +119,9 @@ impl RenderBackend {
                             self.resource_cache
                                 .add_font_template(id, FontTemplate::Native(native_font_handle));
                         }
+                        ApiMsg::DeleteFont(id) => {
+                            self.resource_cache.delete_font_template(id);
+                        }
                         ApiMsg::GetGlyphDimensions(glyph_keys, tx) => {
                             let mut glyph_dimensions = Vec::with_capacity(glyph_keys.len());
                             for glyph_key in &glyph_keys {
