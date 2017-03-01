@@ -341,6 +341,7 @@ impl Frame {
                                               rect,
                                               pipeline_id,
                                               new_scroll_layer_id,
+                                              false,
                                               CompositeOps::empty());
 
 
@@ -428,6 +429,7 @@ impl Frame {
                                                           clip_region.main,
                                                           pipeline_id,
                                                           scroll_layer_id,
+                                                          false,
                                                           CompositeOps::empty());
 
                     // Note: we don't use the original clip region here,
@@ -448,6 +450,7 @@ impl Frame {
                                               clip_region.main,
                                               pipeline_id,
                                               scroll_layer_id,
+                                              level == 0,
                                               composition_operations);
 
         self.flatten_items(traversal,
