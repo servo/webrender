@@ -1,0 +1,24 @@
+root:
+  items:
+    -
+      clip: [0, 0, 100, 100]
+      type: stacking_context
+      # We give this stacking context a little offset here to
+      # ensure that offsets within reference frames are handled
+      # properly when drawing the mask.
+      bounds: [10, 10, 100, 100]
+      scroll-policy: scrollable
+      items:
+      - type: scroll_layer
+        bounds: [0, 0, 100, 100]
+        content-size: [100, 100]
+        clip:
+          rect: [0, 0, 100, 100]
+          image_mask:
+            image: "mask.png"
+            rect: [0, 0, 100, 100]
+            repeat: false
+        items:
+          - type: rect
+            bounds: [0, 0, 100, 100]
+            color: green

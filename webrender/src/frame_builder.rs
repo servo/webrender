@@ -1385,8 +1385,21 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         let packed_layer_index = scroll_layer.packed_layer_index;
         let packed_layer = &mut self.frame_builder.packed_layers[packed_layer_index.0];
 
-        packed_layer.set_transform(node.world_viewport_transform);
-        scroll_layer.xf_rect = packed_layer.set_rect(Some(node.combined_local_viewport_rect),
+        // The coordinates of the mask are relative to the origin of the node itself,
+        // so we need to account for that origin in the transformation we assign to
+        // the packed layer.
+        let transform = node.world_content_transform
+                            .pre_translated(node.local_viewport_rect.origin.x,
+                                            node.local_viewport_rect.origin.y,
+                                            0.0);
+        packed_layer.set_transform(transform);
+
+        // Meanwhile, the combined viewport rect is relative to the reference frame, so
+        // we move it into the local coordinate system of the node.
+        let local_viewport_rect =
+            node.combined_local_viewport_rect.translate(&-node.local_viewport_rect.origin);
+
+        scroll_layer.xf_rect = packed_layer.set_rect(Some(local_viewport_rect),
                                                      self.screen_rect,
                                                      self.device_pixel_ratio);
 
