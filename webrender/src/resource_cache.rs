@@ -290,7 +290,7 @@ impl ResourceCache {
                 // This image should not be an external image.
                 match image.data {
                     ImageData::ExternalHandle(id) => {
-                        panic!("Update an external image with buffer, id={} image_key={:?}", id.0, image_key);
+                        panic!("Update an external image with buffer, id={} image_key={:?}", id, image_key);
                     },
                     _ => {},
                 }
