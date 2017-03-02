@@ -143,6 +143,10 @@ impl FontContext {
         self.fonts.insert((*font_key).clone(), face);
     }
 
+    pub fn delete_font(&mut self, font_key: &FontKey) {
+        self.fonts.remove(font_key);
+    }
+
     // Assumes RGB format from dwrite, which is 3 bytes per pixel as dwrite
     // doesn't output an alpha value via GlyphRunAnalysis::CreateAlphaTexture
     #[allow(dead_code)]
