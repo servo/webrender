@@ -177,16 +177,16 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
     scroll_policy_node(parent, "scroll-policy", sc.scroll_policy);
     i32_node(parent, "z_index", sc.z_index);
 
-    let transform = match sc.transform {
-        PropertyBinding::Value(m) => m,
-        PropertyBinding::Binding(..) => panic!("TODO: Handle property bindings in wrench!"),
+    match sc.transform {
+        Some(PropertyBinding::Value(transform)) => matrix4d_node(parent, "transform", &transform),
+        Some(PropertyBinding::Binding(..)) => panic!("TODO: Handle property bindings in wrench!"),
+        None => {}
     };
-    if transform != LayoutTransform::identity() {
-        matrix4d_node(parent, "transform", &transform);
+
+    if let Some(perspective) = sc.perspective {
+        matrix4d_node(parent, "perspective", &perspective);
     }
-    if sc.perspective != LayoutTransform::identity() {
-        matrix4d_node(parent, "perspective", &sc.perspective);
-    }
+
     // mix_blend_mode
     if sc.mix_blend_mode != MixBlendMode::Normal {
         mix_blend_mode_node(parent, "mix-blend-mode", sc.mix_blend_mode)

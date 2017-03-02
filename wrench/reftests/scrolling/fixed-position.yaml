@@ -17,10 +17,48 @@ root:
     # a transformation.
     - type: stacking_context
       bounds: [0, 0, 50, 50]
-      transform: translate(60, 100),
+      transform: translate(60, 100)
       items:
         - type: stacking_context
           bounds: [0, 0, 50, 50]
+          scroll-policy: fixed
+          items:
+            - type: rect
+              bounds: [0, 0, 50, 50]
+              color: green
+    # This is similar to the previous case, but ensures that this still works
+    # even with an identity transform.
+    - type: stacking_context
+      bounds: [120, 0, 50, 200]
+      transform: translate(0, 0)
+      items:
+        - type: stacking_context
+          bounds: [0, 0, 50, 200]
+          scroll-policy: fixed
+          items:
+            - type: rect
+              bounds: [0, 100, 50, 50]
+              color: green
+    # This is similar to the previous case, but for perspective.
+    - type: stacking_context
+      bounds: [180, 0, 50, 200]
+      perspective: 1
+      items:
+        - type: stacking_context
+          bounds: [0, 0, 50, 200]
+          scroll-policy: fixed
+          items:
+            - type: rect
+              bounds: [0, 100, 50, 50]
+              color: green
+    # This is similar to the previous case, but since the perspective is
+    # 0 (equivalent to none), it shouldn't scroll.
+    - type: stacking_context
+      bounds: [240, 0, 50, 200]
+      perspective: 0
+      items:
+        - type: stacking_context
+          bounds: [0, 0, 50, 200]
           scroll-policy: fixed
           items:
             - type: rect
