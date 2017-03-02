@@ -9,7 +9,7 @@ use internal_types::{SourceTexture, PackedTexel};
 use mask_cache::{ClipSource, MaskCacheInfo};
 use renderer::{VertexDataStore, GradientDataStore};
 use render_task::{RenderTask, RenderTaskLocation};
-use resource_cache::{ImageProperties, ResourceCache};
+use resource_cache::{CacheItem, ImageProperties, ResourceCache};
 use std::mem;
 use std::usize;
 use util::TransformedRect;
@@ -54,6 +54,15 @@ impl TexelRect {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum ImageUVAddress {
+    Image(GpuStoreAddress),                 // The offset of PrimitiveStore::gpu_resource_rects
+    YUVImage {
+        gpu_data64_offset: GpuStoreAddress, // The offset of PrimitiveStore::gpu_data64
+        yuv_channel_offset: usize,
+    },
+}
+
 /// For external images, it's not possible to know the
 /// UV coords of the image (or the image data itself)
 /// until the render thread receives the frame and issues
@@ -63,8 +72,8 @@ impl TexelRect {
 /// thread to iterate this list and update any changed
 /// texture data and update the UV rect.
 pub struct DeferredResolve {
-    pub resource_address: GpuStoreAddress,
     pub image_properties: ImageProperties,
+    pub resource_address: ImageUVAddress,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -168,12 +177,7 @@ pub struct YuvImagePrimitiveCpu {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct YuvImagePrimitiveGpu {
-    pub y_uv0: DevicePoint,
-    pub y_uv1: DevicePoint,
-    pub u_uv0: DevicePoint,
-    pub u_uv1: DevicePoint,
-    pub v_uv0: DevicePoint,
-    pub v_uv1: DevicePoint,
+    pub uv: [[DevicePoint; 2]; 3],  // y, u and v's uv coordinates
     pub size: LayerSize,
     pub color_space: f32,
     pub padding: f32,
@@ -182,12 +186,11 @@ pub struct YuvImagePrimitiveGpu {
 impl YuvImagePrimitiveGpu {
     pub fn new(size: LayerSize, color_space: YuvColorSpace) -> Self {
         YuvImagePrimitiveGpu {
-            y_uv0: DevicePoint::zero(),
-            y_uv1: DevicePoint::zero(),
-            u_uv0: DevicePoint::zero(),
-            u_uv1: DevicePoint::zero(),
-            v_uv0: DevicePoint::zero(),
-            v_uv1: DevicePoint::zero(),
+            uv: [
+                [DevicePoint::zero(), DevicePoint::zero()],
+                [DevicePoint::zero(), DevicePoint::zero()],
+                [DevicePoint::zero(), DevicePoint::zero()],
+            ],
             size: size,
             color_space: color_space as u32 as f32,
             padding: 0.0,
@@ -855,6 +858,35 @@ impl PrimitiveStore {
         Self::resolve_clip_cache_internal(&mut self.gpu_data32, clip_info, resource_cache)
     }
 
+    fn resolve_image(resource_cache: &ResourceCache,
+                     deferred_resolves: &mut Vec<DeferredResolve>,
+                     image_key: ImageKey,
+                     image_uv_address: ImageUVAddress,
+                     image_rendering: ImageRendering,
+                     tile_offset: Option<TileOffset>) -> (SourceTexture, Option<CacheItem>) {
+        let image_properties = resource_cache.get_image_properties(image_key);
+
+        // Check if an external image that needs to be resolved
+        // by the render thread.
+        match image_properties.external_id {
+            Some(external_id) => {
+                // This is an external texture - we will add it to
+                // the deferred resolves list to be patched by
+                // the render thread...
+                deferred_resolves.push(DeferredResolve {
+                    image_properties: image_properties,
+                    resource_address: image_uv_address,
+                });
+
+                (SourceTexture::External(external_id), None)
+            }
+            None => {
+                let cache_item = resource_cache.get_cached_image(image_key, image_rendering, tile_offset);
+                (cache_item.texture_id, Some(cache_item))
+            }
+        }
+    }
+
     pub fn resolve_primitives(&mut self,
                               resource_cache: &ResourceCache,
                               device_pixel_ratio: f32) -> Vec<DeferredResolve> {
@@ -902,25 +934,12 @@ impl PrimitiveStore {
                         ImagePrimitiveKind::Image(image_key, image_rendering, tile_offset, _) => {
                             // Check if an external image that needs to be resolved
                             // by the render thread.
-                            let image_properties = resource_cache.get_image_properties(image_key);
-
-                            match image_properties.external_id {
-                                Some(external_id) => {
-                                    // This is an external texture - we will add it to
-                                    // the deferred resolves list to be patched by
-                                    // the render thread...
-                                    deferred_resolves.push(DeferredResolve {
-                                        resource_address: image_cpu.resource_address,
-                                        image_properties: image_properties,
-                                    });
-
-                                    (SourceTexture::External(external_id), None)
-                                }
-                                None => {
-                                    let cache_item = resource_cache.get_cached_image(image_key, image_rendering, tile_offset);
-                                    (cache_item.texture_id, Some(cache_item))
-                                }
-                            }
+                            PrimitiveStore::resolve_image(resource_cache,
+                                                          &mut deferred_resolves,
+                                                          image_key,
+                                                          ImageUVAddress::Image(image_cpu.resource_address),
+                                                          image_rendering,
+                                                          tile_offset)
                         }
                         ImagePrimitiveKind::WebGL(context_id) => {
                             let cache_item = resource_cache.get_webgl_texture(&context_id);
@@ -951,26 +970,55 @@ impl PrimitiveStore {
                         mem::transmute(self.gpu_data64.get_mut(metadata.gpu_prim_index))
                     };
 
-                    if image_cpu.y_texture_id == SourceTexture::Invalid {
-                        let y_cache_item = resource_cache.get_cached_image(image_cpu.y_key, ImageRendering::Auto, None);
-                        image_cpu.y_texture_id = y_cache_item.texture_id;
-                        image_gpu.y_uv0 = y_cache_item.uv0;
-                        image_gpu.y_uv1 = y_cache_item.uv1;
+                    // Check if an external image that needs to be resolved
+                    // by the render thread.
+                    let (y_texture_id, y_cache_item) =
+                        PrimitiveStore::resolve_image(resource_cache,
+                                                      &mut deferred_resolves,
+                                                      image_cpu.y_key,
+                                                      ImageUVAddress::YUVImage {
+                                                        gpu_data64_offset: metadata.gpu_prim_index,
+                                                        yuv_channel_offset: 0,
+                                                      },
+                                                      ImageRendering::Auto,
+                                                      None);
+                    if let Some(y_cache_item) = y_cache_item {
+                        image_gpu.uv[0][0] = y_cache_item.uv0;
+                        image_gpu.uv[0][1] = y_cache_item.uv1;
                     }
+                    image_cpu.y_texture_id = y_texture_id;
 
-                    if image_cpu.u_texture_id == SourceTexture::Invalid {
-                        let u_cache_item = resource_cache.get_cached_image(image_cpu.u_key, ImageRendering::Auto, None);
-                        image_cpu.u_texture_id = u_cache_item.texture_id;
-                        image_gpu.u_uv0 = u_cache_item.uv0;
-                        image_gpu.u_uv1 = u_cache_item.uv1;
+                    let (u_texture_id, u_cache_item) =
+                        PrimitiveStore::resolve_image(resource_cache,
+                                                      &mut deferred_resolves,
+                                                      image_cpu.u_key,
+                                                      ImageUVAddress::YUVImage {
+                                                        gpu_data64_offset: metadata.gpu_prim_index,
+                                                        yuv_channel_offset: 1,
+                                                      },
+                                                      ImageRendering::Auto,
+                                                      None);
+                    if let Some(u_cache_item) = u_cache_item {
+                        image_gpu.uv[1][0] = u_cache_item.uv0;
+                        image_gpu.uv[1][1] = u_cache_item.uv1;
                     }
+                    image_cpu.u_texture_id = u_texture_id;
 
-                    if image_cpu.v_texture_id == SourceTexture::Invalid {
-                        let v_cache_item = resource_cache.get_cached_image(image_cpu.v_key, ImageRendering::Auto, None);
-                        image_cpu.v_texture_id = v_cache_item.texture_id;
-                        image_gpu.v_uv0 = v_cache_item.uv0;
-                        image_gpu.v_uv1 = v_cache_item.uv1;
+                    let (v_texture_id, v_cache_item) =
+                        PrimitiveStore::resolve_image(resource_cache,
+                                                      &mut deferred_resolves,
+                                                      image_cpu.v_key,
+                                                      ImageUVAddress::YUVImage {
+                                                        gpu_data64_offset: metadata.gpu_prim_index,
+                                                        yuv_channel_offset: 2,
+                                                      },
+                                                      ImageRendering::Auto,
+                                                      None);
+                    if let Some(v_cache_item) = v_cache_item {
+                        image_gpu.uv[2][0] = v_cache_item.uv0;
+                        image_gpu.uv[2][1] = v_cache_item.uv1;
                     }
+                    image_cpu.v_texture_id = v_texture_id;
                 }
             }
         }

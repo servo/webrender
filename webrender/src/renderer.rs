@@ -21,7 +21,7 @@ use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{ExternalImageUpdateList, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler, GLContextHandleWrapper};
-use prim_store::GradientData;
+use prim_store::{GradientData, ImageUVAddress, YuvImagePrimitiveGpu};
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use record::ApiRecordingReceiver;
@@ -1546,10 +1546,21 @@ impl Renderer {
                 };
 
                 self.external_images.insert(external_id, texture_id);
-                let resource_rect_index = deferred_resolve.resource_address.0 as usize;
-                let resource_rect = &mut frame.gpu_resource_rects[resource_rect_index];
-                resource_rect.uv0 = DevicePoint::new(image.u0, image.v0);
-                resource_rect.uv1 = DevicePoint::new(image.u1, image.v1);
+                match deferred_resolve.resource_address {
+                    ImageUVAddress::Image(address) => {
+                        let resource_rect_index = address.0 as usize;
+                        let resource_rect = &mut frame.gpu_resource_rects[resource_rect_index];
+                        resource_rect.uv0 = DevicePoint::new(image.u0, image.v0);
+                        resource_rect.uv1 = DevicePoint::new(image.u1, image.v1);
+                    }
+                    ImageUVAddress::YUVImage{ gpu_data64_offset, yuv_channel_offset } => {
+                        let image_gpu: &mut YuvImagePrimitiveGpu = unsafe {
+                            mem::transmute(frame.gpu_data64.get_mut(gpu_data64_offset.0 as usize))
+                        };
+                        image_gpu.uv[yuv_channel_offset][0] = DevicePoint::new(image.u0, image.v0);
+                        image_gpu.uv[yuv_channel_offset][1] = DevicePoint::new(image.u1, image.v1);
+                    }
+                }
             }
         }
     }
