@@ -20,7 +20,7 @@ use webrender_traits::{AuxiliaryLists, ClipRegion, ColorF, DisplayItem, Epoch, F
 use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform, LayoutTransform, TileOffset};
 use webrender_traits::{MixBlendMode, PipelineId, ScrollEventPhase, ScrollLayerId, ScrollLayerState};
 use webrender_traits::{ScrollLocation, ScrollPolicy, ServoScrollRootId, SpecificDisplayItem};
-use webrender_traits::{StackingContext, WorldPoint, ImageDisplayItem, DeviceUintSize};
+use webrender_traits::{StackingContext, WorldPoint, ImageDisplayItem, DeviceUintRect, DeviceUintSize};
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
 pub struct FrameId(pub u32);
@@ -228,7 +228,12 @@ impl Frame {
         self.clip_scroll_tree.discard_frame_state_for_pipeline(pipeline_id);
     }
 
-    pub fn create(&mut self, scene: &Scene, resource_cache: &mut ResourceCache) {
+    pub fn create(&mut self,
+                  scene: &Scene,
+                  resource_cache: &mut ResourceCache,
+                  window_size: DeviceUintSize,
+                  inner_rect: DeviceUintRect,
+                  device_pixel_ratio: f32) {
         let root_pipeline_id = match scene.root_pipeline_id {
             Some(root_pipeline_id) => root_pipeline_id,
             None => return,
@@ -245,6 +250,11 @@ impl Frame {
             None => return,
         };
 
+        if window_size.width == 0 || window_size.height == 0 {
+            println!("ERROR: Invalid window dimensions! Please call api.set_window_size()");
+            return;
+        }
+
         let old_scrolling_states = self.reset();
         self.pipeline_auxiliary_lists = scene.pipeline_auxiliary_lists.clone();
 
@@ -258,8 +268,19 @@ impl Frame {
             }
         };
 
+        let inner_origin = inner_rect.origin.to_f32();
+        let viewport_offset = LayerPoint::new((inner_origin.x / device_pixel_ratio).round(),
+                                              (inner_origin.y / device_pixel_ratio).round());
+        let outer_size = window_size.to_f32();
+        let outer_size = LayerSize::new((outer_size.width / device_pixel_ratio).round(),
+                                        (outer_size.height / device_pixel_ratio).round());
+        let clip_size = LayerSize::new(outer_size.width + 2.0 * viewport_offset.x,
+                                       outer_size.height + 2.0 * viewport_offset.y);
+
         self.clip_scroll_tree.establish_root(root_pipeline_id,
                                              &root_pipeline.viewport_size,
+                                             viewport_offset,
+                                             clip_size,
                                              &root_clip.main.size);
 
         let background_color = root_pipeline.background_color.and_then(|color| {
@@ -270,7 +291,7 @@ impl Frame {
             }
         });
 
-        let mut frame_builder = FrameBuilder::new(root_pipeline.viewport_size,
+        let mut frame_builder = FrameBuilder::new(window_size,
                                                   background_color,
                                                   self.frame_builder_config);
 
@@ -327,7 +348,7 @@ impl Frame {
         }
 
         let clip_rect = clip.main.translate(&reference_frame_relative_offset);
-        let node = ClipScrollNode::new(&clip_rect, *content_size, pipeline_id);
+        let node = ClipScrollNode::new(&clip_rect, &clip_rect, *content_size, pipeline_id);
         self.clip_scroll_tree.add_node(node, new_scroll_layer_id, parent_scroll_layer_id);
         context.builder.push_clip_scroll_node(new_scroll_layer_id, clip);
 
@@ -498,6 +519,7 @@ impl Frame {
                                                       current_scroll_layer_id);
         let iframe_scroll_layer_id = ScrollLayerId::root_scroll_layer(pipeline_id);
         let node = ClipScrollNode::new(&LayerRect::new(LayerPoint::zero(), iframe_rect.size),
+                                       &LayerRect::new(LayerPoint::zero(), iframe_rect.size),
                                        iframe_clip.main.size,
                                        pipeline_id);
         self.clip_scroll_tree.add_node(node.clone(),

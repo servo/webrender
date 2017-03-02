@@ -24,7 +24,7 @@ use texture_cache::TexturePage;
 use util::{TransformedRect, TransformedRectKind};
 use webrender_traits::{AuxiliaryLists, ColorF, DeviceIntPoint, DeviceIntRect, DeviceUintPoint};
 use webrender_traits::{DeviceUintSize, FontRenderMode, ImageRendering, LayerPoint, LayerRect};
-use webrender_traits::{LayerSize, LayerToWorldTransform, MixBlendMode, PipelineId, ScrollLayerId};
+use webrender_traits::{LayerToWorldTransform, MixBlendMode, PipelineId, ScrollLayerId};
 use webrender_traits::{WorldPoint4D, WorldToLayerTransform};
 
 // Special sentinel value recognized by the shader. It is considered to be
@@ -1500,7 +1500,7 @@ impl CompositeOps {
 /// A rendering-oriented representation of frame::Frame built by the render backend
 /// and presented to the renderer.
 pub struct Frame {
-    pub viewport_size: LayerSize,
+    pub window_size: DeviceUintSize,
     pub background_color: Option<ColorF>,
     pub device_pixel_ratio: f32,
     pub cache_size: DeviceUintSize,

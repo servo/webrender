@@ -172,7 +172,7 @@ impl Wrench {
             .. Default::default()
         };
 
-        let (renderer, sender) = webrender::renderer::Renderer::new(opts).unwrap();
+        let (renderer, sender) = webrender::renderer::Renderer::new(opts, size).unwrap();
         let api = sender.create_api();
 
         let proxy = window.create_window_proxy();

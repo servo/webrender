@@ -53,6 +53,7 @@ pub enum ApiMsg {
                        bool),
     SetPageZoom(PageZoomFactor),
     SetRootPipeline(PipelineId),
+    SetWindowParameters(DeviceUintSize, DeviceUintRect),
     Scroll(ScrollLocation, WorldPoint, ScrollEventPhase),
     ScrollLayersWithScrollId(LayoutPoint, PipelineId, ServoScrollRootId),
     TickScrollingBounce,
@@ -1236,6 +1237,7 @@ impl fmt::Debug for ApiMsg {
             &ApiMsg::ExternalEvent(..) => { write!(f, "ApiMsg::ExternalEvent") }
             &ApiMsg::ShutDown => { write!(f, "ApiMsg::ShutDown") }
             &ApiMsg::SetPageZoom(..) => { write!(f, "ApiMsg::SetPageZoom") }
+            &ApiMsg::SetWindowParameters(..) => { write!(f, "ApiMsg::SetWindowParameters") }
         }
     }
 }

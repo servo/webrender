@@ -509,7 +509,8 @@ impl Renderer {
     /// };
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
-    pub fn new(mut options: RendererOptions) -> Result<(Renderer, RenderApiSender), InitError> {
+    pub fn new(mut options: RendererOptions,
+               initial_window_size: DeviceUintSize) -> Result<(Renderer, RenderApiSender), InitError> {
         let (api_tx, api_rx) = try!{ channel::msg_channel() };
         let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
         let (result_tx, result_rx) = channel();
@@ -801,7 +802,8 @@ impl Renderer {
                                                  recorder,
                                                  backend_main_thread_dispatcher,
                                                  blob_image_renderer,
-                                                 backend_vr_compositor);
+                                                 backend_vr_compositor,
+                                                 initial_window_size);
             backend.run(backend_profile_counters);
         })};
 
@@ -1587,10 +1589,8 @@ impl Renderer {
         // Some tests use a restricted viewport smaller than the main screen size.
         // Ensure we clear the framebuffer in these tests.
         // TODO(gw): Find a better solution for this?
-        let viewport_size = DeviceIntSize::new((frame.viewport_size.width * frame.device_pixel_ratio) as i32,
-                                               (frame.viewport_size.height * frame.device_pixel_ratio) as i32);
-        let needs_clear = viewport_size.width < framebuffer_size.width as i32 ||
-                          viewport_size.height < framebuffer_size.height as i32;
+        let needs_clear = frame.window_size.width < framebuffer_size.width ||
+                          frame.window_size.height < framebuffer_size.height;
 
         self.device.disable_depth_write();
         self.device.disable_stencil();

@@ -70,21 +70,25 @@ impl ClipScrollTree {
     pub fn establish_root(&mut self,
                           pipeline_id: PipelineId,
                           viewport_size: &LayerSize,
+                          viewport_offset: LayerPoint,
+                          clip_size: LayerSize,
                           content_size: &LayerSize) {
         debug_assert!(self.nodes.is_empty());
 
-        let identity = LayerToScrollTransform::identity();
+        let transform = LayerToScrollTransform::create_translation(viewport_offset.x, viewport_offset.y, 0.0);
         let viewport = LayerRect::new(LayerPoint::zero(), *viewport_size);
-
+        let clip = LayerRect::new(LayerPoint::new(-viewport_offset.x, -viewport_offset.y),
+                                  LayerSize::new(clip_size.width, clip_size.height));
         let root_reference_frame_id = ScrollLayerId::root_reference_frame(pipeline_id);
         self.root_reference_frame_id = root_reference_frame_id;
         let reference_frame = ClipScrollNode::new_reference_frame(&viewport,
+                                                                  &clip,
                                                                   viewport.size,
-                                                                  &identity,
+                                                                  &transform,
                                                                   pipeline_id);
         self.nodes.insert(self.root_reference_frame_id, reference_frame);
 
-        let scroll_node = ClipScrollNode::new(&viewport, *content_size, pipeline_id);
+        let scroll_node = ClipScrollNode::new(&viewport, &clip, *content_size, pipeline_id);
         let topmost_scroll_layer_id = ScrollLayerId::root_scroll_layer(pipeline_id);
         self.topmost_scroll_layer_id = topmost_scroll_layer_id;
         self.add_node(scroll_node, topmost_scroll_layer_id, root_reference_frame_id);
@@ -297,7 +301,7 @@ impl ClipScrollTree {
         }
 
         let root_reference_frame_id = self.root_reference_frame_id();
-        let root_viewport = self.nodes[&root_reference_frame_id].local_viewport_rect;
+        let root_viewport = self.nodes[&root_reference_frame_id].local_clip_rect;
         self.update_node_transform(root_reference_frame_id,
                                    &LayerToWorldTransform::identity(),
                                    &as_scroll_parent_rect(&root_viewport),
@@ -391,7 +395,7 @@ impl ClipScrollTree {
         };
         self.current_reference_frame_id += 1;
 
-        let node = ClipScrollNode::new_reference_frame(&rect, rect.size, &transform, pipeline_id);
+        let node = ClipScrollNode::new_reference_frame(&rect, &rect, rect.size, &transform, pipeline_id);
         self.add_node(node, reference_frame_id, parent_id);
         reference_frame_id
     }

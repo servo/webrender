@@ -11,6 +11,7 @@ use {FontKey, IdNamespace, ImageKey, NativeFontHandle, PipelineId};
 use {RenderApiSender, ResourceId, ScrollEventPhase, ScrollLayerState, ScrollLocation, ServoScrollRootId};
 use {GlyphKey, GlyphDimensions, ImageData, WebGLContextId, WebGLCommand, TileSize};
 use {DeviceIntSize, DynamicProperties, LayoutPoint, LayoutSize, WorldPoint, PropertyBindingKey, PropertyBindingId};
+use {DeviceUintRect, DeviceUintSize};
 use {BuiltDisplayList, AuxiliaryLists};
 use VRCompositorCommand;
 use {ExternalEvent, PageZoomFactor};
@@ -200,6 +201,13 @@ impl RenderApi {
 
     pub fn set_page_zoom(&self, page_zoom: PageZoomFactor) {
         let msg = ApiMsg::SetPageZoom(page_zoom);
+        self.api_sender.send(msg).unwrap();
+    }
+
+    pub fn set_window_parameters(&self,
+                                 window_size: DeviceUintSize,
+                                 inner_rect: DeviceUintRect) {
+        let msg = ApiMsg::SetWindowParameters(window_size, inner_rect);
         self.api_sender.send(msg).unwrap();
     }
 

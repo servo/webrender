@@ -37,6 +37,10 @@ pub struct ClipScrollNode {
     /// Viewing rectangle in the coordinate system of the parent reference frame.
     pub local_viewport_rect: LayerRect,
 
+    /// Clip rect of this node - typically the same as viewport rect, except
+    /// in overscroll cases.
+    pub local_clip_rect: LayerRect,
+
     /// Viewport rectangle clipped against parent layer(s) viewport rectangles.
     /// This is in the coordinate system of the parent reference frame.
     pub combined_local_viewport_rect: LayerRect,
@@ -61,6 +65,7 @@ pub struct ClipScrollNode {
 
 impl ClipScrollNode {
     pub fn new(local_viewport_rect: &LayerRect,
+               local_clip_rect: &LayerRect,
                content_size: LayerSize,
                pipeline_id: PipelineId)
                -> ClipScrollNode {
@@ -68,7 +73,8 @@ impl ClipScrollNode {
             scrolling: ScrollingState::new(),
             content_size: content_size,
             local_viewport_rect: *local_viewport_rect,
-            combined_local_viewport_rect: *local_viewport_rect,
+            local_clip_rect: *local_clip_rect,
+            combined_local_viewport_rect: *local_clip_rect,
             world_viewport_transform: LayerToWorldTransform::identity(),
             world_content_transform: LayerToWorldTransform::identity(),
             children: Vec::new(),
@@ -78,6 +84,7 @@ impl ClipScrollNode {
     }
 
     pub fn new_reference_frame(local_viewport_rect: &LayerRect,
+                               local_clip_rect: &LayerRect,
                                content_size: LayerSize,
                                local_transform: &LayerToScrollTransform,
                                pipeline_id: PipelineId)
@@ -86,7 +93,8 @@ impl ClipScrollNode {
             scrolling: ScrollingState::new(),
             content_size: content_size,
             local_viewport_rect: *local_viewport_rect,
-            combined_local_viewport_rect: *local_viewport_rect,
+            local_clip_rect: *local_clip_rect,
+            combined_local_viewport_rect: *local_clip_rect,
             world_viewport_transform: LayerToWorldTransform::identity(),
             world_content_transform: LayerToWorldTransform::identity(),
             children: Vec::new(),
@@ -177,7 +185,7 @@ impl ClipScrollNode {
         // we do the intersection and get our combined viewport rect in the coordinate system
         // starting from our origin.
         self.combined_local_viewport_rect =
-            parent_combined_viewport_in_local_space.intersection(&self.local_viewport_rect)
+            parent_combined_viewport_in_local_space.intersection(&self.local_clip_rect)
                                                     .unwrap_or(LayerRect::zero());
 
         // The transformation for this viewport in world coordinates is the transformation for

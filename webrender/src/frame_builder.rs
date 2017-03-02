@@ -27,7 +27,7 @@ use tiling::{ScrollLayerIndex, StackingContext, StackingContextIndex};
 use util::{self, pack_as_float, rect_from_points_f, subtract_rect};
 use util::{RectHelpers, TransformedRectKind};
 use webrender_traits::{BorderDetails, BorderDisplayItem, BorderSide, BorderStyle};
-use webrender_traits::{BoxShadowClipMode, ClipRegion, ColorF, device_length, DeviceIntPoint};
+use webrender_traits::{BoxShadowClipMode, ClipRegion, ColorF, DeviceIntPoint};
 use webrender_traits::{DeviceIntRect, DeviceIntSize, DeviceUintSize, ExtendMode, FontKey, TileOffset};
 use webrender_traits::{FontRenderMode, GlyphOptions, ImageKey, ImageRendering, ItemRange};
 use webrender_traits::{LayerPoint, LayerRect, LayerSize, PipelineId, RepeatMode, ScrollLayerId};
@@ -102,7 +102,7 @@ impl FrameBuilderConfig {
 }
 
 pub struct FrameBuilder {
-    screen_rect: LayerRect,
+    screen_size: DeviceUintSize,
     background_color: Option<ColorF>,
     prim_store: PrimitiveStore,
     cmds: Vec<PrimitiveRunCmd>,
@@ -125,11 +125,11 @@ pub struct FrameBuilder {
 }
 
 impl FrameBuilder {
-    pub fn new(viewport_size: LayerSize,
+    pub fn new(screen_size: DeviceUintSize,
                background_color: Option<ColorF>,
                config: FrameBuilderConfig) -> FrameBuilder {
         FrameBuilder {
-            screen_rect: LayerRect::new(LayerPoint::zero(), viewport_size),
+            screen_size: screen_size,
             background_color: background_color,
             stacking_context_store: Vec::new(),
             scroll_layer_store: Vec::new(),
@@ -1150,10 +1150,8 @@ impl FrameBuilder {
 
         let screen_rect = DeviceIntRect::new(
             DeviceIntPoint::zero(),
-            DeviceIntSize::from_lengths(device_length(self.screen_rect.size.width as f32,
-                                                      device_pixel_ratio),
-                                        device_length(self.screen_rect.size.height as f32,
-                                                      device_pixel_ratio)));
+            DeviceIntSize::new(self.screen_size.width as i32,
+                               self.screen_size.height as i32));
 
         // Pick a size for the cache render targets to be. The main requirement is that it
         // has to be at least as large as the framebuffer size. This ensures that it will
@@ -1219,7 +1217,7 @@ impl FrameBuilder {
         Frame {
             device_pixel_ratio: device_pixel_ratio,
             background_color: self.background_color,
-            viewport_size: self.screen_rect.size,
+            window_size: self.screen_size,
             profile_counters: profile_counters,
             passes: passes,
             cache_size: cache_size,
