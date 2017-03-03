@@ -185,7 +185,8 @@ fn main() {
     builder.push_border(LayoutRect::new(LayoutPoint::new(100.0, 100.0), LayoutSize::new(100.0, 100.0)),
                         sub_clip,
                         border_widths,
-                        border_details);
+                        border_details,
+                        None);
 
 
     if false { // draw text?

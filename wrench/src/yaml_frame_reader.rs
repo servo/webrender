@@ -286,7 +286,8 @@ impl YamlFrameReader {
         self.builder().push_border(bounds,
                                    clip,
                                    widths,
-                                   details);
+                                   details,
+                                   None);
     }
 
     fn handle_box_shadow(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {

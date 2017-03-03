@@ -16,6 +16,7 @@ use {ScrollPolicy, ServoScrollRootId, SpecificDisplayItem, StackingContext, Text
 use {WebGLContextId, WebGLDisplayItem, YuvImageDisplayItem};
 use {LayoutTransform, LayoutPoint, LayoutRect, LayoutSize};
 use {BorderDetails, BorderWidths, GlyphOptions, PropertyBinding};
+use {Gradient, RadialGradient};
 
 impl BuiltDisplayListDescriptor {
     pub fn size(&self) -> usize {
@@ -185,11 +186,30 @@ impl DisplayListBuilder {
                        rect: LayoutRect,
                        clip: ClipRegion,
                        widths: BorderWidths,
-                       details: BorderDetails) {
-        let item = BorderDisplayItem {
+                       details: BorderDetails,
+                       stops: Option<Vec<GradientStop>>) {
+        let mut item = BorderDisplayItem {
             details: details,
             widths: widths,
         };
+
+        match item.details {
+            BorderDetails::Gradient(ref mut gradient) => {
+                if let Some(x) = stops {
+                    gradient.gradient.stops = self.auxiliary_lists_builder.add_gradient_stops(&x);
+                }
+            }
+            BorderDetails::RadialGradient(ref mut radial_gradient) => {
+                if let Some(x) = stops {
+                    radial_gradient.gradient.stops = self.auxiliary_lists_builder.add_gradient_stops(&x);
+                }
+            }
+            _ => {
+                if stops.is_some() {
+                    panic!("Normal and Image border shouldn't have stops info");
+                }
+            }
+        }
 
         let display_item = DisplayItem {
             item: SpecificDisplayItem::Border(item),
@@ -237,10 +257,12 @@ impl DisplayListBuilder {
                          stops: Vec<GradientStop>,
                          extend_mode: ExtendMode) {
         let item = GradientDisplayItem {
-            start_point: start_point,
-            end_point: end_point,
-            stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
-            extend_mode: extend_mode,
+            gradient: Gradient {
+                start_point: start_point,
+                end_point: end_point,
+                stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
+                extend_mode: extend_mode,
+            },
         };
 
         let display_item = DisplayItem {
@@ -262,12 +284,14 @@ impl DisplayListBuilder {
                                 stops: Vec<GradientStop>,
                                 extend_mode: ExtendMode) {
         let item = RadialGradientDisplayItem {
-            start_center: start_center,
-            start_radius: start_radius,
-            end_center: end_center,
-            end_radius: end_radius,
-            stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
-            extend_mode: extend_mode,
+            gradient: RadialGradient {
+                start_center: start_center,
+                start_radius: start_radius,
+                end_center: end_center,
+                end_radius: end_radius,
+                stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
+                extend_mode: extend_mode,
+            },
         };
 
         let display_item = DisplayItem {

@@ -20,6 +20,7 @@ use render_task::RenderTaskLocation;
 use resource_cache::ResourceCache;
 use clip_scroll_tree::ClipScrollTree;
 use std::{cmp, f32, i32, mem, usize};
+use euclid::SideOffsets2D;
 use tiling::{AuxiliaryListsMap, ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, Frame};
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
 use tiling::{RenderTargetContext, RenderTaskCollection, ScrollbarPrimitive, ScrollLayer};
@@ -323,6 +324,48 @@ impl FrameBuilder {
                       rect: LayerRect,
                       clip_region: &ClipRegion,
                       border_item: &BorderDisplayItem) {
+        let create_segments = |outset: SideOffsets2D<f32>| {
+            // Calculate the modified rect as specific by border-image-outset
+            let origin = LayerPoint::new(rect.origin.x - outset.left,
+                                         rect.origin.y - outset.top);
+            let size = LayerSize::new(rect.size.width + outset.left + outset.right,
+                                      rect.size.height + outset.top + outset.bottom);
+            let rect = LayerRect::new(origin, size);
+
+            let tl_outer = LayerPoint::new(rect.origin.x, rect.origin.y);
+            let tl_inner = tl_outer + LayerPoint::new(border_item.widths.left, border_item.widths.top);
+
+            let tr_outer = LayerPoint::new(rect.origin.x + rect.size.width, rect.origin.y);
+            let tr_inner = tr_outer + LayerPoint::new(-border_item.widths.right, border_item.widths.top);
+
+            let bl_outer = LayerPoint::new(rect.origin.x, rect.origin.y + rect.size.height);
+            let bl_inner = bl_outer + LayerPoint::new(border_item.widths.left, -border_item.widths.bottom);
+
+            let br_outer = LayerPoint::new(rect.origin.x + rect.size.width,
+                                           rect.origin.y + rect.size.height);
+            let br_inner = br_outer - LayerPoint::new(border_item.widths.right, border_item.widths.bottom);
+
+            // Build the list of gradient segments
+            vec![
+                // Top left
+                LayerRect::from_floats(tl_outer.x, tl_outer.y, tl_inner.x, tl_inner.y),
+                // Top right
+                LayerRect::from_floats(tr_inner.x, tr_outer.y, tr_outer.x, tr_inner.y),
+                // Bottom right
+                LayerRect::from_floats(br_inner.x, br_inner.y, br_outer.x, br_outer.y),
+                // Bottom left
+                LayerRect::from_floats(bl_outer.x, bl_inner.y, bl_inner.x, bl_outer.y),
+                // Top
+                LayerRect::from_floats(tl_inner.x, tl_outer.y, tr_inner.x, tl_inner.y),
+                // Bottom
+                LayerRect::from_floats(bl_inner.x, bl_inner.y, br_inner.x, bl_outer.y),
+                // Left
+                LayerRect::from_floats(tl_outer.x, tl_inner.y, tl_inner.x, bl_inner.y),
+                // Right
+                LayerRect::from_floats(tr_inner.x, tr_inner.y, br_outer.x, br_inner.y),
+            ]
+        };
+
         match border_item.details {
             BorderDetails::Image(ref border) => {
                 // Calculate the modified rect as specific by border-image-outset
@@ -538,6 +581,28 @@ impl FrameBuilder {
                 self.add_primitive(&rect,
                                    clip_region,
                                    PrimitiveContainer::Border(prim_cpu, prim_gpu));
+            }
+            BorderDetails::Gradient(ref border) => {
+                for segment in create_segments(border.outset) {
+                    self.add_gradient(segment,
+                                      clip_region,
+                                      border.gradient.start_point,
+                                      border.gradient.end_point,
+                                      border.gradient.stops,
+                                      border.gradient.extend_mode);
+                }
+            }
+            BorderDetails::RadialGradient(ref border) => {
+                for segment in create_segments(border.outset) {
+                    self.add_radial_gradient(segment,
+                                             clip_region,
+                                             border.gradient.start_center,
+                                             border.gradient.start_radius,
+                                             border.gradient.end_center,
+                                             border.gradient.end_radius,
+                                             border.gradient.stops,
+                                             border.gradient.extend_mode);
+                }
             }
         }
     }

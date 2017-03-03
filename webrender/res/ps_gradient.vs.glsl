@@ -16,9 +16,11 @@ void main(void) {
         float x0 = mix(gradient.start_end_point.x,
                        gradient.start_end_point.z,
                        g0.offset.x);
+        x0 = clamp(x0, prim.local_rect.p0.x, prim.local_rect.p0.x + prim.local_rect.size.x);
         float x1 = mix(gradient.start_end_point.x,
                        gradient.start_end_point.z,
                        g1.offset.x);
+        x1 = clamp(x1, prim.local_rect.p0.x, prim.local_rect.p0.x + prim.local_rect.size.x);
         segment_rect.p0 = vec2(x0, prim.local_rect.p0.y);
         segment_rect.size = vec2(x1 - x0, prim.local_rect.size.y);
         axis = vec2(1.0, 0.0);
@@ -26,9 +28,11 @@ void main(void) {
         float y0 = mix(gradient.start_end_point.y,
                        gradient.start_end_point.w,
                        g0.offset.x);
+        y0 = clamp(y0, prim.local_rect.p0.y, prim.local_rect.p0.y + prim.local_rect.size.y);
         float y1 = mix(gradient.start_end_point.y,
                        gradient.start_end_point.w,
                        g1.offset.x);
+        y1 = clamp(y1, prim.local_rect.p0.y, prim.local_rect.p0.y + prim.local_rect.size.y);
         segment_rect.p0 = vec2(prim.local_rect.p0.x, y0);
         segment_rect.size = vec2(prim.local_rect.size.x, y1 - y0);
         axis = vec2(0.0, 1.0);
@@ -50,7 +54,7 @@ void main(void) {
                                  prim.layer,
                                  prim.task);
 
-    vec2 f = (vi.local_pos - segment_rect.p0) / segment_rect.size;
+    vec2 f = (vi.local_pos - gradient.start_end_point.xy) / (gradient.start_end_point.zw - gradient.start_end_point.xy);
     vPos = vi.local_pos;
 #endif
 
