@@ -1388,7 +1388,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         // The coordinates of the mask are relative to the origin of the node itself,
         // so we need to account for that origin in the transformation we assign to
         // the packed layer.
-        let transform = node.world_content_transform
+        let transform = node.world_viewport_transform
                             .pre_translated(node.local_viewport_rect.origin.x,
                                             node.local_viewport_rect.origin.y,
                                             0.0);

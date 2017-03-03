@@ -22,3 +22,24 @@ root:
           - type: rect
             bounds: [0, 0, 100, 100]
             color: green
+
+    # The same test, but this time ensure that scroll offsets don't affect the masking.
+    -
+      type: stacking_context
+      bounds: [100, 0, 100, 100]
+      clip: [0, 0, 100, 300]
+      scroll-policy: scrollable
+      items:
+      - type: scroll_layer
+        bounds: [10, 10, 100, 100]
+        content-size: [100, 300]
+        scroll-offset: [0, 100]
+        clip:
+          image_mask:
+            image: "mask.png"
+            rect: [0, 0, 100, 100]
+            repeat: false
+        items:
+        - type: rect
+          bounds: [0, 0, 100, 200]
+          color: green
