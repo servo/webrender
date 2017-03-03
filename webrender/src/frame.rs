@@ -622,21 +622,21 @@ impl Frame {
                     context.builder.add_gradient(scroll_layer_id,
                                                  item.rect,
                                                  &item.clip,
-                                                 info.start_point,
-                                                 info.end_point,
-                                                 info.stops,
-                                                 info.extend_mode);
+                                                 info.gradient.start_point,
+                                                 info.gradient.end_point,
+                                                 info.gradient.stops,
+                                                 info.gradient.extend_mode);
                 }
                 SpecificDisplayItem::RadialGradient(ref info) => {
                     context.builder.add_radial_gradient(scroll_layer_id,
                                                         item.rect,
                                                         &item.clip,
-                                                        info.start_center,
-                                                        info.start_radius,
-                                                        info.end_center,
-                                                        info.end_radius,
-                                                        info.stops,
-                                                        info.extend_mode);
+                                                        info.gradient.start_center,
+                                                        info.gradient.start_radius,
+                                                        info.gradient.end_center,
+                                                        info.gradient.end_radius,
+                                                        info.gradient.stops,
+                                                        info.gradient.extend_mode);
                 }
                 SpecificDisplayItem::BoxShadow(ref box_shadow_info) => {
                     context.builder.add_box_shadow(scroll_layer_id,

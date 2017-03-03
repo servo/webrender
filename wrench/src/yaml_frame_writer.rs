@@ -601,6 +601,12 @@ impl YamlFrameWriter {
                         BorderDetails::Image(..) => {
                             println!("TODO: image border");
                         }
+                        BorderDetails::Gradient(..) => {
+                            println!("TODO: gradient border");
+                        }
+                        BorderDetails::RadialGradient(..) => {
+                            println!("TODO: radial gradient border");
+                        }
                     }
                 },
                 BoxShadow(item) => {
@@ -620,29 +626,29 @@ impl YamlFrameWriter {
                 },
                 Gradient(item) => {
                     str_node(&mut v, "type", "gradient");
-                    point_node(&mut v, "start", &item.start_point);
-                    point_node(&mut v, "end", &item.end_point);
+                    point_node(&mut v, "start", &item.gradient.start_point);
+                    point_node(&mut v, "end", &item.gradient.end_point);
                     let mut stops = vec![];
-                    for stop in aux.gradient_stops(&item.stops) {
+                    for stop in aux.gradient_stops(&item.gradient.stops) {
                         stops.push(Yaml::Real(stop.offset.to_string()));
                         stops.push(Yaml::String(color_to_string(stop.color)));
                     }
                     yaml_node(&mut v, "stops", Yaml::Array(stops));
-                    bool_node(&mut v, "repeat", item.extend_mode == ExtendMode::Repeat);
+                    bool_node(&mut v, "repeat", item.gradient.extend_mode == ExtendMode::Repeat);
                 },
                 RadialGradient(item) => {
                     str_node(&mut v, "type", "radial_gradient");
-                    point_node(&mut v, "start_center", &item.start_center);
-                    f32_node(&mut v, "start_radius", item.start_radius);
-                    point_node(&mut v, "end_center", &item.end_center);
-                    f32_node(&mut v, "end_radius", item.end_radius);
+                    point_node(&mut v, "start_center", &item.gradient.start_center);
+                    f32_node(&mut v, "start_radius", item.gradient.start_radius);
+                    point_node(&mut v, "end_center", &item.gradient.end_center);
+                    f32_node(&mut v, "end_radius", item.gradient.end_radius);
                     let mut stops = vec![];
-                    for stop in aux.gradient_stops(&item.stops) {
+                    for stop in aux.gradient_stops(&item.gradient.stops) {
                         stops.push(Yaml::Real(stop.offset.to_string()));
                         stops.push(Yaml::String(color_to_string(stop.color)));
                     }
                     yaml_node(&mut v, "stops", Yaml::Array(stops));
-                    bool_node(&mut v, "repeat", item.extend_mode == ExtendMode::Repeat);
+                    bool_node(&mut v, "repeat", item.gradient.extend_mode == ExtendMode::Repeat);
                 },
                 Iframe(item) => {
                     str_node(&mut v, "type", "iframe");

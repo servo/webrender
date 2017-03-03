@@ -104,9 +104,23 @@ pub struct ImageBorder {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct GradientBorder {
+    pub gradient: Gradient,
+    pub outset: SideOffsets2D<f32>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RadialGradientBorder {
+    pub gradient: RadialGradient,
+    pub outset: SideOffsets2D<f32>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum BorderDetails {
     Normal(NormalBorder),
     Image(ImageBorder),
+    Gradient(GradientBorder),
+    RadialGradient(RadialGradientBorder),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -179,11 +193,16 @@ pub enum ExtendMode {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-pub struct GradientDisplayItem {
+pub struct Gradient {
     pub start_point: LayoutPoint,
     pub end_point: LayoutPoint,
     pub stops: ItemRange,
     pub extend_mode: ExtendMode,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct GradientDisplayItem {
+    pub gradient: Gradient,
 }
 
 #[repr(C)]
@@ -195,13 +214,18 @@ pub struct GradientStop {
 known_heap_size!(0, GradientStop);
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-pub struct RadialGradientDisplayItem {
+pub struct RadialGradient {
     pub start_center: LayoutPoint,
     pub start_radius: f32,
     pub end_center: LayoutPoint,
     pub end_radius: f32,
     pub stops: ItemRange,
     pub extend_mode: ExtendMode,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RadialGradientDisplayItem {
+    pub gradient: RadialGradient,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
