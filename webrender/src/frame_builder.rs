@@ -217,18 +217,14 @@ impl FrameBuilder {
                                  pipeline_id: PipelineId,
                                  is_page_root: bool,
                                  composite_ops: CompositeOps) {
-        let stacking_context_index = StackingContextIndex(self.stacking_context_store.len());
-        let parent_index = self.stacking_context_stack.last().map(|x| x.0);
-        self.stacking_context_stack.push(stacking_context_index);
-
-        if let Some(parent_index) = parent_index {
-            let parent_is_root = self.stacking_context_store[parent_index].is_page_root;
+        if let Some(parent_index) = self.stacking_context_stack.last() {
+            let parent_is_root = self.stacking_context_store[parent_index.0].is_page_root;
 
             if composite_ops.mix_blend_mode.is_some() && !parent_is_root {
                 // the parent stacking context of a stacking context with mix-blend-mode
                 // must be drawn with a transparent background, unless the parent stacking context
                 // is the root of the page
-                self.stacking_context_store[parent_index].should_isolate = true;
+                self.stacking_context_store[parent_index.0].should_isolate = true;
             }
         }
 
@@ -243,7 +239,6 @@ impl FrameBuilder {
     }
 
     pub fn pop_stacking_context(&mut self) {
-        self.stacking_context_stack.pop();
         self.cmds.push(PrimitiveRunCmd::PopStackingContext);
         self.stacking_context_stack.pop();
     }
