@@ -18,6 +18,7 @@ use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use thread_profiler::register_thread_with_profiler;
 use threadpool::ThreadPool;
+use webrender_traits::{DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, ImageData};
 use webrender_traits::{PipelineId, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
 use webrender_traits::channel::{PayloadHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
@@ -36,6 +37,8 @@ pub struct RenderBackend {
 
     device_pixel_ratio: f32,
     page_zoom_factor: f32,
+    window_size: DeviceUintSize,
+    inner_rect: DeviceUintRect,
     next_namespace_id: IdNamespace,
 
     resource_cache: ResourceCache,
@@ -70,7 +73,8 @@ impl RenderBackend {
                recorder: Option<Box<ApiRecordingReceiver>>,
                main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
                blob_image_renderer: Option<Box<BlobImageRenderer>>,
-               vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>) -> RenderBackend {
+               vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
+               initial_window_size: DeviceUintSize) -> RenderBackend {
 
         let resource_cache = ResourceCache::new(texture_cache, workers, blob_image_renderer, enable_aa);
 
@@ -94,7 +98,9 @@ impl RenderBackend {
             recorder: recorder,
             main_thread_dispatcher: main_thread_dispatcher,
             next_webgl_id: 0,
-            vr_compositor_handler: vr_compositor_handler
+            vr_compositor_handler: vr_compositor_handler,
+            window_size: initial_window_size,
+            inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), initial_window_size),
         }
     }
 
@@ -144,6 +150,10 @@ impl RenderBackend {
                         }
                         ApiMsg::SetPageZoom(factor) => {
                             self.page_zoom_factor = factor.get();
+                        }
+                        ApiMsg::SetWindowParameters(window_size, inner_rect) => {
+                            self.window_size = window_size;
+                            self.inner_rect = inner_rect;
                         }
                         ApiMsg::CloneApi(sender) => {
                             let result = self.next_namespace_id;
@@ -426,7 +436,13 @@ impl RenderBackend {
             webgl_context.unbind();
         }
 
-        self.frame.create(&self.scene, &mut self.resource_cache);
+        let device_pixel_ratio = self.device_pixel_ratio * self.page_zoom_factor;
+
+        self.frame.create(&self.scene,
+                          &mut self.resource_cache,
+                          self.window_size,
+                          self.inner_rect,
+                          device_pixel_ratio);
     }
 
     fn render(&mut self,
