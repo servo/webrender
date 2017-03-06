@@ -3,10 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use display_list::AuxiliaryListsBuilder;
-use {BorderRadius, ClipRegion, ColorF, ComplexClipRegion};
-use {FontKey, ImageKey, PipelineId, ScrollLayerId, ScrollLayerInfo, ServoScrollRootId};
-use {ImageMask, ItemRange};
-use {LayoutSize, LayoutPoint, LayoutRect};
+use {BorderRadius, ClipRegion, ColorF, ComplexClipRegion, FontKey, ImageKey, ImageMask, ItemRange};
+use {LayoutPoint, LayoutRect, LayoutSize};
 
 impl BorderRadius {
     pub fn zero() -> BorderRadius {
@@ -150,17 +148,5 @@ impl FontKey {
 impl ImageKey {
     pub fn new(key0: u32, key1: u32) -> ImageKey {
         ImageKey(key0, key1)
-    }
-}
-
-impl ScrollLayerId {
-    pub fn new(pipeline_id: PipelineId,
-               index: usize,
-               scroll_root_id: ServoScrollRootId)
-               -> ScrollLayerId {
-        ScrollLayerId {
-            pipeline_id: pipeline_id,
-            info: ScrollLayerInfo::Scrollable(index, scroll_root_id),
-        }
     }
 }
