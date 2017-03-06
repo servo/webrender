@@ -4,3 +4,4 @@ include scrolling/reftest.list
 include filters/reftest.list
 include boxshadow/reftest.list
 include image/reftest.list
+include border/reftest.list
