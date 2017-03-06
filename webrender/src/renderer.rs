@@ -11,8 +11,8 @@
 
 use debug_colors;
 use debug_render::DebugRenderer;
-use device::{DepthFunction, Device, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler};
-use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
+use device::{DepthFunction, Device, FrameId, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler};
+use device::{GpuSample, TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use euclid::Matrix4D;
 use fnv::FnvHasher;
 use frame_builder::FrameBuilderConfig;
@@ -29,7 +29,7 @@ use render_backend::RenderBackend;
 use render_task::RenderTaskData;
 use std;
 use std::cmp;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::f32;
 use std::hash::BuildHasherDefault;
 use std::marker::PhantomData;
@@ -79,6 +79,44 @@ const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag { label: "Blur", color: debug_
 pub enum RendererKind {
     Native,
     OSMesa,
+}
+
+#[derive(Debug)]
+pub struct GpuProfile {
+    pub frame_id: FrameId,
+    pub paint_time_ns: u64,
+}
+
+impl GpuProfile {
+    fn new<T>(frame_id: FrameId, samples: &[GpuSample<T>]) -> GpuProfile {
+        let mut paint_time_ns = 0;
+        for sample in samples {
+            paint_time_ns += sample.time_ns;
+        }
+        GpuProfile {
+            frame_id: frame_id,
+            paint_time_ns: paint_time_ns,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct CpuProfile {
+    pub frame_id: FrameId,
+    pub composite_time_ns: u64,
+    pub draw_calls: usize,
+}
+
+impl CpuProfile {
+    fn new(frame_id: FrameId,
+           composite_time_ns: u64,
+           draw_calls: usize) -> CpuProfile {
+        CpuProfile {
+            frame_id: frame_id,
+            composite_time_ns: composite_time_ns,
+            draw_calls: draw_calls,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -431,6 +469,7 @@ pub struct Renderer {
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
     enable_profiler: bool,
+    max_recorded_profiles: usize,
     clear_framebuffer: bool,
     clear_color: ColorF,
     debug: DebugRenderer,
@@ -479,7 +518,12 @@ pub struct Renderer {
 
     // Optional trait object that handles WebVR commands.
     // Some WebVR commands such as SubmitFrame must be synced with the WebGL render thread.
-    vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>
+    vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
+
+    /// List of profile results from previous frames. Can be retrieved
+    /// via get_frame_profiles().
+    cpu_profiles: VecDeque<CpuProfile>,
+    gpu_profiles: VecDeque<GpuProfile>,
 }
 
 #[derive(Debug)]
@@ -846,6 +890,7 @@ impl Renderer {
             profile_counters: RendererProfileCounters::new(),
             profiler: Profiler::new(),
             enable_profiler: options.enable_profiler,
+            max_recorded_profiles: options.max_recorded_profiles,
             clear_framebuffer: options.clear_framebuffer,
             clear_color: options.clear_color,
             last_time: 0,
@@ -862,7 +907,9 @@ impl Renderer {
             dummy_cache_texture_id: dummy_cache_texture_id,
             external_image_handler: None,
             external_images: HashMap::with_hasher(Default::default()),
-            vr_compositor_handler: vr_compositor
+            vr_compositor_handler: vr_compositor,
+            cpu_profiles: VecDeque::new(),
+            gpu_profiles: VecDeque::new(),
         };
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
@@ -964,6 +1011,13 @@ impl Renderer {
         self.external_image_handler = Some(handler);
     }
 
+    /// Retrieve (and clear) the current list of recorded frame profiles.
+    pub fn get_frame_profiles(&mut self) -> (Vec<CpuProfile>, Vec<GpuProfile>) {
+        let cpu_profiles = self.cpu_profiles.drain(..).collect();
+        let gpu_profiles = self.gpu_profiles.drain(..).collect();
+        (cpu_profiles, gpu_profiles)
+    }
+
     /// Renders the current frame.
     ///
     /// A Frame is supplied by calling [set_root_stacking_context()][newframe].
@@ -977,13 +1031,19 @@ impl Renderer {
 
                 // Block CPU waiting for last frame's GPU profiles to arrive.
                 // In general this shouldn't block unless heavily GPU limited.
-                if let Some(samples) = self.gpu_profile.build_samples() {
+                if let Some((gpu_frame_id, samples)) = self.gpu_profile.build_samples() {
+                    if self.max_recorded_profiles > 0 {
+                        while self.gpu_profiles.len() >= self.max_recorded_profiles {
+                            self.gpu_profiles.pop_front();
+                        }
+                        self.gpu_profiles.push_back(GpuProfile::new(gpu_frame_id, &samples));
+                    }
                     profile_timers.gpu_samples = samples;
                 }
 
-                profile_timers.cpu_time.profile(|| {
-                    self.device.begin_frame(frame.device_pixel_ratio);
-                    self.gpu_profile.begin_frame();
+                let cpu_frame_id = profile_timers.cpu_time.profile(|| {
+                    let cpu_frame_id = self.device.begin_frame(frame.device_pixel_ratio);
+                    self.gpu_profile.begin_frame(cpu_frame_id);
                     {
                         let _gm = self.gpu_profile.add_marker(GPU_TAG_INIT);
 
@@ -998,11 +1058,22 @@ impl Renderer {
                     self.draw_tile_frame(frame, &framebuffer_size);
 
                     self.gpu_profile.end_frame();
+                    cpu_frame_id
                 });
 
                 let current_time = precise_time_ns();
                 let ns = current_time - self.last_time;
                 self.profile_counters.frame_time.set(ns);
+
+                if self.max_recorded_profiles > 0 {
+                    while self.cpu_profiles.len() >= self.max_recorded_profiles {
+                        self.cpu_profiles.pop_front();
+                    }
+                    let cpu_profile = CpuProfile::new(cpu_frame_id,
+                                                      profile_timers.cpu_time.get(),
+                                                      self.profile_counters.draw_calls.get());
+                    self.cpu_profiles.push_back(cpu_profile);
+                }
 
                 if self.enable_profiler {
                     self.profiler.draw_profile(&frame.profile_counters,
@@ -1770,6 +1841,7 @@ pub struct RendererOptions {
     pub resource_override_path: Option<PathBuf>,
     pub enable_aa: bool,
     pub enable_profiler: bool,
+    pub max_recorded_profiles: usize,
     pub debug: bool,
     pub enable_scrollbars: bool,
     pub precache_shaders: bool,
@@ -1791,6 +1863,7 @@ impl Default for RendererOptions {
             resource_override_path: None,
             enable_aa: true,
             enable_profiler: false,
+            max_recorded_profiles: 0,
             debug: false,
             enable_scrollbars: false,
             precache_shaders: false,
