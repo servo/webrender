@@ -197,6 +197,7 @@ pub enum TextureSampler {
     Geometry,
     ResourceRects,
     Gradients,
+    Dither,
 }
 
 impl TextureSampler {
