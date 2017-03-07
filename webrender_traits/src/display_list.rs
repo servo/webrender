@@ -5,9 +5,8 @@
 use app_units::Au;
 use std::mem;
 use std::slice;
-use {AuxiliaryLists, AuxiliaryListsDescriptor, BorderDisplayItem};
-use {BoxShadowClipMode, BoxShadowDisplayItem, BuiltDisplayList};
-use {BuiltDisplayListDescriptor, ClipRegion, ComplexClipRegion, ColorF};
+use {BoxShadowClipMode, BoxShadowDisplayItem, BorderDisplayItem};
+use {ClipRegion, ComplexClipRegion, ColorF};
 use {DisplayItem, ExtendMode, FilterOp, YuvColorSpace};
 use {FontKey, GlyphInstance, GradientDisplayItem, RadialGradientDisplayItem, GradientStop, IframeDisplayItem};
 use {ImageDisplayItem, ImageKey, ImageMask, ImageRendering, ItemRange, MixBlendMode, PipelineId};
@@ -16,6 +15,45 @@ use {ScrollPolicy, ServoScrollRootId, SpecificDisplayItem, StackingContext, Text
 use {WebGLContextId, WebGLDisplayItem, YuvImageDisplayItem};
 use {LayoutTransform, LayoutPoint, LayoutRect, LayoutSize};
 use {BorderDetails, BorderWidths, GlyphOptions, PropertyBinding};
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct AuxiliaryLists {
+    /// The concatenation of: gradient stops, complex clip regions, filters, and glyph instances,
+    /// in that order.
+    data: Vec<u8>,
+    descriptor: AuxiliaryListsDescriptor,
+}
+
+/// Describes the memory layout of the auxiliary lists.
+///
+/// Auxiliary lists consist of some number of gradient stops, complex clip regions, filters, and
+/// glyph instances, in that order.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct AuxiliaryListsDescriptor {
+    gradient_stops_size: usize,
+    complex_clip_regions_size: usize,
+    filters_size: usize,
+    glyph_instances_size: usize,
+}
+
+/// A display list.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct BuiltDisplayList {
+    data: Vec<u8>,
+    descriptor: BuiltDisplayListDescriptor,
+}
+
+/// Describes the memory layout of a display list.
+///
+/// A display list consists of some number of display list items, followed by a number of display
+/// items.
+#[repr(C)]
+#[derive(Copy, Clone, Deserialize, Serialize)]
+pub struct BuiltDisplayListDescriptor {
+    /// The size in bytes of the display list items in this display list.
+    display_list_items_size: usize,
+}
 
 impl BuiltDisplayListDescriptor {
     pub fn size(&self) -> usize {

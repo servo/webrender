@@ -46,7 +46,7 @@ use time::precise_time_ns;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use util::TransformedRectKind;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
-use webrender_traits::{ExternalImageId, ImageData, ImageFormat, RenderApiSender, RendererKind};
+use webrender_traits::{ExternalImageId, ImageData, ImageFormat, RenderApiSender};
 use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use webrender_traits::{ImageDescriptor, BlobImageRenderer};
 use webrender_traits::channel;
@@ -74,6 +74,12 @@ const GPU_TAG_PRIM_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "BoxShadow
 const GPU_TAG_PRIM_BORDER: GpuProfileTag = GpuProfileTag { label: "Border", color: debug_colors::ORANGE };
 const GPU_TAG_PRIM_CACHE_IMAGE: GpuProfileTag = GpuProfileTag { label: "CacheImage", color: debug_colors::SILVER };
 const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag { label: "Blur", color: debug_colors::VIOLET };
+
+#[derive(Debug, Copy, Clone)]
+pub enum RendererKind {
+    Native,
+    OSMesa,
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BlendMode {
