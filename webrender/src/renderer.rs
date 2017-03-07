@@ -154,15 +154,22 @@ impl<L: GpuStoreLayout> GpuDataTexture<L> {
         }
 
         let items_per_row = L::items_per_row::<T>();
+        let rows_per_item = L::rows_per_item::<T>();
 
         // Extend the data array to be a multiple of the row size.
         // This ensures memory safety when the array is passed to
         // OpenGL to upload to the GPU.
-        while data.len() % items_per_row != 0 {
-            data.push(T::default());
+        if items_per_row != 0 {
+            while data.len() % items_per_row != 0 {
+                data.push(T::default());
+            }
         }
 
-        let height = data.len() / items_per_row;
+        let height = if items_per_row != 0 {
+            data.len() / items_per_row
+        } else {
+            data.len() * rows_per_item
+        };
 
         device.init_texture(self.id,
                             L::texture_width::<T>() as u32,
@@ -201,7 +208,7 @@ impl GpuStoreLayout for GradientDataTextureLayout {
     }
 
     fn texture_width<T>() -> usize {
-        mem::size_of::<GradientData>() / Self::texel_size()
+        mem::size_of::<GradientData>() / Self::texel_size() / 2
     }
 
     fn texture_filter() -> TextureFilter {
@@ -513,6 +520,8 @@ pub struct Renderer {
     /// when no target is yet provided as a cache texture input.
     dummy_cache_texture_id: TextureId,
 
+    dither_matrix_texture_id: TextureId,
+
     /// Optional trait object that allows the client
     /// application to provide external buffers for image data.
     external_image_handler: Option<Box<ExternalImageHandler>>,
@@ -749,6 +758,18 @@ impl Renderer {
             0xff, 0xff,
             0xff, 0xff,
         ];
+
+        let dither_matrix: [u8; 64] = [
+            00, 48, 12, 60, 03, 51, 15, 63,
+            32, 16, 44, 28, 35, 19, 47, 31,
+            08, 56, 04, 52, 11, 59, 07, 55,
+            40, 24, 36, 20, 43, 27, 39, 23,
+            02, 50, 14, 62, 01, 49, 13, 61,
+            34, 18, 46, 30, 33, 17, 45, 29,
+            10, 58, 06, 54, 09, 57, 05, 53,
+            42, 26, 38, 22, 41, 25, 37, 21
+        ];
+
         // TODO: Ensure that the white texture can never get evicted when the cache supports LRU eviction!
         let white_image_id = texture_cache.new_item_id();
         texture_cache.insert(white_image_id,
@@ -772,6 +793,15 @@ impl Renderer {
                             TextureFilter::Linear,
                             RenderTargetMode::LayerRenderTarget(1),
                             None);
+
+        let dither_matrix_texture_id = device.create_texture_ids(1, TextureTarget::Default)[0];
+        device.init_texture(dither_matrix_texture_id,
+                            8,
+                            8,
+                            ImageFormat::A8,
+                            TextureFilter::Nearest,
+                            RenderTargetMode::None,
+                            Some(&dither_matrix));
 
         let debug_renderer = DebugRenderer::new(&mut device);
 
@@ -914,6 +944,7 @@ impl Renderer {
             main_thread_dispatcher: main_thread_dispatcher,
             cache_texture_id_map: Vec::new(),
             dummy_cache_texture_id: dummy_cache_texture_id,
+            dither_matrix_texture_id: dither_matrix_texture_id,
             external_image_handler: None,
             external_images: HashMap::with_hasher(Default::default()),
             vr_compositor_handler: vr_compositor,
@@ -1253,6 +1284,9 @@ impl Renderer {
             let texture_id = self.resolve_source_texture(&textures.colors[i]);
             self.device.bind_texture(TextureSampler::color(i), texture_id);
         }
+
+        // TODO: this probably isn't the best place for this.
+        self.device.bind_texture(TextureSampler::Dither, self.dither_matrix_texture_id);
 
         self.device.update_vao_instances(vao, data, VertexUsageHint::Stream);
         self.device.draw_indexed_triangles_instanced_u16(6, data.len() as i32);

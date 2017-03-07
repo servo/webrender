@@ -11,11 +11,10 @@ void main(void) {
     // gradient color entries (texture width / 2).
     float x = mix(clamp(vOffset, 0.0, 1.0), fract(vOffset), vGradientRepeat) * 0.5 * texture_size.x;
 
-    // Start at the center of first color in the nearest 2-color entry, then offset with the
-    // fractional remainder to interpolate between the colors. Rely on texture clamping when
-    // outside of valid range.
     x = 2.0 * floor(x) + 0.5 + fract(x);
+    float y = vGradientIndex + 1.0 / 256.0;
 
-    // Normalize the texture coordates so we can use texture() for bilinear filtering.
-    oFragColor = texture(sGradients, vec2(x, vGradientIndex) / texture_size);
+    // Use linear filtering to mix in the low bits (vGradientIndex + 1) with the high
+    // bits (vGradientIndex)
+    oFragColor = dither(texture(sGradients, vec2(x, y) / texture_size));
 }
