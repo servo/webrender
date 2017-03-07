@@ -19,6 +19,7 @@ pub struct DisplayItem {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum SpecificDisplayItem {
+    Clip(ClipDisplayItem),
     Rectangle(RectangleDisplayItem),
     Text(TextDisplayItem),
     Image(ImageDisplayItem),
@@ -31,8 +32,6 @@ pub enum SpecificDisplayItem {
     Iframe(IframeDisplayItem),
     PushStackingContext(PushStackingContextDisplayItem),
     PopStackingContext,
-    PushScrollLayer(PushScrollLayerItem),
-    PopScrollLayer,
 }
 
 #[repr(C)]
@@ -40,6 +39,14 @@ pub enum SpecificDisplayItem {
 pub struct ItemRange {
     pub start: usize,
     pub length: usize,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ClipDisplayItem {
+    pub content_size: LayoutSize,
+    pub id: ScrollLayerId,
+    pub parent_id: ScrollLayerId,
+    pub scroll_root_id: Option<ServoScrollRootId>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -286,13 +293,6 @@ pub enum FilterOp {
     Opacity(PropertyBinding<f32>),
     Saturate(f32),
     Sepia(f32),
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-pub struct PushScrollLayerItem {
-    pub content_size: LayoutSize,
-    pub id: ScrollLayerId,
-    pub scroll_root_id: Option<ServoScrollRootId>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

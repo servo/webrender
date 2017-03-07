@@ -119,7 +119,7 @@ pub struct FrameBuilder {
 
     /// A stack of scroll nodes used during display list processing to properly
     /// parent new scroll nodes.
-    clip_scroll_node_stack: Vec<ScrollLayerId>,
+    reference_frame_stack: Vec<ScrollLayerId>,
 
     /// A stack of stacking contexts used for creating ClipScrollGroups as
     /// primitives are added to the frame.
@@ -140,7 +140,7 @@ impl FrameBuilder {
             packed_layers: Vec::new(),
             scrollbar_prims: Vec::new(),
             config: config,
-            clip_scroll_node_stack: Vec::new(),
+            reference_frame_stack: Vec::new(),
             stacking_context_stack: Vec::new(),
         }
     }
@@ -251,12 +251,12 @@ impl FrameBuilder {
                                 clip_scroll_tree: &mut ClipScrollTree)
                                 -> ScrollLayerId {
         let new_id = clip_scroll_tree.add_reference_frame(rect, transform, pipeline_id, parent_id);
-        self.clip_scroll_node_stack.push(new_id);
+        self.reference_frame_stack.push(new_id);
         new_id
     }
 
     pub fn current_reference_frame_id(&self) -> ScrollLayerId {
-        *self.clip_scroll_node_stack.iter().rev().find(|id| id.is_reference_frame()).unwrap()
+        *self.reference_frame_stack.last().unwrap()
     }
 
     pub fn setup_viewport_offset(&mut self,
@@ -304,7 +304,7 @@ impl FrameBuilder {
 
         let topmost_scroll_layer_id = ScrollLayerId::root_scroll_layer(pipeline_id);
         clip_scroll_tree.topmost_scroll_layer_id = topmost_scroll_layer_id;
-        self.push_clip_scroll_node(topmost_scroll_layer_id,
+        self.add_clip_scroll_node(topmost_scroll_layer_id,
                                    clip_scroll_tree.root_reference_frame_id,
                                    pipeline_id,
                                    &viewport_rect,
@@ -315,15 +315,15 @@ impl FrameBuilder {
         topmost_scroll_layer_id
     }
 
-    pub fn push_clip_scroll_node(&mut self,
-                                 new_node_id: ScrollLayerId,
-                                 parent_id: ScrollLayerId,
-                                 pipeline_id: PipelineId,
-                                 local_viewport_rect: &LayerRect,
-                                 content_size: &LayerSize,
-                                 scroll_root_id: Option<ServoScrollRootId>,
-                                 clip_region: &ClipRegion,
-                                 clip_scroll_tree: &mut ClipScrollTree) {
+    pub fn add_clip_scroll_node(&mut self,
+                                new_node_id: ScrollLayerId,
+                                parent_id: ScrollLayerId,
+                                pipeline_id: PipelineId,
+                                local_viewport_rect: &LayerRect,
+                                content_size: &LayerSize,
+                                scroll_root_id: Option<ServoScrollRootId>,
+                                clip_region: &ClipRegion,
+                                clip_scroll_tree: &mut ClipScrollTree) {
         let clip_info = ClipInfo::new(clip_region,
                                       &mut self.prim_store.gpu_data32,
                                       PackedLayerIndex(self.packed_layers.len()),
@@ -336,15 +336,10 @@ impl FrameBuilder {
 
         clip_scroll_tree.add_node(node, new_node_id);
         self.packed_layers.push(PackedLayer::empty());
-        self.clip_scroll_node_stack.push(new_node_id);
     }
 
-    pub fn pop_clip_scroll_node(&mut self) {
-        self.clip_scroll_node_stack.pop();
-    }
-
-    pub fn current_clip_scroll_node_id(&mut self) -> ScrollLayerId {
-        *self.clip_scroll_node_stack.last().unwrap()
+    pub fn pop_reference_frame(&mut self) {
+        self.reference_frame_stack.pop();
     }
 
     pub fn add_solid_rectangle(&mut self,

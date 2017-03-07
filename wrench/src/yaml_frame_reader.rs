@@ -51,6 +51,10 @@ pub struct YamlFrameReader {
     /// scroll layers should be initialized with.
     scroll_offsets: HashMap<ServoScrollRootId, LayerPoint>,
 
+    /// A HashMap of offsets which specify what scroll offsets particular
+    /// scroll layers should be initialized with.
+    clip_id_mapping: HashMap<u32, ScrollLayerId>,
+
     /// Current scroll root id used to generate new scroll root ids
     /// for scroll layers.
     current_scroll_root_id: usize,
@@ -68,6 +72,7 @@ impl YamlFrameReader {
             queue_depth: 1,
             include_only: vec![],
             scroll_offsets: HashMap::new(),
+            clip_id_mapping: HashMap::new(),
             current_scroll_root_id: 1,
         }
     }
@@ -86,6 +91,11 @@ impl YamlFrameReader {
         self.builder.as_mut().unwrap()
     }
 
+    pub fn reset(&mut self) {
+        self.scroll_offsets.clear();
+        self.clip_id_mapping.clear();
+    }
+
     pub fn build(&mut self, wrench: &mut Wrench) {
         let mut file = File::open(&self.yaml_path).unwrap();
         let mut src = String::new();
@@ -98,8 +108,9 @@ impl YamlFrameReader {
         if !yaml["pipelines"].is_badvalue() {
             let pipelines = yaml["pipelines"].as_vec().unwrap();
             for pipeline in pipelines {
+                self.reset();
+
                 let pipeline_id = pipeline["id"].as_pipeline_id().unwrap();
-                self.scroll_offsets.clear();
                 self.builder = Some(DisplayListBuilder::new(pipeline_id));
                 self.add_stacking_context_from_yaml(wrench, pipeline, true);
                 wrench.send_lists(self.frame_count,
@@ -109,7 +120,7 @@ impl YamlFrameReader {
 
         }
 
-        self.scroll_offsets.clear();
+        self.reset();
         self.builder = Some(DisplayListBuilder::new(wrench.root_pipeline_id));
 
         if yaml["root"].is_badvalue() {
@@ -560,31 +571,54 @@ impl YamlFrameReader {
                     item["type"].as_str().unwrap_or("unknown")
                 };
 
-            if item_type != "stacking_context" &&
-               !self.include_only.is_empty() &&
-               !self.include_only.contains(&item_type.to_owned()) {
+            if item_type == "stacking_context" {
+                self.add_stacking_context_from_yaml(wrench, &item, false);
                 continue;
+            }
+
+
+            if !self.include_only.is_empty() && !self.include_only.contains(&item_type.to_owned()) {
+                continue;
+            }
+
+            let yaml_clip_id = item["clip_id"].as_i64();
+            if let Some(yaml_id) = yaml_clip_id {
+                let id = self.clip_id_mapping[&(yaml_id as u32)];
+                self.builder().push_clip_id(id);
             }
 
             match item_type {
                 "rect" => self.handle_rect(wrench, &full_clip_region, &item),
                 "image" => self.handle_image(wrench, &full_clip_region, &item),
                 "text" | "glyphs" => self.handle_text(wrench, &full_clip_region, &item),
-                "stacking_context" => self.add_stacking_context_from_yaml(wrench, &item, false),
                 "scroll_layer" => self.add_scroll_layer_from_yaml(wrench, &item),
+                "clip" => { self.add_clip_from_yaml(wrench, &item); }
                 "border" => self.handle_border(wrench, &full_clip_region, &item),
                 "gradient" => self.handle_gradient(wrench, &full_clip_region, &item),
                 "radial_gradient" => self.handle_radial_gradient(wrench, &full_clip_region, &item),
                 "box_shadow" => self.handle_box_shadow(wrench, &full_clip_region, &item),
                 "iframe" => self.handle_iframe(wrench, &full_clip_region, &item),
-                _ => {
-                    println!("Skipping unknown item type: {:?}", item);
-                }
+                "stacking_context" => { },
+                _ => println!("Skipping unknown item type: {:?}", item),
+            }
+
+            if yaml_clip_id.is_some() {
+                self.builder().pop_clip_id();
             }
         }
     }
 
     pub fn add_scroll_layer_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
+        let id = self.add_clip_from_yaml(wrench, yaml);
+
+        self.builder().push_clip_id(id);
+        if !yaml["items"].is_badvalue() {
+            self.add_display_list_items_from_yaml(wrench, &yaml["items"]);
+        }
+        self.builder().pop_clip_id();
+    }
+
+    pub fn add_clip_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) -> ScrollLayerId {
         let bounds = yaml["bounds"].as_rect().expect("scroll layer must have bounds");
         let content_size = yaml["content-size"].as_size()
                                                .expect("scroll layer must have content size");
@@ -597,13 +631,12 @@ impl YamlFrameReader {
             *entry = LayerPoint::new(size.x, size.y);
         }
 
-        self.builder().push_scroll_layer(clip, content_size, Some(scroll_root_id));
-
-        if !yaml["items"].is_badvalue() {
-            self.add_display_list_items_from_yaml(wrench, &yaml["items"]);
+        let id = self.builder().define_clip(clip, content_size, Some(scroll_root_id));
+        if let Some(yaml_id) = yaml["id"].as_i64() {
+            assert!(!self.clip_id_mapping.contains_key(&(yaml_id as u32)));
+            self.clip_id_mapping.insert(yaml_id as u32, id);
         }
-
-        self.builder().pop_scroll_layer();
+        return id
     }
 
     pub fn add_stacking_context_from_yaml(&mut self,
