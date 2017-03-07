@@ -65,6 +65,14 @@ fn color_node(parent: &mut Table, key: &str, value: ColorF) {
     yaml_node(parent, key, Yaml::String(color_to_string(value)));
 }
 
+fn clip_id_node(parent: &mut Table, key: &str, clip_id: &ScrollLayerId) {
+    if let ScrollLayerInfo::Scrollable(id) = clip_id.info {
+        usize_node(parent, key, id);
+        return;
+    }
+    unreachable!("Should not have ReferenceFrame ids in the display list.");
+}
+
 fn point_node<U>(parent: &mut Table, key: &str, value: &TypedPoint2D<f32, U>) {
     f32_vec_node(parent, key, &[value.x, value.y]);
 }
@@ -192,14 +200,6 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
         mix_blend_mode_node(parent, "mix-blend-mode", sc.mix_blend_mode)
     }
     // filters
-}
-
-fn write_scroll_layer(parent: &mut Table, scroll_layer: &PushScrollLayerItem) {
-    size_node(parent, "content-size", &scroll_layer.content_size);
-    match scroll_layer.scroll_root_id {
-        Some(id) => usize_node(parent, "id", id.0),
-        None => {}
-    }
 }
 
 #[cfg(target_os = "windows")]
@@ -490,12 +490,16 @@ impl YamlFrameWriter {
         }
     }
 
-    fn write_dl_items(&mut self, list: &mut Vec<Yaml>, dl_iter: &mut slice::Iter<DisplayItem>, aux: &AuxiliaryLists) {
+    fn write_dl_items(&mut self,
+                      list: &mut Vec<Yaml>,
+                      dl_iter: &mut slice::Iter<DisplayItem>,
+                      aux: &AuxiliaryLists) {
         use webrender_traits::SpecificDisplayItem::*;
         while let Some(ref base) = dl_iter.next() {
             let mut v = new_table();
             rect_node(&mut v, "bounds", &base.rect);
             yaml_node(&mut v, "clip", self.make_clip_node(&base.clip, aux));
+            clip_id_node(&mut v, "clip_id", &base.scroll_layer_id);
 
             match base.item {
                 Rectangle(item) => {
@@ -732,17 +736,12 @@ impl YamlFrameWriter {
                     write_sc(&mut v, &item.stacking_context);
                     self.write_dl(&mut v, dl_iter, aux);
                 },
-                PopStackingContext => {
-                    return;
-                },
-                PushScrollLayer(item) => {
-                    str_node(&mut v, "type", "scroll_layer");
-                    write_scroll_layer(&mut v, &item);
-                    self.write_dl(&mut v, dl_iter, aux);
-                },
-                PopScrollLayer => {
-                    return;
-                },
+                Clip(item) => {
+                    str_node(&mut v, "type", "clip");
+                    size_node(&mut v, "content-size", &item.content_size);
+                    clip_id_node(&mut v, "id", &item.id);
+                }
+                PopStackingContext => return,
             }
             if !v.is_empty() {
                 list.push(Yaml::Hash(v));

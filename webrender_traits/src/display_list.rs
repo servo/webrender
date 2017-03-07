@@ -5,17 +5,15 @@
 use app_units::Au;
 use std::mem;
 use std::slice;
-use {BoxShadowClipMode, BoxShadowDisplayItem, BorderDisplayItem};
-use {ClipRegion, ComplexClipRegion, ColorF};
-use {DisplayItem, ExtendMode, FilterOp, YuvColorSpace};
-use {FontKey, GlyphInstance, GradientDisplayItem, RadialGradientDisplayItem, GradientStop, IframeDisplayItem};
-use {ImageDisplayItem, ImageKey, ImageMask, ImageRendering, ItemRange, MixBlendMode, PipelineId};
-use {PushScrollLayerItem, PushStackingContextDisplayItem, RectangleDisplayItem, ScrollLayerId};
-use {ScrollPolicy, ServoScrollRootId, SpecificDisplayItem, StackingContext, TextDisplayItem};
-use {WebGLContextId, WebGLDisplayItem, YuvImageDisplayItem};
-use {LayoutTransform, LayoutPoint, LayoutRect, LayoutSize};
-use {BorderDetails, BorderWidths, GlyphOptions, PropertyBinding};
-use {Gradient, RadialGradient};
+use {BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMode, BoxShadowDisplayItem};
+use {ClipDisplayItem, ClipRegion, ColorF, ComplexClipRegion, DisplayItem, ExtendMode, FilterOp};
+use {FontKey, GlyphInstance, GlyphOptions, Gradient, GradientDisplayItem, GradientStop};
+use {IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask, ImageRendering, ItemRange};
+use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, MixBlendMode, PipelineId};
+use {PropertyBinding, PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
+use {RectangleDisplayItem, ScrollLayerId, ScrollPolicy, ServoScrollRootId, SpecificDisplayItem};
+use {StackingContext, TextDisplayItem, WebGLContextId, WebGLDisplayItem, YuvColorSpace};
+use YuvImageDisplayItem;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct AuxiliaryLists {
@@ -90,7 +88,7 @@ pub struct DisplayListBuilder {
     pub list: Vec<DisplayItem>,
     auxiliary_lists_builder: AuxiliaryListsBuilder,
     pub pipeline_id: PipelineId,
-    scroll_layer_stack: Vec<ScrollLayerId>,
+    clip_stack: Vec<ScrollLayerId>,
     next_scroll_layer_id: usize,
 }
 
@@ -100,7 +98,7 @@ impl DisplayListBuilder {
             list: Vec::new(),
             auxiliary_lists_builder: AuxiliaryListsBuilder::new(),
             pipeline_id: pipeline_id,
-            scroll_layer_stack: vec![ScrollLayerId::root_scroll_layer(pipeline_id)],
+            clip_stack: vec![ScrollLayerId::root_scroll_layer(pipeline_id)],
 
             // We start at 1 here, because the root scroll id is always 0.
             next_scroll_layer_id: 1,
@@ -118,7 +116,7 @@ impl DisplayListBuilder {
             item: item,
             rect: rect,
             clip: clip,
-            scroll_layer_id: *self.scroll_layer_stack.last().unwrap(),
+            scroll_layer_id: *self.clip_stack.last().unwrap(),
         });
     }
 
@@ -127,7 +125,7 @@ impl DisplayListBuilder {
             item: item,
             rect: LayoutRect::zero(),
             clip: ClipRegion::simple(&LayoutRect::zero()),
-            scroll_layer_id: *self.scroll_layer_stack.last().unwrap(),
+            scroll_layer_id: *self.clip_stack.last().unwrap(),
         });
     }
 
@@ -340,28 +338,45 @@ impl DisplayListBuilder {
         self.push_new_empty_item(SpecificDisplayItem::PopStackingContext);
     }
 
-    pub fn push_scroll_layer(&mut self,
-                             clip: ClipRegion,
-                             content_size: LayoutSize,
-                             scroll_root_id: Option<ServoScrollRootId>) {
+    pub fn define_clip(&mut self,
+                       clip: ClipRegion,
+                       content_size: LayoutSize,
+                       scroll_root_id: Option<ServoScrollRootId>)
+                       -> ScrollLayerId {
         let scroll_layer_id = self.next_scroll_layer_id;
         self.next_scroll_layer_id += 1;
 
-        let scroll_layer_id = ScrollLayerId::new(self.pipeline_id, scroll_layer_id);
-        let item = SpecificDisplayItem::PushScrollLayer(PushScrollLayerItem {
+        let id = ScrollLayerId::new(self.pipeline_id, scroll_layer_id);
+        let item = SpecificDisplayItem::Clip(ClipDisplayItem {
             content_size: content_size,
-            id: scroll_layer_id,
+            id: id,
+            parent_id: *self.clip_stack.last().unwrap(),
             scroll_root_id: scroll_root_id,
         });
 
         self.push_item(item, clip.main, clip);
-        self.scroll_layer_stack.push(scroll_layer_id);
+        id
+    }
+
+    pub fn push_scroll_layer(&mut self,
+                             clip: ClipRegion,
+                             content_size: LayoutSize,
+                             scroll_root_id: Option<ServoScrollRootId>) {
+        let id = self.define_clip(clip, content_size, scroll_root_id);
+        self.clip_stack.push(id);
+    }
+
+    pub fn push_clip_id(&mut self, id: ScrollLayerId) {
+        self.clip_stack.push(id);
+    }
+
+    pub fn pop_clip_id(&mut self) {
+        self.clip_stack.pop();
+        assert!(self.clip_stack.len() > 0);
     }
 
     pub fn pop_scroll_layer(&mut self) {
-        self.push_new_empty_item(SpecificDisplayItem::PopScrollLayer);
-        self.scroll_layer_stack.pop();
-        assert!(self.scroll_layer_stack.len() > 0);
+        self.pop_clip_id();
     }
 
     pub fn push_iframe(&mut self, rect: LayoutRect, clip: ClipRegion, pipeline_id: PipelineId) {
@@ -392,7 +407,7 @@ impl DisplayListBuilder {
                 PushStackingContext(ref mut item) => {
                     item.stacking_context.filters = self.auxiliary_lists_builder.add_filters(aux.filters(&item.stacking_context.filters));
                 }
-                Iframe(_) | PushScrollLayer(_) => {
+                Iframe(_) | Clip(_) => {
                     // We don't support relocating these
                     panic!();
                 }
