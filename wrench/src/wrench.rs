@@ -172,7 +172,7 @@ impl Wrench {
             .. Default::default()
         };
 
-        let (renderer, sender) = webrender::renderer::Renderer::new(opts, size).unwrap();
+        let (renderer, sender) = webrender::renderer::Renderer::new(window.clone_gl(), opts, size).unwrap();
         let api = sender.create_api();
 
         let proxy = window.create_window_proxy();
@@ -186,8 +186,8 @@ impl Wrench {
         let notifier = Box::new(Notifier::new(proxy, timing_receiver, verbose));
         renderer.set_render_notifier(notifier);
 
-        let gl_version = gl::get_string(gl::VERSION);
-        let gl_renderer = gl::get_string(gl::RENDERER);
+        let gl_version = renderer.gl().get_string(gl::VERSION);
+        let gl_renderer = renderer.gl().get_string(gl::RENDERER);
 
         let mut wrench = Wrench {
             window_size: size,
@@ -346,7 +346,7 @@ impl Wrench {
 
     pub fn update(&mut self, dim: DeviceUintSize) {
         if dim != self.window_size {
-            gl::viewport(0, 0, dim.width as i32, dim.height as i32);
+            self.renderer.gl().viewport(0, 0, dim.width as i32, dim.height as i32);
             self.window_size = dim;
         }
     }

@@ -53,6 +53,7 @@ use std::mem;
 use std::os::raw::c_void;
 use std::path::{Path, PathBuf};
 use std::ptr;
+use std::rc::Rc;
 use webrender_traits::*;
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
@@ -162,66 +163,59 @@ impl HeadlessContext {
 }
 
 pub enum WindowWrapper {
-    Window(glutin::Window),
-    Headless(HeadlessContext),
+    Window(glutin::Window, Rc<gl::Gl>),
+    Headless(HeadlessContext, Rc<gl::Gl>),
 }
 
 pub struct HeadlessEventIterater;
 
 impl WindowWrapper {
-    fn init(&self) {
-        match *self {
-            WindowWrapper::Window(ref window) => {
-                unsafe {
-                    window.make_current().expect("unable to make context current!");
-                }
-                // Android uses the static generator (as opposed to a global generator) at the moment
-                #[cfg(not(target_os = "android"))]
-                gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
-            }
-            WindowWrapper::Headless(..) => {
-                #[cfg(not(target_os = "android"))]
-                gl::load_with(|s| {
-                    HeadlessContext::get_proc_address(s)
-                });
-            }
-        }
-
-        gl::clear_color(0.3, 0.0, 0.0, 1.0);
-    }
-
     fn swap_buffers(&self) {
         match *self {
-            WindowWrapper::Window(ref window) => window.swap_buffers().unwrap(),
+            WindowWrapper::Window(ref window, _) => window.swap_buffers().unwrap(),
             WindowWrapper::Headless(..) => {}
         }
     }
 
     fn get_inner_size_pixels(&self) -> (u32, u32) {
         match *self {
-            WindowWrapper::Window(ref window) => window.get_inner_size_pixels().unwrap(),
-            WindowWrapper::Headless(ref context) => (context.width, context.height),
+            WindowWrapper::Window(ref window, _) => window.get_inner_size_pixels().unwrap(),
+            WindowWrapper::Headless(ref context, _) => (context.width, context.height),
         }
     }
 
     fn hidpi_factor(&self) -> f32 {
         match *self {
-            WindowWrapper::Window(ref window) => window.hidpi_factor(),
+            WindowWrapper::Window(ref window, _) => window.hidpi_factor(),
             WindowWrapper::Headless(..) => 1.0,
         }
     }
 
     fn create_window_proxy(&mut self) -> Option<WindowProxy> {
         match *self {
-            WindowWrapper::Window(ref window) => Some(window.create_window_proxy()),
+            WindowWrapper::Window(ref window, _) => Some(window.create_window_proxy()),
             WindowWrapper::Headless(..) => None,
         }
     }
 
     fn set_title(&mut self, title: &str) {
         match *self {
-            WindowWrapper::Window(ref window) => window.set_title(title),
+            WindowWrapper::Window(ref window, _) => window.set_title(title),
             WindowWrapper::Headless(..) => ()
+        }
+    }
+
+    pub fn gl(&self) -> &gl::Gl {
+        match *self {
+            WindowWrapper::Window(_, ref gl_) => &**gl_,
+            WindowWrapper::Headless(_, ref gl_) => &**gl_,
+        }
+    }
+
+    pub fn clone_gl(&self) -> Rc<gl::Gl> {
+        match *self {
+            WindowWrapper::Window(_, ref gl_) => gl_.clone(),
+            WindowWrapper::Headless(_, ref gl_) => gl_.clone(),
         }
     }
 }
@@ -231,8 +225,13 @@ fn make_window(size: DeviceUintSize,
                vsync: bool,
                headless: bool) -> WindowWrapper {
     let wrapper = if headless {
+        let gl_ = match gl::GlType::default() {
+            gl::GlType::Gl => gl::GlFns::load_with(|symbol| HeadlessContext::get_proc_address(symbol) as *const _),
+            gl::GlType::Gles => gl::GlesFns::load_with(|symbol| HeadlessContext::get_proc_address(symbol) as *const _),
+        };
         WindowWrapper::Headless(HeadlessContext::new(size.width,
-                                                     size.height))
+                                                     size.height),
+                                gl_)
     } else {
         let mut window = glutin::WindowBuilder::new()
             .with_gl(glutin::GlRequest::GlThenGles {
@@ -242,13 +241,20 @@ fn make_window(size: DeviceUintSize,
             .with_dimensions(size.width, size.height);
         window.opengl.vsync = vsync;
         let window = window.build().unwrap();
-        WindowWrapper::Window(window)
+        unsafe {
+            window.make_current().expect("unable to make context current!");
+        }
+        let gl_ = match gl::GlType::default() {
+            gl::GlType::Gl => gl::GlFns::load_with(|symbol| window.get_proc_address(symbol) as *const _),
+            gl::GlType::Gles => gl::GlesFns::load_with(|symbol| window.get_proc_address(symbol) as *const _),
+        };
+        WindowWrapper::Window(window, gl_)
     };
 
-    wrapper.init();
+    wrapper.gl().clear_color(0.3, 0.0, 0.0, 1.0);
 
-    let gl_version = gl::get_string(gl::VERSION);
-    let gl_renderer = gl::get_string(gl::RENDERER);
+    let gl_version = wrapper.gl().get_string(gl::VERSION);
+    let gl_renderer = wrapper.gl().get_string(gl::RENDERER);
 
     let dp_ratio = dp_ratio.unwrap_or(wrapper.hidpi_factor());
     println!("OpenGL version {}, {}", gl_version, gl_renderer);
@@ -391,7 +397,7 @@ fn main() {
             WindowWrapper::Headless(..) => {
                 vec![glutin::Event::Awakened]
             }
-            WindowWrapper::Window(ref window) => {
+            WindowWrapper::Window(ref window, _) => {
                 window.poll_events().collect()
             }
         };
@@ -501,10 +507,10 @@ fn main() {
     }
 
     if is_headless {
-        let mut pixels = gl::read_pixels(0, 0,
-                                         size.width as gl::GLsizei,
-                                         size.height as gl::GLsizei,
-                                         gl::RGB, gl::UNSIGNED_BYTE);
+        let mut pixels = window.gl().read_pixels(0, 0,
+                                                 size.width as gl::GLsizei,
+                                                 size.height as gl::GLsizei,
+                                                 gl::RGB, gl::UNSIGNED_BYTE);
 
         // flip image vertically (texture is upside down)
         let orig_pixels = pixels.clone();

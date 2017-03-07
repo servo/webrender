@@ -249,12 +249,12 @@ impl<'a> ReftestHarness<'a> {
         self.wrench.render();
 
         let size = self.window.get_inner_size_pixels();
-        let pixels = gl::read_pixels(0,
-                                     0,
-                                     size.0 as gl::GLsizei,
-                                     size.1 as gl::GLsizei,
-                                     gl::RGBA,
-                                     gl::UNSIGNED_BYTE);
+        let pixels = self.window.gl().read_pixels(0,
+                                                  0,
+                                                  size.0 as gl::GLsizei,
+                                                  size.1 as gl::GLsizei,
+                                                  gl::RGBA,
+                                                  gl::UNSIGNED_BYTE);
         self.window.swap_buffers();
 
         ReftestImage {

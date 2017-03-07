@@ -35,12 +35,13 @@ pub fn png(wrench: &mut Wrench,
     wrench.render();
 
     let size = window.get_inner_size_pixels();
-    let mut data = gl::read_pixels(0,
-                                   0,
-                                   size.0 as gl::GLsizei,
-                                   size.1 as gl::GLsizei,
-                                   gl::RGBA,
-                                   gl::UNSIGNED_BYTE);
+    let mut data =
+        wrench.renderer.gl().read_pixels(0,
+                                         0,
+                                         size.0 as gl::GLsizei,
+                                         size.1 as gl::GLsizei,
+                                         gl::RGBA,
+                                         gl::UNSIGNED_BYTE);
     let width = size.0;
     let height = size.1;
 

@@ -16,6 +16,7 @@ use device::{TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureT
 use euclid::Matrix4D;
 use fnv::FnvHasher;
 use frame_builder::FrameBuilderConfig;
+use gleam::gl;
 use gpu_store::{GpuStore, GpuStoreLayout};
 use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{ExternalImageUpdateList, TextureUpdateList, PackedVertex, RenderTargetMode};
@@ -35,6 +36,7 @@ use std::hash::BuildHasherDefault;
 use std::marker::PhantomData;
 use std::mem;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
@@ -509,7 +511,8 @@ impl Renderer {
     /// };
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
-    pub fn new(mut options: RendererOptions,
+    pub fn new(gl_: Rc<gl::Gl>,
+               mut options: RendererOptions,
                initial_window_size: DeviceUintSize) -> Result<(Renderer, RenderApiSender), InitError> {
         let (api_tx, api_rx) = try!{ channel::msg_channel() };
         let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
@@ -524,7 +527,8 @@ impl Renderer {
             notifier: notifier.clone(),
         };
 
-        let mut device = Device::new(options.resource_override_path.clone(),
+        let mut device = Device::new(gl_,
+                                     options.resource_override_path.clone(),
                                      Box::new(file_watch_handler));
         // device-pixel ratio doesn't matter here - we are just creating resources.
         device.begin_frame(1.0);
@@ -807,6 +811,8 @@ impl Renderer {
             backend.run(backend_profile_counters);
         })};
 
+        let gpu_profile = GpuProfiler::new(device.clone_gl());
+
         let renderer = Renderer {
             result_rx: result_rx,
             device: device,
@@ -844,7 +850,7 @@ impl Renderer {
             clear_color: options.clear_color,
             last_time: 0,
             render_targets: Vec::new(),
-            gpu_profile: GpuProfiler::new(),
+            gpu_profile: gpu_profile,
             prim_vao_id: prim_vao_id,
             blur_vao_id: blur_vao_id,
             clip_vao_id: clip_vao_id,
@@ -861,6 +867,10 @@ impl Renderer {
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
         Ok((renderer, sender))
+    }
+
+    pub fn gl(&self) -> &gl::Gl {
+        self.device.gl()
     }
 
     /// Sets the new RenderNotifier.
@@ -999,7 +1009,8 @@ impl Renderer {
                 self.profile_counters.frame_time.set(ns);
 
                 if self.enable_profiler {
-                    self.profiler.draw_profile(&frame.profile_counters,
+                    self.profiler.draw_profile(&mut self.device,
+                                               &frame.profile_counters,
                                                &self.backend_profile_counters,
                                                &self.profile_counters,
                                                &mut profile_timers,
@@ -1044,7 +1055,7 @@ impl Renderer {
 */
 
     fn update_texture_cache(&mut self) {
-        let _gm = GpuMarker::new("texture cache update");
+        let _gm = GpuMarker::new(self.device.clone_gl(), "texture cache update");
         let mut pending_texture_updates = mem::replace(&mut self.pending_texture_updates, vec![]);
         for update_list in pending_texture_updates.drain(..) {
             for update in update_list.updates {
@@ -1433,7 +1444,7 @@ impl Renderer {
             self.device.set_blend_mode_multiply();
             // draw rounded cornered rectangles
             if !target.clip_batcher.rectangles.is_empty() {
-                let _gm2 = GpuMarker::new("clip rectangles");
+                let _gm2 = GpuMarker::new(self.device.clone_gl(), "clip rectangles");
                 let shader = self.cs_clip_rectangle.get(&mut self.device).unwrap();
                 self.draw_instanced_batch(&target.clip_batcher.rectangles,
                                           vao,
@@ -1443,7 +1454,7 @@ impl Renderer {
             }
             // draw image masks
             for (mask_texture_id, items) in target.clip_batcher.images.iter() {
-                let _gm2 = GpuMarker::new("clip images");
+                let _gm2 = GpuMarker::new(self.device.clone_gl(), "clip images");
                 let texture_id = self.resolve_source_texture(mask_texture_id);
                 self.device.bind_texture(TextureSampler::Mask, texture_id);
                 let shader = self.cs_clip_image.get(&mut self.device).unwrap();
@@ -1476,7 +1487,7 @@ impl Renderer {
                                       &projection);
         }
 
-        let _gm2 = GpuMarker::new("alpha batches");
+        let _gm2 = GpuMarker::new(self.device.clone_gl(), "alpha batches");
         self.device.set_blend(false);
         let mut prev_blend_mode = BlendMode::None;
 
@@ -1536,7 +1547,7 @@ impl Renderer {
                               .expect("Found external image, but no handler set!");
 
             for deferred_resolve in &frame.deferred_resolves {
-                GpuMarker::fire("deferred resolve");
+                GpuMarker::fire(self.device.gl(), "deferred resolve");
                 let props = &deferred_resolve.image_properties;
                 let external_id = props.external_id
                                        .expect("BUG: Deferred resolves must be external images!");
@@ -1583,7 +1594,7 @@ impl Renderer {
     fn draw_tile_frame(&mut self,
                        frame: &mut Frame,
                        framebuffer_size: &DeviceUintSize) {
-        let _gm = GpuMarker::new("tile frame draw");
+        let _gm = GpuMarker::new(self.device.clone_gl(), "tile frame draw");
         self.update_deferred_resolves(frame);
 
         // Some tests use a restricted viewport smaller than the main screen size.
