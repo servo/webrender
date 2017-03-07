@@ -17,5 +17,5 @@ void main(void) {
     x = 2.0 * floor(x) + 0.5 + fract(x);
 
     // Normalize the texture coordates so we can use texture() for bilinear filtering.
-    oFragColor = texture(sGradients, vec2(x, vGradientIndex) / texture_size);
+    oFragColor = dither(texture(sGradients, vec2(x, vGradientIndex) / texture_size));
 }
