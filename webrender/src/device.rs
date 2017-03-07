@@ -1461,6 +1461,10 @@ impl Device {
         if u_color_2 != -1 {
             gl::uniform_1i(u_color_2, TextureSampler::Color2 as i32);
         }
+        let u_noise = gl::get_uniform_location(program.id, "sDither");
+        if u_noise != -1 {
+            gl::uniform_1i(u_noise, TextureSampler::Dither as i32);
+        }
         let u_mask = gl::get_uniform_location(program.id, "sMask");
         if u_mask != -1 {
             gl::uniform_1i(u_mask, TextureSampler::Mask as i32);

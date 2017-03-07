@@ -5,5 +5,5 @@
 void main(void) {
     vec2 uv = min(vec2(1.0), vMirrorPoint - abs(vUv.xy - vMirrorPoint));
     uv = mix(vCacheUvRectCoords.xy, vCacheUvRectCoords.zw, uv);
-    oFragColor = vColor * texture(sCache, vec3(uv, vUv.z));
+    oFragColor = dither(vColor * texture(sCache, vec3(uv, vUv.z)));
 }
