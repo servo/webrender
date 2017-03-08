@@ -196,9 +196,9 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
 
 fn write_scroll_layer(parent: &mut Table, scroll_layer: &PushScrollLayerItem) {
     size_node(parent, "content-size", &scroll_layer.content_size);
-    match scroll_layer.id.info {
-        ScrollLayerInfo::Scrollable(_, id) => usize_node(parent, "id", id.0),
-        ScrollLayerInfo::ReferenceFrame(..) => unreachable!("Scroll layer had reference frame id"),
+    match scroll_layer.scroll_root_id {
+        Some(id) => usize_node(parent, "id", id.0),
+        None => {}
     }
 }
 

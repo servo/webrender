@@ -109,16 +109,16 @@ impl ClipScrollTree {
 
     pub fn get_scroll_node_state(&self) -> Vec<ScrollLayerState> {
         let mut result = vec![];
-        for (scroll_layer_id, scroll_node) in self.nodes.iter() {
-            match scroll_layer_id.info {
-                ScrollLayerInfo::Scrollable(_, servo_scroll_root_id) => {
+        for (_, node) in self.nodes.iter() {
+            match node.node_type {
+                NodeType::Clip(ref info) if info.scroll_root_id.is_some() => {
                     result.push(ScrollLayerState {
-                        pipeline_id: scroll_node.pipeline_id,
-                        scroll_root_id: servo_scroll_root_id,
-                        scroll_offset: scroll_node.scrolling.offset,
+                        pipeline_id: node.pipeline_id,
+                        scroll_root_id: info.scroll_root_id.unwrap(),
+                        scroll_offset: node.scrolling.offset,
                     })
                 }
-                ScrollLayerInfo::ReferenceFrame(..) => {}
+                _ => {},
             }
         }
         result
@@ -157,10 +157,10 @@ impl ClipScrollTree {
                 continue;
             }
 
-            match layer_id.info {
-                ScrollLayerInfo::Scrollable(_, id) if id != scroll_root_id => continue,
-                ScrollLayerInfo::ReferenceFrame(..) => continue,
-                ScrollLayerInfo::Scrollable(..) => {}
+            match node.node_type {
+                NodeType::Clip(ref info) if info.scroll_root_id != Some(scroll_root_id) => continue,
+                NodeType::ReferenceFrame(..) => continue,
+                NodeType::Clip(_) => {},
             }
 
             found_node = true;
@@ -238,16 +238,26 @@ impl ClipScrollTree {
             },
         };
 
-        let scroll_node_info = if switch_node {
-            topmost_scroll_layer_id.info
+        let scroll_layer_id = if switch_node {
+            topmost_scroll_layer_id
         } else {
-            scroll_layer_id.info
+            scroll_layer_id
         };
 
-        let scroll_root_id = match scroll_node_info {
-             ScrollLayerInfo::Scrollable(_, scroll_root_id) => scroll_root_id,
-             _ => unreachable!("Tried to scroll a reference frame."),
+        // TODO(mrobinson): Once we remove the concept of shared scroll root ids we can remove
+        // this entirely and just scroll the node based on the ScrollLayerId.
+        let scroll_root_id = {
+            let node = self.nodes.get_mut(&scroll_layer_id).unwrap();
+            let scroll_root_id = match node.node_type {
+                NodeType::Clip(ref info) => info.scroll_root_id,
+                NodeType::ReferenceFrame(..) => unreachable!("Tried to scroll a reference frame."),
+            };
 
+            if scroll_root_id.is_none() {
+                return node.scroll(scroll_location, phase);
+            }
+
+            scroll_root_id
         };
 
         let mut scrolled_a_node = false;
@@ -256,10 +266,9 @@ impl ClipScrollTree {
                 continue;
             }
 
-            match layer_id.info {
-                ScrollLayerInfo::Scrollable(_, id) if id != scroll_root_id => continue,
-                ScrollLayerInfo::ReferenceFrame(..) => continue,
-                _ => {}
+            match node.node_type {
+                NodeType::Clip(ref info) if info.scroll_root_id == scroll_root_id => { }
+                _ => continue,
             }
 
             let scrolled_this_node = node.scroll(scroll_location, phase);
@@ -342,8 +351,9 @@ impl ClipScrollTree {
 
             node.finalize(&scrolling_state);
 
-            let scroll_root_id = match scroll_layer_id.info {
-                ScrollLayerInfo::Scrollable(_, scroll_root_id) => scroll_root_id,
+            let scroll_root_id = match node.node_type {
+                NodeType::Clip(ref info) if info.scroll_root_id.is_some() =>
+                    info.scroll_root_id.unwrap(),
                 _ => continue,
             };
 

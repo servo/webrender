@@ -18,9 +18,9 @@ use tiling::{AuxiliaryListsMap, CompositeOps, PrimitiveFlags};
 use webrender_traits::{AuxiliaryLists, ClipRegion, ColorF, DeviceUintRect, DeviceUintSize};
 use webrender_traits::{DisplayItem, Epoch, FilterOp, ImageDisplayItem, LayerPoint, LayerRect};
 use webrender_traits::{LayerSize, LayerToScrollTransform, LayoutTransform, MixBlendMode};
-use webrender_traits::{PipelineId, ScrollEventPhase, ScrollLayerId, ScrollLayerState};
-use webrender_traits::{ScrollLocation, ScrollPolicy, ServoScrollRootId, SpecificDisplayItem};
-use webrender_traits::{StackingContext, TileOffset, WorldPoint};
+use webrender_traits::{PipelineId, PushScrollLayerItem, ScrollEventPhase, ScrollLayerId};
+use webrender_traits::{ScrollLayerState, ScrollLocation, ScrollPolicy, ServoScrollRootId};
+use webrender_traits::{SpecificDisplayItem, StackingContext, TileOffset, WorldPoint};
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
 pub struct FrameId(pub u32);
@@ -342,17 +342,17 @@ impl Frame {
                                 reference_frame_relative_offset: LayerPoint,
                                 level: i32,
                                 clip: &ClipRegion,
-                                content_size: &LayerSize,
-                                new_scroll_layer_id: ScrollLayerId) {
+                                item: &PushScrollLayerItem) {
         let parent_id = context.builder.current_clip_scroll_node_id();
         let parent_id = context.scroll_layer_id_with_replacement(parent_id);
 
         let clip_rect = clip.main.translate(&reference_frame_relative_offset);
-        context.builder.push_clip_scroll_node(new_scroll_layer_id,
+        context.builder.push_clip_scroll_node(item.id,
                                               parent_id,
                                               pipeline_id,
                                               &clip_rect,
-                                              content_size,
+                                              &item.content_size,
+                                              item.scroll_root_id,
                                               clip,
                                               &mut self.clip_scroll_tree);
 
@@ -534,6 +534,7 @@ impl Frame {
             pipeline_id,
             &LayerRect::new(LayerPoint::zero(), iframe_rect.size),
             &iframe_clip.main.size,
+            Some(ServoScrollRootId(0)),
             iframe_clip,
             &mut self.clip_scroll_tree);
 
@@ -671,8 +672,7 @@ impl Frame {
                                               reference_frame_relative_offset,
                                               level,
                                               &item.clip,
-                                              &info.content_size,
-                                              info.id);
+                                              info);
                 }
                 SpecificDisplayItem::Iframe(ref info) => {
                     self.flatten_iframe(info.pipeline_id,

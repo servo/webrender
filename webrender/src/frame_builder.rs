@@ -32,7 +32,8 @@ use webrender_traits::{BoxShadowClipMode, ClipRegion, ColorF, DeviceIntPoint, De
 use webrender_traits::{DeviceIntSize, DeviceUintRect, DeviceUintSize, ExtendMode, FontKey};
 use webrender_traits::{FontRenderMode, GlyphOptions, ImageKey, ImageRendering, ItemRange};
 use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform, PipelineId};
-use webrender_traits::{RepeatMode, ScrollLayerId, TileOffset, WebGLContextId, YuvColorSpace};
+use webrender_traits::{RepeatMode, ScrollLayerId, ServoScrollRootId, TileOffset, WebGLContextId};
+use webrender_traits::YuvColorSpace;
 
 #[derive(Debug, Clone)]
 struct ImageBorderSegment {
@@ -307,6 +308,7 @@ impl FrameBuilder {
                                    pipeline_id,
                                    &viewport_rect,
                                    content_size,
+                                   Some(ServoScrollRootId(0)),
                                    &ClipRegion::simple(&viewport_rect),
                                    clip_scroll_tree);
         topmost_scroll_layer_id
@@ -318,11 +320,13 @@ impl FrameBuilder {
                                  pipeline_id: PipelineId,
                                  local_viewport_rect: &LayerRect,
                                  content_size: &LayerSize,
+                                 scroll_root_id: Option<ServoScrollRootId>,
                                  clip_region: &ClipRegion,
                                  clip_scroll_tree: &mut ClipScrollTree) {
         let clip_info = ClipInfo::new(clip_region,
                                       &mut self.prim_store.gpu_data32,
-                                      PackedLayerIndex(self.packed_layers.len()));
+                                      PackedLayerIndex(self.packed_layers.len()),
+                                      scroll_root_id);
         let node = ClipScrollNode::new(pipeline_id,
                                        parent_id,
                                        local_viewport_rect,
