@@ -163,10 +163,15 @@ impl<'a> DisplayListTraversal<'a> {
     }
 
     pub fn skip_current_stacking_context(&mut self) {
+        let mut depth = 0;
         for item in self {
-            if item.item == SpecificDisplayItem::PopStackingContext {
-                return;
+            match item.item {
+                SpecificDisplayItem::PushStackingContext(..) => depth += 1,
+                SpecificDisplayItem::PopStackingContext if depth == 0 => return,
+                SpecificDisplayItem::PopStackingContext => depth -= 1,
+                _ => {}
             }
+            debug_assert!(depth >= 0);
         }
     }
 
@@ -339,12 +344,6 @@ impl Frame {
                                 clip: &ClipRegion,
                                 content_size: &LayerSize,
                                 new_scroll_layer_id: ScrollLayerId) {
-        // Avoid doing unnecessary work for empty stacking contexts.
-        if traversal.current_stacking_context_empty() {
-            traversal.skip_current_stacking_context();
-            return;
-        }
-
         let parent_id = context.builder.current_clip_scroll_node_id();
         let parent_id = context.scroll_layer_id_with_replacement(parent_id);
 
