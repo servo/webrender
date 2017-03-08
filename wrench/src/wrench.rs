@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use time;
 use webrender;
+use webrender::renderer::{CpuProfile, GpuProfile};
 use webrender_traits::*;
 use yaml_frame_writer::YamlFrameWriterReceiver;
 use yaml_rust::Yaml;
@@ -169,6 +170,7 @@ impl Wrench {
             recorder: recorder,
             enable_subpixel_aa: subpixel_aa,
             debug: debug,
+            max_recorded_profiles: 16,
             .. Default::default()
         };
 
@@ -374,6 +376,10 @@ impl Wrench {
         }
 
         self.api.generate_frame(None);
+    }
+
+    pub fn get_frame_profiles(&mut self) -> (Vec<CpuProfile>, Vec<GpuProfile>) {
+        self.renderer.get_frame_profiles()
     }
 
     pub fn render(&mut self) {

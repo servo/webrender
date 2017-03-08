@@ -21,6 +21,8 @@ extern crate image;
 extern crate lazy_static;
 #[cfg(feature = "headless")]
 extern crate osmesa_sys;
+#[macro_use]
+extern crate serde_derive;
 extern crate serde_json;
 extern crate time;
 extern crate webrender;
@@ -30,6 +32,7 @@ extern crate yaml_rust;
 mod binary_frame_reader;
 mod json_frame_writer;
 mod parse_function;
+mod perf;
 mod png;
 mod reftest;
 mod scene;
@@ -43,6 +46,7 @@ use gleam::gl;
 use glutin::{ElementState, VirtualKeyCode, WindowProxy};
 use image::ColorType;
 use image::png::PNGEncoder;
+use perf::PerfHarness;
 use reftest::ReftestHarness;
 use std::cmp::{max, min};
 #[cfg(feature = "headless")]
@@ -323,6 +327,17 @@ fn main() {
             let base_manifest = Path::new("reftests/reftest.list");
             let specific_reftest = subargs.value_of("REFTEST").map(|x| Path::new(x));
             harness.run(&base_manifest, specific_reftest);
+            return;
+        } else if let Some(subargs) = args.subcommand_matches("perf") {
+            let harness = PerfHarness::new(&mut wrench, &mut window);
+            let base_manifest = Path::new("benchmarks/benchmarks.list");
+            let filename = subargs.value_of("filename").unwrap();
+            harness.run(&base_manifest, filename);
+            return;
+        } else if let Some(subargs) = args.subcommand_matches("compare_perf") {
+            let first_filename = subargs.value_of("first_filename").unwrap();
+            let second_filename = subargs.value_of("second_filename").unwrap();
+            perf::compare(first_filename, second_filename);
             return;
         } else {
             panic!("Should never have gotten here");
