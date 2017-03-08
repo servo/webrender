@@ -427,7 +427,7 @@ impl RenderBackend {
         self.frame.discard_frame_state_for_pipeline(pipeline_id);
     }
 
-    fn device_pixel_ratio(&self) -> f32 {
+    fn accumulated_scale_factor(&self) -> f32 {
         self.hidpi_factor * self.page_zoom_factor * self.pinch_zoom_factor
     }
 
@@ -451,23 +451,23 @@ impl RenderBackend {
             webgl_context.unbind();
         }
 
-        let device_pixel_ratio = self.device_pixel_ratio();
+        let accumulated_scale_factor = self.accumulated_scale_factor();
         self.frame.create(&self.scene,
                           &mut self.resource_cache,
                           self.window_size,
                           self.inner_rect,
-                          device_pixel_ratio);
+                          accumulated_scale_factor);
     }
 
     fn render(&mut self,
               texture_cache_profile: &mut TextureCacheProfileCounters)
               -> RendererFrame {
-        let device_pixel_ratio = self.device_pixel_ratio();
-        let pan = LayerPoint::new(self.pan.x as f32 / device_pixel_ratio,
-                                  self.pan.y as f32 / device_pixel_ratio);
+        let accumulated_scale_factor = self.accumulated_scale_factor();
+        let pan = LayerPoint::new(self.pan.x as f32 / accumulated_scale_factor,
+                                  self.pan.y as f32 / accumulated_scale_factor);
         let frame = self.frame.build(&mut self.resource_cache,
                                      &self.scene.pipeline_auxiliary_lists,
-                                     device_pixel_ratio,
+                                     accumulated_scale_factor,
                                      pan,
                                      texture_cache_profile);
         frame
