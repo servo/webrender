@@ -524,6 +524,7 @@ impl<T> GpuFrameProfile<T> {
             samples: Vec::new(),
             next_query: 0,
             pending_query: 0,
+            frame_id: FrameId(0),
         }
     }
 
