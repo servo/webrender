@@ -965,12 +965,9 @@ impl FrameBuilder {
                          color_space: YuvColorSpace) {
 
         let prim_cpu = YuvImagePrimitiveCpu {
-            y_key: y_image_key,
-            u_key: u_image_key,
-            v_key: v_image_key,
-            y_texture_id: SourceTexture::Invalid,
-            u_texture_id: SourceTexture::Invalid,
-            v_texture_id: SourceTexture::Invalid,
+            yuv_key: [y_image_key, u_image_key, v_image_key],
+            yuv_texture_id: [SourceTexture::Invalid, SourceTexture::Invalid, SourceTexture::Invalid],
+            yuv_resource_address: GpuStoreAddress(0),
         };
 
         let prim_gpu = YuvImagePrimitiveGpu::new(rect.size, color_space);
