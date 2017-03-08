@@ -692,13 +692,11 @@ float do_clip() {
 }
 
 vec4 dither(vec4 color) {
-    const float matrix_size = 8;
-    // TODO: should we mask it here or set the texture's wrapping to GL_REPEAT?
     const int matrix_mask = 7;
 
-    vec2 pos = vec2(int(gl_FragCoord.x) & matrix_mask, int(gl_FragCoord.y) & matrix_mask);
+    ivec2 pos = ivec2(gl_FragCoord) & ivec2(matrix_mask);
     float noise_factor = 4.0 / 255.0;
-    float noise = textureLod(sDither, pos / matrix_size, 0).r * noise_factor;
+    float noise = texelFetch(sDither, pos, 0).r * noise_factor;
     return color + vec4(noise, noise, noise, 0);
 }
 #endif //WR_FRAGMENT_SHADER
