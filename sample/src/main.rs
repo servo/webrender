@@ -111,6 +111,13 @@ fn main() {
         None,
     );
 
+    let (desc, data) = generate_xy_gradient_image(100, 100);
+    let resized_img = api.generate_image_key();
+    api.add_image(
+        resized_img, desc, ImageData::new(data),
+        None,
+    );
+
     let pipeline_id = PipelineId(0, 0);
     let mut builder = webrender_traits::DisplayListBuilder::new(pipeline_id);
 
@@ -132,12 +139,12 @@ fn main() {
                                   webrender_traits::MixBlendMode::Normal,
                                   Vec::new());
     builder.push_image(
-        LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(100.0, 100.0)),
+        LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(1000.0, 1000.0)),
         ClipRegion::simple(&bounds),
-        LayoutSize::new(100.0, 100.0),
+        LayoutSize::new(1000.0, 1000.0),
         LayoutSize::new(0.0, 0.0),
         ImageRendering::Auto,
-        vector_img,
+        resized_img,
     );
 
     let sub_clip = {
@@ -268,12 +275,23 @@ fn main() {
     api.set_root_pipeline(pipeline_id);
     api.generate_frame(None);
 
+    let mut x = 0.0;
+
     for event in window.wait_events() {
+
         renderer.update();
 
         renderer.render(DeviceUintSize::new(width, height));
 
         window.swap_buffers().ok();
+
+        x += 0.1f32;
+        let sz = (x.sin() * 40.0 + 200.0) as u32;
+        //let sz = 100;
+        let (desc, data) = generate_xy_gradient_image(sz, sz);
+        api.update_image(resized_img, desc, data);
+
+        api.generate_frame(None);
 
         match event {
             glutin::Event::Closed |
@@ -334,4 +352,22 @@ impl BlobImageRenderer for FakeBlobImageRenderer {
     fn resolve_blob_image(&mut self, key: ImageKey) -> BlobImageResult {
         self.images.remove(&key).unwrap_or(Err(BlobImageError::InvalidKey))
     }
+}
+
+fn generate_xy_gradient_image(w: u32, h: u32) -> (ImageDescriptor, Vec<u8>) {
+    let mut pixels = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let grid = if x % 100 < 3 || y % 100 < 3 { 0.9 } else { 1.0 };
+            pixels.push((y as f32 / h as f32 * 255.0 * grid) as u8);
+            pixels.push(0);
+            pixels.push((x as f32 / w as f32 * 255.0 * grid) as u8);
+            pixels.push(255);
+        }
+    }
+
+    return (
+        ImageDescriptor::new(w, h, ImageFormat::RGBA8, true),
+        pixels
+    );
 }

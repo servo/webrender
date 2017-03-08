@@ -658,6 +658,11 @@ impl ResourceCache {
                 // external handle doesn't need to update the texture_cache.
             }
             ImageData::Raw(..) | ImageData::ExternalBuffer(..) | ImageData::Blob(..) => {
+                let filter = match request.rendering {
+                    ImageRendering::Pixelated => TextureFilter::Nearest,
+                    ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
+                };
+
                 match self.cached_images.entry(request.clone(), self.current_frame_id) {
                     Occupied(entry) => {
                         let image_id = entry.get().texture_cache_id;
@@ -665,6 +670,7 @@ impl ResourceCache {
                         if entry.get().epoch != image_template.epoch {
                             self.texture_cache.update(image_id,
                                                       image_template.descriptor,
+                                                      filter,
                                                       image_data);
 
                             // Update the cached epoch
@@ -676,11 +682,6 @@ impl ResourceCache {
                     }
                     Vacant(entry) => {
                         let image_id = self.texture_cache.new_item_id();
-
-                        let filter = match request.rendering {
-                            ImageRendering::Pixelated => TextureFilter::Nearest,
-                            ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
-                        };
 
                         if let Some(tile) = request.tile {
                             let tile_size = image_template.tiling.unwrap() as u32;
