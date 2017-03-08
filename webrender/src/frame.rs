@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
+use euclid::rect::rect;
 use fnv::FnvHasher;
 use internal_types::{ANGLE_FLOAT_TO_FIXED, AxisDirection};
 use internal_types::{LowLevelFilterOp};
@@ -573,12 +574,13 @@ impl Frame {
                         // The image resource is tiled. We have to generate an image primitive
                         // for each tile.
                         let image_size = DeviceUintSize::new(image.descriptor.width, image.descriptor.height);
-                        self.decompose_tiled_image(scroll_layer_id,
-                                                   context,
-                                                   &item,
-                                                   info,
-                                                   image_size,
-                                                   tile_size as u32);
+                        self.decompose_image(scroll_layer_id,
+                                             context,
+                                             &item.rect,
+                                             &item.clip,
+                                             info,
+                                             image_size,
+                                             tile_size as u32);
                     } else {
                         context.builder.add_image(scroll_layer_id,
                                                   item.rect,
@@ -686,10 +688,82 @@ impl Frame {
         }
     }
 
+    /// Decomposes an image display item that is repeated into an image per individual repetition.
+    /// We need to do this when we are unable to perform the repetition in the shader,
+    /// for example if the image is tiled.
+    ///
+    /// In all of the "decompose" methods below, we independently handle horizontal and vertical
+    /// decomposition. This lets us generate the minimum amount of primitives by, for  example,
+    /// decompositing the repetition horizontally while repeating vertically in the shader (for
+    /// an image where the width is too bug but the height is not).
+    ///
+    /// decompose_image and decompose_image_row handle image repetitions while decompose_tiled_image
+    /// takes care of the decomposition required by the internal tiling of the image.
+    fn decompose_image(&mut self,
+                       scroll_layer_id: ScrollLayerId,
+                       context: &mut FlattenContext,
+                       item_rect: &LayerRect,
+                       item_clip: &ClipRegion,
+                       info: &ImageDisplayItem,
+                       image_size: DeviceUintSize,
+                       tile_size: u32) {
+        let no_vertical_tiling = image_size.height <= tile_size;
+        let no_vertical_spacing = info.tile_spacing.height == 0.0;
+        if no_vertical_tiling && no_vertical_spacing {
+            self.decompose_image_row(scroll_layer_id, context, item_rect, item_clip, info, image_size, tile_size);
+            return;
+        }
+
+        // Decompose each vertical repetition into rows.
+        let layout_stride = info.stretch_size.height + info.tile_spacing.height;
+        let num_repetitions = (item_rect.size.height / layout_stride).ceil() as u32;
+        for i in 0..num_repetitions {
+            if let Some(row_rect) = rect(
+                item_rect.origin.x,
+                item_rect.origin.y + (i as f32) * layout_stride,
+                item_rect.size.width,
+                info.stretch_size.height
+            ).intersection(&item_rect) {
+                self.decompose_image_row(scroll_layer_id, context, &row_rect, item_clip, info, image_size, tile_size);
+            }
+        }
+    }
+
+    fn decompose_image_row(&mut self,
+                           scroll_layer_id: ScrollLayerId,
+                           context: &mut FlattenContext,
+                           item_rect: &LayerRect,
+                           item_clip: &ClipRegion,
+                           info: &ImageDisplayItem,
+                           image_size: DeviceUintSize,
+                           tile_size: u32) {
+        let no_horizontal_tiling = image_size.width <= tile_size;
+        let no_horizontal_spacing = info.tile_spacing.width == 0.0;
+        if no_horizontal_tiling && no_horizontal_spacing {
+            self.decompose_tiled_image(scroll_layer_id, context, item_rect, item_clip, info, image_size, tile_size);
+            return;
+        }
+
+        // Decompose each horizontal repetition.
+        let layout_stride = info.stretch_size.width + info.tile_spacing.width;
+        let num_repetitions = (item_rect.size.width / layout_stride).ceil() as u32;
+        for i in 0..num_repetitions {
+            if let Some(decomposed_rect) = rect(
+                item_rect.origin.x + (i as f32) * layout_stride,
+                item_rect.origin.y,
+                info.stretch_size.width,
+                item_rect.size.height,
+            ).intersection(&item_rect) {
+                self.decompose_tiled_image(scroll_layer_id, context, &decomposed_rect, item_clip, info, image_size, tile_size);
+            }
+        }
+    }
+
     fn decompose_tiled_image(&mut self,
                              scroll_layer_id: ScrollLayerId,
                              context: &mut FlattenContext,
-                             item: &DisplayItem,
+                             item_rect: &LayerRect,
+                             item_clip: &ClipRegion,
                              info: &ImageDisplayItem,
                              image_size: DeviceUintSize,
                              tile_size: u32) {
@@ -717,11 +791,6 @@ impl Frame {
         // each generated image primitive corresponds to a tile in the texture cache, with the
         // assumption that the smaller tiles with leftover sizes are sized to fit their own
         // irregular size in the texture cache.
-
-        // TODO(nical) supporting tiled repeated images isn't implemented yet.
-        // One way to implement this is to have another level of decomposition on top of this one,
-        // and generate a set of image primitive per repetition just like we have a primitive
-        // per tile here.
         //
         // For the case where we don't tile along an axis, we can still perform the repetition in
         // the shader (for this particular axis), and it is worth special-casing for this to avoid
@@ -729,29 +798,21 @@ impl Frame {
         // This can happen with very tall and thin images used as a repeating background.
         // Apparently web authors do that...
 
-        let mut stretch_size = info.stretch_size;
-
         let mut repeat_x = false;
         let mut repeat_y = false;
 
-        if stretch_size.width < item.rect.size.width {
-            if image_size.width < tile_size {
-                // we don't actually tile in this dimmension so repeating can be done in the shader.
-                repeat_x = true;
-            } else {
-                println!("Unimplemented! repeating a tiled image (x axis)");
-                stretch_size.width = item.rect.size.width;
-            }
+        if info.stretch_size.width < item_rect.size.width {
+            // If this assert blows up it means we haven't properly decomposed the image in decompose_image_row.
+            debug_assert!(image_size.width <= tile_size);
+            // we don't actually tile in this dimmension so repeating can be done in the shader.
+            repeat_x = true;
         }
 
-        if stretch_size.height < item.rect.size.height {
-                // we don't actually tile in this dimmension so repeating can be done in the shader.
-            if image_size.height < tile_size {
-                repeat_y = true;
-            } else {
-                println!("Unimplemented! repeating a tiled image (y axis)");
-                stretch_size.height = item.rect.size.height;
-            }
+        if info.stretch_size.height < item_rect.size.height {
+            // If this assert blows up it means we haven't properly decomposed the image in decompose_image.
+            debug_assert!(image_size.height <= tile_size);
+            // we don't actually tile in this dimmension so repeating can be done in the shader.
+            repeat_y = true;
         }
 
         let tile_size_f32 = tile_size as f32;
@@ -767,8 +828,8 @@ impl Frame {
 
         // Strected size of the tile in layout space.
         let stretched_tile_size = LayerSize::new(
-            img_dw * stretch_size.width,
-            img_dh * stretch_size.height
+            img_dw * info.stretch_size.width,
+            img_dh * info.stretch_size.height
         );
 
         // The size in pixels of the tiles on the right and bottom edges, smaller
@@ -780,7 +841,8 @@ impl Frame {
             for tx in 0..num_tiles_x {
                 self.add_tile_primitive(scroll_layer_id,
                                         context,
-                                        item,
+                                        item_rect,
+                                        item_clip,
                                         info,
                                         TileOffset::new(tx, ty),
                                         stretched_tile_size,
@@ -791,7 +853,8 @@ impl Frame {
                 // Tiles on the right edge that are smaller than the tile size.
                 self.add_tile_primitive(scroll_layer_id,
                                         context,
-                                        item,
+                                        item_rect,
+                                        item_clip,
                                         info,
                                         TileOffset::new(num_tiles_x, ty),
                                         stretched_tile_size,
@@ -806,7 +869,8 @@ impl Frame {
                 // Tiles on the bottom edge that are smaller than the tile size.
                 self.add_tile_primitive(scroll_layer_id,
                                         context,
-                                        item,
+                                        item_rect,
+                                        item_clip,
                                         info,
                                         TileOffset::new(tx, num_tiles_y),
                                         stretched_tile_size,
@@ -820,7 +884,8 @@ impl Frame {
                 // Finally, the bottom-right tile with a "leftover" size.
                 self.add_tile_primitive(scroll_layer_id,
                                         context,
-                                        item,
+                                        item_rect,
+                                        item_clip,
                                         info,
                                         TileOffset::new(num_tiles_x, num_tiles_y),
                                         stretched_tile_size,
@@ -835,7 +900,8 @@ impl Frame {
     fn add_tile_primitive(&mut self,
                           scroll_layer_id: ScrollLayerId,
                           context: &mut FlattenContext,
-                          item: &DisplayItem,
+                          item_rect: &LayerRect,
+                          item_clip: &ClipRegion,
                           info: &ImageDisplayItem,
                           tile_offset: TileOffset,
                           stretched_tile_size: LayerSize,
@@ -858,7 +924,7 @@ impl Frame {
         );
 
         let mut prim_rect = LayerRect::new(
-            item.rect.origin + LayerPoint::new(
+            item_rect.origin + LayerPoint::new(
                 tile_offset.x as f32 * stretched_tile_size.width,
                 tile_offset.y as f32 * stretched_tile_size.height,
             ),
@@ -867,19 +933,19 @@ impl Frame {
 
         if repeat_x {
             assert_eq!(tile_offset.x, 0);
-            prim_rect.size.width = item.rect.size.width;
+            prim_rect.size.width = item_rect.size.width;
         }
 
         if repeat_y {
             assert_eq!(tile_offset.y, 0);
-            prim_rect.size.height = item.rect.size.height;
+            prim_rect.size.height = item_rect.size.height;
         }
 
         // Fix up the primitive's rect if it overflows the original item rect.
-        if let Some(prim_rect) = prim_rect.intersection(&item.rect) {
+        if let Some(prim_rect) = prim_rect.intersection(&item_rect) {
             context.builder.add_image(scroll_layer_id,
                                       prim_rect,
-                                      &item.clip,
+                                      &item_clip,
                                       &stretched_size,
                                       &info.tile_spacing,
                                       None,
