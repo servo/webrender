@@ -797,19 +797,17 @@ impl Frame {
         // This can happen with very tall and thin images used as a repeating background.
         // Apparently web authors do that...
 
-        let mut stretch_size = info.stretch_size;
-
         let mut repeat_x = false;
         let mut repeat_y = false;
 
-        if stretch_size.width < item_rect.size.width {
+        if info.stretch_size.width < item_rect.size.width {
             // If this assert blows up it means we haven't properly decomposed the image in decompose_image_row.
             debug_assert!(image_size.width <= tile_size);
             // we don't actually tile in this dimmension so repeating can be done in the shader.
             repeat_x = true;
         }
 
-        if stretch_size.height < item_rect.size.height {
+        if info.stretch_size.height < item_rect.size.height {
             // If this assert blows up it means we haven't properly decomposed the image in decompose_image.
             debug_assert!(image_size.height <= tile_size);
             // we don't actually tile in this dimmension so repeating can be done in the shader.
@@ -829,8 +827,8 @@ impl Frame {
 
         // Strected size of the tile in layout space.
         let stretched_tile_size = LayerSize::new(
-            img_dw * stretch_size.width,
-            img_dh * stretch_size.height
+            img_dw * info.stretch_size.width,
+            img_dh * info.stretch_size.height
         );
 
         // The size in pixels of the tiles on the right and bottom edges, smaller
