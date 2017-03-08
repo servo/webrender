@@ -157,23 +157,17 @@ pub struct ImagePrimitiveGpu {
 
 #[derive(Debug)]
 pub struct YuvImagePrimitiveCpu {
-    pub y_key: ImageKey,
-    pub u_key: ImageKey,
-    pub v_key: ImageKey,
-    pub y_texture_id: SourceTexture,
-    pub u_texture_id: SourceTexture,
-    pub v_texture_id: SourceTexture,
+    pub yuv_key: [ImageKey; 3],
+    pub yuv_texture_id: [SourceTexture; 3],
+
+    // The first address of yuv resource_address. Use "yuv_resource_address + N-th" to get the N-th channel data.
+    // e.g. yuv_resource_address + 0 => y channel resource_address
+    pub yuv_resource_address: GpuStoreAddress,
 }
 
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct YuvImagePrimitiveGpu {
-    pub y_uv0: DevicePoint,
-    pub y_uv1: DevicePoint,
-    pub u_uv0: DevicePoint,
-    pub u_uv1: DevicePoint,
-    pub v_uv0: DevicePoint,
-    pub v_uv1: DevicePoint,
     pub size: LayerSize,
     pub color_space: f32,
     pub padding: f32,
@@ -182,12 +176,6 @@ pub struct YuvImagePrimitiveGpu {
 impl YuvImagePrimitiveGpu {
     pub fn new(size: LayerSize, color_space: YuvColorSpace) -> Self {
         YuvImagePrimitiveGpu {
-            y_uv0: DevicePoint::zero(),
-            y_uv1: DevicePoint::zero(),
-            u_uv0: DevicePoint::zero(),
-            u_uv1: DevicePoint::zero(),
-            v_uv0: DevicePoint::zero(),
-            v_uv1: DevicePoint::zero(),
             size: size,
             color_space: color_space as u32 as f32,
             padding: 0.0,
@@ -676,8 +664,10 @@ impl PrimitiveStore {
                 self.cpu_images.push(image_cpu);
                 metadata
             }
-            PrimitiveContainer::YuvImage(image_cpu, image_gpu) => {
-                let gpu_address = self.gpu_data64.push(image_gpu);
+            PrimitiveContainer::YuvImage(mut image_cpu, image_gpu) => {
+                image_cpu.yuv_resource_address = self.gpu_resource_rects.alloc(3);
+
+                let gpu_address = self.gpu_data16.push(image_gpu);
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: true,
@@ -947,29 +937,16 @@ impl PrimitiveStore {
                 }
                 PrimitiveKind::YuvImage => {
                     let image_cpu = &mut self.cpu_yuv_images[metadata.cpu_prim_index.0];
-                    let image_gpu: &mut YuvImagePrimitiveGpu = unsafe {
-                        mem::transmute(self.gpu_data64.get_mut(metadata.gpu_prim_index))
-                    };
 
-                    if image_cpu.y_texture_id == SourceTexture::Invalid {
-                        let y_cache_item = resource_cache.get_cached_image(image_cpu.y_key, ImageRendering::Auto, None);
-                        image_cpu.y_texture_id = y_cache_item.texture_id;
-                        image_gpu.y_uv0 = y_cache_item.uv0;
-                        image_gpu.y_uv1 = y_cache_item.uv1;
-                    }
-
-                    if image_cpu.u_texture_id == SourceTexture::Invalid {
-                        let u_cache_item = resource_cache.get_cached_image(image_cpu.u_key, ImageRendering::Auto, None);
-                        image_cpu.u_texture_id = u_cache_item.texture_id;
-                        image_gpu.u_uv0 = u_cache_item.uv0;
-                        image_gpu.u_uv1 = u_cache_item.uv1;
-                    }
-
-                    if image_cpu.v_texture_id == SourceTexture::Invalid {
-                        let v_cache_item = resource_cache.get_cached_image(image_cpu.v_key, ImageRendering::Auto, None);
-                        image_cpu.v_texture_id = v_cache_item.texture_id;
-                        image_gpu.v_uv0 = v_cache_item.uv0;
-                        image_gpu.v_uv1 = v_cache_item.uv1;
+                    //yuv
+                    for channel in 0..3 {
+                        if image_cpu.yuv_texture_id[channel] == SourceTexture::Invalid {
+                            let cache_item = resource_cache.get_cached_image(image_cpu.yuv_key[channel], ImageRendering::Auto, None);
+                            image_cpu.yuv_texture_id[channel] = cache_item.texture_id;
+                            let resource_rect = self.gpu_resource_rects.get_mut(image_cpu.yuv_resource_address + channel as i32);
+                            resource_rect.uv0 = cache_item.uv0;
+                            resource_rect.uv1 = cache_item.uv1;
+                        }
                     }
                 }
             }
@@ -1188,9 +1165,9 @@ impl PrimitiveStore {
                 let image_cpu = &mut self.cpu_yuv_images[metadata.cpu_prim_index.0];
                 prim_needs_resolve = true;
 
-                resource_cache.request_image(image_cpu.y_key, ImageRendering::Auto, None);
-                resource_cache.request_image(image_cpu.u_key, ImageRendering::Auto, None);
-                resource_cache.request_image(image_cpu.v_key, ImageRendering::Auto, None);
+                for channel in 0..3 {
+                    resource_cache.request_image(image_cpu.yuv_key[channel], ImageRendering::Auto, None);
+                }
 
                 // TODO(nical): Currently assuming no tile_spacing for yuv images.
                 metadata.is_opaque = true;
@@ -1335,10 +1312,10 @@ impl From<RadialGradientPrimitiveGpu> for GpuBlock32 {
     }
 }
 
-impl From<YuvImagePrimitiveGpu> for GpuBlock64 {
-    fn from(data: YuvImagePrimitiveGpu) -> GpuBlock64 {
+impl From<YuvImagePrimitiveGpu> for GpuBlock16 {
+    fn from(data: YuvImagePrimitiveGpu) -> GpuBlock16 {
         unsafe {
-            mem::transmute::<YuvImagePrimitiveGpu, GpuBlock64>(data)
+            mem::transmute::<YuvImagePrimitiveGpu, GpuBlock16>(data)
         }
     }
 }
