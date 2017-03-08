@@ -893,9 +893,10 @@ impl Frame {
                  resource_cache: &mut ResourceCache,
                  auxiliary_lists_map: &AuxiliaryListsMap,
                  device_pixel_ratio: f32,
+                 pan: LayerPoint,
                  texture_cache_profile: &mut TextureCacheProfileCounters)
                  -> RendererFrame {
-        self.clip_scroll_tree.update_all_node_transforms();
+        self.clip_scroll_tree.update_all_node_transforms(pan);
         let frame = self.build_frame(resource_cache,
                                      auxiliary_lists_map,
                                      device_pixel_ratio,

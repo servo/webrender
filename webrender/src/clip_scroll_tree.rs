@@ -268,7 +268,7 @@ impl ClipScrollTree {
         scrolled_a_node
     }
 
-    pub fn update_all_node_transforms(&mut self) {
+    pub fn update_all_node_transforms(&mut self, pan: LayerPoint) {
         if self.nodes.is_empty() {
             return;
         }
@@ -276,7 +276,7 @@ impl ClipScrollTree {
         let root_reference_frame_id = self.root_reference_frame_id();
         let root_viewport = self.nodes[&root_reference_frame_id].local_clip_rect;
         self.update_node_transform(root_reference_frame_id,
-                                   &LayerToWorldTransform::identity(),
+                                   &LayerToWorldTransform::create_translation(pan.x, pan.y, 0.0),
                                    &as_scroll_parent_rect(&root_viewport),
                                    LayerPoint::zero());
     }
