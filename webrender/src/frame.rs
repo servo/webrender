@@ -803,23 +803,17 @@ impl Frame {
         let mut repeat_y = false;
 
         if stretch_size.width < item_rect.size.width {
-            if image_size.width < tile_size {
-                // we don't actually tile in this dimmension so repeating can be done in the shader.
-                repeat_x = true;
-            } else {
-                println!("Unimplemented! repeating a tiled image (x axis)");
-                stretch_size.width = item_rect.size.width;
-            }
+            // If this assert blows up it means we haven't properly decomposed the image in decompose_image_row.
+            debug_assert!(image_size.width <= tile_size);
+            // we don't actually tile in this dimmension so repeating can be done in the shader.
+            repeat_x = true;
         }
 
         if stretch_size.height < item_rect.size.height {
-                // we don't actually tile in this dimmension so repeating can be done in the shader.
-            if image_size.height < tile_size {
-                repeat_y = true;
-            } else {
-                println!("Unimplemented! repeating a tiled image (y axis)");
-                stretch_size.height = item_rect.size.height;
-            }
+            // If this assert blows up it means we haven't properly decomposed the image in decompose_image.
+            debug_assert!(image_size.height <= tile_size);
+            // we don't actually tile in this dimmension so repeating can be done in the shader.
+            repeat_y = true;
         }
 
         let tile_size_f32 = tile_size as f32;
