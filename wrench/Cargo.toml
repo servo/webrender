@@ -24,6 +24,8 @@ osmesa-sys = { version = "0.1.2", optional = true }
 osmesa-src = { git = "https://github.com/servo/osmesa-src", optional = true }
 webrender = {path = "../webrender"}
 webrender_traits = {path = "../webrender_traits"}
+serde_derive = "0.9"
+serde = "0.9"
 
 [features]
 headless = [ "osmesa-sys", "osmesa-src" ]

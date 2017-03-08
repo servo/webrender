@@ -103,3 +103,21 @@ subcommands:
               help: a specific reftest or directory to run
               required: false
               index: 1
+    - perf:
+        about: run benchmarks
+        args:
+          - filename:
+              help: name of the file to save benchmarks to
+              required: true
+              index: 1
+    - compare_perf:
+        about: compare two benchmark files
+        args:
+          - first_filename:
+              help: first benchmark file to compare
+              required: true
+              index: 1
+          - second_filename:
+              help: second benchmark file to compare
+              required: true
+              index: 2

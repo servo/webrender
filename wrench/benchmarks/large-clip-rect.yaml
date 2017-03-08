@@ -1,0 +1,59 @@
+---
+root:
+  items:
+        - type: rect
+          bounds: [0, 0, 1024, 1024]
+          color: red
+          clip:
+            complex:
+              - rect: [0, 0, 1024, 1024]
+                radius: 16
+        - type: rect
+          bounds: [0, 0, 1024, 1024]
+          color: red
+          clip:
+            complex:
+              - rect: [0, 0, 1024, 1024]
+                radius: 16
+        - type: rect
+          bounds: [0, 0, 1024, 1024]
+          color: red
+          clip:
+            complex:
+              - rect: [0, 0, 1024, 1024]
+                radius: 16
+        - type: rect
+          bounds: [0, 0, 1024, 1024]
+          color: red
+          clip:
+            complex:
+              - rect: [0, 0, 1024, 1024]
+                radius: 16
+        - type: rect
+          bounds: [0, 0, 1024, 1024]
+          color: red
+          clip:
+            complex:
+              - rect: [0, 0, 1024, 1024]
+                radius: 16
+        - type: rect
+          bounds: [0, 0, 1024, 1024]
+          color: red
+          clip:
+            complex:
+              - rect: [0, 0, 1024, 1024]
+                radius: 16
+        - type: rect
+          bounds: [0, 0, 1024, 1024]
+          color: red
+          clip:
+            complex:
+              - rect: [0, 0, 1024, 1024]
+                radius: 16
+        - type: rect
+          bounds: [0, 0, 1024, 1024]
+          color: red
+          clip:
+            complex:
+              - rect: [0, 0, 1024, 1024]
+                radius: 16
