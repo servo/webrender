@@ -13,7 +13,7 @@ use util::TransformedRect;
 use webrender_traits::{ClipRegion, LayerPixel, LayerPoint, LayerRect, LayerSize};
 use webrender_traits::{LayerToScrollTransform, LayerToWorldTransform, PipelineId};
 use webrender_traits::{ScrollEventPhase, ScrollLayerId, ScrollLayerRect, ScrollLocation};
-use webrender_traits::{WorldPoint, WorldPoint4D};
+use webrender_traits::{ServoScrollRootId, WorldPoint, WorldPoint4D};
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
@@ -38,12 +38,17 @@ pub struct ClipInfo {
     /// which depends on the screen rectangle and the transformation of all of
     /// the parents.
     pub xf_rect: Option<TransformedRect>,
+
+    /// An external identifier that is used to scroll this clipping node
+    /// from the API.
+    pub scroll_root_id: Option<ServoScrollRootId>,
 }
 
 impl ClipInfo {
     pub fn new(clip_region: &ClipRegion,
                clip_store: &mut VertexDataStore<GpuBlock32>,
-               packed_layer_index: PackedLayerIndex)
+               packed_layer_index: PackedLayerIndex,
+               scroll_root_id: Option<ServoScrollRootId>)
                -> ClipInfo {
         // We pass true here for the MaskCacheInfo because this type of
         // mask needs an extra clip for the clip rectangle.
@@ -53,6 +58,7 @@ impl ClipInfo {
             clip_source: clip_source,
             packed_layer_index: packed_layer_index,
             xf_rect: None,
+            scroll_root_id: scroll_root_id,
         }
     }
 

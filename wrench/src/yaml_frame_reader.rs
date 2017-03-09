@@ -597,7 +597,7 @@ impl YamlFrameReader {
             *entry = LayerPoint::new(size.x, size.y);
         }
 
-        self.builder().push_scroll_layer(clip, content_size, scroll_root_id);
+        self.builder().push_scroll_layer(clip, content_size, Some(scroll_root_id));
 
         if !yaml["items"].is_badvalue() {
             self.add_display_list_items_from_yaml(wrench, &yaml["items"]);

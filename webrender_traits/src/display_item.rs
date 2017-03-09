@@ -292,6 +292,7 @@ pub enum FilterOp {
 pub struct PushScrollLayerItem {
     pub content_size: LayoutSize,
     pub id: ScrollLayerId,
+    pub scroll_root_id: Option<ServoScrollRootId>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -522,7 +523,7 @@ impl ScrollLayerId {
     pub fn root_scroll_layer(pipeline_id: PipelineId) -> ScrollLayerId {
         ScrollLayerId {
             pipeline_id: pipeline_id,
-            info: ScrollLayerInfo::Scrollable(0, ServoScrollRootId(0)),
+            info: ScrollLayerInfo::Scrollable(0),
         }
     }
 
@@ -533,13 +534,6 @@ impl ScrollLayerId {
         }
     }
 
-    pub fn scroll_root_id(&self) -> Option<ServoScrollRootId> {
-        match self.info {
-            ScrollLayerInfo::Scrollable(_, scroll_root_id) => Some(scroll_root_id),
-            ScrollLayerInfo::ReferenceFrame(..) => None,
-        }
-    }
-
     pub fn is_reference_frame(&self) -> bool {
         match self.info {
             ScrollLayerInfo::Scrollable(..) => false,
@@ -547,19 +541,16 @@ impl ScrollLayerId {
         }
     }
 
-    pub fn new(pipeline_id: PipelineId,
-               index: usize,
-               scroll_root_id: ServoScrollRootId)
-               -> ScrollLayerId {
+    pub fn new(pipeline_id: PipelineId, index: usize) -> ScrollLayerId {
         ScrollLayerId {
             pipeline_id: pipeline_id,
-            info: ScrollLayerInfo::Scrollable(index, scroll_root_id),
+            info: ScrollLayerInfo::Scrollable(index),
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ScrollLayerInfo {
-    Scrollable(usize, ServoScrollRootId),
+    Scrollable(usize),
     ReferenceFrame(usize),
 }
