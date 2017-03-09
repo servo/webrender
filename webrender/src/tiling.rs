@@ -105,7 +105,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
             }
             PrimitiveKind::YuvImage => {
                 let image_cpu = &self.cpu_yuv_images[metadata.cpu_prim_index.0];
-                [image_cpu.yuv_texture_id[0], image_cpu.yuv_texture_id[1], image_cpu.yuv_texture_id[2]]
+                image_cpu.yuv_texture_id
             }
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
