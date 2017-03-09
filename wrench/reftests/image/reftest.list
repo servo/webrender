@@ -1,4 +1,4 @@
 == tile-size.yaml tile-size-ref.yaml
 == very-big.yaml very-big-ref.yaml
 == tile-with-spacing.yaml tile-with-spacing-ref.yaml
-== tile-repeat-prim-or-decompose.yaml tile-repeat-prim-or-decompose-ref.yaml
+fuzzy(1,250000) == tile-repeat-prim-or-decompose.yaml tile-repeat-prim-or-decompose-ref.yaml
