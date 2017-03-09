@@ -16,6 +16,7 @@ use image;
 use image::GenericImage;
 use json_frame_writer::JsonFrameWriter;
 use parse_function::parse_function;
+use premultiply::premultiply;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use time;
@@ -304,7 +305,10 @@ impl Wrench {
                     image::ImageRgba8(_) => ImageFormat::RGBA8,
                     _ => panic!("We don't support whatever your crazy image type is, come on"),
                 };
-                let bytes = image.raw_pixels();
+                let mut bytes = image.raw_pixels();
+                if format == ImageFormat::RGBA8 {
+                    premultiply(bytes.as_mut_slice());
+                }
                 let descriptor = ImageDescriptor::new(image_dims.0,
                                                       image_dims.1,
                                                       format,

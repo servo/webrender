@@ -7,6 +7,7 @@
 #![allow(dead_code)]
 
 use image::{ColorType, save_buffer};
+use premultiply::unpremultiply;
 use serde_json;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
@@ -141,7 +142,7 @@ impl JsonFrameWriter {
 
         // Remove the data to munge it
         let mut data = self.images.remove(&key).unwrap();
-        let bytes = data.bytes.take().unwrap();
+        let mut bytes = data.bytes.take().unwrap();
         let (path_file, path) = Self::next_rsrc_paths(&self.rsrc_prefix,
                                                       &mut self.next_rsrc_num,
                                                       &self.rsrc_base,
@@ -159,6 +160,7 @@ impl JsonFrameWriter {
             }
             ImageFormat::RGBA8 => {
                 if data.stride == data.width * 4 {
+                    unpremultiply(bytes.as_mut_slice());
                     save_buffer(&path_file, &bytes, data.width, data.height, ColorType::RGBA(8)).unwrap();
                     true
                 } else {

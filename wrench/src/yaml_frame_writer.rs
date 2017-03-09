@@ -6,6 +6,7 @@ extern crate yaml_rust;
 
 use euclid::{TypedMatrix4D, TypedPoint2D, TypedRect, TypedSize2D};
 use image::{ColorType, save_buffer};
+use premultiply::unpremultiply;
 use scene::Scene;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
@@ -410,7 +411,7 @@ impl YamlFrameWriter {
 
         // Remove the data to munge it
         let mut data = self.images.remove(&key).unwrap();
-        let bytes = data.bytes.take().unwrap();
+        let mut bytes = data.bytes.take().unwrap();
         let (path_file, path) = Self::next_rsrc_paths(&self.rsrc_prefix,
                                                       &mut self.next_rsrc_num,
                                                       &self.rsrc_base,
@@ -436,13 +437,19 @@ impl YamlFrameWriter {
         };
 
         if data.stride == data.width * bpp {
+            if data.format == ImageFormat::RGBA8 {
+                unpremultiply(bytes.as_mut_slice());
+            }
             save_buffer(&path_file, &bytes, data.width, data.height, color_type).unwrap();
         } else {
             // takes a buffer with a stride and copies it into a new buffer that has stride == width
             assert!(data.stride > data.width * bpp);
-            let tmp: Vec<_>  = bytes[..].chunks(data.stride as usize)
-                                        .flat_map(|chunk| chunk[..(data.width * bpp) as usize].iter().cloned())
-                                        .collect();
+            let mut tmp: Vec<_>  = bytes[..].chunks(data.stride as usize)
+                                            .flat_map(|chunk| chunk[..(data.width * bpp) as usize].iter().cloned())
+                                            .collect();
+            if data.format == ImageFormat::RGBA8 {
+                unpremultiply(tmp.as_mut_slice());
+            }
 
             save_buffer(&path_file, &tmp, data.width, data.height, color_type).unwrap();
         }

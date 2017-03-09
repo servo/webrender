@@ -1963,7 +1963,7 @@ impl Device {
     }
 
     pub fn set_blend_mode_premultiplied_alpha(&self) {
-        gl::blend_func(gl::SRC_ALPHA, gl::ZERO);
+        gl::blend_func(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
         gl::blend_equation(gl::FUNC_ADD);
     }
 

@@ -34,6 +34,7 @@ mod json_frame_writer;
 mod parse_function;
 mod perf;
 mod png;
+mod premultiply;
 mod reftest;
 mod scene;
 mod wrench;
