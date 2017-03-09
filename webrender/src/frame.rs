@@ -738,8 +738,8 @@ impl Frame {
                            info: &ImageDisplayItem,
                            image_size: DeviceUintSize,
                            tile_size: u32) {
-        let no_horizontal_tiling = image_size.height <= tile_size;
-        let no_horizontal_spacing = info.tile_spacing.height == 0.0;
+        let no_horizontal_tiling = image_size.width <= tile_size;
+        let no_horizontal_spacing = info.tile_spacing.width == 0.0;
         if no_horizontal_tiling && no_horizontal_spacing {
             self.decompose_tiled_image(scroll_layer_id, context, item_rect, item_clip, info, image_size, tile_size);
             return;
