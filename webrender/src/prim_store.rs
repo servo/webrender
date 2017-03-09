@@ -940,11 +940,13 @@ impl PrimitiveStore {
 
                     //yuv
                     for channel in 0..3 {
-                        let cache_item = resource_cache.get_cached_image(image_cpu.yuv_key[channel], ImageRendering::Auto, None);
-                        image_cpu.yuv_texture_id[channel] = cache_item.texture_id;
-                        let resource_rect = self.gpu_resource_rects.get_mut(image_cpu.yuv_resource_address + channel as i32);
-                        resource_rect.uv0 = cache_item.uv0;
-                        resource_rect.uv1 = cache_item.uv1;
+                        if image_cpu.yuv_texture_id[channel] == SourceTexture::Invalid {
+                            let cache_item = resource_cache.get_cached_image(image_cpu.yuv_key[channel], ImageRendering::Auto, None);
+                            image_cpu.yuv_texture_id[channel] = cache_item.texture_id;
+                            let resource_rect = self.gpu_resource_rects.get_mut(image_cpu.yuv_resource_address + channel as i32);
+                            resource_rect.uv0 = cache_item.uv0;
+                            resource_rect.uv1 = cache_item.uv1;
+                        }
                     }
                 }
             }
