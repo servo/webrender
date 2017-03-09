@@ -7,6 +7,7 @@ use base64;
 use gleam::gl;
 use image::ColorType;
 use image::png::PNGEncoder;
+use parse_function::parse_function;
 use std::cmp;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -24,6 +25,8 @@ pub struct Reftest {
     op: ReftestOp,
     test: PathBuf,
     reference: PathBuf,
+    max_difference: usize,
+    num_differences: usize,
 }
 
 struct ReftestImage {
@@ -114,29 +117,33 @@ impl ReftestManifest {
                 continue;
             }
 
-            let mut items = s.split_whitespace();
+            let items: Vec<&str> = s.split_whitespace().collect();
 
-            match items.next() {
-                Some("include") => {
-                    let include = dir.join(items.next().unwrap());
+            match items[0] {
+                "include" => {
+                    let include = dir.join(items[1]);
 
                     reftests.append(&mut ReftestManifest::new(include.as_path()).reftests);
                 }
-                Some(x) => {
-                    let kind = match x {
-                        "==" => ReftestOp::Equal,
-                        "!=" => ReftestOp::NotEqual,
-                        _ => panic!("unexpected match operator"),
+                item_str => {
+                    // If the first item is "fuzzy(<val>,<count>)" the positions of the operator
+                    // and paths in the array are offset.
+                    // TODO: This is simple but not great because it does not support having spaces
+                    // in the fuzzy syntax, like between the arguments.
+                    let (max, count, offset) =  if item_str.starts_with("fuzzy(") {
+                        let (_, args) = parse_function(item_str);
+                        (args[0].parse().unwrap(),  args[1].parse().unwrap(), 1)
+                    } else {
+                        (0, 0, 0)
                     };
-                    let test = dir.join(items.next().unwrap());
-                    let reference = dir.join(items.next().unwrap());
                     reftests.push(Reftest {
-                        op: kind,
-                        test: test,
-                        reference: reference,
+                        op: parse_operator(items[offset]).expect("unexpected match operator"),
+                        test: dir.join(items[offset + 1]),
+                        reference: dir.join(items[offset + 2]),
+                        max_difference: max,
+                        num_differences: count,
                     });
                 }
-                _ => panic!(),
             };
         }
 
@@ -149,6 +156,14 @@ impl ReftestManifest {
         self.reftests.iter().filter(|x| {
             x.test.starts_with(prefix) || x.reference.starts_with(prefix)
         }).collect()
+    }
+}
+
+fn parse_operator(op_str: &str) -> Option<ReftestOp> {
+    match op_str {
+        "==" => Some(ReftestOp::Equal),
+        "!=" => Some(ReftestOp::NotEqual),
+        _ => None,
     }
 }
 
@@ -220,15 +235,19 @@ impl<'a> ReftestHarness<'a> {
             (&ReftestOp::Equal, ReftestImageComparison::Equal) => true,
             (&ReftestOp::Equal,
               ReftestImageComparison::NotEqual { max_difference, count_different }) => {
-                println!("{} | {} | {}: {}, {}: {}",
-                         "REFTEST TEST-UNEXPECTED-FAIL", name,
-                         "image comparison, max difference", max_difference,
-                         "number of differing pixels", count_different);
-                println!("REFTEST   IMAGE 1 (TEST): {}", test.create_data_uri());
-                println!("REFTEST   IMAGE 2 (REFERENCE): {}", reference.create_data_uri());
-                println!("REFTEST TEST-END | {}", name);
+                if max_difference > t.max_difference || count_different > t.num_differences {
+                    println!("{} | {} | {}: {}, {}: {}",
+                             "REFTEST TEST-UNEXPECTED-FAIL", name,
+                             "image comparison, max difference", max_difference,
+                             "number of differing pixels", count_different);
+                    println!("REFTEST   IMAGE 1 (TEST): {}", test.create_data_uri());
+                    println!("REFTEST   IMAGE 2 (REFERENCE): {}", reference.create_data_uri());
+                    println!("REFTEST TEST-END | {}", name);
 
-                false
+                    false
+                } else {
+                    true
+                }
             },
             (&ReftestOp::NotEqual, ReftestImageComparison::Equal) => {
                 println!("REFTEST TEST-UNEXPECTED-FAIL | {} | image comparison", name);
