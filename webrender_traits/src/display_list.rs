@@ -15,6 +15,7 @@ use {ScrollPolicy, ServoScrollRootId, SpecificDisplayItem, StackingContext, Text
 use {WebGLContextId, WebGLDisplayItem, YuvImageDisplayItem};
 use {LayoutTransform, LayoutPoint, LayoutRect, LayoutSize};
 use {BorderDetails, BorderWidths, GlyphOptions, PropertyBinding};
+use {Gradient, RadialGradient};
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct AuxiliaryLists {
@@ -213,6 +214,36 @@ impl DisplayListBuilder {
         }
     }
 
+    pub fn create_gradient(&mut self,
+                           start_point: LayoutPoint,
+                           end_point: LayoutPoint,
+                           stops: Vec<GradientStop>,
+                           extend_mode: ExtendMode) -> Gradient {
+        Gradient {
+            start_point: start_point,
+            end_point: end_point,
+            stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
+            extend_mode: extend_mode,
+        }
+    }
+
+    pub fn create_radial_gradient(&mut self,
+                                  start_center: LayoutPoint,
+                                  start_radius: f32,
+                                  end_center: LayoutPoint,
+                                  end_radius: f32,
+                                  stops: Vec<GradientStop>,
+                                  extend_mode: ExtendMode) -> RadialGradient {
+        RadialGradient {
+            start_center: start_center,
+            start_radius: start_radius,
+            end_center: end_center,
+            end_radius: end_radius,
+            stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
+            extend_mode: extend_mode,
+        }
+    }
+
     pub fn push_border(&mut self,
                        rect: LayoutRect,
                        clip: ClipRegion,
@@ -257,10 +288,7 @@ impl DisplayListBuilder {
                          stops: Vec<GradientStop>,
                          extend_mode: ExtendMode) {
         let item = SpecificDisplayItem::Gradient(GradientDisplayItem {
-            start_point: start_point,
-            end_point: end_point,
-            stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
-            extend_mode: extend_mode,
+            gradient: self.create_gradient(start_point, end_point, stops, extend_mode),
         });
 
         self.push_item(item, rect, clip);
@@ -276,12 +304,9 @@ impl DisplayListBuilder {
                                 stops: Vec<GradientStop>,
                                 extend_mode: ExtendMode) {
         let item = SpecificDisplayItem::RadialGradient(RadialGradientDisplayItem {
-            start_center: start_center,
-            start_radius: start_radius,
-            end_center: end_center,
-            end_radius: end_radius,
-            stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
-            extend_mode: extend_mode,
+            gradient: self.create_radial_gradient(start_center, start_radius,
+                                                  end_center, end_radius,
+                                                  stops, extend_mode),
         });
 
         self.push_item(item, rect, clip);
@@ -358,10 +383,10 @@ impl DisplayListBuilder {
                     item.glyphs = self.auxiliary_lists_builder.add_glyph_instances(aux.glyph_instances(&item.glyphs));
                 }
                 Gradient(ref mut item) => {
-                    item.stops = self.auxiliary_lists_builder.add_gradient_stops(aux.gradient_stops(&item.stops));
+                    item.gradient.stops = self.auxiliary_lists_builder.add_gradient_stops(aux.gradient_stops(&item.gradient.stops));
                 }
                 RadialGradient(ref mut item) => {
-                    item.stops = self.auxiliary_lists_builder.add_gradient_stops(aux.gradient_stops(&item.stops));
+                    item.gradient.stops = self.auxiliary_lists_builder.add_gradient_stops(aux.gradient_stops(&item.gradient.stops));
                 }
                 PushStackingContext(ref mut item) => {
                     item.stacking_context.filters = self.auxiliary_lists_builder.add_filters(aux.filters(&item.stacking_context.filters));

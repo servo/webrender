@@ -1,0 +1,70 @@
+---
+root:
+  items:
+    - type: stacking_context
+      bounds: [0, 0, 50, 50]
+      items:
+        - type: radial_gradient # top left
+          bounds: [ 0, 0, 10, 10]
+          start_center: [ 25, 25 ]
+          start_radius: 15
+          end_center: [ 25, 25 ]
+          end_radius: 35
+          stops: [ 0.0, red, 1.0, green ]
+          repeat: false
+        - type: radial_gradient # top right
+          bounds: [ 40, 0, 10, 10]
+          start_center: [ 25, 25 ]
+          start_radius: 15
+          end_center: [ 25, 25 ]
+          end_radius: 35
+          stops: [ 0.0, red, 1.0, green ]
+          repeat: false
+        - type: radial_gradient # bottom left
+          bounds: [ 0, 40, 10, 10]
+          start_center: [ 25, 25 ]
+          start_radius: 15
+          end_center: [ 25, 25 ]
+          end_radius: 35
+          stops: [ 0.0, red, 1.0, green ]
+          repeat: false
+        - type: radial_gradient # bottom right
+          bounds: [ 40, 40, 10, 10]
+          start_center: [ 25, 25 ]
+          start_radius: 15
+          end_center: [ 25, 25 ]
+          end_radius: 35
+          stops: [ 0.0, red, 1.0, green ]
+          repeat: false
+        - type: radial_gradient # top
+          bounds: [ 10, 0, 30, 10]
+          start_center: [ 25, 25 ]
+          start_radius: 15
+          end_center: [ 25, 25 ]
+          end_radius: 35
+          stops: [ 0.0, red, 1.0, green ]
+          repeat: false
+        - type: radial_gradient # right
+          bounds: [ 40, 10, 10, 30]
+          start_center: [ 25, 25 ]
+          start_radius: 15
+          end_center: [ 25, 25 ]
+          end_radius: 35
+          stops: [ 0.0, red, 1.0, green ]
+          repeat: false
+        - type: radial_gradient # bottom
+          bounds: [ 10, 40, 30, 10]
+          start_center: [ 25, 25 ]
+          start_radius: 15
+          end_center: [ 25, 25 ]
+          end_radius: 35
+          stops: [ 0.0, red, 1.0, green ]
+          repeat: false
+        - type: radial_gradient # left
+          bounds: [ 0, 10, 10, 30]
+          start_center: [ 25, 25 ]
+          start_radius: 15
+          end_center: [ 25, 25 ]
+          end_radius: 35
+          stops: [ 0.0, red, 1.0, green ]
+          repeat: false

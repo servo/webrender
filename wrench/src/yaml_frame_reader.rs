@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use clap;
-use euclid::{Point2D, TypedPoint2D};
+use euclid::{Point2D, TypedPoint2D, SideOffsets2D};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
@@ -247,46 +247,144 @@ impl YamlFrameReader {
         let bounds_key = if item["type"].is_badvalue() { "border" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("borders must have bounds");
         let widths = item["width"].as_vec_f32().expect("borders must have width(s)");
-        let colors = item["color"].as_vec_colorf().expect("borders must have color(s)");
-        let styles = item["style"].as_vec_string().expect("borders must have style(s)");
-        let styles = styles.iter().map(|s| match s.as_str() {
-            "none" => BorderStyle::None,
-            "solid" => BorderStyle::Solid,
-            "double" => BorderStyle::Double,
-            "dotted" => BorderStyle::Dotted,
-            "dashed" => BorderStyle::Dashed,
-            "hidden" => BorderStyle::Hidden,
-            "ridge" => BorderStyle::Ridge,
-            "inset" => BorderStyle::Inset,
-            "outset" => BorderStyle::Outset,
-            "groove" => BorderStyle::Groove,
-            s => {
-                panic!("Unknown border style '{}'", s);
-            }
-        }).collect::<Vec<BorderStyle>>();
-        let radius = item["radius"].as_border_radius().unwrap_or(BorderRadius::zero());
-
         let widths = broadcast(&widths, 4);
-        let colors = broadcast(&colors, 4);
-        let styles = broadcast(&styles, 4);
-
         let widths = BorderWidths { top: widths[0], left: widths[1], bottom: widths[2], right: widths[3] };
-        let top = BorderSide { color: colors[0], style: styles[0] };
-        let left = BorderSide { color: colors[1], style: styles[1] };
-        let bottom = BorderSide { color: colors[2], style: styles[2] };
-        let right = BorderSide { color: colors[3], style: styles[3] };
-        let details = BorderDetails::Normal(NormalBorder {
-            top: top,
-            left: left,
-            bottom: bottom,
-            right: right,
-            radius: radius,
-        });
+        let border_details = if let Some(border_type) = item["border-type"].as_str() {
+            match border_type {
+                "normal" => {
+                    let colors = item["color"].as_vec_colorf().expect("borders must have color(s)");
+                    let styles = item["style"].as_vec_string().expect("borders must have style(s)");
+                    let styles = styles.iter().map(|s| match s.as_str() {
+                        "none" => BorderStyle::None,
+                        "solid" => BorderStyle::Solid,
+                        "double" => BorderStyle::Double,
+                        "dotted" => BorderStyle::Dotted,
+                        "dashed" => BorderStyle::Dashed,
+                        "hidden" => BorderStyle::Hidden,
+                        "ridge" => BorderStyle::Ridge,
+                        "inset" => BorderStyle::Inset,
+                        "outset" => BorderStyle::Outset,
+                        "groove" => BorderStyle::Groove,
+                        s => {
+                            panic!("Unknown border style '{}'", s);
+                        }
+                    }).collect::<Vec<BorderStyle>>();
+                    let radius = item["radius"].as_border_radius().unwrap_or(BorderRadius::zero());
+
+                    let colors = broadcast(&colors, 4);
+                    let styles = broadcast(&styles, 4);
+
+                    let top = BorderSide { color: colors[0], style: styles[0] };
+                    let left = BorderSide { color: colors[1], style: styles[1] };
+                    let bottom = BorderSide { color: colors[2], style: styles[2] };
+                    let right = BorderSide { color: colors[3], style: styles[3] };
+                    Some(BorderDetails::Normal(NormalBorder {
+                        top: top,
+                        left: left,
+                        bottom: bottom,
+                        right: right,
+                        radius: radius,
+                    }))
+                },
+                "image" => {
+                    let image = &item["image"];
+                    let (image_key, _) =
+                        wrench.add_or_get_image(&self.rsrc_path(&image["image"]), None);
+                    let image_width = item["image-width"].as_i64().expect("border must have image-width");
+                    let image_height = item["image-height"].as_i64().expect("border must have image-height");
+                    let slice = item["slice"].as_vec_u32().expect("border must have slice");
+                    let slice = broadcast(&slice, 4);
+                    let outset = item["outset"].as_vec_f32().expect("border must have outset");
+                    let outset = broadcast(&outset, 4);
+                    let repeat_horizontal =
+                        match item["repeat-horizontal"].as_str().expect("border must have repeat-horizontal") {
+                            "stretch" => RepeatMode::Stretch,
+                            "repeat" => RepeatMode::Repeat,
+                            "round" => RepeatMode::Round,
+                            "space" => RepeatMode::Space,
+                            s => panic!("Unknown box border image repeat mode {}", s),
+                        };
+                    let repeat_vertical =
+                        match item["repeat-vertical"].as_str().expect("border must have repeat-vertical") {
+                            "stretch" => RepeatMode::Stretch,
+                            "repeat" => RepeatMode::Repeat,
+                            "round" => RepeatMode::Round,
+                            "space" => RepeatMode::Space,
+                            s => panic!("Unknown box border image repeat mode {}", s),
+                        };
+                    Some(BorderDetails::Image(ImageBorder {
+                        image_key: image_key,
+                        patch: NinePatchDescriptor {
+                            width: image_width as u32,
+                            height: image_height as u32,
+                            slice: SideOffsets2D::new(slice[0], slice[1], slice[2], slice[3]),
+                        },
+                        outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
+                        repeat_horizontal: repeat_horizontal,
+                        repeat_vertical: repeat_vertical,
+                    }))
+                },
+                "gradient" => {
+                    let start = item["start"].as_point().expect("gradient must have start");
+                    let end = item["end"].as_point().expect("gradient must have end");
+                    let stops = item["stops"].as_vec().expect("gradient must have stops")
+                        .chunks(2).map(|chunk| GradientStop {
+                            offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
+                            color: chunk[1].as_colorf().expect("gradient stop color is not color"),
+                        }).collect::<Vec<_>>();
+                    let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
+                        ExtendMode::Repeat
+                    } else {
+                        ExtendMode::Clamp
+                    };
+                    let outset = item["outset"].as_vec_f32().expect("borders must have outset");
+                    let outset = broadcast(&outset, 4);
+                    Some(BorderDetails::Gradient(GradientBorder {
+                        gradient: self.builder().create_gradient(start, end, stops, extend_mode),
+                        outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
+                    }))
+                },
+                "radial-gradient" => {
+                    let start_center = item["start_center"].as_point().expect("radial gradient must have start center");
+                    let start_radius =
+                        item["start_radius"].as_force_f32().expect("radial gradient must have start radius");
+                    let end_center = item["end_center"].as_point().expect("radial gradient must have end center");
+                    let end_radius = item["end_radius"].as_force_f32().expect("radial gradient must have end radius");
+                    let stops = item["stops"].as_vec().expect("radial gradient must have stops")
+                        .chunks(2).map(|chunk| GradientStop {
+                            offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
+                            color: chunk[1].as_colorf().expect("gradient stop color is not color"),
+                        }).collect::<Vec<_>>();
+                    let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
+                        ExtendMode::Repeat
+                    } else {
+                        ExtendMode::Clamp
+                    };
+                    let outset = item["outset"].as_vec_f32().expect("borders must have outset");
+                    let outset = broadcast(&outset, 4);
+                    Some(BorderDetails::RadialGradient(RadialGradientBorder {
+                        gradient: self.builder().create_radial_gradient(start_center, start_radius,
+                                                                        end_center, end_radius,
+                                                                        stops, extend_mode),
+                        outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
+                    }))
+                },
+                _ => {
+                    println!("Unable to parse border {:?}", item);
+                    None
+                },
+            }
+        } else {
+            println!("Unable to parse border {:?}", item);
+            None
+        };
         let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
-        self.builder().push_border(bounds,
-                                   clip,
-                                   widths,
-                                   details);
+        if let Some(details) = border_details {
+            self.builder().push_border(bounds,
+                                       clip,
+                                       widths,
+                                       details);
+        }
     }
 
     fn handle_box_shadow(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
