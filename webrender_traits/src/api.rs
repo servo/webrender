@@ -10,7 +10,7 @@ use {ColorF, ImageDescriptor};
 use {FontKey, ImageKey, NativeFontHandle, ServoScrollRootId};
 use {GlyphKey, GlyphDimensions, ImageData, WebGLContextId, WebGLCommand};
 use {DeviceIntSize, LayoutPoint, LayoutSize, WorldPoint};
-use {DeviceUintRect, DeviceUintSize, LayoutTransform};
+use {DeviceIntPoint, DeviceUintRect, DeviceUintSize, LayoutTransform};
 use {BuiltDisplayList, BuiltDisplayListDescriptor, AuxiliaryLists, AuxiliaryListsDescriptor};
 use std::fmt;
 use std::marker::PhantomData;
@@ -42,7 +42,9 @@ pub enum ApiMsg {
                        BuiltDisplayListDescriptor,
                        AuxiliaryListsDescriptor,
                        bool),
-    SetPageZoom(PageZoomFactor),
+    SetPageZoom(ZoomFactor),
+    SetPinchZoom(ZoomFactor),
+    SetPan(DeviceIntPoint),
     SetRootPipeline(PipelineId),
     SetWindowParameters(DeviceUintSize, DeviceUintRect),
     Scroll(ScrollLocation, WorldPoint, ScrollEventPhase),
@@ -89,6 +91,8 @@ impl fmt::Debug for ApiMsg {
             &ApiMsg::ExternalEvent(..) => { write!(f, "ApiMsg::ExternalEvent") }
             &ApiMsg::ShutDown => { write!(f, "ApiMsg::ShutDown") }
             &ApiMsg::SetPageZoom(..) => { write!(f, "ApiMsg::SetPageZoom") }
+            &ApiMsg::SetPinchZoom(..) => { write!(f, "ApiMsg::SetPinchZoom") }
+            &ApiMsg::SetPan(..) => { write!(f, "ApiMsg::SetPan") }
             &ApiMsg::SetWindowParameters(..) => { write!(f, "ApiMsg::SetWindowParameters") }
         }
     }
@@ -314,8 +318,18 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
     }
 
-    pub fn set_page_zoom(&self, page_zoom: PageZoomFactor) {
+    pub fn set_page_zoom(&self, page_zoom: ZoomFactor) {
         let msg = ApiMsg::SetPageZoom(page_zoom);
+        self.api_sender.send(msg).unwrap();
+    }
+
+    pub fn set_pinch_zoom(&self, pinch_zoom: ZoomFactor) {
+        let msg = ApiMsg::SetPinchZoom(pinch_zoom);
+        self.api_sender.send(msg).unwrap();
+    }
+
+    pub fn set_pan(&self, pan: DeviceIntPoint) {
+        let msg = ApiMsg::SetPan(pan);
         self.api_sender.send(msg).unwrap();
     }
 
@@ -437,17 +451,17 @@ pub enum ScrollLocation {
     End
 }
 
-/// Represents a desktop style page zoom factor.
+/// Represents a zoom factor.
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
-pub struct PageZoomFactor(f32);
+pub struct ZoomFactor(f32);
 
-impl PageZoomFactor {
-    /// Construct a new page zoom factor.
-    pub fn new(scale: f32) -> PageZoomFactor {
-        PageZoomFactor(scale)
+impl ZoomFactor {
+    /// Construct a new zoom factor.
+    pub fn new(scale: f32) -> ZoomFactor {
+        ZoomFactor(scale)
     }
 
-    /// Get the page zoom factor as an untyped float.
+    /// Get the zoom factor as an untyped float.
     pub fn get(&self) -> f32 {
         self.0
     }
