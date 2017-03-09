@@ -312,17 +312,6 @@ pub struct PackedTexel {
     pub a: u8,
 }
 
-impl PackedTexel {
-    pub fn from_color(color: &ColorF) -> PackedTexel {
-        PackedTexel {
-            b: (0.5 + color.b * COLOR_FLOAT_TO_FIXED).floor() as u8,
-            g: (0.5 + color.g * COLOR_FLOAT_TO_FIXED).floor() as u8,
-            r: (0.5 + color.r * COLOR_FLOAT_TO_FIXED).floor() as u8,
-            a: (0.5 + color.a * COLOR_FLOAT_TO_FIXED).floor() as u8,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct PackedVertex {

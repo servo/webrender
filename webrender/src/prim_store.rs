@@ -5,7 +5,7 @@
 use app_units::Au;
 use euclid::{Point2D, Size2D};
 use gpu_store::GpuStoreAddress;
-use internal_types::{SourceTexture, PackedTexel};
+use internal_types::{SourceTexture};
 use mask_cache::{ClipSource, MaskCacheInfo};
 use renderer::{VertexDataStore, GradientDataStore};
 use render_task::{RenderTask, RenderTaskLocation};
@@ -267,8 +267,8 @@ pub const GRADIENT_DATA_RESOLUTION: usize = 128;
 #[repr(C)]
 // An entry in a gradient data table representing a segment of the gradient color space.
 pub struct GradientDataEntry {
-    pub start_color: PackedTexel,
-    pub end_color: PackedTexel,
+    pub start_color: ColorF,
+    pub end_color: ColorF,
 }
 
 #[repr(C)]
@@ -314,18 +314,15 @@ impl GradientData {
         let step_a = (end_color.a - start_color.a) * inv_steps;
 
         let mut cur_color = *start_color;
-        let mut cur_packed_color = PackedTexel::from_color(&cur_color);
 
         // Walk the ramp writing start and end colors for each entry.
         for entry in &mut self.colors[start_idx..end_idx] {
-            entry.start_color = cur_packed_color;
-
+            entry.start_color = cur_color;
             cur_color.r += step_r;
             cur_color.g += step_g;
             cur_color.b += step_b;
             cur_color.a += step_a;
-            cur_packed_color = PackedTexel::from_color(&cur_color);
-            entry.end_color = cur_packed_color;
+            entry.end_color = cur_color;
         }
 
         end_idx
