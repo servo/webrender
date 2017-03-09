@@ -105,7 +105,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
             }
             PrimitiveKind::YuvImage => {
                 let image_cpu = &self.cpu_yuv_images[metadata.cpu_prim_index.0];
-                [image_cpu.y_texture_id, image_cpu.u_texture_id, image_cpu.v_texture_id]
+                image_cpu.yuv_texture_id
             }
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
@@ -277,6 +277,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         });
                     }
                     AlphaBatchKind::YuvImage => {
+                        let image_yuv_cpu = &self.cpu_yuv_images[metadata.cpu_prim_index.0];
+
                         data.push(PrimitiveInstance {
                             task_index: task_index,
                             clip_task_index: clip_task_index,
@@ -284,7 +286,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                             global_prim_id: global_prim_id,
                             prim_address: prim_address,
                             sub_index: 0,
-                            user_data: [ 0, 0 ],
+                            user_data: [ image_yuv_cpu.yuv_resource_address.0, 0 ],
                             z_sort_index: z_sort_index,
                         });
                     }
