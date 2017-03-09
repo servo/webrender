@@ -719,13 +719,14 @@ impl Frame {
         let layout_stride = info.stretch_size.height + info.tile_spacing.height;
         let num_repetitions = (item_rect.size.width / layout_stride).ceil() as u32;
         for i in 0..num_repetitions {
-            let row_rect = rect(
+            if let Some(row_rect) = rect(
                 item_rect.origin.x,
                 item_rect.origin.y + (i as f32) * layout_stride,
                 item_rect.size.width,
                 info.stretch_size.height
-            );
-            self.decompose_image_row(scroll_layer_id, context, &row_rect, item_clip, info, image_size, tile_size);
+            ).intersection(&item_rect) {
+                self.decompose_image_row(scroll_layer_id, context, &row_rect, item_clip, info, image_size, tile_size);
+            }
         }
     }
 
@@ -748,13 +749,14 @@ impl Frame {
         let layout_stride = info.stretch_size.width + info.tile_spacing.width;
         let num_repetitions = (item_rect.size.width / layout_stride).ceil() as u32;
         for i in 0..num_repetitions {
-            let img_rect = rect(
+            if let Some(img_rect) = rect(
                 item_rect.origin.x + (i as f32) * layout_stride,
                 item_rect.origin.y,
                 info.stretch_size.width,
                 item_rect.size.height,
-            );
-            self.decompose_tiled_image(scroll_layer_id, context, &img_rect, item_clip, info, image_size, tile_size);
+            ).intersection(&item_rect) {
+                self.decompose_tiled_image(scroll_layer_id, context, &img_rect, item_clip, info, image_size, tile_size);
+            }
         }
     }
 
