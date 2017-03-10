@@ -170,6 +170,7 @@ impl GLContextWrapper {
 }
 
 const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
+const COLOR_FLOAT_TO_FIXED_WIDE: f32 = 65535.0;
 pub const ANGLE_FLOAT_TO_FIXED: f32 = 65535.0;
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
@@ -296,6 +297,26 @@ impl PackedColor {
             g: (0.5 + color.g * COLOR_FLOAT_TO_FIXED).floor() as u8,
             b: (0.5 + color.b * COLOR_FLOAT_TO_FIXED).floor() as u8,
             a: (0.5 + color.a * COLOR_FLOAT_TO_FIXED).floor() as u8,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct WidePackedColor {
+    pub r: u16,
+    pub g: u16,
+    pub b: u16,
+    pub a: u16,
+}
+
+impl WidePackedColor {
+    pub fn from_color(color: &ColorF) -> WidePackedColor {
+        WidePackedColor {
+            r: (0.5 + color.r * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16,
+            g: (0.5 + color.g * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16,
+            b: (0.5 + color.b * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16,
+            a: (0.5 + color.a * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16,
         }
     }
 }

@@ -432,7 +432,7 @@ fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
         }
         ImageFormat::RGB8 => true,
         ImageFormat::A8 => false,
-        ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
+        ImageFormat::Invalid | ImageFormat::RGBA16 | ImageFormat::RGBAF32 => unreachable!(),
     }
 }
 

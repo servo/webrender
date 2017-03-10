@@ -5,7 +5,7 @@
 use app_units::Au;
 use euclid::{Point2D, Size2D};
 use gpu_store::GpuStoreAddress;
-use internal_types::{SourceTexture};
+use internal_types::{SourceTexture, WidePackedColor};
 use mask_cache::{ClipSource, MaskCacheInfo};
 use renderer::{VertexDataStore, GradientDataStore};
 use render_task::{RenderTask, RenderTaskLocation};
@@ -267,8 +267,8 @@ pub const GRADIENT_DATA_RESOLUTION: usize = 128;
 #[repr(C)]
 // An entry in a gradient data table representing a segment of the gradient color space.
 pub struct GradientDataEntry {
-    pub start_color: ColorF,
-    pub end_color: ColorF,
+    pub start_color: WidePackedColor,
+    pub end_color: WidePackedColor,
 }
 
 #[repr(C)]
@@ -277,7 +277,7 @@ pub struct GradientDataEntry {
 // first the entry index is calculated to determine which two colors to interpolate between, then
 // the offset within that entry bucket is used to interpolate between the two colors in that entry.
 // This layout preserves hard stops, as the end color for a given entry can differ from the start
-// color for the following entry, despite them being adjacent. Colors are stored within in BGRA8
+// color for the following entry, despite them being adjacent. Colors are stored within in RGBA16
 // format for texture upload.
 pub struct GradientData {
     pub colors: [GradientDataEntry; GRADIENT_DATA_RESOLUTION],
@@ -314,15 +314,17 @@ impl GradientData {
         let step_a = (end_color.a - start_color.a) * inv_steps;
 
         let mut cur_color = *start_color;
+        let mut cur_color_packed = WidePackedColor::from_color(&cur_color);
 
         // Walk the ramp writing start and end colors for each entry.
         for entry in &mut self.colors[start_idx..end_idx] {
-            entry.start_color = cur_color;
+            entry.start_color = cur_color_packed;
             cur_color.r += step_r;
             cur_color.g += step_g;
             cur_color.b += step_b;
             cur_color.a += step_a;
-            entry.end_color = cur_color;
+            cur_color_packed = WidePackedColor::from_color(&cur_color);
+            entry.end_color = cur_color_packed;
         }
 
         end_idx
