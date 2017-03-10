@@ -9,7 +9,7 @@ use internal_types::{SourceTexture, PackedTexel};
 use mask_cache::{ClipSource, MaskCacheInfo};
 use renderer::{VertexDataStore, GradientDataStore};
 use render_task::{RenderTask, RenderTaskLocation};
-use resource_cache::{ImageProperties, ResourceCache};
+use resource_cache::{CacheItem, ImageProperties, ResourceCache};
 use std::mem;
 use std::usize;
 use util::TransformedRect;
@@ -845,6 +845,35 @@ impl PrimitiveStore {
         Self::resolve_clip_cache_internal(&mut self.gpu_data32, clip_info, resource_cache)
     }
 
+    fn resolve_image(resource_cache: &ResourceCache,
+                     deferred_resolves: &mut Vec<DeferredResolve>,
+                     image_key: ImageKey,
+                     image_uv_address: GpuStoreAddress,
+                     image_rendering: ImageRendering,
+                     tile_offset: Option<TileOffset>) -> (SourceTexture, Option<CacheItem>) {
+        let image_properties = resource_cache.get_image_properties(image_key);
+
+        // Check if an external image that needs to be resolved
+        // by the render thread.
+        match image_properties.external_id {
+            Some(external_id) => {
+                // This is an external texture - we will add it to
+                // the deferred resolves list to be patched by
+                // the render thread...
+                deferred_resolves.push(DeferredResolve {
+                    image_properties: image_properties,
+                    resource_address: image_uv_address,
+                });
+
+                (SourceTexture::External(external_id), None)
+            }
+            None => {
+                let cache_item = resource_cache.get_cached_image(image_key, image_rendering, tile_offset);
+                (cache_item.texture_id, Some(cache_item))
+            }
+        }
+    }
+
     pub fn resolve_primitives(&mut self,
                               resource_cache: &ResourceCache,
                               device_pixel_ratio: f32) -> Vec<DeferredResolve> {
@@ -892,25 +921,12 @@ impl PrimitiveStore {
                         ImagePrimitiveKind::Image(image_key, image_rendering, tile_offset, _) => {
                             // Check if an external image that needs to be resolved
                             // by the render thread.
-                            let image_properties = resource_cache.get_image_properties(image_key);
-
-                            match image_properties.external_id {
-                                Some(external_id) => {
-                                    // This is an external texture - we will add it to
-                                    // the deferred resolves list to be patched by
-                                    // the render thread...
-                                    deferred_resolves.push(DeferredResolve {
-                                        resource_address: image_cpu.resource_address,
-                                        image_properties: image_properties,
-                                    });
-
-                                    (SourceTexture::External(external_id), None)
-                                }
-                                None => {
-                                    let cache_item = resource_cache.get_cached_image(image_key, image_rendering, tile_offset);
-                                    (cache_item.texture_id, Some(cache_item))
-                                }
-                            }
+                            PrimitiveStore::resolve_image(resource_cache,
+                                                          &mut deferred_resolves,
+                                                          image_key,
+                                                          image_cpu.resource_address,
+                                                          image_rendering,
+                                                          tile_offset)
                         }
                         ImagePrimitiveKind::WebGL(context_id) => {
                             let cache_item = resource_cache.get_webgl_texture(&context_id);
@@ -941,11 +957,25 @@ impl PrimitiveStore {
                     //yuv
                     for channel in 0..3 {
                         if image_cpu.yuv_texture_id[channel] == SourceTexture::Invalid {
-                            let cache_item = resource_cache.get_cached_image(image_cpu.yuv_key[channel], ImageRendering::Auto, None);
-                            image_cpu.yuv_texture_id[channel] = cache_item.texture_id;
-                            let resource_rect = self.gpu_resource_rects.get_mut(image_cpu.yuv_resource_address + channel as i32);
-                            resource_rect.uv0 = cache_item.uv0;
-                            resource_rect.uv1 = cache_item.uv1;
+                            // Check if an external image that needs to be resolved
+                            // by the render thread.
+                            let resource_address = image_cpu.yuv_resource_address + channel as i32;
+
+                            let (texture_id, cache_item) =
+                                PrimitiveStore::resolve_image(resource_cache,
+                                                              &mut deferred_resolves,
+                                                              image_cpu.yuv_key[channel],
+                                                              resource_address,
+                                                              ImageRendering::Auto,
+                                                              None);
+                            // texture_id
+                            image_cpu.yuv_texture_id[channel] = texture_id;
+                            // uv coordinates
+                            if let Some(cache_item) = cache_item {
+                                let resource_rect = self.gpu_resource_rects.get_mut(image_cpu.yuv_resource_address + channel as i32);
+                                resource_rect.uv0 = cache_item.uv0;
+                                resource_rect.uv1 = cache_item.uv1;
+                            }
                         }
                     }
                 }
