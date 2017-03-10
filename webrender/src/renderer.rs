@@ -197,7 +197,7 @@ pub struct GradientDataTextureLayout {}
 
 impl GpuStoreLayout for GradientDataTextureLayout {
     fn image_format() -> ImageFormat {
-        ImageFormat::RGBAF32
+        ImageFormat::RGBA16
     }
 
     fn texture_width<T>() -> usize {
