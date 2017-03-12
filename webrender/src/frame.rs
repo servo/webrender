@@ -16,10 +16,10 @@ use scene::{Scene, SceneProperties};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use tiling::{AuxiliaryListsMap, CompositeOps, PrimitiveFlags};
-use webrender_traits::{AuxiliaryLists, ClipRegion, ColorF, DeviceUintRect, DeviceUintSize};
-use webrender_traits::{DisplayItem, Epoch, FilterOp, ImageDisplayItem, LayerPoint, LayerRect};
-use webrender_traits::{LayerSize, LayerToScrollTransform, LayoutTransform, MixBlendMode};
-use webrender_traits::{PipelineId, PushScrollLayerItem, ScrollEventPhase, ScrollLayerId};
+use webrender_traits::{AuxiliaryLists, ClipDisplayItem, ClipRegion, ColorF, DeviceUintRect};
+use webrender_traits::{DeviceUintSize, DisplayItem, Epoch, FilterOp, ImageDisplayItem, LayerPoint};
+use webrender_traits::{LayerRect, LayerSize, LayerToScrollTransform, LayoutTransform};
+use webrender_traits::{MixBlendMode, PipelineId, ScrollEventPhase, ScrollLayerId};
 use webrender_traits::{ScrollLayerState, ScrollLocation, ScrollPolicy, ServoScrollRootId};
 use webrender_traits::{SpecificDisplayItem, StackingContext, TileOffset, WorldPoint};
 
@@ -336,34 +336,23 @@ impl Frame {
         self.clip_scroll_tree.finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
     }
 
-    fn flatten_scroll_layer<'a>(&mut self,
-                                traversal: &mut DisplayListTraversal<'a>,
-                                pipeline_id: PipelineId,
-                                context: &mut FlattenContext,
-                                reference_frame_relative_offset: LayerPoint,
-                                level: i32,
-                                clip: &ClipRegion,
-                                item: &PushScrollLayerItem) {
-        let parent_id = context.builder.current_clip_scroll_node_id();
-        let parent_id = context.scroll_layer_id_with_replacement(parent_id);
-
+    fn flatten_clip<'a>(&mut self,
+                        context: &mut FlattenContext,
+                        pipeline_id: PipelineId,
+                        parent_id: ScrollLayerId,
+                        item: &ClipDisplayItem,
+                        reference_frame_relative_offset: LayerPoint,
+                        clip: &ClipRegion) {
         let clip_rect = clip.main.translate(&reference_frame_relative_offset);
-        context.builder.push_clip_scroll_node(item.id,
-                                              parent_id,
-                                              pipeline_id,
-                                              &clip_rect,
-                                              &item.content_size,
-                                              item.scroll_root_id,
-                                              clip,
-                                              &mut self.clip_scroll_tree);
+        context.builder.add_clip_scroll_node(item.id,
+                                             parent_id,
+                                             pipeline_id,
+                                             &clip_rect,
+                                             &item.content_size,
+                                             item.scroll_root_id,
+                                             clip,
+                                             &mut self.clip_scroll_tree);
 
-        self.flatten_items(traversal,
-                           pipeline_id,
-                           context,
-                           reference_frame_relative_offset,
-                           level);
-
-        context.builder.pop_clip_scroll_node();
     }
 
     fn flatten_stacking_context<'a>(&mut self,
@@ -479,7 +468,7 @@ impl Frame {
 
         if is_reference_frame {
             context.replacements.pop();
-            context.builder.pop_clip_scroll_node();
+            context.builder.pop_reference_frame();
         }
 
         context.builder.pop_stacking_context();
@@ -487,6 +476,7 @@ impl Frame {
 
     fn flatten_iframe<'a>(&mut self,
                           pipeline_id: PipelineId,
+                          parent_id: ScrollLayerId,
                           bounds: &LayerRect,
                           context: &mut FlattenContext,
                           reference_frame_relative_offset: LayerPoint) {
@@ -518,9 +508,6 @@ impl Frame {
             reference_frame_relative_offset.y + bounds.origin.y,
             0.0);
 
-        let parent_id = context.builder.current_clip_scroll_node_id();
-        let parent_id = context.scroll_layer_id_with_replacement(parent_id);
-
         let iframe_reference_frame_id =
             context.builder.push_reference_frame(Some(parent_id),
                                                  pipeline_id,
@@ -529,7 +516,7 @@ impl Frame {
                                                  &mut self.clip_scroll_tree);
 
         let iframe_scroll_layer_id = ScrollLayerId::root_scroll_layer(pipeline_id);
-        context.builder.push_clip_scroll_node(
+        context.builder.add_clip_scroll_node(
             iframe_scroll_layer_id,
             iframe_reference_frame_id,
             pipeline_id,
@@ -549,8 +536,7 @@ impl Frame {
                                       &iframe_stacking_context,
                                       iframe_clip);
 
-        context.builder.pop_clip_scroll_node();
-        context.builder.pop_clip_scroll_node();
+        context.builder.pop_reference_frame();
     }
 
     fn flatten_items<'a>(&mut self,
@@ -667,23 +653,22 @@ impl Frame {
                                                   &info.stacking_context,
                                                   &item.clip);
                 }
-                SpecificDisplayItem::PushScrollLayer(ref info) => {
-                    self.flatten_scroll_layer(traversal,
-                                              pipeline_id,
-                                              context,
-                                              reference_frame_relative_offset,
-                                              level,
-                                              &item.clip,
-                                              info);
-                }
                 SpecificDisplayItem::Iframe(ref info) => {
                     self.flatten_iframe(info.pipeline_id,
+                                        scroll_layer_id,
                                         &item.rect,
                                         context,
                                         reference_frame_relative_offset);
                 }
-                SpecificDisplayItem::PopStackingContext |
-                SpecificDisplayItem::PopScrollLayer => return,
+                SpecificDisplayItem::Clip(ref info) => {
+                    self.flatten_clip(context,
+                                      pipeline_id,
+                                      scroll_layer_id,
+                                      &info,
+                                      reference_frame_relative_offset,
+                                      &item.clip);
+                }
+                SpecificDisplayItem::PopStackingContext => return,
             }
         }
     }
