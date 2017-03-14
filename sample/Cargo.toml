@@ -17,5 +17,5 @@ profiler = [ "webrender/profiler" ]
 [dependencies]
 app_units = "0.4"
 euclid = "0.11"
-gleam = "0.2"
-glutin = "0.7"
+gleam = "0.4"
+servo-glutin = "0.10"
