@@ -214,11 +214,13 @@ fn main() {
     unsafe {
         window.make_current().ok();
     }
-    // Android uses the static generator (as opposed to a global generator) at the moment
-    #[cfg(not(target_os = "android"))]
-    gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
 
-    println!("OpenGL version {}", gl::get_string(gl::VERSION));
+    let gl = match gl::GlType::default() {
+        gl::GlType::Gl => unsafe { gl::GlFns::load_with(|symbol| window.get_proc_address(symbol) as *const _) },
+        gl::GlType::Gles => unsafe { gl::GlesFns::load_with(|symbol| window.get_proc_address(symbol) as *const _) },
+    };
+
+    println!("OpenGL version {}", gl.get_string(gl::VERSION));
     println!("Shader resource path: {:?}", res_path);
 
     let (width, height) = window.get_inner_size().unwrap();
@@ -233,7 +235,7 @@ fn main() {
     };
 
     let size = DeviceUintSize::new(width, height);
-    let (mut renderer, sender) = webrender::renderer::Renderer::new(opts, size).unwrap();
+    let (mut renderer, sender) = webrender::renderer::Renderer::new(gl, opts, size).unwrap();
     let api = sender.create_api();
 
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));
