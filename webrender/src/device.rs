@@ -32,17 +32,13 @@ const GL_FORMAT_A: gl::GLuint = gl::RED;
 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
 const GL_FORMAT_A: gl::GLuint = gl::ALPHA;
 
-#[cfg(any(target_os = "windows", all(unix, not(target_os = "android"))))]
-const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA;
+const GL_FORMAT_BGRA_GL: gl::GLuint = gl::BGRA;
 
-#[cfg(target_os = "android")]
-const GL_FORMAT_BGRA: gl::GLuint = gl::BGRA_EXT;
+const GL_FORMAT_BGRA_GLES: gl::GLuint = gl::BGRA_EXT;
 
-#[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
-const SHADER_VERSION: &'static str = "#version 150\n";
+const SHADER_VERSION_GL: &'static str = "#version 150\n";
 
-#[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-const SHADER_VERSION: &'static str = "#version 300 es\n";
+const SHADER_VERSION_GLES: &'static str = "#version 300 es\n";
 
 static SHADER_PREAMBLE: &'static str = "shared";
 
@@ -77,6 +73,28 @@ pub enum VertexFormat {
 enum FBOTarget {
     Read,
     Draw,
+}
+
+fn get_gl_format_bgra(gl: &gl::Gl) -> gl::GLuint {
+    match gl.get_type() {
+        gl::GlType::Gl => {
+            GL_FORMAT_BGRA_GL
+        }
+        gl::GlType::Gles => {
+            GL_FORMAT_BGRA_GLES
+        }
+    }
+}
+
+fn get_shader_version(gl: &gl::Gl) -> &'static str {
+    match gl.get_type() {
+        gl::GlType::Gl => {
+            SHADER_VERSION_GL
+        }
+        gl::GlType::Gles => {
+            SHADER_VERSION_GLES
+        }
+    }
 }
 
 fn get_optional_shader_source(shader_name: &str, base_path: &Option<PathBuf>) -> Option<String> {
@@ -509,28 +527,29 @@ pub struct GpuFrameProfile<T> {
 }
 
 impl<T> GpuFrameProfile<T> {
-    #[cfg(not(target_os = "android"))]
     fn new(gl: Rc<gl::Gl>) -> GpuFrameProfile<T> {
-        let queries = gl.gen_queries(MAX_EVENTS_PER_FRAME as gl::GLint);
-
-        GpuFrameProfile {
-            gl: gl,
-            queries: queries,
-            samples: Vec::new(),
-            next_query: 0,
-            pending_query: 0,
-            frame_id: FrameId(0),
-        }
-    }
-
-    #[cfg(target_os = "android")]
-    fn new() -> GpuFrameProfile<T> {
-        GpuFrameProfile {
-            queries: Vec::new(),
-            samples: Vec::new(),
-            next_query: 0,
-            pending_query: 0,
-            frame_id: FrameId(0),
+        match gl.get_type() {
+            gl::GlType::Gl => {
+                let queries = gl.gen_queries(MAX_EVENTS_PER_FRAME as gl::GLint);
+                GpuFrameProfile {
+                    gl: gl,
+                    queries: queries,
+                    samples: Vec::new(),
+                    next_query: 0,
+                    pending_query: 0,
+                    frame_id: FrameId(0),
+                }
+            }
+            gl::GlType::Gles => {
+                GpuFrameProfile {
+                    gl: gl,
+                    queries: Vec::new(),
+                    samples: Vec::new(),
+                    next_query: 0,
+                    pending_query: 0,
+                    frame_id: FrameId(0),
+                }
+            }
         }
     }
 
@@ -541,19 +560,30 @@ impl<T> GpuFrameProfile<T> {
         self.samples.clear();
     }
 
-    #[cfg(not(target_os = "android"))]
     fn end_frame(&mut self) {
-        if self.pending_query != 0 {
-            self.gl.end_query(gl::TIME_ELAPSED);
+        match self.gl.get_type() {
+            gl::GlType::Gl => {
+                if self.pending_query != 0 {
+                    self.gl.end_query(gl::TIME_ELAPSED);
+                }
+            }
+            gl::GlType::Gles => {},
         }
     }
 
-    #[cfg(target_os = "android")]
-    fn end_frame(&mut self) {
+    fn add_marker(&mut self, tag: T) -> GpuMarker
+    where T: NamedTag {
+        match self.gl.get_type() {
+            gl::GlType::Gl => {
+                self.add_marker_gl(tag)
+            }
+            gl::GlType::Gles => {
+                self.add_marker_gles(tag)
+            }
+        }
     }
 
-    #[cfg(not(target_os = "android"))]
-    fn add_marker(&mut self, tag: T) -> GpuMarker
+    fn add_marker_gl(&mut self, tag: T) -> GpuMarker
     where T: NamedTag {
         if self.pending_query != 0 {
             self.gl.end_query(gl::TIME_ELAPSED);
@@ -576,20 +606,32 @@ impl<T> GpuFrameProfile<T> {
         marker
     }
 
-    #[cfg(target_os = "android")]
-    fn add_marker(&mut self, tag: T) {
+    fn add_marker_gles(&mut self, tag: T) -> GpuMarker
+    where T: NamedTag {
+        let marker = GpuMarker::new(&self.gl, tag.get_label());
         self.samples.push(GpuSample {
             tag: tag,
             time_ns: 0,
         });
+        marker
     }
 
     fn is_valid(&self) -> bool {
         self.next_query > 0 && self.next_query <= MAX_EVENTS_PER_FRAME
     }
 
-    #[cfg(not(target_os = "android"))]
     fn build_samples(&mut self) -> Vec<GpuSample<T>> {
+        match self.gl.get_type() {
+            gl::GlType::Gl => {
+                self.build_samples_gl()
+            }
+            gl::GlType::Gles => {
+                self.build_samples_gles()
+            }
+        }
+    }
+
+    fn build_samples_gl(&mut self) -> Vec<GpuSample<T>> {
         for (index, sample) in self.samples.iter_mut().enumerate() {
             sample.time_ns = self.gl.get_query_object_ui64v(self.queries[index], gl::QUERY_RESULT)
         }
@@ -597,20 +639,19 @@ impl<T> GpuFrameProfile<T> {
         mem::replace(&mut self.samples, Vec::new())
     }
 
-    #[cfg(target_os = "android")]
-    fn build_samples(&mut self) -> Vec<GpuSample<T>> {
+    fn build_samples_gles(&mut self) -> Vec<GpuSample<T>> {
         mem::replace(&mut self.samples, Vec::new())
     }
 }
 
 impl<T> Drop for GpuFrameProfile<T> {
-    #[cfg(not(target_os = "android"))]
     fn drop(&mut self) {
-        self.gl.delete_queries(&self.queries);
-    }
-
-    #[cfg(target_os = "android")]
-    fn drop(&mut self) {
+        match self.gl.get_type() {
+            gl::GlType::Gl =>  {
+                self.gl.delete_queries(&self.queries);
+            }
+            gl::GlType::Gles => {},
+        }
     }
 }
 
@@ -652,14 +693,8 @@ impl<T> GpuProfiler<T> {
         self.next_frame = (self.next_frame + 1) % MAX_PROFILE_FRAMES;
     }
 
-    #[cfg(not(target_os = "android"))]
     pub fn add_marker(&mut self, tag: T) -> GpuMarker
     where T: NamedTag {
-        self.frames[self.next_frame].add_marker(tag)
-    }
-
-    #[cfg(target_os = "android")]
-    pub fn add_marker(&mut self, tag: T) {
         self.frames[self.next_frame].add_marker(tag)
     }
 }
@@ -669,36 +704,42 @@ pub struct GpuMarker{
     gl: Rc<gl::Gl>,
 }
 
-#[cfg(any(target_arch="arm", target_arch="aarch64"))]
-impl GpuMarker {
-    pub fn new(gl: &Rc<gl::Gl>, _: &str) -> GpuMarker {
-        GpuMarker{
-            gl: gl.clone(),
-        }
-    }
-
-    pub fn fire(gl: &gl::Gl, _: &str) {}
-}
-
-
-#[cfg(not(any(target_arch="arm", target_arch="aarch64")))]
 impl GpuMarker {
     pub fn new(gl: &Rc<gl::Gl>, message: &str) -> GpuMarker {
-        gl.push_group_marker_ext(message);
-        GpuMarker{
-            gl: gl.clone(),
+        match gl.get_type() {
+            gl::GlType::Gl =>  {
+                gl.push_group_marker_ext(message);
+                GpuMarker{
+                    gl: gl.clone(),
+                }
+            }
+            gl::GlType::Gles => {
+                GpuMarker{
+                    gl: gl.clone(),
+                }
+            }
         }
     }
 
     pub fn fire(gl: &gl::Gl, message: &str) {
-        gl.insert_event_marker_ext(message);
+        match gl.get_type() {
+            gl::GlType::Gl =>  {
+                gl.insert_event_marker_ext(message);
+            }
+            gl::GlType::Gles => {},
+        }
     }
 }
 
 #[cfg(not(any(target_arch="arm", target_arch="aarch64")))]
 impl Drop for GpuMarker {
     fn drop(&mut self) {
-        self.gl.pop_group_marker_ext();
+        match self.gl.get_type() {
+            gl::GlType::Gl =>  {
+                self.gl.pop_group_marker_ext();
+            }
+            gl::GlType::Gles => {},
+        }
     }
 }
 
@@ -919,7 +960,7 @@ impl Device {
         debug!("compile {:?}", name);
 
         let mut s = String::new();
-        s.push_str(SHADER_VERSION);
+        s.push_str(get_shader_version(gl));
         for prefix in shader_preamble {
             s.push_str(&prefix);
         }
@@ -1139,7 +1180,7 @@ impl Device {
             texture.mode = mode;
         }
 
-        let (internal_format, gl_format) = gl_texture_formats_for_image_format(format);
+        let (internal_format, gl_format) = gl_texture_formats_for_image_format(self.gl(), format);
         let type_ = gl_type_for_texture_format(format);
 
         match mode {
@@ -1204,7 +1245,7 @@ impl Device {
                     return;
                 }
 
-                let (internal_format, gl_format) = gl_texture_formats_for_image_format(texture.format);
+                let (internal_format, gl_format) = gl_texture_formats_for_image_format(&*self.gl, texture.format);
                 let type_ = gl_type_for_texture_format(texture.format);
 
                 self.gl.tex_image_3d(texture_id.target,
@@ -1348,7 +1389,7 @@ impl Device {
         self.bind_texture(DEFAULT_TEXTURE, texture_id);
 
         let texture = self.textures.get_mut(&texture_id).unwrap();
-        let (internal_format, gl_format) = gl_texture_formats_for_image_format(texture.format);
+        let (internal_format, gl_format) = gl_texture_formats_for_image_format(&*self.gl, texture.format);
         let type_ = gl_type_for_texture_format(texture.format);
 
         self.gl.tex_image_2d(texture_id.target,
@@ -1661,13 +1702,13 @@ impl Device {
                         expanded_data.push(*byte);
                         expanded_data.push(*byte);
                     }
-                    (GL_FORMAT_BGRA, 4, expanded_data.as_slice())
+                    (get_gl_format_bgra(self.gl()), 4, expanded_data.as_slice())
                 } else {
                     (GL_FORMAT_A, 1, data)
                 }
             }
             ImageFormat::RGB8 => (gl::RGB, 3, data),
-            ImageFormat::RGBA8 => (GL_FORMAT_BGRA, 4, data),
+            ImageFormat::RGBA8 => (get_gl_format_bgra(self.gl()), 4, data),
             ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
         };
 
@@ -2034,21 +2075,24 @@ impl Drop for Device {
     }
 }
 
-fn gl_texture_formats_for_image_format(format: ImageFormat) -> (gl::GLint, gl::GLuint) {
+fn gl_texture_formats_for_image_format(gl: &gl::Gl, format: ImageFormat) -> (gl::GLint, gl::GLuint) {
     match format {
         ImageFormat::A8 => {
             if cfg!(any(target_arch="arm", target_arch="aarch64")) {
-                (GL_FORMAT_BGRA as gl::GLint, GL_FORMAT_BGRA)
+                (get_gl_format_bgra(gl) as gl::GLint, get_gl_format_bgra(gl))
             } else {
                 (GL_FORMAT_A as gl::GLint, GL_FORMAT_A)
             }
         },
         ImageFormat::RGB8 => (gl::RGB as gl::GLint, gl::RGB),
         ImageFormat::RGBA8 => {
-            if cfg!(any(target_arch="arm", target_arch="aarch64")) {
-                (GL_FORMAT_BGRA as gl::GLint, GL_FORMAT_BGRA)
-            } else {
-                (gl::RGBA as gl::GLint, GL_FORMAT_BGRA)
+            match gl.get_type() {
+                gl::GlType::Gl =>  {
+                    (gl::RGBA as gl::GLint, get_gl_format_bgra(gl))
+                }
+                gl::GlType::Gles => {
+                    (get_gl_format_bgra(gl) as gl::GLint, get_gl_format_bgra(gl))
+                }
             }
         }
         ImageFormat::RGBAF32 => (gl::RGBA32F as gl::GLint, gl::RGBA),
