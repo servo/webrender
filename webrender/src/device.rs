@@ -2099,7 +2099,7 @@ fn gl_texture_formats_for_image_format(gl: &gl::Gl, format: ImageFormat) -> (gl:
                 }
             }
         }
-        ImageFormat::RGBA16 => (gl::RGBA16 as gl::GLint, gl::RGBA),
+        ImageFormat::RGBA16 => (gl::RGBA16UI as gl::GLint, gl::RGBA_INTEGER),
         ImageFormat::RGBAF32 => (gl::RGBA32F as gl::GLint, gl::RGBA),
         ImageFormat::Invalid => unreachable!(),
     }
