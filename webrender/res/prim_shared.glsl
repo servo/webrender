@@ -743,7 +743,7 @@ vec2 init_transform_fs(vec3 local_pos, vec4 local_rect, out float fragment_alpha
     float afwidth = 0.5 / length(fw);
 
     // Only apply AA to fragments outside the signed distance field.
-    fragment_alpha = smoothstep(afwidth, 0.0, d);
+    fragment_alpha = 1.0 - smoothstep(0.0, afwidth, d);
 
     return pos;
 }
