@@ -261,13 +261,13 @@ GradientStop fetch_gradient_stop(int index) {
     return stop;
 }
 
-struct RadialGradient {
+struct ComplexRadialGradient {
     vec4 start_end_center;
     vec4 start_end_radius_extend_mode;
 };
 
-RadialGradient fetch_radial_gradient(int index) {
-    RadialGradient gradient;
+ComplexRadialGradient fetch_complex_radial_gradient(int index) {
+    ComplexRadialGradient gradient;
 
     ivec2 uv = get_fetch_uv_2(index);
 

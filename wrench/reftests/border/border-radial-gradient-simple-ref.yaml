@@ -4,7 +4,7 @@ root:
     - type: stacking-context
       bounds: [0, 0, 50, 50]
       items:
-        - type: radial-gradient # top left
+        - type: complex-radial-gradient # top left
           bounds: [ 0, 0, 10, 10]
           start-center: [ 25, 25 ]
           start-radius: 15
@@ -12,7 +12,7 @@ root:
           end-radius: 35
           stops: [ 0.0, red, 1.0, green ]
           repeat: false
-        - type: radial-gradient # top right
+        - type: complex-radial-gradient # top right
           bounds: [ 40, 0, 10, 10]
           start-center: [ 25, 25 ]
           start-radius: 15
@@ -20,7 +20,7 @@ root:
           end-radius: 35
           stops: [ 0.0, red, 1.0, green ]
           repeat: false
-        - type: radial-gradient # bottom left
+        - type: complex-radial-gradient # bottom left
           bounds: [ 0, 40, 10, 10]
           start-center: [ 25, 25 ]
           start-radius: 15
@@ -28,7 +28,7 @@ root:
           end-radius: 35
           stops: [ 0.0, red, 1.0, green ]
           repeat: false
-        - type: radial-gradient # bottom right
+        - type: complex-radial-gradient # bottom right
           bounds: [ 40, 40, 10, 10]
           start-center: [ 25, 25 ]
           start-radius: 15
@@ -36,7 +36,7 @@ root:
           end-radius: 35
           stops: [ 0.0, red, 1.0, green ]
           repeat: false
-        - type: radial-gradient # top
+        - type: complex-radial-gradient # top
           bounds: [ 10, 0, 30, 10]
           start-center: [ 25, 25 ]
           start-radius: 15
@@ -44,7 +44,7 @@ root:
           end-radius: 35
           stops: [ 0.0, red, 1.0, green ]
           repeat: false
-        - type: radial-gradient # right
+        - type: complex-radial-gradient # right
           bounds: [ 40, 10, 10, 30]
           start-center: [ 25, 25 ]
           start-radius: 15
@@ -52,7 +52,7 @@ root:
           end-radius: 35
           stops: [ 0.0, red, 1.0, green ]
           repeat: false
-        - type: radial-gradient # bottom
+        - type: complex-radial-gradient # bottom
           bounds: [ 10, 40, 30, 10]
           start-center: [ 25, 25 ]
           start-radius: 15
@@ -60,7 +60,7 @@ root:
           end-radius: 35
           stops: [ 0.0, red, 1.0, green ]
           repeat: false
-        - type: radial-gradient # left
+        - type: complex-radial-gradient # left
           bounds: [ 0, 10, 10, 30]
           start-center: [ 25, 25 ]
           start-radius: 15

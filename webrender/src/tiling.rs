@@ -74,7 +74,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::Rectangle => AlphaBatchKind::Rectangle,
             PrimitiveKind::AlignedGradient => AlphaBatchKind::AlignedGradient,
             PrimitiveKind::AngleGradient => AlphaBatchKind::AngleGradient,
-            PrimitiveKind::RadialGradient => AlphaBatchKind::RadialGradient,
+            PrimitiveKind::ComplexRadialGradient => AlphaBatchKind::ComplexRadialGradient,
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
                 if text_run_cpu.blur_radius.0 == 0 {
@@ -99,7 +99,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::Rectangle |
             PrimitiveKind::AlignedGradient |
             PrimitiveKind::AngleGradient |
-            PrimitiveKind::RadialGradient => [invalid; 3],
+            PrimitiveKind::ComplexRadialGradient => [invalid; 3],
             PrimitiveKind::Image => {
                 let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
                 [image_cpu.color_texture_id, invalid, invalid]
@@ -341,7 +341,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                             z_sort_index: z_sort_index,
                         });
                     }
-                    AlphaBatchKind::RadialGradient => {
+                    AlphaBatchKind::ComplexRadialGradient => {
                         data.push(PrimitiveInstance {
                             task_index: task_index,
                             clip_task_index: clip_task_index,
@@ -1265,7 +1265,7 @@ pub enum AlphaBatchKind {
     Border,
     AlignedGradient,
     AngleGradient,
-    RadialGradient,
+    ComplexRadialGradient,
     BoxShadow,
     CacheImage,
 }
@@ -1395,7 +1395,7 @@ impl PrimitiveBatch {
             AlphaBatchKind::Border |
             AlphaBatchKind::AlignedGradient |
             AlphaBatchKind::AngleGradient |
-            AlphaBatchKind::RadialGradient |
+            AlphaBatchKind::ComplexRadialGradient |
             AlphaBatchKind::BoxShadow |
             AlphaBatchKind::Blend |
             AlphaBatchKind::HardwareComposite |

@@ -11,7 +11,7 @@ use mask_cache::{ClipSource, MaskCacheInfo};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu, ImagePrimitiveGpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
-use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
+use prim_store::{PrimitiveStore, ComplexRadialGradientPrimitiveCpu, ComplexRadialGradientPrimitiveGpu};
 use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
 use prim_store::{TexelRect, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu};
 use profiler::{FrameProfileCounters, TextureCacheProfileCounters};
@@ -666,15 +666,15 @@ impl FrameBuilder {
             }
             BorderDetails::RadialGradient(ref border) => {
                 for segment in create_segments(border.outset) {
-                    self.add_radial_gradient(scroll_layer_id,
-                                             segment,
-                                             clip_region,
-                                             border.gradient.start_center,
-                                             border.gradient.start_radius,
-                                             border.gradient.end_center,
-                                             border.gradient.end_radius,
-                                             border.gradient.stops,
-                                             border.gradient.extend_mode);
+                    self.add_complex_radial_gradient(scroll_layer_id,
+                                                     segment,
+                                                     clip_region,
+                                                     border.gradient.start_center,
+                                                     border.gradient.start_radius,
+                                                     border.gradient.end_center,
+                                                     border.gradient.end_radius,
+                                                     border.gradient.stops,
+                                                     border.gradient.extend_mode);
                 }
             }
         }
@@ -735,23 +735,23 @@ impl FrameBuilder {
         self.add_primitive(scroll_layer_id, &rect, clip_region, prim);
     }
 
-    pub fn add_radial_gradient(&mut self,
-                               scroll_layer_id: ScrollLayerId,
-                               rect: LayerRect,
-                               clip_region: &ClipRegion,
-                               start_center: LayerPoint,
-                               start_radius: f32,
-                               end_center: LayerPoint,
-                               end_radius: f32,
-                               stops: ItemRange,
-                               extend_mode: ExtendMode) {
-        let radial_gradient_cpu = RadialGradientPrimitiveCpu {
+    pub fn add_complex_radial_gradient(&mut self,
+                                       scroll_layer_id: ScrollLayerId,
+                                       rect: LayerRect,
+                                       clip_region: &ClipRegion,
+                                       start_center: LayerPoint,
+                                       start_radius: f32,
+                                       end_center: LayerPoint,
+                                       end_radius: f32,
+                                       stops: ItemRange,
+                                       extend_mode: ExtendMode) {
+        let radial_gradient_cpu = ComplexRadialGradientPrimitiveCpu {
             stops_range: stops,
             extend_mode: extend_mode,
             cache_dirty: true,
         };
 
-        let radial_gradient_gpu = RadialGradientPrimitiveGpu {
+        let radial_gradient_gpu = ComplexRadialGradientPrimitiveGpu {
             start_center: start_center,
             end_center: end_center,
             start_radius: start_radius,
@@ -763,7 +763,7 @@ impl FrameBuilder {
         self.add_primitive(scroll_layer_id,
                            &rect,
                            clip_region,
-                           PrimitiveContainer::RadialGradient(radial_gradient_cpu, radial_gradient_gpu));
+                           PrimitiveContainer::ComplexRadialGradient(radial_gradient_cpu, radial_gradient_gpu));
     }
 
     pub fn add_text(&mut self,
