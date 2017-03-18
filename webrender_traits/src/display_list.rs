@@ -11,7 +11,7 @@ use {ComplexRadialGradientDisplayItem, DisplayItem, ExtendMode, FilterOp};
 use {FontKey, GlyphInstance, GlyphOptions, Gradient, GradientDisplayItem, GradientStop};
 use {IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask, ImageRendering, ItemRange};
 use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, MixBlendMode, PipelineId};
-use {PropertyBinding, PushStackingContextDisplayItem};
+use {PropertyBinding, PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
 use {RectangleDisplayItem, ScrollLayerId, ScrollPolicy, SpecificDisplayItem, StackingContext};
 use {TextDisplayItem, WebGLContextId, WebGLDisplayItem, YuvColorSpace};
 use YuvImageDisplayItem;
@@ -226,6 +226,19 @@ impl DisplayListBuilder {
         }
     }
 
+    pub fn create_radial_gradient(&mut self,
+                                  center: LayoutPoint,
+                                  radius: LayoutSize,
+                                  stops: Vec<GradientStop>,
+                                  extend_mode: ExtendMode) -> RadialGradient {
+        RadialGradient {
+            center: center,
+            radius: radius,
+            stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
+            extend_mode: extend_mode,
+        }
+    }
+
     pub fn create_complex_radial_gradient(&mut self,
                                   start_center: LayoutPoint,
                                   start_radius: f32,
@@ -288,6 +301,21 @@ impl DisplayListBuilder {
                          extend_mode: ExtendMode) {
         let item = SpecificDisplayItem::Gradient(GradientDisplayItem {
             gradient: self.create_gradient(start_point, end_point, stops, extend_mode),
+        });
+
+        self.push_item(item, rect, clip);
+    }
+
+    pub fn push_radial_gradient(&mut self,
+                                rect: LayoutRect,
+                                clip: ClipRegion,
+                                center: LayoutPoint,
+                                radius: LayoutSize,
+                                stops: Vec<GradientStop>,
+                                extend_mode: ExtendMode) {
+        let item = SpecificDisplayItem::RadialGradient(RadialGradientDisplayItem {
+            gradient: self.create_radial_gradient(center, radius,
+                                                  stops, extend_mode),
         });
 
         self.push_item(item, rect, clip);

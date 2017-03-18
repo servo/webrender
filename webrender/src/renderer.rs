@@ -71,6 +71,7 @@ const GPU_TAG_PRIM_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "Composite"
 const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "TextRun", color: debug_colors::BLUE };
 const GPU_TAG_PRIM_GRADIENT: GpuProfileTag = GpuProfileTag { label: "Gradient", color: debug_colors::YELLOW };
 const GPU_TAG_PRIM_ANGLE_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AngleGradient", color: debug_colors::POWDERBLUE };
+const GPU_TAG_PRIM_RADIAL_GRADIENT: GpuProfileTag = GpuProfileTag { label: "RadialGradient", color: debug_colors::PLUM };
 const GPU_TAG_PRIM_COMPLEX_RADIAL_GRADIENT: GpuProfileTag = GpuProfileTag { label: "ComplexRadialGradient", color: debug_colors::LIGHTPINK };
 const GPU_TAG_PRIM_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "BoxShadow", color: debug_colors::CYAN };
 const GPU_TAG_PRIM_BORDER: GpuProfileTag = GpuProfileTag { label: "Border", color: debug_colors::ORANGE };
@@ -468,6 +469,7 @@ pub struct Renderer {
     ps_border: PrimitiveShader,
     ps_gradient: PrimitiveShader,
     ps_angle_gradient: PrimitiveShader,
+    ps_radial_gradient: PrimitiveShader,
     ps_complex_radial_gradient: PrimitiveShader,
     ps_box_shadow: PrimitiveShader,
     ps_cache_image: PrimitiveShader,
@@ -704,6 +706,13 @@ impl Renderer {
                                  options.precache_shaders)
         };
 
+        let ps_radial_gradient = try!{
+            PrimitiveShader::new("ps_radial_gradient",
+                                 &mut device,
+                                 &[],
+                                 options.precache_shaders)
+        };
+
         let ps_complex_radial_gradient = try!{
             PrimitiveShader::new("ps_complex_radial_gradient",
                                  &mut device,
@@ -916,6 +925,7 @@ impl Renderer {
             ps_box_shadow: ps_box_shadow,
             ps_gradient: ps_gradient,
             ps_angle_gradient: ps_angle_gradient,
+            ps_radial_gradient: ps_radial_gradient,
             ps_complex_radial_gradient: ps_complex_radial_gradient,
             ps_cache_image: ps_cache_image,
             ps_blend: ps_blend,
@@ -1353,6 +1363,10 @@ impl Renderer {
                     AlphaBatchKind::AngleGradient => {
                         let shader = self.ps_angle_gradient.get(&mut self.device, transform_kind);
                         (GPU_TAG_PRIM_ANGLE_GRADIENT, shader)
+                    }
+                    AlphaBatchKind::RadialGradient => {
+                        let shader = self.ps_radial_gradient.get(&mut self.device, transform_kind);
+                        (GPU_TAG_PRIM_RADIAL_GRADIENT, shader)
                     }
                     AlphaBatchKind::ComplexRadialGradient => {
                         let shader = self.ps_complex_radial_gradient.get(&mut self.device, transform_kind);

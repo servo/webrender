@@ -710,6 +710,18 @@ impl YamlFrameWriter {
                     yaml_node(&mut v, "stops", Yaml::Array(stops));
                     bool_node(&mut v, "repeat", item.gradient.extend_mode == ExtendMode::Repeat);
                 },
+                RadialGradient(item) => {
+                    str_node(&mut v, "type", "radial_gradient");
+                    point_node(&mut v, "center", &item.gradient.center);
+                    size_node(&mut v, "radius", &item.gradient.radius);
+                    let mut stops = vec![];
+                    for stop in aux.gradient_stops(&item.gradient.stops) {
+                        stops.push(Yaml::Real(stop.offset.to_string()));
+                        stops.push(Yaml::String(color_to_string(stop.color)));
+                    }
+                    yaml_node(&mut v, "stops", Yaml::Array(stops));
+                    bool_node(&mut v, "repeat", item.gradient.extend_mode == ExtendMode::Repeat);
+                },
                 ComplexRadialGradient(item) => {
                     str_node(&mut v, "type", "complex-radial-gradient");
                     point_node(&mut v, "start-center", &item.gradient.start_center);

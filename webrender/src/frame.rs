@@ -648,6 +648,15 @@ impl Frame {
                                                  info.gradient.stops,
                                                  info.gradient.extend_mode);
                 }
+                SpecificDisplayItem::RadialGradient(ref info) => {
+                    context.builder.add_radial_gradient(scroll_layer_id,
+                                                        item.rect,
+                                                        &item.clip,
+                                                        info.gradient.center,
+                                                        info.gradient.radius,
+                                                        info.gradient.stops,
+                                                        info.gradient.extend_mode);
+                }
                 SpecificDisplayItem::ComplexRadialGradient(ref info) => {
                     context.builder.add_complex_radial_gradient(scroll_layer_id,
                                                                 item.rect,
