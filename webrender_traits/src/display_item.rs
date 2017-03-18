@@ -119,7 +119,7 @@ pub struct GradientBorder {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RadialGradientBorder {
-    pub gradient: ComplexRadialGradient,
+    pub gradient: RadialGradient,
     pub outset: SideOffsets2D<f32>,
 }
 

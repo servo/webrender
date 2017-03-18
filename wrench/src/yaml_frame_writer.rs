@@ -668,10 +668,8 @@ impl YamlFrameWriter {
                                                          details.outset.left];
                             yaml_node(&mut v, "width", f32_vec_yaml(&widths, true));
                             str_node(&mut v, "border-type", "radial-gradient");
-                            point_node(&mut v, "start-center", &details.gradient.start_center);
-                            f32_node(&mut v, "start-radius", details.gradient.start_radius);
-                            point_node(&mut v, "end-center", &details.gradient.end_center);
-                            f32_node(&mut v, "end-radius", details.gradient.end_radius);
+                            point_node(&mut v, "center", &details.gradient.center);
+                            size_node(&mut v, "radius", &details.gradient.radius);
                             let mut stops = vec![];
                             for stop in aux.gradient_stops(&details.gradient.stops) {
                                 stops.push(Yaml::Real(stop.offset.to_string()));

@@ -366,11 +366,8 @@ impl YamlFrameReader {
                     }))
                 },
                 "radial-gradient" => {
-                    let start_center = item["start-center"].as_point().expect("radial gradient must have start center");
-                    let start_radius =
-                        item["start-radius"].as_force_f32().expect("radial gradient must have start radius");
-                    let end_center = item["end-center"].as_point().expect("radial gradient must have end center");
-                    let end_radius = item["end-radius"].as_force_f32().expect("radial gradient must have end radius");
+                    let center = item["center"].as_point().expect("radial gradient must have center");
+                    let radius = item["radius"].as_size().expect("radial gradient must have radius");
                     let stops = item["stops"].as_vec().expect("radial gradient must have stops")
                         .chunks(2).map(|chunk| GradientStop {
                             offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
@@ -384,9 +381,8 @@ impl YamlFrameReader {
                     let outset = item["outset"].as_vec_f32().expect("borders must have outset");
                     let outset = broadcast(&outset, 4);
                     Some(BorderDetails::RadialGradient(RadialGradientBorder {
-                        gradient: self.builder().create_complex_radial_gradient(start_center, start_radius,
-                                                                                end_center, end_radius,
-                                                                                stops, extend_mode),
+                        gradient: self.builder().create_radial_gradient(center, radius,
+                                                                        stops, extend_mode),
                         outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
                     }))
                 },

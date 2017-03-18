@@ -667,15 +667,13 @@ impl FrameBuilder {
             }
             BorderDetails::RadialGradient(ref border) => {
                 for segment in create_segments(border.outset) {
-                    self.add_complex_radial_gradient(scroll_layer_id,
-                                                     segment,
-                                                     clip_region,
-                                                     border.gradient.start_center,
-                                                     border.gradient.start_radius,
-                                                     border.gradient.end_center,
-                                                     border.gradient.end_radius,
-                                                     border.gradient.stops,
-                                                     border.gradient.extend_mode);
+                    self.add_radial_gradient(scroll_layer_id,
+                                             segment,
+                                             clip_region,
+                                             border.gradient.center,
+                                             border.gradient.radius,
+                                             border.gradient.stops,
+                                             border.gradient.extend_mode);
                 }
             }
         }
