@@ -1,2 +1,3 @@
 == border-gradient-simple.yaml border-gradient-simple-ref.yaml
 == border-radial-gradient-simple.yaml border-radial-gradient-simple-ref.yaml
+fuzzy(255,610) == border-double-simple.yaml border-double-simple-ref.yaml
