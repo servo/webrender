@@ -147,8 +147,8 @@ impl RenderBackend {
                             }
                             self.resource_cache.add_image_template(id, descriptor, data, tiling);
                         }
-                        ApiMsg::UpdateImage(id, descriptor, bytes) => {
-                            self.resource_cache.update_image_template(id, descriptor, bytes);
+                        ApiMsg::UpdateImage(id, descriptor, bytes, dirty_rect) => {
+                            self.resource_cache.update_image_template(id, descriptor, bytes, dirty_rect);
                         }
                         ApiMsg::DeleteImage(id) => {
                             self.resource_cache.delete_image_template(id);

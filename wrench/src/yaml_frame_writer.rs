@@ -800,7 +800,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 });
             }
 
-            &ApiMsg::UpdateImage(ref key, ref descriptor, ref bytes) => {
+            &ApiMsg::UpdateImage(ref key, ref descriptor, ref bytes, _dirty_rect) => {
                 if let Some(ref mut data) = self.frame_writer.images.get_mut(key) {
                     assert!(data.width == descriptor.width);
                     assert!(data.height == descriptor.height);

@@ -25,7 +25,7 @@ pub enum ApiMsg {
     /// Adds an image from the resource cache.
     AddImage(ImageKey, ImageDescriptor, ImageData, Option<TileSize>),
     /// Updates the the resource cache with the new image data.
-    UpdateImage(ImageKey, ImageDescriptor, Vec<u8>),
+    UpdateImage(ImageKey, ImageDescriptor, Vec<u8>, Option<DeviceUintRect>),
     /// Drops an image from the resource cache.
     DeleteImage(ImageKey),
     CloneApi(MsgSender<IdNamespace>),
@@ -229,8 +229,9 @@ impl RenderApi {
     pub fn update_image(&self,
                         key: ImageKey,
                         descriptor: ImageDescriptor,
-                        bytes: Vec<u8>) {
-        let msg = ApiMsg::UpdateImage(key, descriptor, bytes);
+                        bytes: Vec<u8>,
+                        dirty_rect: Option<DeviceUintRect>) {
+        let msg = ApiMsg::UpdateImage(key, descriptor, bytes, dirty_rect);
         self.api_sender.send(msg).unwrap();
     }
 

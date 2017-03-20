@@ -234,7 +234,7 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                 });
             }
 
-            &ApiMsg::UpdateImage(ref key, descriptor, ref bytes) => {
+            &ApiMsg::UpdateImage(ref key, descriptor, ref bytes, _dirty_rect) => {
                 if let Some(ref mut data) = self.images.get_mut(key) {
                     assert!(data.width == descriptor.width);
                     assert!(data.height == descriptor.height);
