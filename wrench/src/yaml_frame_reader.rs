@@ -49,15 +49,7 @@ pub struct YamlFrameReader {
 
     /// A HashMap of offsets which specify what scroll offsets particular
     /// scroll layers should be initialized with.
-    scroll_offsets: HashMap<ServoScrollRootId, LayerPoint>,
-
-    /// A HashMap of offsets which specify what scroll offsets particular
-    /// scroll layers should be initialized with.
-    clip_id_mapping: HashMap<u32, ScrollLayerId>,
-
-    /// Current scroll root id used to generate new scroll root ids
-    /// for scroll layers.
-    current_scroll_root_id: usize,
+    scroll_offsets: HashMap<ScrollLayerId, LayerPoint>,
 }
 
 impl YamlFrameReader {
@@ -72,8 +64,6 @@ impl YamlFrameReader {
             queue_depth: 1,
             include_only: vec![],
             scroll_offsets: HashMap::new(),
-            clip_id_mapping: HashMap::new(),
-            current_scroll_root_id: 1,
         }
     }
 
@@ -93,7 +83,6 @@ impl YamlFrameReader {
 
     pub fn reset(&mut self) {
         self.scroll_offsets.clear();
-        self.clip_id_mapping.clear();
     }
 
     pub fn build(&mut self, wrench: &mut Wrench) {
@@ -583,7 +572,7 @@ impl YamlFrameReader {
 
             let yaml_clip_id = item["clip_id"].as_i64();
             if let Some(yaml_id) = yaml_clip_id {
-                let id = self.clip_id_mapping[&(yaml_id as u32)];
+                let id = ScrollLayerId::new(yaml_id as usize, self.builder().pipeline_id);
                 self.builder().push_clip_id(id);
             }
 
@@ -592,7 +581,7 @@ impl YamlFrameReader {
                 "image" => self.handle_image(wrench, &full_clip_region, &item),
                 "text" | "glyphs" => self.handle_text(wrench, &full_clip_region, &item),
                 "scroll_layer" => self.add_scroll_layer_from_yaml(wrench, &item),
-                "clip" => { self.add_clip_from_yaml(wrench, &item); }
+                "clip" => { self.handle_clip_from_yaml(wrench, &item); }
                 "border" => self.handle_border(wrench, &full_clip_region, &item),
                 "gradient" => self.handle_gradient(wrench, &full_clip_region, &item),
                 "radial_gradient" => self.handle_radial_gradient(wrench, &full_clip_region, &item),
@@ -609,7 +598,7 @@ impl YamlFrameReader {
     }
 
     pub fn add_scroll_layer_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
-        let id = self.add_clip_from_yaml(wrench, yaml);
+        let id = self.handle_clip_from_yaml(wrench, yaml);
 
         self.builder().push_clip_id(id);
         if !yaml["items"].is_badvalue() {
@@ -618,25 +607,22 @@ impl YamlFrameReader {
         self.builder().pop_clip_id();
     }
 
-    pub fn add_clip_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) -> ScrollLayerId {
+    pub fn handle_clip_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) -> ScrollLayerId {
         let bounds = yaml["bounds"].as_rect().expect("scroll layer must have bounds");
         let content_size = yaml["content-size"].as_size()
                                                .expect("scroll layer must have content size");
         let clip = self.to_clip_region(&yaml["clip"], &bounds, wrench)
                        .unwrap_or(ClipRegion::simple(&bounds));
+        let id = yaml["id"].as_i64().map(|id|
+            ScrollLayerId::new(id as usize, self.builder().pipeline_id));
 
-        let scroll_root_id = ServoScrollRootId(self.current_scroll_root_id);
+        let id = self.builder().define_clip(clip, content_size, id);
+
         if let Some(size) = yaml["scroll-offset"].as_point() {
-            let entry = self.scroll_offsets.entry(scroll_root_id).or_insert_with(LayerPoint::zero);
-            *entry = LayerPoint::new(size.x, size.y);
+            self.scroll_offsets.insert(id, LayerPoint::new(size.x, size.y));
         }
 
-        let id = self.builder().define_clip(clip, content_size, Some(scroll_root_id));
-        if let Some(yaml_id) = yaml["id"].as_i64() {
-            assert!(!self.clip_id_mapping.contains_key(&(yaml_id as u32)));
-            self.clip_id_mapping.insert(yaml_id as u32, id);
-        }
-        return id
+        id
     }
 
     pub fn add_stacking_context_from_yaml(&mut self,
@@ -670,9 +656,8 @@ impl YamlFrameReader {
 
         if is_root {
             if let Some(size) = yaml["scroll-offset"].as_point() {
-                let entry = self.scroll_offsets.entry(ServoScrollRootId(0))
-                                               .or_insert_with(LayerPoint::zero);
-                *entry = LayerPoint::new(size.x, size.y);
+                let id = ScrollLayerId::root_scroll_layer(self.builder().pipeline_id);
+                self.scroll_offsets.insert(id, LayerPoint::new(size.x, size.y));
             }
         }
 

@@ -18,6 +18,7 @@ use super::CURRENT_FRAME_NUMBER;
 use time;
 use webrender;
 use webrender_traits::*;
+use webrender_traits::SpecificDisplayItem::*;
 use yaml_helper::{mix_blend_mode_to_string, scroll_policy_to_string};
 use yaml_rust::{Yaml, YamlEmitter};
 
@@ -64,14 +65,6 @@ fn color_to_string(value: ColorF) -> String {
 
 fn color_node(parent: &mut Table, key: &str, value: ColorF) {
     yaml_node(parent, key, Yaml::String(color_to_string(value)));
-}
-
-fn clip_id_node(parent: &mut Table, key: &str, clip_id: &ScrollLayerId) {
-    if let ScrollLayerInfo::Scrollable(id) = clip_id.info {
-        usize_node(parent, key, id);
-        return;
-    }
-    unreachable!("Should not have ReferenceFrame ids in the display list.");
 }
 
 fn point_node<U>(parent: &mut Table, key: &str, value: &TypedPoint2D<f32, U>) {
@@ -332,7 +325,7 @@ impl YamlFrameWriter {
         let mut root_dl_table = new_table();
         {
             let mut iter = dl.all_display_items().iter();
-            self.write_dl(&mut root_dl_table, &mut iter, &aux);
+            self.write_display_list(&mut root_dl_table, &mut iter, &aux, &mut ClipIdMapper::new());
         }
 
 
@@ -360,7 +353,7 @@ impl YamlFrameWriter {
                 let dl = scene.display_lists.get(&pipeline_id).unwrap();
                 let aux = scene.pipeline_auxiliary_lists.get(&pipeline_id).unwrap();
                 let mut iter = dl.iter();
-                self.write_dl(&mut pipeline, &mut iter, &aux);
+                self.write_display_list(&mut pipeline, &mut iter, &aux, &mut ClipIdMapper::new());
                 pipelines.push(Yaml::Hash(pipeline));
             }
 
@@ -497,16 +490,16 @@ impl YamlFrameWriter {
         }
     }
 
-    fn write_dl_items(&mut self,
-                      list: &mut Vec<Yaml>,
-                      dl_iter: &mut slice::Iter<DisplayItem>,
-                      aux: &AuxiliaryLists) {
-        use webrender_traits::SpecificDisplayItem::*;
-        while let Some(ref base) = dl_iter.next() {
+    fn write_display_list_items(&mut self,
+                                list: &mut Vec<Yaml>,
+                                list_iterator: &mut slice::Iter<DisplayItem>,
+                                aux: &AuxiliaryLists,
+                                clip_id_mapper: &mut ClipIdMapper) {
+        while let Some(ref base) = list_iterator.next() {
             let mut v = new_table();
             rect_node(&mut v, "bounds", &base.rect);
             yaml_node(&mut v, "clip", self.make_clip_node(&base.clip, aux));
-            clip_id_node(&mut v, "clip_id", &base.scroll_layer_id);
+            usize_node(&mut v, "clip_id", clip_id_mapper.map(&base.scroll_layer_id));
 
             match base.item {
                 Rectangle(item) => {
@@ -741,12 +734,12 @@ impl YamlFrameWriter {
                 PushStackingContext(item) => {
                     str_node(&mut v, "type", "stacking_context");
                     write_sc(&mut v, &item.stacking_context);
-                    self.write_dl(&mut v, dl_iter, aux);
+                    self.write_display_list(&mut v, list_iterator, aux, clip_id_mapper);
                 },
                 Clip(item) => {
                     str_node(&mut v, "type", "clip");
                     size_node(&mut v, "content-size", &item.content_size);
-                    clip_id_node(&mut v, "id", &item.id);
+                    usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
                 }
                 PopStackingContext => return,
             }
@@ -756,9 +749,13 @@ impl YamlFrameWriter {
         }
     }
 
-    fn write_dl(&mut self, parent: &mut Table, dl_iter: &mut slice::Iter<DisplayItem>, aux: &AuxiliaryLists) {
+    fn write_display_list(&mut self,
+                          parent: &mut Table,
+                          list_iterator: &mut slice::Iter<DisplayItem>,
+                          aux: &AuxiliaryLists,
+                          clip_id_mapper: &mut ClipIdMapper) {
         let mut list = vec![];
-        self.write_dl_items(&mut list, dl_iter, aux);
+        self.write_display_list_items(&mut list, list_iterator, aux, clip_id_mapper);
         parent.insert(Yaml::String("items".to_owned()), Yaml::Array(list));
     }
 }
@@ -841,5 +838,31 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
         if self.frame_writer.dl_descriptor.is_some() {
             self.frame_writer.finish_write_root_display_list(&mut self.scene, data);
         }
+    }
+}
+
+/// This structure allows mapping both Clip and ClipExternalId ScrollLayerIds
+/// onto one set of numeric ids. This prevents ids from clashing in the yaml output.
+struct ClipIdMapper {
+    hash_map: HashMap<ScrollLayerId, usize>,
+    current_clip_id: usize,
+}
+
+impl ClipIdMapper {
+    fn new() -> ClipIdMapper {
+        ClipIdMapper {
+            hash_map: HashMap::new(),
+            current_clip_id: 1,
+        }
+    }
+
+    fn add_id(&mut self, id: ScrollLayerId) -> usize {
+        self.hash_map.insert(id, self.current_clip_id);
+        self.current_clip_id += 1;
+        self.current_clip_id - 1
+    }
+
+    fn map(&self, id: &ScrollLayerId) -> usize {
+        *self.hash_map.get(id).unwrap()
     }
 }
