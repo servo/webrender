@@ -37,7 +37,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
 
     let mut end = p.start;
     while let Some(k) = p.o {
-        if !k.1.is_alphabetic() && k.1 != '_' {
+        if !k.1.is_alphabetic() && k.1 != '_' && k.1 != '-' {
             break;
         }
         end = k.0 + k.1.len_utf8();

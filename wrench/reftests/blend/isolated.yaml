@@ -6,10 +6,10 @@ root:
           color: [255, 0, 0]
         # this stacking context should create an isolated group for its children
         # causing the yellow rect to not blend with the green backdrop
-        - type: stacking_context
+        - type: stacking-context
           bounds: [0, 0, 100, 100]
           items:
-            - type: stacking_context
+            - type: stacking-context
               bounds: [0, 0, 100, 100]
               mix-blend-mode: difference
               items:

@@ -164,10 +164,10 @@ fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
         }
     } else {
         let mut table = new_table();
-        size_node(&mut table, "top_left", &radius.top_left);
-        size_node(&mut table, "top_right", &radius.top_right);
-        size_node(&mut table, "bottom_left", &radius.bottom_left);
-        size_node(&mut table, "bottom_right", &radius.bottom_right);
+        size_node(&mut table, "top-left", &radius.top_left);
+        size_node(&mut table, "top-right", &radius.top_right);
+        size_node(&mut table, "bottom-left", &radius.bottom_left);
+        size_node(&mut table, "bottom-right", &radius.bottom_right);
         Some(Yaml::Hash(table))
     }
 }
@@ -177,7 +177,7 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
     rect_node(parent, "bounds", &sc.bounds);
 
     scroll_policy_node(parent, "scroll-policy", sc.scroll_policy);
-    i32_node(parent, "z_index", sc.z_index);
+    i32_node(parent, "z-index", sc.z_index);
 
     match sc.transform {
         Some(PropertyBinding::Value(transform)) => matrix4d_node(parent, "transform", &transform),
@@ -481,7 +481,7 @@ impl YamlFrameWriter {
                 rect_node(&mut mask_table, "rect", &mask.rect);
                 bool_node(&mut mask_table, "repeat", mask.repeat);
 
-                table_node(&mut complex_table, "image_mask", mask_table);
+                table_node(&mut complex_table, "image-mask", mask_table);
             }
 
             Yaml::Hash(complex_table)
@@ -499,7 +499,7 @@ impl YamlFrameWriter {
             let mut v = new_table();
             rect_node(&mut v, "bounds", &base.rect);
             yaml_node(&mut v, "clip", self.make_clip_node(&base.clip, aux));
-            usize_node(&mut v, "clip_id", clip_id_mapper.map(&base.scroll_layer_id));
+            usize_node(&mut v, "clip-id", clip_id_mapper.map(&base.scroll_layer_id));
 
             match base.item {
                 Rectangle(item) => {
@@ -553,8 +553,8 @@ impl YamlFrameWriter {
                     if let Some(&CachedImage { tiling: Some(tile_size), .. }) = self.images.get(&item.image_key) {
                         u32_node(&mut v, "tile-size", tile_size as u32);
                     }
-                    size_node(&mut v, "stretch_size", &item.stretch_size);
-                    size_node(&mut v, "tile_spacing", &item.tile_spacing);
+                    size_node(&mut v, "stretch-size", &item.stretch_size);
+                    size_node(&mut v, "tile-spacing", &item.tile_spacing);
                     match item.image_rendering {
                         ImageRendering::Auto => (),
                         ImageRendering::CrispEdges => str_node(&mut v, "rendering", "crisp-edges"),
@@ -671,10 +671,10 @@ impl YamlFrameWriter {
                                                          details.outset.left];
                             yaml_node(&mut v, "width", f32_vec_yaml(&widths, true));
                             str_node(&mut v, "border-type", "radial-gradient");
-                            point_node(&mut v, "start_center", &details.gradient.start_center);
-                            f32_node(&mut v, "start_radius", details.gradient.start_radius);
-                            point_node(&mut v, "end_center", &details.gradient.end_center);
-                            f32_node(&mut v, "end_radius", details.gradient.end_radius);
+                            point_node(&mut v, "start-center", &details.gradient.start_center);
+                            f32_node(&mut v, "start-radius", details.gradient.start_radius);
+                            point_node(&mut v, "end-center", &details.gradient.end_center);
+                            f32_node(&mut v, "end-radius", details.gradient.end_radius);
                             let mut stops = vec![];
                             for stop in aux.gradient_stops(&details.gradient.stops) {
                                 stops.push(Yaml::Real(stop.offset.to_string()));
@@ -688,18 +688,18 @@ impl YamlFrameWriter {
                 },
                 BoxShadow(item) => {
                     str_node(&mut v, "type", "box-shadow");
-                    rect_node(&mut v, "box_bounds", &item.box_bounds);
+                    rect_node(&mut v, "box-bounds", &item.box_bounds);
                     point_node(&mut v, "offset", &item.offset);
                     color_node(&mut v, "color", item.color);
-                    f32_node(&mut v, "blur_radius", item.blur_radius);
-                    f32_node(&mut v, "spread_radius", item.spread_radius);
-                    f32_node(&mut v, "border_radius", item.border_radius);
+                    f32_node(&mut v, "blur-radius", item.blur_radius);
+                    f32_node(&mut v, "spread-radius", item.spread_radius);
+                    f32_node(&mut v, "border-radius", item.border_radius);
                     let clip_mode = match item.clip_mode {
                         BoxShadowClipMode::None => "none",
                         BoxShadowClipMode::Outset => "outset",
                         BoxShadowClipMode::Inset => "inset"
                     };
-                    str_node(&mut v, "clip_mode", clip_mode);
+                    str_node(&mut v, "clip-mode", clip_mode);
                 },
                 Gradient(item) => {
                     str_node(&mut v, "type", "gradient");
@@ -714,11 +714,11 @@ impl YamlFrameWriter {
                     bool_node(&mut v, "repeat", item.gradient.extend_mode == ExtendMode::Repeat);
                 },
                 RadialGradient(item) => {
-                    str_node(&mut v, "type", "radial_gradient");
-                    point_node(&mut v, "start_center", &item.gradient.start_center);
-                    f32_node(&mut v, "start_radius", item.gradient.start_radius);
-                    point_node(&mut v, "end_center", &item.gradient.end_center);
-                    f32_node(&mut v, "end_radius", item.gradient.end_radius);
+                    str_node(&mut v, "type", "radial-gradient");
+                    point_node(&mut v, "start-center", &item.gradient.start_center);
+                    f32_node(&mut v, "start-radius", item.gradient.start_radius);
+                    point_node(&mut v, "end-center", &item.gradient.end_center);
+                    f32_node(&mut v, "end-radius", item.gradient.end_radius);
                     let mut stops = vec![];
                     for stop in aux.gradient_stops(&item.gradient.stops) {
                         stops.push(Yaml::Real(stop.offset.to_string()));
@@ -732,7 +732,7 @@ impl YamlFrameWriter {
                     u32_vec_node(&mut v, "id", &vec![item.pipeline_id.0, item.pipeline_id.1]);
                 },
                 PushStackingContext(item) => {
-                    str_node(&mut v, "type", "stacking_context");
+                    str_node(&mut v, "type", "stacking-context");
                     write_sc(&mut v, &item.stacking_context);
                     self.write_display_list(&mut v, list_iterator, aux, clip_id_mapper);
                 },

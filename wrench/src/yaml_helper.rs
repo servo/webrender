@@ -310,10 +310,10 @@ impl YamlHelper for Yaml {
                 Some(BorderRadius::uniform(v as f32))
             }
             Yaml::Hash(_) => {
-                let top_left = self["top_left"].as_size().unwrap_or(TypedSize2D::zero());
-                let top_right = self["top_right"].as_size().unwrap_or(TypedSize2D::zero());
-                let bottom_left = self["bottom_left"].as_size().unwrap_or(TypedSize2D::zero());
-                let bottom_right = self["bottom_right"].as_size().unwrap_or(TypedSize2D::zero());
+                let top_left = self["top-left"].as_size().unwrap_or(TypedSize2D::zero());
+                let top_right = self["top-right"].as_size().unwrap_or(TypedSize2D::zero());
+                let bottom_left = self["bottom-left"].as_size().unwrap_or(TypedSize2D::zero());
+                let bottom_right = self["bottom-right"].as_size().unwrap_or(TypedSize2D::zero());
                 Some(BorderRadius {
                     top_left: top_left,
                     top_right: top_right,

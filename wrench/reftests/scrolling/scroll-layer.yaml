@@ -1,6 +1,6 @@
 root:
   items:
-    - type: scroll_layer
+    - type: scroll-layer
       bounds: [0, 0, 100, 100]
       content-size: [1000, 1000]
       scroll-offset: [50, 50]

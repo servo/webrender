@@ -5,10 +5,10 @@ root:
         - type: rect
           bounds: [0, 0, 100, 100]
           color: [0, 0, 0]
-        - type: stacking_context
+        - type: stacking-context
           bounds: [0, 0, 100, 100]
           items:
-            - type: stacking_context
+            - type: stacking-context
               bounds: [0, 0, 100, 100]
               filters: opacity(0.5)
               items:

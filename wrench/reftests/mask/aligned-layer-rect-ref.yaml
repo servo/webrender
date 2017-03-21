@@ -1,7 +1,7 @@
 ---
 root:
   items:
-    - type: stacking_context
+    - type: stacking-context
       items:
         - type: rect
           bounds: [9, 9, 10, 10]
