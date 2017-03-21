@@ -64,6 +64,7 @@ const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: debug_
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: debug_colors::SLATEGREY };
 const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: debug_colors::RED };
 const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: debug_colors::GREEN };
+const GPU_TAG_PRIM_IMAGE_RECT: GpuProfileTag = GpuProfileTag { label: "ImageRect", color: debug_colors::GREENYELLOW };
 const GPU_TAG_PRIM_YUV_IMAGE: GpuProfileTag = GpuProfileTag { label: "YuvImage", color: debug_colors::DARKGREEN };
 const GPU_TAG_PRIM_BLEND: GpuProfileTag = GpuProfileTag { label: "Blend", color: debug_colors::LIGHTBLUE };
 const GPU_TAG_PRIM_HW_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "HwComposite", color: debug_colors::DODGERBLUE };
@@ -215,6 +216,7 @@ pub type GradientDataStore = GpuStore<GradientData, GradientDataTextureLayout>;
 const TRANSFORM_FEATURE: &'static str = "TRANSFORM";
 const SUBPIXEL_AA_FEATURE: &'static str = "SUBPIXEL_AA";
 const CLIP_FEATURE: &'static str = "CLIP";
+const TEXTURE_RECT_FEATURE: &'static str = "TEXTURE_RECT";
 
 enum ShaderKind {
     Primitive,
@@ -457,6 +459,7 @@ pub struct Renderer {
     ps_text_run: PrimitiveShader,
     ps_text_run_subpixel: PrimitiveShader,
     ps_image: PrimitiveShader,
+    ps_image_rect: PrimitiveShader,
     ps_yuv_image: PrimitiveShader,
     ps_border: PrimitiveShader,
     ps_gradient: PrimitiveShader,
@@ -656,6 +659,13 @@ impl Renderer {
             PrimitiveShader::new("ps_image",
                                  &mut device,
                                  &[],
+                                 options.precache_shaders)
+        };
+
+        let ps_image_rect = try!{
+            PrimitiveShader::new("ps_image_rect",
+                                 &mut device,
+                                 &[ TEXTURE_RECT_FEATURE ],
                                  options.precache_shaders)
         };
 
@@ -880,6 +890,7 @@ impl Renderer {
             ps_text_run: ps_text_run,
             ps_text_run_subpixel: ps_text_run_subpixel,
             ps_image: ps_image,
+            ps_image_rect: ps_image_rect,
             ps_yuv_image: ps_yuv_image,
             ps_border: ps_border,
             ps_box_shadow: ps_box_shadow,
@@ -1308,6 +1319,10 @@ impl Renderer {
                     AlphaBatchKind::Image => {
                         let shader = self.ps_image.get(&mut self.device, transform_kind);
                         (GPU_TAG_PRIM_IMAGE, shader)
+                    }
+                    AlphaBatchKind::ImageRect => {
+                        let shader = self.ps_image_rect.get(&mut self.device, transform_kind);
+                        (GPU_TAG_PRIM_IMAGE_RECT, shader)
                     }
                     AlphaBatchKind::YuvImage => {
                         let shader = self.ps_yuv_image.get(&mut self.device, transform_kind);
