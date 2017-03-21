@@ -1652,9 +1652,16 @@ impl Renderer {
                 let ext_image = props.external_image
                                      .expect("BUG: Deferred resolves must be external images!");
                 let image = handler.lock(ext_image.id);
+                let texture_target = match ext_image.image_type {
+                    ExternalImageType::Texture2DHandle => TextureTarget::Default,
+                    ExternalImageType::TextureRectHandle => TextureTarget::Rect,
+                    _ => {
+                        panic!("Not a suitable image type.");
+                    }
+                };
 
                 let texture_id = match image.source {
-                    ExternalImageSource::NativeTexture(texture_id) => TextureId::new(texture_id),
+                    ExternalImageSource::NativeTexture(texture_id) => TextureId::new(texture_id, texture_target),
                     _ => panic!("No native texture found."),
                 };
 
