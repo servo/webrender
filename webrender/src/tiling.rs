@@ -27,6 +27,7 @@ use webrender_traits::{AuxiliaryLists, ColorF, DeviceIntPoint, DeviceIntRect, De
 use webrender_traits::{DeviceUintSize, FontRenderMode, ImageRendering, LayerPoint, LayerRect};
 use webrender_traits::{LayerToWorldTransform, MixBlendMode, PipelineId, ScrollLayerId};
 use webrender_traits::{WorldPoint4D, WorldToLayerTransform};
+use webrender_traits::{ExternalImageType};
 
 // Special sentinel value recognized by the shader. It is considered to be
 // a dummy task that doesn't mask out anything.
@@ -69,7 +70,24 @@ impl AlphaBatchHelpers for PrimitiveStore {
         let batch_kind = match metadata.prim_kind {
             PrimitiveKind::Border => AlphaBatchKind::Border,
             PrimitiveKind::BoxShadow => AlphaBatchKind::BoxShadow,
-            PrimitiveKind::Image => AlphaBatchKind::Image,
+            PrimitiveKind::Image => {
+                let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
+
+                match image_cpu.color_texture_id {
+                    SourceTexture::External(ext_image) => {
+                        match ext_image.image_type {
+                            ExternalImageType::Texture2DHandle => AlphaBatchKind::Image,
+                            ExternalImageType::TextureRectHandle => AlphaBatchKind::ImageRect,
+                            _ => {
+                                panic!("Non-texture handle type should be handled in other way.");
+                            }
+                        }
+                    }
+                    _ => {
+                        AlphaBatchKind::Image
+                    }
+                }
+            }
             PrimitiveKind::YuvImage => AlphaBatchKind::YuvImage,
             PrimitiveKind::Rectangle => AlphaBatchKind::Rectangle,
             PrimitiveKind::AlignedGradient => AlphaBatchKind::AlignedGradient,
@@ -270,7 +288,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
                             });
                         }
                     }
-                    AlphaBatchKind::Image => {
+                    AlphaBatchKind::Image |
+                    AlphaBatchKind::ImageRect => {
                         let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
 
                         data.push(PrimitiveInstance {
@@ -1258,6 +1277,7 @@ pub enum AlphaBatchKind {
     Rectangle,
     TextRun,
     Image,
+    ImageRect,
     YuvImage,
     Border,
     AlignedGradient,
@@ -1388,6 +1408,7 @@ impl PrimitiveBatch {
             AlphaBatchKind::Rectangle |
             AlphaBatchKind::TextRun |
             AlphaBatchKind::Image |
+            AlphaBatchKind::ImageRect |
             AlphaBatchKind::YuvImage |
             AlphaBatchKind::Border |
             AlphaBatchKind::AlignedGradient |
