@@ -864,8 +864,8 @@ impl PrimitiveStore {
 
         // Check if an external image that needs to be resolved
         // by the render thread.
-        match image_properties.external_id {
-            Some(external_id) => {
+        match image_properties.external_image {
+            Some(external_image) => {
                 // This is an external texture - we will add it to
                 // the deferred resolves list to be patched by
                 // the render thread...
@@ -874,7 +874,7 @@ impl PrimitiveStore {
                     resource_address: image_uv_address,
                 });
 
-                (SourceTexture::External(external_id), None)
+                (SourceTexture::External(external_image), None)
             }
             None => {
                 let cache_item = resource_cache.get_cached_image(image_key, image_rendering, tile_offset);

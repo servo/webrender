@@ -22,7 +22,7 @@ use tiling;
 use renderer::BlendMode;
 use webrender_traits::{Epoch, ColorF, PipelineId, DeviceIntSize};
 use webrender_traits::{ImageFormat, NativeFontHandle};
-use webrender_traits::{ExternalImageId, ScrollLayerId, WebGLCommand};
+use webrender_traits::{ExternalImageData, ExternalImageId, ScrollLayerId, WebGLCommand};
 use webrender_traits::{ImageData};
 use webrender_traits::{DeviceUintRect};
 
@@ -49,7 +49,7 @@ pub enum SourceTexture {
     Invalid,
     TextureCache(CacheTextureId),
     WebGL(u32),                         // Is actually a gl::GLuint
-    External(ExternalImageId),
+    External(ExternalImageData),
 }
 
 pub enum GLContextHandleWrapper {

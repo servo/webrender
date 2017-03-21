@@ -16,7 +16,7 @@ use std::mem;
 use std::slice::Iter;
 use time;
 use util;
-use webrender_traits::{ImageData, ImageFormat, DevicePixel, DeviceIntPoint};
+use webrender_traits::{ExternalImageType, ImageData, ImageFormat, DevicePixel, DeviceIntPoint};
 use webrender_traits::{DeviceUintRect, DeviceUintSize, DeviceUintPoint};
 use webrender_traits::ImageDescriptor;
 
@@ -715,7 +715,7 @@ impl TextureCache {
         debug_assert_eq!(existing_item.allocated_rect.size.height, descriptor.height);
 
         let op = match data {
-            ImageData::ExternalHandle(..) | ImageData::ExternalBuffer(..)=> {
+            ImageData::External(..) => {
                 panic!("Doesn't support Update() for external image.");
             }
             ImageData::Blob(..) => {
@@ -781,8 +781,25 @@ impl TextureCache {
         match result.kind {
             AllocationKind::TexturePage => {
                 match data {
-                    ImageData::ExternalHandle(..) => {
-                        panic!("External handle should not go through texture_cache.");
+                    ImageData::External(ext_image) => {
+                        match ext_image.image_type {
+                            ExternalImageType::Texture2DHandle |
+                            ExternalImageType::TextureRectHandle => {
+                                panic!("External texture handle should not go through texture_cache.");
+                            }
+                            ExternalImageType::ExternalBuffer => {
+                                let update_op = TextureUpdate {
+                                    id: result.item.texture_id,
+                                    op: TextureUpdateOp::UpdateForExternalBuffer {
+                                        rect: result.item.allocated_rect,
+                                        id: ext_image.id,
+                                        stride: stride,
+                                    },
+                                };
+
+                                self.pending_updates.push(update_op);
+                            }
+                        }
                     }
                     ImageData::Blob(..) => {
                         panic!("The vector image should have been rasterized.");
@@ -803,24 +820,32 @@ impl TextureCache {
 
                         self.pending_updates.push(update_op);
                     }
-                    ImageData::ExternalBuffer(id) => {
-                        let update_op = TextureUpdate {
-                            id: result.item.texture_id,
-                            op: TextureUpdateOp::UpdateForExternalBuffer {
-                                rect: result.item.allocated_rect,
-                                id: id,
-                                stride: stride,
-                            },
-                        };
-
-                        self.pending_updates.push(update_op);
-                    }
                 }
             }
             AllocationKind::Standalone => {
                 match data {
-                    ImageData::ExternalHandle(..) => {
-                        panic!("External handle should not go through texture_cache.");
+                    ImageData::External(ext_image) => {
+                        match ext_image.image_type {
+                            ExternalImageType::Texture2DHandle |
+                            ExternalImageType::TextureRectHandle => {
+                                panic!("External texture handle should not go through texture_cache.");
+                            }
+                            ExternalImageType::ExternalBuffer => {
+                                let update_op = TextureUpdate {
+                                    id: result.item.texture_id,
+                                    op: TextureUpdateOp::Create {
+                                        width: width,
+                                        height: height,
+                                        format: format,
+                                        filter: filter,
+                                        mode: RenderTargetMode::None,
+                                        data: Some(data),
+                                    },
+                                };
+
+                                self.pending_updates.push(update_op);
+                            }
+                        }
                     }
                     _ => {
                         let update_op = TextureUpdate {
