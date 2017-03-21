@@ -24,8 +24,9 @@ use thread_profiler::register_thread_with_profiler;
 use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRendering};
 use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
 use webrender_traits::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescriptor, ColorF};
-use webrender_traits::{ExternalImageId, GlyphOptions, GlyphInstance, TileOffset, TileSize};
+use webrender_traits::{GlyphOptions, GlyphInstance, TileOffset, TileSize};
 use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError};
+use webrender_traits::{ExternalImageData, ExternalImageType};
 use threadpool::ThreadPool;
 use euclid::Point2D;
 
@@ -94,7 +95,7 @@ impl RenderedGlyphKey {
 
 pub struct ImageProperties {
     pub descriptor: ImageDescriptor,
-    pub external_id: Option<ExternalImageId>,
+    pub external_image: Option<ExternalImageData>,
     pub tiling: Option<TileSize>,
 }
 
@@ -299,12 +300,19 @@ impl ResourceCache {
                                  dirty_rect: Option<DeviceUintRect>) {
         let (next_epoch, prev_dirty_rect) = match self.image_templates.get(&image_key) {
             Some(image) => {
-                // This image should not be an external image.
+                // This image should not be an external handle image.
                 match image.data {
-                    ImageData::ExternalHandle(id) => {
-                        panic!("Update an external image with buffer, id={} image_key={:?}", id.0, image_key);
-                    },
-                    _ => {},
+                    ImageData::External(ext_image) => {
+                        match ext_image.image_type {
+                            ExternalImageType::Texture2DHandle |
+                            ExternalImageType::TextureRectHandle => {
+                                panic!("Update an external handle with buffer, id={:?} image_key={:?}",
+                                    ext_image.id, image_key);
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
                 }
 
                 let Epoch(current_epoch) = image.epoch;
@@ -336,10 +344,16 @@ impl ResourceCache {
         // If the key is associated to an external image, pass the external id to renderer for cleanup.
         if let Some(image) = value {
             match image.data {
-                ImageData::ExternalHandle(id) => {
-                    self.pending_external_image_update_list.push(id);
-                },
-                _ => {},
+                ImageData::External(ext_image) => {
+                    match ext_image.image_type {
+                        ExternalImageType::Texture2DHandle |
+                        ExternalImageType::TextureRectHandle => {
+                            self.pending_external_image_update_list.push(ext_image.id);
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
             }
 
             return;
@@ -523,15 +537,24 @@ impl ResourceCache {
     pub fn get_image_properties(&self, image_key: ImageKey) -> ImageProperties {
         let image_template = &self.image_templates[&image_key];
 
-        let external_id = match image_template.data {
-            ImageData::ExternalHandle(id) => Some(id),
-            // raw and externalBuffer are all use resource_cache.
-            ImageData::Raw(..) | ImageData::ExternalBuffer(..) | ImageData::Blob(..) => None,
+        let external_image = match image_template.data {
+            ImageData::External(ext_image) => {
+                match ext_image.image_type {
+                    ExternalImageType::Texture2DHandle |
+                    ExternalImageType::TextureRectHandle => {
+                        Some(ext_image)
+                    },
+                    // external buffer uses resource_cache.
+                    ExternalImageType::ExternalBuffer => None,
+                }
+            },
+            // raw and blob image are all using resource_cache.
+            ImageData::Raw(..) | ImageData::Blob(..) => None,
         };
 
         ImageProperties {
             descriptor: image_template.descriptor,
-            external_id: external_id,
+            external_image: external_image,
             tiling: image_template.tiling,
         }
     }
@@ -651,6 +674,87 @@ impl ResourceCache {
             }
         }
     }
+    fn update_texture_cache(cached_images: &mut ResourceClassCache<ImageRequest, CachedImageInfo>,
+                            texture_cache: &mut TextureCache,
+                            current_frame_id: FrameId,
+                            request: &ImageRequest,
+                            image_template: &mut ImageResource,
+                            image_data: ImageData,
+                            texture_cache_profile: &mut TextureCacheProfileCounters) {
+        let descriptor = if let Some(tile) = request.tile {
+            let tile_size = image_template.tiling.unwrap() as u32;
+            let image_descriptor = &image_template.descriptor;
+            let stride = image_descriptor.compute_stride();
+            let bpp = image_descriptor.format.bytes_per_pixel().unwrap();
+
+            // Storage for the tiles on the right and bottom edges is shrunk to
+            // fit the image data (See decompose_tiled_image in frame.rs).
+            let actual_width = if (tile.x as u32) < image_descriptor.width / tile_size {
+                tile_size
+            } else {
+                image_descriptor.width % tile_size
+            };
+
+            let actual_height = if (tile.y as u32) < image_descriptor.height / tile_size {
+                tile_size
+            } else {
+                image_descriptor.height % tile_size
+            };
+
+            let offset = image_descriptor.offset + tile.y as u32 * tile_size * stride
+                                                 + tile.x as u32 * tile_size * bpp;
+
+            ImageDescriptor {
+                width: actual_width,
+                height: actual_height,
+                stride: Some(stride),
+                offset: offset,
+                format: image_descriptor.format,
+                is_opaque: image_descriptor.is_opaque,
+            }
+        } else {
+            image_template.descriptor.clone()
+        };
+
+        match cached_images.entry(request.clone(), current_frame_id) {
+            Occupied(entry) => {
+                let image_id = entry.get().texture_cache_id;
+
+                if entry.get().epoch != image_template.epoch {
+                    texture_cache.update(image_id,
+                                         descriptor,
+                                         image_data,
+                                         image_template.dirty_rect);
+
+                    // Update the cached epoch
+                    *entry.into_mut() = CachedImageInfo {
+                        texture_cache_id: image_id,
+                        epoch: image_template.epoch,
+                    };
+                    image_template.dirty_rect = None;
+                }
+            }
+            Vacant(entry) => {
+                let image_id = texture_cache.new_item_id();
+
+                let filter = match request.rendering {
+                    ImageRendering::Pixelated => TextureFilter::Nearest,
+                    ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
+                };
+
+                texture_cache.insert(image_id,
+                                     descriptor,
+                                     filter,
+                                     image_data,
+                                     texture_cache_profile);
+
+                entry.insert(CachedImageInfo {
+                    texture_cache_id: image_id,
+                    epoch: image_template.epoch,
+                });
+            }
+        }
+    }
 
     fn finalize_image_request(&mut self,
                               request: ImageRequest,
@@ -662,83 +766,31 @@ impl ResourceCache {
         });
 
         match image_template.data {
-            ImageData::ExternalHandle(..) => {
-                // external handle doesn't need to update the texture_cache.
-            }
-            ImageData::Raw(..) | ImageData::ExternalBuffer(..) | ImageData::Blob(..) => {
-                let descriptor = if let Some(tile) = request.tile {
-                    let tile_size = image_template.tiling.unwrap() as u32;
-                    let image_descriptor = &image_template.descriptor;
-                    let stride = image_descriptor.compute_stride();
-                    let bpp = image_descriptor.format.bytes_per_pixel().unwrap();
-
-                    // Storage for the tiles on the right and bottom edges is shrunk to
-                    // fit the image data (See decompose_tiled_image in frame.rs).
-                    let actual_width = if (tile.x as u32) < image_descriptor.width / tile_size {
-                        tile_size
-                    } else {
-                        image_descriptor.width % tile_size
-                    };
-
-                    let actual_height = if (tile.y as u32) < image_descriptor.height / tile_size {
-                        tile_size
-                    } else {
-                        image_descriptor.height % tile_size
-                    };
-
-                    let offset = image_descriptor.offset + tile.y as u32 * tile_size * stride
-                                                         + tile.x as u32 * tile_size * bpp;
-
-                    ImageDescriptor {
-                        width: actual_width,
-                        height: actual_height,
-                        stride: Some(stride),
-                        offset: offset,
-                        format: image_descriptor.format,
-                        is_opaque: image_descriptor.is_opaque,
+            ImageData::External(ext_image) => {
+                match ext_image.image_type {
+                    ExternalImageType::Texture2DHandle |
+                    ExternalImageType::TextureRectHandle => {
+                        // external handle doesn't need to update the texture_cache.
                     }
-                } else {
-                    image_template.descriptor.clone()
-                };
-
-                match self.cached_images.entry(request.clone(), self.current_frame_id) {
-                    Occupied(entry) => {
-                        let image_id = entry.get().texture_cache_id;
-
-                        if entry.get().epoch != image_template.epoch {
-                            self.texture_cache.update(image_id,
-                                                      descriptor,
-                                                      image_data,
-                                                      image_template.dirty_rect);
-
-                            // Update the cached epoch
-                            *entry.into_mut() = CachedImageInfo {
-                                texture_cache_id: image_id,
-                                epoch: image_template.epoch,
-                            };
-                            image_template.dirty_rect = None;
-                        }
-                    }
-                    Vacant(entry) => {
-                        let image_id = self.texture_cache.new_item_id();
-
-                        let filter = match request.rendering {
-                            ImageRendering::Pixelated => TextureFilter::Nearest,
-                            ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
-                        };
-
-                        self.texture_cache.insert(image_id,
-                                                  descriptor,
-                                                  filter,
-                                                  image_data,
-                                                  texture_cache_profile);
-
-                        entry.insert(CachedImageInfo {
-                            texture_cache_id: image_id,
-                            epoch: image_template.epoch,
-                        });
+                    ExternalImageType::ExternalBuffer => {
+                        ResourceCache::update_texture_cache(&mut self.cached_images,
+                                                            &mut self.texture_cache,
+                                                            self.current_frame_id,
+                                                            &request,
+                                                            image_template,
+                                                            image_data,
+                                                            texture_cache_profile);
                     }
                 }
+            }
+            ImageData::Raw(..) | ImageData::Blob(..) => {
+                ResourceCache::update_texture_cache(&mut self.cached_images,
+                                                    &mut self.texture_cache,
+                                                    self.current_frame_id,
+                                                    &request,
+                                                    image_template,
+                                                    image_data,
+                                                    texture_cache_profile);
             }
         }
     }

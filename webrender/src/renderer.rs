@@ -49,7 +49,7 @@ use thread_profiler::{register_thread_with_profiler, write_profile};
 use util::TransformedRectKind;
 use webgl_types::GLContextHandleWrapper;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
-use webrender_traits::{ExternalImageId, ImageData, ImageFormat, RenderApiSender};
+use webrender_traits::{ExternalImageId, ExternalImageType, ImageData, ImageFormat, RenderApiSender};
 use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use webrender_traits::{ImageDescriptor, BlobImageRenderer};
 use webrender_traits::channel;
@@ -1039,10 +1039,10 @@ impl Renderer {
     fn resolve_source_texture(&mut self, texture_id: &SourceTexture) -> TextureId {
         match *texture_id {
             SourceTexture::Invalid => TextureId::invalid(),
-            SourceTexture::WebGL(id) => TextureId::new(id),
-            SourceTexture::External(ref key) => {
+            SourceTexture::WebGL(id) => TextureId::new(id, TextureTarget::Default),
+            SourceTexture::External(external_image) => {
                 *self.external_images
-                     .get(key)
+                     .get(&external_image.id)
                      .expect("BUG: External image should be resolved by now!")
             }
             SourceTexture::TextureCache(index) => {
@@ -1193,24 +1193,31 @@ impl Renderer {
                                                              mode,
                                                              Some(raw.as_slice()));
                                 }
-                                ImageData::ExternalBuffer(id) => {
-                                    let handler = self.external_image_handler
-                                                      .as_mut()
-                                                      .expect("Found external image, but no handler set!");
+                                ImageData::External(ext_image) => {
+                                    match ext_image.image_type {
+                                        ExternalImageType::ExternalBuffer => {
+                                            let handler = self.external_image_handler
+                                                              .as_mut()
+                                                              .expect("Found external image, but no handler set!");
 
-                                    match handler.lock(id).source {
-                                        ExternalImageSource::RawData(raw) => {
-                                            self.device.init_texture(texture_id,
-                                                                     width,
-                                                                     height,
-                                                                     format,
-                                                                     filter,
-                                                                     mode,
-                                                                     Some(raw));
+                                            match handler.lock(ext_image.id).source {
+                                                ExternalImageSource::RawData(raw) => {
+                                                    self.device.init_texture(texture_id,
+                                                                             width,
+                                                                             height,
+                                                                             format,
+                                                                             filter,
+                                                                             mode,
+                                                                             Some(raw));
+                                                }
+                                                _ => panic!("No external buffer found"),
+                                            };
+                                            handler.unlock(ext_image.id);
                                         }
-                                        _ => panic!("No external buffer found"),
-                                    };
-                                    handler.unlock(id);
+                                        _ => {
+                                            panic!("External texture handle should not use TextureUpdateOp::Create.");
+                                        }
+                                    }
                                 }
                                 _ => {
                                     panic!("No suitable image buffer for TextureUpdateOp::Create.");
@@ -1642,16 +1649,16 @@ impl Renderer {
             for deferred_resolve in &frame.deferred_resolves {
                 GpuMarker::fire(self.device.gl(), "deferred resolve");
                 let props = &deferred_resolve.image_properties;
-                let external_id = props.external_id
-                                       .expect("BUG: Deferred resolves must be external images!");
-                let image = handler.lock(external_id);
+                let ext_image = props.external_image
+                                     .expect("BUG: Deferred resolves must be external images!");
+                let image = handler.lock(ext_image.id);
 
                 let texture_id = match image.source {
                     ExternalImageSource::NativeTexture(texture_id) => TextureId::new(texture_id),
                     _ => panic!("No native texture found."),
                 };
 
-                self.external_images.insert(external_id, texture_id);
+                self.external_images.insert(ext_image.id, texture_id);
                 let resource_rect_index = deferred_resolve.resource_address.0 as usize;
                 let resource_rect = &mut frame.gpu_resource_rects[resource_rect_index];
                 resource_rect.uv0 = DevicePoint::new(image.u0, image.v0);
