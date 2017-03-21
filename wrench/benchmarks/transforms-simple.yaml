@@ -1,10 +1,10 @@
 ---
 root:
   items:
-    - type: stacking_context
+    - type: stacking-context
       bounds: [0, 0, 1024, 1024]
       items:
-      - type: stacking_context
+      - type: stacking-context
         bounds: [0, 0, 1024, 1024]
         transform: rotate(45)
         items:

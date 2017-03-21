@@ -2,7 +2,7 @@
 root:
   items:
         # the root stacking context should blend with the canvas background
-        - type: stacking_context
+        - type: stacking-context
           bounds: [0, 0, 100, 100]
           mix-blend-mode: difference
           items:

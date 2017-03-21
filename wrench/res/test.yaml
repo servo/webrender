@@ -35,10 +35,10 @@ root:
       size: 64
   
     - type: border
-    - type: box_shadow
+    - type: box-shadow
     - type: gradient
   
-    - type: box_shadow
+    - type: box-shadow
       bounds: [ rect ]
       clip: ..
       offset: point2d (default 0 0)
@@ -46,7 +46,7 @@ root:
       blur: f32 (default 0)
       spread: f32 (default 0)
       border: f32 (default 0)
-      clip_mode: none, outset, inset (default none)
+      clip-mode: none, outset, inset (default none)
       
     - glyphs: [ 65, 66, 67 ]
       positions: [ 0.2, 0.3, 0.4, 0.5, 0.6, 0.7 ]

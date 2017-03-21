@@ -7,7 +7,7 @@ root:
       bounds: 0 0 1024 768
       src: "landscape.jpg"
 
-    - type: stacking_context
+    - type: stacking-context
       bounds: 100 100 412 568
       filters: opacity(0.5)
       items:
@@ -17,7 +17,7 @@ root:
           end: 412 568
           stops: [0.0, [255, 0, 0], 1.0, [0, 0, 255]]
 
-    - type: stacking_context
+    - type: stacking-context
       bounds: 512 100 412 568
       mix-blend-mode: color-dodge
       items:
