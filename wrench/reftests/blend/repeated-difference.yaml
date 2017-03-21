@@ -7,7 +7,7 @@ root:
           color: [255, 255, 255]
         -
           bounds: [0, 0, 100, 100]
-          type: stacking_context
+          type: stacking-context
           mix-blend-mode: difference
           items:
             -
@@ -16,7 +16,7 @@ root:
               color: [255, 255, 255]
             -
               bounds: [0, 0, 100, 100]
-              type: stacking_context
+              type: stacking-context
               mix-blend-mode: difference
               items:
                 -

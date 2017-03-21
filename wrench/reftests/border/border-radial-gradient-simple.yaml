@@ -1,16 +1,16 @@
 ---
 root:
   items:
-    - type: stacking_context
+    - type: stacking-context
       bounds: [0, 0, 50, 50]
       items:
         - type: border
           bounds: [ 0, 0, 50, 50 ]
           width: [ 10, 10, 10, 10 ]
           border-type: radial-gradient
-          start_center: [ 25, 25 ]
-          start_radius: 15
-          end_center: [ 25, 25 ]
-          end_radius: 35
+          start-center: [ 25, 25 ]
+          start-radius: 15
+          end-center: [ 25, 25 ]
+          end-radius: 35
           stops: [ 0.0, red, 1.0, green ]
           outset: [ 0, 0, 0, 0 ]

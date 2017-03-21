@@ -1,20 +1,20 @@
 ---
 root:
   items:
-    - type: stacking_context
+    - type: stacking-context
       bounds: [0, 0, 100, 100]
       filters: opacity(0.0),
       items:
-      - type: stacking_context
+      - type: stacking-context
         bounds: [0, 0, 100, 100]
         items:
-        - type: stacking_context
+        - type: stacking-context
           bounds: [0, 0, 100, 100]
           items:
-          - type: stacking_context
+          - type: stacking-context
             bounds: [0, 0, 100, 100]
             items:
-            - type: stacking_context
+            - type: stacking-context
               bounds: [0, 0, 100, 100]
               items:
               - type: rect

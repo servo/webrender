@@ -1,13 +1,13 @@
 ---
 root:
   items:
-    - type: scroll_layer
+    - type: scroll-layer
       bounds: [0, 0, 95, 88]
       content-size: [95, 88]
       clip:
         rect: [9, 9, 10, 10]
       items:
-        - type: scroll_layer
+        - type: scroll-layer
           bounds: [0, 0, 95, 88]
           content-size: [95, 88]
           clip:

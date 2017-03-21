@@ -1,12 +1,12 @@
 ---
 root:
   items:
-        - type: stacking_context
+        - type: stacking-context
           bounds: [50, 50, 100, 100]
           items:
-            - type: box_shadow
+            - type: box-shadow
               bounds: [ 10, 10, 80, 80 ]
-              blur_radius: 5
-              clip_mode: inset
-              spread_radius: 20
+              blur-radius: 5
+              clip-mode: inset
+              spread-radius: 20
               color: [0, 0, 0]
