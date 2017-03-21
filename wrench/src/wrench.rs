@@ -320,13 +320,13 @@ impl Wrench {
                 // This is a hack but it is convenient when generating test cases and avoids
                 // bloating the repository.
                 match parse_function(file.components().last().unwrap().as_os_str().to_str().unwrap()) {
-                    ("xy_gradient", args) => {
+                    ("xy-gradient", args) => {
                         generate_xy_gradient_image(
                             args.get(0).unwrap_or(&"1000").parse::<u32>().unwrap(),
                             args.get(1).unwrap_or(&"1000").parse::<u32>().unwrap()
                         )
                     }
-                    ("solid_color", args) => {
+                    ("solid-color", args) => {
                         generate_solid_color_image(
                             args.get(0).unwrap_or(&"255").parse::<u8>().unwrap(),
                             args.get(1).unwrap_or(&"255").parse::<u8>().unwrap(),

@@ -167,8 +167,8 @@ impl YamlFrameReader {
                     }
                 ).collect();
 
-                let image_mask = if item["image_mask"].as_hash().is_some() {
-                    let image_mask = &item["image_mask"];
+                let image_mask = if item["image-mask"].as_hash().is_some() {
+                    let image_mask = &item["image-mask"];
                     let (image_key, image_dims) =
                         wrench.add_or_get_image(&self.rsrc_path(&image_mask["image"]), None);
                     let image_rect =
@@ -221,12 +221,12 @@ impl YamlFrameReader {
     }
 
     fn handle_radial_gradient(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
-        let bounds_key = if item["type"].is_badvalue() { "radial_gradient" } else { "bounds" };
+        let bounds_key = if item["type"].is_badvalue() { "radial-gradient" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("radial gradient must have bounds");
-        let start_center = item["start_center"].as_point().expect("radial gradient must have start center");
-        let start_radius = item["start_radius"].as_force_f32().expect("radial gradient must have start radius");
-        let end_center = item["end_center"].as_point().expect("radial gradient must have end center");
-        let end_radius = item["end_radius"].as_force_f32().expect("radial gradient must have end radius");
+        let start_center = item["start-center"].as_point().expect("radial gradient must have start center");
+        let start_radius = item["start-radius"].as_force_f32().expect("radial gradient must have start radius");
+        let end_center = item["end-center"].as_point().expect("radial gradient must have end center");
+        let end_radius = item["end-radius"].as_force_f32().expect("radial gradient must have end radius");
         let stops = item["stops"].as_vec().expect("radial gradient must have stops")
             .chunks(2).map(|chunk| GradientStop {
                 offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
@@ -345,11 +345,11 @@ impl YamlFrameReader {
                     }))
                 },
                 "radial-gradient" => {
-                    let start_center = item["start_center"].as_point().expect("radial gradient must have start center");
+                    let start_center = item["start-center"].as_point().expect("radial gradient must have start center");
                     let start_radius =
-                        item["start_radius"].as_force_f32().expect("radial gradient must have start radius");
-                    let end_center = item["end_center"].as_point().expect("radial gradient must have end center");
-                    let end_radius = item["end_radius"].as_force_f32().expect("radial gradient must have end radius");
+                        item["start-radius"].as_force_f32().expect("radial gradient must have start radius");
+                    let end_center = item["end-center"].as_point().expect("radial gradient must have end center");
+                    let end_radius = item["end-radius"].as_force_f32().expect("radial gradient must have end radius");
                     let stops = item["stops"].as_vec().expect("radial gradient must have stops")
                         .chunks(2).map(|chunk| GradientStop {
                             offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
@@ -388,15 +388,15 @@ impl YamlFrameReader {
     }
 
     fn handle_box_shadow(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
-        let bounds_key = if item["type"].is_badvalue() { "box_shadow" } else { "bounds" };
+        let bounds_key = if item["type"].is_badvalue() { "box-shadow" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("box shadow must have bounds");
-        let box_bounds = item["box_bounds"].as_rect().unwrap_or(bounds);
+        let box_bounds = item["box-bounds"].as_rect().unwrap_or(bounds);
         let offset = item["offset"].as_point().unwrap_or(TypedPoint2D::zero());
         let color = item["color"].as_colorf().unwrap_or(ColorF::new(0.0, 0.0, 0.0, 1.0));
-        let blur_radius = item["blur_radius"].as_force_f32().unwrap_or(0.0);
-        let spread_radius = item["spread_radius"].as_force_f32().unwrap_or(0.0);
-        let border_radius = item["border_radius"].as_force_f32().unwrap_or(0.0);
-        let clip_mode = if let Some(mode) = item["clip_mode"].as_str() {
+        let blur_radius = item["blur-radius"].as_force_f32().unwrap_or(0.0);
+        let spread_radius = item["spread-radius"].as_force_f32().unwrap_or(0.0);
+        let border_radius = item["border-radius"].as_force_f32().unwrap_or(0.0);
+        let clip_mode = if let Some(mode) = item["clip-mode"].as_str() {
             match mode {
                 "none" => BoxShadowClipMode::None,
                 "outset" => BoxShadowClipMode::Outset,
@@ -435,15 +435,15 @@ impl YamlFrameReader {
             panic!("image expected 2 or 4 values in bounds, got '{:?}'", item["bounds"]);
         };
 
-        let stretch_size = item["stretch_size"].as_size()
+        let stretch_size = item["stretch-size"].as_size()
             .unwrap_or(image_dims);
-        let tile_spacing = item["tile_spacing"].as_size()
+        let tile_spacing = item["tile-spacing"].as_size()
             .unwrap_or(LayoutSize::new(0.0, 0.0));
         let rendering = match item["rendering"].as_str() {
             Some("auto") | None => ImageRendering::Auto,
-            Some("crisp_edges") => ImageRendering::CrispEdges,
+            Some("crisp-edges") => ImageRendering::CrispEdges,
             Some("pixelated") => ImageRendering::Pixelated,
-            Some(_) => panic!("ImageRendering can be auto, crisp_edges, or pixelated -- got {:?}", item),
+            Some(_) => panic!("ImageRendering can be auto, crisp-edges, or pixelated -- got {:?}", item),
         };
         let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
         self.builder().push_image(bounds, clip, stretch_size, tile_spacing, rendering, image_key);
@@ -452,7 +452,7 @@ impl YamlFrameReader {
     fn handle_text(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
         let size = item["size"].as_pt_to_au().unwrap_or(Au::from_f32_px(16.0));
         let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
-        let blur_radius = item["blur_radius"].as_px_to_au().unwrap_or(Au::from_f32_px(0.0));
+        let blur_radius = item["blur-radius"].as_px_to_au().unwrap_or(Au::from_f32_px(0.0));
 
         let (font_key, native_key) = if !item["family"].is_badvalue() {
             wrench.font_key_from_yaml_table(item)
@@ -547,20 +547,20 @@ impl YamlFrameReader {
                      "text"
                 } else if !item["glyphs"].is_badvalue() {
                     "glyphs"
-                } else if !item["box_shadow"].is_badvalue() {
+                } else if !item["box-shadow"].is_badvalue() {
                     // Note: box_shadow shorthand check has to come before border.
-                    "box_shadow"
+                    "box-shadow"
                 } else if !item["border"].is_badvalue() {
                     "border"
                 } else if !item["gradient"].is_badvalue() {
                     "gradient"
-                } else if !item["radial_gradient"].is_badvalue() {
-                    "radial_gradient"
+                } else if !item["radial-gradient"].is_badvalue() {
+                    "radial-gradient"
                 } else {
                     item["type"].as_str().unwrap_or("unknown")
                 };
 
-            if item_type == "stacking_context" {
+            if item_type == "stacking-context" {
                 self.add_stacking_context_from_yaml(wrench, &item, false);
                 continue;
             }
@@ -570,7 +570,7 @@ impl YamlFrameReader {
                 continue;
             }
 
-            let yaml_clip_id = item["clip_id"].as_i64();
+            let yaml_clip_id = item["clip-id"].as_i64();
             if let Some(yaml_id) = yaml_clip_id {
                 let id = ScrollLayerId::new(yaml_id as usize, self.builder().pipeline_id);
                 self.builder().push_clip_id(id);
@@ -580,14 +580,14 @@ impl YamlFrameReader {
                 "rect" => self.handle_rect(wrench, &full_clip_region, &item),
                 "image" => self.handle_image(wrench, &full_clip_region, &item),
                 "text" | "glyphs" => self.handle_text(wrench, &full_clip_region, &item),
-                "scroll_layer" => self.add_scroll_layer_from_yaml(wrench, &item),
+                "scroll-layer" => self.add_scroll_layer_from_yaml(wrench, &item),
                 "clip" => { self.handle_clip_from_yaml(wrench, &item); }
                 "border" => self.handle_border(wrench, &full_clip_region, &item),
                 "gradient" => self.handle_gradient(wrench, &full_clip_region, &item),
-                "radial_gradient" => self.handle_radial_gradient(wrench, &full_clip_region, &item),
-                "box_shadow" => self.handle_box_shadow(wrench, &full_clip_region, &item),
+                "radial-gradient" => self.handle_radial_gradient(wrench, &full_clip_region, &item),
+                "box-shadow" => self.handle_box_shadow(wrench, &full_clip_region, &item),
                 "iframe" => self.handle_iframe(wrench, &full_clip_region, &item),
-                "stacking_context" => { },
+                "stacking-context" => { },
                 _ => println!("Skipping unknown item type: {:?}", item),
             }
 
@@ -631,7 +631,7 @@ impl YamlFrameReader {
                                           is_root: bool) {
         let default_bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.0), wrench.window_size_f32());
         let bounds = yaml["bounds"].as_rect().unwrap_or(default_bounds);
-        let z_index = yaml["z_index"].as_i64().unwrap_or(0);
+        let z_index = yaml["z-index"].as_i64().unwrap_or(0);
         // TODO(gw): Add support for specifying the transform origin in yaml.
         let transform_origin = LayoutPoint::new(bounds.origin.x + bounds.size.width * 0.5,
                                                 bounds.origin.y + bounds.size.height * 0.5);
