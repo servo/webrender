@@ -69,12 +69,24 @@ impl ImageDescriptor {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub enum ExternalImageType {
+    Texture2DHandle,    // gl TEXTURE_2D handle
+    TextureRectHandle,  // gl TEXTURE_RECT handle
+    ExternalBuffer,
+}
+
+#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct ExternalImageData {
+    pub id: ExternalImageId,
+    pub image_type: ExternalImageType,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ImageData {
     Raw(Arc<Vec<u8>>),
     Blob(Arc<BlobImageData>),
-    ExternalHandle(ExternalImageId),
-    ExternalBuffer(ExternalImageId),
+    External(ExternalImageData),
 }
 
 impl ImageData {
