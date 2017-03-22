@@ -799,7 +799,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     clip_source: clip_source,
-                    clip_cache_info: None,
+                    clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::BoxShadow,
                     cpu_prim_index: SpecificPrimitiveIndex::invalid(),
                     gpu_prim_index: gpu_prim_address,

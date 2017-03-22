@@ -463,6 +463,7 @@ pub struct Renderer {
     ps_angle_gradient: PrimitiveShader,
     ps_radial_gradient: PrimitiveShader,
     ps_box_shadow: PrimitiveShader,
+    ps_box_shadow_clip: PrimitiveShader,
     ps_cache_image: PrimitiveShader,
 
     ps_blend: LazilyCompiledShader,
@@ -680,6 +681,13 @@ impl Renderer {
                                  options.precache_shaders)
         };
 
+        let ps_box_shadow_clip = try!{
+            PrimitiveShader::new("ps_box_shadow",
+                                 &mut device,
+                                 &[ CLIP_FEATURE ],
+                                 options.precache_shaders)
+        };
+
         let ps_gradient = try!{
             PrimitiveShader::new("ps_gradient",
                                  &mut device,
@@ -883,6 +891,7 @@ impl Renderer {
             ps_yuv_image: ps_yuv_image,
             ps_border: ps_border,
             ps_box_shadow: ps_box_shadow,
+            ps_box_shadow_clip: ps_box_shadow_clip,
             ps_gradient: ps_gradient,
             ps_angle_gradient: ps_angle_gradient,
             ps_radial_gradient: ps_radial_gradient,
@@ -1323,7 +1332,11 @@ impl Renderer {
                         (GPU_TAG_PRIM_RADIAL_GRADIENT, shader)
                     }
                     AlphaBatchKind::BoxShadow => {
-                        let shader = self.ps_box_shadow.get(&mut self.device, transform_kind);
+                        let shader = if needs_clipping {
+                            self.ps_box_shadow_clip.get(&mut self.device, transform_kind)
+                        } else {
+                            self.ps_box_shadow.get(&mut self.device, transform_kind)
+                        };
                         (GPU_TAG_PRIM_BOX_SHADOW, shader)
                     }
                     AlphaBatchKind::CacheImage => {

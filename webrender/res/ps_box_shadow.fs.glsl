@@ -17,4 +17,14 @@ void main(void) {
 
     // Modulate the box shadow by the color.
     oFragColor = vColor * texture(sCache, vec3(uv, vUv.z));
+
+#ifdef WR_FEATURE_CLIP
+    float alpha = 1.0;
+    alpha = min(alpha, do_clip());
+
+    // Need to do an inverted clip here iff we have a complex clip
+    // and we're an outer box shadow.
+    alpha = vIsInset == 1.0 ? alpha : 1.0 - alpha;
+    oFragColor = oFragColor * vec4(1.0, 1.0, 1.0, alpha);
+#endif
 }

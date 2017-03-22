@@ -1,0 +1,29 @@
+---
+root:
+  items:
+        - type: stacking_context
+          bounds: [0, 0, 200, 200]
+          items:
+            - type: box_shadow
+              bounds: [ 10, 10, 80, 80 ]
+              blur_radius: 5
+              spread_radius: 0
+              border_radius: 30
+              clip_mode: outset
+              clip:
+                  {rect: [ 0, 0, 200, 200],
+                  complex: [ { rect: [10, 10, 80, 80], radius: 30 } ]
+                  }
+
+            - type: rect
+              bounds: [ 0, 0, 100, 10]
+              color: [255, 255, 255]
+            - type: rect
+              bounds: [ 0, 0, 10, 100]
+              color: [255, 255, 255]
+            - type: rect
+              bounds: [ 90, 0, 10, 100]
+              color: [255, 255, 255]
+            - type: rect
+              bounds: [ 0, 90, 100, 10]
+              color: [255, 255, 255]

@@ -29,4 +29,9 @@ void main(void) {
     vCacheUvRectCoords = vec4(patch_origin, patch_origin + patch_size_device_pixels) / texture_size.xyxy;
 
     vColor = bs.color;
+    vIsInset = bs.border_radius_edge_size_blur_radius_inverted.w;
+
+#ifdef WR_FEATURE_CLIP
+    write_clip(vi.screen_pos, prim.clip_area);
+#endif
 }

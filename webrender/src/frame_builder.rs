@@ -895,7 +895,8 @@ impl FrameBuilder {
                 // to draw. In the simple case (no blur radius), we can
                 // just draw these as solid colors.
                 let mut rects = Vec::new();
-                subtract_rect(&outer_rect, box_bounds, &mut rects);
+                let inner_rect = bs_rect.inflate(-border_radius, -border_radius);
+                subtract_rect(&outer_rect, &inner_rect, &mut rects);
                 if edge_size == 0.0 {
                     BoxShadowKind::Simple(rects)
                 } else {
