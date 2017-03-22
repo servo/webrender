@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-uniform highp usampler2D sGradients;
+uniform sampler2D sGradients;
 
 void main(void) {
     vec2 cd = vEndCenter - vStartCenter;
@@ -50,16 +50,10 @@ void main(void) {
     // gradient color entries (texture width / 2).
     x = mix(clamp(x, 0.0, 1.0), fract(x), vGradientRepeat) * 0.5 * texture_size.x;
 
-    // Grab the colors from the two color entry and interpolate between them using x's
-    // fractional remainder.
-    int x0 = int(2.0 * floor(x));
-    int x1 = x0 + 1;
+    x = 2.0 * floor(x) + 0.5 + fract(x);
 
-    vec4 color0 = vec4(texelFetch(sGradients, ivec2(x0, vGradientIndex), 0));
-    vec4 color1 = vec4(texelFetch(sGradients, ivec2(x1, vGradientIndex), 0));
-
-    vec4 color = mix(color0, color1, fract(x));
-
-    // Normalize the texture coordates so we can use texture() for bilinear filtering.
-    oFragColor = dither(color * (1.0 / 65535.0));
+    // Use linear filtering to mix in the low bits (vGradientIndex + 1) with the high
+    // bits (vGradientIndex)
+    float y = vGradientIndex + 1.0 / 256.0;
+    oFragColor = dither(texture(sGradients, vec2(x, y) / texture_size));
 }

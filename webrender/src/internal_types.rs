@@ -301,26 +301,6 @@ impl PackedColor {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-pub struct WidePackedColor {
-    pub r: u16,
-    pub g: u16,
-    pub b: u16,
-    pub a: u16,
-}
-
-impl WidePackedColor {
-    pub fn from_color(color: &ColorF) -> WidePackedColor {
-        WidePackedColor {
-            r: (0.5 + color.r * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16,
-            g: (0.5 + color.g * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16,
-            b: (0.5 + color.b * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16,
-            a: (0.5 + color.a * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16,
-        }
-    }
-}
-
 // RGBA8 textures currently pack texels in BGRA format for upload.
 // PackedTexel abstracts away this difference from PackedColor.
 
@@ -331,6 +311,26 @@ pub struct PackedTexel {
     pub g: u8,
     pub r: u8,
     pub a: u8,
+}
+
+impl PackedTexel {
+    pub fn high_bytes(color: &ColorF) -> PackedTexel {
+        PackedTexel {
+            b: (0.5 + color.b * COLOR_FLOAT_TO_FIXED).floor() as u8,
+            g: (0.5 + color.g * COLOR_FLOAT_TO_FIXED).floor() as u8,
+            r: (0.5 + color.r * COLOR_FLOAT_TO_FIXED).floor() as u8,
+            a: (0.5 + color.a * COLOR_FLOAT_TO_FIXED).floor() as u8,
+        }
+    }
+
+    pub fn low_bytes(color: &ColorF) -> PackedTexel {
+        PackedTexel {
+            b: ((0.5 + color.b * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16 & 0xff) as u8,
+            g: ((0.5 + color.g * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16 & 0xff) as u8,
+            r: ((0.5 + color.r * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16 & 0xff) as u8,
+            a: ((0.5 + color.a * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16 & 0xff) as u8,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

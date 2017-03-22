@@ -154,15 +154,22 @@ impl<L: GpuStoreLayout> GpuDataTexture<L> {
         }
 
         let items_per_row = L::items_per_row::<T>();
+        let rows_per_item = L::rows_per_item::<T>();
 
         // Extend the data array to be a multiple of the row size.
         // This ensures memory safety when the array is passed to
         // OpenGL to upload to the GPU.
-        while data.len() % items_per_row != 0 {
-            data.push(T::default());
+        if items_per_row != 0 {
+            while data.len() % items_per_row != 0 {
+                data.push(T::default());
+            }
         }
 
-        let height = data.len() / items_per_row;
+        let height = if items_per_row != 0 {
+            data.len() / items_per_row
+        } else {
+            data.len() * rows_per_item
+        };
 
         device.init_texture(self.id,
                             L::texture_width::<T>() as u32,
@@ -197,11 +204,11 @@ pub struct GradientDataTextureLayout {}
 
 impl GpuStoreLayout for GradientDataTextureLayout {
     fn image_format() -> ImageFormat {
-        ImageFormat::RGBA16
+        ImageFormat::RGBA8
     }
 
     fn texture_width<T>() -> usize {
-        mem::size_of::<GradientData>() / Self::texel_size()
+        mem::size_of::<GradientData>() / Self::texel_size() / 2
     }
 
     fn texture_filter() -> TextureFilter {
