@@ -1332,7 +1332,8 @@ impl FrameBuilder {
             pass.build(&ctx, &mut render_tasks);
 
             profile_counters.passes.inc();
-            profile_counters.targets.add(pass.targets.len());
+            profile_counters.color_targets.add(pass.color_targets.target_count());
+            profile_counters.alpha_targets.add(pass.alpha_targets.target_count());
         }
 
         resource_cache.end_frame();
