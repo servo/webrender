@@ -234,14 +234,19 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                 });
             }
 
-            &ApiMsg::UpdateImage(ref key, descriptor, ref bytes, _dirty_rect) => {
+            &ApiMsg::UpdateImage(ref key, descriptor, ref img_data, _dirty_rect) => {
                 if let Some(ref mut data) = self.images.get_mut(key) {
                     assert!(data.width == descriptor.width);
                     assert!(data.height == descriptor.height);
                     assert!(data.format == descriptor.format);
 
-                    *data.path.borrow_mut() = None;
-                    *data.bytes.borrow_mut() = Some(bytes.clone());
+                    if let &ImageData::Raw(ref bytes) = img_data {
+                        *data.path.borrow_mut() = None;
+                        *data.bytes.borrow_mut() = Some((**bytes).clone());
+                    } else {
+                        // Other existing image types only make sense within the gecko integration.
+                        println!("Wrench only supports updating buffer images (ignoring update command).");
+                    }
                 }
             }
 

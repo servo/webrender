@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::sync::Arc;
+use DeviceUintRect;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -99,7 +100,8 @@ pub trait BlobImageRenderer: Send {
     fn request_blob_image(&mut self,
                             key: ImageKey,
                             data: Arc<BlobImageData>,
-                            descriptor: &BlobImageDescriptor);
+                            descriptor: &BlobImageDescriptor,
+                            dirty_rect: Option<DeviceUintRect>);
     fn resolve_blob_image(&mut self, key: ImageKey) -> BlobImageResult;
 }
 

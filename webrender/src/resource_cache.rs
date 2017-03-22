@@ -295,16 +295,14 @@ impl ResourceCache {
     pub fn update_image_template(&mut self,
                                  image_key: ImageKey,
                                  descriptor: ImageDescriptor,
-                                 bytes: Vec<u8>,
+                                 data: ImageData,
                                  dirty_rect: Option<DeviceUintRect>) {
         let (next_epoch, prev_dirty_rect) = match self.image_templates.get(&image_key) {
             Some(image) => {
                 // This image should not be an external image.
-                match image.data {
-                    ImageData::ExternalHandle(id) => {
-                        panic!("Update an external image with buffer, id={} image_key={:?}", id.0, image_key);
-                    },
-                    _ => {},
+                // TODO: Why?
+                if let ImageData::ExternalHandle(id) = image.data {
+                    panic!("Update an external image with buffer, id={} image_key={:?}", id.0, image_key);
                 }
 
                 let Epoch(current_epoch) = image.epoch;
@@ -317,7 +315,7 @@ impl ResourceCache {
 
         let resource = ImageResource {
             descriptor: descriptor,
-            data: ImageData::new(bytes),
+            data: data,
             epoch: next_epoch,
             tiling: None,
             dirty_rect: match (dirty_rect, prev_dirty_rect) {
@@ -394,6 +392,7 @@ impl ResourceCache {
                             // TODO(nical): figure out the scale factor (should change with zoom).
                             scale_factor: 1.0,
                         },
+                        template.dirty_rect,
                     );
                 }
             }
