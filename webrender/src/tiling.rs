@@ -1324,10 +1324,10 @@ pub struct StackingContext {
     // context's coordinate system.
     pub reference_frame_offset: LayerPoint,
 
-    // Bounds of this stacking context in its own coordinate system.
-    pub local_rect: LayerRect,
-
+    // Bounding rectangle for this stacking context calculated based on the size
+    // and position of all its children.
     pub bounding_rect: DeviceIntRect,
+
     pub composite_ops: CompositeOps,
     pub clip_scroll_groups: Vec<ClipScrollGroupIndex>,
 
@@ -1340,20 +1340,20 @@ pub struct StackingContext {
     // when to isolate a mix-blend-mode composite.
     pub is_page_root: bool,
 
+    // Wehther or not this stacking context has any visible components, calculated
+    // based on the size and position of all children and how they are clipped.
     pub is_visible: bool,
 }
 
 impl StackingContext {
     pub fn new(pipeline_id: PipelineId,
                reference_frame_offset: LayerPoint,
-               local_rect: LayerRect,
                is_page_root: bool,
                composite_ops: CompositeOps)
                -> StackingContext {
         StackingContext {
             pipeline_id: pipeline_id,
             reference_frame_offset: reference_frame_offset,
-            local_rect: local_rect,
             bounding_rect: DeviceIntRect::zero(),
             composite_ops: composite_ops,
             clip_scroll_groups: Vec::new(),
@@ -1432,22 +1432,17 @@ impl PackedLayer {
     }
 
     pub fn set_rect(&mut self,
-                    local_rect: Option<LayerRect>,
+                    local_rect: &LayerRect,
                     screen_rect: &DeviceIntRect,
                     device_pixel_ratio: f32)
                     -> Option<TransformedRect> {
-        let local_rect = match local_rect {
-            Some(rect) if !rect.is_empty() => rect,
-            _ => return None,
-        };
-
         let xf_rect = TransformedRect::new(&local_rect, &self.transform, device_pixel_ratio);
         if !xf_rect.bounding_rect.intersects(screen_rect) {
             return None;
         }
 
         self.screen_vertices = xf_rect.vertices.clone();
-        self.local_clip_rect = local_rect;
+        self.local_clip_rect = *local_rect;
         Some(xf_rect)
     }
 }

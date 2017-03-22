@@ -313,7 +313,6 @@ impl DisplayListBuilder {
     pub fn push_stacking_context(&mut self,
                                  scroll_policy: ScrollPolicy,
                                  bounds: LayoutRect,
-                                 clip: ClipRegion,
                                  z_index: i32,
                                  transform: Option<PropertyBinding<LayoutTransform>>,
                                  perspective: Option<LayoutTransform>,
@@ -322,7 +321,6 @@ impl DisplayListBuilder {
         let item = SpecificDisplayItem::PushStackingContext(PushStackingContextDisplayItem {
             stacking_context: StackingContext {
                 scroll_policy: scroll_policy,
-                bounds: bounds,
                 z_index: z_index,
                 transform: transform,
                 perspective: perspective,
@@ -331,7 +329,7 @@ impl DisplayListBuilder {
             }
         });
 
-        self.push_item(item, LayoutRect::zero(), clip);
+        self.push_item(item, bounds, ClipRegion::simple(&LayoutRect::zero()));
     }
 
     pub fn pop_stacking_context(&mut self) {

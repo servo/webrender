@@ -173,9 +173,6 @@ fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
 }
 
 fn write_sc(parent: &mut Table, sc: &StackingContext) {
-    // overwrite "bounds" with the proper one
-    rect_node(parent, "bounds", &sc.bounds);
-
     scroll_policy_node(parent, "scroll-policy", sc.scroll_policy);
     i32_node(parent, "z-index", sc.z_index);
 

@@ -629,9 +629,10 @@ impl YamlFrameReader {
                                           wrench: &mut Wrench,
                                           yaml: &Yaml,
                                           is_root: bool) {
-        let default_bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.0), wrench.window_size_f32());
+        let default_bounds = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32());
         let bounds = yaml["bounds"].as_rect().unwrap_or(default_bounds);
         let z_index = yaml["z-index"].as_i64().unwrap_or(0);
+
         // TODO(gw): Add support for specifying the transform origin in yaml.
         let transform_origin = LayoutPoint::new(bounds.origin.x + bounds.size.width * 0.5,
                                                 bounds.origin.y + bounds.size.height * 0.5);
@@ -646,11 +647,8 @@ impl YamlFrameReader {
             None => None,
         };
 
-        let mix_blend_mode = yaml["mix-blend-mode"].as_mix_blend_mode().unwrap_or(MixBlendMode::Normal);
-        let sc_full_rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), bounds.size);
-        let clip = self.to_clip_region(&yaml["clip"], &sc_full_rect, wrench)
-                       .unwrap_or(ClipRegion::simple(&sc_full_rect));
-
+        let mix_blend_mode = yaml["mix-blend-mode"].as_mix_blend_mode()
+                                                   .unwrap_or(MixBlendMode::Normal);
         let scroll_policy = yaml["scroll-policy"].as_scroll_policy()
                                                  .unwrap_or(ScrollPolicy::Scrollable);
 
@@ -665,7 +663,6 @@ impl YamlFrameReader {
 
         self.builder().push_stacking_context(scroll_policy,
                                              bounds,
-                                             clip,
                                              z_index as i32,
                                              transform.into(),
                                              perspective,
