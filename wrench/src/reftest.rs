@@ -9,6 +9,7 @@ use image::ColorType;
 use image::png::PNGEncoder;
 use parse_function::parse_function;
 use std::cmp;
+use std::fmt;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -23,8 +24,8 @@ pub enum ReftestOp {
 }
 pub struct Reftest {
     op: ReftestOp,
-    test: PathBuf,
-    reference: PathBuf,
+    test: ReftestScene,
+    reference: ReftestScene,
     max_difference: usize,
     num_differences: usize,
 }
@@ -39,6 +40,18 @@ enum ReftestImageComparison {
 }
 
 impl ReftestImage {
+    fn blank(size: DeviceUintSize) -> ReftestImage {
+        ReftestImage {
+            data: [255, 255, 255, 255]
+                    .iter()
+                    .cycle()
+                    .map(|x| *x)
+                    .take((size.width * size.height * 4) as usize)
+                    .collect(),
+            size: size,
+        }
+    }
+
     fn compare(&self, other: &ReftestImage) -> ReftestImageComparison {
         assert!(self.size == other.size);
         assert!(self.data.len() == other.data.len());
@@ -96,6 +109,65 @@ impl ReftestImage {
     }
 }
 
+enum ReftestScene {
+    Blank,
+    Yaml(PathBuf),
+}
+impl ReftestScene {
+    fn parse(current_dir: &Path, text: &str) -> Result<ReftestScene, String> {
+        let path = current_dir.join(text);
+
+        if path.is_file() {
+            if path.extension().and_then(|x| x.to_str()) == Some("yaml") {
+                Ok(ReftestScene::Yaml(path))
+            } else {
+                Err(format!("unknown file extension for file: {}", text))
+            }
+        } else  {
+            if text == "blank" {
+                Ok(ReftestScene::Blank)
+            } else {
+                Err(format!("could not find file: {}", text))
+            }
+        }
+    }
+
+    fn matches_prefix(&self, prefix: &Path) -> bool {
+        match self {
+            &ReftestScene::Blank => {
+                false
+            }
+            &ReftestScene::Yaml(ref filename) => {
+                filename.starts_with(prefix)
+            }
+        }
+    }
+
+    fn render<'a>(&self, harness: &'a mut ReftestHarness) -> ReftestImage {
+        match self {
+            &ReftestScene::Blank => {
+                let size = harness.window.get_inner_size_pixels();
+                ReftestImage::blank(DeviceUintSize::new(size.0, size.1))
+            }
+            &ReftestScene::Yaml(ref filename) => {
+                harness.render_yaml(filename.as_path())
+            }
+        }
+    }
+}
+impl fmt::Display for ReftestScene {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &ReftestScene::Blank => {
+                write!(f, "blank")
+            }
+            &ReftestScene::Yaml(ref filename) => {
+                filename.display().fmt(f)
+            }
+        }
+    }
+}
+
 struct ReftestManifest {
     reftests: Vec<Reftest>,
 }
@@ -138,8 +210,8 @@ impl ReftestManifest {
                     };
                     reftests.push(Reftest {
                         op: parse_operator(items[offset]).expect("unexpected match operator"),
-                        test: dir.join(items[offset + 1]),
-                        reference: dir.join(items[offset + 2]),
+                        test: ReftestScene::parse(dir, items[offset + 1]).unwrap(),
+                        reference: ReftestScene::parse(dir, items[offset + 2]).unwrap(),
                         max_difference: max,
                         num_differences: count,
                     });
@@ -154,7 +226,7 @@ impl ReftestManifest {
 
     fn find(&self, prefix: &Path) -> Vec<&Reftest> {
         self.reftests.iter().filter(|x| {
-            x.test.starts_with(prefix) || x.reference.starts_with(prefix)
+            x.test.matches_prefix(prefix) || x.reference.matches_prefix(prefix)
         }).collect()
     }
 }
@@ -221,14 +293,14 @@ impl<'a> ReftestHarness<'a> {
 
     fn run_reftest(&mut self, t: &Reftest) -> bool {
         let name = match t.op {
-            ReftestOp::Equal => format!("{} == {}", t.test.display(), t.reference.display()),
-            ReftestOp::NotEqual => format!("{} != {}", t.test.display(), t.reference.display()),
+            ReftestOp::Equal => format!("{} == {}", t.test, t.reference),
+            ReftestOp::NotEqual => format!("{} != {}", t.test, t.reference),
         };
 
         println!("REFTEST {}", name);
 
-        let test = self.render_yaml(t.test.as_path());
-        let reference = self.render_yaml(t.reference.as_path());
+        let test = t.test.render(self);
+        let reference = t.reference.render(self);
         let comparison = test.compare(&reference);
 
         match (&t.op, comparison) {

@@ -129,7 +129,10 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     BlendMode::Alpha
                 }
             }
-            PrimitiveKind::Image => {
+            PrimitiveKind::Image |
+            PrimitiveKind::AlignedGradient |
+            PrimitiveKind::AngleGradient |
+            PrimitiveKind::RadialGradient => {
                 if needs_blending {
                     BlendMode::PremultipliedAlpha
                 } else {
