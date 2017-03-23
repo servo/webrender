@@ -2,7 +2,6 @@
 root:
   items:
     - type: stacking-context
-      clip: [0, 0, 300, 300]
       bounds: [0, 0, 300, 300]
       "scroll-policy": scrollable
       z-index: 4

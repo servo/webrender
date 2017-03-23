@@ -1,6 +1,5 @@
 root:
   bounds: [0, 0, 1024, 10000]
-  clip: [0, 0, 1024, 10000]
   scroll-offset: [0, 100]
   items:
     # This stacking context should not scroll out of view because it is fixed position.
