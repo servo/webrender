@@ -316,20 +316,19 @@ pub struct PackedTexel {
 
 impl PackedTexel {
     pub fn high_bytes(color: &ColorF) -> PackedTexel {
-        PackedTexel {
-            b: (0.5 + color.b * COLOR_FLOAT_TO_FIXED).floor() as u8,
-            g: (0.5 + color.g * COLOR_FLOAT_TO_FIXED).floor() as u8,
-            r: (0.5 + color.r * COLOR_FLOAT_TO_FIXED).floor() as u8,
-            a: (0.5 + color.a * COLOR_FLOAT_TO_FIXED).floor() as u8,
-        }
+        Self::extract_bytes(color, COLOR_FLOAT_TO_FIXED)
     }
 
     pub fn low_bytes(color: &ColorF) -> PackedTexel {
+        Self::extract_bytes(color, COLOR_FLOAT_TO_FIXED_WIDE)
+    }
+
+    fn extract_bytes(color: &ColorF, multiplier: f32) -> PackedTexel {
         PackedTexel {
-            b: ((0.5 + color.b * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16 & 0xff) as u8,
-            g: ((0.5 + color.g * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16 & 0xff) as u8,
-            r: ((0.5 + color.r * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16 & 0xff) as u8,
-            a: ((0.5 + color.a * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16 & 0xff) as u8,
+            b: ((0.5 + color.b * multiplier).floor() as u32 & 0xff) as u8,
+            g: ((0.5 + color.g * multiplier).floor() as u32 & 0xff) as u8,
+            r: ((0.5 + color.r * multiplier).floor() as u32 & 0xff) as u8,
+            a: ((0.5 + color.a * multiplier).floor() as u32 & 0xff) as u8,
         }
     }
 }

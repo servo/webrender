@@ -1717,7 +1717,7 @@ impl Device {
             }
             ImageFormat::RGB8 => (gl::RGB, 3, data),
             ImageFormat::RGBA8 => (get_gl_format_bgra(self.gl()), 4, data),
-            ImageFormat::Invalid | ImageFormat::RGBA16 | ImageFormat::RGBAF32 => unreachable!(),
+            ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
         };
 
         let row_length = match stride {
@@ -2103,7 +2103,6 @@ fn gl_texture_formats_for_image_format(gl: &gl::Gl, format: ImageFormat) -> (gl:
                 }
             }
         }
-        ImageFormat::RGBA16 => (gl::RGBA16UI as gl::GLint, gl::RGBA_INTEGER),
         ImageFormat::RGBAF32 => (gl::RGBA32F as gl::GLint, gl::RGBA),
         ImageFormat::Invalid => unreachable!(),
     }
@@ -2112,7 +2111,6 @@ fn gl_texture_formats_for_image_format(gl: &gl::Gl, format: ImageFormat) -> (gl:
 fn gl_type_for_texture_format(format: ImageFormat) -> gl::GLuint {
     match format {
         ImageFormat::RGBAF32 => gl::FLOAT,
-        ImageFormat::RGBA16 => gl::UNSIGNED_SHORT,
         _ => gl::UNSIGNED_BYTE,
     }
 }
