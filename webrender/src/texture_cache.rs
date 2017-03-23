@@ -607,7 +607,7 @@ impl TextureCache {
             ImageFormat::A8 => (&mut self.arena.pages_a8, &mut profile.pages_a8),
             ImageFormat::RGBA8 => (&mut self.arena.pages_rgba8, &mut profile.pages_rgba8),
             ImageFormat::RGB8 => (&mut self.arena.pages_rgb8, &mut profile.pages_rgb8),
-            ImageFormat::Invalid | ImageFormat::RGBA16 | ImageFormat::RGBAF32 => unreachable!(),
+            ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
         };
 
         // TODO(gw): Handle this sensibly (support failing to render items that can't fit?)

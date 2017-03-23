@@ -277,7 +277,7 @@ pub struct GradientDataEntry {
 // first the entry index is calculated to determine which two colors to interpolate between, then
 // the offset within that entry bucket is used to interpolate between the two colors in that entry.
 // This layout preserves hard stops, as the end color for a given entry can differ from the start
-// color for the following entry, despite them being adjacent. Colors are stored within in RGBA16
+// color for the following entry, despite them being adjacent. Colors are stored within in BGRA8
 // format for texture upload.
 pub struct GradientData {
     pub colors_high: [GradientDataEntry; GRADIENT_DATA_RESOLUTION],

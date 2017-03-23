@@ -12,9 +12,9 @@ void main(void) {
     float x = mix(clamp(vOffset, 0.0, 1.0), fract(vOffset), vGradientRepeat) * 0.5 * texture_size.x;
 
     x = 2.0 * floor(x) + 0.5 + fract(x);
-    float y = vGradientIndex + 1.0 / 256.0;
 
     // Use linear filtering to mix in the low bits (vGradientIndex + 1) with the high
     // bits (vGradientIndex)
+    float y = vGradientIndex * 2.0 + 0.5 + 1.0 / 256.0;
     oFragColor = dither(texture(sGradients, vec2(x, y) / texture_size));
 }

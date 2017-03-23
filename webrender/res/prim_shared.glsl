@@ -761,7 +761,7 @@ float do_clip() {
 vec4 dither(vec4 color) {
     const int matrix_mask = 7;
 
-    ivec2 pos = ivec2(gl_FragCoord) & ivec2(matrix_mask);
+    ivec2 pos = ivec2(gl_FragCoord.xy) & ivec2(matrix_mask);
     float noise_factor = 4.0 / 255.0;
     float noise = texelFetch(sDither, pos, 0).r * noise_factor;
     return color + vec4(noise, noise, noise, 0);

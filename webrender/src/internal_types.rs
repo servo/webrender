@@ -316,20 +316,24 @@ pub struct PackedTexel {
 impl PackedTexel {
     pub fn high_bytes(color: &ColorF) -> PackedTexel {
         PackedTexel {
-            b: (0.5 + color.b * COLOR_FLOAT_TO_FIXED).floor() as u8,
-            g: (0.5 + color.g * COLOR_FLOAT_TO_FIXED).floor() as u8,
-            r: (0.5 + color.r * COLOR_FLOAT_TO_FIXED).floor() as u8,
-            a: (0.5 + color.a * COLOR_FLOAT_TO_FIXED).floor() as u8,
+            b: Self::normalized_f32_to_wrapped_u8(color.b, COLOR_FLOAT_TO_FIXED),
+            g: Self::normalized_f32_to_wrapped_u8(color.g, COLOR_FLOAT_TO_FIXED),
+            r: Self::normalized_f32_to_wrapped_u8(color.r, COLOR_FLOAT_TO_FIXED),
+            a: Self::normalized_f32_to_wrapped_u8(color.a, COLOR_FLOAT_TO_FIXED),
         }
     }
 
     pub fn low_bytes(color: &ColorF) -> PackedTexel {
         PackedTexel {
-            b: ((0.5 + color.b * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16 & 0xff) as u8,
-            g: ((0.5 + color.g * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16 & 0xff) as u8,
-            r: ((0.5 + color.r * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16 & 0xff) as u8,
-            a: ((0.5 + color.a * COLOR_FLOAT_TO_FIXED_WIDE).floor() as u16 & 0xff) as u8,
+            b: Self::normalized_f32_to_wrapped_u8(color.b, COLOR_FLOAT_TO_FIXED_WIDE),
+            g: Self::normalized_f32_to_wrapped_u8(color.g, COLOR_FLOAT_TO_FIXED_WIDE),
+            r: Self::normalized_f32_to_wrapped_u8(color.r, COLOR_FLOAT_TO_FIXED_WIDE),
+            a: Self::normalized_f32_to_wrapped_u8(color.a, COLOR_FLOAT_TO_FIXED_WIDE),
         }
+    }
+
+    fn normalized_f32_to_wrapped_u8(color_float: f32, multiplier: f32) -> u8 {
+        ((0.5 + color_float * multiplier).floor() as u32 & 0xff) as u8
     }
 }
 
