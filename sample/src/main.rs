@@ -424,6 +424,12 @@ fn main() {
                 glutin::Event::Closed |
                 glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Escape)) |
                 glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Q)) => break 'outer,
+                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
+                                             _, Some(glutin::VirtualKeyCode::P)) => {
+                    let enable_profiler = !renderer.get_profiler_enabled();
+                    renderer.set_profiler_enabled(enable_profiler);
+                    api.generate_frame(None);
+                }
                 glutin::Event::Touch(touch) => {
                     match touch_state.handle_event(touch) {
                         TouchResult::Pan(pan) => {
