@@ -16,6 +16,7 @@ use scene::{Scene, SceneProperties};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use tiling::{AuxiliaryListsMap, CompositeOps, PrimitiveFlags};
+use util::subtract_rect;
 use webrender_traits::{AuxiliaryLists, ClipDisplayItem, ClipRegion, ColorF, DeviceUintRect};
 use webrender_traits::{DeviceUintSize, DisplayItem, Epoch, FilterOp, ImageDisplayItem, LayerPoint};
 use webrender_traits::{LayerRect, LayerSize, LayerToScrollTransform, LayoutRect, LayoutTransform};
@@ -203,6 +204,22 @@ impl<'a> Iterator for DisplayListTraversal<'a> {
         self.next_item_index += 1;
         Some(item)
     }
+}
+
+fn clip_intersection(original_rect: &LayerRect,
+                     region: &ClipRegion,
+                     aux_lists: &AuxiliaryLists)
+                     -> Option<LayerRect> {
+    if region.image_mask.is_some() {
+        return None;
+    }
+    let clips = aux_lists.complex_clip_regions(&region.complex);
+    let base_rect = region.main.intersection(original_rect);
+    clips.iter().fold(base_rect, |inner_combined, ccr| {
+        inner_combined.and_then(|combined| {
+            ccr.get_inner_rect().and_then(|ir| ir.intersection(&combined))
+        })
+    })
 }
 
 impl Frame {
@@ -593,11 +610,34 @@ impl Frame {
                                              text_info.glyph_options);
                 }
                 SpecificDisplayItem::Rectangle(ref info) => {
-                    context.builder.add_solid_rectangle(scroll_layer_id,
-                                                        &item.rect,
-                                                        &item.clip,
-                                                        &info.color,
-                                                        PrimitiveFlags::None);
+                    let auxiliary_lists = self.pipeline_auxiliary_lists
+                                              .get(&pipeline_id)
+                                              .expect("No auxiliary lists?!");
+                    // Try to extract the opaque inner rectangle out of the clipped primitive.
+                    if let Some(opaque_rect) = clip_intersection(&item.rect, &item.clip, &auxiliary_lists) {
+                        let mut results = Vec::new();
+                        subtract_rect(&item.rect, &opaque_rect, &mut results);
+                        // The inner rectangle is considered opaque within this layer.
+                        // It may still inherit some masking from the clip stack.
+                        context.builder.add_solid_rectangle(scroll_layer_id,
+                                                            &opaque_rect,
+                                                            &ClipRegion::simple(&item.clip.main),
+                                                            &info.color,
+                                                            PrimitiveFlags::None);
+                        for transparent_rect in &results {
+                            context.builder.add_solid_rectangle(scroll_layer_id,
+                                                                transparent_rect,
+                                                                &item.clip,
+                                                                &info.color,
+                                                                PrimitiveFlags::None);
+                        }
+                    } else {
+                        context.builder.add_solid_rectangle(scroll_layer_id,
+                                                            &item.rect,
+                                                            &item.clip,
+                                                            &info.color,
+                                                            PrimitiveFlags::None);
+                    }
                 }
                 SpecificDisplayItem::Gradient(ref info) => {
                     context.builder.add_gradient(scroll_layer_id,
