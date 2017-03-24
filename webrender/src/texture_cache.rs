@@ -722,27 +722,30 @@ impl TextureCache {
                 panic!("The vector image should have been rasterized into a raw image.");
             }
             ImageData::Raw(bytes) => {
-                if let Some(dirty) = dirty_rect {
-                    let stride = descriptor.compute_stride();
-                    let offset = descriptor.offset + dirty.origin.y * stride + dirty.origin.x;
-                    TextureUpdateOp::Update {
-                        page_pos_x: existing_item.allocated_rect.origin.x + dirty.origin.x,
-                        page_pos_y: existing_item.allocated_rect.origin.y + dirty.origin.y,
-                        width: dirty.size.width,
-                        height: dirty.size.height,
-                        data: bytes,
-                        stride: Some(stride),
-                        offset: offset,
+                match dirty_rect {
+                    Some(dirty) => {
+                        let stride = descriptor.compute_stride();
+                        let offset = descriptor.offset + dirty.origin.y * stride + dirty.origin.x;
+                        TextureUpdateOp::Update {
+                            page_pos_x: existing_item.allocated_rect.origin.x + dirty.origin.x,
+                            page_pos_y: existing_item.allocated_rect.origin.y + dirty.origin.y,
+                            width: dirty.size.width,
+                            height: dirty.size.height,
+                            data: bytes,
+                            stride: Some(stride),
+                            offset: offset,
+                        }
                     }
-                } else {
-                    TextureUpdateOp::Update {
-                        page_pos_x: existing_item.allocated_rect.origin.x,
-                        page_pos_y: existing_item.allocated_rect.origin.y,
-                        width: descriptor.width,
-                        height: descriptor.height,
-                        data: bytes,
-                        stride: descriptor.stride,
-                        offset: descriptor.offset,
+                    None => {
+                        TextureUpdateOp::Update {
+                            page_pos_x: existing_item.allocated_rect.origin.x,
+                            page_pos_y: existing_item.allocated_rect.origin.y,
+                            width: descriptor.width,
+                            height: descriptor.height,
+                            data: bytes,
+                            stride: descriptor.stride,
+                            offset: descriptor.offset,
+                        }
                     }
                 }
             }
