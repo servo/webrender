@@ -758,4 +758,13 @@ float do_clip() {
     return vClipMaskUvBounds.xy == vClipMaskUvBounds.zw ? 1.0:
         all(inside) ? textureLod(sCacheA8, vClipMaskUv, 0.0).r : 0.0;
 }
+
+vec4 dither(vec4 color) {
+    const int matrix_mask = 7;
+
+    ivec2 pos = ivec2(gl_FragCoord.xy) & ivec2(matrix_mask);
+    float noise_factor = 4.0 / 255.0;
+    float noise = texelFetch(sDither, pos, 0).r * noise_factor;
+    return color + vec4(noise, noise, noise, 0);
+}
 #endif //WR_FRAGMENT_SHADER
