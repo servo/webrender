@@ -4,14 +4,17 @@
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use channel::{self, MsgSender, PayloadHelperMethods, PayloadSender};
+#[cfg(feature = "webgl")]
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::cell::Cell;
 use std::fmt;
 use std::marker::PhantomData;
 use {AuxiliaryLists, AuxiliaryListsDescriptor, BuiltDisplayList, BuiltDisplayListDescriptor};
-use {ColorF, DeviceIntPoint, DeviceIntSize, DeviceUintRect, DeviceUintSize, FontKey};
+use {ColorF, DeviceIntPoint, DeviceUintRect, DeviceUintSize, FontKey};
 use {GlyphDimensions, GlyphKey, ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutSize};
-use {LayoutTransform, NativeFontHandle, ScrollLayerId, WebGLCommand, WebGLContextId, WorldPoint};
+use {LayoutTransform, NativeFontHandle, ScrollLayerId, WorldPoint};
+#[cfg(feature = "webgl")]
+use {DeviceIntSize, WebGLCommand, WebGLContextId};
 
 pub type TileSize = u16;
 
@@ -50,9 +53,6 @@ pub enum ApiMsg {
     TickScrollingBounce,
     TranslatePointToLayerSpace(WorldPoint, MsgSender<(LayoutPoint, PipelineId)>),
     GetScrollLayerState(MsgSender<Vec<ScrollLayerState>>),
-    RequestWebGLContext(DeviceIntSize, GLContextAttributes, MsgSender<Result<(WebGLContextId, GLLimits), String>>),
-    ResizeWebGLContext(WebGLContextId, DeviceIntSize),
-    WebGLCommand(WebGLContextId, WebGLCommand),
     GenerateFrame(Option<DynamicProperties>),
     // WebVR commands that must be called in the WebGL render thread.
     VRCompositorCommand(WebGLContextId, VRCompositorCommand),
@@ -61,6 +61,12 @@ pub enum ApiMsg {
     /// within the other messages.
     ExternalEvent(ExternalEvent),
     ShutDown,
+    #[cfg(feature = "webgl")]
+    RequestWebGLContext(DeviceIntSize, GLContextAttributes, MsgSender<Result<(WebGLContextId, GLLimits), String>>),
+    #[cfg(feature = "webgl")]
+    ResizeWebGLContext(WebGLContextId, DeviceIntSize),
+    #[cfg(feature = "webgl")]
+    WebGLCommand(WebGLContextId, WebGLCommand),
 }
 
 impl fmt::Debug for ApiMsg {
@@ -81,9 +87,6 @@ impl fmt::Debug for ApiMsg {
             &ApiMsg::TickScrollingBounce => { write!(f, "ApiMsg::TickScrollingBounce") }
             &ApiMsg::TranslatePointToLayerSpace(..) => { write!(f, "ApiMsg::TranslatePointToLayerSpace") }
             &ApiMsg::GetScrollLayerState(..) => { write!(f, "ApiMsg::GetScrollLayerState") }
-            &ApiMsg::RequestWebGLContext(..) => { write!(f, "ApiMsg::RequestWebGLContext") }
-            &ApiMsg::ResizeWebGLContext(..) => { write!(f, "ApiMsg::ResizeWebGLContext") }
-            &ApiMsg::WebGLCommand(..) => { write!(f, "ApiMsg::WebGLCommand") }
             &ApiMsg::GenerateFrame(..) => { write!(f, "ApiMsg::GenerateFrame") }
             &ApiMsg::VRCompositorCommand(..) => { write!(f, "ApiMsg::VRCompositorCommand") }
             &ApiMsg::ExternalEvent(..) => { write!(f, "ApiMsg::ExternalEvent") }
@@ -92,6 +95,12 @@ impl fmt::Debug for ApiMsg {
             &ApiMsg::SetPinchZoom(..) => { write!(f, "ApiMsg::SetPinchZoom") }
             &ApiMsg::SetPan(..) => { write!(f, "ApiMsg::SetPan") }
             &ApiMsg::SetWindowParameters(..) => { write!(f, "ApiMsg::SetWindowParameters") }
+            #[cfg(feature = "webgl")]
+            &ApiMsg::RequestWebGLContext(..) => { write!(f, "ApiMsg::RequestWebGLContext") }
+            #[cfg(feature = "webgl")]
+            &ApiMsg::ResizeWebGLContext(..) => { write!(f, "ApiMsg::ResizeWebGLContext") }
+            #[cfg(feature = "webgl")]
+            &ApiMsg::WebGLCommand(..) => { write!(f, "ApiMsg::WebGLCommand") }
         }
     }
 }
@@ -99,6 +108,10 @@ impl fmt::Debug for ApiMsg {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Epoch(pub u32);
+
+#[cfg(not(feature = "webgl"))]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct WebGLContextId(pub usize);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -357,6 +370,7 @@ impl RenderApi {
         rx.recv().unwrap()
     }
 
+    #[cfg(feature = "webgl")]
     pub fn request_webgl_context(&self, size: &DeviceIntSize, attributes: GLContextAttributes)
                                  -> Result<(WebGLContextId, GLLimits), String> {
         let (tx, rx) = channel::msg_channel().unwrap();
@@ -365,11 +379,13 @@ impl RenderApi {
         rx.recv().unwrap()
     }
 
+    #[cfg(feature = "webgl")]
     pub fn resize_webgl_context(&self, context_id: WebGLContextId, size: &DeviceIntSize) {
         let msg = ApiMsg::ResizeWebGLContext(context_id, *size);
         self.api_sender.send(msg).unwrap();
     }
 
+    #[cfg(feature = "webgl")]
     pub fn send_webgl_command(&self, context_id: WebGLContextId, command: WebGLCommand) {
         let msg = ApiMsg::WebGLCommand(context_id, command);
         self.api_sender.send(msg).unwrap();

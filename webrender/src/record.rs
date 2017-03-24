@@ -64,6 +64,7 @@ impl ApiRecordingReceiver for BinaryRecorder {
 
 pub fn should_record_msg(msg: &ApiMsg) -> bool {
     match msg {
+        #[cfg(feature = "webgl")]
         &ApiMsg::AddRawFont(..) |
         &ApiMsg::AddNativeFont(..) |
         &ApiMsg::DeleteFont(..) |
@@ -76,6 +77,19 @@ pub fn should_record_msg(msg: &ApiMsg) -> bool {
         &ApiMsg::Scroll(..) |
         &ApiMsg::TickScrollingBounce |
         &ApiMsg::WebGLCommand(..) =>
+            true,
+        #[cfg(not(feature = "webgl"))]
+        &ApiMsg::AddRawFont(..) |
+        &ApiMsg::AddNativeFont(..) |
+        &ApiMsg::DeleteFont(..) |
+        &ApiMsg::AddImage(..) |
+        &ApiMsg::GenerateFrame(..) |
+        &ApiMsg::UpdateImage(..) |
+        &ApiMsg::DeleteImage(..) |
+        &ApiMsg::SetRootDisplayList(..) |
+        &ApiMsg::SetRootPipeline(..) |
+        &ApiMsg::Scroll(..) |
+        &ApiMsg::TickScrollingBounce =>
             true,
         _ => false
     }

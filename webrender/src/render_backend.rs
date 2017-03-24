@@ -5,8 +5,7 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 use frame::Frame;
 use frame_builder::FrameBuilderConfig;
-use internal_types::{FontTemplate, GLContextHandleWrapper, GLContextWrapper};
-use internal_types::{SourceTexture, ResultMsg, RendererFrame};
+use internal_types::{FontTemplate, SourceTexture, ResultMsg, RendererFrame};
 use profiler::{BackendProfileCounters, TextureCacheProfileCounters};
 use record::ApiRecordingReceiver;
 use resource_cache::ResourceCache;
@@ -18,11 +17,15 @@ use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use thread_profiler::register_thread_with_profiler;
 use threadpool::ThreadPool;
+use webgl_types::{GLContextHandleWrapper, GLContextWrapper};
 use webrender_traits::{DeviceIntPoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize, LayerPoint};
 use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, ImageData};
-use webrender_traits::{PipelineId, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
+use webrender_traits::{PipelineId, RenderNotifier, RenderDispatcher, WebGLContextId};
+#[cfg(feature = "webgl")]
+use webrender_traits::WebGLCommand;
 use webrender_traits::channel::{PayloadHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
 use webrender_traits::{BlobImageRenderer, VRCompositorCommand, VRCompositorHandler};
+#[cfg(feature = "webgl")]
 use offscreen_gl_context::GLContextDispatcher;
 
 /// The render backend is responsible for transforming high level display lists into
@@ -50,12 +53,15 @@ pub struct RenderBackend {
     frame: Frame,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
+    #[cfg_attr(not(feature = "webgl"), allow(dead_code))]
     webrender_context_handle: Option<GLContextHandleWrapper>,
     webgl_contexts: HashMap<WebGLContextId, GLContextWrapper>,
     current_bound_webgl_context_id: Option<WebGLContextId>,
     recorder: Option<Box<ApiRecordingReceiver>>,
+    #[cfg_attr(not(feature = "webgl"), allow(dead_code))]
     main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
 
+    #[cfg_attr(not(feature = "webgl"), allow(dead_code))]
     next_webgl_id: usize,
 
     vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>
@@ -302,6 +308,7 @@ impl RenderBackend {
                             tx.send(self.frame.get_scroll_node_state())
                               .unwrap()
                         }
+                        #[cfg(feature = "webgl")]
                         ApiMsg::RequestWebGLContext(size, attributes, tx) => {
                             if let Some(ref wrapper) = self.webrender_context_handle {
                                 let dispatcher: Option<Box<GLContextDispatcher>> = if cfg!(target_os = "windows") {
@@ -337,6 +344,7 @@ impl RenderBackend {
                                 tx.send(Err("Not implemented yet".to_owned())).unwrap();
                             }
                         }
+                        #[cfg(feature = "webgl")]
                         ApiMsg::ResizeWebGLContext(context_id, size) => {
                             let ctx = self.webgl_contexts.get_mut(&context_id).unwrap();
                             ctx.make_current();
@@ -353,6 +361,7 @@ impl RenderBackend {
                                 }
                             }
                         }
+                        #[cfg(feature = "webgl")]
                         ApiMsg::WebGLCommand(context_id, command) => {
                             // TODO: Buffer the commands and only apply them here if they need to
                             // be synchronous.
@@ -445,6 +454,7 @@ impl RenderBackend {
         // implementations - a single flush for each webgl
         // context at the start of a render frame should
         // incur minimal cost.
+        #[cfg(feature = "webgl")]
         for (_, webgl_context) in &self.webgl_contexts {
             webgl_context.make_current();
             webgl_context.apply_command(WebGLCommand::Flush);
@@ -520,10 +530,12 @@ impl RenderBackend {
     }
 }
 
+#[cfg(feature = "webgl")]
 struct WebRenderGLDispatcher {
     dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>
 }
 
+#[cfg(feature = "webgl")]
 impl GLContextDispatcher for WebRenderGLDispatcher {
     fn dispatch(&self, f: Box<Fn() + Send>) {
         let mut dispatcher = self.dispatcher.lock();

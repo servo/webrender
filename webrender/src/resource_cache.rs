@@ -201,6 +201,7 @@ pub struct ResourceCache {
     cached_images: ResourceClassCache<ImageRequest, CachedImageInfo>,
 
     // TODO(pcwalton): Figure out the lifecycle of these.
+    #[cfg_attr(not(feature = "webgl"), allow(dead_code))]
     webgl_textures: HashMap<WebGLContextId, WebGLTexture, BuildHasherDefault<FnvHasher>>,
 
     font_templates: HashMap<FontKey, FontTemplate, BuildHasherDefault<FnvHasher>>,
@@ -348,6 +349,7 @@ impl ResourceCache {
         println!("Delete the non-exist key:{:?}", image_key);
     }
 
+    #[cfg(feature = "webgl")]
     pub fn add_webgl_texture(&mut self, id: WebGLContextId, texture_id: SourceTexture, size: DeviceIntSize) {
         self.webgl_textures.insert(id, WebGLTexture {
             id: texture_id,
@@ -355,6 +357,7 @@ impl ResourceCache {
         });
     }
 
+    #[cfg(feature = "webgl")]
     pub fn update_webgl_texture(&mut self, id: WebGLContextId, texture_id: SourceTexture, size: DeviceIntSize) {
         let webgl_texture = self.webgl_textures.get_mut(&id).unwrap();
 
