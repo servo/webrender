@@ -8,3 +8,4 @@
 == isolated.yaml isolated-ref.yaml
 == isolated-2.yaml isolated-2-ref.yaml
 == isolated-with-filter.yaml isolated-ref.yaml
+== isolated-premultiplied.yaml blank.yaml

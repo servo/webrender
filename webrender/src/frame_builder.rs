@@ -1165,7 +1165,7 @@ impl FrameBuilder {
                         let mut prev_task = alpha_task_stack.pop().unwrap();
                         let item = AlphaRenderItem::HardwareComposite(stacking_context_index,
                                                                       current_task.id,
-                                                                      HardwareCompositeOp::Alpha,
+                                                                      HardwareCompositeOp::PremultipliedAlpha,
                                                                       next_z);
                         next_z += 1;
                         prev_task.as_alpha_batch().alpha_items.push(item);
