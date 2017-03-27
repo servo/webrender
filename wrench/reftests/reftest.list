@@ -5,3 +5,4 @@ include filters/reftest.list
 include boxshadow/reftest.list
 include image/reftest.list
 include border/reftest.list
+include gradient/reftest.list
