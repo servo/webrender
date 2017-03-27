@@ -1,4 +1,4 @@
 == premultiplied-aligned.yaml blank.yaml
 == premultiplied-angle.yaml blank.yaml
 == premultiplied-radial.yaml blank.yaml
-== stops.yaml stops-ref.png
+fuzzy(1,300) == stops.yaml stops-ref.png
