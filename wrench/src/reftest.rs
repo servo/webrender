@@ -8,6 +8,7 @@ use gleam::gl;
 use image::{load as load_piston_image, ColorType, ImageFormat};
 use image::png::PNGEncoder;
 use parse_function::parse_function;
+use png::save_flipped;
 use std::cmp;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -227,12 +228,16 @@ impl<'a> ReftestHarness<'a> {
 
         println!("REFTEST {}", name);
 
-        let test = self.render_yaml(t.test.as_path());
-        let reference = if t.reference.ends_with(".png") {
-            self.load_image(t.reference.as_path())
-        } else {
-            self.render_yaml(t.reference.as_path())
+        let window_size = DeviceUintSize::new(self.window.get_inner_size_pixels().0,
+                                              self.window.get_inner_size_pixels().1);
+        let reference = match t.reference.extension().unwrap().to_str().unwrap() {
+            "yaml" => self.render_yaml(t.reference.as_path(), window_size),
+            "png" => self.load_image(t.reference.as_path(), ImageFormat::PNG),
+            other => panic!("Unknown reftest extension: {}", other),
         };
+        // the reference can be smaller than the window size,
+        // in which case we only compare the intersection
+        let test = self.render_yaml(t.test.as_path(), reference.size);
         let comparison = test.compare(&reference);
 
         match (&t.op, comparison) {
@@ -244,8 +249,8 @@ impl<'a> ReftestHarness<'a> {
                              "REFTEST TEST-UNEXPECTED-FAIL", name,
                              "image comparison, max difference", max_difference,
                              "number of differing pixels", count_different);
-                    println!("REFTEST   IMAGE 1 (TEST): {}", test.create_data_uri());
-                    println!("REFTEST   IMAGE 2 (REFERENCE): {}", reference.create_data_uri());
+                    println!("REFTEST   IMAGE 1 (TEST):\n{}", test.create_data_uri());
+                    println!("REFTEST   IMAGE 2 (REFERENCE):\n{}", reference.create_data_uri());
                     println!("REFTEST TEST-END | {}", name);
 
                     false
@@ -263,9 +268,10 @@ impl<'a> ReftestHarness<'a> {
         }
     }
 
-    fn load_image(&mut self, filename: &Path) -> ReftestImage {
+    fn load_image(&mut self, filename: &Path, format: ImageFormat) -> ReftestImage {
         let file = BufReader::new(File::open(filename).unwrap());
-        let img = load_piston_image(file, ImageFormat::PNG).unwrap().to_rgba();
+        let img_raw = load_piston_image(file, format).unwrap();
+        let img = img_raw.flipv().to_rgba();
         let size = img.dimensions();
         ReftestImage {
             data: img.into_raw(),
@@ -273,7 +279,7 @@ impl<'a> ReftestHarness<'a> {
         }
     }
 
-    fn render_yaml(&mut self, filename: &Path) -> ReftestImage {
+    fn render_yaml(&mut self, filename: &Path, size: DeviceUintSize) -> ReftestImage {
         let mut reader = YamlFrameReader::new(filename);
         reader.do_frame(self.wrench);
 
@@ -281,18 +287,27 @@ impl<'a> ReftestHarness<'a> {
         self.rx.recv().unwrap();
         self.wrench.render();
 
-        let size = self.window.get_inner_size_pixels();
+        let window_size = self.window.get_inner_size_pixels();
+        assert!(size.width <= window_size.0 && size.height <= window_size.1);
+
+        // taking the bottom left sub-rectangle
         let pixels = self.window.gl().read_pixels(0,
-                                                  0,
-                                                  size.0 as gl::GLsizei,
-                                                  size.1 as gl::GLsizei,
+                                                  (window_size.1 - size.height) as gl::GLsizei,
+                                                  size.width as gl::GLsizei,
+                                                  size.height as gl::GLsizei,
                                                   gl::RGBA,
                                                   gl::UNSIGNED_BYTE);
         self.window.swap_buffers();
 
+        let write_debug_images = false;
+        if write_debug_images {
+            let debug_path = filename.with_extension("yaml.png");
+            save_flipped(debug_path, &pixels, size);
+        }
+
         ReftestImage {
             data: pixels,
-            size: DeviceUintSize::new(size.0, size.1)
+            size: size,
         }
     }
 }
