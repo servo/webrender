@@ -355,7 +355,7 @@ fn main() {
             perf::compare(first_filename, second_filename);
             return;
         } else {
-            panic!("Should never have gotten here");
+            panic!("Should never have gotten here! {:?}", args);
         };
 
     let mut show_help = false;
