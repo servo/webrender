@@ -5,7 +5,7 @@
 use WindowWrapper;
 use base64;
 use gleam::gl;
-use image::ColorType;
+use image::{load as load_piston_image, ColorType, ImageFormat};
 use image::png::PNGEncoder;
 use parse_function::parse_function;
 use std::cmp;
@@ -228,7 +228,11 @@ impl<'a> ReftestHarness<'a> {
         println!("REFTEST {}", name);
 
         let test = self.render_yaml(t.test.as_path());
-        let reference = self.render_yaml(t.reference.as_path());
+        let reference = if t.reference.ends_with(".png") {
+            self.load_image(t.reference.as_path())
+        } else {
+            self.render_yaml(t.reference.as_path())
+        };
         let comparison = test.compare(&reference);
 
         match (&t.op, comparison) {
@@ -256,6 +260,16 @@ impl<'a> ReftestHarness<'a> {
                 false
             },
             (&ReftestOp::NotEqual, ReftestImageComparison::NotEqual { .. }) => true,
+        }
+    }
+
+    fn load_image(&mut self, filename: &Path) -> ReftestImage {
+        let file = BufReader::new(File::open(filename).unwrap());
+        let img = load_piston_image(file, ImageFormat::PNG).unwrap().to_rgba();
+        let size = img.dimensions();
+        ReftestImage {
+            data: img.into_raw(),
+            size: DeviceUintSize::new(size.0, size.1)
         }
     }
 
