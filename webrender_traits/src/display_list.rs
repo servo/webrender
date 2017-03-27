@@ -430,7 +430,7 @@ impl DisplayListBuilder {
 
     pub fn finalize(self) -> (PipelineId, BuiltDisplayList, AuxiliaryLists) {
         unsafe {
-            let blob = convert_pod_to_blob(&self.list).to_vec();
+            let blob = convert_vec_pod_to_blob(self.list);
             let display_list_items_size = blob.len();
 
             (self.pipeline_id,
@@ -525,7 +525,7 @@ impl AuxiliaryListsBuilder {
 
     pub fn finalize(self) -> AuxiliaryLists {
         unsafe {
-            let mut blob = convert_pod_to_blob(&self.gradient_stops).to_vec();
+            let mut blob = convert_vec_pod_to_blob(self.gradient_stops);
             let gradient_stops_size = blob.len();
             blob.extend_from_slice(convert_pod_to_blob(&self.complex_clip_regions));
             let complex_clip_regions_size = blob.len() - gradient_stops_size;
@@ -612,6 +612,13 @@ impl AuxiliaryLists {
 
 unsafe fn convert_pod_to_blob<T>(data: &[T]) -> &[u8] where T: Copy + 'static {
     slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * mem::size_of::<T>())
+}
+
+// this variant of the above lets us convert without needing to make a copy
+unsafe fn convert_vec_pod_to_blob<T>(mut data: Vec<T>) -> Vec<u8> where T: Copy + 'static {
+    let v = Vec::from_raw_parts(data.as_mut_ptr() as *mut u8, data.capacity() * mem::size_of::<T>(), data.len() * mem::size_of::<T>());
+    mem::forget(data);
+    v
 }
 
 unsafe fn convert_blob_to_pod<T>(blob: &[u8]) -> &[T] where T: Copy + 'static {
