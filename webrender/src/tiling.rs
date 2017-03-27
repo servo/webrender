@@ -1431,7 +1431,7 @@ impl PrimitiveBatch {
         });
         let key = AlphaBatchKey::new(AlphaBatchKind::Composite,
                                      AlphaBatchKeyFlags::empty(),
-                                     BlendMode::Alpha,
+                                     BlendMode::PremultipliedAlpha,
                                      BatchTextures::no_texture());
 
         PrimitiveBatch {
