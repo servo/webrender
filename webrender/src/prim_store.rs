@@ -109,10 +109,6 @@ pub enum PrimitiveCacheKey {
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
     pub is_opaque: bool,
-    // TODO(gw): It's only a very small subset of primitives
-    // that end up with > 1 clip region. Consider an optimization
-    // for this case - perhaps an enum that either holds one
-    // clip or a Vec of clips?
     pub clips: Vec<ClipSource>,
     pub clip_cache_info: Option<MaskCacheInfo>,
     pub prim_kind: PrimitiveKind,
@@ -1004,7 +1000,7 @@ impl PrimitiveStore {
 
     pub fn set_clip_source(&mut self, index: PrimitiveIndex, source: Option<ClipSource>) {
         let metadata = &mut self.cpu_metadata[index.0];
-        match source {
+        metadata.clips = match source {
             Some(source) => {
                 let (rect, is_complex) = match source {
                     ClipSource::Complex(rect, radius, _) => (rect, radius > 0.0),
@@ -1015,10 +1011,10 @@ impl PrimitiveStore {
                 if is_complex {
                     metadata.clip_cache_info = None; //CLIP TODO: re-use the existing GPU allocation
                 }
-                metadata.clips = vec![source];
+                vec![source]
             }
             None => {
-                metadata.clips.clear();
+                vec![]
             }
         }
     }

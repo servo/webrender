@@ -7,7 +7,7 @@ use batch_builder::BorderSideHelpers;
 use frame::FrameId;
 use gpu_store::GpuStoreAddress;
 use internal_types::{HardwareCompositeOp, SourceTexture};
-use mask_cache::{ClipMode, ClipSource, MaskCacheInfo};
+use mask_cache::{ClipMode, ClipSource, MaskCacheInfo, RegionMode};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu, ImagePrimitiveGpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
@@ -166,7 +166,7 @@ impl FrameBuilder {
         };
         let mut clip_sources = Vec::new();
         if clip_region.is_complex() {
-            clip_sources.push(ClipSource::Region(clip_region.clone(), false));
+            clip_sources.push(ClipSource::Region(clip_region.clone(), RegionMode::ExcludeRect));
         }
         // TODO(gw): Perhaps in the future it's worth passing in an array
         //           so that callers can provide an arbitrary number
