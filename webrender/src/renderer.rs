@@ -1671,7 +1671,8 @@ impl Renderer {
                     ExternalImageType::Texture2DHandle => TextureTarget::Default,
                     ExternalImageType::TextureRectHandle => TextureTarget::Rect,
                     _ => {
-                        panic!("Not a suitable image type.");
+                        panic!("{:?} is not a suitable image type in update_deferred_resolves().",
+                            ext_image.image_type);
                     }
                 };
 
