@@ -68,6 +68,10 @@ impl BuiltDisplayList {
         }
     }
 
+    pub fn into_data(self) -> (Vec<u8>, BuiltDisplayListDescriptor) {
+        (self.data, self.descriptor)
+    }
+
     pub fn data(&self) -> &[u8] {
         &self.data[..]
     }
@@ -562,6 +566,10 @@ impl AuxiliaryLists {
             data: data,
             descriptor: descriptor,
         }
+    }
+
+    pub fn into_data(self) -> (Vec<u8>, AuxiliaryListsDescriptor) {
+        (self.data, self.descriptor)
     }
 
     pub fn data(&self) -> &[u8] {
