@@ -25,7 +25,7 @@ use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRen
 use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
 use webrender_traits::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescriptor, ColorF};
 use webrender_traits::{GlyphOptions, GlyphInstance, TileOffset, TileSize};
-use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError};
+use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, ImageStore};
 use webrender_traits::{ExternalImageData, ExternalImageType, LayoutPoint};
 use threadpool::ThreadPool;
 use euclid::Point2D;
@@ -114,6 +114,40 @@ struct ImageResource {
     epoch: Epoch,
     tiling: Option<TileSize>,
     dirty_rect: Option<DeviceUintRect>
+}
+
+struct ImageTemplates {
+    images: HashMap<ImageKey, ImageResource, BuildHasherDefault<FnvHasher>>,
+}
+
+impl ImageTemplates {
+    fn new() -> Self {
+        ImageTemplates {
+            images: HashMap::with_hasher(Default::default())
+        }
+    }
+
+    fn insert(&mut self, key: ImageKey, resource: ImageResource) {
+        self.images.insert(key, resource);
+    }
+
+    fn remove(&mut self, key: ImageKey) -> Option<ImageResource> {
+        self.images.remove(&key)
+    }
+
+    fn get(&self, key: ImageKey) -> Option<&ImageResource> {
+        self.images.get(&key)
+    }
+
+    fn get_mut(&mut self, key: ImageKey) -> Option<&mut ImageResource> {
+        self.images.get_mut(&key)
+    }
+}
+
+impl ImageStore for ImageTemplates {
+    fn get_image(&self, key: ImageKey) -> Option<(&ImageData, &ImageDescriptor)> {
+        self.images.get(&key).map(|resource|{ (&resource.data, &resource.descriptor) })
+    }
 }
 
 struct CachedImageInfo {
@@ -207,7 +241,7 @@ pub struct ResourceCache {
     webgl_textures: HashMap<WebGLContextId, WebGLTexture, BuildHasherDefault<FnvHasher>>,
 
     font_templates: HashMap<FontKey, FontTemplate, BuildHasherDefault<FnvHasher>>,
-    image_templates: HashMap<ImageKey, ImageResource, BuildHasherDefault<FnvHasher>>,
+    image_templates: ImageTemplates,
     enable_aa: bool,
     state: State,
     current_frame_id: FrameId,
@@ -236,7 +270,7 @@ impl ResourceCache {
             cached_images: ResourceClassCache::new(),
             webgl_textures: HashMap::default(),
             font_templates: HashMap::default(),
-            image_templates: HashMap::default(),
+            image_templates: ImageTemplates::new(),
             cached_glyph_dimensions: HashMap::default(),
             texture_cache: texture_cache,
             state: State::Idle,
@@ -311,7 +345,7 @@ impl ResourceCache {
                                  descriptor: ImageDescriptor,
                                  data: ImageData,
                                  dirty_rect: Option<DeviceUintRect>) {
-        let resource = if let Some(image) = self.image_templates.get(&image_key) {
+        let resource = if let Some(image) = self.image_templates.get(image_key) {
             assert_eq!(image.descriptor.width, descriptor.width);
             assert_eq!(image.descriptor.height, descriptor.height);
             assert_eq!(image.descriptor.format, descriptor.format);
@@ -342,7 +376,7 @@ impl ResourceCache {
     }
 
     pub fn delete_image_template(&mut self, image_key: ImageKey) {
-        let value = self.image_templates.remove(&image_key);
+        let value = self.image_templates.remove(image_key);
 
         if value.is_none() {
             println!("Delete the non-exist key:{:?}", image_key);
@@ -376,7 +410,7 @@ impl ResourceCache {
             tile: tile,
         };
 
-        let template = self.image_templates.get(&key).unwrap();
+        let template = self.image_templates.get(key).unwrap();
         if let ImageData::Blob(ref data) = template.data {
             if let Some(ref mut renderer) = self.blob_image_renderer {
                 let same_epoch = match self.cached_images.resources.get(&request) {
@@ -396,6 +430,7 @@ impl ResourceCache {
                             scale_factor: 1.0,
                         },
                         template.dirty_rect,
+                        &self.image_templates,
                     );
                 }
             }
@@ -519,7 +554,7 @@ impl ResourceCache {
     }
 
     pub fn get_image_properties(&self, image_key: ImageKey) -> ImageProperties {
-        let image_template = &self.image_templates[&image_key];
+        let image_template = &self.image_templates.get(image_key).unwrap();
 
         let external_image = match image_template.data {
             ImageData::External(ext_image) => {
@@ -668,7 +703,7 @@ impl ResourceCache {
                             request: &ImageRequest,
                             image_data: Option<ImageData>,
                             texture_cache_profile: &mut TextureCacheProfileCounters) {
-        let image_template = self.image_templates.get_mut(&request.key).unwrap();
+        let image_template = self.image_templates.get_mut(request.key).unwrap();
         let image_data = image_data.unwrap_or_else(||{
             image_template.data.clone()
         });
@@ -751,7 +786,7 @@ impl ResourceCache {
                               request: ImageRequest,
                               image_data: Option<ImageData>,
                               texture_cache_profile: &mut TextureCacheProfileCounters) {
-        match self.image_templates.get(&request.key).unwrap().data {
+        match self.image_templates.get(request.key).unwrap().data {
             ImageData::External(ext_image) => {
                 match ext_image.image_type {
                     ExternalImageType::Texture2DHandle |

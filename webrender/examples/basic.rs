@@ -22,7 +22,7 @@ use webrender_traits::{BlobImageData, BlobImageDescriptor, BlobImageError, BlobI
 use webrender_traits::{BlobImageResult, ClipRegion, ColorF, Epoch, GlyphInstance};
 use webrender_traits::{DeviceIntPoint, DeviceUintSize, DeviceUintRect, LayoutPoint, LayoutRect, LayoutSize};
 use webrender_traits::{ImageData, ImageDescriptor, ImageFormat, ImageKey, ImageRendering};
-use webrender_traits::{PipelineId, RasterizedBlobImage, TransformStyle, BoxShadowClipMode};
+use webrender_traits::{PipelineId, RasterizedBlobImage, ImageStore, TransformStyle, BoxShadowClipMode};
 
 #[derive(Debug)]
 enum Gesture {
@@ -482,7 +482,8 @@ impl BlobImageRenderer for FakeBlobImageRenderer {
                           key: ImageKey,
                           _: Arc<BlobImageData>,
                           descriptor: &BlobImageDescriptor,
-                          _dirty_rect: Option<DeviceUintRect>) {
+                          _dirty_rect: Option<DeviceUintRect>,
+                          _images: &ImageStore) {
         let mut texels = Vec::with_capacity((descriptor.width * descriptor.height * 4) as usize);
         for y in 0..descriptor.height {
             for x in 0..descriptor.width {

@@ -115,10 +115,11 @@ impl ImageData {
 
 pub trait BlobImageRenderer: Send {
     fn request_blob_image(&mut self,
-                            key: ImageKey,
-                            data: Arc<BlobImageData>,
-                            descriptor: &BlobImageDescriptor,
-                            dirty_rect: Option<DeviceUintRect>);
+                          key: ImageKey,
+                          data: Arc<BlobImageData>,
+                          descriptor: &BlobImageDescriptor,
+                          dirty_rect: Option<DeviceUintRect>,
+                          images: &ImageStore);
     fn resolve_blob_image(&mut self, key: ImageKey) -> BlobImageResult;
 }
 
@@ -147,4 +148,8 @@ pub enum BlobImageError {
     InvalidKey,
     InvalidData,
     Other(String),
+}
+
+pub trait ImageStore {
+    fn get_image(&self, key: ImageKey) -> Option<(&ImageData, &ImageDescriptor)>;
 }
