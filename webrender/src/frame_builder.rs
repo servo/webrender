@@ -7,7 +7,7 @@ use batch_builder::BorderSideHelpers;
 use frame::FrameId;
 use gpu_store::GpuStoreAddress;
 use internal_types::{HardwareCompositeOp, SourceTexture};
-use mask_cache::{ClipSource, MaskCacheInfo};
+use mask_cache::{ClipMode, ClipSource, MaskCacheInfo};
 use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu, ImagePrimitiveGpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
@@ -148,6 +148,7 @@ impl FrameBuilder {
                      scroll_layer_id: ScrollLayerId,
                      rect: &LayerRect,
                      clip_region: &ClipRegion,
+                     extra_clip: Option<ClipSource>,
                      container: PrimitiveContainer)
                      -> PrimitiveIndex {
         let stacking_context_index = *self.stacking_context_stack.last().unwrap();
@@ -163,17 +164,21 @@ impl FrameBuilder {
             local_rect: *rect,
             local_clip_rect: clip_region.main,
         };
-        let clip_source = if clip_region.is_complex() {
-            ClipSource::Region(clip_region.clone())
-        } else {
-            ClipSource::NoClip
-        };
-        let clip_info = MaskCacheInfo::new(&clip_source,
-                                           false,
+        let mut clip_sources = Vec::new();
+        if clip_region.is_complex() {
+            clip_sources.push(ClipSource::Region(clip_region.clone(), false));
+        }
+        // TODO(gw): Perhaps in the future it's worth passing in an array
+        //           so that callers can provide an arbitrary number
+        //           of clips?
+        if let Some(extra_clip) = extra_clip {
+            clip_sources.push(extra_clip);
+        }
+        let clip_info = MaskCacheInfo::new(&clip_sources,
                                            &mut self.prim_store.gpu_data32);
 
         let prim_index = self.prim_store.add_primitive(geometry,
-                                                       Box::new(clip_source),
+                                                       clip_sources,
                                                        clip_info,
                                                        container);
 
@@ -353,6 +358,7 @@ impl FrameBuilder {
         let prim_index = self.add_primitive(scroll_layer_id,
                                             rect,
                                             clip_region,
+                                            None,
                                             PrimitiveContainer::Rectangle(prim));
 
         match flags {
@@ -651,6 +657,7 @@ impl FrameBuilder {
                 self.add_primitive(scroll_layer_id,
                                    &rect,
                                    clip_region,
+                                   None,
                                    PrimitiveContainer::Border(prim_cpu, prim_gpu));
             }
             BorderDetails::Gradient(ref border) => {
@@ -732,7 +739,11 @@ impl FrameBuilder {
             PrimitiveContainer::AngleGradient(gradient_cpu, gradient_gpu)
         };
 
-        self.add_primitive(scroll_layer_id, &rect, clip_region, prim);
+        self.add_primitive(scroll_layer_id,
+                           &rect,
+                           clip_region,
+                           None,
+                           prim);
     }
 
     pub fn add_radial_gradient(&mut self,
@@ -763,6 +774,7 @@ impl FrameBuilder {
         self.add_primitive(scroll_layer_id,
                            &rect,
                            clip_region,
+                           None,
                            PrimitiveContainer::RadialGradient(radial_gradient_cpu, radial_gradient_gpu));
     }
 
@@ -832,6 +844,7 @@ impl FrameBuilder {
             self.add_primitive(scroll_layer_id,
                                &rect,
                                clip_region,
+                               None,
                                PrimitiveContainer::TextRun(prim_cpu, prim_gpu));
         }
     }
@@ -888,12 +901,18 @@ impl FrameBuilder {
 
         let shadow_kind = match clip_mode {
             BoxShadowClipMode::Outset | BoxShadowClipMode::None => {
+                // If a border radius is set, we need to draw inside
+                // the original box in order to draw where the border
+                // corners are. A clip-out mask applied below will
+                // ensure that we don't draw on the box itself.
+                let inner_box_bounds = box_bounds.inflate(-border_radius,
+                                                          -border_radius);
                 // For outset shadows, subtracting the element rectangle
                 // from the outer rectangle gives the rectangles we need
                 // to draw. In the simple case (no blur radius), we can
                 // just draw these as solid colors.
                 let mut rects = Vec::new();
-                subtract_rect(&outer_rect, box_bounds, &mut rects);
+                subtract_rect(&outer_rect, &inner_box_bounds, &mut rects);
                 if edge_size == 0.0 {
                     BoxShadowKind::Simple(rects)
                 } else {
@@ -942,6 +961,15 @@ impl FrameBuilder {
                     BoxShadowClipMode::Inset => 1.0,
                 };
 
+                // If we have a border radius, we'll need to apply
+                // a clip-out mask.
+                let extra_clip = if border_radius > 0.0 {
+                    Some(ClipSource::Complex(*box_bounds,
+                                             border_radius,
+                                             ClipMode::ClipOut))
+                } else {
+                    None
+                };
 
                 let prim_gpu = BoxShadowPrimitiveGpu {
                     src_rect: *box_bounds,
@@ -956,6 +984,7 @@ impl FrameBuilder {
                 self.add_primitive(scroll_layer_id,
                                    &outer_rect,
                                    clip_region,
+                                   extra_clip,
                                    PrimitiveContainer::BoxShadow(prim_gpu, rects));
             }
         }
@@ -981,6 +1010,7 @@ impl FrameBuilder {
         self.add_primitive(scroll_layer_id,
                            &rect,
                            clip_region,
+                           None,
                            PrimitiveContainer::Image(prim_cpu, prim_gpu));
     }
 
@@ -1012,6 +1042,7 @@ impl FrameBuilder {
         self.add_primitive(scroll_layer_id,
                            &rect,
                            clip_region,
+                           None,
                            PrimitiveContainer::Image(prim_cpu, prim_gpu));
     }
 
@@ -1035,6 +1066,7 @@ impl FrameBuilder {
         self.add_primitive(scroll_layer_id,
                            &rect,
                            clip_region,
+                           None,
                            PrimitiveContainer::YuvImage(prim_cpu, prim_gpu));
     }
 
@@ -1092,10 +1124,10 @@ impl FrameBuilder {
             geom.local_rect.origin.y = util::lerp(min_y, max_y, f);
             geom.local_clip_rect = geom.local_rect;
 
-            let clip_source = if scrollbar_prim.border_radius == 0.0 {
-                ClipSource::NoClip
+            let clip_source = if scrollbar_prim.border_radius > 0.0 {
+                Some(ClipSource::Complex(geom.local_rect, scrollbar_prim.border_radius, ClipMode::Clip))
             } else {
-                ClipSource::Complex(geom.local_rect, scrollbar_prim.border_radius)
+                None
             };
             self.prim_store.set_clip_source(scrollbar_prim.prim_index, clip_source);
             *self.prim_store.gpu_geometry.get_mut(GpuStoreAddress(scrollbar_prim.prim_index.0 as i32)) = geom;
@@ -1457,16 +1489,18 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             let auxiliary_lists = self.auxiliary_lists_map.get(&node.pipeline_id)
                                                           .expect("No auxiliary lists?");
 
-            mask_info.update(&node_clip_info.clip_source,
+            mask_info.update(&node_clip_info.clip_sources,
                              &packed_layer.transform,
                              &mut self.frame_builder.prim_store.gpu_data32,
                              self.device_pixel_ratio,
                              auxiliary_lists);
 
-            if let Some(mask) = node_clip_info.clip_source.image_mask() {
-                // We don't add the image mask for resolution, because
-                // layer masks are resolved later.
-                self.resource_cache.request_image(mask.image, ImageRendering::Auto, None);
+            for clip_source in &node_clip_info.clip_sources {
+                if let Some(mask) = clip_source.image_mask() {
+                    // We don't add the image mask for resolution, because
+                    // layer masks are resolved later.
+                    self.resource_cache.request_image(mask.image, ImageRendering::Auto, None);
+                }
             }
         }
     }

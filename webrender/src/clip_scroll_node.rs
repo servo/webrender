@@ -24,7 +24,7 @@ const CAN_OVERSCROLL: bool = false;
 #[derive(Clone, Debug)]
 pub struct ClipInfo {
     /// The ClipSource for this node, which is used to generate mask_cache_info.
-    pub clip_source: ClipSource,
+    pub clip_sources: Vec<ClipSource>,
 
     /// The MaskCacheInfo for this node, which is produced by processing the
     /// provided ClipSource.
@@ -47,10 +47,10 @@ impl ClipInfo {
                -> ClipInfo {
         // We pass true here for the MaskCacheInfo because this type of
         // mask needs an extra clip for the clip rectangle.
-        let clip_source = ClipSource::Region(clip_region.clone());
+        let clip_sources = vec![ClipSource::Region(clip_region.clone(), true)];
         ClipInfo {
-            mask_cache_info: MaskCacheInfo::new(&clip_source, true, clip_store),
-            clip_source: clip_source,
+            mask_cache_info: MaskCacheInfo::new(&clip_sources, clip_store),
+            clip_sources: clip_sources,
             packed_layer_index: packed_layer_index,
             xf_rect: None,
         }
