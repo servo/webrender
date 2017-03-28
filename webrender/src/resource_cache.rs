@@ -310,38 +310,31 @@ impl ResourceCache {
                                  data: ImageData,
                                  dirty_rect: Option<DeviceUintRect>) {
 
-        let (next_epoch, prev_dirty_rect) = match self.image_templates.get(&image_key) {
-            Some(image) => {
-                assert!(image.descriptor.width == descriptor.width);
-                assert!(image.descriptor.height == descriptor.height);
-                assert!(image.descriptor.format == descriptor.format);
+        let resource = if let Some(image) = self.image_templates.get(&image_key) {
+            assert!(image.descriptor.width == descriptor.width);
+            assert!(image.descriptor.height == descriptor.height);
+            assert!(image.descriptor.format == descriptor.format);
 
-                let Epoch(current_epoch) = image.epoch;
-                (Epoch(current_epoch + 1), image.dirty_rect)
-            }
-            None => {
-                // TODO: We should consider this an error (updating an image that does
-                // not exist).
-                (Epoch(0), None)
-            }
-        };
+            let next_epoch = Epoch(image.epoch.0 + 1);
 
-        let tiling = if self.should_tile(&descriptor, &data) {
-            Some(DEFAULT_TILE_SIZE)
+            let mut tiling = image.tiling;
+            if tiling.is_none() && self.should_tile(&descriptor, &data) {
+                tiling = Some(DEFAULT_TILE_SIZE);
+            }
+
+            ImageResource {
+                descriptor: descriptor,
+                data: data,
+                epoch: next_epoch,
+                tiling: tiling,
+                dirty_rect: match (dirty_rect, image.dirty_rect) {
+                    (Some(rect), Some(prev_rect)) => Some(rect.union(&prev_rect)),
+                    (Some(rect), None) => Some(rect),
+                    _ => None,
+                },
+            }
         } else {
-            None
-        };
-
-        let resource = ImageResource {
-            descriptor: descriptor,
-            data: data,
-            epoch: next_epoch,
-            tiling: tiling,
-            dirty_rect: match (dirty_rect, prev_dirty_rect) {
-                (Some(rect), Some(prev_rect)) => Some(rect.union(&prev_rect)),
-                (Some(rect), None) => Some(rect),
-                _ => None,
-            },
+            panic!("Attempt to update non-existant image (key {:?}).", image_key);
         };
 
         self.image_templates.insert(image_key, resource);
