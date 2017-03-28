@@ -21,7 +21,7 @@ use gpu_store::{GpuStore, GpuStoreLayout};
 use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{ExternalImageUpdateList, TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
-use internal_types::{BatchTextures, TextureSampler, GLContextHandleWrapper};
+use internal_types::{BatchTextures, TextureSampler};
 use prim_store::GradientData;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
@@ -47,6 +47,7 @@ use tiling::{AlphaRenderTarget, CacheClipInstance, PrimitiveInstance, ColorRende
 use time::precise_time_ns;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use util::TransformedRectKind;
+use webgl_types::GLContextHandleWrapper;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ExternalImageId, ImageData, ImageFormat, RenderApiSender};
 use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};

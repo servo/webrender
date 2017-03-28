@@ -4,6 +4,7 @@
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use channel::{self, MsgSender, PayloadHelperMethods, PayloadSender};
+#[cfg(feature = "webgl")]
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::cell::Cell;
 use std::fmt;
@@ -11,7 +12,9 @@ use std::marker::PhantomData;
 use {AuxiliaryLists, AuxiliaryListsDescriptor, BuiltDisplayList, BuiltDisplayListDescriptor};
 use {ColorF, DeviceIntPoint, DeviceIntSize, DeviceUintRect, DeviceUintSize, FontKey};
 use {GlyphDimensions, GlyphKey, ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutSize};
-use {LayoutTransform, NativeFontHandle, ScrollLayerId, WebGLCommand, WebGLContextId, WorldPoint};
+use {LayoutTransform, NativeFontHandle, ScrollLayerId, WorldPoint};
+#[cfg(feature = "webgl")]
+use {WebGLCommand, WebGLContextId};
 
 pub type TileSize = u16;
 
@@ -99,6 +102,24 @@ impl fmt::Debug for ApiMsg {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Epoch(pub u32);
+
+#[cfg(not(feature = "webgl"))]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct WebGLContextId(pub usize);
+
+#[cfg(not(feature = "webgl"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GLContextAttributes([u8; 0]);
+
+#[cfg(not(feature = "webgl"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GLLimits([u8; 0]);
+
+#[cfg(not(feature = "webgl"))]
+#[derive(Clone, Deserialize, Serialize)]
+pub enum WebGLCommand {
+    Flush,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]

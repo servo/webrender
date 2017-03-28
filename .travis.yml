@@ -26,6 +26,7 @@ script:
   - servo-tidy
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_traits && cargo test --verbose --features "ipc"); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_traits && cargo test --verbose); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --no-default-features); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo test --verbose); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd sample && cargo test --verbose); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd sample && cargo build --verbose --features=profiler); fi
