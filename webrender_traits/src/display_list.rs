@@ -624,7 +624,7 @@ unsafe fn convert_pod_to_blob<T>(data: &[T]) -> &[u8] where T: Copy + 'static {
 
 // this variant of the above lets us convert without needing to make a copy
 unsafe fn convert_vec_pod_to_blob<T>(mut data: Vec<T>) -> Vec<u8> where T: Copy + 'static {
-    let v = Vec::from_raw_parts(data.as_mut_ptr() as *mut u8, data.capacity() * mem::size_of::<T>(), data.len() * mem::size_of::<T>());
+    let v = Vec::from_raw_parts(data.as_mut_ptr() as *mut u8, data.len() * mem::size_of::<T>(), data.capacity() * mem::size_of::<T>());
     mem::forget(data);
     v
 }
