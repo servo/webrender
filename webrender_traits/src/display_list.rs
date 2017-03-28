@@ -6,7 +6,8 @@ use app_units::Au;
 use std::mem;
 use std::slice;
 use {BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMode, BoxShadowDisplayItem};
-use {ClipDisplayItem, ClipRegion, ColorF, ComplexClipRegion, DisplayItem, ExtendMode, FilterOp};
+use {ClipDisplayItem, ClipRegion, ColorF, ComplexClipRegion, ComplexRadialGradient};
+use {ComplexRadialGradientDisplayItem, DisplayItem, ExtendMode, FilterOp};
 use {FontKey, GlyphInstance, GlyphOptions, Gradient, GradientDisplayItem, GradientStop};
 use {IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask, ImageRendering, ItemRange};
 use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, MixBlendMode, PipelineId};
@@ -230,13 +231,26 @@ impl DisplayListBuilder {
     }
 
     pub fn create_radial_gradient(&mut self,
+                                  center: LayoutPoint,
+                                  radius: LayoutSize,
+                                  stops: Vec<GradientStop>,
+                                  extend_mode: ExtendMode) -> RadialGradient {
+        RadialGradient {
+            center: center,
+            radius: radius,
+            stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
+            extend_mode: extend_mode,
+        }
+    }
+
+    pub fn create_complex_radial_gradient(&mut self,
                                   start_center: LayoutPoint,
                                   start_radius: f32,
                                   end_center: LayoutPoint,
                                   end_radius: f32,
                                   stops: Vec<GradientStop>,
-                                  extend_mode: ExtendMode) -> RadialGradient {
-        RadialGradient {
+                                  extend_mode: ExtendMode) -> ComplexRadialGradient {
+        ComplexRadialGradient {
             start_center: start_center,
             start_radius: start_radius,
             end_center: end_center,
@@ -299,16 +313,31 @@ impl DisplayListBuilder {
     pub fn push_radial_gradient(&mut self,
                                 rect: LayoutRect,
                                 clip: ClipRegion,
+                                center: LayoutPoint,
+                                radius: LayoutSize,
+                                stops: Vec<GradientStop>,
+                                extend_mode: ExtendMode) {
+        let item = SpecificDisplayItem::RadialGradient(RadialGradientDisplayItem {
+            gradient: self.create_radial_gradient(center, radius,
+                                                  stops, extend_mode),
+        });
+
+        self.push_item(item, rect, clip);
+    }
+
+    pub fn push_complex_radial_gradient(&mut self,
+                                rect: LayoutRect,
+                                clip: ClipRegion,
                                 start_center: LayoutPoint,
                                 start_radius: f32,
                                 end_center: LayoutPoint,
                                 end_radius: f32,
                                 stops: Vec<GradientStop>,
                                 extend_mode: ExtendMode) {
-        let item = SpecificDisplayItem::RadialGradient(RadialGradientDisplayItem {
-            gradient: self.create_radial_gradient(start_center, start_radius,
-                                                  end_center, end_radius,
-                                                  stops, extend_mode),
+        let item = SpecificDisplayItem::ComplexRadialGradient(ComplexRadialGradientDisplayItem {
+            gradient: self.create_complex_radial_gradient(start_center, start_radius,
+                                                          end_center, end_radius,
+                                                          stops, extend_mode),
         });
 
         self.push_item(item, rect, clip);
@@ -406,7 +435,7 @@ impl DisplayListBuilder {
                 Gradient(ref mut item) => {
                     item.gradient.stops = self.auxiliary_lists_builder.add_gradient_stops(aux.gradient_stops(&item.gradient.stops));
                 }
-                RadialGradient(ref mut item) => {
+                ComplexRadialGradient(ref mut item) => {
                     item.gradient.stops = self.auxiliary_lists_builder.add_gradient_stops(aux.gradient_stops(&item.gradient.stops));
                 }
                 PushStackingContext(ref mut item) => {

@@ -4,6 +4,8 @@
 
 flat varying float vGradientIndex;
 flat varying float vGradientRepeat;
-flat varying vec2 vCenter;
-flat varying float vInvRadius;
+flat varying vec2 vStartCenter;
+flat varying vec2 vEndCenter;
+flat varying float vStartRadius;
+flat varying float vEndRadius;
 varying vec2 vPos;

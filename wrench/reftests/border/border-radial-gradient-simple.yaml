@@ -8,9 +8,7 @@ root:
           bounds: [ 0, 0, 50, 50 ]
           width: [ 10, 10, 10, 10 ]
           border-type: radial-gradient
-          start-center: [ 25, 25 ]
-          start-radius: 15
-          end-center: [ 25, 25 ]
-          end-radius: 35
+          center: [ 25, 25 ]
+          radius: [ 35, 35 ]
           stops: [ 0.0, red, 1.0, green ]
           outset: [ 0, 0, 0, 0 ]

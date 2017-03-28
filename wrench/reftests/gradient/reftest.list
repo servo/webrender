@@ -1,4 +1,11 @@
 == premultiplied-aligned.yaml blank.yaml
 == premultiplied-angle.yaml blank.yaml
 == premultiplied-radial.yaml blank.yaml
+
 fuzzy(1,300) == stops.yaml stops-ref.png
+
+!= radial-circle.yaml radial-ellipse.yaml
+!= radial-circle.yaml radial-complex.yaml
+!= radial-ellipse.yaml radial-complex.yaml
+
+fuzzy(1,2) == radial-circle.yaml radial-circle-ref.yaml

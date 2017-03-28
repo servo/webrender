@@ -29,6 +29,7 @@ pub enum SpecificDisplayItem {
     BoxShadow(BoxShadowDisplayItem),
     Gradient(GradientDisplayItem),
     RadialGradient(RadialGradientDisplayItem),
+    ComplexRadialGradient(ComplexRadialGradientDisplayItem),
     Iframe(IframeDisplayItem),
     PushStackingContext(PushStackingContextDisplayItem),
     PopStackingContext,
@@ -223,6 +224,19 @@ known_heap_size!(0, GradientStop);
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RadialGradient {
+    pub center: LayoutPoint,
+    pub radius: LayoutSize,
+    pub stops: ItemRange,
+    pub extend_mode: ExtendMode,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RadialGradientDisplayItem {
+    pub gradient: RadialGradient,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ComplexRadialGradient {
     pub start_center: LayoutPoint,
     pub start_radius: f32,
     pub end_center: LayoutPoint,
@@ -232,8 +246,8 @@ pub struct RadialGradient {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-pub struct RadialGradientDisplayItem {
-    pub gradient: RadialGradient,
+pub struct ComplexRadialGradientDisplayItem {
+    pub gradient: ComplexRadialGradient,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

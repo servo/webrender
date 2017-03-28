@@ -89,6 +89,7 @@ pub enum PrimitiveKind {
     AlignedGradient,
     AngleGradient,
     RadialGradient,
+    ComplexRadialGradient,
     BoxShadow,
 }
 
@@ -245,6 +246,23 @@ pub struct GradientPrimitiveCpu {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct RadialGradientPrimitiveGpu {
+    pub center: LayerPoint,
+    pub radius_x: f32,
+    pub xy_ratio: f32,
+    pub extend_mode: f32,
+    pub padding: [f32; 3],
+}
+
+#[derive(Debug)]
+pub struct RadialGradientPrimitiveCpu {
+    pub stops_range: ItemRange,
+    pub extend_mode: ExtendMode,
+    pub cache_dirty: bool,
+}
+
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct ComplexRadialGradientPrimitiveGpu {
     pub start_center: LayerPoint,
     pub end_center: LayerPoint,
     pub start_radius: f32,
@@ -254,7 +272,7 @@ pub struct RadialGradientPrimitiveGpu {
 }
 
 #[derive(Debug)]
-pub struct RadialGradientPrimitiveCpu {
+pub struct ComplexRadialGradientPrimitiveCpu {
     pub stops_range: ItemRange,
     pub extend_mode: ExtendMode,
     pub cache_dirty: bool,
@@ -543,6 +561,7 @@ pub enum PrimitiveContainer {
     AlignedGradient(GradientPrimitiveCpu, GradientPrimitiveGpu),
     AngleGradient(GradientPrimitiveCpu, GradientPrimitiveGpu),
     RadialGradient(RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu),
+    ComplexRadialGradient(ComplexRadialGradientPrimitiveCpu, ComplexRadialGradientPrimitiveGpu),
     BoxShadow(BoxShadowPrimitiveGpu, Vec<LayerRect>),
 }
 
@@ -554,6 +573,7 @@ pub struct PrimitiveStore {
     pub cpu_yuv_images: Vec<YuvImagePrimitiveCpu>,
     pub cpu_gradients: Vec<GradientPrimitiveCpu>,
     pub cpu_radial_gradients: Vec<RadialGradientPrimitiveCpu>,
+    pub cpu_complex_radial_gradients: Vec<ComplexRadialGradientPrimitiveCpu>,
     pub cpu_metadata: Vec<PrimitiveMetadata>,
     pub cpu_borders: Vec<BorderPrimitiveCpu>,
 
@@ -582,6 +602,7 @@ impl PrimitiveStore {
             cpu_yuv_images: Vec::new(),
             cpu_gradients: Vec::new(),
             cpu_radial_gradients: Vec::new(),
+            cpu_complex_radial_gradients: Vec::new(),
             cpu_borders: Vec::new(),
             gpu_geometry: VertexDataStore::new(),
             gpu_data16: VertexDataStore::new(),
@@ -776,6 +797,27 @@ impl PrimitiveStore {
                 self.cpu_radial_gradients.push(radial_gradient_cpu);
                 metadata
             }
+            PrimitiveContainer::ComplexRadialGradient(radial_gradient_cpu, radial_gradient_gpu) => {
+                let gpu_address = self.gpu_data32.push(radial_gradient_gpu);
+                let gpu_gradient_address = self.gpu_gradient_data.alloc(1);
+
+                let metadata = PrimitiveMetadata {
+                    // TODO: calculate if the gradient is actually opaque
+                    is_opaque: false,
+                    clip_source: clip_source,
+                    clip_cache_info: clip_info,
+                    prim_kind: PrimitiveKind::ComplexRadialGradient,
+                    cpu_prim_index: SpecificPrimitiveIndex(self.cpu_complex_radial_gradients.len()),
+                    gpu_prim_index: gpu_address,
+                    gpu_data_address: gpu_gradient_address,
+                    gpu_data_count: 1,
+                    render_task: None,
+                    clip_task: None,
+                };
+
+                self.cpu_complex_radial_gradients.push(radial_gradient_cpu);
+                metadata
+            }
             PrimitiveContainer::BoxShadow(box_shadow_gpu, instance_rects) => {
                 let cache_key = PrimitiveCacheKey::BoxShadow(BoxShadowPrimitiveCacheKey {
                     blur_radius: Au::from_f32_px(box_shadow_gpu.blur_radius),
@@ -901,7 +943,8 @@ impl PrimitiveStore {
                 PrimitiveKind::BoxShadow |
                 PrimitiveKind::AlignedGradient |
                 PrimitiveKind::AngleGradient |
-                PrimitiveKind::RadialGradient=> {}
+                PrimitiveKind::RadialGradient |
+                PrimitiveKind::ComplexRadialGradient=> {}
                 PrimitiveKind::TextRun => {
                     let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
 
@@ -1249,6 +1292,15 @@ impl PrimitiveStore {
                     gradient.cache_dirty = false;
                 }
             }
+            PrimitiveKind::ComplexRadialGradient => {
+                let gradient = &mut self.cpu_complex_radial_gradients[metadata.cpu_prim_index.0];
+                if gradient.cache_dirty {
+                    let src_stops = auxiliary_lists.gradient_stops(&gradient.stops_range);
+                    let dest_gradient = self.gpu_gradient_data.get_mut(metadata.gpu_data_address);
+                    dest_gradient.build(src_stops, false);
+                    gradient.cache_dirty = false;
+                }
+            }
         }
 
         if prim_needs_resolve {
@@ -1347,6 +1399,14 @@ impl From<RadialGradientPrimitiveGpu> for GpuBlock32 {
     fn from(data: RadialGradientPrimitiveGpu) -> GpuBlock32 {
         unsafe {
             mem::transmute::<RadialGradientPrimitiveGpu, GpuBlock32>(data)
+        }
+    }
+}
+
+impl From<ComplexRadialGradientPrimitiveGpu> for GpuBlock32 {
+    fn from(data: ComplexRadialGradientPrimitiveGpu) -> GpuBlock32 {
+        unsafe {
+            mem::transmute::<ComplexRadialGradientPrimitiveGpu, GpuBlock32>(data)
         }
     }
 }

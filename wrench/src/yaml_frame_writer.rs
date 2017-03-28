@@ -668,10 +668,8 @@ impl YamlFrameWriter {
                                                          details.outset.left];
                             yaml_node(&mut v, "width", f32_vec_yaml(&widths, true));
                             str_node(&mut v, "border-type", "radial-gradient");
-                            point_node(&mut v, "start-center", &details.gradient.start_center);
-                            f32_node(&mut v, "start-radius", details.gradient.start_radius);
-                            point_node(&mut v, "end-center", &details.gradient.end_center);
-                            f32_node(&mut v, "end-radius", details.gradient.end_radius);
+                            point_node(&mut v, "center", &details.gradient.center);
+                            size_node(&mut v, "radius", &details.gradient.radius);
                             let mut stops = vec![];
                             for stop in aux.gradient_stops(&details.gradient.stops) {
                                 stops.push(Yaml::Real(stop.offset.to_string()));
@@ -711,7 +709,19 @@ impl YamlFrameWriter {
                     bool_node(&mut v, "repeat", item.gradient.extend_mode == ExtendMode::Repeat);
                 },
                 RadialGradient(item) => {
-                    str_node(&mut v, "type", "radial-gradient");
+                    str_node(&mut v, "type", "radial_gradient");
+                    point_node(&mut v, "center", &item.gradient.center);
+                    size_node(&mut v, "radius", &item.gradient.radius);
+                    let mut stops = vec![];
+                    for stop in aux.gradient_stops(&item.gradient.stops) {
+                        stops.push(Yaml::Real(stop.offset.to_string()));
+                        stops.push(Yaml::String(color_to_string(stop.color)));
+                    }
+                    yaml_node(&mut v, "stops", Yaml::Array(stops));
+                    bool_node(&mut v, "repeat", item.gradient.extend_mode == ExtendMode::Repeat);
+                },
+                ComplexRadialGradient(item) => {
+                    str_node(&mut v, "type", "complex-radial-gradient");
                     point_node(&mut v, "start-center", &item.gradient.start_center);
                     f32_node(&mut v, "start-radius", item.gradient.start_radius);
                     point_node(&mut v, "end-center", &item.gradient.end_center);
