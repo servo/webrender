@@ -674,6 +674,7 @@ impl ResourceCache {
             }
         }
     }
+
     fn update_texture_cache(cached_images: &mut ResourceClassCache<ImageRequest, CachedImageInfo>,
                             texture_cache: &mut TextureCache,
                             current_frame_id: FrameId,
