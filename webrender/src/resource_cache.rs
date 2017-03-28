@@ -29,6 +29,8 @@ use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError};
 use threadpool::ThreadPool;
 use euclid::Point2D;
 
+const DEFAULT_TILE_SIZE: TileSize = 512;
+
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
 
 type GlyphCache = ResourceClassCache<RenderedGlyphKey, Option<TextureCacheItemId>>;
@@ -254,6 +256,16 @@ impl ResourceCache {
         self.texture_cache.max_texture_size()
     }
 
+    fn should_tile(&self, descriptor: &ImageDescriptor, data: &ImageData) -> bool {
+        let limit = self.max_texture_size();
+        return match data {
+            // Tiled external images are not implemented.
+            &ImageData::ExternalHandle(_) => false,
+            &ImageData::ExternalBuffer(_) => false,
+            _ => { descriptor.width > limit || descriptor.height > limit }
+        };
+    }
+
     pub fn add_font_template(&mut self, font_key: FontKey, template: FontTemplate) {
         // Push the new font to the glyph cache thread, and also store
         // it locally for glyph metric requests.
@@ -275,10 +287,10 @@ impl ResourceCache {
                               descriptor: ImageDescriptor,
                               data: ImageData,
                               mut tiling: Option<TileSize>) {
-        if descriptor.width > self.max_texture_size() || descriptor.height > self.max_texture_size() {
+        if tiling.is_none() && self.should_tile(&descriptor, &data) {
             // We aren't going to be able to upload a texture this big, so tile it, even
             // if tiling was not requested.
-            tiling = Some(512);
+            tiling = Some(DEFAULT_TILE_SIZE);
         }
 
         let resource = ImageResource {
@@ -297,27 +309,34 @@ impl ResourceCache {
                                  descriptor: ImageDescriptor,
                                  data: ImageData,
                                  dirty_rect: Option<DeviceUintRect>) {
+
         let (next_epoch, prev_dirty_rect) = match self.image_templates.get(&image_key) {
             Some(image) => {
-                // This image should not be an external image.
-                // TODO: Why?
-                if let ImageData::ExternalHandle(id) = image.data {
-                    panic!("Update an external image with buffer, id={} image_key={:?}", id.0, image_key);
-                }
+                assert!(image.descriptor.width == descriptor.width);
+                assert!(image.descriptor.height == descriptor.height);
+                assert!(image.descriptor.format == descriptor.format);
 
                 let Epoch(current_epoch) = image.epoch;
                 (Epoch(current_epoch + 1), image.dirty_rect)
             }
             None => {
+                // TODO: We should consider this an error (updating an image that does
+                // not exist).
                 (Epoch(0), None)
             }
+        };
+
+        let tiling = if self.should_tile(&descriptor, &data) {
+            Some(DEFAULT_TILE_SIZE)
+        } else {
+            None
         };
 
         let resource = ImageResource {
             descriptor: descriptor,
             data: data,
             epoch: next_epoch,
-            tiling: None,
+            tiling: tiling,
             dirty_rect: match (dirty_rect, prev_dirty_rect) {
                 (Some(rect), Some(prev_rect)) => Some(rect.union(&prev_rect)),
                 (Some(rect), None) => Some(rect),
