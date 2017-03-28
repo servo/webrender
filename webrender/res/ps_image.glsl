@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // If this is in WR_FEATURE_TEXTURE_RECT mode, the rect and size use non-normalized
-// texture coordinates. Otherwise, it's use normalized texture coordinates. Please
+// texture coordinates. Otherwise, it uses normalized texture coordinates. Please
 // check GL_TEXTURE_RECTANGLE.
 flat varying vec2 vTextureOffset; // Offset of this image into the texture atlas.
 flat varying vec2 vTextureSize;   // Size of the image in the texture atlas.
