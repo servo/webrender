@@ -219,7 +219,7 @@ impl MaskCacheInfo {
                             PrimitiveStore::populate_clip_data(slice, ClipData::uniform(region.main, 0.0, ClipMode::Clip));
                         }
 
-                        debug_assert!(self.effective_clip_count + clips.len() < self.clip_range.item_count);
+                        debug_assert!(self.effective_clip_count + clips.len() <= self.clip_range.item_count);
                         let address = self.clip_range.start + self.effective_clip_count * CLIP_DATA_GPU_SIZE;
                         self.effective_clip_count += clips.len();
 
