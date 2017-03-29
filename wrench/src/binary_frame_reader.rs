@@ -38,12 +38,11 @@ impl BinaryFrameReader {
     pub fn new(file_path: &Path) -> BinaryFrameReader {
         let mut file = File::open(&file_path).expect("Can't open recording file");
         let header = file.read_u64::<LittleEndian>().unwrap();
-        if header != WEBRENDER_RECORDING_HEADER {
-            panic!("Binary recording is missing recording header!");
-        }
+        assert_eq!(header, WEBRENDER_RECORDING_HEADER,
+                "Binary recording is missing recording header!");
 
         let apimsg_type_id = unsafe {
-            assert!(mem::size_of::<TypeId>() == mem::size_of::<u64>());
+            assert_eq!(mem::size_of::<TypeId>(), mem::size_of::<u64>());
             mem::transmute::<TypeId, u64>(TypeId::of::<ApiMsg>())
         };
 
