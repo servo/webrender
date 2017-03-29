@@ -20,9 +20,10 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 use webrender_traits::{BlobImageData, BlobImageDescriptor, BlobImageError, BlobImageRenderer};
-use webrender_traits::{BlobImageResult, ClipRegion, ColorF, DeviceIntPoint, DeviceUintSize, Epoch, GlyphInstance};
+use webrender_traits::{BlobImageResult, ClipRegion, ColorF, Epoch, GlyphInstance};
+use webrender_traits::{DeviceIntPoint, DeviceUintSize, DeviceUintRect, LayoutPoint, LayoutRect, LayoutSize};
 use webrender_traits::{ImageData, ImageDescriptor, ImageFormat, ImageKey, ImageRendering};
-use webrender_traits::{LayoutPoint, LayoutRect, LayoutSize, PipelineId, RasterizedBlobImage};
+use webrender_traits::{PipelineId, RasterizedBlobImage};
 
 #[derive(Debug)]
 enum Gesture {
@@ -455,7 +456,11 @@ impl FakeBlobImageRenderer {
 }
 
 impl BlobImageRenderer for FakeBlobImageRenderer {
-    fn request_blob_image(&mut self, key: ImageKey, _: Arc<BlobImageData>, descriptor: &BlobImageDescriptor) {
+    fn request_blob_image(&mut self,
+                          key: ImageKey,
+                          _: Arc<BlobImageData>,
+                          descriptor: &BlobImageDescriptor,
+                          _dirty_rect: Option<DeviceUintRect>) {
         let mut texels = Vec::with_capacity((descriptor.width * descriptor.height * 4) as usize);
         for y in 0..descriptor.height {
             for x in 0..descriptor.width {
