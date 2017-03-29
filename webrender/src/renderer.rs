@@ -42,7 +42,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::TextureCache;
 use threadpool::ThreadPool;
-use tiling::{AlphaBatchKind, BlurCommand, Frame, PrimitiveBatch, PrimitiveBatchData};
+use tiling::{AlphaBatchKind, BlurCommand, Frame, PrimitiveBatch, PrimitiveBatchData, RenderTarget};
 use tiling::{AlphaRenderTarget, CacheClipInstance, PrimitiveInstance, ColorRenderTarget, RenderTargetKind};
 use time::precise_time_ns;
 use thread_profiler::{register_thread_with_profiler, write_profile};
@@ -1459,11 +1459,27 @@ impl Renderer {
             self.device.enable_depth_write();
             self.device.set_blend(false);
             self.device.set_blend_mode_alpha();
-            self.device.clear_target(clear_color, Some(1.0));
+            match render_target {
+                Some(..) => {
+                    // TODO(gw): Applying a scissor rect and minimal clear here
+                    // is a very large performance win on the Intel and nVidia
+                    // GPUs that I have tested with. It's possible it may be a
+                    // performance penalty on other GPU types - we should test this
+                    // and consider different code paths.
+                    self.device.clear_target_rect(clear_color,
+                                                  Some(1.0),
+                                                  target.used_rect());
+                }
+                None => {
+                    self.device.clear_target(clear_color, Some(1.0));
+                }
+            }
 
             let isolate_clear_color = Some([0.0, 0.0, 0.0, 0.0]);
             for isolate_clear in &target.isolate_clears {
-                self.device.clear_target_rect(isolate_clear_color, None, *isolate_clear);
+                self.device.clear_target_rect(isolate_clear_color,
+                                              None,
+                                              *isolate_clear);
             }
 
             self.device.disable_depth_write();
@@ -1592,8 +1608,15 @@ impl Renderer {
             self.device.disable_depth();
             self.device.disable_depth_write();
 
+            // TODO(gw): Applying a scissor rect and minimal clear here
+            // is a very large performance win on the Intel and nVidia
+            // GPUs that I have tested with. It's possible it may be a
+            // performance penalty on other GPU types - we should test this
+            // and consider different code paths.
             let clear_color = [1.0, 1.0, 1.0, 0.0];
-            self.device.clear_target(Some(clear_color), None);
+            self.device.clear_target_rect(Some(clear_color),
+                                          None,
+                                          target.used_rect());
         }
 
         // Draw the clip items into the tiled alpha mask.
