@@ -611,8 +611,8 @@ impl TextureCache {
         };
 
         // TODO(gw): Handle this sensibly (support failing to render items that can't fit?)
-        assert!(requested_size.width < self.max_texture_size);
-        assert!(requested_size.height < self.max_texture_size);
+        assert!(requested_size.width <= self.max_texture_size);
+        assert!(requested_size.height <= self.max_texture_size);
 
         let mut page_id = None; //using ID here to please the borrow checker
         for (i, page) in page_list.iter_mut().enumerate() {
