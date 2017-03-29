@@ -572,7 +572,7 @@ impl YamlFrameReader {
 
             let yaml_clip_id = item["clip-id"].as_i64();
             if let Some(yaml_id) = yaml_clip_id {
-                let id = ScrollLayerId::new(yaml_id as usize, self.builder().pipeline_id);
+                let id = ScrollLayerId::new(yaml_id as u64, self.builder().pipeline_id);
                 self.builder().push_clip_id(id);
             }
 
@@ -614,7 +614,7 @@ impl YamlFrameReader {
         let clip = self.to_clip_region(&yaml["clip"], &bounds, wrench)
                        .unwrap_or(ClipRegion::simple(&bounds));
         let id = yaml["id"].as_i64().map(|id|
-            ScrollLayerId::new(id as usize, self.builder().pipeline_id));
+            ScrollLayerId::new(id as u64, self.builder().pipeline_id));
 
         let id = self.builder().define_clip(clip, content_size, id);
 

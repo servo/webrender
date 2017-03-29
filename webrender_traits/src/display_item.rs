@@ -508,9 +508,9 @@ impl ComplexClipRegion {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ScrollLayerId {
-    Clip(usize, PipelineId),
-    ClipExternalId(usize, PipelineId),
-    ReferenceFrame(usize, PipelineId),
+    Clip(u64, PipelineId),
+    ClipExternalId(u64, PipelineId),
+    ReferenceFrame(u64, PipelineId),
 }
 
 impl ScrollLayerId {
@@ -522,7 +522,7 @@ impl ScrollLayerId {
         ScrollLayerId::ReferenceFrame(0, pipeline_id)
     }
 
-    pub fn new(id: usize, pipeline_id: PipelineId) -> ScrollLayerId {
+    pub fn new(id: u64, pipeline_id: PipelineId) -> ScrollLayerId {
         ScrollLayerId::ClipExternalId(id, pipeline_id)
     }
 
@@ -541,7 +541,7 @@ impl ScrollLayerId {
         }
     }
 
-    pub fn external_id(&self) -> Option<usize> {
+    pub fn external_id(&self) -> Option<u64> {
         match *self {
             ScrollLayerId::ClipExternalId(id, _) => Some(id),
             _ => None,

@@ -93,7 +93,7 @@ pub struct DisplayListBuilder {
     auxiliary_lists_builder: AuxiliaryListsBuilder,
     pub pipeline_id: PipelineId,
     clip_stack: Vec<ScrollLayerId>,
-    next_scroll_layer_id: usize,
+    next_scroll_layer_id: u64,
 }
 
 impl DisplayListBuilder {
