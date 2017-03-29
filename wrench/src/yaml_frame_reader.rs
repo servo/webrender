@@ -20,9 +20,8 @@ fn broadcast<T: Clone>(base_vals: &[T], num_items: usize) -> Vec<T> {
         return base_vals.to_vec();
     }
 
-    if num_items % base_vals.len() != 0 {
-        panic!("Cannot broadcast {} elements into {}", base_vals.len(), num_items);
-    }
+    assert!(num_items % base_vals.len() == 0,
+           "Cannot broadcast {} elements into {}", base_vals.len(), num_items);
 
     let mut vals = vec![];
     loop {
@@ -112,9 +111,7 @@ impl YamlFrameReader {
         self.reset();
         self.builder = Some(DisplayListBuilder::new(wrench.root_pipeline_id));
 
-        if yaml["root"].is_badvalue() {
-            panic!("Missing root stacking context");
-        }
+        assert!(!yaml["root"].is_badvalue(), "Missing root stacking context");
         self.add_stacking_context_from_yaml(wrench, &yaml["root"], true);
     }
 
@@ -466,9 +463,8 @@ impl YamlFrameReader {
             wrench.font_key_from_name(&*PLATFORM_DEFAULT_FACE_NAME)
         };
 
-        if item["glyphs"].is_badvalue() && item["text"].is_badvalue() {
-            panic!("text item had neither text nor glyphs!");
-        }
+        assert!(!(item["glyphs"].is_badvalue() && item["text"].is_badvalue()),
+               "text item had neither text nor glyphs!");
 
         let (glyphs, rect) = if item["text"].is_badvalue() {
             // if glyphs are specified, then the glyph positions can have the
@@ -491,9 +487,7 @@ impl YamlFrameReader {
                                      .expect("Text items with glyphs require bounds [for now]");
             (glyphs, rect)
         } else {
-            if native_key.is_none() {
-                panic!("Can't layout simple ascii text with raw font [for now]");
-            }
+            assert!(!native_key.is_none(), "Can't layout simple ascii text with raw font [for now]");
             let native_key = native_key.unwrap();
             let text = item["text"].as_str().unwrap();
             let (glyph_indices, glyph_advances) =

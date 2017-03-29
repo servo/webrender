@@ -215,10 +215,8 @@ impl<'a> ReftestHarness<'a> {
 
         println!("REFTEST INFO | {} passing, {} failing", total_passing, total_failing);
 
-        if total_failing > 0 {
-            // panic here so that we fail CI
-            panic!();
-        }
+        // panic here so that we fail CI
+        assert!(total_failing <= 0);
     }
 
     fn run_reftest(&mut self, t: &Reftest) -> bool {
