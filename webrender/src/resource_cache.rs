@@ -675,13 +675,15 @@ impl ResourceCache {
         }
     }
 
-    fn update_texture_cache(cached_images: &mut ResourceClassCache<ImageRequest, CachedImageInfo>,
-                            texture_cache: &mut TextureCache,
-                            current_frame_id: FrameId,
+    fn update_texture_cache(&mut self,
                             request: &ImageRequest,
-                            image_template: &mut ImageResource,
-                            image_data: ImageData,
+                            image_data: Option<ImageData>,
                             texture_cache_profile: &mut TextureCacheProfileCounters) {
+        let image_template = self.image_templates.get_mut(&request.key).unwrap();
+        let image_data = image_data.unwrap_or_else(||{
+            image_template.data.clone()
+        });
+
         let descriptor = if let Some(tile) = request.tile {
             let tile_size = image_template.tiling.unwrap() as u32;
             let image_descriptor = &image_template.descriptor;
@@ -717,15 +719,15 @@ impl ResourceCache {
             image_template.descriptor.clone()
         };
 
-        match cached_images.entry(request.clone(), current_frame_id) {
+        match self.cached_images.entry(request.clone(), self.current_frame_id) {
             Occupied(entry) => {
                 let image_id = entry.get().texture_cache_id;
 
                 if entry.get().epoch != image_template.epoch {
-                    texture_cache.update(image_id,
-                                         descriptor,
-                                         image_data,
-                                         image_template.dirty_rect);
+                    self.texture_cache.update(image_id,
+                                              descriptor,
+                                              image_data,
+                                              image_template.dirty_rect);
 
                     // Update the cached epoch
                     *entry.into_mut() = CachedImageInfo {
@@ -736,18 +738,18 @@ impl ResourceCache {
                 }
             }
             Vacant(entry) => {
-                let image_id = texture_cache.new_item_id();
+                let image_id = self.texture_cache.new_item_id();
 
                 let filter = match request.rendering {
                     ImageRendering::Pixelated => TextureFilter::Nearest,
                     ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
                 };
 
-                texture_cache.insert(image_id,
-                                     descriptor,
-                                     filter,
-                                     image_data,
-                                     texture_cache_profile);
+                self.texture_cache.insert(image_id,
+                                          descriptor,
+                                          filter,
+                                          image_data,
+                                          texture_cache_profile);
 
                 entry.insert(CachedImageInfo {
                     texture_cache_id: image_id,
@@ -756,17 +758,11 @@ impl ResourceCache {
             }
         }
     }
-
     fn finalize_image_request(&mut self,
                               request: ImageRequest,
                               image_data: Option<ImageData>,
                               texture_cache_profile: &mut TextureCacheProfileCounters) {
-        let image_template = self.image_templates.get_mut(&request.key).unwrap();
-        let image_data = image_data.unwrap_or_else(||{
-            image_template.data.clone()
-        });
-
-        match image_template.data {
+        match self.image_templates.get(&request.key).unwrap().data {
             ImageData::External(ext_image) => {
                 match ext_image.image_type {
                     ExternalImageType::Texture2DHandle |
@@ -774,24 +770,16 @@ impl ResourceCache {
                         // external handle doesn't need to update the texture_cache.
                     }
                     ExternalImageType::ExternalBuffer => {
-                        ResourceCache::update_texture_cache(&mut self.cached_images,
-                                                            &mut self.texture_cache,
-                                                            self.current_frame_id,
-                                                            &request,
-                                                            image_template,
-                                                            image_data,
-                                                            texture_cache_profile);
+                        self.update_texture_cache(&request,
+                                                  image_data,
+                                                  texture_cache_profile);
                     }
                 }
             }
             ImageData::Raw(..) | ImageData::Blob(..) => {
-                ResourceCache::update_texture_cache(&mut self.cached_images,
-                                                    &mut self.texture_cache,
-                                                    self.current_frame_id,
-                                                    &request,
-                                                    image_template,
-                                                    image_data,
-                                                    texture_cache_profile);
+                self.update_texture_cache(&request,
+                                           image_data,
+                                           texture_cache_profile);
             }
         }
     }
