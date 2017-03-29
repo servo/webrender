@@ -13,3 +13,24 @@ fuzzy(1,20000) == linear-reverse.yaml linear-ref.yaml
 == linear-aligned-clip.yaml linear-aligned-clip-ref.yaml
 
 fuzzy(1,5) == radial-circle.yaml radial-circle-ref.png
+fuzzy(1,4) == radial-ellipse.yaml radial-ellipse-ref.png
+
+!= radial-circle.yaml radial-ellipse.yaml
+
+== norm-linear-1.yaml norm-linear-1-ref.yaml
+== norm-linear-2.yaml norm-linear-2-ref.yaml
+== norm-linear-3.yaml norm-linear-3-ref.yaml
+== norm-linear-4.yaml norm-linear-4-ref.yaml
+== norm-linear-degenerate.yaml norm-radial-degenerate-ref.yaml
+
+== norm-radial-1.yaml norm-radial-1-ref.yaml
+== norm-radial-2.yaml norm-radial-2-ref.yaml
+== norm-radial-3.yaml norm-radial-3-ref.yaml
+== norm-radial-degenerate.yaml norm-radial-degenerate-ref.yaml
+
+# fuzzy because of differences from normalization
+# this might be able to be improved
+fuzzy(255,1200) == repeat-linear.yaml repeat-linear-ref.yaml
+fuzzy(255,1200) == repeat-linear-reverse.yaml repeat-linear-ref.yaml
+fuzzy(255,2664) == repeat-radial.yaml repeat-radial-ref.yaml
+fuzzy(255,2664) == repeat-radial-negative.yaml repeat-radial-ref.yaml

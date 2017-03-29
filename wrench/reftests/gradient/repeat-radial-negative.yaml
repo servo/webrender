@@ -7,5 +7,6 @@ root:
         - type: radial-gradient
           bounds: 0 0 300 300
           center: 150 150
-          radius: 200 200
-          stops: [0, red, 1, blue]
+          radius: 150 150
+          stops: [-0.3, blue, -0.2, blue, -0.2, red, -0.1, red]
+          repeat: true

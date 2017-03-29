@@ -8,4 +8,4 @@ root:
           bounds: 0 0 300 300
           center: 150 150
           radius: 200 200
-          stops: [0, red, 1, blue]
+          stops: [0.0, red, 0.5, red, 0.5, blue, 1.0, blue]
