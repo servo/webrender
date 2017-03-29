@@ -234,6 +234,7 @@ impl DisplayListBuilder {
                                   start_radius: f32,
                                   end_center: LayoutPoint,
                                   end_radius: f32,
+                                  ratio_xy: f32,
                                   stops: Vec<GradientStop>,
                                   extend_mode: ExtendMode) -> RadialGradient {
         RadialGradient {
@@ -241,6 +242,7 @@ impl DisplayListBuilder {
             start_radius: start_radius,
             end_center: end_center,
             end_radius: end_radius,
+            ratio_xy: ratio_xy,
             stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
             extend_mode: extend_mode,
         }
@@ -303,11 +305,12 @@ impl DisplayListBuilder {
                                 start_radius: f32,
                                 end_center: LayoutPoint,
                                 end_radius: f32,
+                                ratio_xy: f32,
                                 stops: Vec<GradientStop>,
                                 extend_mode: ExtendMode) {
         let item = SpecificDisplayItem::RadialGradient(RadialGradientDisplayItem {
             gradient: self.create_radial_gradient(start_center, start_radius,
-                                                  end_center, end_radius,
+                                                  end_center, end_radius, ratio_xy,
                                                   stops, extend_mode),
         });
 
