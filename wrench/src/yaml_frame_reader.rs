@@ -487,7 +487,7 @@ impl YamlFrameReader {
                                      .expect("Text items with glyphs require bounds [for now]");
             (glyphs, rect)
         } else {
-            assert!(!native_key.is_none(), "Can't layout simple ascii text with raw font [for now]");
+            assert!(native_key.is_some(), "Can't layout simple ascii text with raw font [for now]");
             let native_key = native_key.unwrap();
             let text = item["text"].as_str().unwrap();
             let (glyph_indices, glyph_advances) =
