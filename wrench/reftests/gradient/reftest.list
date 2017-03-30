@@ -2,6 +2,14 @@
 == premultiplied-angle.yaml blank.yaml
 == premultiplied-radial.yaml blank.yaml
 
-fuzzy(1,300) == stops.yaml stops-ref.png
+== linear.yaml linear-ref.png
+== linear-reverse.yaml linear-ref.png
+fuzzy(1,300) == linear-stops.yaml linear-stops-ref.png
 
-== aligned-clip.yaml aligned-clip-ref.yaml
+# dithering requires us to fuzz here
+fuzzy(1,20000) == linear.yaml linear-ref.yaml
+fuzzy(1,20000) == linear-reverse.yaml linear-ref.yaml
+
+== linear-aligned-clip.yaml linear-aligned-clip-ref.yaml
+
+fuzzy(1,5) == radial-circle.yaml radial-circle-ref.png
