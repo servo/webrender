@@ -2,8 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use byteorder::{LittleEndian, WriteBytesExt};
-use channel::{self, MsgSender, PayloadHelperMethods, PayloadSender};
+use channel::{self, MsgSender, Payload, PayloadSenderHelperMethods, PayloadSender};
 #[cfg(feature = "webgl")]
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::cell::Cell;
@@ -305,20 +304,18 @@ impl RenderApi {
                                  viewport_size: LayoutSize,
                                  (pipeline_id, display_list, auxiliary_lists): (PipelineId, BuiltDisplayList, AuxiliaryLists),
                                  preserve_frame_state: bool) {
+        let (dl_data, dl_desc) = display_list.into_data();
+        let (aux_data, aux_desc) = auxiliary_lists.into_data();
         let msg = ApiMsg::SetRootDisplayList(background_color,
                                              epoch,
                                              pipeline_id,
                                              viewport_size,
-                                             display_list.descriptor().clone(),
-                                             *auxiliary_lists.descriptor(),
+                                             dl_desc,
+                                             aux_desc,
                                              preserve_frame_state);
         self.api_sender.send(msg).unwrap();
 
-        let mut payload = vec![];
-        payload.write_u32::<LittleEndian>(epoch.0).unwrap();
-        payload.extend_from_slice(display_list.data());
-        payload.extend_from_slice(auxiliary_lists.data());
-        self.payload_sender.send_vec(payload).unwrap();
+        PayloadSenderHelperMethods::send(&self.payload_sender, Payload{epoch: epoch, display_list_data: dl_data, auxiliary_lists_data: aux_data}).unwrap();
     }
 
     /// Scrolls the scrolling layer under the `cursor`

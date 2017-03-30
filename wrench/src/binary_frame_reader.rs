@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::{mem, process};
 use webrender::WEBRENDER_RECORDING_HEADER;
 use webrender_traits::ApiMsg;
+use webrender_traits::channel::Payload;
 use wrench::{Wrench, WrenchThing};
 
 #[derive(Clone)]
@@ -166,7 +167,7 @@ impl WrenchThing for BinaryFrameReader {
                         }
                     }
                     Item::Data(buf) => {
-                        wrench.api.payload_sender.send(buf).unwrap();
+                        wrench.api.payload_sender.send(Payload::from_data(buf)).unwrap();
                     }
                 }
             }
