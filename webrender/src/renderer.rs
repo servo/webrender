@@ -586,7 +586,7 @@ impl Renderer {
 
         let file_watch_handler = FileWatcher {
             result_tx: result_tx.clone(),
-            notifier: notifier.clone(),
+            notifier: Arc::clone(&notifier),
         };
 
         let mut device = Device::new(gl,
@@ -847,11 +847,11 @@ impl Renderer {
         device.end_frame();
 
         let main_thread_dispatcher = Arc::new(Mutex::new(None));
-        let backend_notifier = notifier.clone();
-        let backend_main_thread_dispatcher = main_thread_dispatcher.clone();
+        let backend_notifier = Arc::clone(&notifier);
+        let backend_main_thread_dispatcher = Arc::clone(&main_thread_dispatcher);
 
         let vr_compositor = Arc::new(Mutex::new(None));
-        let backend_vr_compositor = vr_compositor.clone();
+        let backend_vr_compositor = Arc::clone(&vr_compositor);
 
         // We need a reference to the webrender context from the render backend in order to share
         // texture ids
