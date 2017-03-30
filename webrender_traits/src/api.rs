@@ -489,6 +489,15 @@ pub struct PropertyBindingId {
     uid: u32,
 }
 
+impl PropertyBindingId {
+    pub fn new(value: u64) -> Self {
+        PropertyBindingId {
+            namespace: (value>>32) as u32,
+            uid: value as u32,
+        }
+    }
+}
+
 /// A unique key that is used for connecting animated property
 /// values to bindings in the display list.
 #[repr(C)]
@@ -504,6 +513,15 @@ impl<T: Copy> PropertyBindingKey<T> {
         PropertyValue {
             key: *self,
             value: value,
+        }
+    }
+}
+
+impl<T> PropertyBindingKey<T> {
+    pub fn new(value: u64) -> Self {
+        PropertyBindingKey {
+            id: PropertyBindingId::new(value),
+            _phantom: PhantomData,
         }
     }
 }
