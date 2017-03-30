@@ -259,10 +259,15 @@ impl ResourceCache {
 
     fn should_tile(&self, descriptor: &ImageDescriptor, data: &ImageData) -> bool {
         let limit = self.max_texture_size();
+        let size_check = descriptor.width > limit || descriptor.height > limit;
         return match data {
-            // Tiled external images are not implemented.
-            &ImageData::External(_) => false,
-            _ => { descriptor.width > limit || descriptor.height > limit }
+            &ImageData::Raw(_) => { size_check }
+            &ImageData::Blob(_) => { size_check }
+            &ImageData::External(info) => {
+                // External handles already represent existing textures so it does
+                // not make sense to tile them into smaller ones.
+                info.image_type == ExternalImageType::ExternalBuffer && size_check
+            },
         };
     }
 
