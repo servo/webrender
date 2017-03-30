@@ -1245,7 +1245,10 @@ impl FrameBuilder {
                     let stacking_context_index = *sc_stack.last().unwrap();
                     let group_index = self.stacking_context_store[stacking_context_index.0]
                                           .clip_scroll_group(scroll_layer_id);
-                    let clip_scroll_group = &self.clip_scroll_group_store[group_index.0];
+                    let xf_rect = match &self.clip_scroll_group_store[group_index.0].xf_rect {
+                        &Some(ref xf_rect) => xf_rect,
+                        &None => continue,
+                    };
 
                     for i in 0..prim_count {
                         let prim_index = PrimitiveIndex(first_prim_index.0 + i);
@@ -1261,9 +1264,8 @@ impl FrameBuilder {
                                 current_task.children.push(clip_task.clone());
                             }
 
-                            let transform_kind = clip_scroll_group.xf_rect.as_ref().unwrap().kind;
                             let needs_clipping = prim_metadata.clip_task.is_some();
-                            let needs_blending = transform_kind == TransformedRectKind::Complex ||
+                            let needs_blending = xf_rect.kind == TransformedRectKind::Complex ||
                                                  !prim_metadata.is_opaque ||
                                                  needs_clipping;
 
@@ -1407,7 +1409,7 @@ struct LayerRectCalculationAndCullingPass<'a> {
 
     /// Information about the cached clip stack, which is used to avoid having
     /// to recalculate it for every primitive.
-    current_clip_info: Option<(ScrollLayerId, DeviceIntRect)>
+    current_clip_info: Option<(ScrollLayerId, Option<DeviceIntRect>)>
 }
 
 impl<'a> LayerRectCalculationAndCullingPass<'a> {
@@ -1587,7 +1589,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         stacking_context.bounding_rect = DeviceIntRect::zero();
     }
 
-    fn rebuild_clip_info_stack_if_necessary(&mut self, id: ScrollLayerId) -> DeviceIntRect {
+    fn rebuild_clip_info_stack_if_necessary(&mut self, id: ScrollLayerId) -> Option<DeviceIntRect> {
         if let Some((current_scroll_id, bounding_rect)) = self.current_clip_info {
             if current_scroll_id == id {
                 return bounding_rect;
@@ -1610,14 +1612,15 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             };
 
             if bounding_rect.is_none() {
-                bounding_rect = Some(clip_info.xf_rect.as_ref().unwrap().bounding_rect);
+                bounding_rect =
+                    Some(clip_info.xf_rect.as_ref().map_or_else(DeviceIntRect::zero,
+                                                                |x| x.bounding_rect))
             }
             self.current_clip_stack.push((clip_info.packed_layer_index,
                                           clip_info.mask_cache_info.clone().unwrap()))
         }
         self.current_clip_stack.reverse();
 
-        let bounding_rect = bounding_rect.unwrap_or_else(DeviceIntRect::zero);
         self.current_clip_info = Some((id, bounding_rect));
         bounding_rect
     }
@@ -1641,6 +1644,9 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         };
 
         let node_clip_bounds = self.rebuild_clip_info_stack_if_necessary(scroll_layer_id);
+        if node_clip_bounds.map_or(false, |bounds| bounds.is_empty()) {
+            return;
+        }
 
         let stacking_context =
             &mut self.frame_builder.stacking_context_store[stacking_context_index.0];
@@ -1692,6 +1698,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                     // stacking context. This means that two primitives which are only clipped
                     // by the stacking context stack can share clip masks during render task
                     // assignment to targets.
+                    let node_clip_bounds = node_clip_bounds.unwrap_or_else(DeviceIntRect::zero);
                     let (mask_key, mask_rect) = match prim_clip_info {
                         Some(..) => (MaskCacheKey::Primitive(prim_index), prim_bounding_rect),
                         None => (MaskCacheKey::ScrollLayer(scroll_layer_id), node_clip_bounds)
