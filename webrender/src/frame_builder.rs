@@ -585,7 +585,9 @@ impl FrameBuilder {
                                       border.gradient.start_point - segment_rel,
                                       border.gradient.end_point - segment_rel,
                                       border.gradient.stops,
-                                      border.gradient.extend_mode);
+                                      border.gradient.extend_mode,
+                                      segment.size,
+                                      LayerSize::zero());
                 }
             }
             BorderDetails::RadialGradient(ref border) => {
@@ -601,7 +603,9 @@ impl FrameBuilder {
                                              border.gradient.end_radius,
                                              border.gradient.ratio_xy,
                                              border.gradient.stops,
-                                             border.gradient.extend_mode);
+                                             border.gradient.extend_mode,
+                                             segment.size,
+                                             LayerSize::zero());
                 }
             }
         }
@@ -614,15 +618,23 @@ impl FrameBuilder {
                         start_point: LayerPoint,
                         end_point: LayerPoint,
                         stops: ItemRange,
-                        extend_mode: ExtendMode) {
+                        extend_mode: ExtendMode,
+                        tile_size: LayerSize,
+                        tile_spacing: LayerSize) {
+        let tile_repeat = tile_size + tile_spacing;
+        let is_not_tiled = tile_repeat.width >= rect.size.width &&
+                           tile_repeat.height >= rect.size.height;
+
+        let aligned_and_fills_rect = (start_point.x == end_point.x &&
+                                      start_point.y.min(end_point.y) <= rect.min_y() &&
+                                      start_point.y.max(end_point.y) >= rect.max_y()) ||
+                                     (start_point.y == end_point.y &&
+                                      start_point.x.min(end_point.x) <= rect.min_x() &&
+                                      start_point.x.max(end_point.x) >= rect.max_x());
+
         // Fast path for clamped, axis-aligned gradients, with gradient lines intersecting all of rect:
-        let aligned = extend_mode == ExtendMode::Clamp &&
-                      (start_point.x == end_point.x &&
-                       start_point.y.min(end_point.y) <= rect.min_y() &&
-                       start_point.y.max(end_point.y) >= rect.max_y()) ||
-                      (start_point.y == end_point.y &&
-                       start_point.x.min(end_point.x) <= rect.min_x() &&
-                       start_point.x.max(end_point.x) >= rect.max_x());
+        let aligned = extend_mode == ExtendMode::Clamp && is_not_tiled && aligned_and_fills_rect;
+
         // Try to ensure that if the gradient is specified in reverse, then so long as the stops
         // are also supplied in reverse that the rendered result will be equivalent. To do this,
         // a reference orientation for the gradient line must be chosen, somewhat arbitrarily, so
@@ -654,7 +666,9 @@ impl FrameBuilder {
             start_point: sp,
             end_point: ep,
             extend_mode: pack_as_float(extend_mode as u32),
-            padding: [0.0, 0.0, 0.0],
+            tile_size: tile_size,
+            tile_repeat: tile_repeat,
+            padding: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         };
 
         let prim = if aligned {
@@ -680,7 +694,9 @@ impl FrameBuilder {
                                end_radius: f32,
                                ratio_xy: f32,
                                stops: ItemRange,
-                               extend_mode: ExtendMode) {
+                               extend_mode: ExtendMode,
+                               tile_size: LayerSize,
+                               tile_spacing: LayerSize) {
         let radial_gradient_cpu = RadialGradientPrimitiveCpu {
             stops_range: stops,
             extend_mode: extend_mode,
@@ -694,6 +710,9 @@ impl FrameBuilder {
             end_radius: end_radius,
             ratio_xy: ratio_xy,
             extend_mode: pack_as_float(extend_mode as u32),
+            tile_size: tile_size,
+            tile_repeat: tile_size + tile_spacing,
+            padding: [0.0, 0.0, 0.0, 0.0],
         };
 
         self.add_primitive(scroll_layer_id,

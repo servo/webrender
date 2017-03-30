@@ -701,6 +701,8 @@ impl YamlFrameWriter {
                     str_node(&mut v, "type", "gradient");
                     point_node(&mut v, "start", &item.gradient.start_point);
                     point_node(&mut v, "end", &item.gradient.end_point);
+                    size_node(&mut v, "tile-size", &item.tile_size);
+                    size_node(&mut v, "tile-spacing", &item.tile_spacing);
                     let mut stops = vec![];
                     for stop in aux.gradient_stops(&item.gradient.stops) {
                         stops.push(Yaml::Real(stop.offset.to_string()));
@@ -716,6 +718,8 @@ impl YamlFrameWriter {
                     point_node(&mut v, "end-center", &item.gradient.end_center);
                     f32_node(&mut v, "end-radius", item.gradient.end_radius);
                     f32_node(&mut v, "ratio-xy", item.gradient.ratio_xy);
+                    size_node(&mut v, "tile-size", &item.tile_size);
+                    size_node(&mut v, "tile-spacing", &item.tile_spacing);
                     let mut stops = vec![];
                     for stop in aux.gradient_stops(&item.gradient.stops) {
                         stops.push(Yaml::Real(stop.offset.to_string()));

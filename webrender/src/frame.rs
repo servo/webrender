@@ -645,7 +645,9 @@ impl Frame {
                                                  info.gradient.start_point,
                                                  info.gradient.end_point,
                                                  info.gradient.stops,
-                                                 info.gradient.extend_mode);
+                                                 info.gradient.extend_mode,
+                                                 info.tile_size,
+                                                 info.tile_spacing);
                 }
                 SpecificDisplayItem::RadialGradient(ref info) => {
                     context.builder.add_radial_gradient(scroll_layer_id,
@@ -657,7 +659,9 @@ impl Frame {
                                                         info.gradient.end_radius,
                                                         info.gradient.ratio_xy,
                                                         info.gradient.stops,
-                                                        info.gradient.extend_mode);
+                                                        info.gradient.extend_mode,
+                                                        info.tile_size,
+                                                        info.tile_spacing);
                 }
                 SpecificDisplayItem::BoxShadow(ref box_shadow_info) => {
                     context.builder.add_box_shadow(scroll_layer_id,

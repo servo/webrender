@@ -5,8 +5,15 @@
 uniform sampler2D sGradients;
 
 void main(void) {
+    vec2 pos = mod(vPos, vTileRepeat);
+
+    if (pos.x >= vTileSize.x ||
+        pos.y >= vTileSize.y) {
+        discard;
+    }
+
     // Normalized offset of this vertex within the gradient, before clamp/repeat.
-    float offset = dot(vPos - vStartPoint, vScaledDir);
+    float offset = dot(pos - vStartPoint, vScaledDir);
 
     vec2 texture_size = vec2(textureSize(sGradients, 0));
 
