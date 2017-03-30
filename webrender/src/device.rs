@@ -665,10 +665,10 @@ impl<T> GpuProfiler<T> {
         GpuProfiler {
             next_frame: 0,
             frames: [
-                      GpuFrameProfile::new(gl.clone()),
-                      GpuFrameProfile::new(gl.clone()),
-                      GpuFrameProfile::new(gl.clone()),
-                      GpuFrameProfile::new(gl.clone()),
+                      GpuFrameProfile::new(Rc::clone(&gl)),
+                      GpuFrameProfile::new(Rc::clone(&gl)),
+                      GpuFrameProfile::new(Rc::clone(&gl)),
+                      GpuFrameProfile::new(Rc::clone(&gl)),
                     ],
         }
     }
@@ -710,12 +710,12 @@ impl GpuMarker {
             gl::GlType::Gl =>  {
                 gl.push_group_marker_ext(message);
                 GpuMarker{
-                    gl: gl.clone(),
+                    gl: Rc::clone(&gl),
                 }
             }
             gl::GlType::Gles => {
                 GpuMarker{
-                    gl: gl.clone(),
+                    gl: Rc::clone(&gl),
                 }
             }
         }
@@ -1102,7 +1102,7 @@ impl Device {
             };
 
             let texture = Texture {
-                gl: self.gl.clone(),
+                gl: Rc::clone(&self.gl),
                 id: id,
                 width: 0,
                 height: 0,
@@ -1445,7 +1445,7 @@ impl Device {
         }
 
         let program = Program {
-            gl: self.gl.clone(),
+            gl: Rc::clone(&self.gl),
             name: base_filename.to_owned(),
             id: pid,
             u_transform: -1,
@@ -1789,7 +1789,7 @@ impl Device {
         ibo_id.bind(self.gl()); // force it to be a part of VAO
 
         let vao = VAO {
-            gl: self.gl.clone(),
+            gl: Rc::clone(&self.gl),
             id: vao_id,
             ibo_id: ibo_id,
             main_vbo_id: main_vbo_id,
