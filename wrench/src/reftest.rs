@@ -42,9 +42,9 @@ enum ReftestImageComparison {
 
 impl ReftestImage {
     fn compare(&self, other: &ReftestImage) -> ReftestImageComparison {
-        assert!(self.size == other.size);
-        assert!(self.data.len() == other.data.len());
-        assert!(self.data.len() % 4 == 0);
+        assert_eq!(self.size, other.size);
+        assert_eq!(self.data.len(), other.data.len());
+        assert_eq!(self.data.len() % 4, 0);
 
         let mut count = 0;
         let mut max = 0;
