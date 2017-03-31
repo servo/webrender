@@ -643,6 +643,8 @@ impl YamlFrameReader {
             None => None,
         };
 
+        let transform_style = yaml["transform-style"].as_transform_style()
+                                                     .unwrap_or(TransformStyle::Flat);
         let mix_blend_mode = yaml["mix-blend-mode"].as_mix_blend_mode()
                                                    .unwrap_or(MixBlendMode::Normal);
         let scroll_policy = yaml["scroll-policy"].as_scroll_policy()
@@ -661,6 +663,7 @@ impl YamlFrameReader {
                                              bounds,
                                              z_index as i32,
                                              transform.into(),
+                                             transform_style,
                                              perspective,
                                              mix_blend_mode,
                                              filters);

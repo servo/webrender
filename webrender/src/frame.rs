@@ -439,7 +439,8 @@ impl Frame {
         context.builder.push_stacking_context(&reference_frame_relative_offset,
                                               pipeline_id,
                                               level == 0,
-                                              composition_operations);
+                                              composition_operations,
+                                              stacking_context.transform_style);
 
         // For the root pipeline, there's no need to add a full screen rectangle
         // here, as it's handled by the framebuffer clear.

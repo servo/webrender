@@ -19,7 +19,7 @@ use time;
 use webrender;
 use webrender_traits::*;
 use webrender_traits::SpecificDisplayItem::*;
-use yaml_helper::{mix_blend_mode_to_string, scroll_policy_to_string};
+use yaml_helper::StringEnum;
 use yaml_rust::{Yaml, YamlEmitter};
 
 type Table = yaml_rust::yaml::Hash;
@@ -51,6 +51,10 @@ fn str_node(parent: &mut Table, key: &str, value: &str) {
 fn path_node(parent: &mut Table, key: &str, value: &Path) {
     let pstr = value.to_str().unwrap().to_owned().replace("\\", "/");
     yaml_node(parent, key, Yaml::String(pstr));
+}
+
+fn enum_node<E: StringEnum>(parent: &mut Table, key: &str, value: E) {
+    yaml_node(parent, key, Yaml::String(value.as_str().to_owned()));
 }
 
 fn color_to_string(value: ColorF) -> String {
@@ -147,14 +151,6 @@ fn vec_node(parent: &mut Table, key: &str, value: Vec<Yaml>) {
     yaml_node(parent, key, Yaml::Array(value));
 }
 
-fn mix_blend_mode_node(parent: &mut Table, key: &str, value: MixBlendMode) {
-    yaml_node(parent, key, Yaml::String(mix_blend_mode_to_string(value).to_owned()));
-}
-
-fn scroll_policy_node(parent: &mut Table, key: &str, value: ScrollPolicy) {
-    yaml_node(parent, key, Yaml::String(scroll_policy_to_string(value).to_owned()));
-}
-
 fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
     if let Some(radius) = radius.is_uniform_size() {
         if radius == LayoutSize::zero() {
@@ -173,7 +169,7 @@ fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
 }
 
 fn write_sc(parent: &mut Table, sc: &StackingContext) {
-    scroll_policy_node(parent, "scroll-policy", sc.scroll_policy);
+    enum_node(parent, "scroll-policy", sc.scroll_policy);
     i32_node(parent, "z-index", sc.z_index);
 
     match sc.transform {
@@ -182,13 +178,15 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
         None => {}
     };
 
+    enum_node(parent, "transform-style", sc.transform_style);
+
     if let Some(perspective) = sc.perspective {
         matrix4d_node(parent, "perspective", &perspective);
     }
 
     // mix_blend_mode
     if sc.mix_blend_mode != MixBlendMode::Normal {
-        mix_blend_mode_node(parent, "mix-blend-mode", sc.mix_blend_mode)
+        enum_node(parent, "mix-blend-mode", sc.mix_blend_mode)
     }
     // filters
 }

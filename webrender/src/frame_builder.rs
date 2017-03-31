@@ -34,6 +34,7 @@ use webrender_traits::{DeviceIntSize, DeviceUintRect, DeviceUintSize, ExtendMode
 use webrender_traits::{FontRenderMode, GlyphOptions, ImageKey, ImageRendering, ItemRange};
 use webrender_traits::{LayerPoint, LayerRect, LayerSize, LayerToScrollTransform, PipelineId};
 use webrender_traits::{RepeatMode, ScrollLayerId, TileOffset, WebGLContextId, YuvColorSpace};
+use webrender_traits::{TransformStyle};
 
 #[derive(Debug, Clone)]
 struct ImageBorderSegment {
@@ -219,7 +220,8 @@ impl FrameBuilder {
                                  reference_frame_offset: &LayerPoint,
                                  pipeline_id: PipelineId,
                                  is_page_root: bool,
-                                 composite_ops: CompositeOps) {
+                                 composite_ops: CompositeOps,
+                                 transform_style: TransformStyle) {
         if let Some(parent_index) = self.stacking_context_stack.last() {
             let parent_is_root = self.stacking_context_store[parent_index.0].is_page_root;
 
@@ -235,6 +237,7 @@ impl FrameBuilder {
         self.stacking_context_store.push(StackingContext::new(pipeline_id,
                                                               *reference_frame_offset,
                                                               is_page_root,
+                                                              transform_style,
                                                               composite_ops));
         self.cmds.push(PrimitiveRunCmd::PushStackingContext(stacking_context_index));
         self.stacking_context_stack.push(stacking_context_index);

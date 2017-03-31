@@ -25,6 +25,7 @@ pub trait YamlHelper {
     fn as_pt_to_au(&self) -> Option<Au>;
     fn as_vec_string(&self) -> Option<Vec<String>>;
     fn as_border_radius(&self) -> Option<BorderRadius>;
+    fn as_transform_style(&self) -> Option<TransformStyle>;
     fn as_mix_blend_mode(&self) -> Option<MixBlendMode>;
     fn as_scroll_policy(&self) -> Option<ScrollPolicy>;
     fn as_filter_op(&self) -> Option<FilterOp>;
@@ -51,44 +52,56 @@ fn string_to_color(color: &str) -> Option<ColorF> {
     }
 }
 
-macro_rules! define_enum_conversion {
-    ($read_func:ident, $write_func:ident, $T:ty, [ $( ( $x:expr, $y:path ) ),* ]) => {
-        pub fn $read_func(text: &str) -> Option<$T> {
-            match text {
-            $( $x => Some($y), )*
-                _ => None
+pub trait StringEnum: Sized {
+    fn from_str(&str) -> Option<Self>;
+    fn as_str(&self) -> &'static str;
+}
+
+macro_rules! define_string_enum {
+    ($T:ident, [ $( $y:ident = $x:expr, )* ]) => {
+        impl StringEnum for $T {
+            fn from_str(text: &str) -> Option<$T> {
+                match text {
+                $( $x => Some($T::$y), )*
+                    _ => None
+                }
             }
-        }
-        pub fn $write_func(val: $T) -> &'static str {
-            match val {
-            $( $y => $x, )*
+            fn as_str(&self) -> &'static str {
+                match self {
+                $( &$T::$y => $x, )*
+                }
             }
         }
     }
 }
 
-define_enum_conversion!(string_to_mix_blend_mode, mix_blend_mode_to_string, MixBlendMode, [
-    ("normal", MixBlendMode::Normal),
-    ("multiply", MixBlendMode::Multiply),
-    ("screen", MixBlendMode::Screen),
-    ("overlay", MixBlendMode::Overlay),
-    ("darken", MixBlendMode::Darken),
-    ("lighten", MixBlendMode::Lighten),
-    ("color-dodge", MixBlendMode::ColorDodge),
-    ("color-burn", MixBlendMode::ColorBurn),
-    ("hard-light", MixBlendMode::HardLight),
-    ("soft-light", MixBlendMode::SoftLight),
-    ("difference", MixBlendMode::Difference),
-    ("exclusion", MixBlendMode::Exclusion),
-    ("hue", MixBlendMode::Hue),
-    ("saturation", MixBlendMode::Saturation),
-    ("color", MixBlendMode::Color),
-    ("luminosity", MixBlendMode::Luminosity)
+define_string_enum!(TransformStyle, [
+    Flat = "flat",
+    Preserve3D = "preserve3d",
 ]);
 
-define_enum_conversion!(string_to_scroll_policy, scroll_policy_to_string, ScrollPolicy, [
-    ("scrollable", ScrollPolicy::Scrollable),
-    ("fixed", ScrollPolicy::Fixed)
+define_string_enum!(MixBlendMode, [
+    Normal = "normal",
+    Multiply = "multiply",
+    Screen = "screen",
+    Overlay = "overlay",
+    Darken = "darken",
+    Lighten = "lighten",
+    ColorDodge = "color-dodge",
+    ColorBurn = "color-burn",
+    HardLight = "hard-light",
+    SoftLight = "soft-light",
+    Difference = "difference",
+    Exclusion = "exclusion",
+    Hue = "hue",
+    Saturation = "saturation",
+    Color = "color",
+    Luminosity = "luminosity",
+]);
+
+define_string_enum!(ScrollPolicy, [
+    Scrollable = "scrollable",
+    Fixed = "fixed",
 ]);
 
 impl YamlHelper for Yaml {
@@ -324,12 +337,16 @@ impl YamlHelper for Yaml {
         }
     }
 
+    fn as_transform_style(&self) -> Option<TransformStyle> {
+        self.as_str().and_then(|x| StringEnum::from_str(x))
+    }
+
     fn as_mix_blend_mode(&self) -> Option<MixBlendMode> {
-        return self.as_str().and_then(|x| string_to_mix_blend_mode(x));
+        self.as_str().and_then(|x| StringEnum::from_str(x))
     }
 
     fn as_scroll_policy(&self) -> Option<ScrollPolicy> {
-        return self.as_str().and_then(|string| string_to_scroll_policy(string))
+        self.as_str().and_then(|x| StringEnum::from_str(x))
     }
 
     fn as_filter_op(&self) -> Option<FilterOp> {
