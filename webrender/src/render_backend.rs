@@ -223,14 +223,15 @@ impl RenderBackend {
                             if !preserve_frame_state {
                                 self.discard_frame_state_for_pipeline(pipeline_id);
                             }
-
-                            self.scene.set_root_display_list(pipeline_id,
-                                                             epoch,
-                                                             built_display_list,
-                                                             background_color,
-                                                             viewport_size,
-                                                             auxiliary_lists);
-                            self.build_scene();
+                            profile_counters.total_time.profile(|| {
+                                self.scene.set_root_display_list(pipeline_id,
+                                                                 epoch,
+                                                                 built_display_list,
+                                                                 background_color,
+                                                                 viewport_size,
+                                                                 auxiliary_lists);
+                                self.build_scene();
+                            })
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
                             profile_scope!("SetRootPipeline");
@@ -240,7 +241,9 @@ impl RenderBackend {
                                 continue;
                             }
 
-                            self.build_scene();
+                            profile_counters.total_time.profile(|| {
+                                self.build_scene();
+                            })
                         }
                         ApiMsg::Scroll(delta, cursor, move_phase) => {
                             profile_scope!("Scroll");
@@ -383,7 +386,9 @@ impl RenderBackend {
                             //           rebuild of the frame!
                             if let Some(property_bindings) = property_bindings {
                                 self.scene.properties.set_properties(property_bindings);
-                                self.build_scene();
+                                profile_counters.total_time.profile(|| {
+                                    self.build_scene();
+                                });
                             }
 
                             let frame = {
