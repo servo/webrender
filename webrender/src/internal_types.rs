@@ -387,13 +387,13 @@ pub enum LowLevelFilterOp {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum HardwareCompositeOp {
-    Alpha,
+    PremultipliedAlpha,
 }
 
 impl HardwareCompositeOp {
     pub fn to_blend_mode(&self) -> BlendMode {
         match self {
-            &HardwareCompositeOp::Alpha => BlendMode::Alpha,
+            &HardwareCompositeOp::PremultipliedAlpha => BlendMode::PremultipliedAlpha,
         }
     }
 }
