@@ -42,9 +42,9 @@ enum ReftestImageComparison {
 
 impl ReftestImage {
     fn compare(&self, other: &ReftestImage) -> ReftestImageComparison {
-        assert!(self.size == other.size);
-        assert!(self.data.len() == other.data.len());
-        assert!(self.data.len() % 4 == 0);
+        assert_eq!(self.size, other.size);
+        assert_eq!(self.data.len(), other.data.len());
+        assert_eq!(self.data.len() % 4, 0);
 
         let mut count = 0;
         let mut max = 0;
@@ -215,10 +215,8 @@ impl<'a> ReftestHarness<'a> {
 
         println!("REFTEST INFO | {} passing, {} failing", total_passing, total_failing);
 
-        if total_failing > 0 {
-            // panic here so that we fail CI
-            panic!();
-        }
+        // panic here so that we fail CI
+        assert!(total_failing <= 0);
     }
 
     fn run_reftest(&mut self, t: &Reftest) -> bool {
