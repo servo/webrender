@@ -85,6 +85,13 @@ impl BuiltDisplayList {
             convert_blob_to_pod(&self.data[0..self.descriptor.display_list_items_size])
         }
     }
+
+    pub fn into_display_items(self) -> Vec<DisplayItem> {
+        unsafe {
+            convert_vec_blob_to_pod(self.data)
+        }
+    }
+
 }
 
 #[derive(Clone)]
@@ -633,3 +640,9 @@ unsafe fn convert_blob_to_pod<T>(blob: &[u8]) -> &[T] where T: Copy + 'static {
     slice::from_raw_parts(blob.as_ptr() as *const T, blob.len() / mem::size_of::<T>())
 }
 
+// this variant of the above lets us convert without needing to make a copy
+unsafe fn convert_vec_blob_to_pod<T>(mut data: Vec<u8>) -> Vec<T> where T: Copy + 'static {
+    let v = Vec::from_raw_parts(data.as_mut_ptr() as *mut T, data.len() / mem::size_of::<T>(), data.capacity() / mem::size_of::<T>());
+    mem::forget(data);
+    v
+}

@@ -121,7 +121,7 @@ impl Scene {
                                  viewport_size: LayerSize,
                                  auxiliary_lists: AuxiliaryLists) {
         self.pipeline_auxiliary_lists.insert(pipeline_id, auxiliary_lists);
-        self.display_lists.insert(pipeline_id, built_display_list.all_display_items().to_vec());
+        self.display_lists.insert(pipeline_id, built_display_list.into_display_items());
 
         let new_pipeline = ScenePipeline {
             pipeline_id: pipeline_id,
