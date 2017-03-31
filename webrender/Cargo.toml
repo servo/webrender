@@ -1,6 +1,6 @@
 [package]
 name = "webrender"
-version = "0.28.0"
+version = "0.29.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 repository = "https://github.com/servo/webrender"
