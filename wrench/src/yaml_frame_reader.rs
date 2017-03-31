@@ -188,18 +188,7 @@ impl YamlFrameReader {
         }
     }
 
-    fn handle_rect(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
-        let bounds_key = if item["type"].is_badvalue() { "rect" } else { "bounds" };
-        let rect = item[bounds_key].as_rect().expect("rect type must have bounds");
-        let color = item["color"].as_colorf().unwrap_or(*WHITE_COLOR);
-
-        let clip = self.to_clip_region(&item["clip"], &rect, wrench).unwrap_or(*clip_region);
-        self.builder().push_rect(rect, clip, color);
-    }
-
-    fn handle_gradient(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
-        let bounds_key = if item["type"].is_badvalue() { "gradient" } else { "bounds" };
-        let bounds = item[bounds_key].as_rect().expect("gradient must have bounds");
+    fn to_gradient(&mut self, item: &Yaml) -> Gradient {
         let start = item["start"].as_point().expect("gradient must have start");
         let end = item["end"].as_point().expect("gradient must have end");
         let stops = item["stops"].as_vec().expect("gradient must have stops")
@@ -213,32 +202,74 @@ impl YamlFrameReader {
             ExtendMode::Clamp
         };
 
+        self.builder().create_gradient(start, end, stops, extend_mode)
+    }
+
+    fn to_radial_gradient(&mut self, item: &Yaml) -> RadialGradient {
+        if item["start-center"].is_badvalue() {
+            let center = item["center"].as_point().expect("radial gradient must have start center");
+            let radius = item["radius"].as_size().expect("radial gradient must have start radius");
+            let stops = item["stops"].as_vec().expect("radial gradient must have stops")
+                .chunks(2).map(|chunk| GradientStop {
+                    offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
+                    color: chunk[1].as_colorf().expect("gradient stop color is not color"),
+                }).collect::<Vec<_>>();
+            let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
+                ExtendMode::Repeat
+            } else {
+                ExtendMode::Clamp
+            };
+
+            self.builder().create_radial_gradient(center, radius,
+                                                  stops, extend_mode)
+        } else {
+            let start_center = item["start-center"].as_point().expect("radial gradient must have start center");
+            let start_radius = item["start-radius"].as_force_f32().expect("radial gradient must have start radius");
+            let end_center = item["end-center"].as_point().expect("radial gradient must have end center");
+            let end_radius = item["end-radius"].as_force_f32().expect("radial gradient must have end radius");
+            let ratio_xy = item["ratio-xy"].as_force_f32().unwrap_or(1.0);
+            let stops = item["stops"].as_vec().expect("radial gradient must have stops")
+                .chunks(2).map(|chunk| GradientStop {
+                    offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
+                    color: chunk[1].as_colorf().expect("gradient stop color is not color"),
+                }).collect::<Vec<_>>();
+            let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
+                ExtendMode::Repeat
+            } else {
+                ExtendMode::Clamp
+            };
+
+            self.builder().create_complex_radial_gradient(start_center, start_radius,
+                                                          end_center, end_radius,
+                                                          ratio_xy, stops, extend_mode)
+        }
+    }
+
+    fn handle_rect(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
+        let bounds_key = if item["type"].is_badvalue() { "rect" } else { "bounds" };
+        let rect = item[bounds_key].as_rect().expect("rect type must have bounds");
+        let color = item["color"].as_colorf().unwrap_or(*WHITE_COLOR);
+
+        let clip = self.to_clip_region(&item["clip"], &rect, wrench).unwrap_or(*clip_region);
+        self.builder().push_rect(rect, clip, color);
+    }
+
+    fn handle_gradient(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
+        let bounds_key = if item["type"].is_badvalue() { "gradient" } else { "bounds" };
+        let bounds = item[bounds_key].as_rect().expect("gradient must have bounds");
+        let gradient = self.to_gradient(item);
+
         let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
-        self.builder().push_gradient(bounds, clip, start, end, stops, extend_mode);
+        self.builder().push_gradient(bounds, clip, gradient);
     }
 
     fn handle_radial_gradient(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
         let bounds_key = if item["type"].is_badvalue() { "radial-gradient" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("radial gradient must have bounds");
-        let start_center = item["start-center"].as_point().expect("radial gradient must have start center");
-        let start_radius = item["start-radius"].as_force_f32().expect("radial gradient must have start radius");
-        let end_center = item["end-center"].as_point().expect("radial gradient must have end center");
-        let end_radius = item["end-radius"].as_force_f32().expect("radial gradient must have end radius");
-        let ratio_xy = item["ratio-xy"].as_force_f32().unwrap_or(1.0);
-        let stops = item["stops"].as_vec().expect("radial gradient must have stops")
-            .chunks(2).map(|chunk| GradientStop {
-                offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
-                color: chunk[1].as_colorf().expect("gradient stop color is not color"),
-            }).collect::<Vec<_>>();
-        let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
-            ExtendMode::Repeat
-        } else {
-            ExtendMode::Clamp
-        };
+        let gradient = self.to_radial_gradient(item);
 
         let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
-        self.builder().push_radial_gradient(bounds, clip, start_center, start_radius,
-                                            end_center, end_radius, ratio_xy, stops, extend_mode);
+        self.builder().push_radial_gradient(bounds, clip, gradient);
     }
 
     fn handle_border(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
@@ -323,48 +354,20 @@ impl YamlFrameReader {
                     }))
                 },
                 "gradient" => {
-                    let start = item["start"].as_point().expect("gradient must have start");
-                    let end = item["end"].as_point().expect("gradient must have end");
-                    let stops = item["stops"].as_vec().expect("gradient must have stops")
-                        .chunks(2).map(|chunk| GradientStop {
-                            offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
-                            color: chunk[1].as_colorf().expect("gradient stop color is not color"),
-                        }).collect::<Vec<_>>();
-                    let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
-                        ExtendMode::Repeat
-                    } else {
-                        ExtendMode::Clamp
-                    };
+                    let gradient = self.to_gradient(item);
                     let outset = item["outset"].as_vec_f32().expect("borders must have outset");
                     let outset = broadcast(&outset, 4);
                     Some(BorderDetails::Gradient(GradientBorder {
-                        gradient: self.builder().create_gradient(start, end, stops, extend_mode),
+                        gradient: gradient,
                         outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
                     }))
                 },
                 "radial-gradient" => {
-                    let start_center = item["start-center"].as_point().expect("radial gradient must have start center");
-                    let start_radius =
-                        item["start-radius"].as_force_f32().expect("radial gradient must have start radius");
-                    let end_center = item["end-center"].as_point().expect("radial gradient must have end center");
-                    let end_radius = item["end-radius"].as_force_f32().expect("radial gradient must have end radius");
-                    let ratio_xy = item["ratio-xy"].as_force_f32().unwrap_or(1.0);
-                    let stops = item["stops"].as_vec().expect("radial gradient must have stops")
-                        .chunks(2).map(|chunk| GradientStop {
-                            offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
-                            color: chunk[1].as_colorf().expect("gradient stop color is not color"),
-                        }).collect::<Vec<_>>();
-                    let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
-                        ExtendMode::Repeat
-                    } else {
-                        ExtendMode::Clamp
-                    };
+                    let gradient = self.to_radial_gradient(item);
                     let outset = item["outset"].as_vec_f32().expect("borders must have outset");
                     let outset = broadcast(&outset, 4);
                     Some(BorderDetails::RadialGradient(RadialGradientBorder {
-                        gradient: self.builder().create_radial_gradient(start_center, start_radius,
-                                                                        end_center, end_radius, ratio_xy,
-                                                                        stops, extend_mode),
+                        gradient: gradient,
                         outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
                     }))
                 },

@@ -698,8 +698,12 @@ impl FrameBuilder {
                         extend_mode: ExtendMode) {
         // Fast path for clamped, axis-aligned gradients:
         let aligned = extend_mode == ExtendMode::Clamp &&
-                      (start_point.x == end_point.x ||
-                       start_point.y == end_point.y);
+                      (start_point.x == end_point.x &&
+                       start_point.x.min(end_point.x) <= rect.min_x() &&
+                       start_point.x.max(end_point.x) >= rect.max_x()) ||
+                       (start_point.y == end_point.y &&
+                       start_point.y.min(end_point.y) <= rect.min_y() &&
+                       start_point.y.max(end_point.y) >= rect.max_y());
         // Try to ensure that if the gradient is specified in reverse, then so long as the stops
         // are also supplied in reverse that the rendered result will be equivalent. To do this,
         // a reference orientation for the gradient line must be chosen, somewhat arbitrarily, so
