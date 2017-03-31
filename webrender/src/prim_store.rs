@@ -249,8 +249,8 @@ pub struct RadialGradientPrimitiveGpu {
     pub end_center: LayerPoint,
     pub start_radius: f32,
     pub end_radius: f32,
+    pub ratio_xy: f32,
     pub extend_mode: f32,
-    pub padding: [f32; 1],
 }
 
 #[derive(Debug)]

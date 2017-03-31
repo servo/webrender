@@ -224,6 +224,7 @@ impl YamlFrameReader {
         let start_radius = item["start-radius"].as_force_f32().expect("radial gradient must have start radius");
         let end_center = item["end-center"].as_point().expect("radial gradient must have end center");
         let end_radius = item["end-radius"].as_force_f32().expect("radial gradient must have end radius");
+        let ratio_xy = item["ratio-xy"].as_force_f32().unwrap_or(1.0);
         let stops = item["stops"].as_vec().expect("radial gradient must have stops")
             .chunks(2).map(|chunk| GradientStop {
                 offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
@@ -237,7 +238,7 @@ impl YamlFrameReader {
 
         let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
         self.builder().push_radial_gradient(bounds, clip, start_center, start_radius,
-                                            end_center, end_radius, stops, extend_mode);
+                                            end_center, end_radius, ratio_xy, stops, extend_mode);
     }
 
     fn handle_border(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
@@ -347,6 +348,7 @@ impl YamlFrameReader {
                         item["start-radius"].as_force_f32().expect("radial gradient must have start radius");
                     let end_center = item["end-center"].as_point().expect("radial gradient must have end center");
                     let end_radius = item["end-radius"].as_force_f32().expect("radial gradient must have end radius");
+                    let ratio_xy = item["ratio-xy"].as_force_f32().unwrap_or(1.0);
                     let stops = item["stops"].as_vec().expect("radial gradient must have stops")
                         .chunks(2).map(|chunk| GradientStop {
                             offset: chunk[0].as_force_f32().expect("gradient stop offset is not f32"),
@@ -361,7 +363,7 @@ impl YamlFrameReader {
                     let outset = broadcast(&outset, 4);
                     Some(BorderDetails::RadialGradient(RadialGradientBorder {
                         gradient: self.builder().create_radial_gradient(start_center, start_radius,
-                                                                        end_center, end_radius,
+                                                                        end_center, end_radius, ratio_xy,
                                                                         stops, extend_mode),
                         outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
                     }))

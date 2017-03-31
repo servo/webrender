@@ -227,6 +227,7 @@ pub struct RadialGradient {
     pub start_radius: f32,
     pub end_center: LayoutPoint,
     pub end_radius: f32,
+    pub ratio_xy: f32,
     pub stops: ItemRange,
     pub extend_mode: ExtendMode,
 }

@@ -672,6 +672,7 @@ impl YamlFrameWriter {
                             f32_node(&mut v, "start-radius", details.gradient.start_radius);
                             point_node(&mut v, "end-center", &details.gradient.end_center);
                             f32_node(&mut v, "end-radius", details.gradient.end_radius);
+                            f32_node(&mut v, "ratio-xy", details.gradient.ratio_xy);
                             let mut stops = vec![];
                             for stop in aux.gradient_stops(&details.gradient.stops) {
                                 stops.push(Yaml::Real(stop.offset.to_string()));
@@ -716,6 +717,7 @@ impl YamlFrameWriter {
                     f32_node(&mut v, "start-radius", item.gradient.start_radius);
                     point_node(&mut v, "end-center", &item.gradient.end_center);
                     f32_node(&mut v, "end-radius", item.gradient.end_radius);
+                    f32_node(&mut v, "ratio-xy", item.gradient.ratio_xy);
                     let mut stops = vec![];
                     for stop in aux.gradient_stops(&item.gradient.stops) {
                         stops.push(Yaml::Real(stop.offset.to_string()));

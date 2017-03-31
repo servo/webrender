@@ -680,6 +680,7 @@ impl FrameBuilder {
                                              border.gradient.start_radius,
                                              border.gradient.end_center,
                                              border.gradient.end_radius,
+                                             border.gradient.ratio_xy,
                                              border.gradient.stops,
                                              border.gradient.extend_mode);
                 }
@@ -754,6 +755,7 @@ impl FrameBuilder {
                                start_radius: f32,
                                end_center: LayerPoint,
                                end_radius: f32,
+                               ratio_xy: f32,
                                stops: ItemRange,
                                extend_mode: ExtendMode) {
         let radial_gradient_cpu = RadialGradientPrimitiveCpu {
@@ -767,8 +769,8 @@ impl FrameBuilder {
             end_center: end_center,
             start_radius: start_radius,
             end_radius: end_radius,
+            ratio_xy: ratio_xy,
             extend_mode: pack_as_float(extend_mode as u32),
-            padding: [0.0],
         };
 
         self.add_primitive(scroll_layer_id,

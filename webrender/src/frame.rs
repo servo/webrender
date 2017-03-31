@@ -658,6 +658,7 @@ impl Frame {
                                                         info.gradient.start_radius,
                                                         info.gradient.end_center,
                                                         info.gradient.end_radius,
+                                                        info.gradient.ratio_xy,
                                                         info.gradient.stops,
                                                         info.gradient.extend_mode);
                 }
