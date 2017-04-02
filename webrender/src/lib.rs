@@ -40,7 +40,7 @@
 //!
 //! [stacking_contexts]: https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Positioning/Understanding_z_index/The_stacking_context
 //! [newframe]: ../webrender_traits/struct.RenderApi.html#method.set_root_stacking_context
-//! [notifier]: struct.Renderer.html#method.set_render_notifier
+//! [notifier]: renderer/struct.Renderer.html#method.set_render_notifier
 
 #[macro_use]
 extern crate lazy_static;
