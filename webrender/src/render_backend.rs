@@ -188,7 +188,8 @@ impl RenderBackend {
                             loop {
                                 auxiliary_data = self.payload_rx.recv_payload().unwrap();
                                 {
-                                    if auxiliary_data.epoch == epoch {
+                                    if auxiliary_data.epoch == epoch &&
+                                       auxiliary_data.pipeline_id == pipeline_id {
                                         break
                                     }
                                 }

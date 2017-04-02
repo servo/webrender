@@ -315,7 +315,12 @@ impl RenderApi {
                                              preserve_frame_state);
         self.api_sender.send(msg).unwrap();
 
-        self.payload_sender.send_payload(Payload{epoch: epoch, display_list_data: dl_data, auxiliary_lists_data: aux_data}).unwrap();
+        self.payload_sender.send_payload(Payload {
+            epoch: epoch,
+            pipeline_id: pipeline_id,
+            display_list_data: dl_data,
+            auxiliary_lists_data: aux_data
+        }).unwrap();
     }
 
     /// Scrolls the scrolling layer under the `cursor`
