@@ -1076,8 +1076,8 @@ impl Renderer {
 
     /// Renders the current frame.
     ///
-    /// A Frame is supplied by calling [set_root_stacking_context()][newframe].
-    /// [newframe]: ../../webrender_traits/struct.RenderApi.html#method.set_root_stacking_context
+    /// A Frame is supplied by calling [`set_root_display_list()`][newframe].
+    /// [newframe]: ../../webrender_traits/struct.RenderApi.html#method.set_root_display_list
     pub fn render(&mut self, framebuffer_size: DeviceUintSize) {
         profile_scope!("render");
 

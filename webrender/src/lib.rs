@@ -24,12 +24,12 @@
 //! to make better use of multicore systems.
 //!
 //! What is referred to as a `frame`, is the current geometry on the screen.
-//! A new Frame is created by calling [set_root_stacking_context()][newframe] on the `RenderApi`.
+//! A new Frame is created by calling [`set_root_display_list()`][newframe] on the `RenderApi`.
 //! When the geometry is processed, the application will be informed via a `RenderNotifier`,
 //! a callback which you employ with [set_render_notifier][notifier] on the `Renderer`
 //! More information about [stacking contexts][stacking_contexts].
 //!
-//! `set_root_stacking_context()` also needs to be supplied with `BuiltDisplayList`s.
+//! `set_root_display_list()` also needs to be supplied with `BuiltDisplayList`s.
 //! These are obtained by finalizing a `DisplayListBuilder`. These are used to draw your geometry.
 //! But it doesn't only contain trivial geometry, it can also store another StackingContext, as
 //! they're nestable.
@@ -39,7 +39,7 @@
 //! `yourRenderApiInstance.next_display_list_id();`
 //!
 //! [stacking_contexts]: https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Positioning/Understanding_z_index/The_stacking_context
-//! [newframe]: ../webrender_traits/struct.RenderApi.html#method.set_root_stacking_context
+//! [newframe]: ../webrender_traits/struct.RenderApi.html#method.set_root_display_list
 //! [notifier]: renderer/struct.Renderer.html#method.set_render_notifier
 
 #[macro_use]
