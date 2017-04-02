@@ -558,12 +558,11 @@ impl From<std::io::Error> for InitError {
 }
 
 impl Renderer {
-    /// Initializes webrender and creates a Renderer and RenderApiSender.
+    /// Initializes webrender and creates a `Renderer` and `RenderApiSender`.
     ///
     /// # Examples
-    /// Initializes a Renderer with some reasonable values. For more information see
-    /// [RendererOptions][rendereroptions].
-    /// [rendereroptions]: struct.RendererOptions.html
+    /// Initializes a `Renderer` with some reasonable values. For more information see
+    /// [`RendererOptions`][rendereroptions].
     ///
     /// ```rust,ignore
     /// # use webrender::renderer::Renderer;
@@ -576,6 +575,7 @@ impl Renderer {
     /// };
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
+    /// [rendereroptions]: struct.RendererOptions.html
     pub fn new(gl: Rc<gl::Gl>,
                mut options: RendererOptions,
                initial_window_size: DeviceUintSize) -> Result<(Renderer, RenderApiSender), InitError> {
