@@ -34,10 +34,6 @@
 //! But it doesn't only contain trivial geometry, it can also store another StackingContext, as
 //! they're nestable.
 //!
-//! Remember to insert the DisplayListId into the StackingContext as well, as they'll be referenced
-//! from there. An Id for your DisplayList can be obtained by calling
-//! `yourRenderApiInstance.next_display_list_id();`
-//!
 //! [stacking_contexts]: https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Positioning/Understanding_z_index/The_stacking_context
 //! [newframe]: ../webrender_traits/struct.RenderApi.html#method.set_root_display_list
 //! [notifier]: renderer/struct.Renderer.html#method.set_render_notifier
