@@ -309,8 +309,7 @@ impl FrameBuilder {
         self.add_clip_scroll_node(topmost_scroll_layer_id,
                                    clip_scroll_tree.root_reference_frame_id,
                                    pipeline_id,
-                                   &viewport_rect,
-                                   content_size,
+                                   &LayerRect::new(LayerPoint::zero(), *content_size),
                                    &ClipRegion::simple(&viewport_rect),
                                    clip_scroll_tree);
         topmost_scroll_layer_id
@@ -320,8 +319,7 @@ impl FrameBuilder {
                                 new_node_id: ScrollLayerId,
                                 parent_id: ScrollLayerId,
                                 pipeline_id: PipelineId,
-                                local_viewport_rect: &LayerRect,
-                                content_size: &LayerSize,
+                                content_rect: &LayerRect,
                                 clip_region: &ClipRegion,
                                 clip_scroll_tree: &mut ClipScrollTree) {
         let clip_info = ClipInfo::new(clip_region,
@@ -329,8 +327,8 @@ impl FrameBuilder {
                                       PackedLayerIndex(self.packed_layers.len()));
         let node = ClipScrollNode::new(pipeline_id,
                                        parent_id,
-                                       local_viewport_rect,
-                                       *content_size,
+                                       content_rect,
+                                       &clip_region.main,
                                        clip_info);
 
         clip_scroll_tree.add_node(node, new_node_id);

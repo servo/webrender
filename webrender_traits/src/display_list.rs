@@ -441,8 +441,8 @@ impl DisplayListBuilder {
     }
 
     pub fn define_clip(&mut self,
+                       content_rect: LayoutRect,
                        clip: ClipRegion,
-                       content_size: LayoutSize,
                        id: Option<ScrollLayerId>)
                        -> ScrollLayerId {
         let id = match id {
@@ -454,20 +454,19 @@ impl DisplayListBuilder {
         };
 
         let item = SpecificDisplayItem::Clip(ClipDisplayItem {
-            content_size: content_size,
             id: id,
             parent_id: *self.clip_stack.last().unwrap(),
         });
 
-        self.push_item(item, clip.main, clip);
+        self.push_item(item, content_rect, clip);
         id
     }
 
     pub fn push_scroll_layer(&mut self,
                              clip: ClipRegion,
-                             content_size: LayoutSize,
+                             content_rect: LayoutRect,
                              id: Option<ScrollLayerId>) {
-        let id = self.define_clip(clip, content_size, id);
+        let id = self.define_clip(content_rect, clip, id);
         self.clip_stack.push(id);
     }
 

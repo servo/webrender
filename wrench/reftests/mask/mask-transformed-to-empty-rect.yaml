@@ -18,7 +18,6 @@ root:
               image: "tiny-check-mask.png"
               rect: [0, 0, 300, 300]
               repeat: false
-          "content-size": [300, 300]
           id: 1
           items:
             - type: rect
