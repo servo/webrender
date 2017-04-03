@@ -348,6 +348,7 @@ void draw_solid_border(float distanceFromMixLine, vec2 localPos) {
     default:
       oFragColor = vHorizontalColor;
       discard_pixels_in_rounded_borders(localPos);
+      break;
   }
 }
 
@@ -458,10 +459,8 @@ void main(void) {
         case BORDER_STYLE_RIDGE:
           draw_mixed_border(distance_from_mix_line, distance_from_middle, local_pos, brightness_mod.xy);
           break;
-        case BORDER_STYLE_HIDDEN:
-          discard;
         default:
-          discard;
+          break;
     }
 
 #ifdef WR_FEATURE_TRANSFORM
