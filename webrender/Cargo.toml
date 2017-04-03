@@ -14,7 +14,7 @@ webgl = ["offscreen_gl_context", "webrender_traits/webgl"]
 
 [dependencies]
 app_units = "0.4"
-bincode = "1.0.0-alpha2"
+bincode = "1.0.0-alpha6"
 bit-set = "0.4"
 byteorder = "1.0"
 euclid = "0.11"
