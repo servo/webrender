@@ -175,14 +175,14 @@ impl RenderBackend {
 
                             sender.send(result).unwrap();
                         }
-                        ApiMsg::SetRootDisplayList(background_color,
-                                                   epoch,
-                                                   pipeline_id,
-                                                   viewport_size,
-                                                   display_list_descriptor,
-                                                   auxiliary_lists_descriptor,
-                                                   preserve_frame_state) => {
-                            profile_scope!("SetRootDisplayList");
+                        ApiMsg::SetDisplayList(background_color,
+                                               epoch,
+                                               pipeline_id,
+                                               viewport_size,
+                                               display_list_descriptor,
+                                               auxiliary_lists_descriptor,
+                                               preserve_frame_state) => {
+                            profile_scope!("SetDisplayList");
                             let mut leftover_auxiliary_data = vec![];
                             let mut auxiliary_data;
                             loop {
@@ -213,12 +213,12 @@ impl RenderBackend {
                                 self.discard_frame_state_for_pipeline(pipeline_id);
                             }
                             profile_counters.total_time.profile(|| {
-                                self.scene.set_root_display_list(pipeline_id,
-                                                                 epoch,
-                                                                 built_display_list,
-                                                                 background_color,
-                                                                 viewport_size,
-                                                                 auxiliary_lists);
+                                self.scene.set_display_list(pipeline_id,
+                                                            epoch,
+                                                            built_display_list,
+                                                            background_color,
+                                                            viewport_size,
+                                                            auxiliary_lists);
                                 self.build_scene();
                             })
                         }

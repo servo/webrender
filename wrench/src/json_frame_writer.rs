@@ -71,13 +71,13 @@ impl JsonFrameWriter {
         }
     }
 
-    pub fn begin_write_root_display_list(&mut self,
-                                         _: &Option<ColorF>,
-                                         _: &Epoch,
-                                         _: &PipelineId,
-                                         _: &LayoutSize,
-                                         display_list: &BuiltDisplayListDescriptor,
-                                         auxiliary_lists: &AuxiliaryListsDescriptor)
+    pub fn begin_write_display_list(&mut self,
+                                    _: &Option<ColorF>,
+                                    _: &Epoch,
+                                    _: &PipelineId,
+                                    _: &LayoutSize,
+                                    display_list: &BuiltDisplayListDescriptor,
+                                    auxiliary_lists: &AuxiliaryListsDescriptor)
     {
         unsafe {
             if CURRENT_FRAME_NUMBER == self.last_frame_written {
@@ -90,9 +90,9 @@ impl JsonFrameWriter {
         self.aux_descriptor = Some(auxiliary_lists.clone());
     }
 
-    pub fn finish_write_root_display_list(&mut self,
-                                          frame: u32,
-                                          data: &[u8])
+    pub fn finish_write_display_list(&mut self,
+                                     frame: u32,
+                                     data: &[u8])
     {
         let dl_desc = self.dl_descriptor.take().unwrap();
         let aux_desc = self.aux_descriptor.take().unwrap();
@@ -253,19 +253,19 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                 self.images.remove(key);
             }
 
-            &ApiMsg::SetRootDisplayList(ref background_color,
-                                        ref epoch,
-                                        ref pipeline_id,
-                                        ref viewport_size,
-                                        ref display_list,
-                                        ref auxiliary_lists,
-                                        _preserve_frame_state) => {
-                self.begin_write_root_display_list(background_color,
-                                                   epoch,
-                                                   pipeline_id,
-                                                   viewport_size,
-                                                   display_list,
-                                                   auxiliary_lists);
+            &ApiMsg::SetDisplayList(ref background_color,
+                                    ref epoch,
+                                    ref pipeline_id,
+                                    ref viewport_size,
+                                    ref display_list,
+                                    ref auxiliary_lists,
+                                    _preserve_frame_state) => {
+                self.begin_write_display_list(background_color,
+                                              epoch,
+                                              pipeline_id,
+                                              viewport_size,
+                                              display_list,
+                                              auxiliary_lists);
             }
             _ => {}
         }
@@ -273,7 +273,7 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
 
     fn write_payload(&mut self, frame: u32, data: &[u8]) {
         if self.dl_descriptor.is_some() {
-            self.finish_write_root_display_list(frame, data);
+            self.finish_write_display_list(frame, data);
         }
     }
 }
