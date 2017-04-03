@@ -354,14 +354,12 @@ impl Frame {
                         pipeline_id: PipelineId,
                         parent_id: ScrollLayerId,
                         item: &ClipDisplayItem,
-                        reference_frame_relative_offset: LayerPoint,
+                        content_rect: &LayerRect,
                         clip: &ClipRegion) {
-        let clip_rect = clip.main.translate(&reference_frame_relative_offset);
         context.builder.add_clip_scroll_node(item.id,
                                              parent_id,
                                              pipeline_id,
-                                             &clip_rect,
-                                             &item.content_size,
+                                             &content_rect,
                                              clip,
                                              &mut self.clip_scroll_tree);
 
@@ -492,7 +490,6 @@ impl Frame {
                           bounds: &LayerRect,
                           context: &mut FlattenContext,
                           reference_frame_relative_offset: LayerPoint) {
-
         let pipeline = match context.scene.pipeline_map.get(&pipeline_id) {
             Some(pipeline) => pipeline,
             None => return,
@@ -533,9 +530,8 @@ impl Frame {
             iframe_scroll_layer_id,
             iframe_reference_frame_id,
             pipeline_id,
-            &LayerRect::new(LayerPoint::zero(), iframe_rect.size),
-            &iframe_stacking_context_bounds.size,
-            &ClipRegion::simple(&iframe_stacking_context_bounds),
+            &LayerRect::new(LayerPoint::zero(), iframe_stacking_context_bounds.size),
+            &ClipRegion::simple(&iframe_rect),
             &mut self.clip_scroll_tree);
 
         let mut traversal = DisplayListTraversal::new_skipping_first(display_list);
@@ -697,11 +693,12 @@ impl Frame {
                                         reference_frame_relative_offset);
                 }
                 SpecificDisplayItem::Clip(ref info) => {
+                    let content_rect = &item.rect.translate(&reference_frame_relative_offset);
                     self.flatten_clip(context,
                                       pipeline_id,
                                       scroll_layer_id,
                                       &info,
-                                      reference_frame_relative_offset,
+                                      &content_rect,
                                       &item.clip);
                 }
                 SpecificDisplayItem::PopStackingContext => return,
