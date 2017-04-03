@@ -981,7 +981,7 @@ impl Renderer {
         *notifier_arc = Some(notifier);
     }
 
-    /// Sets the new MainThreadDispatcher.
+    /// Sets the new main thread dispatcher.
     ///
     /// Allows to dispatch functions to the main thread's event loop.
     pub fn set_main_thread_dispatcher(&self, dispatcher: Box<RenderDispatcher>) {

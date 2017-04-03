@@ -2,16 +2,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-//! A GPU based Webrender.
+//! A GPU based renderer for the web.
 //!
 //! It serves as an experimental render backend for [Servo](https://servo.org/),
 //! but it can also be used as such in a standalone application.
 //!
 //! # External dependencies
-//! Webrender currently depends on [FreeType](https://www.freetype.org/)
+//! WebRender currently depends on [FreeType](https://www.freetype.org/)
 //!
 //! # Api Structure
-//! The main entry point to webrender is the `webrender::renderer::Renderer`.
+//! The main entry point to WebRender is the `webrender::renderer::Renderer`.
 //!
 //! By calling `Renderer::new(...)` you get a `Renderer`, as well as a `RenderApiSender`.
 //! Your `Renderer` is responsible to render the previously processed frames onto the screen.
