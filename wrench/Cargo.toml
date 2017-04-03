@@ -11,7 +11,7 @@ bincode = "1.0.0-alpha2"
 byteorder = "1.0"
 euclid = "0.11"
 gleam = "0.4"
-servo-glutin = "0.10"
+servo-glutin = "0.10.1"
 app_units = "0.4"
 image = "0.12"
 clap = { version = "2", features = ["yaml"] }

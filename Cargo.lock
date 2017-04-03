@@ -19,7 +19,7 @@ dependencies = [
  "serde 0.9.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 0.9.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 0.9.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "servo-glutin 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "servo-glutin 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender 0.30.0",
  "webrender_traits 0.31.0",
@@ -727,7 +727,7 @@ dependencies = [
 
 [[package]]
 name = "servo-glutin"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "android_glue 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -946,7 +946,7 @@ dependencies = [
  "app_units 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "euclid 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "servo-glutin 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "servo-glutin 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender 0.30.0",
  "webrender_traits 0.31.0",
 ]
@@ -1087,7 +1087,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum serde_derive 0.9.8 (registry+https://github.com/rust-lang/crates.io-index)" = "e88ec062a02cbebfd6276044a305d665a9919b497aa6acb2e12c070d1a50d32d"
 "checksum serde_json 0.9.8 (registry+https://github.com/rust-lang/crates.io-index)" = "6501ac6f8b74f9b1033f7ddf79a08edfa0f58d6f8e3190cb8dc97736afa257a8"
 "checksum servo-freetype-sys 4.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "9232032c2e85118c0282c6562c84cab12316e655491ba0a5d1905b2320060d1b"
-"checksum servo-glutin 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)" = "17f541bd4b5a709d5133349e731379c6d74c3946f3b509d4fa8204f1833f9067"
+"checksum servo-glutin 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)" = "ca5892a674fb408a09083168c9aa40cd53d4ce1a736542fd8057d36b2e50e612"
 "checksum shared_library 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "fb04126b6fcfd2710fb5b6d18f4207b6c535f2850a7e1a43bcd526d44f30a79a"
 "checksum shell32-sys 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "72f20b8f3c060374edb8046591ba28f62448c369ccbdc7b02075103fb3a9e38d"
 "checksum silverknife-fontconfig-sys 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e15ae311731f5d48c564d271e2d5eecc1e1c9ef29736b33de9d81c33658529b7"
