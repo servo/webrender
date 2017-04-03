@@ -71,7 +71,7 @@ pub fn should_record_msg(msg: &ApiMsg) -> bool {
         &ApiMsg::GenerateFrame(..) |
         &ApiMsg::UpdateImage(..) |
         &ApiMsg::DeleteImage(..) |
-        &ApiMsg::SetRootDisplayList(..) |
+        &ApiMsg::SetDisplayList(..) |
         &ApiMsg::SetRootPipeline(..) |
         &ApiMsg::Scroll(..) |
         &ApiMsg::TickScrollingBounce |

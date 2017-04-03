@@ -366,11 +366,11 @@ impl Wrench {
                       display_list: DisplayListBuilder,
                       scroll_offsets: &HashMap<ScrollLayerId, LayerPoint>) {
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
-        self.api.set_root_display_list(root_background_color,
-                                       Epoch(frame_number),
-                                       self.window_size_f32(),
-                                       display_list.finalize(),
-                                       false);
+        self.api.set_display_list(root_background_color,
+                                  Epoch(frame_number),
+                                  self.window_size_f32(),
+                                  display_list.finalize(),
+                                  false);
 
         for (id, offset) in scroll_offsets {
             self.api.scroll_layer_with_id(*offset, *id);

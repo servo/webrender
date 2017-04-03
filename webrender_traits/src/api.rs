@@ -35,13 +35,13 @@ pub enum ApiMsg {
     ///
     /// After receiving this message, WebRender will read the display list, followed by the
     /// auxiliary lists, from the payload channel.
-    SetRootDisplayList(Option<ColorF>,
-                       Epoch,
-                       PipelineId,
-                       LayoutSize,
-                       BuiltDisplayListDescriptor,
-                       AuxiliaryListsDescriptor,
-                       bool),
+    SetDisplayList(Option<ColorF>,
+                   Epoch,
+                   PipelineId,
+                   LayoutSize,
+                   BuiltDisplayListDescriptor,
+                   AuxiliaryListsDescriptor,
+                   bool),
     SetPageZoom(ZoomFactor),
     SetPinchZoom(ZoomFactor),
     SetPan(DeviceIntPoint),
@@ -76,7 +76,7 @@ impl fmt::Debug for ApiMsg {
             &ApiMsg::UpdateImage(..) => { write!(f, "ApiMsg::UpdateImage") }
             &ApiMsg::DeleteImage(..) => { write!(f, "ApiMsg::DeleteImage") }
             &ApiMsg::CloneApi(..) => { write!(f, "ApiMsg::CloneApi") }
-            &ApiMsg::SetRootDisplayList(..) => { write!(f, "ApiMsg::SetRootDisplayList") }
+            &ApiMsg::SetDisplayList(..) => { write!(f, "ApiMsg::SetDisplayList") }
             &ApiMsg::SetRootPipeline(..) => { write!(f, "ApiMsg::SetRootPipeline") }
             &ApiMsg::Scroll(..) => { write!(f, "ApiMsg::Scroll") }
             &ApiMsg::ScrollLayerWithId(..) => { write!(f, "ApiMsg::ScrollLayerWithId") }
@@ -298,15 +298,15 @@ impl RenderApi {
     ///                           position) should be preserved for this new display list.
     ///
     /// [notifier]: trait.RenderNotifier.html#tymethod.new_frame_ready
-    pub fn set_root_display_list(&self,
-                                 background_color: Option<ColorF>,
-                                 epoch: Epoch,
-                                 viewport_size: LayoutSize,
-                                 (pipeline_id, display_list, auxiliary_lists): (PipelineId, BuiltDisplayList, AuxiliaryLists),
-                                 preserve_frame_state: bool) {
+    pub fn set_display_list(&self,
+                            background_color: Option<ColorF>,
+                            epoch: Epoch,
+                            viewport_size: LayoutSize,
+                            (pipeline_id, display_list, auxiliary_lists): (PipelineId, BuiltDisplayList, AuxiliaryLists),
+                            preserve_frame_state: bool) {
         let (dl_data, dl_desc) = display_list.into_data();
         let (aux_data, aux_desc) = auxiliary_lists.into_data();
-        let msg = ApiMsg::SetRootDisplayList(background_color,
+        let msg = ApiMsg::SetDisplayList(background_color,
                                              epoch,
                                              pipeline_id,
                                              viewport_size,

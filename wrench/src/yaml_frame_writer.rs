@@ -281,14 +281,14 @@ impl YamlFrameWriter {
         }
     }
 
-    pub fn begin_write_root_display_list(&mut self,
-                                         scene: &mut Scene,
-                                         background_color: &Option<ColorF>,
-                                         epoch: &Epoch,
-                                         pipeline_id: &PipelineId,
-                                         viewport_size: &LayoutSize,
-                                         display_list: &BuiltDisplayListDescriptor,
-                                         auxiliary_lists: &AuxiliaryListsDescriptor)
+    pub fn begin_write_display_list(&mut self,
+                                    scene: &mut Scene,
+                                    background_color: &Option<ColorF>,
+                                    epoch: &Epoch,
+                                    pipeline_id: &PipelineId,
+                                    viewport_size: &LayoutSize,
+                                    display_list: &BuiltDisplayListDescriptor,
+                                    auxiliary_lists: &AuxiliaryListsDescriptor)
     {
         unsafe {
             if CURRENT_FRAME_NUMBER == self.last_frame_written {
@@ -301,12 +301,12 @@ impl YamlFrameWriter {
         self.aux_descriptor = Some(auxiliary_lists.clone());
         self.pipeline_id = Some(pipeline_id.clone());
 
-        scene.begin_root_display_list(pipeline_id, epoch,
-                                      background_color,
-                                      viewport_size);
+        scene.begin_display_list(pipeline_id, epoch,
+                                 background_color,
+                                 viewport_size);
     }
 
-    pub fn finish_write_root_display_list(&mut self, scene: &mut Scene, data: &[u8]) {
+    pub fn finish_write_display_list(&mut self, scene: &mut Scene, data: &[u8]) {
         let dl_desc = self.dl_descriptor.take().unwrap();
         let aux_desc = self.aux_descriptor.take().unwrap();
 
@@ -374,7 +374,7 @@ impl YamlFrameWriter {
 
         }
 
-        scene.finish_root_display_list(self.pipeline_id.unwrap(), dl, aux);
+        scene.finish_display_list(self.pipeline_id.unwrap(), dl, aux);
     }
 
     fn next_rsrc_paths(prefix: &str, counter: &mut u32, base_path: &Path, base: &str, ext: &str) -> (PathBuf, PathBuf) {
@@ -818,20 +818,20 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 self.frame_writer.images.remove(key);
             }
 
-            &ApiMsg::SetRootDisplayList(ref background_color,
-                                        ref epoch,
-                                        ref pipeline_id,
-                                        ref viewport_size,
-                                        ref display_list,
-                                        ref auxiliary_lists,
-                                        _preserve_frame_state) => {
-                self.frame_writer.begin_write_root_display_list(&mut self.scene,
-                                                                background_color,
-                                                                epoch,
-                                                                pipeline_id,
-                                                                viewport_size,
-                                                                display_list,
-                                                                auxiliary_lists);
+            &ApiMsg::SetDisplayList(ref background_color,
+                                    ref epoch,
+                                    ref pipeline_id,
+                                    ref viewport_size,
+                                    ref display_list,
+                                    ref auxiliary_lists,
+                                    _preserve_frame_state) => {
+                self.frame_writer.begin_write_display_list(&mut self.scene,
+                                                           background_color,
+                                                           epoch,
+                                                           pipeline_id,
+                                                           viewport_size,
+                                                           display_list,
+                                                           auxiliary_lists);
             }
             _ => {}
         }
@@ -839,7 +839,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
 
     fn write_payload(&mut self, _frame: u32, data: &[u8]) {
         if self.frame_writer.dl_descriptor.is_some() {
-            self.frame_writer.finish_write_root_display_list(&mut self.scene, data);
+            self.frame_writer.finish_write_display_list(&mut self.scene, data);
         }
     }
 }

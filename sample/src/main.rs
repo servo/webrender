@@ -392,7 +392,7 @@ fn main() {
 
     builder.pop_stacking_context();
 
-    api.set_root_display_list(
+    api.set_display_list(
         Some(root_background_color),
         epoch,
         LayoutSize::new(width as f32, height as f32),
