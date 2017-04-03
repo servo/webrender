@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-//#![feature(mpsc_select)]
-
 //! A GPU based Webrender.
 //!
 //! It serves as an experimental render backend for [Servo](https://servo.org/),
