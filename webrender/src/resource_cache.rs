@@ -406,7 +406,7 @@ impl ResourceCache {
                 if !same_epoch && self.blob_image_requests.insert(request) {
                     renderer.request_blob_image(
                         key,
-                        data.clone(),
+                        Arc::clone(&data),
                         &BlobImageDescriptor {
                             width: template.descriptor.width,
                             height: template.descriptor.height,
@@ -846,7 +846,7 @@ fn spawn_glyph_cache_thread(workers: Arc<Mutex<ThreadPool>>) -> (Sender<GlyphCac
 
         let barrier = Arc::new(Barrier::new(worker_count));
         for i in 0..worker_count {
-            let barrier = barrier.clone();
+            let barrier = Arc::clone(&barrier);
             workers.lock().unwrap().execute(move || {
                 register_thread_with_profiler(format!("Glyph Worker {}", i));
                 barrier.wait();
@@ -882,7 +882,7 @@ fn spawn_glyph_cache_thread(workers: Arc<Mutex<ThreadPool>>) -> (Sender<GlyphCac
                     // added to each worker thread.
                     let barrier = Arc::new(Barrier::new(worker_count));
                     for _ in 0..worker_count {
-                        let barrier = barrier.clone();
+                        let barrier = Arc::clone(&barrier);
                         let font_template = font_template.clone();
                         workers.lock().unwrap().execute(move || {
                             FONT_CONTEXT.with(|font_context| {
@@ -908,7 +908,7 @@ fn spawn_glyph_cache_thread(workers: Arc<Mutex<ThreadPool>>) -> (Sender<GlyphCac
                     // Delete a font from the font context in each worker thread.
                     let barrier = Arc::new(Barrier::new(worker_count));
                     for _ in 0..worker_count {
-                        let barrier = barrier.clone();
+                        let barrier = Arc::clone(&barrier);
                         workers.lock().unwrap().execute(move || {
                             FONT_CONTEXT.with(|font_context| {
                                 let mut font_context = font_context.borrow_mut();
