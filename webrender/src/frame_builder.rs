@@ -28,7 +28,7 @@ use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, Ren
 use tiling::{RenderTargetContext, RenderTaskCollection, ScrollbarPrimitive, StackingContext};
 use util::{self, pack_as_float, rect_from_points_f, subtract_rect};
 use util::{RectHelpers, TransformedRectKind};
-use webrender_traits::{BorderDetails, BorderDisplayItem, BorderSide, BorderStyle};
+use webrender_traits::{BorderDetails, BorderDisplayItem};
 use webrender_traits::{BoxShadowClipMode, ClipRegion, ColorF, DeviceIntPoint, DeviceIntRect};
 use webrender_traits::{DeviceIntSize, DeviceUintRect, DeviceUintSize, ExtendMode, FontKey};
 use webrender_traits::{FontRenderMode, GlyphOptions, ImageKey, ImageRendering, ItemRange};
@@ -373,26 +373,6 @@ impl FrameBuilder {
         }
     }
 
-    pub fn supported_style(&mut self, border: &BorderSide) -> bool {
-        match border.style {
-            BorderStyle::Solid |
-            BorderStyle::None |
-            BorderStyle::Dotted |
-            BorderStyle::Dashed |
-            BorderStyle::Inset |
-            BorderStyle::Ridge |
-            BorderStyle::Groove |
-            BorderStyle::Outset |
-            BorderStyle::Double => {
-                return true;
-            }
-            _ => {
-                println!("TODO: Other border styles {:?}", border.style);
-                return false;
-            }
-        }
-    }
-
     pub fn add_border(&mut self,
                       scroll_layer_id: ScrollLayerId,
                       rect: LayerRect,
@@ -542,17 +522,22 @@ impl FrameBuilder {
                 }
             }
             BorderDetails::Normal(ref border) => {
+                // Gradually move border types over to a simplified
+                // shader and code path that can handle all border
+                // cases correctly.
+                if self.add_simple_border(&rect,
+                                          border,
+                                          &border_item.widths,
+                                          scroll_layer_id,
+                                          clip_region) {
+                    return;
+                }
+
                 let radius = &border.radius;
                 let left = &border.left;
                 let right = &border.right;
                 let top = &border.top;
                 let bottom = &border.bottom;
-
-                if !self.supported_style(left) || !self.supported_style(right) ||
-                   !self.supported_style(top) || !self.supported_style(bottom) {
-                    println!("Unsupported border style, not rendering border");
-                    return;
-                }
 
                 // These colors are used during inset/outset scaling.
                 let left_color      = left.border_color(1.0, 2.0/3.0, 0.3, 0.7);
@@ -576,52 +561,6 @@ impl FrameBuilder {
                                                rect.origin.y + rect.size.height);
                 let br_inner = br_outer - LayerPoint::new(radius.bottom_right.width.max(border_item.widths.right),
                                                           radius.bottom_right.height.max(border_item.widths.bottom));
-
-                // The border shader is quite expensive. For simple borders, we can just draw
-                // the border with a few rectangles. This generally gives better batching, and
-                // a GPU win in fragment shader time.
-                // More importantly, the software (OSMesa) implementation we run tests on is
-                // particularly slow at running our complex border shader, compared to the
-                // rectangle shader. This has the effect of making some of our tests time
-                // out more often on CI (the actual cause is simply too many Servo processes and
-                // threads being run on CI at once).
-                // TODO(gw): Detect some more simple cases and handle those with simpler shaders too.
-                // TODO(gw): Consider whether it's only worth doing this for large rectangles (since
-                //           it takes a little more CPU time to handle multiple rectangles compared
-                //           to a single border primitive).
-                if left.style == BorderStyle::Solid {
-                    let same_color = left_color == top_color &&
-                                     left_color == right_color &&
-                                     left_color == bottom_color;
-                    let same_style = left.style == top.style &&
-                                     left.style == right.style &&
-                                     left.style == bottom.style;
-
-                    if same_color && same_style && radius.is_zero() {
-                        let rects = [
-                            LayerRect::new(rect.origin,
-                                           LayerSize::new(rect.size.width, border_item.widths.top)),
-                            LayerRect::new(LayerPoint::new(tl_outer.x, tl_inner.y),
-                                           LayerSize::new(border_item.widths.left,
-                                                          rect.size.height - border_item.widths.top - border_item.widths.bottom)),
-                            LayerRect::new(tr_inner,
-                                           LayerSize::new(border_item.widths.right,
-                                                          rect.size.height - border_item.widths.top - border_item.widths.bottom)),
-                            LayerRect::new(LayerPoint::new(bl_outer.x, bl_inner.y),
-                                           LayerSize::new(rect.size.width, border_item.widths.bottom))
-                        ];
-
-                        for rect in &rects {
-                            self.add_solid_rectangle(scroll_layer_id,
-                                                     rect,
-                                                     clip_region,
-                                                     &top_color,
-                                                     PrimitiveFlags::None);
-                        }
-
-                        return;
-                    }
-                }
 
                 //Note: while similar to `ComplexClipRegion::get_inner_rect()` in spirit,
                 // this code is a bit more complex and can not there for be merged.
