@@ -1,0 +1,26 @@
+# this tests a simple intersection of 2 planes to split properly
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 1024, 1024]
+      transform-style: preserve3d
+      items:
+        - type: stacking-context
+          bounds: [0, 0, 600, 600]
+          transform-style: preserve3d
+          transform: rotate-y(60.0)
+          filters: opacity(0.5)
+          items:
+            - type: rect
+              bounds: [0, 0, 600, 600]
+              color: [255, 0, 0, 128]
+        - type: stacking-context
+          bounds: [0, 0, 600, 600]
+          transform-style: preserve3d
+          transform: rotate-y(-60.0)
+          filters: opacity(0.5)
+          items:
+            - type: rect
+              bounds: [0, 0, 600, 600]
+              color: [0, 255, 0, 128]
