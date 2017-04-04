@@ -376,7 +376,7 @@ impl FontContext {
                 })
             }
             None => {
-                return Some(RasterizedGlyph::blank());
+                Some(RasterizedGlyph::blank())
             }
         }
     }

@@ -392,8 +392,8 @@ pub enum HardwareCompositeOp {
 
 impl HardwareCompositeOp {
     pub fn to_blend_mode(&self) -> BlendMode {
-        match self {
-            &HardwareCompositeOp::PremultipliedAlpha => BlendMode::PremultipliedAlpha,
+        match *self {
+            HardwareCompositeOp::PremultipliedAlpha => BlendMode::PremultipliedAlpha,
         }
     }
 }

@@ -341,8 +341,8 @@ impl Frame {
                                           scroll_layer_id,
                                           LayerPoint::zero(),
                                           0,
-                                          &root_bounds,
-                                          &root_stacking_context);
+                                          root_bounds,
+                                          root_stacking_context);
         }
 
         self.frame_builder = Some(frame_builder);
@@ -449,7 +449,7 @@ impl Frame {
                     // it's already processed by the node we just pushed.
                     let background_rect = LayerRect::new(LayerPoint::zero(), bounds.size);
                     context.builder.add_solid_rectangle(scroll_layer_id,
-                                                        &bounds,
+                                                        bounds,
                                                         &ClipRegion::simple(&background_rect),
                                                         &bg_color,
                                                         PrimitiveFlags::None);
@@ -542,8 +542,8 @@ impl Frame {
                                       iframe_scroll_layer_id,
                                       LayerPoint::zero(),
                                       0,
-                                      &iframe_stacking_context_bounds,
-                                      &iframe_stacking_context);
+                                      iframe_stacking_context_bounds,
+                                      iframe_stacking_context);
 
         context.builder.pop_reference_frame();
     }
@@ -613,7 +613,7 @@ impl Frame {
                                               .get(&pipeline_id)
                                               .expect("No auxiliary lists?!");
                     // Try to extract the opaque inner rectangle out of the clipped primitive.
-                    if let Some(opaque_rect) = clip_intersection(&item.rect, &item.clip, &auxiliary_lists) {
+                    if let Some(opaque_rect) = clip_intersection(&item.rect, &item.clip, auxiliary_lists) {
                         let mut results = Vec::new();
                         subtract_rect(&item.rect, &opaque_rect, &mut results);
                         // The inner rectangle is considered opaque within this layer.
@@ -742,7 +742,7 @@ impl Frame {
                 item_rect.origin.y + (i as f32) * layout_stride,
                 item_rect.size.width,
                 info.stretch_size.height
-            ).intersection(&item_rect) {
+            ).intersection(item_rect) {
                 self.decompose_image_row(scroll_layer_id, context, &row_rect, item_clip, info, image_size, tile_size);
             }
         }
@@ -772,7 +772,7 @@ impl Frame {
                 item_rect.origin.y,
                 info.stretch_size.width,
                 item_rect.size.height,
-            ).intersection(&item_rect) {
+            ).intersection(item_rect) {
                 self.decompose_tiled_image(scroll_layer_id, context, &decomposed_rect, item_clip, info, image_size, tile_size);
             }
         }
@@ -961,10 +961,10 @@ impl Frame {
         }
 
         // Fix up the primitive's rect if it overflows the original item rect.
-        if let Some(prim_rect) = prim_rect.intersection(&item_rect) {
+        if let Some(prim_rect) = prim_rect.intersection(item_rect) {
             context.builder.add_image(scroll_layer_id,
                                       prim_rect,
-                                      &item_clip,
+                                      item_clip,
                                       &stretched_size,
                                       &info.tile_spacing,
                                       None,

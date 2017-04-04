@@ -198,14 +198,14 @@ impl RenderTask {
         // be optimized later.
         let mut result = Some(actual_rect);
         for &(_, ref clip) in clips {
-            match clip.bounds.as_ref().unwrap() {
-                &MaskBounds::OuterInner(ref outer, _) |
-                &MaskBounds::Outer(ref outer) => {
+            match *clip.bounds.as_ref().unwrap() {
+                MaskBounds::OuterInner(ref outer, _) |
+                MaskBounds::Outer(ref outer) => {
                     result = result.and_then(|rect| {
                         rect.intersection(&outer.bounding_rect)
                     });
                 }
-                &MaskBounds::None => {
+                MaskBounds::None => {
                     result = Some(actual_rect);
                     break;
                 }
@@ -223,10 +223,10 @@ impl RenderTask {
         let inner_rect = clips.iter()
                               .fold(Some(task_rect), |current, clip| {
             current.and_then(|rect| {
-                let inner_rect = match clip.1.bounds.as_ref().unwrap() {
-                    &MaskBounds::Outer(..) |
-                    &MaskBounds::None => DeviceIntRect::zero(),
-                    &MaskBounds::OuterInner(_, ref inner) => inner.bounding_rect
+                let inner_rect = match *clip.1.bounds.as_ref().unwrap() {
+                    MaskBounds::Outer(..) |
+                    MaskBounds::None => DeviceIntRect::zero(),
+                    MaskBounds::OuterInner(_, ref inner) => inner.bounding_rect
                 };
                 rect.intersection(&inner_rect)
             })
