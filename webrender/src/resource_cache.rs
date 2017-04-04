@@ -260,15 +260,14 @@ impl ResourceCache {
     fn should_tile(&self, descriptor: &ImageDescriptor, data: &ImageData) -> bool {
         let limit = self.max_texture_size();
         let size_check = descriptor.width > limit || descriptor.height > limit;
-        return match data {
-            &ImageData::Raw(_) => { size_check }
-            &ImageData::Blob(_) => { size_check }
-            &ImageData::External(info) => {
+        match *data {
+            ImageData::Raw(_) | ImageData::Blob(_) => { size_check }
+            ImageData::External(info) => {
                 // External handles already represent existing textures so it does
                 // not make sense to tile them into smaller ones.
                 info.image_type == ExternalImageType::ExternalBuffer && size_check
             },
-        };
+        }
     }
 
     pub fn add_font_template(&mut self, font_key: FontKey, template: FontTemplate) {
@@ -315,9 +314,9 @@ impl ResourceCache {
                                  data: ImageData,
                                  dirty_rect: Option<DeviceUintRect>) {
         let resource = if let Some(image) = self.image_templates.get(&image_key) {
-            assert!(image.descriptor.width == descriptor.width);
-            assert!(image.descriptor.height == descriptor.height);
-            assert!(image.descriptor.format == descriptor.format);
+            assert_eq!(image.descriptor.width, descriptor.width);
+            assert_eq!(image.descriptor.height, descriptor.height);
+            assert_eq!(image.descriptor.format, descriptor.format);
 
             let next_epoch = Epoch(image.epoch.0 + 1);
 
@@ -349,17 +348,14 @@ impl ResourceCache {
 
         // If the key is associated to an external image, pass the external id to renderer for cleanup.
         if let Some(image) = value {
-            match image.data {
-                ImageData::External(ext_image) => {
-                    match ext_image.image_type {
-                        ExternalImageType::Texture2DHandle |
-                        ExternalImageType::TextureRectHandle => {
-                            self.pending_external_image_update_list.push(ext_image.id);
-                        }
-                        _ => {}
+            if let ImageData::External(ext_image) = image.data {
+                match ext_image.image_type {
+                    ExternalImageType::Texture2DHandle |
+                    ExternalImageType::TextureRectHandle => {
+                        self.pending_external_image_update_list.push(ext_image.id);
                     }
+                    _ => {}
                 }
-                _ => {}
             }
 
             return;
@@ -406,7 +402,7 @@ impl ResourceCache {
                 if !same_epoch && self.blob_image_requests.insert(request) {
                     renderer.request_blob_image(
                         key,
-                        Arc::clone(&data),
+                        Arc::clone(data),
                         &BlobImageDescriptor {
                             width: template.descriptor.width,
                             height: template.descriptor.height,

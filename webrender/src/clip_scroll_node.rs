@@ -216,7 +216,7 @@ impl ClipScrollNode {
         self.scrolling.offset = new_offset;
         self.scrolling.bouncing_back = false;
         self.scrolling.started_bouncing_back = false;
-        return true;
+        true
     }
 
     pub fn update_transform(&mut self,

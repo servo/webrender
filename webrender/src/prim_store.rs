@@ -1068,7 +1068,7 @@ impl PrimitiveStore {
                              device_pixel_ratio,
                              auxiliary_lists);
             for clip in &metadata.clips {
-                if let &ClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }, _) = clip {
+                if let ClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }, _) = *clip {
                     resource_cache.request_image(mask.image, ImageRendering::Auto, None);
                     prim_needs_resolve = true;
                 }

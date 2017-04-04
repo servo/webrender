@@ -385,11 +385,11 @@ impl FrameBuilder {
             BorderStyle::Groove |
             BorderStyle::Outset |
             BorderStyle::Double => {
-                return true;
+                true
             }
             _ => {
                 println!("TODO: Other border styles {:?}", border.style);
-                return false;
+                false
             }
         }
     }
@@ -873,7 +873,7 @@ impl FrameBuilder {
         // Fast path.
         if blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None {
             self.add_solid_rectangle(scroll_layer_id,
-                                     &box_bounds,
+                                     box_bounds,
                                      clip_region,
                                      color,
                                      PrimitiveFlags::None);
@@ -1252,9 +1252,9 @@ impl FrameBuilder {
                     let stacking_context_index = *sc_stack.last().unwrap();
                     let group_index = self.stacking_context_store[stacking_context_index.0]
                                           .clip_scroll_group(scroll_layer_id);
-                    let xf_rect = match &self.clip_scroll_group_store[group_index.0].xf_rect {
-                        &Some(ref xf_rect) => xf_rect,
-                        &None => continue,
+                    let xf_rect = match self.clip_scroll_group_store[group_index.0].xf_rect {
+                        Some(ref xf_rect) => xf_rect,
+                        None => continue,
                     };
 
                     for i in 0..prim_count {
@@ -1450,12 +1450,12 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
 
         let commands = mem::replace(&mut self.frame_builder.cmds, Vec::new());
         for cmd in &commands {
-            match cmd {
-                &PrimitiveRunCmd::PushStackingContext(stacking_context_index) =>
+            match *cmd {
+                PrimitiveRunCmd::PushStackingContext(stacking_context_index) =>
                     self.handle_push_stacking_context(stacking_context_index),
-                &PrimitiveRunCmd::PrimitiveRun(prim_index, prim_count, scroll_layer_id) =>
+                PrimitiveRunCmd::PrimitiveRun(prim_index, prim_count, scroll_layer_id) =>
                     self.handle_primitive_run(prim_index, prim_count, scroll_layer_id),
-                &PrimitiveRunCmd::PopStackingContext => self.handle_pop_stacking_context(),
+                PrimitiveRunCmd::PopStackingContext => self.handle_pop_stacking_context(),
             }
         }
 
