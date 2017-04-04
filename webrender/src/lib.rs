@@ -46,6 +46,7 @@ extern crate bitflags;
 extern crate thread_profiler;
 
 mod batch_builder;
+mod border;
 mod clip_scroll_node;
 mod clip_scroll_tree;
 mod debug_colors;
