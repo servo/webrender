@@ -5,7 +5,6 @@ root:
       color: green
     - type: scroll-layer
       bounds: [0, 0, 100, 100]
-      content-size: [100, 100]
       clip:
         rect: [0, 0, 0, 0]
         complex:

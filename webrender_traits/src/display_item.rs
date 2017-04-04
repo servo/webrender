@@ -43,7 +43,6 @@ pub struct ItemRange {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ClipDisplayItem {
-    pub content_size: LayoutSize,
     pub id: ScrollLayerId,
     pub parent_id: ScrollLayerId,
 }

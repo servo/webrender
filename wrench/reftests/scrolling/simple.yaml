@@ -1,15 +1,15 @@
 root:
   items:
     - type: scroll-layer
-      bounds: [10, 10, 50, 50]
-      content-size: [100, 100]
+      bounds: [10, 10, 100, 100]
+      clip: [0, 0, 50, 50]
       items:
         - type: rect
           bounds: [10, 10, 500, 500]
           color: green
     - type: scroll-layer
-      bounds: [70, 10, 50, 50]
-      content-size: [100, 100]
+      bounds: [70, 10, 100, 100]
+      clip: [0, 0, 50, 50]
       items:
         - type: rect
           bounds: [70, 10, 100, 100]

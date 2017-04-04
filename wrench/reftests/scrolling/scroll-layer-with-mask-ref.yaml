@@ -6,3 +6,6 @@ root:
     - type: rect
       bounds: [120, 20, 80, 80]
       color: green
+    - type: rect
+      bounds: [220, 20, 80, 80]
+      color: green

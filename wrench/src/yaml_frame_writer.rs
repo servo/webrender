@@ -737,7 +737,6 @@ impl YamlFrameWriter {
                 },
                 Clip(item) => {
                     str_node(&mut v, "type", "clip");
-                    size_node(&mut v, "content-size", &item.content_size);
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
                 }
                 PopStackingContext => return,
