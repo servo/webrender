@@ -265,12 +265,14 @@ impl RenderApi {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// let (mut renderer, sender) = webrender::renderer::Renderer::new(opts);
+    /// ```
+    /// # use webrender_traits::{PipelineId, RenderApiSender};
+    /// # fn example(sender: RenderApiSender) {
     /// let api = sender.create_api();
-    /// ...
-    /// let pipeline_id = PipelineId(0,0);
+    /// // ...
+    /// let pipeline_id = PipelineId(0, 0);
     /// api.set_root_pipeline(pipeline_id);
+    /// # }
     /// ```
     pub fn set_root_pipeline(&self, pipeline_id: PipelineId) {
         let msg = ApiMsg::SetRootPipeline(pipeline_id);
@@ -289,8 +291,8 @@ impl RenderApi {
     ///
     /// * `background_color`: The background color of this pipeline.
     /// * `epoch`: The unique Frame ID, monotonically increasing.
-    /// * `pipeline_id`: The ID of the pipeline that is supplying this display list.
     /// * `viewport_size`: The size of the viewport for this frame.
+    /// * `pipeline_id`: The ID of the pipeline that is supplying this display list.
     /// * `display_list`: The root Display list used in this frame.
     /// * `auxiliary_lists`: Various items that the display lists and stacking contexts reference.
     /// * `preserve_frame_state`: If a previous frame exists which matches this pipeline
@@ -325,7 +327,7 @@ impl RenderApi {
 
     /// Scrolls the scrolling layer under the `cursor`
     ///
-    /// Webrender looks for the layer closest to the user
+    /// WebRender looks for the layer closest to the user
     /// which has `ScrollPolicy::Scrollable` set.
     pub fn scroll(&self, scroll_location: ScrollLocation, cursor: WorldPoint, phase: ScrollEventPhase) {
         let msg = ApiMsg::Scroll(scroll_location, cursor, phase);
@@ -590,7 +592,7 @@ pub trait RenderNotifier: Send {
     fn shut_down(&mut self) {}
 }
 
-// Trait to allow dispatching functions to a specific thread or event loop.
+/// Trait to allow dispatching functions to a specific thread or event loop.
 pub trait RenderDispatcher: Send {
     fn dispatch(&self, Box<Fn() + Send>);
 }
