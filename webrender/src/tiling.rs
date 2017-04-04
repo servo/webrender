@@ -27,7 +27,7 @@ use webrender_traits::{AuxiliaryLists, ColorF, DeviceIntPoint, DeviceIntRect};
 use webrender_traits::{DeviceIntSize, DeviceUintPoint};
 use webrender_traits::{DeviceUintSize, FontRenderMode, ImageRendering, LayerPoint, LayerRect};
 use webrender_traits::{LayerToWorldTransform, MixBlendMode, PipelineId, ScrollLayerId};
-use webrender_traits::{WorldPoint4D, WorldToLayerTransform};
+use webrender_traits::{TransformStyle, WorldPoint4D, WorldToLayerTransform};
 use webrender_traits::{ExternalImageType};
 
 // Special sentinel value recognized by the shader. It is considered to be
@@ -1552,6 +1552,7 @@ impl StackingContext {
     pub fn new(pipeline_id: PipelineId,
                reference_frame_offset: LayerPoint,
                is_page_root: bool,
+               transform_style: TransformStyle,
                composite_ops: CompositeOps)
                -> StackingContext {
         StackingContext {
@@ -1560,7 +1561,7 @@ impl StackingContext {
             bounding_rect: DeviceIntRect::zero(),
             composite_ops: composite_ops,
             clip_scroll_groups: Vec::new(),
-            should_isolate: false,
+            should_isolate: transform_style == TransformStyle::Preserve3D, //TODO
             is_page_root: is_page_root,
             is_visible: false,
         }

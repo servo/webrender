@@ -9,11 +9,11 @@ use {BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMode, BoxShado
 use {ClipDisplayItem, ClipRegion, ColorF, ComplexClipRegion, DisplayItem, ExtendMode, FilterOp};
 use {FontKey, GlyphInstance, GlyphOptions, Gradient, GradientDisplayItem, GradientStop};
 use {IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask, ImageRendering, ItemRange};
-use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, MixBlendMode, PipelineId};
+use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
+use {TransformStyle, MixBlendMode, PipelineId};
 use {PropertyBinding, PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
 use {RectangleDisplayItem, ScrollLayerId, ScrollPolicy, SpecificDisplayItem, StackingContext};
-use {TextDisplayItem, WebGLContextId, WebGLDisplayItem, YuvColorSpace};
-use YuvImageDisplayItem;
+use {TextDisplayItem, WebGLContextId, WebGLDisplayItem, YuvColorSpace, YuvImageDisplayItem};
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct AuxiliaryLists {
@@ -419,6 +419,7 @@ impl DisplayListBuilder {
                                  bounds: LayoutRect,
                                  z_index: i32,
                                  transform: Option<PropertyBinding<LayoutTransform>>,
+                                 transform_style: TransformStyle,
                                  perspective: Option<LayoutTransform>,
                                  mix_blend_mode: MixBlendMode,
                                  filters: Vec<FilterOp>) {
@@ -427,6 +428,7 @@ impl DisplayListBuilder {
                 scroll_policy: scroll_policy,
                 z_index: z_index,
                 transform: transform,
+                transform_style: transform_style,
                 perspective: perspective,
                 mix_blend_mode: mix_blend_mode,
                 filters: self.auxiliary_lists_builder.add_filters(&filters),

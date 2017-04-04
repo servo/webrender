@@ -23,7 +23,7 @@ use webrender_traits::{BlobImageData, BlobImageDescriptor, BlobImageError, BlobI
 use webrender_traits::{BlobImageResult, ClipRegion, ColorF, Epoch, GlyphInstance};
 use webrender_traits::{DeviceIntPoint, DeviceUintSize, DeviceUintRect, LayoutPoint, LayoutRect, LayoutSize};
 use webrender_traits::{ImageData, ImageDescriptor, ImageFormat, ImageKey, ImageRendering};
-use webrender_traits::{PipelineId, RasterizedBlobImage};
+use webrender_traits::{PipelineId, RasterizedBlobImage, TransformStyle};
 
 #[derive(Debug)]
 enum Gesture {
@@ -261,6 +261,7 @@ fn main() {
                                   bounds,
                                   0,
                                   None,
+                                  TransformStyle::Flat,
                                   None,
                                   webrender_traits::MixBlendMode::Normal,
                                   Vec::new());
