@@ -6,7 +6,7 @@ use std::str::CharIndices;
 
 // support arguments like '4', 'ab', '4.0'
 fn acceptable_arg_character(c: char) -> bool {
-    c.is_alphanumeric() || c == '.'
+    c.is_alphanumeric() || c == '.' || c == '-'
 }
 
 // A crapy parser for parsing strings like "translate(1, 3)"
@@ -50,7 +50,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
     p.skip_whitespace();
 
     if let Some(k) = p.o {
-        if !(k.1 == '(') {
+        if k.1 != '(' {
             return (name, args);
         }
         p.start = k.0 + k.1.len_utf8();
@@ -88,8 +88,9 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
 
 #[test]
 fn test() {
-    assert!(parse_function("rotate(40)").0 == "rotate");
-    assert!(parse_function("  rotate(40)").0 == "rotate");
-    assert!(parse_function("  rotate  (40)").0 == "rotate");
-    assert!(parse_function("  rotate  (  40 )").1[0] == "40");
+    assert_eq!(parse_function("rotate(40)").0, "rotate");
+    assert_eq!(parse_function("  rotate(40)").0, "rotate");
+    assert_eq!(parse_function("  rotate  (40)").0, "rotate");
+    assert_eq!(parse_function("  rotate  (  40 )").1[0], "40");
+    assert_eq!(parse_function("rotate(-40.0)").1[0], "-40.0");
 }

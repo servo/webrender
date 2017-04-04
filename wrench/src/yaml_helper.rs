@@ -63,7 +63,10 @@ macro_rules! define_string_enum {
             fn from_str(text: &str) -> Option<$T> {
                 match text {
                 $( $x => Some($T::$y), )*
-                    _ => None
+                    _ => {
+                        println!("Unrecognized {} value '{}'", stringify!($T), text);
+                        None
+                    }
                 }
             }
             fn as_str(&self) -> &'static str {
@@ -103,6 +106,26 @@ define_string_enum!(ScrollPolicy, [
     Scrollable = "scrollable",
     Fixed = "fixed",
 ]);
+
+// Rotate around `axis` by `degrees` angle
+fn make_rotation(origin: &LayoutPoint, degrees: f32, axis_x: f32, axis_y: f32, axis_z: f32)
+                 -> LayoutTransform {
+    let pre_transform = LayoutTransform::create_translation(origin.x,
+                                                            origin.y,
+                                                            0.0);
+    let post_transform = LayoutTransform::create_translation(-origin.x,
+                                                             -origin.y,
+                                                             -0.0);
+
+    let theta = 2.0f32 * f32::consts::PI - degrees.to_radians();
+    let transform = LayoutTransform::identity().pre_rotated(axis_x,
+                                                            axis_y,
+                                                            axis_z,
+                                                            Radians::new(theta));
+
+    pre_transform.pre_mul(&transform).pre_mul(&post_transform)
+}
+
 
 impl YamlHelper for Yaml {
     fn as_force_f32(&self) -> Option<f32> {
@@ -234,23 +257,14 @@ impl YamlHelper for Yaml {
                                                                     args[1].parse().unwrap(),
                                                                     0.))
                 }
-                ("rotate", ref args) if args.len() == 1 => {
-                    // rotate takes a single parameter of degrees and rotates in X-Y plane
-                    let pre_transform = LayoutTransform::create_translation(transform_origin.x,
-                                                                            transform_origin.y,
-                                                                            0.0);
-                    let post_transform = LayoutTransform::create_translation(-transform_origin.x,
-                                                                             -transform_origin.y,
-                                                                             -0.0);
-
-                    let angle = args[0].parse::<f32>().unwrap().to_radians();
-                    let theta = 2.0f32 * f32::consts::PI - angle;
-                    let transform = LayoutTransform::identity().pre_rotated(0.0,
-                                                                            0.0,
-                                                                            1.0,
-                                                                            Radians::new(theta));
-
-                    Some(pre_transform.pre_mul(&transform).pre_mul(&post_transform))
+                ("rotate", ref args) | ("rotate-z", ref args) if args.len() == 1 => {
+                    Some(make_rotation(transform_origin, args[0].parse::<f32>().unwrap(), 0.0, 0.0, 1.0))
+                }
+                ("rotate-x", ref args) if args.len() == 1 => {
+                    Some(make_rotation(transform_origin, args[0].parse::<f32>().unwrap(), 1.0, 0.0, 0.0))
+                }
+                ("rotate-y", ref args) if args.len() == 1 => {
+                    Some(make_rotation(transform_origin, args[0].parse::<f32>().unwrap(), 0.0, 1.0, 0.0))
                 }
                 (name, _) => {
                     println!("unknown function {}", name);
