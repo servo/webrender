@@ -23,7 +23,7 @@ use webrender_traits::{BlobImageData, BlobImageDescriptor, BlobImageError, BlobI
 use webrender_traits::{BlobImageResult, ClipRegion, ColorF, Epoch, GlyphInstance};
 use webrender_traits::{DeviceIntPoint, DeviceUintSize, DeviceUintRect, LayoutPoint, LayoutRect, LayoutSize};
 use webrender_traits::{ImageData, ImageDescriptor, ImageFormat, ImageKey, ImageRendering};
-use webrender_traits::{PipelineId, RasterizedBlobImage, TransformStyle};
+use webrender_traits::{PipelineId, RasterizedBlobImage, TransformStyle, BoxShadowClipMode};
 
 #[derive(Debug)]
 enum Gesture {
@@ -389,6 +389,29 @@ fn main() {
                           Au::from_px(32),
                           Au::from_px(0),
                           None);
+    }
+
+    if false { // draw box shadow?
+        let rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(0.0, 0.0));
+        let simple_box_bounds = LayoutRect::new(LayoutPoint::new(20.0, 200.0),
+                                                LayoutSize::new(50.0, 50.0));
+        let offset = LayoutPoint::new(0.0, 0.0);
+        let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
+        let blur_radius = 5.0;
+        let spread_radius = 0.0;
+        let simple_border_radius = 20.0;
+        let box_shadow_type = BoxShadowClipMode::Inset;
+        let full_screen_clip = builder.new_clip_region(&bounds, Vec::new(), None);
+
+        builder.push_box_shadow(rect,
+                                full_screen_clip,
+                                simple_box_bounds,
+                                offset,
+                                color,
+                                blur_radius,
+                                spread_radius,
+                                simple_border_radius,
+                                box_shadow_type);
     }
 
     builder.pop_stacking_context();
