@@ -13,13 +13,14 @@ void main(void) {
                                  prim.layer,
                                  prim.task);
 
+    vPos = vi.local_pos - prim.local_rect.p0;
+
     vec2 start_point = gradient.start_end_point.xy;
     vec2 end_point = gradient.start_end_point.zw;
-
     vec2 dir = end_point - start_point;
 
-    // Normalized offset of this vertex within the gradient, before clamp/repeat.
-    vOffset = dot(vi.local_pos - start_point, dir) / dot(dir, dir);
+    vStartPoint = start_point;
+    vScaledDir = dir / dot(dir, dir);
 
     // V coordinate of gradient row in lookup texture.
     vGradientIndex = float(prim.sub_index);
