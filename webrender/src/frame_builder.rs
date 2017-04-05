@@ -26,7 +26,7 @@ use tiling::StackingContextIndex;
 use tiling::{AuxiliaryListsMap, ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, Frame};
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
 use tiling::{RenderTargetContext, RenderTaskCollection, ScrollbarPrimitive, StackingContext};
-use util::{self, pack_as_float, rect_from_points_f, subtract_rect};
+use util::{self, pack_as_float, subtract_rect};
 use util::{RectHelpers, TransformedRectKind};
 use webrender_traits::{BorderDetails, BorderDisplayItem};
 use webrender_traits::{BoxShadowClipMode, ClipRegion, ColorF, DeviceIntPoint, DeviceIntRect};
@@ -546,32 +546,7 @@ impl FrameBuilder {
                 let right_color     = right.border_color(2.0/3.0, 1.0, 0.7, 0.3);
                 let bottom_color    = bottom.border_color(2.0/3.0, 1.0, 0.7, 0.3);
 
-                let tl_outer = LayerPoint::new(rect.origin.x, rect.origin.y);
-                let tl_inner = tl_outer + LayerPoint::new(radius.top_left.width.max(border_item.widths.left),
-                                                          radius.top_left.height.max(border_item.widths.top));
-
-                let tr_outer = LayerPoint::new(rect.origin.x + rect.size.width, rect.origin.y);
-                let tr_inner = tr_outer + LayerPoint::new(-radius.top_right.width.max(border_item.widths.right),
-                                                          radius.top_right.height.max(border_item.widths.top));
-
-                let bl_outer = LayerPoint::new(rect.origin.x, rect.origin.y + rect.size.height);
-                let bl_inner = bl_outer + LayerPoint::new(radius.bottom_left.width.max(border_item.widths.left),
-                                                          -radius.bottom_left.height.max(border_item.widths.bottom));
-
-                let br_outer = LayerPoint::new(rect.origin.x + rect.size.width,
-                                               rect.origin.y + rect.size.height);
-                let br_inner = br_outer - LayerPoint::new(radius.bottom_right.width.max(border_item.widths.right),
-                                                          radius.bottom_right.height.max(border_item.widths.bottom));
-
-                //Note: while similar to `ComplexClipRegion::get_inner_rect()` in spirit,
-                // this code is a bit more complex and can not there for be merged.
-                let inner_rect = rect_from_points_f(tl_inner.x.max(bl_inner.x),
-                                                    tl_inner.y.max(tr_inner.y),
-                                                    tr_inner.x.min(br_inner.x),
-                                                    bl_inner.y.min(br_inner.y));
-
                 let prim_cpu = BorderPrimitiveCpu {
-                    inner_rect: LayerRect::from_untyped(&inner_rect),
                 };
 
                 let prim_gpu = BorderPrimitiveGpu {
