@@ -1316,7 +1316,7 @@ impl Renderer {
     fn submit_batch(&mut self,
                     batch: &PrimitiveBatch,
                     projection: &Matrix4D<f32>,
-                    render_task_data: &Vec<RenderTaskData>,
+                    render_task_data: &[RenderTaskData],
                     cache_texture: TextureId,
                     render_target: Option<(TextureId, i32)>,
                     target_dimensions: DeviceUintSize) {
@@ -1472,7 +1472,7 @@ impl Renderer {
                          target_size: DeviceUintSize,
                          color_cache_texture: TextureId,
                          clear_color: Option<[f32; 4]>,
-                         render_task_data: &Vec<RenderTaskData>,
+                         render_task_data: &[RenderTaskData],
                          projection: &Matrix4D<f32>) {
         {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);

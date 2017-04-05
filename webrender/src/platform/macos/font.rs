@@ -220,7 +220,7 @@ impl FontContext {
     }
 
     #[allow(dead_code)]
-    fn print_glyph_data(&mut self, data: &Vec<u8>, width: usize, height: usize) {
+    fn print_glyph_data(&mut self, data: &[u8], width: usize, height: usize) {
         // Rust doesn't have step_by support on stable :(
         println!("Width is: {:?} height: {:?}", width, height);
         for i in 0..height {
