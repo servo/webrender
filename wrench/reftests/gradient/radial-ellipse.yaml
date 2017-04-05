@@ -1,11 +1,8 @@
 ---
 root:
   items:
-    - type: stacking-context
+    - type: radial-gradient
       bounds: 50 50 300 300
-      items:
-        - type: radial-gradient
-          bounds: 0 0 300 300
-          center: 150 150
-          radius: 100 200
-          stops: [0, red, 1, blue]
+      center: 150 150
+      radius: 100 200
+      stops: [0, red, 1, blue]
