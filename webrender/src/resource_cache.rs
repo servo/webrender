@@ -6,7 +6,7 @@ use app_units::Au;
 use device::TextureFilter;
 use fnv::FnvHasher;
 use frame::FrameId;
-use internal_types::{ExternalImageUpdateList, FontTemplate, SourceTexture, TextureUpdateList};
+use internal_types::{FontTemplate, SourceTexture, TextureUpdateList};
 use platform::font::{FontContext, RasterizedGlyph};
 use profiler::TextureCacheProfileCounters;
 use std::cell::RefCell;
@@ -219,7 +219,6 @@ pub struct ResourceCache {
     pending_image_requests: Vec<ImageRequest>,
     glyph_cache_tx: Sender<GlyphCacheMsg>,
     glyph_cache_result_queue: Receiver<GlyphCacheResultMsg>,
-    pending_external_image_update_list: ExternalImageUpdateList,
 
     blob_image_renderer: Option<Box<BlobImageRenderer>>,
     blob_image_requests: HashSet<ImageRequest>,
@@ -246,7 +245,6 @@ impl ResourceCache {
             pending_image_requests: Vec::new(),
             glyph_cache_tx: glyph_cache_tx,
             glyph_cache_result_queue: glyph_cache_result_queue,
-            pending_external_image_update_list: ExternalImageUpdateList::new(),
 
             blob_image_renderer: blob_image_renderer,
             blob_image_requests: HashSet::new(),
@@ -346,22 +344,9 @@ impl ResourceCache {
     pub fn delete_image_template(&mut self, image_key: ImageKey) {
         let value = self.image_templates.remove(&image_key);
 
-        // If the key is associated to an external image, pass the external id to renderer for cleanup.
-        if let Some(image) = value {
-            if let ImageData::External(ext_image) = image.data {
-                match ext_image.image_type {
-                    ExternalImageType::Texture2DHandle |
-                    ExternalImageType::TextureRectHandle => {
-                        self.pending_external_image_update_list.push(ext_image.id);
-                    }
-                    _ => {}
-                }
-            }
-
-            return;
+        if value.is_none() {
+            println!("Delete the non-exist key:{:?}", image_key);
         }
-
-        println!("Delete the non-exist key:{:?}", image_key);
     }
 
     pub fn add_webgl_texture(&mut self, id: WebGLContextId, texture_id: SourceTexture, size: DeviceIntSize) {
@@ -442,10 +427,6 @@ impl ResourceCache {
 
     pub fn pending_updates(&mut self) -> TextureUpdateList {
         self.texture_cache.pending_updates()
-    }
-
-    pub fn pending_external_image_updates(&mut self) -> ExternalImageUpdateList {
-        mem::replace(&mut self.pending_external_image_update_list, ExternalImageUpdateList::new())
     }
 
     pub fn get_glyphs<F>(&self,

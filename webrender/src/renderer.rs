@@ -19,7 +19,7 @@ use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use gpu_store::{GpuStore, GpuStoreLayout};
 use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
-use internal_types::{ExternalImageUpdateList, TextureUpdateList, PackedVertex, RenderTargetMode};
+use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler};
 use prim_store::GradientData;
@@ -1037,12 +1037,8 @@ impl Renderer {
         // Pull any pending results and return the most recent.
         while let Ok(msg) = self.result_rx.try_recv() {
             match msg {
-                ResultMsg::NewFrame(frame, texture_update_list, external_image_update_list, profile_counters) => {
+                ResultMsg::NewFrame(frame, texture_update_list, profile_counters) => {
                     self.pending_texture_updates.push(texture_update_list);
-
-                    // When a new frame is ready, we could start to update all pending external image requests here.
-                    self.release_external_images(external_image_update_list);
-
                     self.backend_profile_counters = profile_counters;
 
                     // Update the list of available epochs for use during reftests.
@@ -1747,18 +1743,6 @@ impl Renderer {
         }
     }
 
-    fn release_external_images(&mut self, mut pending_external_image_updates: ExternalImageUpdateList) {
-        if !pending_external_image_updates.is_empty() {
-            let handler = self.external_image_handler
-                              .as_mut()
-                              .expect("found external image updates, but no handler set!");
-
-            for external_id in pending_external_image_updates.drain(..) {
-                handler.release(external_id);
-            }
-        }
-    }
-
     fn draw_tile_frame(&mut self,
                        frame: &mut Frame,
                        framebuffer_size: &DeviceUintSize) {
@@ -1996,7 +1980,9 @@ pub struct ExternalImage<'a> {
 /// The interfaces that an application can implement to support providing
 /// external image buffers.
 /// When the the application passes an external image to WR, it should kepp that
-/// external image life time untile the release() call.
+/// external image life time. People could check the epoch id in RenderNotifier
+/// at the client side to make sure that the external image is not used by WR.
+/// Then, do the clean up for that external image.
 pub trait ExternalImageHandler {
     /// Lock the external image. Then, WR could start to read the image content.
     /// The WR client should not change the image content until the unlock()
@@ -2005,8 +1991,6 @@ pub trait ExternalImageHandler {
     /// Unlock the external image. The WR should not read the image content
     /// after this call.
     fn unlock(&mut self, key: ExternalImageId);
-    /// Tell the WR client that it could start to release this external image.
-    fn release(&mut self, key: ExternalImageId);
 }
 
 pub struct RendererOptions {
