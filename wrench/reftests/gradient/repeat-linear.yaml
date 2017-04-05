@@ -1,12 +1,9 @@
 ---
 root:
   items:
-    - type: stacking-context
+    - type: gradient
       bounds: 50 50 300 300
-      items:
-        - type: gradient
-          bounds: 0 0 300 300
-          start: 0 150
-          end: 300 150
-          stops: [0.1, blue, 0.2, blue, 0.2, red, 0.3, red]
-          repeat: true
+      start: 0 150
+      end: 300 150
+      stops: [0.1, blue, 0.2, blue, 0.2, red, 0.3, red]
+      repeat: true
