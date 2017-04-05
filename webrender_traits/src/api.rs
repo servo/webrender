@@ -67,34 +67,34 @@ pub enum ApiMsg {
 
 impl fmt::Debug for ApiMsg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ApiMsg::AddRawFont(..) => { write!(f, "ApiMsg::AddRawFont") }
-            ApiMsg::AddNativeFont(..) => { write!(f, "ApiMsg::AddNativeFont") }
-            ApiMsg::DeleteFont(..) => { write!(f, "ApiMsg::DeleteFont") }
-            ApiMsg::GetGlyphDimensions(..) => { write!(f, "ApiMsg::GetGlyphDimensions") }
-            ApiMsg::AddImage(..) => { write!(f, "ApiMsg::AddImage") }
-            ApiMsg::UpdateImage(..) => { write!(f, "ApiMsg::UpdateImage") }
-            ApiMsg::DeleteImage(..) => { write!(f, "ApiMsg::DeleteImage") }
-            ApiMsg::CloneApi(..) => { write!(f, "ApiMsg::CloneApi") }
-            ApiMsg::SetDisplayList(..) => { write!(f, "ApiMsg::SetDisplayList") }
-            ApiMsg::SetRootPipeline(..) => { write!(f, "ApiMsg::SetRootPipeline") }
-            ApiMsg::Scroll(..) => { write!(f, "ApiMsg::Scroll") }
-            ApiMsg::ScrollLayerWithId(..) => { write!(f, "ApiMsg::ScrollLayerWithId") }
-            ApiMsg::TickScrollingBounce => { write!(f, "ApiMsg::TickScrollingBounce") }
-            ApiMsg::TranslatePointToLayerSpace(..) => { write!(f, "ApiMsg::TranslatePointToLayerSpace") }
-            ApiMsg::GetScrollLayerState(..) => { write!(f, "ApiMsg::GetScrollLayerState") }
-            ApiMsg::RequestWebGLContext(..) => { write!(f, "ApiMsg::RequestWebGLContext") }
-            ApiMsg::ResizeWebGLContext(..) => { write!(f, "ApiMsg::ResizeWebGLContext") }
-            ApiMsg::WebGLCommand(..) => { write!(f, "ApiMsg::WebGLCommand") }
-            ApiMsg::GenerateFrame(..) => { write!(f, "ApiMsg::GenerateFrame") }
-            ApiMsg::VRCompositorCommand(..) => { write!(f, "ApiMsg::VRCompositorCommand") }
-            ApiMsg::ExternalEvent(..) => { write!(f, "ApiMsg::ExternalEvent") }
-            ApiMsg::ShutDown => { write!(f, "ApiMsg::ShutDown") }
-            ApiMsg::SetPageZoom(..) => { write!(f, "ApiMsg::SetPageZoom") }
-            ApiMsg::SetPinchZoom(..) => { write!(f, "ApiMsg::SetPinchZoom") }
-            ApiMsg::SetPan(..) => { write!(f, "ApiMsg::SetPan") }
-            ApiMsg::SetWindowParameters(..) => { write!(f, "ApiMsg::SetWindowParameters") }
-        }
+        f.write_str(match *self {
+            ApiMsg::AddRawFont(..) => "ApiMsg::AddRawFont",
+            ApiMsg::AddNativeFont(..) => "ApiMsg::AddNativeFont",
+            ApiMsg::DeleteFont(..) => "ApiMsg::DeleteFont",
+            ApiMsg::GetGlyphDimensions(..) => "ApiMsg::GetGlyphDimensions",
+            ApiMsg::AddImage(..) => "ApiMsg::AddImage",
+            ApiMsg::UpdateImage(..) => "ApiMsg::UpdateImage",
+            ApiMsg::DeleteImage(..) => "ApiMsg::DeleteImage",
+            ApiMsg::CloneApi(..) => "ApiMsg::CloneApi",
+            ApiMsg::SetDisplayList(..) => "ApiMsg::SetDisplayList",
+            ApiMsg::SetRootPipeline(..) => "ApiMsg::SetRootPipeline",
+            ApiMsg::Scroll(..) => "ApiMsg::Scroll",
+            ApiMsg::ScrollLayerWithId(..) => "ApiMsg::ScrollLayerWithId",
+            ApiMsg::TickScrollingBounce => "ApiMsg::TickScrollingBounce",
+            ApiMsg::TranslatePointToLayerSpace(..) => "ApiMsg::TranslatePointToLayerSpace",
+            ApiMsg::GetScrollLayerState(..) => "ApiMsg::GetScrollLayerState",
+            ApiMsg::RequestWebGLContext(..) => "ApiMsg::RequestWebGLContext",
+            ApiMsg::ResizeWebGLContext(..) => "ApiMsg::ResizeWebGLContext",
+            ApiMsg::WebGLCommand(..) => "ApiMsg::WebGLCommand",
+            ApiMsg::GenerateFrame(..) => "ApiMsg::GenerateFrame",
+            ApiMsg::VRCompositorCommand(..) => "ApiMsg::VRCompositorCommand",
+            ApiMsg::ExternalEvent(..) => "ApiMsg::ExternalEvent",
+            ApiMsg::ShutDown => "ApiMsg::ShutDown",
+            ApiMsg::SetPageZoom(..) => "ApiMsg::SetPageZoom",
+            ApiMsg::SetPinchZoom(..) => "ApiMsg::SetPinchZoom",
+            ApiMsg::SetPan(..) => "ApiMsg::SetPan",
+            ApiMsg::SetWindowParameters(..) => "ApiMsg::SetWindowParameters",
+        })
     }
 }
 
