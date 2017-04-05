@@ -28,7 +28,7 @@ fn broadcast<T: Clone>(base_vals: &[T], num_items: usize) -> Vec<T> {
         if vals.len() == num_items {
             break;
         }
-        vals.extend_from_slice(&base_vals);
+        vals.extend_from_slice(base_vals);
     }
     vals
 }
@@ -76,7 +76,7 @@ impl YamlFrameReader {
         y
     }
 
-    pub fn builder<'a>(&'a mut self) -> &'a mut DisplayListBuilder {
+    pub fn builder(&mut self) -> &mut DisplayListBuilder {
         self.builder.as_mut().unwrap()
     }
 
@@ -120,13 +120,13 @@ impl YamlFrameReader {
                       item_bounds: &LayoutRect,
                       wrench: &mut Wrench)
                       -> Option<ClipRegion> {
-        match item {
-            &Yaml::String(_) => {
+        match *item {
+            Yaml::String(_) => {
                 let rect = item.as_rect().expect(&format!("Could not parse rect string: '{:?}'",
                                                           item));
                 Some(self.builder().new_clip_region(&rect, vec![], None))
             }
-            &Yaml::Array(ref v) => {
+            Yaml::Array(ref v) => {
                 if let Some(rect) = item.as_rect() {
                     // it's a rect (as an array)
                     Some(self.builder().new_clip_region(&rect, vec![], None))
@@ -142,15 +142,15 @@ impl YamlFrameReader {
                     Some(self.builder().new_clip_region(item_bounds, rects, None))
                 }
             }
-            &Yaml::Hash(_) => {
+            Yaml::Hash(_) => {
                 let bounds = item["rect"].as_rect().unwrap_or(*item_bounds);
                 let complex = item["complex"].as_vec().unwrap_or(&Vec::new()).iter().filter_map(|item|
-                    match item {
-                        &Yaml::String(_) | &Yaml::Array(_) => {
+                    match *item {
+                        Yaml::String(_) | Yaml::Array(_) => {
                             let rect = item.as_rect().expect("not a rect");
                             Some(ComplexClipRegion::new(rect, BorderRadius::zero()))
                         }
-                        &Yaml::Hash(_) => {
+                        Yaml::Hash(_) => {
                             let rect = item["rect"].as_rect()
                                                    .expect("complex clip entry must have rect");
                             let radius = item["radius"].as_border_radius()
@@ -178,7 +178,7 @@ impl YamlFrameReader {
                 };
                 Some(self.builder().new_clip_region(&bounds, complex, image_mask))
             }
-            &Yaml::BadValue => {
+            Yaml::BadValue => {
                 None
             }
             _ => {
@@ -512,7 +512,7 @@ impl YamlFrameReader {
             let glyphs = glyph_indices.iter().zip(glyph_advances).map(|arg| {
                 let gi = GlyphInstance { index: *arg.0 as u32,
                                          point: Point2D::new(x, y), };
-                x = x + arg.1;
+                x += arg.1;
                 gi
             }).collect();
             // FIXME this is incorrect!
@@ -539,7 +539,7 @@ impl YamlFrameReader {
                                            Vec::new(), None)
         };
 
-        for ref item in yaml.as_vec().unwrap() {
+        for item in yaml.as_vec().unwrap() {
             // an explicit type can be skipped with some shorthand
             let item_type =
                 if !item["rect"].is_badvalue() {
@@ -564,7 +564,7 @@ impl YamlFrameReader {
                 };
 
             if item_type == "stacking-context" {
-                self.add_stacking_context_from_yaml(wrench, &item, false);
+                self.add_stacking_context_from_yaml(wrench, item, false);
                 continue;
             }
 
@@ -580,16 +580,16 @@ impl YamlFrameReader {
             }
 
             match item_type {
-                "rect" => self.handle_rect(wrench, &full_clip_region, &item),
-                "image" => self.handle_image(wrench, &full_clip_region, &item),
-                "text" | "glyphs" => self.handle_text(wrench, &full_clip_region, &item),
-                "scroll-layer" => self.add_scroll_layer_from_yaml(wrench, &item),
-                "clip" => { self.handle_clip_from_yaml(wrench, &item); }
-                "border" => self.handle_border(wrench, &full_clip_region, &item),
-                "gradient" => self.handle_gradient(wrench, &full_clip_region, &item),
-                "radial-gradient" => self.handle_radial_gradient(wrench, &full_clip_region, &item),
-                "box-shadow" => self.handle_box_shadow(wrench, &full_clip_region, &item),
-                "iframe" => self.handle_iframe(wrench, &full_clip_region, &item),
+                "rect" => self.handle_rect(wrench, &full_clip_region, item),
+                "image" => self.handle_image(wrench, &full_clip_region, item),
+                "text" | "glyphs" => self.handle_text(wrench, &full_clip_region, item),
+                "scroll-layer" => self.add_scroll_layer_from_yaml(wrench, item),
+                "clip" => { self.handle_clip_from_yaml(wrench, item); }
+                "border" => self.handle_border(wrench, &full_clip_region, item),
+                "gradient" => self.handle_gradient(wrench, &full_clip_region, item),
+                "radial-gradient" => self.handle_radial_gradient(wrench, &full_clip_region, item),
+                "box-shadow" => self.handle_box_shadow(wrench, &full_clip_region, item),
+                "iframe" => self.handle_iframe(wrench, &full_clip_region, item),
                 "stacking-context" => { },
                 _ => println!("Skipping unknown item type: {:?}", item),
             }

@@ -113,9 +113,9 @@ impl ReftestManifest {
             let l = line.unwrap();
 
             // strip the comments
-            let s = &l[0..l.find("#").unwrap_or(l.len())];
+            let s = &l[0..l.find('#').unwrap_or(l.len())];
             let s = s.trim();
-            if s.len() == 0 {
+            if s.is_empty() {
                 continue;
             }
 
@@ -206,7 +206,7 @@ impl<'a> ReftestHarness<'a> {
         let mut total_failing = 0;
 
         for t in reftests {
-            if self.run_reftest(&t) {
+            if self.run_reftest(t) {
                 total_passing += 1;
             } else {
                 total_failing += 1;

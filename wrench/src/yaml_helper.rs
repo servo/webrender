@@ -70,8 +70,8 @@ macro_rules! define_string_enum {
                 }
             }
             fn as_str(&self) -> &'static str {
-                match self {
-                $( &$T::$y => $x, )*
+                match *self {
+                $( $T::$y => $x, )*
                 }
             }
         }
@@ -152,7 +152,7 @@ impl YamlHelper for Yaml {
                     match *v {
                         Yaml::Integer(k) => Ok(k as f32),
                         Yaml::String(ref k) | Yaml::Real(ref k) => {
-                            f32::from_str(&k).map_err(|_| false)
+                            f32::from_str(k).map_err(|_| false)
                         },
                         _ => Err(false),
                     }
@@ -250,12 +250,12 @@ impl YamlHelper for Yaml {
                                                    nums[8], nums[9], nums[10], nums[11],
                                                    nums[12], nums[13], nums[14], nums[15]))
         }
-        match self {
-            &Yaml::String(ref string) => match parse_function(string) {
+        match *self {
+            Yaml::String(ref string) => match parse_function(string) {
                 ("translate", ref args) if args.len() == 2 => {
-                    return Some(LayoutTransform::create_translation(args[0].parse().unwrap(),
-                                                                    args[1].parse().unwrap(),
-                                                                    0.))
+                    Some(LayoutTransform::create_translation(args[0].parse().unwrap(),
+                                                             args[1].parse().unwrap(),
+                                                             0.))
                 }
                 ("rotate", ref args) | ("rotate-z", ref args) if args.len() == 1 => {
                     Some(make_rotation(transform_origin, args[0].parse::<f32>().unwrap(), 0.0, 0.0, 1.0))
@@ -271,7 +271,7 @@ impl YamlHelper for Yaml {
                     None
                 }
             },
-            &Yaml::BadValue => None,
+            Yaml::BadValue => None,
             _ => {
                 println!("unknown transform {:?}", self);
                 None
@@ -300,12 +300,10 @@ impl YamlHelper for Yaml {
     fn as_vec_colorf(&self) -> Option<Vec<ColorF>> {
         if let Some(v) = self.as_vec() {
             Some(v.iter().map(|v| v.as_colorf().unwrap()).collect())
+        } else if let Some(color) = self.as_colorf() {
+            Some(vec![color])
         } else {
-            if let Some(color) = self.as_colorf() {
-                Some(vec![color])
-            } else {
-                None
-            }
+            None
         }
     }
 

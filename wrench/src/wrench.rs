@@ -232,8 +232,8 @@ impl Wrench {
     }
 
     pub fn window_size_f32(&self) -> LayoutSize {
-        return LayoutSize::new(self.window_size.width as f32,
-                               self.window_size.height as f32)
+        LayoutSize::new(self.window_size.width as f32,
+                        self.window_size.height as f32)
     }
 
     #[cfg(target_os = "windows")]
@@ -404,10 +404,10 @@ impl Wrench {
         let color_and_offset = [ (*BLACK_COLOR, 2.0), (*WHITE_COLOR, 0.0) ];
         let dr = self.renderer.debug_renderer();
 
-        for ref co in color_and_offset.iter() {
+        for ref co in &color_and_offset {
             let x = self.device_pixel_ratio * (15.0 + co.1);
             let mut y = self.device_pixel_ratio * (15.0 + co.1 + dr.line_height());
-            for ref line in help_lines.iter() {
+            for ref line in &help_lines {
                 dr.add_text(x, y, line, &co.0);
                 y += self.device_pixel_ratio * dr.line_height();
             }
@@ -445,10 +445,10 @@ fn generate_xy_gradient_image(w: u32, h: u32) -> (ImageDescriptor, ImageData) {
         }
     }
 
-    return (
+    (
         ImageDescriptor::new(w, h, ImageFormat::RGBA8, true),
         ImageData::new(pixels)
-    );
+    )
 }
 
 fn generate_solid_color_image(r: u8, g: u8, b: u8, a: u8, w: u32, h: u32) -> (ImageDescriptor, ImageData) {
@@ -468,8 +468,8 @@ fn generate_solid_color_image(r: u8, g: u8, b: u8, a: u8, w: u32, h: u32) -> (Im
         }
     }
 
-    return (
+    (
         ImageDescriptor::new(w, h, ImageFormat::RGBA8, a == 255),
         ImageData::new(pixels)
-    );
+    )
 }

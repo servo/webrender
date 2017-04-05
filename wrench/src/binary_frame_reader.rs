@@ -90,12 +90,12 @@ impl BinaryFrameReader {
             return false;
         }
 
-        match msg {
-            &ApiMsg::AddRawFont(..) |
-            &ApiMsg::AddNativeFont(..) |
-            &ApiMsg::AddImage(..) |
-            &ApiMsg::UpdateImage(..) |
-            &ApiMsg::DeleteImage(..) => {
+        match *msg {
+            ApiMsg::AddRawFont(..) |
+            ApiMsg::AddNativeFont(..) |
+            ApiMsg::AddImage(..) |
+            ApiMsg::UpdateImage(..) |
+            ApiMsg::DeleteImage(..) => {
                 true
             }
             _ => {
@@ -134,7 +134,7 @@ impl WrenchThing for BinaryFrameReader {
                     let mut buffer = vec![0; len as usize];
                     self.file.read_exact(&mut buffer).unwrap();
                     let msg = deserialize(&buffer).unwrap();
-                    let found_frame_marker = match &msg { &ApiMsg::GenerateFrame(..) => true, _ => false };
+                    let found_frame_marker = match msg { ApiMsg::GenerateFrame(..) => true, _ => false };
                     self.frame_data.push(Item::Message(msg));
                     if found_frame_marker {
                         break;
