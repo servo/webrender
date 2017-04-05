@@ -6,3 +6,4 @@ include boxshadow/reftest.list
 include image/reftest.list
 include border/reftest.list
 include gradient/reftest.list
+include text/reftest.list
