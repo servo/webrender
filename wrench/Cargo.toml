@@ -34,4 +34,4 @@ headless = [ "osmesa-sys", "osmesa-src" ]
 dwrote = "0.3"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
-font-loader = "0.1.4"
+font-loader = "0.2.0"
