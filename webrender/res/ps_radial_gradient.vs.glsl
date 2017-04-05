@@ -13,7 +13,7 @@ void main(void) {
                                  prim.layer,
                                  prim.task);
 
-    vPos = vi.local_pos;
+    vPos = vi.local_pos - prim.local_rect.p0;
 
     // Snap the start/end points to device pixel units.
     // I'm not sure this is entirely correct, but the

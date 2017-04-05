@@ -13,6 +13,8 @@ void main(void) {
                                  prim.layer,
                                  prim.task);
 
+    vPos = vi.local_pos - prim.local_rect.p0;
+
     // Snap the start/end points to device pixel units.
     // I'm not sure this is entirely correct, but the
     // old render path does this, and it is needed to
@@ -22,9 +24,8 @@ void main(void) {
     vec2 start_point = floor(0.5 + gradient.start_end_point.xy * uDevicePixelRatio) / uDevicePixelRatio;
     vec2 end_point = floor(0.5 + gradient.start_end_point.zw * uDevicePixelRatio) / uDevicePixelRatio;
 
-    vec2 dir = end_point - start_point;
-    // Normalized offset of this vertex within the gradient, before clamp/repeat.
-    vOffset = dot(vi.local_pos - start_point, dir) / dot(dir, dir);
+    vStartPoint = start_point;
+    vDir = end_point - start_point;
 
     // V coordinate of gradient row in lookup texture.
     vGradientIndex = float(prim.sub_index);

@@ -577,23 +577,27 @@ impl FrameBuilder {
             }
             BorderDetails::Gradient(ref border) => {
                 for segment in create_segments(border.outset) {
+                    let segment_rel_rect = segment.origin - rect.origin;
+
                     self.add_gradient(scroll_layer_id,
                                       segment,
                                       clip_region,
-                                      border.gradient.start_point,
-                                      border.gradient.end_point,
+                                      border.gradient.start_point - segment_rel_rect,
+                                      border.gradient.end_point - segment_rel_rect,
                                       border.gradient.stops,
                                       border.gradient.extend_mode);
                 }
             }
             BorderDetails::RadialGradient(ref border) => {
                 for segment in create_segments(border.outset) {
+                    let segment_rel_rect = segment.origin - rect.origin;
+
                     self.add_radial_gradient(scroll_layer_id,
                                              segment,
                                              clip_region,
-                                             border.gradient.start_center,
+                                             border.gradient.start_center - segment_rel_rect,
                                              border.gradient.start_radius,
-                                             border.gradient.end_center,
+                                             border.gradient.end_center  - segment_rel_rect,
                                              border.gradient.end_radius,
                                              border.gradient.ratio_xy,
                                              border.gradient.stops,
