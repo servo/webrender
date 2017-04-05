@@ -324,7 +324,7 @@ fn main() {
                                  save_type,
                                  size,
                                  args.is_present("rebuild"),
-                                 args.is_present("subpixel-aa"),
+                                 args.is_present("subpixel_aa"),
                                  args.is_present("debug"),
                                  args.is_present("verbose"));
 
