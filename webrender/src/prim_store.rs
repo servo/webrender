@@ -185,7 +185,6 @@ impl YuvImagePrimitiveGpu {
 
 #[derive(Debug, Clone)]
 pub struct BorderPrimitiveCpu {
-    pub inner_rect: LayerRect,
 }
 
 #[derive(Debug, Clone)]
