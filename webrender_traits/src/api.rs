@@ -67,33 +67,33 @@ pub enum ApiMsg {
 
 impl fmt::Debug for ApiMsg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &ApiMsg::AddRawFont(..) => { write!(f, "ApiMsg::AddRawFont") }
-            &ApiMsg::AddNativeFont(..) => { write!(f, "ApiMsg::AddNativeFont") }
-            &ApiMsg::DeleteFont(..) => { write!(f, "ApiMsg::DeleteFont") }
-            &ApiMsg::GetGlyphDimensions(..) => { write!(f, "ApiMsg::GetGlyphDimensions") }
-            &ApiMsg::AddImage(..) => { write!(f, "ApiMsg::AddImage") }
-            &ApiMsg::UpdateImage(..) => { write!(f, "ApiMsg::UpdateImage") }
-            &ApiMsg::DeleteImage(..) => { write!(f, "ApiMsg::DeleteImage") }
-            &ApiMsg::CloneApi(..) => { write!(f, "ApiMsg::CloneApi") }
-            &ApiMsg::SetDisplayList(..) => { write!(f, "ApiMsg::SetDisplayList") }
-            &ApiMsg::SetRootPipeline(..) => { write!(f, "ApiMsg::SetRootPipeline") }
-            &ApiMsg::Scroll(..) => { write!(f, "ApiMsg::Scroll") }
-            &ApiMsg::ScrollLayerWithId(..) => { write!(f, "ApiMsg::ScrollLayerWithId") }
-            &ApiMsg::TickScrollingBounce => { write!(f, "ApiMsg::TickScrollingBounce") }
-            &ApiMsg::TranslatePointToLayerSpace(..) => { write!(f, "ApiMsg::TranslatePointToLayerSpace") }
-            &ApiMsg::GetScrollLayerState(..) => { write!(f, "ApiMsg::GetScrollLayerState") }
-            &ApiMsg::RequestWebGLContext(..) => { write!(f, "ApiMsg::RequestWebGLContext") }
-            &ApiMsg::ResizeWebGLContext(..) => { write!(f, "ApiMsg::ResizeWebGLContext") }
-            &ApiMsg::WebGLCommand(..) => { write!(f, "ApiMsg::WebGLCommand") }
-            &ApiMsg::GenerateFrame(..) => { write!(f, "ApiMsg::GenerateFrame") }
-            &ApiMsg::VRCompositorCommand(..) => { write!(f, "ApiMsg::VRCompositorCommand") }
-            &ApiMsg::ExternalEvent(..) => { write!(f, "ApiMsg::ExternalEvent") }
-            &ApiMsg::ShutDown => { write!(f, "ApiMsg::ShutDown") }
-            &ApiMsg::SetPageZoom(..) => { write!(f, "ApiMsg::SetPageZoom") }
-            &ApiMsg::SetPinchZoom(..) => { write!(f, "ApiMsg::SetPinchZoom") }
-            &ApiMsg::SetPan(..) => { write!(f, "ApiMsg::SetPan") }
-            &ApiMsg::SetWindowParameters(..) => { write!(f, "ApiMsg::SetWindowParameters") }
+        match *self {
+            ApiMsg::AddRawFont(..) => { write!(f, "ApiMsg::AddRawFont") }
+            ApiMsg::AddNativeFont(..) => { write!(f, "ApiMsg::AddNativeFont") }
+            ApiMsg::DeleteFont(..) => { write!(f, "ApiMsg::DeleteFont") }
+            ApiMsg::GetGlyphDimensions(..) => { write!(f, "ApiMsg::GetGlyphDimensions") }
+            ApiMsg::AddImage(..) => { write!(f, "ApiMsg::AddImage") }
+            ApiMsg::UpdateImage(..) => { write!(f, "ApiMsg::UpdateImage") }
+            ApiMsg::DeleteImage(..) => { write!(f, "ApiMsg::DeleteImage") }
+            ApiMsg::CloneApi(..) => { write!(f, "ApiMsg::CloneApi") }
+            ApiMsg::SetDisplayList(..) => { write!(f, "ApiMsg::SetDisplayList") }
+            ApiMsg::SetRootPipeline(..) => { write!(f, "ApiMsg::SetRootPipeline") }
+            ApiMsg::Scroll(..) => { write!(f, "ApiMsg::Scroll") }
+            ApiMsg::ScrollLayerWithId(..) => { write!(f, "ApiMsg::ScrollLayerWithId") }
+            ApiMsg::TickScrollingBounce => { write!(f, "ApiMsg::TickScrollingBounce") }
+            ApiMsg::TranslatePointToLayerSpace(..) => { write!(f, "ApiMsg::TranslatePointToLayerSpace") }
+            ApiMsg::GetScrollLayerState(..) => { write!(f, "ApiMsg::GetScrollLayerState") }
+            ApiMsg::RequestWebGLContext(..) => { write!(f, "ApiMsg::RequestWebGLContext") }
+            ApiMsg::ResizeWebGLContext(..) => { write!(f, "ApiMsg::ResizeWebGLContext") }
+            ApiMsg::WebGLCommand(..) => { write!(f, "ApiMsg::WebGLCommand") }
+            ApiMsg::GenerateFrame(..) => { write!(f, "ApiMsg::GenerateFrame") }
+            ApiMsg::VRCompositorCommand(..) => { write!(f, "ApiMsg::VRCompositorCommand") }
+            ApiMsg::ExternalEvent(..) => { write!(f, "ApiMsg::ExternalEvent") }
+            ApiMsg::ShutDown => { write!(f, "ApiMsg::ShutDown") }
+            ApiMsg::SetPageZoom(..) => { write!(f, "ApiMsg::SetPageZoom") }
+            ApiMsg::SetPinchZoom(..) => { write!(f, "ApiMsg::SetPinchZoom") }
+            ApiMsg::SetPan(..) => { write!(f, "ApiMsg::SetPan") }
+            ApiMsg::SetWindowParameters(..) => { write!(f, "ApiMsg::SetWindowParameters") }
         }
     }
 }
@@ -559,7 +559,7 @@ pub struct PropertyValue<T> {
     pub value: T,
 }
 
-/// When using generate_frame(), a list of PropertyValue structures
+/// When using `generate_frame()`, a list of `PropertyValue` structures
 /// can optionally be supplied to provide the current value of any
 /// animated properties.
 #[derive(Clone, Deserialize, Serialize, Debug)]

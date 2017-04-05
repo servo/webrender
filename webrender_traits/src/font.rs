@@ -104,7 +104,7 @@ impl SubpixelPoint {
     }
 
     pub fn to_f64(&self) -> (f64, f64) {
-        return (self.x.into(), self.y.into());
+        (self.x.into(), self.y.into())
     }
 
     pub fn set_offset(&mut self, point: Point2D<f32>, render_mode: FontRenderMode) {

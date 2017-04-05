@@ -80,7 +80,7 @@ impl BuiltDisplayList {
         &self.descriptor
     }
 
-    pub fn all_display_items<'a>(&'a self) -> &'a [DisplayItem] {
+    pub fn all_display_items(&self) -> &[DisplayItem] {
         unsafe {
             convert_blob_to_pod(&self.data[0..self.descriptor.display_list_items_size])
         }
@@ -576,7 +576,7 @@ impl ItemRange {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AuxiliaryListsBuilder {
     gradient_stops: Vec<GradientStop>,
     complex_clip_regions: Vec<ComplexClipRegion>,
@@ -586,12 +586,7 @@ pub struct AuxiliaryListsBuilder {
 
 impl AuxiliaryListsBuilder {
     pub fn new() -> AuxiliaryListsBuilder {
-        AuxiliaryListsBuilder {
-            gradient_stops: Vec::new(),
-            complex_clip_regions: Vec::new(),
-            filters: Vec::new(),
-            glyph_instances: Vec::new(),
-        }
+        AuxiliaryListsBuilder::default()
     }
 
     pub fn add_gradient_stops(&mut self, gradient_stops: &[GradientStop]) -> ItemRange {
