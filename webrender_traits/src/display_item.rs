@@ -538,8 +538,8 @@ impl ScrollLayerId {
 
     pub fn pipeline_id(&self) -> PipelineId {
         match *self {
-            ScrollLayerId::Clip(_, pipeline_id) => pipeline_id,
-            ScrollLayerId::ClipExternalId(_, pipeline_id) => pipeline_id,
+            ScrollLayerId::Clip(_, pipeline_id) |
+            ScrollLayerId::ClipExternalId(_, pipeline_id) |
             ScrollLayerId::ReferenceFrame(_, pipeline_id) => pipeline_id,
         }
     }
