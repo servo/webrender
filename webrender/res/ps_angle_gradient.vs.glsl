@@ -13,16 +13,11 @@ void main(void) {
                                  prim.layer,
                                  prim.task);
 
-    // Snap the start/end points to device pixel units.
-    // I'm not sure this is entirely correct, but the
-    // old render path does this, and it is needed to
-    // make the angle gradient ref tests pass. It might
-    // be better to fix this higher up in DL construction
-    // and not snap here?
-    vec2 start_point = floor(0.5 + gradient.start_end_point.xy * uDevicePixelRatio) / uDevicePixelRatio;
-    vec2 end_point = floor(0.5 + gradient.start_end_point.zw * uDevicePixelRatio) / uDevicePixelRatio;
+    vec2 start_point = gradient.start_end_point.xy;
+    vec2 end_point = gradient.start_end_point.zw;
 
     vec2 dir = end_point - start_point;
+
     // Normalized offset of this vertex within the gradient, before clamp/repeat.
     vOffset = dot(vi.local_pos - start_point, dir) / dot(dir, dir);
 
