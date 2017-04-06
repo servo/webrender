@@ -128,6 +128,12 @@ pub struct PrimitiveMetadata {
     pub clip_task: Option<RenderTask>,
 }
 
+impl PrimitiveMetadata {
+    pub fn needs_clipping(&self) -> bool {
+        self.clip_task.is_some()
+    }
+}
+
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct RectanglePrimitive {

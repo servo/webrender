@@ -1185,10 +1185,9 @@ impl FrameBuilder {
                                 current_task.children.push(clip_task.clone());
                             }
 
-                            let needs_clipping = prim_metadata.clip_task.is_some();
                             let needs_blending = xf_rect.kind == TransformedRectKind::Complex ||
                                                  !prim_metadata.is_opaque ||
-                                                 needs_clipping;
+                                                 prim_metadata.needs_clipping();
 
                             let items = if needs_blending {
                                 &mut current_task.as_alpha_batch().alpha_items
