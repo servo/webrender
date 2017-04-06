@@ -58,6 +58,14 @@ trait AlphaBatchHelpers {
                           src_task_index: RenderTaskIndex,
                           filter: LowLevelFilterOp,
                           z_sort_index: i32);
+    fn add_composite_to_batch(&self,
+                              batch: &mut PrimitiveBatch,
+                              stacking_context_index: StackingContextIndex,
+                              task_index: RenderTaskIndex,
+                              backdrop_task: RenderTaskIndex,
+                              src_task_index: RenderTaskIndex,
+                              mode: MixBlendMode,
+                              z_sort_index: i32);
     fn add_hardware_composite_to_batch(&self,
                                        stacking_context_index: StackingContextIndex,
                                        batch: &mut PrimitiveBatch,
@@ -191,21 +199,39 @@ impl AlphaBatchHelpers for PrimitiveStore {
 
         batch.items.push(PrimitiveBatchItem::StackingContext(stacking_context_index));
 
-        match batch.data {
-            PrimitiveBatchData::Instances(ref mut data) => {
-                data.push(PrimitiveInstance {
-                    global_prim_id: -1,
-                    prim_address: GpuStoreAddress(0),
-                    task_index: task_index.0 as i32,
-                    clip_task_index: -1,
-                    layer_index: -1,
-                    sub_index: filter_mode,
-                    user_data: [src_task_index.0 as i32, amount],
-                    z_sort_index: z_sort_index,
-                });
-            }
-            _ => unreachable!(),
-        }
+        batch.instances.push(PrimitiveInstance {
+            global_prim_id: -1,
+            prim_address: GpuStoreAddress(0),
+            task_index: task_index.0 as i32,
+            clip_task_index: -1,
+            layer_index: -1,
+            sub_index: filter_mode,
+            user_data: [src_task_index.0 as i32, amount],
+            z_sort_index: z_sort_index,
+        });
+    }
+
+    fn add_composite_to_batch(&self,
+                              batch: &mut PrimitiveBatch,
+                              stacking_context_index: StackingContextIndex,
+                              task_index: RenderTaskIndex,
+                              backdrop_task: RenderTaskIndex,
+                              src_task_index: RenderTaskIndex,
+                              mode: MixBlendMode,
+                              z_sort_index: i32) {
+        batch.items.push(PrimitiveBatchItem::StackingContext(stacking_context_index));
+
+        batch.instances.push(PrimitiveInstance {
+            global_prim_id: -1,
+            prim_address: GpuStoreAddress(0),
+            task_index: task_index.0 as i32,
+            clip_task_index: -1,
+            layer_index: -1,
+            sub_index: mode as u32 as i32,
+            user_data: [ backdrop_task.0 as i32,
+                         src_task_index.0 as i32 ],
+            z_sort_index: z_sort_index,
+        });
     }
 
     fn add_hardware_composite_to_batch(&self,
@@ -216,21 +242,16 @@ impl AlphaBatchHelpers for PrimitiveStore {
                                        z_sort_index: i32) {
         batch.items.push(PrimitiveBatchItem::StackingContext(stacking_context_index));
 
-        match batch.data {
-            PrimitiveBatchData::Instances(ref mut data) => {
-                data.push(PrimitiveInstance {
-                    global_prim_id: -1,
-                    prim_address: GpuStoreAddress(0),
-                    task_index: task_index.0 as i32,
-                    clip_task_index: -1,
-                    layer_index: -1,
-                    sub_index: -1,
-                    user_data: [src_task_index.0 as i32, 0],
-                    z_sort_index: z_sort_index,
-                });
-            }
-            _ => unreachable!(),
-        }
+        batch.instances.push(PrimitiveInstance {
+            global_prim_id: -1,
+            prim_address: GpuStoreAddress(0),
+            task_index: task_index.0 as i32,
+            clip_task_index: -1,
+            layer_index: -1,
+            sub_index: -1,
+            user_data: [src_task_index.0 as i32, 0],
+            z_sort_index: z_sort_index,
+        });
     }
 
     fn add_prim_to_batch(&self,
@@ -257,161 +278,156 @@ impl AlphaBatchHelpers for PrimitiveStore {
         let clip_task_index = clip_task_index.0 as i32;
         batch.items.push(PrimitiveBatchItem::Primitive(prim_index));
 
-        match &mut batch.data {
-            &mut PrimitiveBatchData::Composite(..) => unreachable!(),
-            &mut PrimitiveBatchData::Instances(ref mut data) => {
-                match batch.key.kind {
-                    AlphaBatchKind::Composite => unreachable!(),
-                    AlphaBatchKind::HardwareComposite => unreachable!(),
-                    AlphaBatchKind::Blend => unreachable!(),
-                    AlphaBatchKind::Rectangle => {
-                        data.push(PrimitiveInstance {
-                            task_index: task_index,
-                            clip_task_index: clip_task_index,
-                            layer_index: packed_layer_index,
-                            global_prim_id: global_prim_id,
-                            prim_address: prim_address,
-                            sub_index: 0,
-                            user_data: [0, 0],
-                            z_sort_index: z_sort_index,
-                        });
-                    }
-                    AlphaBatchKind::TextRun => {
-                        let text_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
+        match batch.key.kind {
+            AlphaBatchKind::Composite => unreachable!(),
+            AlphaBatchKind::HardwareComposite => unreachable!(),
+            AlphaBatchKind::Blend => unreachable!(),
+            AlphaBatchKind::Rectangle => {
+                batch.instances.push(PrimitiveInstance {
+                    task_index: task_index,
+                    clip_task_index: clip_task_index,
+                    layer_index: packed_layer_index,
+                    global_prim_id: global_prim_id,
+                    prim_address: prim_address,
+                    sub_index: 0,
+                    user_data: [0, 0],
+                    z_sort_index: z_sort_index,
+                });
+            }
+            AlphaBatchKind::TextRun => {
+                let text_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
 
-                        for glyph_index in 0..metadata.gpu_data_count {
-                            data.push(PrimitiveInstance {
-                                task_index: task_index,
-                                clip_task_index: clip_task_index,
-                                layer_index: packed_layer_index,
-                                global_prim_id: global_prim_id,
-                                prim_address: prim_address,
-                                sub_index: metadata.gpu_data_address.0 + glyph_index,
-                                user_data: [ text_cpu.resource_address.0 + glyph_index, 0 ],
-                                z_sort_index: z_sort_index,
-                            });
-                        }
-                    }
-                    AlphaBatchKind::Image |
-                    AlphaBatchKind::ImageRect => {
-                        let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
-
-                        data.push(PrimitiveInstance {
-                            task_index: task_index,
-                            clip_task_index: clip_task_index,
-                            layer_index: packed_layer_index,
-                            global_prim_id: global_prim_id,
-                            prim_address: prim_address,
-                            sub_index: 0,
-                            user_data: [ image_cpu.resource_address.0, 0 ],
-                            z_sort_index: z_sort_index,
-                        });
-                    }
-                    AlphaBatchKind::YuvImage => {
-                        let image_yuv_cpu = &self.cpu_yuv_images[metadata.cpu_prim_index.0];
-
-                        data.push(PrimitiveInstance {
-                            task_index: task_index,
-                            clip_task_index: clip_task_index,
-                            layer_index: packed_layer_index,
-                            global_prim_id: global_prim_id,
-                            prim_address: prim_address,
-                            sub_index: 0,
-                            user_data: [ image_yuv_cpu.yuv_resource_address.0, 0 ],
-                            z_sort_index: z_sort_index,
-                        });
-                    }
-                    AlphaBatchKind::Border => {
-                        for border_segment in 0..8 {
-                            data.push(PrimitiveInstance {
-                                task_index: task_index,
-                                clip_task_index: clip_task_index,
-                                layer_index: packed_layer_index,
-                                global_prim_id: global_prim_id,
-                                prim_address: prim_address,
-                                sub_index: border_segment,
-                                user_data: [ 0, 0 ],
-                                z_sort_index: z_sort_index,
-                            });
-                        }
-                    }
-                    AlphaBatchKind::AlignedGradient => {
-                        for part_index in 0..(metadata.gpu_data_count - 1) {
-                            data.push(PrimitiveInstance {
-                                task_index: task_index,
-                                clip_task_index: clip_task_index,
-                                layer_index: packed_layer_index,
-                                global_prim_id: global_prim_id,
-                                prim_address: prim_address,
-                                sub_index: metadata.gpu_data_address.0 + part_index,
-                                user_data: [ 0, 0 ],
-                                z_sort_index: z_sort_index,
-                            });
-                        }
-                    }
-                    AlphaBatchKind::AngleGradient => {
-                        data.push(PrimitiveInstance {
-                            task_index: task_index,
-                            clip_task_index: clip_task_index,
-                            layer_index: packed_layer_index,
-                            global_prim_id: global_prim_id,
-                            prim_address: prim_address,
-                            sub_index: metadata.gpu_data_address.0,
-                            user_data: [ metadata.gpu_data_count, 0 ],
-                            z_sort_index: z_sort_index,
-                        });
-                    }
-                    AlphaBatchKind::RadialGradient => {
-                        data.push(PrimitiveInstance {
-                            task_index: task_index,
-                            clip_task_index: clip_task_index,
-                            layer_index: packed_layer_index,
-                            global_prim_id: global_prim_id,
-                            prim_address: prim_address,
-                            sub_index: metadata.gpu_data_address.0,
-                            user_data: [ metadata.gpu_data_count, 0 ],
-                            z_sort_index: z_sort_index,
-                        });
-                    }
-                    AlphaBatchKind::BoxShadow => {
-                        let cache_task_id = &metadata.render_task.as_ref().unwrap().id;
-                        let cache_task_index = render_tasks.get_task_index(cache_task_id,
-                                                                           child_pass_index);
-
-                        for rect_index in 0..metadata.gpu_data_count {
-                            data.push(PrimitiveInstance {
-                                task_index: task_index,
-                                clip_task_index: clip_task_index,
-                                layer_index: packed_layer_index,
-                                global_prim_id: global_prim_id,
-                                prim_address: prim_address,
-                                sub_index: metadata.gpu_data_address.0 + rect_index,
-                                user_data: [ cache_task_index.0 as i32, 0 ],
-                                z_sort_index: z_sort_index,
-                            });
-                        }
-                    }
-                    AlphaBatchKind::CacheImage => {
-                        // Find the render task index for the render task
-                        // that this primitive depends on. Pass it to the
-                        // shader so that it can sample from the cache texture
-                        // at the correct location.
-                        let cache_task_id = &metadata.render_task.as_ref().unwrap().id;
-                        let cache_task_index = render_tasks.get_task_index(cache_task_id,
-                                                                           child_pass_index);
-
-                        data.push(PrimitiveInstance {
-                            task_index: task_index,
-                            clip_task_index: clip_task_index,
-                            layer_index: packed_layer_index,
-                            global_prim_id: global_prim_id,
-                            prim_address: prim_address,
-                            sub_index: 0,
-                            user_data: [ cache_task_index.0 as i32, 0 ],
-                            z_sort_index: z_sort_index,
-                        });
-                    }
+                for glyph_index in 0..metadata.gpu_data_count {
+                    batch.instances.push(PrimitiveInstance {
+                        task_index: task_index,
+                        clip_task_index: clip_task_index,
+                        layer_index: packed_layer_index,
+                        global_prim_id: global_prim_id,
+                        prim_address: prim_address,
+                        sub_index: metadata.gpu_data_address.0 + glyph_index,
+                        user_data: [ text_cpu.resource_address.0 + glyph_index, 0 ],
+                        z_sort_index: z_sort_index,
+                    });
                 }
+            }
+            AlphaBatchKind::Image |
+            AlphaBatchKind::ImageRect => {
+                let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
+
+                batch.instances.push(PrimitiveInstance {
+                    task_index: task_index,
+                    clip_task_index: clip_task_index,
+                    layer_index: packed_layer_index,
+                    global_prim_id: global_prim_id,
+                    prim_address: prim_address,
+                    sub_index: 0,
+                    user_data: [ image_cpu.resource_address.0, 0 ],
+                    z_sort_index: z_sort_index,
+                });
+            }
+            AlphaBatchKind::YuvImage => {
+                let image_yuv_cpu = &self.cpu_yuv_images[metadata.cpu_prim_index.0];
+
+                batch.instances.push(PrimitiveInstance {
+                    task_index: task_index,
+                    clip_task_index: clip_task_index,
+                    layer_index: packed_layer_index,
+                    global_prim_id: global_prim_id,
+                    prim_address: prim_address,
+                    sub_index: 0,
+                    user_data: [ image_yuv_cpu.yuv_resource_address.0, 0 ],
+                    z_sort_index: z_sort_index,
+                });
+            }
+            AlphaBatchKind::Border => {
+                for border_segment in 0..8 {
+                    batch.instances.push(PrimitiveInstance {
+                        task_index: task_index,
+                        clip_task_index: clip_task_index,
+                        layer_index: packed_layer_index,
+                        global_prim_id: global_prim_id,
+                        prim_address: prim_address,
+                        sub_index: border_segment,
+                        user_data: [ 0, 0 ],
+                        z_sort_index: z_sort_index,
+                    });
+                }
+            }
+            AlphaBatchKind::AlignedGradient => {
+                for part_index in 0..(metadata.gpu_data_count - 1) {
+                    batch.instances.push(PrimitiveInstance {
+                        task_index: task_index,
+                        clip_task_index: clip_task_index,
+                        layer_index: packed_layer_index,
+                        global_prim_id: global_prim_id,
+                        prim_address: prim_address,
+                        sub_index: metadata.gpu_data_address.0 + part_index,
+                        user_data: [ 0, 0 ],
+                        z_sort_index: z_sort_index,
+                    });
+                }
+            }
+            AlphaBatchKind::AngleGradient => {
+                batch.instances.push(PrimitiveInstance {
+                    task_index: task_index,
+                    clip_task_index: clip_task_index,
+                    layer_index: packed_layer_index,
+                    global_prim_id: global_prim_id,
+                    prim_address: prim_address,
+                    sub_index: metadata.gpu_data_address.0,
+                    user_data: [ metadata.gpu_data_count, 0 ],
+                    z_sort_index: z_sort_index,
+                });
+            }
+            AlphaBatchKind::RadialGradient => {
+                batch.instances.push(PrimitiveInstance {
+                    task_index: task_index,
+                    clip_task_index: clip_task_index,
+                    layer_index: packed_layer_index,
+                    global_prim_id: global_prim_id,
+                    prim_address: prim_address,
+                    sub_index: metadata.gpu_data_address.0,
+                    user_data: [ metadata.gpu_data_count, 0 ],
+                    z_sort_index: z_sort_index,
+                });
+            }
+            AlphaBatchKind::BoxShadow => {
+                let cache_task_id = &metadata.render_task.as_ref().unwrap().id;
+                let cache_task_index = render_tasks.get_task_index(cache_task_id,
+                                                                   child_pass_index);
+
+                for rect_index in 0..metadata.gpu_data_count {
+                    batch.instances.push(PrimitiveInstance {
+                        task_index: task_index,
+                        clip_task_index: clip_task_index,
+                        layer_index: packed_layer_index,
+                        global_prim_id: global_prim_id,
+                        prim_address: prim_address,
+                        sub_index: metadata.gpu_data_address.0 + rect_index,
+                        user_data: [ cache_task_index.0 as i32, 0 ],
+                        z_sort_index: z_sort_index,
+                    });
+                }
+            }
+            AlphaBatchKind::CacheImage => {
+                // Find the render task index for the render task
+                // that this primitive depends on. Pass it to the
+                // shader so that it can sample from the cache texture
+                // at the correct location.
+                let cache_task_id = &metadata.render_task.as_ref().unwrap().id;
+                let cache_task_index = render_tasks.get_task_index(cache_task_id,
+                                                                   child_pass_index);
+
+                batch.instances.push(PrimitiveInstance {
+                    task_index: task_index,
+                    clip_task_index: clip_task_index,
+                    layer_index: packed_layer_index,
+                    global_prim_id: global_prim_id,
+                    prim_address: prim_address,
+                    sub_index: 0,
+                    user_data: [ cache_task_index.0 as i32, 0 ],
+                    z_sort_index: z_sort_index,
+                });
             }
         }
     }
@@ -582,12 +598,18 @@ impl AlphaBatcher {
                         // This is because the result of a composite can affect
                         // the input to the next composite. Perhaps we can
                         // optimize this in the future.
-                        let batch = PrimitiveBatch::new_composite(stacking_context_index,
-                                                                  task_index,
-                                                                  render_tasks.get_task_index(&backdrop_id, child_pass_index),
-                                                                  render_tasks.get_static_task_index(&src_id),
-                                                                  info,
-                                                                  z);
+                        let key = AlphaBatchKey::new(AlphaBatchKind::Composite,
+                                                     AlphaBatchKeyFlags::empty(),
+                                                     BlendMode::Alpha,
+                                                     BatchTextures::no_texture());
+                        let mut batch = PrimitiveBatch::new(key);
+                        ctx.prim_store.add_composite_to_batch(&mut batch,
+                                                              stacking_context_index,
+                                                              task_index,
+                                                              render_tasks.get_task_index(&backdrop_id, child_pass_index),
+                                                              render_tasks.get_static_task_index(&src_id),
+                                                              info,
+                                                              z);
                         alpha_batches.push(batch);
                         continue;
                     }
@@ -596,10 +618,10 @@ impl AlphaBatcher {
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
                         let transform_kind = group.xf_rect.as_ref().unwrap().kind;
                         let needs_clipping = prim_metadata.clip_task.is_some();
-                        let needs_blending = transform_kind == TransformedRectKind::Complex ||
-                                             !prim_metadata.is_opaque ||
-                                             needs_clipping;
-                        let blend_mode = ctx.prim_store.get_blend_mode(needs_blending, prim_metadata);
+                        debug_assert!(transform_kind == TransformedRectKind::Complex ||
+                                      !prim_metadata.is_opaque ||
+                                      needs_clipping);
+                        let blend_mode = ctx.prim_store.get_blend_mode(true, prim_metadata);
                         let needs_clipping_flag = if needs_clipping {
                             NEEDS_CLIPPING
                         } else {
@@ -656,16 +678,10 @@ impl AlphaBatcher {
                 if alpha_batch_index.is_none() {
                     let new_batch = match item {
                         &AlphaRenderItem::Composite(..) => unreachable!(),
-                        &AlphaRenderItem::HardwareComposite(..) => {
-                            PrimitiveBatch::new_instances(AlphaBatchKind::HardwareComposite, batch_key)
-                        }
-                        &AlphaRenderItem::Blend(..) => {
-                            PrimitiveBatch::new_instances(AlphaBatchKind::Blend, batch_key)
-                        }
-                        &AlphaRenderItem::Primitive(_, prim_index, _) => {
-                            let prim_metadata = ctx.prim_store.get_metadata(prim_index);
-                            let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
-                            PrimitiveBatch::new_instances(batch_kind, batch_key)
+                        &AlphaRenderItem::HardwareComposite(..) |
+                        &AlphaRenderItem::Blend(..) |
+                        &AlphaRenderItem::Primitive(..) => {
+                            PrimitiveBatch::new(batch_key)
                         }
                     };
                     alpha_batch_index = Some(alpha_batches.len());
@@ -714,20 +730,9 @@ impl AlphaBatcher {
                         let group = &ctx.clip_scroll_group_store[clip_scroll_group_index.0];
                         let transform_kind = group.xf_rect.as_ref().unwrap().kind;
                         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
-                        let needs_clipping = prim_metadata.clip_task.is_some();
-                        let needs_blending = transform_kind == TransformedRectKind::Complex ||
-                                             !prim_metadata.is_opaque ||
-                                             needs_clipping;
-                        let blend_mode = ctx.prim_store.get_blend_mode(needs_blending, prim_metadata);
-                        let needs_clipping_flag = if needs_clipping {
-                            NEEDS_CLIPPING
-                        } else {
-                            AlphaBatchKeyFlags::empty()
-                        };
-                        let flags = match transform_kind {
-                            TransformedRectKind::AxisAligned => AXIS_ALIGNED | needs_clipping_flag,
-                            _ => needs_clipping_flag,
-                        };
+                        debug_assert!(!prim_metadata.needs_clipping());
+                        debug_assert!(transform_kind == TransformedRectKind::AxisAligned);
+                        let blend_mode = ctx.prim_store.get_blend_mode(false, prim_metadata);
                         let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
 
                         let textures = BatchTextures {
@@ -735,7 +740,7 @@ impl AlphaBatcher {
                         };
 
                         AlphaBatchKey::new(batch_kind,
-                                           flags,
+                                           AXIS_ALIGNED,
                                            blend_mode,
                                            textures)
                     }
@@ -751,10 +756,8 @@ impl AlphaBatcher {
                         &AlphaRenderItem::Composite(..) => unreachable!(),
                         &AlphaRenderItem::Blend(..) => unreachable!(),
                         &AlphaRenderItem::HardwareComposite(..) => unreachable!(),
-                        &AlphaRenderItem::Primitive(_, prim_index, _) => {
-                            let prim_metadata = ctx.prim_store.get_metadata(prim_index);
-                            let batch_kind = ctx.prim_store.get_batch_kind(prim_metadata);
-                            PrimitiveBatch::new_instances(batch_kind, batch_key)
+                        &AlphaRenderItem::Primitive(..) => {
+                            PrimitiveBatch::new(batch_key)
                         }
                     };
                     opaque_batches.push(new_batch)
@@ -1437,12 +1440,6 @@ pub struct PrimitiveInstance {
 }
 
 #[derive(Debug)]
-pub enum PrimitiveBatchData {
-    Instances(Vec<PrimitiveInstance>),
-    Composite(PrimitiveInstance),
-}
-
-#[derive(Debug)]
 pub enum PrimitiveBatchItem {
     Primitive(PrimitiveIndex),
     StackingContext(StackingContextIndex),
@@ -1451,64 +1448,16 @@ pub enum PrimitiveBatchItem {
 #[derive(Debug)]
 pub struct PrimitiveBatch {
     pub key: AlphaBatchKey,
-    pub data: PrimitiveBatchData,
+    pub instances: Vec<PrimitiveInstance>,
     pub items: Vec<PrimitiveBatchItem>,
 }
 
 impl PrimitiveBatch {
-    fn new_instances(batch_kind: AlphaBatchKind, key: AlphaBatchKey) -> PrimitiveBatch {
-        let data = match batch_kind {
-            AlphaBatchKind::Rectangle |
-            AlphaBatchKind::TextRun |
-            AlphaBatchKind::Image |
-            AlphaBatchKind::ImageRect |
-            AlphaBatchKind::YuvImage |
-            AlphaBatchKind::Border |
-            AlphaBatchKind::AlignedGradient |
-            AlphaBatchKind::AngleGradient |
-            AlphaBatchKind::RadialGradient |
-            AlphaBatchKind::BoxShadow |
-            AlphaBatchKind::Blend |
-            AlphaBatchKind::HardwareComposite |
-            AlphaBatchKind::CacheImage => {
-                PrimitiveBatchData::Instances(Vec::new())
-            }
-            AlphaBatchKind::Composite => unreachable!(),
-        };
-
+    fn new(key: AlphaBatchKey) -> PrimitiveBatch {
         PrimitiveBatch {
             key: key,
-            data: data,
+            instances: Vec::new(),
             items: Vec::new(),
-        }
-    }
-
-    fn new_composite(stacking_context_index: StackingContextIndex,
-                     task_index: RenderTaskIndex,
-                     backdrop_task: RenderTaskIndex,
-                     src_task_index: RenderTaskIndex,
-                     mode: MixBlendMode,
-                     z_sort_index: i32) -> PrimitiveBatch {
-        let data = PrimitiveBatchData::Composite(PrimitiveInstance {
-            global_prim_id: -1,
-            prim_address: GpuStoreAddress(0),
-            task_index: task_index.0 as i32,
-            clip_task_index: -1,
-            layer_index: -1,
-            sub_index: mode as u32 as i32,
-            user_data: [ backdrop_task.0 as i32,
-                         src_task_index.0 as i32 ],
-            z_sort_index: z_sort_index,
-        });
-        let key = AlphaBatchKey::new(AlphaBatchKind::Composite,
-                                     AlphaBatchKeyFlags::empty(),
-                                     BlendMode::Alpha,
-                                     BatchTextures::no_texture());
-
-        PrimitiveBatch {
-            key: key,
-            data: data,
-            items: vec![PrimitiveBatchItem::StackingContext(stacking_context_index)],
         }
     }
 }
