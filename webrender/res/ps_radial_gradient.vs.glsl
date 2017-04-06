@@ -13,7 +13,7 @@ void main(void) {
                                  prim.layer,
                                  prim.task);
 
-    vPos = vi.local_pos;
+    vPos = vi.local_pos - prim.local_rect.p0;
 
     vStartCenter = gradient.start_end_center.xy;
     vEndCenter = gradient.start_end_center.zw;
