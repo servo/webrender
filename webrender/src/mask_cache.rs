@@ -6,7 +6,7 @@ use gpu_store::GpuStoreAddress;
 use prim_store::{ClipData, GpuBlock32, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
 use renderer::VertexDataStore;
-use util::{MatrixHelpers, TransformedRect};
+use util::{ComplexClipRegionHelpers, MatrixHelpers, TransformedRect};
 use webrender_traits::{AuxiliaryLists, BorderRadius, ClipRegion, ComplexClipRegion, ImageMask};
 use webrender_traits::{DeviceIntRect, LayerToWorldTransform};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
@@ -195,7 +195,7 @@ impl MaskCacheInfo {
                         PrimitiveStore::populate_clip_data(slice, data);
                         local_rect = local_rect.and_then(|r| r.intersection(&rect));
                         local_inner = ComplexClipRegion::new(rect, BorderRadius::uniform(radius))
-                                                        .get_inner_rect();
+                                                        .get_inner_rect_safe();
                     }
                     ClipSource::Region(ref region, region_mode) => {
                         local_rect = local_rect.and_then(|r| r.intersection(&region.main));
@@ -228,7 +228,7 @@ impl MaskCacheInfo {
                             let data = ClipData::from_clip_region(clip);
                             PrimitiveStore::populate_clip_data(chunk, data);
                             local_rect = local_rect.and_then(|r| r.intersection(&clip.rect));
-                            local_inner = local_inner.and_then(|r| clip.get_inner_rect()
+                            local_inner = local_inner.and_then(|r| clip.get_inner_rect_safe()
                                                                        .and_then(|ref inner| r.intersection(inner)));
                         }
                     }
