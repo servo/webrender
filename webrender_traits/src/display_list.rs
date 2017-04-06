@@ -395,9 +395,13 @@ impl DisplayListBuilder {
     pub fn push_gradient(&mut self,
                          rect: LayoutRect,
                          clip: ClipRegion,
-                         gradient: Gradient) {
+                         gradient: Gradient,
+                         tile_size: LayoutSize,
+                         tile_spacing: LayoutSize) {
         let item = SpecificDisplayItem::Gradient(GradientDisplayItem {
             gradient: gradient,
+            tile_size: tile_size,
+            tile_spacing: tile_spacing,
         });
 
         self.push_item(item, rect, clip);
@@ -406,9 +410,13 @@ impl DisplayListBuilder {
     pub fn push_radial_gradient(&mut self,
                                 rect: LayoutRect,
                                 clip: ClipRegion,
-                                gradient: RadialGradient) {
+                                gradient: RadialGradient,
+                                tile_size: LayoutSize,
+                                tile_spacing: LayoutSize) {
         let item = SpecificDisplayItem::RadialGradient(RadialGradientDisplayItem {
             gradient: gradient,
+            tile_size: tile_size,
+            tile_spacing: tile_spacing,
         });
 
         self.push_item(item, rect, clip);

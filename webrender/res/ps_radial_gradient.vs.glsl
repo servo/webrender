@@ -21,12 +21,17 @@ void main(void) {
     vStartRadius = gradient.start_end_radius_ratio_xy_extend_mode.x;
     vEndRadius = gradient.start_end_radius_ratio_xy_extend_mode.y;
 
+    vTileSize = gradient.tile_size_repeat.xy;
+    vTileRepeat = gradient.tile_size_repeat.zw;
+
     // Transform all coordinates by the y scale so the
     // fragment shader can work with circles
     float ratio_xy = gradient.start_end_radius_ratio_xy_extend_mode.z;
     vPos.y *= ratio_xy;
     vStartCenter.y *= ratio_xy;
     vEndCenter.y *= ratio_xy;
+    vTileSize.y *= ratio_xy;
+    vTileRepeat.y *= ratio_xy;
 
     // V coordinate of gradient row in lookup texture.
     vGradientIndex = float(prim.sub_index);

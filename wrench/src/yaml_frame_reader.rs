@@ -258,18 +258,22 @@ impl YamlFrameReader {
         let bounds_key = if item["type"].is_badvalue() { "gradient" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("gradient must have bounds");
         let gradient = self.to_gradient(item);
+        let tile_size = item["tile-size"].as_size().unwrap_or(bounds.size);
+        let tile_spacing = item["tile-spacing"].as_size().unwrap_or(LayoutSize::zero());
 
         let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
-        self.builder().push_gradient(bounds, clip, gradient);
+        self.builder().push_gradient(bounds, clip, gradient, tile_size, tile_spacing);
     }
 
     fn handle_radial_gradient(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
         let bounds_key = if item["type"].is_badvalue() { "radial-gradient" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("radial gradient must have bounds");
         let gradient = self.to_radial_gradient(item);
+        let tile_size = item["tile-size"].as_size().unwrap_or(bounds.size);
+        let tile_spacing = item["tile-spacing"].as_size().unwrap_or(LayoutSize::zero());
 
         let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
-        self.builder().push_radial_gradient(bounds, clip, gradient);
+        self.builder().push_radial_gradient(bounds, clip, gradient, tile_size, tile_spacing);
     }
 
     fn handle_border(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {

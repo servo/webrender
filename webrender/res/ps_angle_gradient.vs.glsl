@@ -22,6 +22,9 @@ void main(void) {
     vStartPoint = start_point;
     vScaledDir = dir / dot(dir, dir);
 
+    vTileSize = gradient.tile_size_repeat.xy;
+    vTileRepeat = gradient.tile_size_repeat.zw;
+
     // V coordinate of gradient row in lookup texture.
     vGradientIndex = float(prim.sub_index);
 

@@ -34,3 +34,12 @@ fuzzy(255,1200) == repeat-linear.yaml repeat-linear-ref.yaml
 fuzzy(255,1200) == repeat-linear-reverse.yaml repeat-linear-ref.yaml
 fuzzy(255,2664) == repeat-radial.yaml repeat-radial-ref.yaml
 fuzzy(255,2664) == repeat-radial-negative.yaml repeat-radial-ref.yaml
+
+== tiling-linear-1.yaml tiling-linear-1-ref.yaml
+== tiling-linear-2.yaml tiling-linear-2-ref.yaml
+== tiling-linear-3.yaml tiling-linear-3-ref.yaml
+
+fuzzy(1,16) == tiling-radial-1.yaml tiling-radial-1-ref.yaml
+fuzzy(1,1) == tiling-radial-2.yaml tiling-radial-2-ref.yaml
+== tiling-radial-3.yaml tiling-radial-3-ref.yaml
+fuzzy(1,16) == tiling-radial-4.yaml tiling-radial-4-ref.yaml

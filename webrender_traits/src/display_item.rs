@@ -210,6 +210,8 @@ pub struct Gradient {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GradientDisplayItem {
     pub gradient: Gradient,
+    pub tile_size: LayoutSize,
+    pub tile_spacing: LayoutSize,
 }
 
 #[repr(C)]
@@ -234,6 +236,8 @@ pub struct RadialGradient {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RadialGradientDisplayItem {
     pub gradient: RadialGradient,
+    pub tile_size: LayoutSize,
+    pub tile_spacing: LayoutSize,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
