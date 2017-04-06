@@ -882,12 +882,17 @@ impl FrameBuilder {
                     BoxShadowClipMode::Inset => 1.0,
                 };
 
-                // If we have a border radius, we'll need to apply
-                // a clip-out mask.
+                // Outset box shadows with border radius
+                // need a clip out of the center box.
+                let extra_clip_mode = match clip_mode {
+                    BoxShadowClipMode::Outset | BoxShadowClipMode::None => ClipMode::ClipOut,
+                    BoxShadowClipMode::Inset => ClipMode::Clip,
+                };
+
                 let extra_clip = if border_radius > 0.0 {
                     Some(ClipSource::Complex(*box_bounds,
                                              border_radius,
-                                             ClipMode::ClipOut))
+                                             extra_clip_mode))
                 } else {
                     None
                 };
