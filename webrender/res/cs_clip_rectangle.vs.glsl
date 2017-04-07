@@ -4,23 +4,24 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 struct ClipRect {
-    vec4 rect;
+    RectWithSize rect;
     vec4 mode;
 };
 
 ClipRect fetch_clip_rect(int index) {
-    ClipRect rect;
+    ClipRect cr;
 
     ivec2 uv = get_fetch_uv_2(index);
 
-    rect.rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    rect.mode = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
+    vec4 rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
+    cr.rect = RectWithSize(rect.xy, rect.zw);
+    cr.mode = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
 
-    return rect;
+    return cr;
 }
 
 struct ClipCorner {
-    vec4 rect;
+    RectWithSize rect;
     vec4 outer_inner_radius;
 };
 
@@ -29,7 +30,8 @@ ClipCorner fetch_clip_corner(int index) {
 
     ivec2 uv = get_fetch_uv_2(index);
 
-    corner.rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
+    vec4 rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
+    corner.rect = RectWithSize(rect.xy, rect.zw);
     corner.outer_inner_radius = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
 
     return corner;
@@ -60,17 +62,17 @@ void main(void) {
     ClipArea area = fetch_clip_area(cci.render_task_index);
     Layer layer = fetch_layer(cci.layer_index);
     ClipData clip = fetch_clip(cci.data_index);
-    vec4 local_rect = clip.rect.rect;
+    RectWithSize local_rect = clip.rect.rect;
 
     TransformVertexInfo vi = write_clip_tile_vertex(local_rect,
                                                     layer,
                                                     area,
                                                     cci.segment_index);
-    vLocalRect = vi.clipped_local_rect;
+    vLocalRect = local_rect;
     vPos = vi.local_pos;
 
     vClipMode = clip.rect.mode.x;
-    vClipRect = vec4(local_rect.xy, local_rect.xy + local_rect.zw);
+    vClipRect = vec4(local_rect.p0, local_rect.p0 + local_rect.size);
     vClipRadius = vec4(clip.top_left.outer_inner_radius.x,
                        clip.top_right.outer_inner_radius.x,
                        clip.bottom_right.outer_inner_radius.x,

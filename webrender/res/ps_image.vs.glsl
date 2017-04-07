@@ -14,7 +14,7 @@ void main(void) {
                                                     prim.z,
                                                     prim.layer,
                                                     prim.task);
-    vLocalRect = vi.clipped_local_rect;
+    vLocalRect = prim.local_rect;
     vLocalPos = vi.local_pos;
 #else
     VertexInfo vi = write_vertex(prim.local_rect,
@@ -22,7 +22,7 @@ void main(void) {
                                  prim.z,
                                  prim.layer,
                                  prim.task);
-    vLocalPos = vi.local_pos - vi.local_rect.p0;
+    vLocalPos = vi.local_pos - prim.local_rect.p0;
 #endif
 
     write_clip(vi.screen_pos, prim.clip_area);

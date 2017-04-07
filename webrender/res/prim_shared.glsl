@@ -36,8 +36,19 @@
 uniform sampler2DArray sCacheA8;
 uniform sampler2DArray sCacheRGBA8;
 
-flat varying vec4 vClipMaskUvBounds;
+struct RectWithSize {
+    vec2 p0;
+    vec2 size;
+};
+
+struct RectWithEndpoint {
+    vec2 p0;
+    vec2 p1;
+};
+
+flat varying RectWithEndpoint vClipMaskUvBounds;
 varying vec3 vClipMaskUv;
+
 
 #ifdef WR_VERTEX_SHADER
 
@@ -87,16 +98,6 @@ ivec2 get_fetch_uv_8(int index) {
     return get_fetch_uv(index, 8);
 }
 
-struct RectWithSize {
-    vec2 p0;
-    vec2 size;
-};
-
-struct RectWithEndpoint {
-    vec2 p0;
-    vec2 p1;
-};
-
 RectWithEndpoint to_rect_with_endpoint(RectWithSize rect) {
     RectWithEndpoint result;
     result.p0 = rect.p0;
@@ -129,6 +130,19 @@ vec4 clamp_rect(vec4 points, RectWithSize rect) {
 vec4 clamp_rect(vec4 points, RectWithEndpoint rect) {
     return clamp(points, rect.p0.xyxy, rect.p1.xyxy);
 }
+
+RectWithSize intersect_rect(RectWithSize a, RectWithSize b) {
+    vec2 p0 = max(a.p0, b.p0);
+    vec2 p1 = min(a.p0 + a.size, b.p0 + b.size);
+    return RectWithSize(p0, max(vec2(0.0), p1 - p0));
+}
+
+RectWithEndpoint intersect_rect(RectWithEndpoint a, RectWithEndpoint b) {
+    vec2 p0 = max(a.p0, b.p0);
+    vec2 p1 = min(a.p1, b.p1);
+    return RectWithEndpoint(p0, max(p0, p1));
+}
+
 
 struct Layer {
     mat4 transform;
@@ -454,23 +468,28 @@ vec4 get_layer_pos(vec2 pos, Layer layer) {
 }
 
 struct VertexInfo {
-    RectWithEndpoint local_rect;
     vec2 local_pos;
     vec2 screen_pos;
 };
+
+RectWithSize compute_clip_rect(RectWithSize local_rect,
+                               RectWithSize local_clip_rect,
+                               Layer layer) {
+    // intersect all 3 clip rectangles
+    return intersect_rect(layer.local_clip_rect,
+                          intersect_rect(local_clip_rect, local_rect));
+}
 
 VertexInfo write_vertex(RectWithSize instance_rect,
                         RectWithSize local_clip_rect,
                         float z,
                         Layer layer,
                         AlphaBatchTask task) {
-    RectWithEndpoint local_rect = to_rect_with_endpoint(instance_rect);
-
     // Select the corner of the local rect that we are processing.
-    vec2 local_pos = mix(local_rect.p0, local_rect.p1, aPosition.xy);
+    vec2 local_pos = instance_rect.p0 + instance_rect.size * aPosition.xy;
 
     // xy = top left corner of the local rect, zw = position of current vertex.
-    vec4 local_p0_pos = vec4(local_rect.p0, local_pos);
+    vec4 local_p0_pos = vec4(instance_rect.p0, local_pos);
 
     // Clamp to the two local clip rects.
     local_p0_pos = clamp_rect(local_p0_pos, local_clip_rect);
@@ -496,7 +515,7 @@ VertexInfo write_vertex(RectWithSize instance_rect,
 
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
 
-    VertexInfo vi = VertexInfo(local_rect, local_p0_pos.zw, device_p0_pos.zw);
+    VertexInfo vi = VertexInfo(local_p0_pos.zw, device_p0_pos.zw);
     return vi;
 }
 
@@ -505,7 +524,6 @@ VertexInfo write_vertex(RectWithSize instance_rect,
 struct TransformVertexInfo {
     vec3 local_pos;
     vec2 screen_pos;
-    vec4 clipped_local_rect;
 };
 
 float cross2(vec2 v0, vec2 v1) {
@@ -605,7 +623,7 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
 
     vec4 layer_pos = get_layer_pos(device_pos / uDevicePixelRatio, layer);
 
-    return TransformVertexInfo(layer_pos.xyw, device_pos, vec4(instance_rect.p0, instance_rect.size));
+    return TransformVertexInfo(layer_pos.xyw, device_pos);
 }
 
 #endif //WR_FEATURE_TRANSFORM
@@ -714,7 +732,8 @@ BoxShadow fetch_boxshadow(int index) {
 void write_clip(vec2 global_pos, ClipArea area) {
     vec2 texture_size = vec2(textureSize(sCacheA8, 0).xy);
     vec2 uv = global_pos + area.task_bounds.xy - area.screen_origin_target_index.xy;
-    vClipMaskUvBounds = area.task_bounds / texture_size.xyxy;
+    vClipMaskUvBounds = RectWithEndpoint(area.task_bounds.xy / texture_size,
+                                         area.task_bounds.zw / texture_size);
     vClipMaskUv = vec3(uv / texture_size, area.screen_origin_target_index.z);
 }
 #endif //WR_VERTEX_SHADER
@@ -725,7 +744,7 @@ float signed_distance_rect(vec2 pos, vec2 p0, vec2 p1) {
     return length(max(vec2(0.0), d)) + min(0.0, max(d.x, d.y));
 }
 
-vec2 init_transform_fs(vec3 local_pos, vec4 local_rect, out float fragment_alpha) {
+vec2 init_transform_fs(vec3 local_pos, RectWithSize local_rect, out float fragment_alpha) {
     fragment_alpha = 1.0;
     vec2 pos = local_pos.xy / local_pos.z;
 
@@ -741,8 +760,8 @@ vec2 init_transform_fs(vec3 local_pos, vec4 local_rect, out float fragment_alpha
     // above to get correct distance values. This ensures that we only apply
     // anti-aliasing when the fragment has partial coverage.
     float d = signed_distance_rect(pos,
-                                   local_rect.xy + dxdy,
-                                   local_rect.xy + local_rect.zw - dxdy);
+                                   local_rect.p0 + dxdy,
+                                   local_rect.p0 + local_rect.size - dxdy);
 
     // Find the appropriate distance to apply the AA smoothstep over.
     float afwidth = 0.5 / length(fw);
@@ -756,10 +775,10 @@ vec2 init_transform_fs(vec3 local_pos, vec4 local_rect, out float fragment_alpha
 float do_clip() {
     // anything outside of the mask is considered transparent
     bvec4 inside = lessThanEqual(
-        vec4(vClipMaskUvBounds.xy, vClipMaskUv.xy),
-        vec4(vClipMaskUv.xy, vClipMaskUvBounds.zw));
+        vec4(vClipMaskUvBounds.p0, vClipMaskUv.xy),
+        vec4(vClipMaskUv.xy, vClipMaskUvBounds.p1));
     // check for the dummy bounds, which are given to the opaque objects
-    return vClipMaskUvBounds.xy == vClipMaskUvBounds.zw ? 1.0:
+    return vClipMaskUvBounds.p0 == vClipMaskUvBounds.p1 ? 1.0:
         all(inside) ? textureLod(sCacheA8, vClipMaskUv, 0.0).r : 0.0;
 }
 

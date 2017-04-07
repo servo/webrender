@@ -419,9 +419,9 @@ void main(void) {
     float distance_from_mix_line = (local_pos.x - vPieceRect.x) * vPieceRect.w -
                                    (local_pos.y - vPieceRect.y) * vPieceRect.z;
     distance_from_mix_line /= vPieceRectHypotenuseLength;
-    float distance_from_middle = (local_pos.x - vLocalRect.x) +
-                                 (local_pos.y - vLocalRect.y) -
-                                 0.5 * (vLocalRect.z + vLocalRect.w);
+    float distance_from_middle = (local_pos.x - vBorderRect.p0.x) +
+                                 (local_pos.y - vBorderRect.p0.y) -
+                                 0.5 * (vBorderRect.size.x + vBorderRect.size.y);
 #else
     float distance_from_mix_line = vDistanceFromMixLine;
     float distance_from_middle = vDistanceFromMiddle;
