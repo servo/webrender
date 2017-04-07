@@ -64,11 +64,11 @@ void main(void) {
     ClipData clip = fetch_clip(cci.data_index);
     RectWithSize local_rect = clip.rect.rect;
 
-    TransformVertexInfo vi = write_clip_tile_vertex(local_rect,
-                                                    layer,
-                                                    area,
-                                                    cci.segment_index);
-    vLocalRect = local_rect;
+    ClipVertexInfo vi = write_clip_tile_vertex(local_rect,
+                                               layer,
+                                               area,
+                                               cci.segment_index);
+    vLocalRect = vi.clipped_local_rect;
     vPos = vi.local_pos;
 
     vClipMode = clip.rect.mode.x;

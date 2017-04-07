@@ -472,14 +472,6 @@ struct VertexInfo {
     vec2 screen_pos;
 };
 
-RectWithSize compute_clip_rect(RectWithSize local_rect,
-                               RectWithSize local_clip_rect,
-                               Layer layer) {
-    // intersect all 3 clip rectangles
-    return intersect_rect(layer.local_clip_rect,
-                          intersect_rect(local_clip_rect, local_rect));
-}
-
 VertexInfo write_vertex(RectWithSize instance_rect,
                         RectWithSize local_clip_rect,
                         float z,

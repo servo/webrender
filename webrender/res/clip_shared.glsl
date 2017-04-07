@@ -34,12 +34,21 @@ CacheClipInstance fetch_clip_item(int index) {
     return cci;
 }
 
+struct ClipVertexInfo {
+    vec3 local_pos;
+    vec2 screen_pos;
+    RectWithSize clipped_local_rect;
+};
+
 // The transformed vertex function that always covers the whole clip area,
 // which is the intersection of all clip instances of a given primitive
-TransformVertexInfo write_clip_tile_vertex(RectWithSize local_clip_rect,
-                                           Layer layer,
-                                           ClipArea area,
-                                           int segment_index) {
+ClipVertexInfo write_clip_tile_vertex(RectWithSize local_clip_rect,
+                                      Layer layer,
+                                      ClipArea area,
+                                      int segment_index) {
+
+    RectWithSize clipped_local_rect = intersect_rect(local_clip_rect,
+                                                     layer.local_clip_rect);
 
     vec2 outer_p0 = area.screen_origin_target_index.xy;
     vec2 outer_p1 = outer_p0 + area.task_bounds.zw - area.task_bounds.xy;
@@ -79,7 +88,7 @@ TransformVertexInfo write_clip_tile_vertex(RectWithSize local_clip_rect,
 
     gl_Position = uTransform * vec4(vertex_pos, 0.0, 1);
 
-    return TransformVertexInfo(layer_pos.xyw, actual_pos);
+    return ClipVertexInfo(layer_pos.xyw, actual_pos, clipped_local_rect);
 }
 
 #endif //WR_VERTEX_SHADER
