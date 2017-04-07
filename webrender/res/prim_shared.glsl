@@ -132,15 +132,13 @@ vec4 clamp_rect(vec4 points, RectWithEndpoint rect) {
 }
 
 RectWithSize intersect_rect(RectWithSize a, RectWithSize b) {
-    vec2 p0 = max(a.p0, b.p0);
-    vec2 p1 = min(a.p0 + a.size, b.p0 + b.size);
-    return RectWithSize(p0, max(vec2(0.0), p1 - p0));
+    vec4 p = clamp_rect(vec4(a.p0, a.p0 + a.size), b);
+    return RectWithSize(p.xy, max(vec2(0.0), p.zw - p.xy));
 }
 
 RectWithEndpoint intersect_rect(RectWithEndpoint a, RectWithEndpoint b) {
-    vec2 p0 = max(a.p0, b.p0);
-    vec2 p1 = min(a.p1, b.p1);
-    return RectWithEndpoint(p0, max(p0, p1));
+    vec4 p = clamp_rect(vec4(a.p0, a.p1), b);
+    return RectWithEndpoint(p.xy, max(p.xy, p.zw));
 }
 
 
