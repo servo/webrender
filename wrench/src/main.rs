@@ -417,116 +417,114 @@ fn main() {
             }
         }
 
-        let events = match window {
+        let event = match window {
             WindowWrapper::Headless(..) => {
-                vec![glutin::Event::Awakened]
+                glutin::Event::Awakened
             }
             WindowWrapper::Window(ref window, _) => {
-                window.poll_events().collect()
+                window.wait_events().next().unwrap()
             }
         };
 
-        for event in events {
-            if let Some(limit) = limit_seconds {
-                if (time::SteadyTime::now() - time_start) >= limit {
-                    break 'outer;
-                }
+        if let Some(limit) = limit_seconds {
+            if (time::SteadyTime::now() - time_start) >= limit {
+                break 'outer;
             }
+        }
 
-            match event {
-                glutin::Event::Awakened => {
-                    let (width, height) = window.get_inner_size_pixels();
-                    let dim = DeviceUintSize::new(width, height);
-                    wrench.update(dim);
+        match event {
+            glutin::Event::Awakened => {
+                let (width, height) = window.get_inner_size_pixels();
+                let dim = DeviceUintSize::new(width, height);
+                wrench.update(dim);
 
-                    let frame_num = thing.do_frame(&mut wrench);
-                    unsafe {
-                        CURRENT_FRAME_NUMBER = frame_num;
-                    }
+                let frame_num = thing.do_frame(&mut wrench);
+                unsafe {
+                    CURRENT_FRAME_NUMBER = frame_num;
+                }
 
-                    if show_help {
-                        wrench.show_onscreen_help();
-                    }
+                if show_help {
+                    wrench.show_onscreen_help();
+                }
 
-                    wrench.render();
-                    window.swap_buffers();
+                wrench.render();
+                window.swap_buffers();
 
-                    let now = time::SteadyTime::now();
-                    let dur = now - last;
+                let now = time::SteadyTime::now();
+                let dur = now - last;
 
-                    min_time = min(min_time, dur);
+                min_time = min(min_time, dur);
+                min_min_time = min(min_min_time, dur);
+                max_time = max(max_time, dur);
+                max_max_time = max(max_max_time, dur);
+                sum_time = sum_time + dur;
+
+                if warmed_up {
                     min_min_time = min(min_min_time, dur);
-                    max_time = max(max_time, dur);
                     max_max_time = max(max_max_time, dur);
-                    sum_time = sum_time + dur;
+                }
 
+                frame_count += 1;
+                if frame_count == frames_between_dumps {
+                    let avg_time = sum_time / frame_count;
                     if warmed_up {
-                        min_min_time = min(min_min_time, dur);
-                        max_max_time = max(max_max_time, dur);
+                        block_avg_time.push(avg_time);
                     }
 
-                    frame_count += 1;
-                    if frame_count == frames_between_dumps {
-                        let avg_time = sum_time / frame_count;
+                    if wrench.verbose {
                         if warmed_up {
-                            block_avg_time.push(avg_time);
+                            println!("{:3.3} [{:3.3} .. {:3.3}]  -- {:4.3} fps  -- (global {:3.3} .. {:3.3})",
+                                     as_ms(avg_time), as_ms(min_time), as_ms(max_time),
+                                     as_fps(avg_time), as_ms(min_min_time), as_ms(max_max_time));
+                        } else {
+                            println!("{:3.3} [{:3.3} .. {:3.3}]  -- {:4.3} fps",
+                                     as_ms(avg_time), as_ms(min_time), as_ms(max_time), as_fps(avg_time));
                         }
-
-                        if wrench.verbose {
-                            if warmed_up {
-                                println!("{:3.3} [{:3.3} .. {:3.3}]  -- {:4.3} fps  -- (global {:3.3} .. {:3.3})",
-                                         as_ms(avg_time), as_ms(min_time), as_ms(max_time),
-                                         as_fps(avg_time), as_ms(min_min_time), as_ms(max_max_time));
-                            } else {
-                                println!("{:3.3} [{:3.3} .. {:3.3}]  -- {:4.3} fps",
-                                         as_ms(avg_time), as_ms(min_time), as_ms(max_time), as_fps(avg_time));
-                            }
-                        }
-
-                        min_time = time::Duration::max_value();
-                        max_time = time::Duration::min_value();
-                        sum_time = time::Duration::zero();
-                        frame_count = 0;
-                        warmed_up = true;
                     }
 
-                    last = now;
-
-                    if do_loop {
-                        thing.next_frame();
-                    }
+                    min_time = time::Duration::max_value();
+                    max_time = time::Duration::min_value();
+                    sum_time = time::Duration::zero();
+                    frame_count = 0;
+                    warmed_up = true;
                 }
 
-                glutin::Event::Closed => {
-                    break 'outer;
-                }
+                last = now;
 
-                glutin::Event::KeyboardInput(ElementState::Pressed, _scan_code, Some(vk)) => {
-                    match vk {
-                        VirtualKeyCode::Escape | VirtualKeyCode::Q => {
-                            break 'outer;
-                        },
-                        VirtualKeyCode::P => {
-                            profiler = !profiler;
-                            wrench.renderer.set_profiler_enabled(profiler);
-                        },
-                        VirtualKeyCode::L => {
-                            do_loop = !do_loop;
-                        },
-                        VirtualKeyCode::Left => {
-                            thing.prev_frame();
-                        },
-                        VirtualKeyCode::Right => {
-                            thing.next_frame();
-                        },
-                        VirtualKeyCode::H => {
-                            show_help = !show_help;
-                        },
-                        _ => ()
-                    }
+                if do_loop {
+                    thing.next_frame();
                 }
-                _ => ()
             }
+
+            glutin::Event::Closed => {
+                break 'outer;
+            }
+
+            glutin::Event::KeyboardInput(ElementState::Pressed, _scan_code, Some(vk)) => {
+                match vk {
+                    VirtualKeyCode::Escape | VirtualKeyCode::Q => {
+                        break 'outer;
+                    },
+                    VirtualKeyCode::P => {
+                        profiler = !profiler;
+                        wrench.renderer.set_profiler_enabled(profiler);
+                    },
+                    VirtualKeyCode::L => {
+                        do_loop = !do_loop;
+                    },
+                    VirtualKeyCode::Left => {
+                        thing.prev_frame();
+                    },
+                    VirtualKeyCode::Right => {
+                        thing.next_frame();
+                    },
+                    VirtualKeyCode::H => {
+                        show_help = !show_help;
+                    },
+                    _ => ()
+                }
+            }
+            _ => ()
         }
     }
 
