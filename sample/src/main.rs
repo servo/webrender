@@ -224,7 +224,7 @@ fn main() {
     println!("OpenGL version {}", gl.get_string(gl::VERSION));
     println!("Shader resource path: {:?}", res_path);
 
-    let (width, height) = window.get_inner_size().unwrap();
+    let (width, height) = window.get_inner_size_pixels().unwrap();
 
     let opts = webrender::RendererOptions {
         resource_override_path: res_path,
