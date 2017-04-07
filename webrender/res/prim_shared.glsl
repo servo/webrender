@@ -46,9 +46,52 @@ struct RectWithEndpoint {
     vec2 p1;
 };
 
+RectWithEndpoint to_rect_with_endpoint(RectWithSize rect) {
+    RectWithEndpoint result;
+    result.p0 = rect.p0;
+    result.p1 = rect.p0 + rect.size;
+
+    return result;
+}
+
+RectWithSize to_rect_with_size(RectWithEndpoint rect) {
+    RectWithSize result;
+    result.p0 = rect.p0;
+    result.size = rect.p1 - rect.p0;
+
+    return result;
+}
+
+vec2 clamp_rect(vec2 point, RectWithSize rect) {
+    return clamp(point, rect.p0, rect.p0 + rect.size);
+}
+
+vec2 clamp_rect(vec2 point, RectWithEndpoint rect) {
+    return clamp(point, rect.p0, rect.p1);
+}
+
+// Clamp 2 points at once.
+vec4 clamp_rect(vec4 points, RectWithSize rect) {
+    return clamp(points, rect.p0.xyxy, rect.p0.xyxy + rect.size.xyxy);
+}
+
+vec4 clamp_rect(vec4 points, RectWithEndpoint rect) {
+    return clamp(points, rect.p0.xyxy, rect.p1.xyxy);
+}
+
+RectWithSize intersect_rect(RectWithSize a, RectWithSize b) {
+    vec4 p = clamp_rect(vec4(a.p0, a.p0 + a.size), b);
+    return RectWithSize(p.xy, max(vec2(0.0), p.zw - p.xy));
+}
+
+RectWithEndpoint intersect_rect(RectWithEndpoint a, RectWithEndpoint b) {
+    vec4 p = clamp_rect(vec4(a.p0, a.p1), b);
+    return RectWithEndpoint(p.xy, max(p.xy, p.zw));
+}
+
+
 flat varying RectWithEndpoint vClipMaskUvBounds;
 varying vec3 vClipMaskUv;
-
 
 #ifdef WR_VERTEX_SHADER
 
@@ -97,50 +140,6 @@ ivec2 get_fetch_uv_4(int index) {
 ivec2 get_fetch_uv_8(int index) {
     return get_fetch_uv(index, 8);
 }
-
-RectWithEndpoint to_rect_with_endpoint(RectWithSize rect) {
-    RectWithEndpoint result;
-    result.p0 = rect.p0;
-    result.p1 = rect.p0 + rect.size;
-
-    return result;
-}
-
-RectWithSize to_rect_with_size(RectWithEndpoint rect) {
-    RectWithSize result;
-    result.p0 = rect.p0;
-    result.size = rect.p1 - rect.p0;
-
-    return result;
-}
-
-vec2 clamp_rect(vec2 point, RectWithSize rect) {
-    return clamp(point, rect.p0, rect.p0 + rect.size);
-}
-
-vec2 clamp_rect(vec2 point, RectWithEndpoint rect) {
-    return clamp(point, rect.p0, rect.p1);
-}
-
-// Clamp 2 points at once.
-vec4 clamp_rect(vec4 points, RectWithSize rect) {
-    return clamp(points, rect.p0.xyxy, rect.p0.xyxy + rect.size.xyxy);
-}
-
-vec4 clamp_rect(vec4 points, RectWithEndpoint rect) {
-    return clamp(points, rect.p0.xyxy, rect.p1.xyxy);
-}
-
-RectWithSize intersect_rect(RectWithSize a, RectWithSize b) {
-    vec4 p = clamp_rect(vec4(a.p0, a.p0 + a.size), b);
-    return RectWithSize(p.xy, max(vec2(0.0), p.zw - p.xy));
-}
-
-RectWithEndpoint intersect_rect(RectWithEndpoint a, RectWithEndpoint b) {
-    vec4 p = clamp_rect(vec4(a.p0, a.p1), b);
-    return RectWithEndpoint(p.xy, max(p.xy, p.zw));
-}
-
 
 struct Layer {
     mat4 transform;

@@ -8,7 +8,7 @@
 flat varying vec4 vVerticalColor;      // The vertical color, e.g. top/bottom
 flat varying vec4 vHorizontalColor;    // The horizontal color e.g. left/right
 flat varying vec4 vRadii;              // The border radius from CSS border-radius
-flat varying RectWithSize vBorderRect; // The rect of the border (x, y, w, h) in local space.
+flat varying RectWithSize vBorderRect; // The rect of the border in local space.
 
 // for corners, this is the beginning of the corner.
 // For the lines, this is the top left of the line.

@@ -131,8 +131,6 @@ void main(void) {
                                                     prim.layer,
                                                     prim.task);
     vLocalPos = vi.local_pos;
-
-    // Local space
     vLocalRect = segment_rect;
 #else
     VertexInfo vi = write_vertex(segment_rect,
