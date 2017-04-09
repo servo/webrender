@@ -39,9 +39,9 @@ impl BenchmarkManifest {
             let l = line.unwrap();
 
             // strip the comments
-            let s = &l[0..l.find("#").unwrap_or(l.len())];
+            let s = &l[0..l.find('#').unwrap_or(l.len())];
             let s = s.trim();
-            if s.len() == 0 {
+            if s.is_empty() {
                 continue;
             }
 

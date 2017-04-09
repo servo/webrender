@@ -131,7 +131,7 @@ impl JsonFrameWriter {
         (path_file, path)
     }
 
-    fn path_for_image(&mut self, key: &ImageKey) -> Option<PathBuf> {
+    fn path_for_image(&mut self, key: ImageKey) -> Option<PathBuf> {
         if let Some(ref mut data) = self.images.get_mut(&key) {
             if data.path.is_some() {
                 return data.path.clone();
@@ -186,7 +186,7 @@ impl JsonFrameWriter {
 
         data.path = Some(path.clone());
         // put it back
-        self.images.insert(*key, data);
+        self.images.insert(key, data);
         Some(path)
     }
 }
@@ -199,29 +199,28 @@ impl fmt::Debug for JsonFrameWriter {
 
 impl webrender::ApiRecordingReceiver for JsonFrameWriter {
     fn write_msg(&mut self, _: u32, msg: &ApiMsg) {
-        match msg {
-            &ApiMsg::SetRootPipeline(..) |
-            &ApiMsg::Scroll(..) |
-            &ApiMsg::TickScrollingBounce |
-            &ApiMsg::WebGLCommand(..) => {
+        match *msg {
+            ApiMsg::SetRootPipeline(..) |
+            ApiMsg::Scroll(..) |
+            ApiMsg::TickScrollingBounce |
+            ApiMsg::WebGLCommand(..) => {
             }
 
-            &ApiMsg::AddRawFont(ref key, ref bytes) => {
+            ApiMsg::AddRawFont(ref key, ref bytes) => {
                 self.fonts.insert(*key, CachedFont::Raw(Some(bytes.clone()), None));
             }
 
-            &ApiMsg::AddNativeFont(ref key, ref native_font_handle) => {
+            ApiMsg::AddNativeFont(ref key, ref native_font_handle) => {
                 self.fonts.insert(*key, CachedFont::Native(native_font_handle.clone()));
             }
 
-            &ApiMsg::AddImage(ref key, ref descriptor, ref data, _) => {
+            ApiMsg::AddImage(ref key, ref descriptor, ref data, _) => {
                 let stride = descriptor.stride.unwrap_or(
                     descriptor.width * descriptor.format.bytes_per_pixel().unwrap()
                 );
-                let bytes = match data {
-                    &ImageData::Raw(ref v) => { (**v).clone() }
-                    &ImageData::External(_) => { return; }
-                    &ImageData::Blob(_) => { return; }
+                let bytes = match *data {
+                    ImageData::Raw(ref v) => { (**v).clone() }
+                    ImageData::External(_) | ImageData::Blob(_) => { return; }
                 };
                 self.images.insert(*key, CachedImage {
                     width: descriptor.width,
@@ -233,13 +232,13 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                 });
             }
 
-            &ApiMsg::UpdateImage(ref key, descriptor, ref img_data, _dirty_rect) => {
+            ApiMsg::UpdateImage(ref key, descriptor, ref img_data, _dirty_rect) => {
                 if let Some(ref mut data) = self.images.get_mut(key) {
-                    assert!(data.width == descriptor.width);
-                    assert!(data.height == descriptor.height);
-                    assert!(data.format == descriptor.format);
+                    assert_eq!(data.width, descriptor.width);
+                    assert_eq!(data.height, descriptor.height);
+                    assert_eq!(data.format, descriptor.format);
 
-                    if let &ImageData::Raw(ref bytes) = img_data {
+                    if let ImageData::Raw(ref bytes) = *img_data {
                         *data.path.borrow_mut() = None;
                         *data.bytes.borrow_mut() = Some((**bytes).clone());
                     } else {
@@ -249,11 +248,11 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                 }
             }
 
-            &ApiMsg::DeleteImage(ref key) => {
+            ApiMsg::DeleteImage(ref key) => {
                 self.images.remove(key);
             }
 
-            &ApiMsg::SetDisplayList(ref background_color,
+            ApiMsg::SetDisplayList(ref background_color,
                                     ref epoch,
                                     ref pipeline_id,
                                     ref viewport_size,

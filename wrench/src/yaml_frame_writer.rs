@@ -25,7 +25,7 @@ use yaml_rust::{Yaml, YamlEmitter};
 type Table = yaml_rust::yaml::Hash;
 
 fn array_elements_are_same<T: PartialEq>(v: &[T]) -> bool {
-    if v.len() > 0 {
+    if !v.is_empty() {
         let first = &v[0];
         for o in v.iter() {
             if *first != *o {
@@ -116,7 +116,7 @@ fn table_node(parent: &mut Table, key: &str, value: Table) {
 }
 
 fn string_vec_yaml(value: &[String], check_unique: bool) -> Yaml {
-    if value.len() > 0 && check_unique && array_elements_are_same(value) {
+    if !value.is_empty() && check_unique && array_elements_are_same(value) {
         Yaml::String(value[0].clone())
     } else {
         Yaml::Array(value.iter().map(|v| Yaml::String(v.clone())).collect())
@@ -124,7 +124,7 @@ fn string_vec_yaml(value: &[String], check_unique: bool) -> Yaml {
 }
 
 fn u32_vec_yaml(value: &[u32], check_unique: bool) -> Yaml {
-    if value.len() > 0 && check_unique && array_elements_are_same(value) {
+    if !value.is_empty() && check_unique && array_elements_are_same(value) {
         Yaml::Integer(value[0] as i64)
     } else {
         Yaml::Array(value.iter().map(|v| Yaml::Integer(*v as i64)).collect())
@@ -136,7 +136,7 @@ fn u32_vec_node(parent: &mut Table, key: &str, value: &[u32]) {
 }
 
 fn f32_vec_yaml(value: &[f32], check_unique: bool) -> Yaml {
-    if value.len() > 0 && check_unique && array_elements_are_same(value) {
+    if !value.is_empty() && check_unique && array_elements_are_same(value) {
         Yaml::Real(value[0].to_string())
     } else {
         Yaml::Array(value.iter().map(|v| Yaml::Real(v.to_string())).collect())
@@ -156,7 +156,7 @@ fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
         if radius == LayoutSize::zero() {
             None
         } else {
-            Some(f32_vec_yaml(&vec![radius.width, radius.height], false))
+            Some(f32_vec_yaml(&[radius.width, radius.height], false))
         }
     } else {
         let mut table = new_table();
@@ -326,7 +326,7 @@ impl YamlFrameWriter {
 
         let mut root = new_table();
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
-            u32_vec_node(&mut root_dl_table, "id", &vec![root_pipeline_id.0, root_pipeline_id.1]);
+            u32_vec_node(&mut root_dl_table, "id", &[root_pipeline_id.0, root_pipeline_id.1]);
 
             let referenced_pipeline_ids = dl.all_display_items().iter()
                 .flat_map(|base| {
@@ -343,12 +343,12 @@ impl YamlFrameWriter {
                     continue;
                 }
                 let mut pipeline = new_table();
-                u32_vec_node(&mut pipeline, "id", &vec![pipeline_id.0, pipeline_id.1]);
+                u32_vec_node(&mut pipeline, "id", &[pipeline_id.0, pipeline_id.1]);
 
                 let dl = scene.display_lists.get(&pipeline_id).unwrap();
                 let aux = scene.pipeline_auxiliary_lists.get(&pipeline_id).unwrap();
                 let mut iter = dl.iter();
-                self.write_display_list(&mut pipeline, &mut iter, &aux, &mut ClipIdMapper::new());
+                self.write_display_list(&mut pipeline, &mut iter, aux, &mut ClipIdMapper::new());
                 pipelines.push(Yaml::Hash(pipeline));
             }
 
@@ -388,7 +388,7 @@ impl YamlFrameWriter {
         (path_file, path)
     }
 
-    fn path_for_image(&mut self, key: &ImageKey) -> Option<PathBuf> {
+    fn path_for_image(&mut self, key: ImageKey) -> Option<PathBuf> {
         if let Some(ref mut data) = self.images.get_mut(&key) {
             if data.path.is_some() {
                 return data.path.clone();
@@ -444,7 +444,7 @@ impl YamlFrameWriter {
 
         data.path = Some(path.clone());
         // put it back
-        self.images.insert(*key, data);
+        self.images.insert(key, data);
         Some(path)
     }
 
@@ -454,7 +454,7 @@ impl YamlFrameWriter {
             let mut complex_table = new_table();
             rect_node(&mut complex_table, "rect", &clip.main);
 
-            if complex.len() > 0 {
+            if !complex.is_empty() {
                 let complex_items = complex.iter().map(|ccx|
                     if ccx.radii.is_zero() {
                         rect_yaml(&ccx.rect)
@@ -470,7 +470,7 @@ impl YamlFrameWriter {
 
             if let Some(ref mask) = clip.image_mask {
                 let mut mask_table = new_table();
-                if let Some(path) = self.path_for_image(&mask.image) {
+                if let Some(path) = self.path_for_image(mask.image) {
                     path_node(&mut mask_table, "image", &path);
                 }
                 rect_node(&mut mask_table, "rect", &mask.rect);
@@ -522,7 +522,7 @@ impl YamlFrameWriter {
 
                     match entry {
                         &mut CachedFont::Native(ref handle) => {
-                            native_font_handle_to_yaml(&handle, &mut v);
+                            native_font_handle_to_yaml(handle, &mut v);
                         }
                         &mut CachedFont::Raw(ref mut bytes_opt, ref mut path_opt) => {
                             if let Some(bytes) = bytes_opt.take() {
@@ -542,7 +542,7 @@ impl YamlFrameWriter {
                     }
                 },
                 Image(item) => {
-                    if let Some(path) = self.path_for_image(&item.image_key) {
+                    if let Some(path) = self.path_for_image(item.image_key) {
                         path_node(&mut v, "image", &path);
                     }
                     if let Some(&CachedImage { tiling: Some(tile_size), .. }) = self.images.get(&item.image_key) {
@@ -609,7 +609,7 @@ impl YamlFrameWriter {
                                                          details.outset.left];
                             yaml_node(&mut v, "width", f32_vec_yaml(&widths, true));
                             str_node(&mut v, "border-type", "image");
-                            if let Some(path) = self.path_for_image(&details.image_key) {
+                            if let Some(path) = self.path_for_image(details.image_key) {
                                 path_node(&mut v, "image", &path);
                             }
                             u32_node(&mut v, "image-width", details.patch.width);
@@ -730,7 +730,7 @@ impl YamlFrameWriter {
                 },
                 Iframe(item) => {
                     str_node(&mut v, "type", "iframe");
-                    u32_vec_node(&mut v, "id", &vec![item.pipeline_id.0, item.pipeline_id.1]);
+                    u32_vec_node(&mut v, "id", &[item.pipeline_id.0, item.pipeline_id.1]);
                 },
                 PushStackingContext(item) => {
                     str_node(&mut v, "type", "stacking-context");
@@ -762,31 +762,30 @@ impl YamlFrameWriter {
 
 impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
     fn write_msg(&mut self, _: u32, msg: &ApiMsg) {
-        match msg {
-            &ApiMsg::SetRootPipeline(ref pipeline_id) => {
+        match *msg {
+            ApiMsg::SetRootPipeline(ref pipeline_id) => {
                 self.scene.set_root_pipeline_id(pipeline_id.clone());
             }
-            &ApiMsg::Scroll(..) |
-            &ApiMsg::TickScrollingBounce |
-            &ApiMsg::WebGLCommand(..) => {
+            ApiMsg::Scroll(..) |
+            ApiMsg::TickScrollingBounce |
+            ApiMsg::WebGLCommand(..) => {
             }
 
-            &ApiMsg::AddRawFont(ref key, ref bytes) => {
+            ApiMsg::AddRawFont(ref key, ref bytes) => {
                 self.frame_writer.fonts.insert(*key, CachedFont::Raw(Some(bytes.clone()), None));
             }
 
-            &ApiMsg::AddNativeFont(ref key, ref native_font_handle) => {
+            ApiMsg::AddNativeFont(ref key, ref native_font_handle) => {
                 self.frame_writer.fonts.insert(*key, CachedFont::Native(native_font_handle.clone()));
             }
 
-            &ApiMsg::AddImage(ref key, ref descriptor, ref data, ref tiling) => {
+            ApiMsg::AddImage(ref key, ref descriptor, ref data, ref tiling) => {
                 let stride = descriptor.stride.unwrap_or(
                     descriptor.width * descriptor.format.bytes_per_pixel().unwrap()
                 );
-                let bytes = match data {
-                    &ImageData::Raw(ref v) => { (**v).clone() }
-                    &ImageData::External(_) => { return; }
-                    &ImageData::Blob(_) => { return; }
+                let bytes = match *data {
+                    ImageData::Raw(ref v) => { (**v).clone() }
+                    ImageData::External(_) | ImageData::Blob(_) => { return; }
                 };
                 self.frame_writer.images.insert(*key, CachedImage {
                     width: descriptor.width,
@@ -799,13 +798,13 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 });
             }
 
-            &ApiMsg::UpdateImage(ref key, ref descriptor, ref img_data, _dirty_rect) => {
+            ApiMsg::UpdateImage(ref key, ref descriptor, ref img_data, _dirty_rect) => {
                 if let Some(ref mut data) = self.frame_writer.images.get_mut(key) {
-                    assert!(data.width == descriptor.width);
-                    assert!(data.height == descriptor.height);
-                    assert!(data.format == descriptor.format);
+                    assert_eq!(data.width, descriptor.width);
+                    assert_eq!(data.height, descriptor.height);
+                    assert_eq!(data.format, descriptor.format);
 
-                    if let &ImageData::Raw(ref bytes) = img_data {
+                    if let ImageData::Raw(ref bytes) = *img_data {
                         *data.path.borrow_mut() = None;
                         *data.bytes.borrow_mut() = Some((**bytes).clone());
                     } else {
@@ -815,11 +814,11 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 }
             }
 
-            &ApiMsg::DeleteImage(ref key) => {
+            ApiMsg::DeleteImage(ref key) => {
                 self.frame_writer.images.remove(key);
             }
 
-            &ApiMsg::SetDisplayList(ref background_color,
+            ApiMsg::SetDisplayList(ref background_color,
                                     ref epoch,
                                     ref pipeline_id,
                                     ref viewport_size,
@@ -845,8 +844,9 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
     }
 }
 
-/// This structure allows mapping both Clip and ClipExternalId ScrollLayerIds
-/// onto one set of numeric ids. This prevents ids from clashing in the yaml output.
+/// This structure allows mapping both `Clip` and `ClipExternalId`
+/// `ScrollLayerIds` onto one set of numeric ids. This prevents ids
+/// from clashing in the yaml output.
 struct ClipIdMapper {
     hash_map: HashMap<ScrollLayerId, usize>,
     current_clip_id: usize,

@@ -78,7 +78,7 @@ lazy_static! {
 pub static mut CURRENT_FRAME_NUMBER: u32 = 0;
 
 fn percentile(values: &[f64], pct_int: u32) -> f64 {
-    if values.len() > 0 {
+    if !values.is_empty() {
         let index_big = (values.len() - 1) * (pct_int as usize);
         let index = index_big / 100;
         if index * 100 == index_big {
@@ -212,14 +212,14 @@ impl WindowWrapper {
 
     pub fn gl(&self) -> &gl::Gl {
         match *self {
-            WindowWrapper::Window(_, ref gl) => &**gl,
+            WindowWrapper::Window(_, ref gl) |
             WindowWrapper::Headless(_, ref gl) => &**gl,
         }
     }
 
     pub fn clone_gl(&self) -> Rc<gl::Gl> {
         match *self {
-            WindowWrapper::Window(_, ref gl) => gl.clone(),
+            WindowWrapper::Window(_, ref gl) |
             WindowWrapper::Headless(_, ref gl) => gl.clone(),
         }
     }
@@ -341,13 +341,13 @@ fn main() {
             let harness = ReftestHarness::new(&mut wrench, &mut window);
             let base_manifest = Path::new("reftests/reftest.list");
             let specific_reftest = subargs.value_of("REFTEST").map(|x| Path::new(x));
-            harness.run(&base_manifest, specific_reftest);
+            harness.run(base_manifest, specific_reftest);
             return;
         } else if let Some(subargs) = args.subcommand_matches("perf") {
             let harness = PerfHarness::new(&mut wrench, &mut window);
             let base_manifest = Path::new("benchmarks/benchmarks.list");
             let filename = subargs.value_of("filename").unwrap();
-            harness.run(&base_manifest, filename);
+            harness.run(base_manifest, filename);
             return;
         } else if let Some(subargs) = args.subcommand_matches("compare_perf") {
             let first_filename = subargs.value_of("first_filename").unwrap();
