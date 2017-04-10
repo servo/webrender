@@ -225,8 +225,8 @@ fn clip_intersection(original_rect: &LayerRect,
 impl Frame {
     pub fn new(config: FrameBuilderConfig) -> Frame {
         Frame {
-            pipeline_epoch_map: HashMap::with_hasher(Default::default()),
-            pipeline_auxiliary_lists: HashMap::with_hasher(Default::default()),
+            pipeline_epoch_map: HashMap::default(),
+            pipeline_auxiliary_lists: HashMap::default(),
             clip_scroll_tree: ClipScrollTree::new(),
             id: FrameId(0),
             frame_builder: None,

@@ -546,7 +546,7 @@ impl TextureCache {
 
         TextureCache {
             cache_id_list: CacheTextureIdList::new(),
-            free_texture_levels: HashMap::with_hasher(Default::default()),
+            free_texture_levels: HashMap::default(),
             items: FreeList::new(),
             pending_updates: TextureUpdateList::new(),
             arena: TextureCacheArena::new(),

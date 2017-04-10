@@ -952,13 +952,13 @@ impl Renderer {
             clip_vao_id: clip_vao_id,
             gdt_index: 0,
             gpu_data_textures: gpu_data_textures,
-            pipeline_epoch_map: HashMap::with_hasher(Default::default()),
+            pipeline_epoch_map: HashMap::default(),
             main_thread_dispatcher: main_thread_dispatcher,
             cache_texture_id_map: Vec::new(),
             dummy_cache_texture_id: dummy_cache_texture_id,
             dither_matrix_texture_id: dither_matrix_texture_id,
             external_image_handler: None,
-            external_images: HashMap::with_hasher(Default::default()),
+            external_images: HashMap::default(),
             vr_compositor_handler: vr_compositor,
             cpu_profiles: VecDeque::new(),
             gpu_profiles: VecDeque::new(),
@@ -1006,7 +1006,7 @@ impl Renderer {
     /// Returns a HashMap containing the pipeline ids that have been received by the renderer and
     /// their respective epochs since the last time the method was called.
     pub fn flush_rendered_epochs(&mut self) -> HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>> {
-        mem::replace(&mut self.pipeline_epoch_map, HashMap::with_hasher(Default::default()))
+        mem::replace(&mut self.pipeline_epoch_map, HashMap::default())
     }
 
     /// Processes the result queue.

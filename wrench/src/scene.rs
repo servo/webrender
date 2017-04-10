@@ -26,9 +26,9 @@ impl Scene {
     pub fn new() -> Scene {
         Scene {
             root_pipeline_id: None,
-            pipeline_map: HashMap::with_hasher(Default::default()),
-            pipeline_auxiliary_lists: HashMap::with_hasher(Default::default()),
-            display_lists: HashMap::with_hasher(Default::default()),
+            pipeline_map: HashMap::default(),
+            pipeline_auxiliary_lists: HashMap::default(),
+            display_lists: HashMap::default(),
         }
     }
 

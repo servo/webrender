@@ -146,7 +146,7 @@ impl RenderTaskCollection {
     pub fn new(static_render_task_count: usize) -> RenderTaskCollection {
         RenderTaskCollection {
             render_task_data: vec![RenderTaskData::empty(); static_render_task_count],
-            dynamic_tasks: HashMap::with_hasher(Default::default()),
+            dynamic_tasks: HashMap::default(),
         }
     }
 
