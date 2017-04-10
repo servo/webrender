@@ -1569,7 +1569,7 @@ impl Renderer {
         self.device.enable_depth();
         self.device.enable_depth_write();
 
-        for batch in &target.alpha_batcher.opaque_batches {
+        for batch in &target.alpha_batcher.batch_list.opaque_batches {
             self.submit_batch(batch,
                               &projection,
                               render_task_data,
@@ -1580,7 +1580,7 @@ impl Renderer {
 
         self.device.disable_depth_write();
 
-        for batch in &target.alpha_batcher.alpha_batches {
+        for batch in &target.alpha_batcher.batch_list.alpha_batches {
             if batch.key.blend_mode != prev_blend_mode {
                 match batch.key.blend_mode {
                     BlendMode::None => {
