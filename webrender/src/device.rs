@@ -932,9 +932,9 @@ impl Device {
             default_read_fbo: 0,
             default_draw_fbo: 0,
 
-            textures: HashMap::with_hasher(Default::default()),
-            programs: HashMap::with_hasher(Default::default()),
-            vaos: HashMap::with_hasher(Default::default()),
+            textures: HashMap::default(),
+            programs: HashMap::default(),
+            vaos: HashMap::default(),
 
             shader_preamble: shader_preamble,
 

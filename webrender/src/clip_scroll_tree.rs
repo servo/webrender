@@ -42,7 +42,7 @@ impl ClipScrollTree {
     pub fn new() -> ClipScrollTree {
         let dummy_pipeline = PipelineId(0, 0);
         ClipScrollTree {
-            nodes: HashMap::with_hasher(Default::default()),
+            nodes: HashMap::default(),
             pending_scroll_offsets: HashMap::new(),
             current_scroll_layer_id: None,
             root_reference_frame_id: ScrollLayerId::root_reference_frame(dummy_pipeline),
@@ -68,7 +68,7 @@ impl ClipScrollTree {
 
     pub fn collect_nodes_bouncing_back(&self)
                                        -> HashSet<ScrollLayerId, BuildHasherDefault<FnvHasher>> {
-        let mut nodes_bouncing_back = HashSet::with_hasher(Default::default());
+        let mut nodes_bouncing_back = HashSet::default();
         for (scroll_layer_id, node) in self.nodes.iter() {
             if node.scrolling.bouncing_back {
                 nodes_bouncing_back.insert(*scroll_layer_id);
@@ -121,7 +121,7 @@ impl ClipScrollTree {
     pub fn drain(&mut self) -> ScrollStates {
         self.current_reference_frame_id = 1;
 
-        let mut scroll_states = HashMap::with_hasher(Default::default());
+        let mut scroll_states = HashMap::default();
         for (layer_id, old_node) in &mut self.nodes.drain() {
             if !self.pipelines_to_discard.contains(&layer_id.pipeline_id()) {
                 scroll_states.insert(layer_id, old_node.scrolling);
