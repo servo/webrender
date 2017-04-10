@@ -395,11 +395,11 @@ fn main() {
         let rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(0.0, 0.0));
         let simple_box_bounds = LayoutRect::new(LayoutPoint::new(20.0, 200.0),
                                                 LayoutSize::new(50.0, 50.0));
-        let offset = LayoutPoint::new(0.0, 0.0);
+        let offset = LayoutPoint::new(10.0, 10.0);
         let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
-        let blur_radius = 5.0;
+        let blur_radius = 0.0;
         let spread_radius = 0.0;
-        let simple_border_radius = 20.0;
+        let simple_border_radius = 8.0;
         let box_shadow_type = BoxShadowClipMode::Inset;
         let full_screen_clip = builder.new_clip_region(&bounds, Vec::new(), None);
 
