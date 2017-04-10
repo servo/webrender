@@ -740,57 +740,39 @@ impl FrameBuilder {
             return
         }
 
-        let (render_mode, glyphs_per_run) = if blur_radius == Au(0) {
-            // TODO(gw): Use a proper algorithm to select
-            // whether this item should be rendered with
-            // subpixel AA!
-            let render_mode = if self.config.enable_subpixel_aa {
-                FontRenderMode::Subpixel
-            } else {
-                FontRenderMode::Alpha
-            };
-
-            (render_mode, 8)
+        // TODO(gw): Use a proper algorithm to select
+        // whether this item should be rendered with
+        // subpixel AA!
+        let render_mode = if blur_radius == Au(0) &&
+                             self.config.enable_subpixel_aa {
+            FontRenderMode::Subpixel
         } else {
-            // TODO(gw): Support breaking up text shadow when
-            // the size of the text run exceeds the dimensions
-            // of the render target texture.
-            (FontRenderMode::Alpha, glyph_range.length)
+            FontRenderMode::Alpha
         };
 
-        let text_run_count = (glyph_range.length + glyphs_per_run - 1) / glyphs_per_run;
-        for run_index in 0..text_run_count {
-            let start = run_index * glyphs_per_run;
-            let end = cmp::min(start + glyphs_per_run, glyph_range.length);
-            let sub_range = ItemRange {
-                start: glyph_range.start + start,
-                length: end - start,
-            };
+        let prim_cpu = TextRunPrimitiveCpu {
+            font_key: font_key,
+            logical_font_size: size,
+            blur_radius: blur_radius,
+            glyph_range: glyph_range,
+            cache_dirty: true,
+            glyph_instances: Vec::new(),
+            color_texture_id: SourceTexture::Invalid,
+            color: *color,
+            render_mode: render_mode,
+            glyph_options: glyph_options,
+            resource_address: GpuStoreAddress(0),
+        };
 
-            let prim_cpu = TextRunPrimitiveCpu {
-                font_key: font_key,
-                logical_font_size: size,
-                blur_radius: blur_radius,
-                glyph_range: sub_range,
-                cache_dirty: true,
-                glyph_instances: Vec::new(),
-                color_texture_id: SourceTexture::Invalid,
-                color: *color,
-                render_mode: render_mode,
-                glyph_options: glyph_options,
-                resource_address: GpuStoreAddress(0),
-            };
+        let prim_gpu = TextRunPrimitiveGpu {
+            color: *color,
+        };
 
-            let prim_gpu = TextRunPrimitiveGpu {
-                color: *color,
-            };
-
-            self.add_primitive(scroll_layer_id,
-                               &rect,
-                               clip_region,
-                               None,
-                               PrimitiveContainer::TextRun(prim_cpu, prim_gpu));
-        }
+        self.add_primitive(scroll_layer_id,
+                           &rect,
+                           clip_region,
+                           None,
+                           PrimitiveContainer::TextRun(prim_cpu, prim_gpu));
     }
 
     pub fn add_box_shadow(&mut self,
