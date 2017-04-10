@@ -626,11 +626,11 @@ impl FrameBuilder {
                            tile_repeat.height >= rect.size.height;
 
         let aligned_and_fills_rect = (start_point.x == end_point.x &&
-                                      start_point.y.min(end_point.y) <= rect.min_y() &&
-                                      start_point.y.max(end_point.y) >= rect.max_y()) ||
+                                      start_point.y.min(end_point.y) <= 0.0 &&
+                                      start_point.y.max(end_point.y) >= rect.size.height) ||
                                      (start_point.y == end_point.y &&
-                                      start_point.x.min(end_point.x) <= rect.min_x() &&
-                                      start_point.x.max(end_point.x) >= rect.max_x());
+                                      start_point.x.min(end_point.x) <= 0.0 &&
+                                      start_point.x.max(end_point.x) >= rect.size.width);
 
         // Fast path for clamped, axis-aligned gradients, with gradient lines intersecting all of rect:
         let aligned = extend_mode == ExtendMode::Clamp && is_not_tiled && aligned_and_fills_rect;
