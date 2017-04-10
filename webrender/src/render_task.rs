@@ -60,8 +60,7 @@ pub enum AlphaRenderItem {
 #[derive(Debug, Clone)]
 pub struct AlphaRenderTask {
     screen_origin: DeviceIntPoint,
-    pub opaque_items: Vec<AlphaRenderItem>,
-    pub alpha_items: Vec<AlphaRenderItem>,
+    pub items: Vec<AlphaRenderItem>,
     pub isolate_clear: bool,
 }
 
@@ -153,8 +152,7 @@ impl RenderTask {
             location: location,
             kind: RenderTaskKind::Alpha(AlphaRenderTask {
                 screen_origin: screen_origin,
-                alpha_items: Vec::new(),
-                opaque_items: Vec::new(),
+                items: Vec::new(),
                 isolate_clear: isolate_clear,
             }),
         }

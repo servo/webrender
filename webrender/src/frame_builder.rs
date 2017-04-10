@@ -27,7 +27,7 @@ use tiling::{AuxiliaryListsMap, ClipScrollGroup, ClipScrollGroupIndex, Composite
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
 use tiling::{RenderTargetContext, RenderTaskCollection, ScrollbarPrimitive, StackingContext};
 use util::{self, pack_as_float, subtract_rect};
-use util::{RectHelpers, TransformedRectKind};
+use util::RectHelpers;
 use webrender_traits::{BorderDetails, BorderDisplayItem};
 use webrender_traits::{BoxShadowClipMode, ClipRegion, ColorF, DeviceIntPoint, DeviceIntRect};
 use webrender_traits::{DeviceIntSize, DeviceUintRect, DeviceUintSize, ExtendMode, FontKey};
@@ -1131,7 +1131,7 @@ impl FrameBuilder {
                                                                       HardwareCompositeOp::PremultipliedAlpha,
                                                                       next_z);
                         next_z += 1;
-                        prev_task.as_alpha_batch().alpha_items.push(item);
+                        prev_task.as_alpha_batch().items.push(item);
                         prev_task.children.push(current_task);
                         current_task = prev_task;
                     }
@@ -1143,7 +1143,7 @@ impl FrameBuilder {
                                                           *filter,
                                                           next_z);
                         next_z += 1;
-                        prev_task.as_alpha_batch().alpha_items.push(item);
+                        prev_task.as_alpha_batch().items.push(item);
                         prev_task.children.push(current_task);
                         current_task = prev_task;
                     }
@@ -1159,7 +1159,7 @@ impl FrameBuilder {
                                                               mix_blend_mode,
                                                               next_z);
                         next_z += 1;
-                        prev_task.as_alpha_batch().alpha_items.push(item);
+                        prev_task.as_alpha_batch().items.push(item);
                         prev_task.children.push(current_task);
                         prev_task.children.push(readback_task);
                         current_task = prev_task;
@@ -1176,10 +1176,9 @@ impl FrameBuilder {
                     let stacking_context_index = *sc_stack.last().unwrap();
                     let group_index = self.stacking_context_store[stacking_context_index.0]
                                           .clip_scroll_group(scroll_layer_id);
-                    let xf_rect = match self.clip_scroll_group_store[group_index.0].xf_rect {
-                        Some(ref xf_rect) => xf_rect,
-                        None => continue,
-                    };
+                    if self.clip_scroll_group_store[group_index.0].xf_rect.is_none() {
+                        continue
+                    }
 
                     for i in 0..prim_count {
                         let prim_index = PrimitiveIndex(first_prim_index.0 + i);
@@ -1195,16 +1194,8 @@ impl FrameBuilder {
                                 current_task.children.push(clip_task.clone());
                             }
 
-                            let needs_blending = xf_rect.kind == TransformedRectKind::Complex ||
-                                                 !prim_metadata.is_opaque ||
-                                                 prim_metadata.needs_clipping();
-
-                            let items = if needs_blending {
-                                &mut current_task.as_alpha_batch().alpha_items
-                            } else {
-                                &mut current_task.as_alpha_batch().opaque_items
-                            };
-                            items.push(AlphaRenderItem::Primitive(group_index, prim_index, next_z));
+                            let item = AlphaRenderItem::Primitive(group_index, prim_index, next_z);
+                            current_task.as_alpha_batch().items.push(item);
                             next_z += 1;
                         }
                     }
