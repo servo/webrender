@@ -13,7 +13,7 @@ void main(void) {
                                                     prim.z,
                                                     prim.layer,
                                                     prim.task);
-    vLocalRect = vi.clipped_local_rect;
+    vLocalRect = prim.local_rect;
     vLocalPos = vi.local_pos;
 #else
     VertexInfo vi = write_vertex(prim.local_rect,
