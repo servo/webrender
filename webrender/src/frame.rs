@@ -292,8 +292,7 @@ impl Frame {
         };
 
         if window_size.width == 0 || window_size.height == 0 {
-            println!("ERROR: Invalid window dimensions! Please call api.set_window_size()");
-            return;
+            error!("ERROR: Invalid window dimensions! Please call api.set_window_size()");
         }
 
         let old_scrolling_states = self.reset();
