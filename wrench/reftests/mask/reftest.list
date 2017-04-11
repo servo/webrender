@@ -3,3 +3,4 @@
 != mask.yaml green.yaml
 == aligned-layer-rect.yaml aligned-layer-rect-ref.yaml
 == mask-transformed-to-empty-rect.yaml mask-transformed-to-empty-rect-ref.yaml
+== rounded-corners.yaml rounded-corners.png

@@ -141,6 +141,8 @@ void main(void) {
     vLocalPos = vi.local_pos.xy;
 #endif
 
+    write_clip(vi.screen_pos, prim.clip_area);
+
     float x0, y0, x1, y1;
     switch (sub_part) {
         // These are the layer tile part PrimitivePart as uploaded by the tiling.rs
