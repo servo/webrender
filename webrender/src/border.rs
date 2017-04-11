@@ -4,8 +4,8 @@
 
 use frame_builder::FrameBuilder;
 use tiling::PrimitiveFlags;
-use webrender_traits::{BorderSide, BorderStyle, BorderWidths, NormalBorder};
-use webrender_traits::{ClipRegion, LayerPoint, LayerRect, LayerSize, ScrollLayerId};
+use webrender_traits::{BorderSide, BorderStyle, BorderWidths, ClipId, ClipRegion, LayerPoint};
+use webrender_traits::{LayerRect, LayerSize, NormalBorder};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BorderCornerKind {
@@ -112,7 +112,7 @@ impl FrameBuilder {
                              rect: &LayerRect,
                              border: &NormalBorder,
                              widths: &BorderWidths,
-                             scroll_layer_id: ScrollLayerId,
+                             clip_id: ClipId,
                              clip_region: &ClipRegion) -> bool {
         // The border shader is quite expensive. For simple borders, we can just draw
         // the border with a few rectangles. This generally gives better batching, and
@@ -162,15 +162,14 @@ impl FrameBuilder {
 
         // Add a solid rectangle for each visible edge/corner combination.
         if top_edge == BorderEdgeKind::Solid {
-            self.add_solid_rectangle(scroll_layer_id,
-                                     &LayerRect::new(p0,
-                                                     LayerSize::new(rect.size.width, top_len)),
+            self.add_solid_rectangle(clip_id,
+                                     &LayerRect::new(p0, LayerSize::new(rect.size.width, top_len)),
                                      clip_region,
                                      &border.top.color,
                                      PrimitiveFlags::None);
         }
         if left_edge == BorderEdgeKind::Solid {
-            self.add_solid_rectangle(scroll_layer_id,
+            self.add_solid_rectangle(clip_id,
                                      &LayerRect::new(LayerPoint::new(p0.x, p0.y + top_len),
                                                      LayerSize::new(left_len,
                                                                     rect_height - top_len - bottom_len)),
@@ -179,7 +178,7 @@ impl FrameBuilder {
                                      PrimitiveFlags::None);
         }
         if right_edge == BorderEdgeKind::Solid {
-            self.add_solid_rectangle(scroll_layer_id,
+            self.add_solid_rectangle(clip_id,
                                      &LayerRect::new(LayerPoint::new(p1.x - right_len,
                                                                      p0.y + top_len),
                                                      LayerSize::new(right_len,
@@ -189,7 +188,7 @@ impl FrameBuilder {
                                      PrimitiveFlags::None);
         }
         if bottom_edge == BorderEdgeKind::Solid {
-            self.add_solid_rectangle(scroll_layer_id,
+            self.add_solid_rectangle(clip_id,
                                      &LayerRect::new(LayerPoint::new(p0.x, p1.y - bottom_len),
                                                      LayerSize::new(rect_width, bottom_len)),
                                      clip_region,
