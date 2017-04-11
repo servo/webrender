@@ -24,6 +24,7 @@ pub trait YamlHelper {
     fn as_px_to_au(&self) -> Option<Au>;
     fn as_pt_to_au(&self) -> Option<Au>;
     fn as_vec_string(&self) -> Option<Vec<String>>;
+    fn as_border_radius_component(&self) -> LayoutSize;
     fn as_border_radius(&self) -> Option<BorderRadius>;
     fn as_transform_style(&self) -> Option<TransformStyle>;
     fn as_mix_blend_mode(&self) -> Option<MixBlendMode>;
@@ -317,6 +318,13 @@ impl YamlHelper for Yaml {
         }
     }
 
+    fn as_border_radius_component(&self) -> LayoutSize {
+        if let Yaml::Integer(integer) = *self {
+            return LayoutSize::new(integer as f32, integer as f32);
+        }
+        self.as_size().unwrap_or(TypedSize2D::zero())
+    }
+
     fn as_border_radius(&self) -> Option<BorderRadius> {
         if let Some(size) = self.as_size() {
             return Some(BorderRadius::uniform_size(size));
@@ -331,11 +339,23 @@ impl YamlHelper for Yaml {
             Yaml::Integer(v) => {
                 Some(BorderRadius::uniform(v as f32))
             }
+            Yaml::Array(ref array) if array.len() == 4 => {
+                let top_left = array[0].as_border_radius_component();
+                let top_right = array[1].as_border_radius_component();
+                let bottom_left = array[2].as_border_radius_component();
+                let bottom_right = array[3].as_border_radius_component();
+                Some(BorderRadius {
+                    top_left: top_left,
+                    top_right: top_right,
+                    bottom_left: bottom_left,
+                    bottom_right: bottom_right,
+                })
+            }
             Yaml::Hash(_) => {
-                let top_left = self["top-left"].as_size().unwrap_or(TypedSize2D::zero());
-                let top_right = self["top-right"].as_size().unwrap_or(TypedSize2D::zero());
-                let bottom_left = self["bottom-left"].as_size().unwrap_or(TypedSize2D::zero());
-                let bottom_right = self["bottom-right"].as_size().unwrap_or(TypedSize2D::zero());
+                let top_left = self["top-left"].as_border_radius_component();
+                let top_right = self["top-right"].as_border_radius_component();
+                let bottom_left = self["bottom-left"].as_border_radius_component();
+                let bottom_right = self["bottom-right"].as_border_radius_component();
                 Some(BorderRadius {
                     top_left: top_left,
                     top_right: top_right,
