@@ -494,7 +494,7 @@ impl YamlFrameWriter {
             let mut v = new_table();
             rect_node(&mut v, "bounds", &base.rect);
             yaml_node(&mut v, "clip", self.make_clip_node(&base.clip, aux));
-            usize_node(&mut v, "clip-id", clip_id_mapper.map(&base.scroll_layer_id));
+            usize_node(&mut v, "clip-id", clip_id_mapper.map(&base.clip_id));
 
             match base.item {
                 Rectangle(item) => {
@@ -845,10 +845,10 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
 }
 
 /// This structure allows mapping both `Clip` and `ClipExternalId`
-/// `ScrollLayerIds` onto one set of numeric ids. This prevents ids
+/// `ClipIds` onto one set of numeric ids. This prevents ids
 /// from clashing in the yaml output.
 struct ClipIdMapper {
-    hash_map: HashMap<ScrollLayerId, usize>,
+    hash_map: HashMap<ClipId, usize>,
     current_clip_id: usize,
 }
 
@@ -860,13 +860,13 @@ impl ClipIdMapper {
         }
     }
 
-    fn add_id(&mut self, id: ScrollLayerId) -> usize {
+    fn add_id(&mut self, id: ClipId) -> usize {
         self.hash_map.insert(id, self.current_clip_id);
         self.current_clip_id += 1;
         self.current_clip_id - 1
     }
 
-    fn map(&self, id: &ScrollLayerId) -> usize {
+    fn map(&self, id: &ClipId) -> usize {
         *self.hash_map.get(id).unwrap()
     }
 }

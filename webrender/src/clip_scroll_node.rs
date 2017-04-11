@@ -10,10 +10,10 @@ use renderer::VertexDataStore;
 use spring::{DAMPING, STIFFNESS, Spring};
 use tiling::PackedLayerIndex;
 use util::TransformedRect;
-use webrender_traits::{ClipRegion, LayerPixel, LayerPoint, LayerRect, LayerSize};
+use webrender_traits::{ClipId, ClipRegion, LayerPixel, LayerPoint, LayerRect, LayerSize};
 use webrender_traits::{LayerToScrollTransform, LayerToWorldTransform, PipelineId};
-use webrender_traits::{ScrollEventPhase, ScrollLayerId, ScrollLayerRect, ScrollLocation};
-use webrender_traits::{WorldPoint, WorldPoint4D};
+use webrender_traits::{ScrollEventPhase, ScrollLayerRect, ScrollLocation, WorldPoint};
+use webrender_traits::WorldPoint4D;
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
@@ -106,10 +106,10 @@ pub struct ClipScrollNode {
     pub pipeline_id: PipelineId,
 
     /// Parent layer. If this is None, we are the root node.
-    pub parent: Option<ScrollLayerId>,
+    pub parent: Option<ClipId>,
 
     /// Child layers
-    pub children: Vec<ScrollLayerId>,
+    pub children: Vec<ClipId>,
 
     /// Whether or not this node is a reference frame.
     pub node_type: NodeType,
@@ -117,7 +117,7 @@ pub struct ClipScrollNode {
 
 impl ClipScrollNode {
     pub fn new(pipeline_id: PipelineId,
-               parent_id: ScrollLayerId,
+               parent_id: ClipId,
                content_rect: &LayerRect,
                clip_rect: &LayerRect,
                clip_info: ClipInfo)
@@ -140,7 +140,7 @@ impl ClipScrollNode {
         }
     }
 
-    pub fn new_reference_frame(parent_id: Option<ScrollLayerId>,
+    pub fn new_reference_frame(parent_id: Option<ClipId>,
                                local_viewport_rect: &LayerRect,
                                content_size: LayerSize,
                                local_transform: &LayerToScrollTransform,
@@ -161,7 +161,7 @@ impl ClipScrollNode {
         }
     }
 
-    pub fn add_child(&mut self, child: ScrollLayerId) {
+    pub fn add_child(&mut self, child: ClipId) {
         self.children.push(child);
     }
 

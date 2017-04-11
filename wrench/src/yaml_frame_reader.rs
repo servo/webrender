@@ -48,7 +48,7 @@ pub struct YamlFrameReader {
 
     /// A HashMap of offsets which specify what scroll offsets particular
     /// scroll layers should be initialized with.
-    scroll_offsets: HashMap<ScrollLayerId, LayerPoint>,
+    scroll_offsets: HashMap<ClipId, LayerPoint>,
 }
 
 impl YamlFrameReader {
@@ -575,7 +575,7 @@ impl YamlFrameReader {
 
             let yaml_clip_id = item["clip-id"].as_i64();
             if let Some(yaml_id) = yaml_clip_id {
-                let id = ScrollLayerId::new(yaml_id as u64, self.builder().pipeline_id);
+                let id = ClipId::new(yaml_id as u64, self.builder().pipeline_id);
                 self.builder().push_clip_id(id);
             }
 
@@ -610,14 +610,13 @@ impl YamlFrameReader {
         self.builder().pop_clip_id();
     }
 
-    pub fn handle_clip_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) -> ScrollLayerId {
+    pub fn handle_clip_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) -> ClipId {
         let content_rect = yaml["bounds"].as_rect().expect("scroll layer must have content rect");
 
         let default_clip = LayoutRect::new(LayoutPoint::zero(), content_rect.size);
         let clip = self.to_clip_region(&yaml["clip"], &default_clip, wrench)
                        .unwrap_or(ClipRegion::simple(&default_clip));
-        let id = yaml["id"].as_i64().map(|id|
-            ScrollLayerId::new(id as u64, self.builder().pipeline_id));
+        let id = yaml["id"].as_i64().map(|id| ClipId::new(id as u64, self.builder().pipeline_id));
 
         let id = self.builder().define_clip(content_rect, clip, id);
 
@@ -659,7 +658,7 @@ impl YamlFrameReader {
 
         if is_root {
             if let Some(size) = yaml["scroll-offset"].as_point() {
-                let id = ScrollLayerId::root_scroll_layer(self.builder().pipeline_id);
+                let id = ClipId::root_scroll_node(self.builder().pipeline_id);
                 self.scroll_offsets.insert(id, LayerPoint::new(size.x, size.y));
             }
         }

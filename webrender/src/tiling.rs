@@ -23,12 +23,11 @@ use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use texture_cache::TexturePage;
 use util::{TransformedRect, TransformedRectKind};
-use webrender_traits::{AuxiliaryLists, ColorF, DeviceIntPoint, DeviceIntRect};
-use webrender_traits::{DeviceIntSize, DeviceUintPoint};
-use webrender_traits::{DeviceUintSize, FontRenderMode, ImageRendering, LayerPoint, LayerRect};
-use webrender_traits::{LayerToWorldTransform, MixBlendMode, PipelineId, ScrollLayerId};
-use webrender_traits::{TransformStyle, WorldPoint4D, WorldToLayerTransform};
-use webrender_traits::{ExternalImageType};
+use webrender_traits::{AuxiliaryLists, ClipId, ColorF, DeviceIntPoint, DeviceIntRect};
+use webrender_traits::{DeviceIntSize, DeviceUintPoint, DeviceUintSize, ExternalImageType};
+use webrender_traits::{FontRenderMode, ImageRendering, LayerPoint, LayerRect};
+use webrender_traits::{LayerToWorldTransform, MixBlendMode, PipelineId, TransformStyle};
+use webrender_traits::{WorldPoint4D, WorldToLayerTransform};
 
 // Special sentinel value recognized by the shader. It is considered to be
 // a dummy task that doesn't mask out anything.
@@ -108,7 +107,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
 
 #[derive(Debug)]
 pub struct ScrollbarPrimitive {
-    pub scroll_layer_id: ScrollLayerId,
+    pub clip_id: ClipId,
     pub prim_index: PrimitiveIndex,
     pub border_radius: f32,
 }
@@ -117,13 +116,13 @@ pub struct ScrollbarPrimitive {
 pub enum PrimitiveRunCmd {
     PushStackingContext(StackingContextIndex),
     PopStackingContext,
-    PrimitiveRun(PrimitiveIndex, usize, ScrollLayerId),
+    PrimitiveRun(PrimitiveIndex, usize, ClipId),
 }
 
 #[derive(Debug, Copy, Clone)]
 pub enum PrimitiveFlags {
     None,
-    Scrollbar(ScrollLayerId, f32)
+    Scrollbar(ClipId, f32)
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1284,12 +1283,12 @@ impl StackingContext {
         }
     }
 
-    pub fn clip_scroll_group(&self, scroll_layer_id: ScrollLayerId) -> ClipScrollGroupIndex {
+    pub fn clip_scroll_group(&self, clip_id: ClipId) -> ClipScrollGroupIndex {
         // Currently there is only one scrolled stacking context per context,
         // but eventually this will be selected from the vector based on the
         // scroll layer of this primitive.
         for group in &self.clip_scroll_groups {
-            if group.1 == scroll_layer_id {
+            if group.1 == clip_id {
                 return *group;
             }
         }
@@ -1300,18 +1299,18 @@ impl StackingContext {
         !self.composite_ops.will_make_invisible()
     }
 
-    pub fn has_clip_scroll_group(&self, id: ScrollLayerId) -> bool {
+    pub fn has_clip_scroll_group(&self, id: ClipId) -> bool {
         self.clip_scroll_groups.iter().rev().any(|index| index.1 == id)
     }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct ClipScrollGroupIndex(pub usize, pub ScrollLayerId);
+pub struct ClipScrollGroupIndex(pub usize, pub ClipId);
 
 #[derive(Debug)]
 pub struct ClipScrollGroup {
     pub stacking_context_index: StackingContextIndex,
-    pub scroll_layer_id: ScrollLayerId,
+    pub clip_id: ClipId,
     pub packed_layer_index: PackedLayerIndex,
     pub xf_rect: Option<TransformedRect>,
 }

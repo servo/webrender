@@ -364,7 +364,7 @@ impl Wrench {
     pub fn send_lists(&mut self,
                       frame_number: u32,
                       display_list: DisplayListBuilder,
-                      scroll_offsets: &HashMap<ScrollLayerId, LayerPoint>) {
+                      scroll_offsets: &HashMap<ClipId, LayerPoint>) {
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
         self.api.set_display_list(root_background_color,
                                   Epoch(frame_number),
@@ -373,7 +373,7 @@ impl Wrench {
                                   false);
 
         for (id, offset) in scroll_offsets {
-            self.api.scroll_layer_with_id(*offset, *id);
+            self.api.scroll_node_with_id(*offset, *id);
         }
 
         self.api.generate_frame(None);
