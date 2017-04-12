@@ -20,7 +20,7 @@ use clip_scroll_node::{ClipInfo, ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
 use std::{cmp, f32, i32, mem, usize};
 use euclid::SideOffsets2D;
-use tiling::StackingContextIndex;
+use tiling::{ContextIsolation, StackingContextIndex};
 use tiling::{AuxiliaryListsMap, ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, Frame};
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
 use tiling::{RenderTargetContext, RenderTaskCollection, ScrollbarPrimitive, StackingContext};
@@ -241,7 +241,11 @@ impl FrameBuilder {
                 // the parent stacking context of a stacking context with mix-blend-mode
                 // must be drawn with a transparent background, unless the parent stacking context
                 // is the root of the page
-                self.stacking_context_store[parent_index.0].should_isolate = true;
+                let isolation = &mut self.stacking_context_store[parent_index.0].isolation;
+                if *isolation != ContextIsolation::None {
+                    error!("Isolation conflict detected on {:?}: {:?}", parent_index, *isolation);
+                }
+                *isolation = ContextIsolation::Full;
             }
         }
 
@@ -1104,6 +1108,7 @@ impl FrameBuilder {
                                                            RenderTaskLocation::Fixed);
         next_task_index.0 += 1;
         let mut alpha_task_stack = Vec::new();
+        let mut preserve_3d_stack = Vec::new();
 
         for cmd in &self.cmds {
             match *cmd {
@@ -1117,11 +1122,24 @@ impl FrameBuilder {
 
                     let stacking_context_rect = &stacking_context.bounding_rect;
                     let composite_count = stacking_context.composite_ops.count();
+                    let should_isolate = stacking_context.isolation == ContextIsolation::Full;
 
-                    if composite_count == 0 && stacking_context.should_isolate {
+                    if stacking_context.isolation == ContextIsolation::Items {
                         let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
                         let new_task = RenderTask::new_alpha_batch(next_task_index,
                                                                    stacking_context_rect.origin,
+                                                                   true,
+                                                                   location);
+                        next_task_index.0 += 1;
+                        let prev_task = mem::replace(&mut current_task, new_task);
+                        alpha_task_stack.push(prev_task);
+                    }
+
+                    if composite_count == 0 && should_isolate {
+                        let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
+                        let new_task = RenderTask::new_alpha_batch(next_task_index,
+                                                                   stacking_context_rect.origin,
+                                                                   should_isolate,
                                                                    location);
                         next_task_index.0 += 1;
                         let prev_task = mem::replace(&mut current_task, new_task);
@@ -1132,6 +1150,7 @@ impl FrameBuilder {
                         let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
                         let new_task = RenderTask::new_alpha_batch(next_task_index,
                                                                    stacking_context_rect.origin,
+                                                                   should_isolate,
                                                                    location);
                         next_task_index.0 += 1;
                         let prev_task = mem::replace(&mut current_task, new_task);
@@ -1146,9 +1165,28 @@ impl FrameBuilder {
                         continue;
                     }
 
+                    match stacking_context.isolation {
+                        ContextIsolation::Items => {
+                            let prev_task = alpha_task_stack.pop().unwrap();
+                            let old_current = mem::replace(&mut current_task, prev_task);
+                            preserve_3d_stack.push((stacking_context_index, old_current));
+                        },
+                        ContextIsolation::None | ContextIsolation::Full => {
+                            //TODO: plane split here?
+                            for (sc_index, task) in preserve_3d_stack.drain(..) {
+                                let item = AlphaRenderItem::HardwareComposite(sc_index,
+                                                                              task.id,
+                                                                              HardwareCompositeOp::PremultipliedAlpha,
+                                                                              0); //TODO
+                                current_task.as_alpha_batch().items.push(item);
+                                current_task.children.push(task);
+                            }
+                        },
+                    }
+
                     let composite_count = stacking_context.composite_ops.count();
 
-                    if composite_count == 0 && stacking_context.should_isolate {
+                    if composite_count == 0 && stacking_context.isolation == ContextIsolation::Full {
                         let mut prev_task = alpha_task_stack.pop().unwrap();
                         let item = AlphaRenderItem::HardwareComposite(stacking_context_index,
                                                                       current_task.id,
@@ -1228,6 +1266,7 @@ impl FrameBuilder {
         }
 
         debug_assert!(alpha_task_stack.is_empty());
+        debug_assert!(preserve_3d_stack.is_empty());
         (current_task, next_task_index.0)
     }
 

@@ -1272,6 +1272,17 @@ pub struct PackedLayerIndex(pub usize);
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct StackingContextIndex(pub usize);
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub enum ContextIsolation {
+    /// No isolation - the content is mixed up with everything else.
+    None,
+    /// Items are isolated and drawn into a separate render target.
+    /// Child contexts are exposed.
+    Items,
+    /// All the content inside is isolated and drawn into a separate target.
+    Full,
+}
+
 #[derive(Debug)]
 pub struct StackingContext {
     pub pipeline_id: PipelineId,
@@ -1287,10 +1298,8 @@ pub struct StackingContext {
     pub composite_ops: CompositeOps,
     pub clip_scroll_groups: Vec<ClipScrollGroupIndex>,
 
-    // Signifies that this stacking context should be drawn in a separate render pass
-    // with a transparent background and then composited back to its parent. Used to
-    // support mix-blend-mode in certain cases.
-    pub should_isolate: bool,
+    /// Type of the isolation of the content.
+    pub isolation: ContextIsolation,
 
     // Set for the root stacking context of a display list or an iframe. Used for determining
     // when to isolate a mix-blend-mode composite.
@@ -1308,13 +1317,17 @@ impl StackingContext {
                transform_style: TransformStyle,
                composite_ops: CompositeOps)
                -> StackingContext {
+        let isolation = match transform_style {
+            TransformStyle::Flat => ContextIsolation::None,
+            TransformStyle::Preserve3D => ContextIsolation::Items,
+        };
         StackingContext {
             pipeline_id: pipeline_id,
             reference_frame_offset: reference_frame_offset,
             bounding_rect: DeviceIntRect::zero(),
             composite_ops: composite_ops,
             clip_scroll_groups: Vec::new(),
-            should_isolate: transform_style == TransformStyle::Preserve3D, //TODO
+            isolation: isolation,
             is_page_root: is_page_root,
             is_visible: false,
         }
