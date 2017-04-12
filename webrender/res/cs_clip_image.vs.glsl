@@ -9,17 +9,9 @@ struct ImageMaskData {
 };
 
 ImageMaskData fetch_mask_data(int index) {
-    ImageMaskData info;
-    vec4 rect;
-
-    ivec2 uv = get_fetch_uv_2(index);
-
-    rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    info.uv_rect = RectWithSize(rect.xy, rect.zw);
-    rect = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
-    info.local_rect = RectWithSize(rect.xy, rect.zw);
-
-    return info;
+    vec4 data[2] = fetch_data_2(index);
+    return ImageMaskData(RectWithSize(data[0].xy, data[0].zw),
+                         RectWithSize(data[1].xy, data[1].zw));
 }
 
 void main(void) {

@@ -125,21 +125,43 @@ in int aZIndex;
 // https://github.com/servo/servo/issues/13953
 #define get_fetch_uv(i, vpi)  ivec2(vpi * (i % (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi)), i / (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi))
 
-ivec2 get_fetch_uv_1(int index) {
-    return get_fetch_uv(index, 1);
+vec4 fetch_data_1(int index) {
+    ivec2 uv = get_fetch_uv(index, 1);
+    return texelFetch(sData16, uv, 0);
 }
 
-ivec2 get_fetch_uv_2(int index) {
-    return get_fetch_uv(index, 2);
+vec4[2] fetch_data_2(int index) {
+    ivec2 uv = get_fetch_uv(index, 2);
+    return vec4[2](
+        texelFetchOffset(sData32, uv, 0, ivec2(0, 0)),
+        texelFetchOffset(sData32, uv, 0, ivec2(1, 0))
+    );
 }
 
-ivec2 get_fetch_uv_4(int index) {
-    return get_fetch_uv(index, 4);
+vec4[4] fetch_data_4(int index) {
+    ivec2 uv = get_fetch_uv(index, 4);
+    return vec4[4](
+        texelFetchOffset(sData64, uv, 0, ivec2(0, 0)),
+        texelFetchOffset(sData64, uv, 0, ivec2(1, 0)),
+        texelFetchOffset(sData64, uv, 0, ivec2(2, 0)),
+        texelFetchOffset(sData64, uv, 0, ivec2(3, 0))
+    );
 }
 
-ivec2 get_fetch_uv_8(int index) {
-    return get_fetch_uv(index, 8);
+vec4[8] fetch_data_8(int index) {
+    ivec2 uv = get_fetch_uv(index, 8);
+    return vec4[8](
+        texelFetchOffset(sData128, uv, 0, ivec2(0, 0)),
+        texelFetchOffset(sData128, uv, 0, ivec2(1, 0)),
+        texelFetchOffset(sData128, uv, 0, ivec2(2, 0)),
+        texelFetchOffset(sData128, uv, 0, ivec2(3, 0)),
+        texelFetchOffset(sData128, uv, 0, ivec2(4, 0)),
+        texelFetchOffset(sData128, uv, 0, ivec2(5, 0)),
+        texelFetchOffset(sData128, uv, 0, ivec2(6, 0)),
+        texelFetchOffset(sData128, uv, 0, ivec2(7, 0))
+    );
 }
+
 
 struct Layer {
     mat4 transform;
@@ -247,15 +269,8 @@ struct Gradient {
 };
 
 Gradient fetch_gradient(int index) {
-    Gradient gradient;
-
-    ivec2 uv = get_fetch_uv_4(index);
-
-    gradient.start_end_point = texelFetchOffset(sData64, uv, 0, ivec2(0, 0));
-    gradient.tile_size_repeat = texelFetchOffset(sData64, uv, 0, ivec2(1, 0));
-    gradient.extend_mode = texelFetchOffset(sData64, uv, 0, ivec2(2, 0));
-
-    return gradient;
+    vec4 data[4] = fetch_data_4(index);
+    return Gradient(data[0], data[1], data[2]);
 }
 
 struct GradientStop {
@@ -264,14 +279,8 @@ struct GradientStop {
 };
 
 GradientStop fetch_gradient_stop(int index) {
-    GradientStop stop;
-
-    ivec2 uv = get_fetch_uv_2(index);
-
-    stop.color = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    stop.offset = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
-
-    return stop;
+    vec4 data[2] = fetch_data_2(index);
+    return GradientStop(data[0], data[1]);
 }
 
 struct RadialGradient {
@@ -281,15 +290,8 @@ struct RadialGradient {
 };
 
 RadialGradient fetch_radial_gradient(int index) {
-    RadialGradient gradient;
-
-    ivec2 uv = get_fetch_uv_4(index);
-
-    gradient.start_end_center = texelFetchOffset(sData64, uv, 0, ivec2(0, 0));
-    gradient.start_end_radius_ratio_xy_extend_mode = texelFetchOffset(sData64, uv, 0, ivec2(1, 0));
-    gradient.tile_size_repeat = texelFetchOffset(sData64, uv, 0, ivec2(2, 0));
-
-    return gradient;
+    vec4 data[4] = fetch_data_4(index);
+    return RadialGradient(data[0], data[1], data[2]);
 }
 
 struct Border {
@@ -300,20 +302,10 @@ struct Border {
 };
 
 Border fetch_border(int index) {
-    Border border;
-
-    ivec2 uv = get_fetch_uv_8(index);
-
-    border.style = texelFetchOffset(sData128, uv, 0, ivec2(0, 0));
-    border.widths = texelFetchOffset(sData128, uv, 0, ivec2(1, 0));
-    border.colors[0] = texelFetchOffset(sData128, uv, 0, ivec2(2, 0));
-    border.colors[1] = texelFetchOffset(sData128, uv, 0, ivec2(3, 0));
-    border.colors[2] = texelFetchOffset(sData128, uv, 0, ivec2(4, 0));
-    border.colors[3] = texelFetchOffset(sData128, uv, 0, ivec2(5, 0));
-    border.radii[0] = texelFetchOffset(sData128, uv, 0, ivec2(6, 0));
-    border.radii[1] = texelFetchOffset(sData128, uv, 0, ivec2(7, 0));
-
-    return border;
+    vec4 data[8] = fetch_data_8(index);
+    return Border(data[0], data[1],
+                  vec4[4](data[2], data[3], data[4], data[5]),
+                  vec4[2](data[6], data[7]));
 }
 
 struct BorderCorners {
@@ -364,21 +356,13 @@ struct Glyph {
 };
 
 Glyph fetch_glyph(int index) {
-    Glyph glyph;
-
-    ivec2 uv = get_fetch_uv_1(index);
-
-    glyph.offset = texelFetchOffset(sData16, uv, 0, ivec2(0, 0));
-
-    return glyph;
+    vec4 data = fetch_data_1(index);
+    return Glyph(data);
 }
 
 RectWithSize fetch_instance_geometry(int index) {
-    ivec2 uv = get_fetch_uv_1(index);
-
-    vec4 rect = texelFetchOffset(sData16, uv, 0, ivec2(0, 0));
-
-    return RectWithSize(rect.xy, rect.zw);
+    vec4 data = fetch_data_1(index);
+    return RectWithSize(data.xy, data.zw);
 }
 
 struct PrimitiveGeometry {
@@ -691,7 +675,7 @@ struct ResourceRect {
 ResourceRect fetch_resource_rect(int index) {
     ResourceRect rect;
 
-    ivec2 uv = get_fetch_uv_1(index);
+    ivec2 uv = get_fetch_uv(index, 1);
 
     rect.uv_rect = texelFetchOffset(sResourceRects, uv, 0, ivec2(0, 0));
 
@@ -703,13 +687,8 @@ struct Rectangle {
 };
 
 Rectangle fetch_rectangle(int index) {
-    Rectangle rect;
-
-    ivec2 uv = get_fetch_uv_1(index);
-
-    rect.color = texelFetchOffset(sData16, uv, 0, ivec2(0, 0));
-
-    return rect;
+    vec4 data = fetch_data_1(index);
+    return Rectangle(data);
 }
 
 struct TextRun {
@@ -717,13 +696,8 @@ struct TextRun {
 };
 
 TextRun fetch_text_run(int index) {
-    TextRun text;
-
-    ivec2 uv = get_fetch_uv_1(index);
-
-    text.color = texelFetchOffset(sData16, uv, 0, ivec2(0, 0));
-
-    return text;
+    vec4 data = fetch_data_1(index);
+    return TextRun(data);
 }
 
 struct Image {
@@ -732,13 +706,8 @@ struct Image {
 };
 
 Image fetch_image(int index) {
-    Image image;
-
-    ivec2 uv = get_fetch_uv_1(index);
-
-    image.stretch_size_and_tile_spacing = texelFetchOffset(sData16, uv, 0, ivec2(0, 0));
-
-    return image;
+    vec4 data = fetch_data_1(index);
+    return Image(data);
 }
 
 // YUV color spaces
@@ -754,15 +723,8 @@ struct YuvImage {
 };
 
 YuvImage fetch_yuv_image(int index) {
-    YuvImage image;
-
-    ivec2 uv = get_fetch_uv_1(index);
-
-    vec4 size_color_space = texelFetchOffset(sData16, uv, 0, ivec2(0, 0));
-    image.size = size_color_space.xy;
-    image.color_space = int(size_color_space.z);
-
-    return image;
+    vec4 data = fetch_data_1(index);
+    return YuvImage(vec4(0.0), vec4(0.0), vec4(0.0), data.xy, int(data.z));
 }
 
 struct BoxShadow {
@@ -773,16 +735,8 @@ struct BoxShadow {
 };
 
 BoxShadow fetch_boxshadow(int index) {
-    BoxShadow bs;
-
-    ivec2 uv = get_fetch_uv_4(index);
-
-    bs.src_rect = texelFetchOffset(sData64, uv, 0, ivec2(0, 0));
-    bs.bs_rect = texelFetchOffset(sData64, uv, 0, ivec2(1, 0));
-    bs.color = texelFetchOffset(sData64, uv, 0, ivec2(2, 0));
-    bs.border_radius_edge_size_blur_radius_inverted = texelFetchOffset(sData64, uv, 0, ivec2(3, 0));
-
-    return bs;
+    vec4 data[4] = fetch_data_4(index);
+    return BoxShadow(data[0], data[1], data[2], data[3]);
 }
 
 void write_clip(vec2 global_pos, ClipArea area) {
