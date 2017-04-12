@@ -3,17 +3,15 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use batch_builder::BorderSideHelpers;
 use frame::FrameId;
 use gpu_store::GpuStoreAddress;
 use internal_types::{HardwareCompositeOp, SourceTexture};
 use mask_cache::{ClipMode, ClipSource, MaskCacheInfo, RegionMode};
-use prim_store::{BorderPrimitiveCpu, BorderPrimitiveGpu, BoxShadowPrimitiveGpu};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu, ImagePrimitiveGpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
 use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
-use prim_store::{TexelRect, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu};
+use prim_store::{BoxShadowPrimitiveGpu, TexelRect, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu};
 use profiler::{FrameProfileCounters, TextureCacheProfileCounters};
 use render_task::{AlphaRenderItem, MaskCacheKey, MaskResult, RenderTask, RenderTaskIndex};
 use render_task::RenderTaskLocation;
@@ -144,13 +142,13 @@ impl FrameBuilder {
         }
     }
 
-    fn add_primitive(&mut self,
-                     clip_id: ClipId,
-                     rect: &LayerRect,
-                     clip_region: &ClipRegion,
-                     extra_clips: &[ClipSource],
-                     container: PrimitiveContainer)
-                     -> PrimitiveIndex {
+    pub fn add_primitive(&mut self,
+                         clip_id: ClipId,
+                         rect: &LayerRect,
+                         clip_region: &ClipRegion,
+                         extra_clips: &[ClipSource],
+                         container: PrimitiveContainer)
+                         -> PrimitiveIndex {
         let stacking_context_index = *self.stacking_context_stack.last().unwrap();
         if !self.stacking_context_store[stacking_context_index.0] .has_clip_scroll_group(clip_id) {
             let group_index = self.create_clip_scroll_group(stacking_context_index, clip_id);
@@ -517,57 +515,11 @@ impl FrameBuilder {
                 }
             }
             BorderDetails::Normal(ref border) => {
-                // Gradually move border types over to a simplified
-                // shader and code path that can handle all border
-                // cases correctly.
-                if self.add_simple_border(&rect,
-                                          border,
-                                          &border_item.widths,
-                                          clip_id,
-                                          clip_region) {
-                    return;
-                }
-
-                let radius = &border.radius;
-                let left = &border.left;
-                let right = &border.right;
-                let top = &border.top;
-                let bottom = &border.bottom;
-
-                // These colors are used during inset/outset scaling.
-                let left_color      = left.border_color(1.0, 2.0/3.0, 0.3, 0.7);
-                let top_color       = top.border_color(1.0, 2.0/3.0, 0.3, 0.7);
-                let right_color     = right.border_color(2.0/3.0, 1.0, 0.7, 0.3);
-                let bottom_color    = bottom.border_color(2.0/3.0, 1.0, 0.7, 0.3);
-
-                let prim_cpu = BorderPrimitiveCpu {
-                };
-
-                let prim_gpu = BorderPrimitiveGpu {
-                    colors: [ left_color, top_color, right_color, bottom_color ],
-                    widths: [ border_item.widths.left,
-                              border_item.widths.top,
-                              border_item.widths.right,
-                              border_item.widths.bottom ],
-                    style: [
-                        pack_as_float(left.style as u32),
-                        pack_as_float(top.style as u32),
-                        pack_as_float(right.style as u32),
-                        pack_as_float(bottom.style as u32),
-                    ],
-                    radii: [
-                        radius.top_left,
-                        radius.top_right,
-                        radius.bottom_right,
-                        radius.bottom_left,
-                    ],
-                };
-
-                self.add_primitive(clip_id,
-                                   &rect,
-                                   clip_region,
-                                   &[],
-                                   PrimitiveContainer::Border(prim_cpu, prim_gpu));
+                self.add_normal_border(&rect,
+                                       border,
+                                       &border_item.widths,
+                                       clip_id,
+                                       clip_region);
             }
             BorderDetails::Gradient(ref border) => {
                 for segment in create_segments(border.outset) {
