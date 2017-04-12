@@ -437,6 +437,8 @@ impl Frame {
                                               pipeline_id,
                                               level == 0,
                                               composition_operations,
+                                              clip_id,
+                                              bounds.clone(),
                                               stacking_context.transform_style);
 
         // For the root pipeline, there's no need to add a full screen rectangle

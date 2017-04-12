@@ -7,10 +7,11 @@ use frame::FrameId;
 use gpu_store::GpuStoreAddress;
 use internal_types::{HardwareCompositeOp, SourceTexture};
 use mask_cache::{ClipMode, ClipSource, MaskCacheInfo, RegionMode};
+use plane_split::{NaiveSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu, ImagePrimitiveGpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
-use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
+use prim_store::{RectanglePrimitive, SplitPrimitiveGpu, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
 use prim_store::{BoxShadowPrimitiveGpu, TexelRect, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu};
 use profiler::{FrameProfileCounters, TextureCacheProfileCounters};
 use render_task::{AlphaRenderItem, MaskCacheKey, MaskResult, RenderTask, RenderTaskIndex};
@@ -20,7 +21,7 @@ use clip_scroll_node::{ClipInfo, ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
 use std::{cmp, f32, i32, mem, usize};
 use euclid::SideOffsets2D;
-use tiling::StackingContextIndex;
+use tiling::{ContextIsolation, StackingContextIndex};
 use tiling::{AuxiliaryListsMap, ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, Frame};
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
 use tiling::{RenderTargetContext, RenderTaskCollection, ScrollbarPrimitive, StackingContext};
@@ -31,7 +32,7 @@ use webrender_traits::{ClipId, ClipRegion, ColorF, DeviceIntPoint, DeviceIntRect
 use webrender_traits::{DeviceUintRect, DeviceUintSize, ExtendMode, FontKey, FontRenderMode};
 use webrender_traits::{GlyphOptions, ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect};
 use webrender_traits::{LayerSize, LayerToScrollTransform, PipelineId, RepeatMode, TileOffset};
-use webrender_traits::{TransformStyle, WebGLContextId, YuvColorSpace, YuvData};
+use webrender_traits::{TransformStyle, WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
 
 #[derive(Debug, Clone)]
 struct ImageBorderSegment {
@@ -79,6 +80,12 @@ impl ImageBorderSegment {
             tile_spacing: tile_spacing,
         }
     }
+}
+
+fn make_polygon(sc: &StackingContext, layer: &PackedLayer) -> Polygon<f32, WorldPixel> {
+    let mut bounds = sc.local_bounds;
+    bounds.origin = bounds.origin + sc.reference_frame_offset;
+    Polygon::from_transformed_rect(bounds, layer.transform)
 }
 
 #[derive(Clone, Copy)]
@@ -243,6 +250,8 @@ impl FrameBuilder {
                                  pipeline_id: PipelineId,
                                  is_page_root: bool,
                                  composite_ops: CompositeOps,
+                                 original_clip_id: ClipId,
+                                 local_bounds: LayerRect,
                                  transform_style: TransformStyle) {
         if let Some(parent_index) = self.stacking_context_stack.last() {
             let parent_is_root = self.stacking_context_store[parent_index.0].is_page_root;
@@ -251,7 +260,11 @@ impl FrameBuilder {
                 // the parent stacking context of a stacking context with mix-blend-mode
                 // must be drawn with a transparent background, unless the parent stacking context
                 // is the root of the page
-                self.stacking_context_store[parent_index.0].should_isolate = true;
+                let isolation = &mut self.stacking_context_store[parent_index.0].isolation;
+                if *isolation != ContextIsolation::None {
+                    error!("Isolation conflict detected on {:?}: {:?}", parent_index, *isolation);
+                }
+                *isolation = ContextIsolation::Full;
             }
         }
 
@@ -259,6 +272,8 @@ impl FrameBuilder {
         self.stacking_context_store.push(StackingContext::new(pipeline_id,
                                                               *reference_frame_offset,
                                                               is_page_root,
+                                                              original_clip_id,
+                                                              local_bounds,
                                                               transform_style,
                                                               composite_ops));
         self.cmds.push(PrimitiveRunCmd::PushStackingContext(stacking_context_index));
@@ -1104,7 +1119,7 @@ impl FrameBuilder {
         }
     }
 
-    fn build_render_task(&self) -> (RenderTask, usize) {
+    fn build_render_task(&mut self) -> (RenderTask, usize) {
         profile_scope!("build_render_task");
 
         let mut next_z = 0;
@@ -1116,6 +1131,7 @@ impl FrameBuilder {
                                                            RenderTaskLocation::Fixed);
         next_task_index.0 += 1;
         let mut alpha_task_stack = Vec::new();
+        let mut preserve_3d_stack = Vec::new();
 
         for cmd in &self.cmds {
             match *cmd {
@@ -1127,13 +1143,26 @@ impl FrameBuilder {
                         continue;
                     }
 
-                    let stacking_context_rect = &stacking_context.bounding_rect;
+                    let stacking_context_rect = &stacking_context.screen_bounds;
                     let composite_count = stacking_context.composite_ops.count();
+                    let should_isolate = stacking_context.isolation == ContextIsolation::Full;
 
-                    if composite_count == 0 && stacking_context.should_isolate {
+                    if stacking_context.isolation == ContextIsolation::Items {
                         let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
                         let new_task = RenderTask::new_alpha_batch(next_task_index,
                                                                    stacking_context_rect.origin,
+                                                                   true,
+                                                                   location);
+                        next_task_index.0 += 1;
+                        let prev_task = mem::replace(&mut current_task, new_task);
+                        alpha_task_stack.push(prev_task);
+                    }
+
+                    if composite_count == 0 && should_isolate {
+                        let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
+                        let new_task = RenderTask::new_alpha_batch(next_task_index,
+                                                                   stacking_context_rect.origin,
+                                                                   should_isolate,
                                                                    location);
                         next_task_index.0 += 1;
                         let prev_task = mem::replace(&mut current_task, new_task);
@@ -1144,6 +1173,7 @@ impl FrameBuilder {
                         let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
                         let new_task = RenderTask::new_alpha_batch(next_task_index,
                                                                    stacking_context_rect.origin,
+                                                                   should_isolate,
                                                                    location);
                         next_task_index.0 += 1;
                         let prev_task = mem::replace(&mut current_task, new_task);
@@ -1158,9 +1188,48 @@ impl FrameBuilder {
                         continue;
                     }
 
+                    match stacking_context.isolation {
+                        ContextIsolation::Items => {
+                            let prev_task = alpha_task_stack.pop().unwrap();
+                            let old_current = mem::replace(&mut current_task, prev_task);
+                            preserve_3d_stack.push((stacking_context_index, old_current));
+                        },
+                        ContextIsolation::None | ContextIsolation::Full => {
+                            // We are back from a "preserve-3d" sub-domain.
+                            // Time to split those stacking context planes.
+                            let mut splitter = NaiveSplitter::new();
+                            for (sc_index, task) in preserve_3d_stack.drain(..) {
+                                let sc_polygon = {
+                                    let stacking_context = &self.stacking_context_store[sc_index.0];
+                                    let scroll_group_id = stacking_context.original_clip_scroll_group();
+                                    let clip_scroll_group = &self.clip_scroll_group_store[scroll_group_id.0];
+                                    let packed_layer = &self.packed_layers[clip_scroll_group.packed_layer_index.0];
+                                    make_polygon(stacking_context, packed_layer)
+                                };
+                                let new_polygons = splitter.add(sc_polygon);
+                                let gpu_data64 = &mut self.prim_store.gpu_data64;
+                                let mut split_gpu: SplitPrimitiveGpu = unsafe { mem::zeroed() };
+                                current_task.as_alpha_batch().items.extend(new_polygons.iter().map(|poly| {
+                                    //TODO: bring back to layer space
+                                    for (dp, sp) in split_gpu.points.iter_mut().zip(poly.points.iter()) {
+                                        dp[0] = sp.x;
+                                        dp[1] = sp.y;
+                                        dp[2] = sp.z;
+                                        dp[3] = 1.0;
+                                    }
+                                    //FIXME: avoid over-allocating between frames
+                                    let gpu_index = gpu_data64.push(split_gpu.clone());
+                                    AlphaRenderItem::SplitComposite(sc_index, task.id, gpu_index, next_z)
+                                }));
+                                current_task.children.push(task);
+                            }
+                            next_z += 1;
+                        },
+                    }
+
                     let composite_count = stacking_context.composite_ops.count();
 
-                    if composite_count == 0 && stacking_context.should_isolate {
+                    if composite_count == 0 && stacking_context.isolation == ContextIsolation::Full {
                         let mut prev_task = alpha_task_stack.pop().unwrap();
                         let item = AlphaRenderItem::HardwareComposite(stacking_context_index,
                                                                       current_task.id,
@@ -1186,7 +1255,7 @@ impl FrameBuilder {
                     if let Some(mix_blend_mode) = stacking_context.composite_ops.mix_blend_mode {
                         let readback_task =
                             RenderTask::new_readback(stacking_context_index,
-                                                     stacking_context.bounding_rect);
+                                                     stacking_context.screen_bounds);
 
                         let mut prev_task = alpha_task_stack.pop().unwrap();
                         let item = AlphaRenderItem::Composite(stacking_context_index,
@@ -1240,6 +1309,7 @@ impl FrameBuilder {
         }
 
         debug_assert!(alpha_task_stack.is_empty());
+        debug_assert!(preserve_3d_stack.is_empty());
         (current_task, next_task_index.0)
     }
 
@@ -1520,15 +1590,15 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         let (bounding_rect, is_visible) = {
             let stacking_context =
                 &mut self.frame_builder.stacking_context_store[stacking_context_index.0];
-            stacking_context.bounding_rect = stacking_context.bounding_rect
+            stacking_context.screen_bounds = stacking_context.screen_bounds
                                                              .intersection(self.screen_rect)
                                                              .unwrap_or(DeviceIntRect::zero());
-            (stacking_context.bounding_rect.clone(), stacking_context.is_visible)
+            (stacking_context.screen_bounds.clone(), stacking_context.is_visible)
         };
 
         if let Some(ref mut parent_index) = self.stacking_context_stack.last_mut() {
             let parent = &mut self.frame_builder.stacking_context_store[parent_index.0];
-            parent.bounding_rect = parent.bounding_rect.union(&bounding_rect);
+            parent.screen_bounds = parent.screen_bounds.union(&bounding_rect);
 
             // The previous compute_stacking_context_visibility pass did not take into
             // account visibility of children, so we do that now.
@@ -1546,7 +1616,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         // scroll layer for items in a stacking context).
         let stacking_context = &mut self.frame_builder
                                         .stacking_context_store[stacking_context_index.0];
-        stacking_context.bounding_rect = DeviceIntRect::zero();
+        stacking_context.screen_bounds = DeviceIntRect::zero();
     }
 
     fn rebuild_clip_info_stack_if_necessary(&mut self, id: ClipId) -> Option<DeviceIntRect> {
@@ -1646,8 +1716,8 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                 let prim_clip_info = prim_metadata.clip_cache_info.as_ref();
                 let mut visible = true;
 
-                stacking_context.bounding_rect =
-                    stacking_context.bounding_rect.union(&prim_bounding_rect);
+                stacking_context.screen_bounds =
+                    stacking_context.screen_bounds.union(&prim_bounding_rect);
 
                 if let Some(info) = prim_clip_info {
                     self.current_clip_stack.push((packed_layer_index, info.clone()));

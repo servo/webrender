@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use gpu_store::GpuStoreAddress;
 use internal_types::{HardwareCompositeOp, LowLevelFilterOp};
 use mask_cache::{MaskBounds, MaskCacheInfo};
 use prim_store::{PrimitiveCacheKey, PrimitiveIndex};
@@ -9,7 +10,7 @@ use std::{cmp, f32, i32, mem, usize};
 use tiling::{ClipScrollGroupIndex, PackedLayerIndex, RenderPass, RenderTargetIndex};
 use tiling::{RenderTargetKind, StackingContextIndex};
 use webrender_traits::{ClipId, DeviceIntLength, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use webrender_traits::MixBlendMode;
+use webrender_traits::{MixBlendMode};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 12;
 
@@ -54,6 +55,7 @@ pub enum AlphaRenderItem {
     Primitive(ClipScrollGroupIndex, PrimitiveIndex, i32),
     Blend(StackingContextIndex, RenderTaskId, LowLevelFilterOp, i32),
     Composite(StackingContextIndex, RenderTaskId, RenderTaskId, MixBlendMode, i32),
+    SplitComposite(StackingContextIndex, RenderTaskId, GpuStoreAddress, i32),
     HardwareComposite(StackingContextIndex, RenderTaskId, HardwareCompositeOp, i32),
 }
 

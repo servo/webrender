@@ -70,6 +70,7 @@ const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color:
 const GPU_TAG_PRIM_YUV_IMAGE: GpuProfileTag = GpuProfileTag { label: "YuvImage", color: debug_colors::DARKGREEN };
 const GPU_TAG_PRIM_BLEND: GpuProfileTag = GpuProfileTag { label: "Blend", color: debug_colors::LIGHTBLUE };
 const GPU_TAG_PRIM_HW_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "HwComposite", color: debug_colors::DODGERBLUE };
+const GPU_TAG_PRIM_SPLIT_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "SplitComposite", color: debug_colors::DARKBLUE };
 const GPU_TAG_PRIM_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "Composite", color: debug_colors::MAGENTA };
 const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "TextRun", color: debug_colors::BLUE };
 const GPU_TAG_PRIM_GRADIENT: GpuProfileTag = GpuProfileTag { label: "Gradient", color: debug_colors::YELLOW };
@@ -522,6 +523,7 @@ pub struct Renderer {
 
     ps_blend: LazilyCompiledShader,
     ps_hw_composite: LazilyCompiledShader,
+    ps_split_composite: LazilyCompiledShader,
     ps_composite: LazilyCompiledShader,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
@@ -872,6 +874,14 @@ impl Renderer {
                                      options.precache_shaders)
         };
 
+        let ps_split_composite = try!{
+            LazilyCompiledShader::new(ShaderKind::Primitive,
+                                     "ps_split_composite",
+                                     &[],
+                                     &mut device,
+                                     options.precache_shaders)
+        };
+
         let device_max_size = device.max_texture_size();
         let max_texture_size = cmp::min(device_max_size, options.max_texture_size.unwrap_or(device_max_size));
 
@@ -1057,6 +1067,7 @@ impl Renderer {
             ps_cache_image: ps_cache_image,
             ps_blend: ps_blend,
             ps_hw_composite: ps_hw_composite,
+            ps_split_composite: ps_split_composite,
             ps_composite: ps_composite,
             notifier: notifier,
             debug: debug_renderer,
@@ -1464,6 +1475,10 @@ impl Renderer {
             AlphaBatchKind::HardwareComposite => {
                 let shader = self.ps_hw_composite.get(&mut self.device);
                 (GPU_TAG_PRIM_HW_COMPOSITE, shader)
+            }
+            AlphaBatchKind::SplitComposite => {
+                let shader = self.ps_split_composite.get(&mut self.device);
+                (GPU_TAG_PRIM_SPLIT_COMPOSITE, shader)
             }
             AlphaBatchKind::Blend => {
                 let shader = self.ps_blend.get(&mut self.device);
