@@ -3,30 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-struct Border {
-    vec4 style;
-    vec4 widths;
-    vec4 colors[4];
-    vec4 radii[2];
-};
-
-Border fetch_border(int index) {
-    Border border;
-
-    ivec2 uv = get_fetch_uv_8(index);
-
-    border.style = texelFetchOffset(sData128, uv, 0, ivec2(0, 0));
-    border.widths = texelFetchOffset(sData128, uv, 0, ivec2(1, 0));
-    border.colors[0] = texelFetchOffset(sData128, uv, 0, ivec2(2, 0));
-    border.colors[1] = texelFetchOffset(sData128, uv, 0, ivec2(3, 0));
-    border.colors[2] = texelFetchOffset(sData128, uv, 0, ivec2(4, 0));
-    border.colors[3] = texelFetchOffset(sData128, uv, 0, ivec2(5, 0));
-    border.radii[0] = texelFetchOffset(sData128, uv, 0, ivec2(6, 0));
-    border.radii[1] = texelFetchOffset(sData128, uv, 0, ivec2(7, 0));
-
-    return border;
-}
-
 void main(void) {
     Primitive prim = load_primitive();
     Border border = fetch_border(prim.prim_index);

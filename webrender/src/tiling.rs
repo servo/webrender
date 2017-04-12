@@ -223,6 +223,14 @@ impl BatchList {
         }
     }
 
+    fn with_suitable_batch<F>(&mut self,
+                              key: &AlphaBatchKey,
+                              item_bounding_rect: &DeviceIntRect,
+                              f: F) where F: Fn(&mut PrimitiveBatch) {
+        let batch = self.get_suitable_batch(key, item_bounding_rect);
+        f(batch)
+    }
+
     fn get_suitable_batch(&mut self,
                           key: &AlphaBatchKey,
                           item_bounding_rect: &DeviceIntRect) -> &mut PrimitiveBatch {
@@ -413,10 +421,29 @@ impl AlphaRenderItem {
 
                 match prim_metadata.prim_kind {
                     PrimitiveKind::Border => {
-                        let key = AlphaBatchKey::new(AlphaBatchKind::Border, flags, blend_mode, textures);
-                        let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
-                        for border_segment in 0..8 {
-                            batch.add_instance(base_instance.build(border_segment, 0, 0));
+                        let border_cpu = &ctx.prim_store.cpu_borders[prim_metadata.cpu_prim_index.0];
+                        if border_cpu.use_new_border_path {
+                            // TODO(gw): Select correct blend mode for edges and corners!!
+                            let corner_key = AlphaBatchKey::new(AlphaBatchKind::BorderCorner, flags, blend_mode, textures);
+                            let edge_key = AlphaBatchKey::new(AlphaBatchKind::BorderEdge, flags, blend_mode, textures);
+
+                            batch_list.with_suitable_batch(&corner_key, item_bounding_rect, |batch| {
+                                for border_segment in 0..4 {
+                                    batch.add_instance(base_instance.build(border_segment, 0, 0));
+                                }
+                            });
+
+                            batch_list.with_suitable_batch(&edge_key, item_bounding_rect, |batch| {
+                                for border_segment in 0..4 {
+                                    batch.add_instance(base_instance.build(border_segment, 0, 0));
+                                }
+                            });
+                        } else {
+                            let key = AlphaBatchKey::new(AlphaBatchKind::Border, flags, blend_mode, textures);
+                            let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
+                            for border_segment in 0..8 {
+                                batch.add_instance(base_instance.build(border_segment, 0, 0));
+                            }
                         }
                     }
                     PrimitiveKind::Rectangle => {
@@ -1097,6 +1124,8 @@ pub enum AlphaBatchKind {
     RadialGradient,
     BoxShadow,
     CacheImage,
+    BorderCorner,
+    BorderEdge,
 }
 
 bitflags! {

@@ -292,6 +292,73 @@ RadialGradient fetch_radial_gradient(int index) {
     return gradient;
 }
 
+struct Border {
+    vec4 style;
+    vec4 widths;
+    vec4 colors[4];
+    vec4 radii[2];
+};
+
+Border fetch_border(int index) {
+    Border border;
+
+    ivec2 uv = get_fetch_uv_8(index);
+
+    border.style = texelFetchOffset(sData128, uv, 0, ivec2(0, 0));
+    border.widths = texelFetchOffset(sData128, uv, 0, ivec2(1, 0));
+    border.colors[0] = texelFetchOffset(sData128, uv, 0, ivec2(2, 0));
+    border.colors[1] = texelFetchOffset(sData128, uv, 0, ivec2(3, 0));
+    border.colors[2] = texelFetchOffset(sData128, uv, 0, ivec2(4, 0));
+    border.colors[3] = texelFetchOffset(sData128, uv, 0, ivec2(5, 0));
+    border.radii[0] = texelFetchOffset(sData128, uv, 0, ivec2(6, 0));
+    border.radii[1] = texelFetchOffset(sData128, uv, 0, ivec2(7, 0));
+
+    return border;
+}
+
+struct BorderCorners {
+    vec2 tl_outer;
+    vec2 tl_inner;
+    vec2 tr_outer;
+    vec2 tr_inner;
+    vec2 br_outer;
+    vec2 br_inner;
+    vec2 bl_outer;
+    vec2 bl_inner;
+};
+
+BorderCorners get_border_corners(Border border, RectWithSize local_rect) {
+    vec2 tl_outer = local_rect.p0;
+    vec2 tl_inner = tl_outer + vec2(max(border.radii[0].x, border.widths.x),
+                                    max(border.radii[0].y, border.widths.y));
+
+    vec2 tr_outer = vec2(local_rect.p0.x + local_rect.size.x,
+                         local_rect.p0.y);
+    vec2 tr_inner = tr_outer + vec2(-max(border.radii[0].z, border.widths.z),
+                                    max(border.radii[0].w, border.widths.y));
+
+    vec2 br_outer = vec2(local_rect.p0.x + local_rect.size.x,
+                         local_rect.p0.y + local_rect.size.y);
+    vec2 br_inner = br_outer - vec2(max(border.radii[1].x, border.widths.z),
+                                    max(border.radii[1].y, border.widths.w));
+
+    vec2 bl_outer = vec2(local_rect.p0.x,
+                         local_rect.p0.y + local_rect.size.y);
+    vec2 bl_inner = bl_outer + vec2(max(border.radii[1].z, border.widths.x),
+                                    -max(border.radii[1].w, border.widths.w));
+
+    return BorderCorners(
+        tl_outer,
+        tl_inner,
+        tr_outer,
+        tr_inner,
+        br_outer,
+        br_inner,
+        bl_outer,
+        bl_inner
+    );
+}
+
 struct Glyph {
     vec4 offset;
 };
