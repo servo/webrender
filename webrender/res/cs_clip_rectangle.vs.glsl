@@ -9,15 +9,8 @@ struct ClipRect {
 };
 
 ClipRect fetch_clip_rect(int index) {
-    ClipRect cr;
-
-    ivec2 uv = get_fetch_uv_2(index);
-
-    vec4 rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    cr.rect = RectWithSize(rect.xy, rect.zw);
-    cr.mode = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
-
-    return cr;
+    vec4 data[2] = fetch_data_2(index);
+    return ClipRect(RectWithSize(data[0].xy, data[0].zw), data[1]);
 }
 
 struct ClipCorner {
@@ -26,15 +19,8 @@ struct ClipCorner {
 };
 
 ClipCorner fetch_clip_corner(int index) {
-    ClipCorner corner;
-
-    ivec2 uv = get_fetch_uv_2(index);
-
-    vec4 rect = texelFetchOffset(sData32, uv, 0, ivec2(0, 0));
-    corner.rect = RectWithSize(rect.xy, rect.zw);
-    corner.outer_inner_radius = texelFetchOffset(sData32, uv, 0, ivec2(1, 0));
-
-    return corner;
+    vec4 data[2] = fetch_data_2(index);
+    return ClipCorner(RectWithSize(data[0].xy, data[0].zw), data[1]);
 }
 
 struct ClipData {
