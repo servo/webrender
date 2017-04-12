@@ -45,14 +45,12 @@ mod yaml_helper;
 use binary_frame_reader::BinaryFrameReader;
 use gleam::gl;
 use glutin::{ElementState, VirtualKeyCode, WindowProxy};
-use image::ColorType;
-use image::png::PNGEncoder;
 use perf::PerfHarness;
+use png::save_flipped;
 use reftest::ReftestHarness;
 use std::cmp::{max, min};
 #[cfg(feature = "headless")]
 use std::ffi::CString;
-use std::fs::File;
 #[cfg(feature = "headless")]
 use std::mem;
 use std::os::raw::c_void;
@@ -531,26 +529,11 @@ fn main() {
     }
 
     if is_headless {
-        let mut pixels = window.gl().read_pixels(0, 0,
-                                                 size.width as gl::GLsizei,
-                                                 size.height as gl::GLsizei,
-                                                 gl::RGB, gl::UNSIGNED_BYTE);
+        let pixels = window.gl().read_pixels(0, 0,
+                                             size.width as gl::GLsizei,
+                                             size.height as gl::GLsizei,
+                                             gl::RGBA, gl::UNSIGNED_BYTE);
 
-        // flip image vertically (texture is upside down)
-        let orig_pixels = pixels.clone();
-        let stride = size.width as usize * 3;
-        for y in 0..size.height as usize {
-            let dst_start = y * stride;
-            let src_start = (size.height as usize - y - 1) * stride;
-            let src_slice = &orig_pixels[src_start .. src_start + stride];
-            (&mut pixels[dst_start .. dst_start + stride]).clone_from_slice(&src_slice[..stride]);
-        }
-
-        let output = File::create("screenshot.png").unwrap();
-        let encoder = PNGEncoder::new(output);
-        encoder.encode(&pixels[..],
-                        size.width,
-                        size.height,
-                        ColorType::RGB(8)).expect("Unable to encode PNG!");
+        save_flipped("screenshot.png", &pixels, size);
     }
 }
