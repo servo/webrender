@@ -8,8 +8,6 @@ skip-check-licenses = false
 files = [
     # servo-tidy does not properly support workspaces yet.
     "./Cargo.toml",
-    # There are many duplicated packages, which we probably need to review one by one.
-    "./Cargo.lock",
     # We need to ensure that tidy's suggested options are okay for this script.
     "./wrench/test.sh",
 ]

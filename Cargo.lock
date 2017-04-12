@@ -23,7 +23,7 @@ dependencies = [
  "time 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender 0.31.0",
  "webrender_traits 0.32.0",
- "yaml-rust 0.3.4 (git+https://github.com/vvuk/yaml-rust)",
+ "yaml-rust 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -448,11 +448,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "libc"
 version = "0.2.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "linked-hash-map"
-version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -964,14 +959,6 @@ dependencies = [
 
 [[package]]
 name = "yaml-rust"
-version = "0.3.4"
-source = "git+https://github.com/vvuk/yaml-rust#0b40211a89f2a2998824ec888541e750198758fb"
-dependencies = [
- "linked-hash-map 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "yaml-rust"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
@@ -1029,7 +1016,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum lazy_static 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6abe0ee2e758cd6bc8a2cd56726359007748fbf4128da998b65d0b70f881e19b"
 "checksum lazycell 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ce12306c4739d86ee97c23139f3a34ddf0387bbf181bc7929d287025a8c3ef6b"
 "checksum libc 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)" = "684f330624d8c3784fb9558ca46c4ce488073a8d22450415c5eb4f4cfb0d11b5"
-"checksum linked-hash-map 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "6d262045c5b87c0861b3f004610afd0e2c851e2908d08b6c870cbb9d5f494ecd"
 "checksum log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)" = "ab83497bf8bf4ed2a74259c1c802351fcd67a65baa86394b6ba73c36f4838054"
 "checksum lzw 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)" = "7d947cbb889ed21c2a84be6ffbaebf5b4e0f4340638cba0444907e38b56be084"
 "checksum malloc_buf 0.0.6 (registry+https://github.com/rust-lang/crates.io-index)" = "62bb907fe88d54d8d9ce32a3cceab4218ed2f6b7d35617cafe9adf84e43919cb"
@@ -1084,5 +1070,4 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum x11 2.12.1 (registry+https://github.com/rust-lang/crates.io-index)" = "124eb405bf0262a54e1a982d4ffe4cd1c24261bdb306e49996e2ce7d492284a8"
 "checksum x11-dl 2.12.0 (registry+https://github.com/rust-lang/crates.io-index)" = "bf1f9986368c9bbdd8191a783a7ceb42e0c9c6d3348616c873f829b3288a139c"
 "checksum xml-rs 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)" = "729264a98260c6469f7a7d7162baaf5869da5573f69ee08ccf3f3d9110cafe3b"
-"checksum yaml-rust 0.3.4 (git+https://github.com/vvuk/yaml-rust)" = "<none>"
 "checksum yaml-rust 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "e66366e18dc58b46801afbf2ca7661a9f59cc8c5962c29892b6039b4f86fa992"
