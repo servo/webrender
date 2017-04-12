@@ -2,10 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::f32::consts::{FRAC_1_SQRT_2};
 use euclid::{Point2D, Rect, Size2D};
 use euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedPoint4D, TypedMatrix4D};
 use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize};
 use webrender_traits::{LayerRect, WorldPoint4D, LayerPoint4D, LayerToWorldTransform};
+use webrender_traits::{BorderRadius, ComplexClipRegion, LayoutRect};
 use num_traits::Zero;
 
 // TODO: Implement these in euclid!
@@ -268,4 +270,49 @@ impl TransformedRect {
 #[inline(always)]
 pub fn pack_as_float(value: u32) -> f32 {
     value as f32 + 0.5
+}
+
+
+pub trait ComplexClipRegionHelpers {
+    /// Return an aligned rectangle that is inside the clip region and doesn't intersect
+    /// any of the bounding rectangles of the rounded corners.
+    fn get_inner_rect_safe(&self) -> Option<LayoutRect>;
+    /// Return the approximately largest aligned rectangle that is fully inside
+    /// the provided clip region.
+    fn get_inner_rect_full(&self) -> Option<LayoutRect>;
+}
+
+impl ComplexClipRegionHelpers for ComplexClipRegion {
+    fn get_inner_rect_safe(&self) -> Option<LayoutRect> {
+        // value of `k==1.0` is used for extraction of the corner rectangles
+        // see `SEGMENT_CORNER_*` in `clip_shared.glsl`
+        extract_inner_rect_impl(&self.rect, &self.radii, 1.0)
+    }
+
+    fn get_inner_rect_full(&self) -> Option<LayoutRect> {
+        // this `k` optimal for a simple case of all border radii being equal
+        let k = 1.0 - 0.5 * FRAC_1_SQRT_2; // could be nicely approximated to `0.3`
+        extract_inner_rect_impl(&self.rect, &self.radii, k)
+    }
+}
+
+#[inline]
+fn extract_inner_rect_impl<U>(rect: &TypedRect<f32, U>,
+                              radii: &BorderRadius,
+                              k: f32) -> Option<TypedRect<f32, U>> {
+    // `k` defines how much border is taken into account
+    // We enforce the offsets to be rounded to pixel boundaries
+    // by `ceil`-ing and `floor`-ing them
+
+    let xl = (k * radii.top_left.width.max(radii.bottom_left.width)).ceil();
+    let xr = (rect.size.width - k * radii.top_right.width.max(radii.bottom_right.width)).floor();
+    let yt = (k * radii.top_left.height.max(radii.top_right.height)).ceil();
+    let yb = (rect.size.height - k * radii.bottom_left.height.max(radii.bottom_right.height)).floor();
+
+    if xl <= xr && yt <= yb {
+        Some(TypedRect::new(TypedPoint2D::new(rect.origin.x + xl, rect.origin.y + yt),
+             TypedSize2D::new(xr-xl, yb-yt)))
+    } else {
+        None
+    }
 }

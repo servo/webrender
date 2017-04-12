@@ -16,7 +16,7 @@ use scene::{Scene, SceneProperties};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use tiling::{AuxiliaryListsMap, CompositeOps, PrimitiveFlags};
-use util::subtract_rect;
+use util::{ComplexClipRegionHelpers, subtract_rect};
 use webrender_traits::{AuxiliaryLists, ClipDisplayItem, ClipId, ClipRegion, ColorF};
 use webrender_traits::{DeviceUintRect, DeviceUintSize, DisplayItem, Epoch, FilterOp};
 use webrender_traits::{ImageDisplayItem, LayerPoint, LayerRect, LayerSize, LayerToScrollTransform};
@@ -217,7 +217,7 @@ fn clip_intersection(original_rect: &LayerRect,
     let base_rect = region.main.intersection(original_rect);
     clips.iter().fold(base_rect, |inner_combined, ccr| {
         inner_combined.and_then(|combined| {
-            ccr.get_inner_rect().and_then(|ir| ir.intersection(&combined))
+            ccr.get_inner_rect_full().and_then(|ir| ir.intersection(&combined))
         })
     })
 }
