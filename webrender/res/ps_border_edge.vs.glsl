@@ -36,7 +36,8 @@ void main(void) {
                                                     prim.local_clip_rect,
                                                     prim.z,
                                                     prim.layer,
-                                                    prim.task);
+                                                    prim.task,
+                                                    prim.local_rect.p0);
     vLocalPos = vi.local_pos;
     vLocalRect = segment_rect;
 #else
@@ -44,7 +45,8 @@ void main(void) {
                                  prim.local_clip_rect,
                                  prim.z,
                                  prim.layer,
-                                 prim.task);
+                                 prim.task,
+                                 prim.local_rect.p0);
 #endif
 
     write_clip(vi.screen_pos, prim.clip_area);
