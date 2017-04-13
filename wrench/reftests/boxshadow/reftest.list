@@ -1,6 +1,7 @@
 != inset-simple.yaml inset-simple-ref.yaml
 != inset-spread.yaml inset-spread-ref.yaml
 == inset-no-blur-radius.yaml inset-no-blur-radius-ref.png
+== inset-spread-large.yaml inset-spread-large-ref.yaml
 
 # fuzzy because the test is a blur. Just want to test that clip out works.
 fuzzy(7,13704) == inset-border-radius.yaml inset-border-radius-ref.yaml
