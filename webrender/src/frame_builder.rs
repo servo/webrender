@@ -786,9 +786,13 @@ impl FrameBuilder {
 
         let bs_rect = box_bounds.translate(box_offset)
                                 .inflate(inflate_amount, inflate_amount);
+        // If we have negative inflate amounts.
+        // Have to explicitly check this since euclid::TypedRect relies on negative rects
+        let bs_rect_empty = bs_rect.size.width <= 0.0 || bs_rect.size.height <= 0.0;
 
         // Just draw a rectangle
-        if blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None {
+        if (blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None)
+           || bs_rect_empty {
             self.add_solid_rectangle(clip_id,
                                      box_bounds,
                                      clip_region,
