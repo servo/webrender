@@ -222,8 +222,8 @@ impl ClipScrollNode {
     pub fn update_transform(&mut self,
                             parent_reference_frame_transform: &LayerToWorldTransform,
                             parent_combined_viewport_rect: &ScrollLayerRect,
+                            parent_scroll_offset: LayerPoint,
                             parent_accumulated_scroll_offset: LayerPoint) {
-
         let local_transform = match self.node_type {
             NodeType::ReferenceFrame(transform) => transform,
             NodeType::Clip(_) => LayerToScrollTransform::identity(),
@@ -241,11 +241,11 @@ impl ClipScrollNode {
 
         // We are trying to move the combined viewport rectangle of our parent nodes into the
         // coordinate system of this node, so we must invert our transformation (only for
-        // reference frames) and then apply the scroll offset of all the parent layers.
+        // reference frames) and then apply the scroll offset the parent layer. The combined
+        // local viewport rect doesn't include scrolling offsets so the only one that matters
+        // is the relative offset between us and the parent.
         let parent_combined_viewport_in_local_space =
-            inv_transform.pre_translated(-parent_accumulated_scroll_offset.x,
-                                         -parent_accumulated_scroll_offset.y,
-                                         0.0)
+            inv_transform.pre_translated(-parent_scroll_offset.x, -parent_scroll_offset.y, 0.0)
                          .transform_rect(parent_combined_viewport_rect);
 
         // Now that we have the combined viewport rectangle of the parent nodes in local space,
