@@ -12,7 +12,8 @@ void main(void) {
                                                     prim.local_clip_rect,
                                                     prim.z,
                                                     prim.layer,
-                                                    prim.task);
+                                                    prim.task,
+                                                    prim.local_rect.p0);
     vLocalRect = prim.local_rect;
     vLocalPos = vi.local_pos;
 #else
@@ -20,7 +21,8 @@ void main(void) {
                                  prim.local_clip_rect,
                                  prim.z,
                                  prim.layer,
-                                 prim.task);
+                                 prim.task,
+                                 prim.local_rect.p0);
 #endif
 
 #ifdef WR_FEATURE_CLIP

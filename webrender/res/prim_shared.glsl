@@ -524,12 +524,13 @@ VertexInfo write_vertex(RectWithSize instance_rect,
                         RectWithSize local_clip_rect,
                         float z,
                         Layer layer,
-                        AlphaBatchTask task) {
+                        AlphaBatchTask task,
+                        vec2 snap_ref) {
     // Select the corner of the local rect that we are processing.
     vec2 local_pos = instance_rect.p0 + instance_rect.size * aPosition.xy;
 
     // xy = top left corner of the local rect, zw = position of current vertex.
-    vec4 local_p0_pos = vec4(instance_rect.p0, local_pos);
+    vec4 local_p0_pos = vec4(snap_ref, local_pos);
 
     // Clamp to the two local clip rects.
     local_p0_pos = clamp_rect(local_p0_pos, local_clip_rect);
@@ -589,7 +590,8 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
                                            RectWithSize local_clip_rect,
                                            float z,
                                            Layer layer,
-                                           AlphaBatchTask task) {
+                                           AlphaBatchTask task,
+                                           vec2 snap_ref) {
     RectWithEndpoint local_rect = to_rect_with_endpoint(instance_rect);
 
     vec2 current_local_pos, prev_local_pos, next_local_pos;
@@ -649,7 +651,7 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
                                       adjusted_next_p1);
 
     // Calculate the snap amount based on the first vertex as a reference point.
-    vec4 world_p0 = layer.transform * vec4(local_rect.p0, 0.0, 1.0);
+    vec4 world_p0 = layer.transform * vec4(snap_ref, 0.0, 1.0);
     vec2 device_p0 = uDevicePixelRatio * world_p0.xy / world_p0.w;
     vec2 snap_delta = device_p0 - floor(device_p0 + 0.5);
 
