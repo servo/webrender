@@ -69,6 +69,11 @@ impl NormalBorderHelpers for NormalBorder {
                 }
             }
 
+            // Inset / outset borders just modtify the color of edges, so can be
+            // drawn with the normal border corner shader.
+            (BorderStyle::Outset, BorderStyle::Outset) |
+            (BorderStyle::Inset, BorderStyle::Inset) => BorderCornerKind::Clip,
+
             // Assume complex for these cases.
             // TODO(gw): There are some cases in here that can be handled with a fast path.
             // For example, with inset/outset borders, two of the four corners are solid.
