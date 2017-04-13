@@ -212,15 +212,18 @@ impl RenderBackend {
                             if !preserve_frame_state {
                                 self.discard_frame_state_for_pipeline(pipeline_id);
                             }
-                            profile_counters.total_time.profile(|| {
+                            let mut total_time = profile_counters.total_time.clone();
+                            total_time.profile(|| {
                                 self.scene.set_display_list(pipeline_id,
                                                             epoch,
                                                             built_display_list,
                                                             background_color,
                                                             viewport_size,
-                                                            auxiliary_lists);
+                                                            auxiliary_lists,
+                                                            &mut profile_counters);
                                 self.build_scene();
-                            })
+                            });
+                            profile_counters.total_time = total_time;
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
                             profile_scope!("SetRootPipeline");
