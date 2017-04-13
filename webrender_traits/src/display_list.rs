@@ -196,7 +196,7 @@ impl DisplayListBuilder {
     pub fn push_text(&mut self,
                      rect: LayoutRect,
                      clip: ClipRegion,
-                     glyphs: Vec<GlyphInstance>,
+                     glyphs: &[GlyphInstance],
                      font_key: FontKey,
                      color: ColorF,
                      size: Au,

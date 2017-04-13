@@ -383,7 +383,7 @@ fn main() {
 
         builder.push_text(text_bounds,
                           webrender_traits::ClipRegion::simple(&bounds),
-                          glyphs,
+                          &glyphs,
                           font_key,
                           ColorF::new(1.0, 1.0, 0.0, 1.0),
                           Au::from_px(32),
