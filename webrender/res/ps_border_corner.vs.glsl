@@ -52,7 +52,7 @@ void main(void) {
                                      corners.tr_inner.y - corners.tr_outer.y);
             vColor0 = border.colors[1];
             vColor1 = border.colors[2];
-            vClipCenter = corners.tr_outer + vec2(-border.radii[0].z, border.radii[0].y);
+            vClipCenter = corners.tr_outer + vec2(-border.radii[0].z, border.radii[0].w);
             vClipSign = vec2(-1.0, 1.0);
             set_radii(border.radii[0].zw,
                       border.widths.zy,
