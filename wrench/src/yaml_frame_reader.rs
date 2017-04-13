@@ -489,7 +489,7 @@ impl YamlFrameReader {
                     point: Point2D::new(origin.x + glyph_offsets[k.0 * 2],
                                         origin.y + glyph_offsets[k.0 * 2 + 1])
                 }
-            }).collect();
+            }).collect::<Vec<_>>();
             // TODO(gw): We could optionally use the WR API to query glyph dimensions
             //           here and calculate the bounding region here if we want to.
             let rect = item["bounds"].as_rect()
@@ -514,14 +514,14 @@ impl YamlFrameReader {
                                          point: Point2D::new(x, y), };
                 x += arg.1;
                 gi
-            }).collect();
+            }).collect::<Vec<_>>();
             // FIXME this is incorrect!
             let rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), wrench.window_size_f32());
             (glyphs, rect)
         };
 
         let clip = self.to_clip_region(&item["clip"], &rect, wrench).unwrap_or(*clip_region);
-        self.builder().push_text(rect, clip, glyphs, font_key, color, size, blur_radius, None);
+        self.builder().push_text(rect, clip, &glyphs, font_key, color, size, blur_radius, None);
     }
 
     fn handle_iframe(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
