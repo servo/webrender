@@ -81,7 +81,7 @@ impl BuiltDisplayList {
 
     pub fn all_display_items(&self) -> &[DisplayItem] {
         unsafe {
-            convert_blob_to_pod(&self.data[0..self.descriptor.display_list_items_size])
+            convert_blob_to_pod(&self.data)
         }
     }
 

@@ -654,6 +654,13 @@ impl Profiler {
         self.x_right = 400.0;
         self.y_right = 40.0;
 
+        let mut gpu_time = 0;
+        let gpu_samples = mem::replace(&mut renderer_timers.gpu_samples, Vec::new());
+        for sample in &gpu_samples {
+            gpu_time += sample.time_ns;
+        }
+        renderer_timers.gpu_time.set(gpu_time);
+
         self.draw_counters(&[
             &renderer_profile.frame_counter,
             &renderer_profile.frame_time,
@@ -689,11 +696,6 @@ impl Profiler {
             &renderer_timers.gpu_time,
         ], debug_renderer, false);
 
-        let mut gpu_time = 0;
-        let gpu_samples = mem::replace(&mut renderer_timers.gpu_samples, Vec::new());
-        for sample in &gpu_samples {
-            gpu_time += sample.time_ns;
-        }
 
         self.backend_time.push(backend_profile.total_time.nanoseconds);
         self.compositor_time.push(renderer_timers.cpu_time.nanoseconds);
