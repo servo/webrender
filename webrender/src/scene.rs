@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use tiling::AuxiliaryListsMap;
 use time::precise_time_ns;
-use webrender_traits::{AuxiliaryLists, BuiltDisplayList, PipelineId, Epoch, ColorF};
+use webrender_traits::{BuiltAuxiliaryLists, BuiltDisplayList, PipelineId, Epoch, ColorF};
 use webrender_traits::{DisplayItem, DynamicProperties, LayerSize, LayoutTransform};
 use webrender_traits::{PropertyBinding, PropertyBindingId};
 
@@ -121,7 +121,7 @@ impl Scene {
                             built_display_list: BuiltDisplayList,
                             background_color: Option<ColorF>,
                             viewport_size: LayerSize,
-                            auxiliary_lists: AuxiliaryLists,
+                            auxiliary_lists: BuiltAuxiliaryLists,
                             profile_counters: &mut BackendProfileCounters) {
 
         let display_list_len = built_display_list.data().len();
@@ -130,7 +130,7 @@ impl Scene {
 
         let deserial_start_time = precise_time_ns();
 
-        self.pipeline_auxiliary_lists.insert(pipeline_id, auxiliary_lists);
+        self.pipeline_auxiliary_lists.insert(pipeline_id, auxiliary_lists.into_auxiliary_lists());
         self.display_lists.insert(pipeline_id, built_display_list.into_display_items());
 
         let deserial_end_time = precise_time_ns();

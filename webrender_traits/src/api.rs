@@ -8,7 +8,7 @@ use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::cell::Cell;
 use std::fmt;
 use std::marker::PhantomData;
-use {AuxiliaryLists, AuxiliaryListsDescriptor, BuiltDisplayList, BuiltDisplayListDescriptor};
+use {BuiltAuxiliaryLists, AuxiliaryListsDescriptor, BuiltDisplayList, BuiltDisplayListDescriptor};
 use {ClipId, ColorF, DeviceIntPoint, DeviceIntSize, DeviceUintRect, DeviceUintSize, FontKey};
 use {GlyphDimensions, GlyphKey, ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutSize};
 use {LayoutTransform, NativeFontHandle, WorldPoint};
@@ -304,7 +304,7 @@ impl RenderApi {
                             background_color: Option<ColorF>,
                             epoch: Epoch,
                             viewport_size: LayoutSize,
-                            (pipeline_id, display_list, auxiliary_lists): (PipelineId, BuiltDisplayList, AuxiliaryLists),
+                            (pipeline_id, display_list, auxiliary_lists): (PipelineId, BuiltDisplayList, BuiltAuxiliaryLists),
                             preserve_frame_state: bool) {
         let (dl_data, dl_desc) = display_list.into_data();
         let (aux_data, aux_desc) = auxiliary_lists.into_data();

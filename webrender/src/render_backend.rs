@@ -17,7 +17,7 @@ use thread_profiler::register_thread_with_profiler;
 use threadpool::ThreadPool;
 use webgl_types::{GLContextHandleWrapper, GLContextWrapper};
 use webrender_traits::{DeviceIntPoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize, LayerPoint};
-use webrender_traits::{ApiMsg, AuxiliaryLists, BuiltDisplayList, IdNamespace, ImageData};
+use webrender_traits::{ApiMsg, BuiltAuxiliaryLists, BuiltDisplayList, IdNamespace, ImageData};
 use webrender_traits::{PipelineId, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
 use webrender_traits::channel::{PayloadSenderHelperMethods, PayloadReceiverHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
 use webrender_traits::{BlobImageRenderer, VRCompositorCommand, VRCompositorHandler};
@@ -206,8 +206,8 @@ impl RenderBackend {
                                 BuiltDisplayList::from_data(auxiliary_data.display_list_data,
                                                             display_list_descriptor);
                             let auxiliary_lists =
-                                AuxiliaryLists::from_data(auxiliary_data.auxiliary_lists_data,
-                                                          auxiliary_lists_descriptor);
+                                BuiltAuxiliaryLists::from_data(auxiliary_data.auxiliary_lists_data,
+                                                               auxiliary_lists_descriptor);
 
                             if !preserve_frame_state {
                                 self.discard_frame_state_for_pipeline(pipeline_id);

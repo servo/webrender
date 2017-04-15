@@ -892,6 +892,7 @@ name = "webrender_traits"
 version = "0.33.0"
 dependencies = [
  "app_units 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bincode 1.0.0-alpha6 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "core-graphics 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "dwrote 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -902,6 +903,7 @@ dependencies = [
  "offscreen_gl_context 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 0.9.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 0.9.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "time 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

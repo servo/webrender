@@ -3,8 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use std::mem;
-use std::slice;
+use bincode;
 use time::precise_time_ns;
 use {BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMode, BoxShadowDisplayItem};
 use {ClipDisplayItem, ClipId, ClipRegion, ColorF, ComplexClipRegion, DisplayItem, ExtendMode};
@@ -19,6 +18,12 @@ use {TransformStyle, WebGLContextId, WebGLDisplayItem, YuvColorSpace, YuvImageDi
 pub struct AuxiliaryLists {
     /// The concatenation of: gradient stops, complex clip regions, filters, and glyph instances,
     /// in that order.
+    data: AuxiliaryListsBuilder,
+    descriptor: AuxiliaryListsDescriptor,
+}
+
+pub struct BuiltAuxiliaryLists {
+    /// A serialized 
     data: Vec<u8>,
     descriptor: AuxiliaryListsDescriptor,
 }
@@ -30,10 +35,7 @@ pub struct AuxiliaryLists {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct AuxiliaryListsDescriptor {
-    gradient_stops_size: usize,
-    complex_clip_regions_size: usize,
-    filters_size: usize,
-    glyph_instances_size: usize,
+    size: usize
 }
 
 /// A display list.
@@ -84,16 +86,8 @@ impl BuiltDisplayList {
         &self.descriptor
     }
 
-    pub fn all_display_items(&self) -> &[DisplayItem] {
-        unsafe {
-            convert_blob_to_pod(&self.data)
-        }
-    }
-
     pub fn into_display_items(self) -> Vec<DisplayItem> {
-        unsafe {
-            convert_vec_blob_to_pod(self.data)
-        }
+        bincode::deserialize(&self.data).expect("TODO: OH NO MALICIOUS PROCESS")
     }
 
     pub fn serialization_times(&self) -> (u64, u64) {
@@ -505,6 +499,7 @@ impl DisplayListBuilder {
         self.push_item(item, rect, clip);
     }
 
+/*
     // Don't use this function. It will go away.
     // We're using it as a hack in Gecko to retain parts sub-parts of display lists so that
     // we can regenerate them without building Gecko display items. 
@@ -539,6 +534,7 @@ impl DisplayListBuilder {
             self.list.push(i);
         }
     }
+*/
 
     pub fn new_clip_region(&mut self,
                            rect: &LayoutRect,
@@ -548,26 +544,25 @@ impl DisplayListBuilder {
         ClipRegion::new(rect, complex, image_mask, &mut self.auxiliary_lists_builder)
     }
 
-    pub fn finalize(self) -> (PipelineId, BuiltDisplayList, AuxiliaryLists) {
-        unsafe {
-            let serialization_start_time = precise_time_ns();
+    pub fn finalize(self) -> (PipelineId, BuiltDisplayList, BuiltAuxiliaryLists) {
+        let serialization_start_time = precise_time_ns();
 
-            let blob = convert_vec_pod_to_blob(self.list);
-            let aux_list = self.auxiliary_lists_builder.finalize();
+        // let blob = convert_vec_pod_to_blob(self.list);
+        let blob = bincode::serialize(&self.list, bincode::Infinite).expect("TODO: ran out of space?");
+        let aux_list = self.auxiliary_lists_builder.finalize();
 
-            let serialization_end_time = precise_time_ns();
+        let serialization_end_time = precise_time_ns();
 
-            (self.pipeline_id,
-             BuiltDisplayList {
-                 descriptor: BuiltDisplayListDescriptor {
-                    display_list_items_size: blob.len(),
-                    serialization_start_time: serialization_start_time,
-                    serialization_end_time: serialization_end_time,
-                 },
-                 data: blob,
-             },
-             aux_list)
-        }
+        (self.pipeline_id,
+            BuiltDisplayList {
+                descriptor: BuiltDisplayListDescriptor {
+                display_list_items_size: blob.len(),
+                serialization_start_time: serialization_start_time,
+                serialization_end_time: serialization_end_time,
+                },
+                data: blob,
+            },
+        aux_list)
     }
 }
 
@@ -597,7 +592,7 @@ impl ItemRange {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct AuxiliaryListsBuilder {
     gradient_stops: Vec<GradientStop>,
     complex_clip_regions: Vec<ComplexClipRegion>,
@@ -615,7 +610,7 @@ impl AuxiliaryListsBuilder {
     }
 
     pub fn gradient_stops(&self, gradient_stops_range: &ItemRange) -> &[GradientStop] {
-        gradient_stops_range.get(&self.gradient_stops[..])
+        gradient_stops_range.get(&self.gradient_stops)
     }
 
     pub fn add_complex_clip_regions(&mut self, complex_clip_regions: &[ComplexClipRegion])
@@ -625,7 +620,7 @@ impl AuxiliaryListsBuilder {
 
     pub fn complex_clip_regions(&self, complex_clip_regions_range: &ItemRange)
                                 -> &[ComplexClipRegion] {
-        complex_clip_regions_range.get(&self.complex_clip_regions[..])
+        complex_clip_regions_range.get(&self.complex_clip_regions)
     }
 
     pub fn add_filters(&mut self, filters: &[FilterOp]) -> ItemRange {
@@ -633,7 +628,7 @@ impl AuxiliaryListsBuilder {
     }
 
     pub fn filters(&self, filters_range: &ItemRange) -> &[FilterOp] {
-        filters_range.get(&self.filters[..])
+        filters_range.get(&self.filters)
     }
 
     pub fn add_glyph_instances(&mut self, glyph_instances: &[GlyphInstance]) -> ItemRange {
@@ -641,45 +636,31 @@ impl AuxiliaryListsBuilder {
     }
 
     pub fn glyph_instances(&self, glyph_instances_range: &ItemRange) -> &[GlyphInstance] {
-        glyph_instances_range.get(&self.glyph_instances[..])
+        glyph_instances_range.get(&self.glyph_instances)
     }
 
-    pub fn finalize(self) -> AuxiliaryLists {
-        unsafe {
-            let mut blob = convert_vec_pod_to_blob(self.gradient_stops);
-            let gradient_stops_size = blob.len();
-            blob.extend_from_slice(convert_pod_to_blob(&self.complex_clip_regions));
-            let complex_clip_regions_size = blob.len() - gradient_stops_size;
-            blob.extend_from_slice(convert_pod_to_blob(&self.filters));
-            let filters_size = blob.len() - (complex_clip_regions_size + gradient_stops_size);
-            blob.extend_from_slice(convert_pod_to_blob(&self.glyph_instances));
-            let glyph_instances_size = blob.len() -
-                (complex_clip_regions_size + gradient_stops_size + filters_size);
+    pub fn finalize(self) -> BuiltAuxiliaryLists {
+        let blob = bincode::serialize(&self, bincode::Infinite).expect("TODO: ran out of space?");
+        let size = blob.len();
 
-            AuxiliaryLists {
-                data: blob,
-                descriptor: AuxiliaryListsDescriptor {
-                    gradient_stops_size: gradient_stops_size,
-                    complex_clip_regions_size: complex_clip_regions_size,
-                    filters_size: filters_size,
-                    glyph_instances_size: glyph_instances_size,
-                },
-            }
+        BuiltAuxiliaryLists {
+            data: blob,
+            descriptor: AuxiliaryListsDescriptor {
+                size: size
+            },
         }
     }
 }
 
 impl AuxiliaryListsDescriptor {
     pub fn size(&self) -> usize {
-        self.gradient_stops_size + self.complex_clip_regions_size + self.filters_size +
-            self.glyph_instances_size
+        self.size
     }
 }
 
-impl AuxiliaryLists {
-    /// Creates a new `AuxiliaryLists` instance from a descriptor and data received over a channel.
-    pub fn from_data(data: Vec<u8>, descriptor: AuxiliaryListsDescriptor) -> AuxiliaryLists {
-        AuxiliaryLists {
+impl BuiltAuxiliaryLists {
+    pub fn from_data(data: Vec<u8>, descriptor: AuxiliaryListsDescriptor) -> BuiltAuxiliaryLists {
+        BuiltAuxiliaryLists {
             data: data,
             descriptor: descriptor,
         }
@@ -690,69 +671,41 @@ impl AuxiliaryLists {
     }
 
     pub fn data(&self) -> &[u8] {
-        &self.data[..]
+        &self.data
     }
 
+    pub fn into_auxiliary_lists(self) -> AuxiliaryLists {
+        let data = bincode::deserialize(&self.data).expect("TODO: OH NO MALICIOUS PROCESS");
+        AuxiliaryLists {
+            data: data,
+            descriptor: self.descriptor
+        }
+    }
+}
+
+impl AuxiliaryLists {
     pub fn descriptor(&self) -> &AuxiliaryListsDescriptor {
         &self.descriptor
     }
 
     /// Returns the gradient stops described by `gradient_stops_range`.
     pub fn gradient_stops(&self, gradient_stops_range: &ItemRange) -> &[GradientStop] {
-        unsafe {
-            let end = self.descriptor.gradient_stops_size;
-            gradient_stops_range.get(convert_blob_to_pod(&self.data[0..end]))
-        }
+        gradient_stops_range.get(&self.data.gradient_stops)
     }
 
     /// Returns the complex clipping regions described by `complex_clip_regions_range`.
     pub fn complex_clip_regions(&self, complex_clip_regions_range: &ItemRange)
                                 -> &[ComplexClipRegion] {
-        let start = self.descriptor.gradient_stops_size;
-        let end = start + self.descriptor.complex_clip_regions_size;
-        unsafe {
-            complex_clip_regions_range.get(convert_blob_to_pod(&self.data[start..end]))
-        }
+        complex_clip_regions_range.get(&self.data.complex_clip_regions)
     }
 
     /// Returns the filters described by `filters_range`.
     pub fn filters(&self, filters_range: &ItemRange) -> &[FilterOp] {
-        let start = self.descriptor.gradient_stops_size +
-            self.descriptor.complex_clip_regions_size;
-        let end = start + self.descriptor.filters_size;
-        unsafe {
-            filters_range.get(convert_blob_to_pod(&self.data[start..end]))
-        }
+        filters_range.get(&self.data.filters)
     }
 
     /// Returns the glyph instances described by `glyph_instances_range`.
     pub fn glyph_instances(&self, glyph_instances_range: &ItemRange) -> &[GlyphInstance] {
-        let start = self.descriptor.gradient_stops_size +
-            self.descriptor.complex_clip_regions_size + self.descriptor.filters_size;
-        unsafe {
-            glyph_instances_range.get(convert_blob_to_pod(&self.data[start..]))
-        }
+        glyph_instances_range.get(&self.data.glyph_instances)
     }
-}
-
-unsafe fn convert_pod_to_blob<T>(data: &[T]) -> &[u8] where T: Copy + 'static {
-    slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * mem::size_of::<T>())
-}
-
-// this variant of the above lets us convert without needing to make a copy
-unsafe fn convert_vec_pod_to_blob<T>(mut data: Vec<T>) -> Vec<u8> where T: Copy + 'static {
-    let v = Vec::from_raw_parts(data.as_mut_ptr() as *mut u8, data.len() * mem::size_of::<T>(), data.capacity() * mem::size_of::<T>());
-    mem::forget(data);
-    v
-}
-
-unsafe fn convert_blob_to_pod<T>(blob: &[u8]) -> &[T] where T: Copy + 'static {
-    slice::from_raw_parts(blob.as_ptr() as *const T, blob.len() / mem::size_of::<T>())
-}
-
-// this variant of the above lets us convert without needing to make a copy
-unsafe fn convert_vec_blob_to_pod<T>(mut data: Vec<u8>) -> Vec<T> where T: Copy + 'static {
-    let v = Vec::from_raw_parts(data.as_mut_ptr() as *mut T, data.len() / mem::size_of::<T>(), data.capacity() / mem::size_of::<T>());
-    mem::forget(data);
-    v
 }

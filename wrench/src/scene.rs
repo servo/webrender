@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashMap;
-use webrender_traits::{AuxiliaryLists, BuiltDisplayList, ColorF, DisplayItem, Epoch};
+use webrender_traits::{AuxiliaryLists, ColorF, DisplayItem, Epoch};
 use webrender_traits::{LayerSize, PipelineId};
 
 /// A representation of the layout within the display port for a given document or iframe.
@@ -52,9 +52,9 @@ impl Scene {
 
     pub fn finish_display_list(&mut self,
                                pipeline_id: PipelineId,
-                               built_display_list: BuiltDisplayList,
+                               display_list: Vec<DisplayItem>,
                                auxiliary_lists: AuxiliaryLists) {
         self.pipeline_auxiliary_lists.insert(pipeline_id, auxiliary_lists);
-        self.display_lists.insert(pipeline_id, built_display_list.all_display_items().to_vec());
+        self.display_lists.insert(pipeline_id, display_list);
     }
 }
