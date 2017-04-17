@@ -378,7 +378,7 @@ impl AlphaRenderItem {
             AlphaRenderItem::Primitive(clip_scroll_group_index, prim_index, z) => {
                 let group = &ctx.clip_scroll_group_store[clip_scroll_group_index.0];
                 let prim_metadata = ctx.prim_store.get_metadata(prim_index);
-                let transform_kind = group.xf_rect.as_ref().unwrap().kind;
+                let transform_kind = group.xf_rect.as_ref().unwrap().0;
                 let needs_clipping = prim_metadata.needs_clipping();
                 let mut flags = AlphaBatchKeyFlags::empty();
                 if needs_clipping {
@@ -1341,7 +1341,7 @@ pub struct ClipScrollGroup {
     pub stacking_context_index: StackingContextIndex,
     pub clip_id: ClipId,
     pub packed_layer_index: PackedLayerIndex,
-    pub xf_rect: Option<TransformedRect>,
+    pub xf_rect: Option<(TransformedRectKind, DeviceIntRect)>,
 }
 
 impl ClipScrollGroup {
@@ -1384,15 +1384,13 @@ impl PackedLayer {
                     local_rect: &LayerRect,
                     screen_rect: &DeviceIntRect,
                     device_pixel_ratio: f32)
-                    -> Option<TransformedRect> {
+                    -> Option<(TransformedRectKind, DeviceIntRect)> {
         let xf_rect = TransformedRect::new(&local_rect, &self.transform, device_pixel_ratio);
-        if !xf_rect.bounding_rect.intersects(screen_rect) {
-            return None;
-        }
-
-        self.screen_vertices = xf_rect.vertices.clone();
-        self.local_clip_rect = *local_rect;
-        Some(xf_rect)
+        xf_rect.bounding_rect.intersection(screen_rect).map(|rect| {
+            self.screen_vertices = xf_rect.vertices.clone();
+            self.local_clip_rect = *local_rect;
+            (xf_rect.kind, rect)
+        })
     }
 }
 

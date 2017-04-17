@@ -1535,9 +1535,10 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             };
 
             if bounding_rect.is_none() {
-                bounding_rect =
-                    Some(clip_info.xf_rect.as_ref().map_or_else(DeviceIntRect::zero,
-                                                                |x| x.bounding_rect))
+                bounding_rect = Some(match clip_info.xf_rect {
+                    Some((_kind, rect)) => rect,
+                    None => DeviceIntRect::zero(),
+                });
             }
             self.current_clip_stack.push((clip_info.packed_layer_index,
                                           clip_info.mask_cache_info.clone().unwrap()))
