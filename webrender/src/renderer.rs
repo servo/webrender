@@ -535,7 +535,7 @@ pub struct Renderer {
     external_image_handler: Option<Box<ExternalImageHandler>>,
 
     /// Map of external image IDs to native textures.
-    external_images: HashMap<ExternalImageId, TextureId, BuildHasherDefault<FnvHasher>>,
+    external_images: HashMap<(ExternalImageId, u8), TextureId, BuildHasherDefault<FnvHasher>>,
 
     // Optional trait object that handles WebVR commands.
     // Some WebVR commands such as SubmitFrame must be synced with the WebGL render thread.
@@ -1068,7 +1068,7 @@ impl Renderer {
             SourceTexture::WebGL(id) => TextureId::new(id, TextureTarget::Default),
             SourceTexture::External(external_image) => {
                 *self.external_images
-                     .get(&external_image.id)
+                     .get(&(external_image.id, external_image.channel_index))
                      .expect("BUG: External image should be resolved by now!")
             }
             SourceTexture::TextureCache(index) => {
@@ -1226,7 +1226,7 @@ impl Renderer {
                                                               .as_mut()
                                                               .expect("Found external image, but no handler set!");
 
-                                            match handler.lock(ext_image.id).source {
+                                            match handler.lock(ext_image.id, ext_image.channel_index).source {
                                                 ExternalImageSource::RawData(raw) => {
                                                     self.device.init_texture(texture_id,
                                                                              width,
@@ -1238,7 +1238,7 @@ impl Renderer {
                                                 }
                                                 _ => panic!("No external buffer found"),
                                             };
-                                            handler.unlock(ext_image.id);
+                                            handler.unlock(ext_image.id, ext_image.channel_index);
                                         }
                                         _ => {
                                             panic!("External texture handle should not use TextureUpdateOp::Create.");
@@ -1276,14 +1276,14 @@ impl Renderer {
                                                    width, height, stride,
                                                    &data[offset as usize..]);
                     }
-                    TextureUpdateOp::UpdateForExternalBuffer { rect, id, stride } => {
+                    TextureUpdateOp::UpdateForExternalBuffer { rect, id, channel_index, stride } => {
                         let handler = self.external_image_handler
                                           .as_mut()
                                           .expect("Found external image, but no handler set!");
                         let device = &mut self.device;
                         let cached_id = self.cache_texture_id_map[update.id.0];
 
-                        match handler.lock(id).source {
+                        match handler.lock(id, channel_index).source {
                             ExternalImageSource::RawData(data) => {
                                 device.update_texture(cached_id,
                                                       rect.origin.x,
@@ -1294,7 +1294,7 @@ impl Renderer {
                             }
                             _ => panic!("No external buffer found"),
                         };
-                        handler.unlock(id);
+                        handler.unlock(id, channel_index);
                     }
                     TextureUpdateOp::Free => {
                         let texture_id = self.cache_texture_id_map[update.id.0];
@@ -1707,7 +1707,7 @@ impl Renderer {
                 let props = &deferred_resolve.image_properties;
                 let ext_image = props.external_image
                                      .expect("BUG: Deferred resolves must be external images!");
-                let image = handler.lock(ext_image.id);
+                let image = handler.lock(ext_image.id, ext_image.channel_index);
                 let texture_target = match ext_image.image_type {
                     ExternalImageType::Texture2DHandle => TextureTarget::Default,
                     ExternalImageType::TextureRectHandle => TextureTarget::Rect,
@@ -1722,7 +1722,7 @@ impl Renderer {
                     _ => panic!("No native texture found."),
                 };
 
-                self.external_images.insert(ext_image.id, texture_id);
+                self.external_images.insert((ext_image.id, ext_image.channel_index), texture_id);
                 let resource_rect_index = deferred_resolve.resource_address.0 as usize;
                 let resource_rect = &mut frame.gpu_resource_rects[resource_rect_index];
                 resource_rect.uv0 = DevicePoint::new(image.u0, image.v0);
@@ -1737,8 +1737,8 @@ impl Renderer {
                               .as_mut()
                               .expect("Found external image, but no handler set!");
 
-            for (external_id, _) in self.external_images.drain() {
-                handler.unlock(external_id);
+            for (ext_data, _) in self.external_images.drain() {
+                handler.unlock(ext_data.0, ext_data.1);
             }
         }
     }
@@ -1987,10 +1987,10 @@ pub trait ExternalImageHandler {
     /// Lock the external image. Then, WR could start to read the image content.
     /// The WR client should not change the image content until the unlock()
     /// call.
-    fn lock(&mut self, key: ExternalImageId) -> ExternalImage;
+    fn lock(&mut self, key: ExternalImageId, channel_index: u8) -> ExternalImage;
     /// Unlock the external image. The WR should not read the image content
     /// after this call.
-    fn unlock(&mut self, key: ExternalImageId);
+    fn unlock(&mut self, key: ExternalImageId, channel_index: u8);
 }
 
 pub struct RendererOptions {

@@ -284,6 +284,7 @@ pub enum TextureUpdateOp {
     UpdateForExternalBuffer {
         rect: DeviceUintRect,
         id: ExternalImageId,
+        channel_index: u8,
         stride: Option<u32>,
     },
     Grow {

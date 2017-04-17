@@ -800,6 +800,7 @@ impl TextureCache {
                                     op: TextureUpdateOp::UpdateForExternalBuffer {
                                         rect: result.item.allocated_rect,
                                         id: ext_image.id,
+                                        channel_index: ext_image.channel_index,
                                         stride: stride,
                                     },
                                 };
