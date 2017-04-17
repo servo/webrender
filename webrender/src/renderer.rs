@@ -805,14 +805,14 @@ impl Renderer {
                              ImageDescriptor::new(2, 2, ImageFormat::RGBA8, false),
                              TextureFilter::Linear,
                              ImageData::Raw(Arc::new(white_pixels)),
-                             &mut backend_profile_counters.texture_cache);
+                             &mut backend_profile_counters.resources.texture_cache);
 
         let dummy_mask_image_id = texture_cache.new_item_id();
         texture_cache.insert(dummy_mask_image_id,
                              ImageDescriptor::new(2, 2, ImageFormat::A8, false),
                              TextureFilter::Linear,
                              ImageData::Raw(Arc::new(mask_pixels)),
-                             &mut backend_profile_counters.texture_cache);
+                             &mut backend_profile_counters.resources.texture_cache);
 
         let dummy_cache_texture_id = device.create_texture_ids(1, TextureTarget::Array)[0];
         device.init_texture(dummy_cache_texture_id,

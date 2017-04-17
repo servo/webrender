@@ -123,7 +123,7 @@ impl RenderBackend {
                     }
                     match msg {
                         ApiMsg::AddRawFont(id, bytes) => {
-                            profile_counters.font_templates.inc(bytes.len());
+                            profile_counters.resources.font_templates.inc(bytes.len());
                             self.resource_cache
                                 .add_font_template(id, FontTemplate::Raw(Arc::new(bytes)));
                         }
@@ -144,7 +144,7 @@ impl RenderBackend {
                         }
                         ApiMsg::AddImage(id, descriptor, data, tiling) => {
                             if let ImageData::Raw(ref bytes) = data {
-                                profile_counters.image_templates.inc(bytes.len());
+                                profile_counters.resources.image_templates.inc(bytes.len());
                             }
                             self.resource_cache.add_image_template(id, descriptor, data, tiling);
                         }
@@ -212,15 +212,18 @@ impl RenderBackend {
                             if !preserve_frame_state {
                                 self.discard_frame_state_for_pipeline(pipeline_id);
                             }
+                            
+                            let counters = &mut profile_counters.ipc;
                             profile_counters.total_time.profile(|| {
                                 self.scene.set_display_list(pipeline_id,
                                                             epoch,
                                                             built_display_list,
                                                             background_color,
                                                             viewport_size,
-                                                            auxiliary_lists);
+                                                            auxiliary_lists,
+                                                            counters);
                                 self.build_scene();
-                            })
+                            });
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
                             profile_scope!("SetRootPipeline");
@@ -237,7 +240,7 @@ impl RenderBackend {
                         ApiMsg::Scroll(delta, cursor, move_phase) => {
                             profile_scope!("Scroll");
                             let frame = {
-                                let counters = &mut profile_counters.texture_cache;
+                                let counters = &mut profile_counters.resources.texture_cache;
                                 profile_counters.total_time.profile(|| {
                                     if self.frame.scroll(delta, cursor, move_phase) {
                                         Some(self.render(counters))
@@ -258,7 +261,7 @@ impl RenderBackend {
                         ApiMsg::ScrollNodeWithId(origin, id) => {
                             profile_scope!("ScrollNodeWithScrollId");
                             let frame = {
-                                let counters = &mut profile_counters.texture_cache;
+                                let counters = &mut profile_counters.resources.texture_cache;
                                 profile_counters.total_time.profile(|| {
                                     if self.frame.scroll_nodes(origin, id) {
                                         Some(self.render(counters))
@@ -280,7 +283,7 @@ impl RenderBackend {
                         ApiMsg::TickScrollingBounce => {
                             profile_scope!("TickScrollingBounce");
                             let frame = {
-                                let counters = &mut profile_counters.texture_cache;
+                                let counters = &mut profile_counters.resources.texture_cache;
                                 profile_counters.total_time.profile(|| {
                                     self.frame.tick_scrolling_bounce_animations();
                                     self.render(counters)
@@ -380,7 +383,7 @@ impl RenderBackend {
                             }
 
                             let frame = {
-                                let counters = &mut profile_counters.texture_cache;
+                                let counters = &mut profile_counters.resources.texture_cache;
                                 profile_counters.total_time.profile(|| {
                                     self.render(counters)
                                 })
