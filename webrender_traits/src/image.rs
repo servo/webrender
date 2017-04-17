@@ -30,6 +30,7 @@ pub enum ImageFormat {
     RGB8     = 2,
     RGBA8    = 3,
     RGBAF32  = 4,
+    RG8      = 5,
 }
 
 impl ImageFormat {
@@ -39,6 +40,7 @@ impl ImageFormat {
             ImageFormat::RGB8 => Some(3),
             ImageFormat::RGBA8 => Some(4),
             ImageFormat::RGBAF32 => Some(16),
+            ImageFormat::RG8 => Some(2),
             ImageFormat::Invalid => None,
         }
     }

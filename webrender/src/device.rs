@@ -1723,6 +1723,7 @@ impl Device {
             }
             ImageFormat::RGB8 => (gl::RGB, 3, data),
             ImageFormat::RGBA8 => (get_gl_format_bgra(self.gl()), 4, data),
+            ImageFormat::RG8 => (gl::RG, 2, data),
             ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
         };
 
@@ -2088,6 +2089,7 @@ impl Drop for Device {
     }
 }
 
+/// return (gl_internal_format, gl_format)
 fn gl_texture_formats_for_image_format(gl: &gl::Gl, format: ImageFormat) -> (gl::GLint, gl::GLuint) {
     match format {
         ImageFormat::A8 => {
@@ -2109,6 +2111,7 @@ fn gl_texture_formats_for_image_format(gl: &gl::Gl, format: ImageFormat) -> (gl:
             }
         }
         ImageFormat::RGBAF32 => (gl::RGBA32F as gl::GLint, gl::RGBA),
+        ImageFormat::RG8 => (gl::RG8 as gl::GLint, gl::RG),
         ImageFormat::Invalid => unreachable!(),
     }
 }
