@@ -314,12 +314,12 @@ impl YamlFrameWriter {
         let dl_data = data[4..dl_desc.size() + 4].to_vec();
         let aux_data = data[dl_desc.size() + 4..].to_vec();
 
-        let dl = BuiltDisplayList::from_data(dl_data, dl_desc);
-        let aux = AuxiliaryLists::from_data(aux_data, aux_desc);
+        let dl = BuiltDisplayList::from_data(dl_data, dl_desc).into_display_items();
+        let aux = BuiltAuxiliaryLists::from_data(aux_data, aux_desc).into_auxiliary_lists();
 
         let mut root_dl_table = new_table();
         {
-            let mut iter = dl.all_display_items().iter();
+            let mut iter = dl.iter();
             self.write_display_list(&mut root_dl_table, &mut iter, &aux, &mut ClipIdMapper::new());
         }
 
@@ -328,7 +328,7 @@ impl YamlFrameWriter {
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
             u32_vec_node(&mut root_dl_table, "id", &[root_pipeline_id.0, root_pipeline_id.1]);
 
-            let referenced_pipeline_ids = dl.all_display_items().iter()
+            let referenced_pipeline_ids = dl.iter()
                 .flat_map(|base| {
                     if let SpecificDisplayItem::Iframe(k) = base.item {
                         Some(k.pipeline_id)

@@ -104,7 +104,7 @@ impl JsonFrameWriter {
         let aux_data = data[dl_desc.size() + 4..].to_vec();
 
         let dl = BuiltDisplayList::from_data(dl_data, dl_desc);
-        let aux = AuxiliaryLists::from_data(aux_data, aux_desc);
+        let aux = BuiltAuxiliaryLists::from_data(aux_data, aux_desc);
 
         let mut frame_file_name = self.frame_base.clone();
         let current_shown_frame = unsafe { CURRENT_FRAME_NUMBER };
@@ -112,7 +112,7 @@ impl JsonFrameWriter {
 
         let mut file = File::create(&frame_file_name).unwrap();
 
-        let items: Vec<&DisplayItem> = dl.all_display_items().iter().collect();
+        let items: Vec<DisplayItem> = dl.into_display_items();
         let s = serde_json::to_string_pretty(&items).unwrap();
         file.write_all(&s.into_bytes()).unwrap();
         file.write_all(b"\n").unwrap();

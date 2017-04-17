@@ -291,6 +291,12 @@ pub struct BackendProfileCounters {
     pub image_templates: ResourceProfileCounter,
     pub total_time: TimeProfileCounter,
     pub texture_cache: TextureCacheProfileCounters,
+    pub ipc_serialize_time: TimeProfileCounter,
+    pub ipc_deserialize_time: TimeProfileCounter,
+    pub ipc_send_time: TimeProfileCounter,
+    pub ipc_total_time: TimeProfileCounter,
+    pub ipc_display_len: IntProfileCounter,
+    pub ipc_aux_len: IntProfileCounter,
 }
 
 impl BackendProfileCounters {
@@ -300,7 +306,24 @@ impl BackendProfileCounters {
             image_templates: ResourceProfileCounter::new("Image Templates"),
             total_time: TimeProfileCounter::new("Backend CPU Time", false),
             texture_cache: TextureCacheProfileCounters::new(),
+            ipc_serialize_time: TimeProfileCounter::new("IPC Serialize Time", false),
+            ipc_deserialize_time: TimeProfileCounter::new("IPC Deserialize Time", false),
+            ipc_send_time: TimeProfileCounter::new("IPC Send Time", false),
+            ipc_total_time: TimeProfileCounter::new("IPC Time", false),
+            ipc_display_len: IntProfileCounter::new("IPC Display List Len"),
+            ipc_aux_len: IntProfileCounter::new("IPC Aux List Len"),
         }
+    }
+
+    pub fn set_ipc(&mut self, serial_start: u64, serial_end: u64, 
+                              deserial_start: u64, deserial_end: u64,
+                              display_len: usize, aux_len: usize) {
+        self.ipc_serialize_time.set(serial_end - serial_start);
+        self.ipc_deserialize_time.set(deserial_end - deserial_start);
+        self.ipc_send_time.set(deserial_start - serial_end);
+        self.ipc_total_time.set(deserial_end - serial_start);
+        self.ipc_display_len.set(display_len);
+        self.ipc_aux_len.set(aux_len);
     }
 
     pub fn reset(&mut self) {
@@ -562,6 +585,7 @@ pub struct Profiler {
     compositor_time: ProfileGraph,
     gpu_time: ProfileGraph,
     gpu_frames: GpuFrameCollection,
+    ipc_time: ProfileGraph,
 }
 
 impl Profiler {
@@ -575,6 +599,7 @@ impl Profiler {
             compositor_time: ProfileGraph::new(600),
             gpu_time: ProfileGraph::new(600),
             gpu_frames: GpuFrameCollection::new(),
+            ipc_time: ProfileGraph::new(600),
         }
     }
 
@@ -689,6 +714,15 @@ impl Profiler {
         ], debug_renderer, true);
 
         self.draw_counters(&[
+            &backend_profile.ipc_serialize_time,
+            &backend_profile.ipc_send_time,
+            &backend_profile.ipc_deserialize_time,
+            &backend_profile.ipc_total_time,
+            &backend_profile.ipc_display_len,
+            &backend_profile.ipc_aux_len,
+        ], debug_renderer, true);
+
+        self.draw_counters(&[
             &renderer_profile.draw_calls,
             &renderer_profile.vertices,
         ], debug_renderer, true);
@@ -698,16 +732,22 @@ impl Profiler {
             &renderer_timers.cpu_time,
             &renderer_timers.gpu_time,
         ], debug_renderer, false);
+        
+
 
 
         self.backend_time.push(backend_profile.total_time.nanoseconds);
         self.compositor_time.push(renderer_timers.cpu_time.nanoseconds);
+        self.ipc_time.push(backend_profile.ipc_total_time.nanoseconds);
         self.gpu_time.push(gpu_time);
         self.gpu_frames.push(gpu_time, gpu_samples);
+
 
         let rect = self.backend_time.draw_graph(self.x_left, self.y_left, "CPU (backend)", debug_renderer);
         self.y_left += rect.size.height + PROFILE_PADDING;
         let rect = self.compositor_time.draw_graph(self.x_left, self.y_left, "CPU (compositor)", debug_renderer);
+        self.y_left += rect.size.height + PROFILE_PADDING;
+        let rect = self.ipc_time.draw_graph(self.x_left, self.y_left, "DisplayList IPC", debug_renderer);
         self.y_left += rect.size.height + PROFILE_PADDING;
         let rect = self.gpu_time.draw_graph(self.x_left, self.y_left, "GPU", debug_renderer);
         self.y_left += rect.size.height + PROFILE_PADDING;
