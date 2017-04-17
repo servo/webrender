@@ -271,6 +271,7 @@ pub struct TextureCacheProfileCounters {
     pub pages_a8: ResourceProfileCounter,
     pub pages_rgb8: ResourceProfileCounter,
     pub pages_rgba8: ResourceProfileCounter,
+    pub pages_rg8: ResourceProfileCounter,
 }
 
 impl TextureCacheProfileCounters {
@@ -279,6 +280,7 @@ impl TextureCacheProfileCounters {
             pages_a8: ResourceProfileCounter::new("Texture A8 cached pages"),
             pages_rgb8: ResourceProfileCounter::new("Texture RGB8 cached pages"),
             pages_rgba8: ResourceProfileCounter::new("Texture RGBA8 cached pages"),
+            pages_rg8: ResourceProfileCounter::new("Texture RG8 cached pages"),
         }
     }
 }
@@ -683,6 +685,7 @@ impl Profiler {
             &backend_profile.texture_cache.pages_a8,
             &backend_profile.texture_cache.pages_rgb8,
             &backend_profile.texture_cache.pages_rgba8,
+            &backend_profile.texture_cache.pages_rg8,
         ], debug_renderer, true);
 
         self.draw_counters(&[
