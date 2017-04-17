@@ -556,8 +556,26 @@ impl AlphaRenderItem {
                                                                    0));
                         }
                     }
-
                 }
+            }
+            AlphaRenderItem::SplitComposite(sc_index, task_id, gpu_address, z) => {
+                let key = AlphaBatchKey::new(AlphaBatchKind::SplitComposite,
+                                             AlphaBatchKeyFlags::empty(),
+                                             BlendMode::Alpha,
+                                             BatchTextures::no_texture());
+                let stacking_context = &ctx.stacking_context_store[sc_index.0];
+                let batch = batch_list.get_suitable_batch(&key, &stacking_context.bounding_rect);
+                let source_task = render_tasks.get_task_index(&task_id, child_pass_index);
+                batch.add_instance(PrimitiveInstance {
+                    global_prim_id: -1,
+                    prim_address: gpu_address,
+                    task_index: task_index.0 as i32,
+                    clip_task_index: -1,
+                    layer_index: -1,
+                    sub_index: 0,
+                    user_data: [ source_task.0 as i32, 0 ],
+                    z_sort_index: z,
+                });
             }
         }
     }
@@ -1120,6 +1138,7 @@ impl RenderPass {
 pub enum AlphaBatchKind {
     Composite = 0,
     HardwareComposite,
+    SplitComposite,
     Blend,
     Rectangle,
     TextRun,

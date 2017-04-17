@@ -7,10 +7,11 @@ use frame::FrameId;
 use gpu_store::GpuStoreAddress;
 use internal_types::{HardwareCompositeOp, SourceTexture};
 use mask_cache::{ClipMode, ClipSource, MaskCacheInfo, RegionMode};
+use plane_split::{NaiveSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu, ImagePrimitiveGpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
-use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
+use prim_store::{RectanglePrimitive, SplitPrimitiveGpu, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
 use prim_store::{BoxShadowPrimitiveGpu, TexelRect, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu};
 use profiler::{FrameProfileCounters, TextureCacheProfileCounters};
 use render_task::{AlphaRenderItem, MaskCacheKey, MaskResult, RenderTask, RenderTaskIndex};
@@ -31,7 +32,7 @@ use webrender_traits::{ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize, Dev
 use webrender_traits::{DeviceUintSize, ExtendMode, FontKey, FontRenderMode, GlyphOptions};
 use webrender_traits::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize};
 use webrender_traits::{LayerToScrollTransform, PipelineId, RepeatMode, TileOffset, TransformStyle};
-use webrender_traits::{WebGLContextId, YuvColorSpace};
+use webrender_traits::{WebGLContextId, WorldPixel, YuvColorSpace};
 
 #[derive(Debug, Clone)]
 struct ImageBorderSegment {
@@ -79,6 +80,16 @@ impl ImageBorderSegment {
             tile_spacing: tile_spacing,
         }
     }
+}
+
+fn make_polygon(layer: &PackedLayer, location: &RenderTaskLocation)
+                -> Polygon<f32, WorldPixel> {
+    let rect = match *location {
+        RenderTaskLocation::Fixed => panic!("Can't split a fixed task"),
+        RenderTaskLocation::Dynamic(_, size) => LayerRect::new(LayerPoint::zero(), //TODO
+                                                               LayerSize::new(size.width as f32, size.width as f32)),
+    };
+    Polygon::from_transformed_rect(rect, layer.transform)
 }
 
 #[derive(Clone, Copy)]
@@ -1172,15 +1183,33 @@ impl FrameBuilder {
                             preserve_3d_stack.push((stacking_context_index, old_current));
                         },
                         ContextIsolation::None | ContextIsolation::Full => {
-                            //TODO: plane split here?
+                            // We are back from a "preserve-3d" sub-domain.
+                            // Time to split those stacking context planes.
+                            let mut splitter = NaiveSplitter::new();
                             for (sc_index, task) in preserve_3d_stack.drain(..) {
-                                let item = AlphaRenderItem::HardwareComposite(sc_index,
-                                                                              task.id,
-                                                                              HardwareCompositeOp::PremultipliedAlpha,
-                                                                              0); //TODO
-                                current_task.as_alpha_batch().items.push(item);
+                                let sc_polygon = {
+                                    //TODO: better way to get the packed layer
+                                    let group_index = self.stacking_context_store[sc_index.0].clip_scroll_groups[0];
+                                    let clip_scroll_group = &self.clip_scroll_group_store[group_index.0];
+                                    let packed_layer = &self.packed_layers[clip_scroll_group.packed_layer_index.0];
+                                    make_polygon(packed_layer, &task.location)
+                                };
+                                let new_polygons = splitter.add(sc_polygon);
+                                let mut split_gpu: SplitPrimitiveGpu;
+                                current_task.as_alpha_batch().items.extend(new_polygons.iter().map(|poly| {
+                                    for (&mut dp, sp) in split_gpu.points.iter_mut().zip(poly.points.iter()) {
+                                        dp[0] = sp.x;
+                                        dp[1] = sp.y;
+                                        dp[2] = sp.z;
+                                        dp[3] = 1.0;
+                                    }
+                                    //FIXME: avoid over-allocating between frames
+                                    let gpu_index = self.prim_store.gpu_data64.push(split_gpu.clone());
+                                    AlphaRenderItem::SplitComposite(sc_index, task.id, gpu_index, next_z)
+                                }));
                                 current_task.children.push(task);
                             }
+                            next_z += 1;
                         },
                     }
 

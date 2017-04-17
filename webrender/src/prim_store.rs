@@ -273,6 +273,12 @@ pub struct RadialGradientPrimitiveCpu {
     pub cache_dirty: bool,
 }
 
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct SplitPrimitiveGpu {
+    pub points: [[f32; 4]; 4],
+}
+
 // The number of entries in a gradient data table.
 pub const GRADIENT_DATA_RESOLUTION: usize = 128;
 
