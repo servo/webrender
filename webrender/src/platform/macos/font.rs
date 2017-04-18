@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use webrender_traits::{ColorU, FontKey, FontRenderMode, GlyphDimensions};
 use webrender_traits::{GlyphKey, GlyphOptions, SubpixelPoint};
+use webrender_traits::NativeFontHandle;
 use gamma_lut::{GammaLut, Color as ColorLut};
 
 pub struct FontContext {
@@ -139,12 +140,12 @@ impl FontContext {
         self.cg_fonts.insert((*font_key).clone(), cg_font);
     }
 
-    pub fn add_native_font(&mut self, font_key: &FontKey, native_font_handle: CGFont) {
+    pub fn add_native_font(&mut self, font_key: &FontKey, native_font_handle: NativeFontHandle) {
         if self.cg_fonts.contains_key(font_key) {
             return
         }
 
-        self.cg_fonts.insert((*font_key).clone(), native_font_handle);
+        self.cg_fonts.insert((*font_key).clone(), native_font_handle.0);
     }
 
     pub fn delete_font(&mut self, font_key: &FontKey) {

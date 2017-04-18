@@ -13,6 +13,7 @@ webgl = ["offscreen_gl_context"]
 [dependencies]
 app_units = "0.4"
 byteorder = "1.0"
+core-foundation = "0.3"
 euclid = "0.11"
 gleam = "0.4"
 heapsize = "0.3.6"
