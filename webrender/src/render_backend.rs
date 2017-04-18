@@ -476,8 +476,7 @@ impl RenderBackend {
                      frame: RendererFrame,
                      profile_counters: &mut BackendProfileCounters) {
         let pending_update = self.resource_cache.pending_updates();
-        let pending_external_image_update = self.resource_cache.pending_external_image_updates();
-        let msg = ResultMsg::NewFrame(frame, pending_update, pending_external_image_update, profile_counters.clone());
+        let msg = ResultMsg::NewFrame(frame, pending_update, profile_counters.clone());
         self.result_tx.send(msg).unwrap();
         profile_counters.reset();
     }

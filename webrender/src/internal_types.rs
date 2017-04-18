@@ -284,6 +284,7 @@ pub enum TextureUpdateOp {
     UpdateForExternalBuffer {
         rect: DeviceUintRect,
         id: ExternalImageId,
+        channel_index: u8,
         stride: Option<u32>,
     },
     Grow {
@@ -295,8 +296,6 @@ pub enum TextureUpdateOp {
     },
     Free,
 }
-
-pub type ExternalImageUpdateList = Vec<ExternalImageId>;
 
 pub struct TextureUpdate {
     pub id: CacheTextureId,
@@ -347,7 +346,7 @@ impl RendererFrame {
 
 pub enum ResultMsg {
     RefreshShader(PathBuf),
-    NewFrame(RendererFrame, TextureUpdateList, ExternalImageUpdateList, BackendProfileCounters),
+    NewFrame(RendererFrame, TextureUpdateList, BackendProfileCounters),
 }
 
 #[repr(u32)]
