@@ -1711,6 +1711,7 @@ impl Renderer {
                 let texture_target = match ext_image.image_type {
                     ExternalImageType::Texture2DHandle => TextureTarget::Default,
                     ExternalImageType::TextureRectHandle => TextureTarget::Rect,
+                    ExternalImageType::TextureExternalHandle => TextureTarget::External,
                     _ => {
                         panic!("{:?} is not a suitable image type in update_deferred_resolves().",
                             ext_image.image_type);

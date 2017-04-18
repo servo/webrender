@@ -459,6 +459,9 @@ impl AlphaRenderItem {
                                 match ext_image.image_type {
                                     ExternalImageType::Texture2DHandle => AlphaBatchKind::Image,
                                     ExternalImageType::TextureRectHandle => AlphaBatchKind::ImageRect,
+                                    ExternalImageType::TextureExternalHandle => {
+                                        panic!("No implementation for single channel TextureExternalHandle image.");
+                                    }
                                     _ => {
                                         panic!("Non-texture handle type should be handled in other way.");
                                     }
@@ -514,6 +517,8 @@ impl AlphaRenderItem {
                                                                0));
                     }
                     PrimitiveKind::YuvImage => {
+                        // TODO (Jerry):
+                        // handle NV12
                         let image_yuv_cpu = &ctx.prim_store.cpu_yuv_images[prim_metadata.cpu_prim_index.0];
                         let key = AlphaBatchKey::new(AlphaBatchKind::YuvImage, flags, blend_mode, textures);
                         let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);

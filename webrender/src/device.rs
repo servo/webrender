@@ -52,6 +52,7 @@ pub enum TextureTarget {
     Default,
     Array,
     Rect,
+    External,
 }
 
 impl TextureTarget {
@@ -60,6 +61,7 @@ impl TextureTarget {
             TextureTarget::Default => gl::TEXTURE_2D,
             TextureTarget::Array => gl::TEXTURE_2D_ARRAY,
             TextureTarget::Rect => gl::TEXTURE_RECTANGLE,
+            TextureTarget::External => gl::TEXTURE_EXTERNAL_OES,
         }
     }
 }

@@ -525,7 +525,8 @@ impl ResourceCache {
             ImageData::External(ext_image) => {
                 match ext_image.image_type {
                     ExternalImageType::Texture2DHandle |
-                    ExternalImageType::TextureRectHandle => {
+                    ExternalImageType::TextureRectHandle |
+                    ExternalImageType::TextureExternalHandle => {
                         Some(ext_image)
                     },
                     // external buffer uses resource_cache.
@@ -750,7 +751,8 @@ impl ResourceCache {
             ImageData::External(ext_image) => {
                 match ext_image.image_type {
                     ExternalImageType::Texture2DHandle |
-                    ExternalImageType::TextureRectHandle => {
+                    ExternalImageType::TextureRectHandle |
+                    ExternalImageType::TextureExternalHandle => {
                         // external handle doesn't need to update the texture_cache.
                     }
                     ExternalImageType::ExternalBuffer => {
