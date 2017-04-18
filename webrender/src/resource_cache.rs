@@ -479,8 +479,8 @@ impl ResourceCache {
                 FONT_CONTEXT.with(|font_context| {
                     let mut font_context = font_context.borrow_mut();
                     match *font_template {
-                        FontTemplate::Raw(ref bytes) => {
-                            font_context.add_raw_font(&glyph_key.font_key, &**bytes);
+                        FontTemplate::Raw(ref bytes, index) => {
+                            font_context.add_raw_font(&glyph_key.font_key, &**bytes, index);
                         }
                         FontTemplate::Native(ref native_font_handle) => {
                             font_context.add_native_font(&glyph_key.font_key,
@@ -867,8 +867,8 @@ fn spawn_glyph_cache_thread(workers: Arc<Mutex<ThreadPool>>) -> (Sender<GlyphCac
                             FONT_CONTEXT.with(|font_context| {
                                 let mut font_context = font_context.borrow_mut();
                                 match font_template {
-                                    FontTemplate::Raw(ref bytes) => {
-                                        font_context.add_raw_font(&font_key, &**bytes);
+                                    FontTemplate::Raw(ref bytes, index) => {
+                                        font_context.add_raw_font(&font_key, &**bytes, index);
                                     }
                                     FontTemplate::Native(ref native_font_handle) => {
                                         font_context.add_native_font(&font_key,

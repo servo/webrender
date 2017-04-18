@@ -464,10 +464,11 @@ impl YamlFrameReader {
             wrench.font_key_from_yaml_table(item)
         } else if !item["font"].is_badvalue() {
             let font_file = self.rsrc_path(&item["font"]);
+            let font_index = item["font-index"].as_i64().unwrap_or(0) as u32;
             let mut file = File::open(&font_file).expect("Couldn't open font file");
             let mut bytes = vec![];
             file.read_to_end(&mut bytes).expect("failed to read font file");
-            wrench.font_key_from_bytes(bytes)
+            wrench.font_key_from_bytes(bytes, font_index)
         } else {
             wrench.font_key_from_name(&*PLATFORM_DEFAULT_FACE_NAME)
         };

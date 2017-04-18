@@ -207,7 +207,7 @@ fn native_font_handle_to_yaml(_: &NativeFontHandle, _: &mut yaml_rust::yaml::Has
 
 enum CachedFont {
     Native(NativeFontHandle),
-    Raw(Option<Vec<u8>>, Option<PathBuf>),
+    Raw(Option<Vec<u8>>, u32, Option<PathBuf>),
 }
 
 struct CachedImage {
@@ -514,14 +514,14 @@ impl YamlFrameWriter {
 
                     let entry = self.fonts.entry(item.font_key).or_insert_with(|| {
                         println!("Warning: font key not found in fonts table!");
-                        CachedFont::Raw(Some(vec![]), None)
+                        CachedFont::Raw(Some(vec![]), 0, None)
                     });
 
                     match entry {
                         &mut CachedFont::Native(ref handle) => {
                             native_font_handle_to_yaml(handle, &mut v);
                         }
-                        &mut CachedFont::Raw(ref mut bytes_opt, ref mut path_opt) => {
+                        &mut CachedFont::Raw(ref mut bytes_opt, index, ref mut path_opt) => {
                             if let Some(bytes) = bytes_opt.take() {
                                 let (path_file, path) =
                                     Self::next_rsrc_paths(&self.rsrc_prefix,
@@ -535,6 +535,9 @@ impl YamlFrameWriter {
                             }
 
                             path_node(&mut v, "font", path_opt.as_ref().unwrap());
+                            if index != 0 {
+                                u32_node(&mut v, "font-index", index);
+                            }
                         }
                     }
                 },
@@ -768,8 +771,8 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
             ApiMsg::WebGLCommand(..) => {
             }
 
-            ApiMsg::AddRawFont(ref key, ref bytes) => {
-                self.frame_writer.fonts.insert(*key, CachedFont::Raw(Some(bytes.clone()), None));
+            ApiMsg::AddRawFont(ref key, ref bytes, index) => {
+                self.frame_writer.fonts.insert(*key, CachedFont::Raw(Some(bytes.clone()), index, None));
             }
 
             ApiMsg::AddNativeFont(ref key, ref native_font_handle) => {
