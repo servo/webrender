@@ -166,7 +166,7 @@ impl WrenchThing for BinaryFrameReader {
                         }
                     }
                     Item::Data(buf) => {
-                        wrench.api.payload_sender.send_payload(Payload::from_data(buf)).unwrap();
+                        wrench.api.payload_sender.send_payload(Payload::from_data(&buf)).unwrap();
                     }
                 }
             }

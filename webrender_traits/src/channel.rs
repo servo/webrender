@@ -45,7 +45,7 @@ impl Payload {
     }
 
     /// Deserializes the given payload from a raw byte vector.
-    pub fn from_data(data: Vec<u8>) -> Payload {
+    pub fn from_data(data: &[u8]) -> Payload {
         let mut payload_reader = Cursor::new(&data[..]);
         let epoch = Epoch(payload_reader.read_u32::<LittleEndian>().unwrap());
         let pipeline_id = PipelineId(payload_reader.read_u32::<LittleEndian>().unwrap(),
