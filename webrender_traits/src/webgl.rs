@@ -224,6 +224,10 @@ define_resource_id!(WebGLShaderId);
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct WebGLContextId(pub usize);
 
+impl ::heapsize::HeapSizeOf for WebGLContextId {
+    fn heap_size_of_children(&self) -> usize { 0 }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum WebGLError {
     InvalidEnum,
