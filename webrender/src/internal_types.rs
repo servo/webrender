@@ -56,7 +56,7 @@ pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
 
 #[derive(Clone)]
 pub enum FontTemplate {
-    Raw(Arc<Vec<u8>>),
+    Raw(Arc<Vec<u8>>, u32),
     Native(NativeFontHandle),
 }
 
