@@ -22,6 +22,9 @@ extern crate serde;
 extern crate serde_derive;
 
 #[cfg(target_os = "macos")]
+extern crate core_foundation;
+
+#[cfg(target_os = "macos")]
 extern crate core_graphics;
 
 #[cfg(target_os = "windows")]
