@@ -275,8 +275,8 @@ impl Wrench {
     pub fn font_key_from_yaml_table(&mut self, item: &Yaml) -> (FontKey, Option<NativeFontHandle>) {
         let family = item["family"].as_str().unwrap();
         let property = system_fonts::FontPropertyBuilder::new().family(family).build();
-        let (font, _) = system_fonts::get(&property).unwrap();
-        self.font_key_from_bytes(font)
+        let (font, index) = system_fonts::get(&property).unwrap();
+        self.font_key_from_bytes(font, index as u32)
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -284,9 +284,9 @@ impl Wrench {
         panic!("Can't font_key_from_name on this platform");
     }
 
-    pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>) -> (FontKey, Option<NativeFontHandle>) {
+    pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>, index: u32) -> (FontKey, Option<NativeFontHandle>) {
         let key = self.api.generate_font_key();
-        self.api.add_raw_font(key, bytes);
+        self.api.add_raw_font(key, bytes, index);
         (key, None)
     }
 

@@ -122,10 +122,10 @@ impl RenderBackend {
                         r.write_msg(frame_counter, &msg);
                     }
                     match msg {
-                        ApiMsg::AddRawFont(id, bytes) => {
+                        ApiMsg::AddRawFont(id, bytes, index) => {
                             profile_counters.resources.font_templates.inc(bytes.len());
                             self.resource_cache
-                                .add_font_template(id, FontTemplate::Raw(Arc::new(bytes)));
+                                .add_font_template(id, FontTemplate::Raw(Arc::new(bytes), index));
                         }
                         ApiMsg::AddNativeFont(id, native_font_handle) => {
                             self.resource_cache

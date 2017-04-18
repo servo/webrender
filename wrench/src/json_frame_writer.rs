@@ -22,7 +22,7 @@ use webrender_traits::*;
 
 enum CachedFont {
     Native(NativeFontHandle),
-    Raw(Option<Vec<u8>>, Option<PathBuf>),
+    Raw(Option<Vec<u8>>, u32, Option<PathBuf>),
 }
 
 struct CachedImage {
@@ -206,8 +206,8 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
             ApiMsg::WebGLCommand(..) => {
             }
 
-            ApiMsg::AddRawFont(ref key, ref bytes) => {
-                self.fonts.insert(*key, CachedFont::Raw(Some(bytes.clone()), None));
+            ApiMsg::AddRawFont(ref key, ref bytes, index) => {
+                self.fonts.insert(*key, CachedFont::Raw(Some(bytes.clone()), index, None));
             }
 
             ApiMsg::AddNativeFont(ref key, ref native_font_handle) => {
