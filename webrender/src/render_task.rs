@@ -10,7 +10,7 @@ use std::{cmp, f32, i32, mem, usize};
 use tiling::{ClipScrollGroupIndex, PackedLayerIndex, RenderPass, RenderTargetIndex};
 use tiling::{RenderTargetKind, StackingContextIndex};
 use webrender_traits::{ClipId, DeviceIntLength, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use webrender_traits::{MixBlendMode, WorldPoint3D};
+use webrender_traits::{MixBlendMode};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 12;
 

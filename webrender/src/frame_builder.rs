@@ -1107,7 +1107,7 @@ impl FrameBuilder {
         }
     }
 
-    fn build_render_task(&self) -> (RenderTask, usize) {
+    fn build_render_task(&mut self) -> (RenderTask, usize) {
         profile_scope!("build_render_task");
 
         let mut next_z = 0;
@@ -1195,16 +1195,17 @@ impl FrameBuilder {
                                     make_polygon(packed_layer, &task.location)
                                 };
                                 let new_polygons = splitter.add(sc_polygon);
-                                let mut split_gpu: SplitPrimitiveGpu;
+                                let gpu_data64 = &mut self.prim_store.gpu_data64;
+                                let mut split_gpu: SplitPrimitiveGpu = unsafe { mem::zeroed() };
                                 current_task.as_alpha_batch().items.extend(new_polygons.iter().map(|poly| {
-                                    for (&mut dp, sp) in split_gpu.points.iter_mut().zip(poly.points.iter()) {
+                                    for (dp, sp) in split_gpu.points.iter_mut().zip(poly.points.iter()) {
                                         dp[0] = sp.x;
                                         dp[1] = sp.y;
                                         dp[2] = sp.z;
                                         dp[3] = 1.0;
                                     }
                                     //FIXME: avoid over-allocating between frames
-                                    let gpu_index = self.prim_store.gpu_data64.push(split_gpu.clone());
+                                    let gpu_index = gpu_data64.push(split_gpu.clone());
                                     AlphaRenderItem::SplitComposite(sc_index, task.id, gpu_index, next_z)
                                 }));
                                 current_task.children.push(task);
