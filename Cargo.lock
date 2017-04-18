@@ -1,6 +1,6 @@
 [root]
 name = "wrench"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "app_units 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "base64 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -21,8 +21,8 @@ dependencies = [
  "serde_json 0.9.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "servo-glutin 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)",
- "webrender 0.34.0",
- "webrender_traits 0.34.0",
+ "webrender 0.35.0",
+ "webrender_traits 0.35.0",
  "yaml-rust 0.3.4 (git+https://github.com/vvuk/yaml-rust)",
 ]
 
@@ -861,7 +861,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "webrender"
-version = "0.34.0"
+version = "0.35.0"
 dependencies = [
  "angle 0.1.2 (git+https://github.com/servo/angle?branch=servo)",
  "app_units 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -884,12 +884,12 @@ dependencies = [
  "thread_profiler 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "threadpool 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)",
- "webrender_traits 0.34.0",
+ "webrender_traits 0.35.0",
 ]
 
 [[package]]
 name = "webrender_traits"
-version = "0.34.0"
+version = "0.35.0"
 dependencies = [
  "app_units 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -923,8 +923,8 @@ dependencies = [
  "euclid 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "servo-glutin 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "webrender 0.34.0",
- "webrender_traits 0.34.0",
+ "webrender 0.35.0",
+ "webrender_traits 0.35.0",
 ]
 
 [[package]]
