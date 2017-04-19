@@ -10,8 +10,8 @@ use internal_types::{ANGLE_FLOAT_TO_FIXED, BatchTextures, CacheTextureId, LowLev
 use internal_types::SourceTexture;
 use mask_cache::MaskCacheInfo;
 use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve, GpuBlock128, GpuBlock16, GpuBlock32};
-use prim_store::{GpuBlock64, GradientData, PrimitiveCacheKey, PrimitiveGeometry, PrimitiveIndex};
-use prim_store::{PrimitiveKind, PrimitiveMetadata, PrimitiveStore, TexelRect};
+use prim_store::{GpuBlock64, GradientData, SplitGeometry, PrimitiveCacheKey, PrimitiveGeometry};
+use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore, TexelRect};
 use profiler::FrameProfileCounters;
 use render_task::{AlphaRenderItem, MaskGeometryKind, MaskSegment, RenderTask, RenderTaskData};
 use render_task::{RenderTaskId, RenderTaskIndex, RenderTaskKey, RenderTaskKind};
@@ -192,15 +192,6 @@ impl RenderTaskCollection {
             &RenderTaskId::Dynamic(key) => {
                 self.dynamic_tasks[&(key, pass_index)].index
             }
-        }
-    }
-}
-
-impl Default for PrimitiveGeometry {
-    fn default() -> PrimitiveGeometry {
-        PrimitiveGeometry {
-            local_rect: unsafe { mem::uninitialized() },
-            local_clip_rect: unsafe { mem::uninitialized() },
         }
     }
 }
@@ -1498,6 +1489,7 @@ pub struct Frame {
     pub gpu_data128: Vec<GpuBlock128>,
     pub gpu_geometry: Vec<PrimitiveGeometry>,
     pub gpu_gradient_data: Vec<GradientData>,
+    pub gpu_split_geometry: Vec<SplitGeometry>,
     pub gpu_resource_rects: Vec<TexelRect>,
 
     // List of textures that we don't know about yet

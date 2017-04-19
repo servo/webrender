@@ -11,7 +11,7 @@ use plane_split::{NaiveSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu, ImagePrimitiveGpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
-use prim_store::{RectanglePrimitive, SplitPrimitiveGpu, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
+use prim_store::{RectanglePrimitive, SplitGeometry, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
 use prim_store::{BoxShadowPrimitiveGpu, TexelRect, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu};
 use profiler::{FrameProfileCounters, TextureCacheProfileCounters};
 use render_task::{AlphaRenderItem, MaskCacheKey, MaskResult, RenderTask, RenderTaskIndex};
@@ -1121,6 +1121,8 @@ impl FrameBuilder {
         let mut alpha_task_stack = Vec::new();
         let mut preserve_3d_stack = Vec::new();
 
+        self.prim_store.gpu_split_geometry.clear();
+
         for cmd in &self.cmds {
             match *cmd {
                 PrimitiveRunCmd::PushStackingContext(stacking_context_index) => {
@@ -1195,18 +1197,17 @@ impl FrameBuilder {
                                     make_polygon(stacking_context, packed_layer)
                                 };
                                 let new_polygons = splitter.add(sc_polygon);
-                                let gpu_data64 = &mut self.prim_store.gpu_data64;
-                                let mut split_gpu: SplitPrimitiveGpu = unsafe { mem::zeroed() };
+                                let gpu_store = &mut self.prim_store.gpu_split_geometry;
+                                let mut split_geo: SplitGeometry = unsafe { mem::zeroed() };
                                 current_task.as_alpha_batch().items.extend(new_polygons.iter().map(|poly| {
                                     //TODO: bring back to layer space
-                                    for (dp, sp) in split_gpu.points.iter_mut().zip(poly.points.iter()) {
+                                    for (dp, sp) in split_geo.points.iter_mut().zip(poly.points.iter()) {
                                         dp[0] = sp.x;
                                         dp[1] = sp.y;
                                         dp[2] = sp.z;
                                         dp[3] = 1.0;
                                     }
-                                    //FIXME: avoid over-allocating between frames
-                                    let gpu_index = gpu_data64.push(split_gpu.clone());
+                                    let gpu_index = gpu_store.push(split_geo.clone());
                                     AlphaRenderItem::SplitComposite(sc_index, task.id, gpu_index, next_z)
                                 }));
                                 current_task.children.push(task);
@@ -1400,6 +1401,7 @@ impl FrameBuilder {
             gpu_data128: self.prim_store.gpu_data128.build(),
             gpu_geometry: self.prim_store.gpu_geometry.build(),
             gpu_gradient_data: self.prim_store.gpu_gradient_data.build(),
+            gpu_split_geometry: self.prim_store.gpu_split_geometry.build(),
             gpu_resource_rects: self.prim_store.gpu_resource_rects.build(),
             deferred_resolves: deferred_resolves,
         }
