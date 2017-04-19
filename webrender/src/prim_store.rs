@@ -175,16 +175,14 @@ pub struct YuvImagePrimitiveCpu {
 #[repr(C)]
 pub struct YuvImagePrimitiveGpu {
     pub size: LayerSize,
-    pub color_space: f32,
-    pub padding: f32,
+    pub padding: [f32; 2],
 }
 
 impl YuvImagePrimitiveGpu {
-    pub fn new(size: LayerSize, color_space: YuvColorSpace) -> Self {
+    pub fn new(size: LayerSize) -> Self {
         YuvImagePrimitiveGpu {
             size: size,
-            color_space: color_space as u32 as f32,
-            padding: 0.0,
+            padding: [0.0; 2],
         }
     }
 }
