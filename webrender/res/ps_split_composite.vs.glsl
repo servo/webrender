@@ -8,13 +8,8 @@ struct SplitGeometry {
 };
 
 SplitGeometry fetch_split_geometry(int index) {
-    ivec2 uv = get_fetch_uv_4(index);
-    return SplitGeometry(vec4[4](
-        texelFetchOffset(sData64, uv, 0, ivec2(0, 0)),
-        texelFetchOffset(sData64, uv, 0, ivec2(1, 0)),
-        texelFetchOffset(sData64, uv, 0, ivec2(2, 0)),
-        texelFetchOffset(sData64, uv, 0, ivec2(3, 0))
-    ));
+    vec4 data[4] = fetch_data_4(index);
+    return SplitGeometry(data);
 }
 
 void main(void) {

@@ -82,14 +82,10 @@ impl ImageBorderSegment {
     }
 }
 
-fn make_polygon(layer: &PackedLayer, location: &RenderTaskLocation)
-                -> Polygon<f32, WorldPixel> {
-    let rect = match *location {
-        RenderTaskLocation::Fixed => panic!("Can't split a fixed task"),
-        RenderTaskLocation::Dynamic(_, size) => LayerRect::new(LayerPoint::zero(), //TODO
-                                                               LayerSize::new(size.width as f32, size.width as f32)),
-    };
-    Polygon::from_transformed_rect(rect, layer.transform)
+fn make_polygon(sc: &StackingContext, layer: &PackedLayer) -> Polygon<f32, WorldPixel> {
+    let mut bounds = sc.local_bounds;
+    bounds.origin = bounds.origin + sc.reference_frame_offset;
+    Polygon::from_transformed_rect(bounds, layer.transform)
 }
 
 #[derive(Clone, Copy)]
@@ -244,6 +240,8 @@ impl FrameBuilder {
                                  pipeline_id: PipelineId,
                                  is_page_root: bool,
                                  composite_ops: CompositeOps,
+                                 original_clip_id: ClipId,
+                                 local_bounds: LayerRect,
                                  transform_style: TransformStyle) {
         if let Some(parent_index) = self.stacking_context_stack.last() {
             let parent_is_root = self.stacking_context_store[parent_index.0].is_page_root;
@@ -264,6 +262,8 @@ impl FrameBuilder {
         self.stacking_context_store.push(StackingContext::new(pipeline_id,
                                                               *reference_frame_offset,
                                                               is_page_root,
+                                                              original_clip_id,
+                                                              local_bounds,
                                                               transform_style,
                                                               composite_ops));
         self.cmds.push(PrimitiveRunCmd::PushStackingContext(stacking_context_index));
@@ -1131,7 +1131,7 @@ impl FrameBuilder {
                         continue;
                     }
 
-                    let stacking_context_rect = &stacking_context.bounding_rect;
+                    let stacking_context_rect = &stacking_context.screen_bounds;
                     let composite_count = stacking_context.composite_ops.count();
                     let should_isolate = stacking_context.isolation == ContextIsolation::Full;
 
@@ -1188,16 +1188,17 @@ impl FrameBuilder {
                             let mut splitter = NaiveSplitter::new();
                             for (sc_index, task) in preserve_3d_stack.drain(..) {
                                 let sc_polygon = {
-                                    //TODO: better way to get the packed layer
-                                    let group_index = self.stacking_context_store[sc_index.0].clip_scroll_groups[0];
-                                    let clip_scroll_group = &self.clip_scroll_group_store[group_index.0];
+                                    let stacking_context = &self.stacking_context_store[sc_index.0];
+                                    let scroll_group_id = stacking_context.original_clip_scroll_group();
+                                    let clip_scroll_group = &self.clip_scroll_group_store[scroll_group_id.0];
                                     let packed_layer = &self.packed_layers[clip_scroll_group.packed_layer_index.0];
-                                    make_polygon(packed_layer, &task.location)
+                                    make_polygon(stacking_context, packed_layer)
                                 };
                                 let new_polygons = splitter.add(sc_polygon);
                                 let gpu_data64 = &mut self.prim_store.gpu_data64;
                                 let mut split_gpu: SplitPrimitiveGpu = unsafe { mem::zeroed() };
                                 current_task.as_alpha_batch().items.extend(new_polygons.iter().map(|poly| {
+                                    //TODO: bring back to layer space
                                     for (dp, sp) in split_gpu.points.iter_mut().zip(poly.points.iter()) {
                                         dp[0] = sp.x;
                                         dp[1] = sp.y;
@@ -1242,7 +1243,7 @@ impl FrameBuilder {
                     if let Some(mix_blend_mode) = stacking_context.composite_ops.mix_blend_mode {
                         let readback_task =
                             RenderTask::new_readback(stacking_context_index,
-                                                     stacking_context.bounding_rect);
+                                                     stacking_context.screen_bounds);
 
                         let mut prev_task = alpha_task_stack.pop().unwrap();
                         let item = AlphaRenderItem::Composite(stacking_context_index,
@@ -1574,15 +1575,15 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         let (bounding_rect, is_visible) = {
             let stacking_context =
                 &mut self.frame_builder.stacking_context_store[stacking_context_index.0];
-            stacking_context.bounding_rect = stacking_context.bounding_rect
+            stacking_context.screen_bounds = stacking_context.screen_bounds
                                                              .intersection(self.screen_rect)
                                                              .unwrap_or(DeviceIntRect::zero());
-            (stacking_context.bounding_rect.clone(), stacking_context.is_visible)
+            (stacking_context.screen_bounds.clone(), stacking_context.is_visible)
         };
 
         if let Some(ref mut parent_index) = self.stacking_context_stack.last_mut() {
             let parent = &mut self.frame_builder.stacking_context_store[parent_index.0];
-            parent.bounding_rect = parent.bounding_rect.union(&bounding_rect);
+            parent.screen_bounds = parent.screen_bounds.union(&bounding_rect);
 
             // The previous compute_stacking_context_visibility pass did not take into
             // account visibility of children, so we do that now.
@@ -1600,7 +1601,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         // scroll layer for items in a stacking context).
         let stacking_context = &mut self.frame_builder
                                         .stacking_context_store[stacking_context_index.0];
-        stacking_context.bounding_rect = DeviceIntRect::zero();
+        stacking_context.screen_bounds = DeviceIntRect::zero();
     }
 
     fn rebuild_clip_info_stack_if_necessary(&mut self, id: ClipId) -> Option<DeviceIntRect> {
@@ -1700,8 +1701,8 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                 let prim_clip_info = prim_metadata.clip_cache_info.as_ref();
                 let mut visible = true;
 
-                stacking_context.bounding_rect =
-                    stacking_context.bounding_rect.union(&prim_bounding_rect);
+                stacking_context.screen_bounds =
+                    stacking_context.screen_bounds.union(&prim_bounding_rect);
 
                 if let Some(info) = prim_clip_info {
                     self.current_clip_stack.push((packed_layer_index, info.clone()));

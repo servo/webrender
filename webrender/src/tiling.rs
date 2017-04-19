@@ -318,7 +318,7 @@ impl AlphaRenderItem {
                 };
 
                 let amount = (amount * 65535.0).round() as i32;
-                let batch = batch_list.get_suitable_batch(&key, &stacking_context.bounding_rect);
+                let batch = batch_list.get_suitable_batch(&key, &stacking_context.screen_bounds);
 
                 batch.add_instance(PrimitiveInstance {
                     global_prim_id: -1,
@@ -338,7 +338,7 @@ impl AlphaRenderItem {
                                              AlphaBatchKeyFlags::empty(),
                                              composite_op.to_blend_mode(),
                                              BatchTextures::no_texture());
-                let batch = batch_list.get_suitable_batch(&key, &stacking_context.bounding_rect);
+                let batch = batch_list.get_suitable_batch(&key, &stacking_context.screen_bounds);
                 batch.add_instance(PrimitiveInstance {
                     global_prim_id: -1,
                     prim_address: GpuStoreAddress(0),
@@ -360,7 +360,7 @@ impl AlphaRenderItem {
                                              AlphaBatchKeyFlags::empty(),
                                              BlendMode::Alpha,
                                              BatchTextures::no_texture());
-                let batch = batch_list.get_suitable_batch(&key, &stacking_context.bounding_rect);
+                let batch = batch_list.get_suitable_batch(&key, &stacking_context.screen_bounds);
                 let backdrop_task = render_tasks.get_task_index(&backdrop_id, child_pass_index);
                 let src_task_index = render_tasks.get_static_task_index(&src_id);
                 batch.add_instance(PrimitiveInstance {
@@ -564,7 +564,7 @@ impl AlphaRenderItem {
                                              BlendMode::Alpha,
                                              BatchTextures::no_texture());
                 let stacking_context = &ctx.stacking_context_store[sc_index.0];
-                let batch = batch_list.get_suitable_batch(&key, &stacking_context.bounding_rect);
+                let batch = batch_list.get_suitable_batch(&key, &stacking_context.screen_bounds);
                 let source_task = render_tasks.get_task_index(&task_id, child_pass_index);
                 batch.add_instance(PrimitiveInstance {
                     global_prim_id: -1,
@@ -1306,13 +1306,19 @@ pub enum ContextIsolation {
 pub struct StackingContext {
     pub pipeline_id: PipelineId,
 
-    // Offset in the parent reference frame to the origin of this stacking
-    // context's coordinate system.
+    /// Offset in the parent reference frame to the origin of this stacking
+    /// context's coordinate system.
     pub reference_frame_offset: LayerPoint,
 
-    // Bounding rectangle for this stacking context calculated based on the size
-    // and position of all its children.
-    pub bounding_rect: DeviceIntRect,
+    /// The `ClipId` used during this context creation.
+    original_clip_id: ClipId,
+
+    /// Local bounding rectangle for this stacking context.
+    pub local_bounds: LayerRect,
+
+    /// Screen space bounding rectangle for this stacking context,
+    /// calculated based on the size and position of all its children.
+    pub screen_bounds: DeviceIntRect,
 
     pub composite_ops: CompositeOps,
     pub clip_scroll_groups: Vec<ClipScrollGroupIndex>,
@@ -1320,12 +1326,12 @@ pub struct StackingContext {
     /// Type of the isolation of the content.
     pub isolation: ContextIsolation,
 
-    // Set for the root stacking context of a display list or an iframe. Used for determining
-    // when to isolate a mix-blend-mode composite.
+    /// Set for the root stacking context of a display list or an iframe. Used for determining
+    /// when to isolate a mix-blend-mode composite.
     pub is_page_root: bool,
 
-    // Wehther or not this stacking context has any visible components, calculated
-    // based on the size and position of all children and how they are clipped.
+    /// Whether or not this stacking context has any visible components, calculated
+    /// based on the size and position of all children and how they are clipped.
     pub is_visible: bool,
 }
 
@@ -1333,6 +1339,8 @@ impl StackingContext {
     pub fn new(pipeline_id: PipelineId,
                reference_frame_offset: LayerPoint,
                is_page_root: bool,
+               original_clip_id: ClipId,
+               local_bounds: LayerRect,
                transform_style: TransformStyle,
                composite_ops: CompositeOps)
                -> StackingContext {
@@ -1343,7 +1351,9 @@ impl StackingContext {
         StackingContext {
             pipeline_id: pipeline_id,
             reference_frame_offset: reference_frame_offset,
-            bounding_rect: DeviceIntRect::zero(),
+            original_clip_id: original_clip_id,
+            local_bounds: local_bounds,
+            screen_bounds: DeviceIntRect::zero(),
             composite_ops: composite_ops,
             clip_scroll_groups: Vec::new(),
             isolation: isolation,
@@ -1362,6 +1372,10 @@ impl StackingContext {
             }
         }
         unreachable!("Looking for non-existent ClipScrollGroup");
+    }
+
+    pub fn original_clip_scroll_group(&self) -> ClipScrollGroupIndex {
+        self.clip_scroll_group(self.original_clip_id)
     }
 
     pub fn can_contribute_to_scene(&self) -> bool {
