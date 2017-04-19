@@ -27,6 +27,18 @@
 #define BORDER_RIGHT     2
 #define BORDER_BOTTOM    3
 
+// Border styles as defined in webrender_traits/types.rs
+#define BORDER_STYLE_NONE         0
+#define BORDER_STYLE_SOLID        1
+#define BORDER_STYLE_DOUBLE       2
+#define BORDER_STYLE_DOTTED       3
+#define BORDER_STYLE_DASHED       4
+#define BORDER_STYLE_HIDDEN       5
+#define BORDER_STYLE_GROOVE       6
+#define BORDER_STYLE_RIDGE        7
+#define BORDER_STYLE_INSET        8
+#define BORDER_STYLE_OUTSET       9
+
 #define UV_NORMALIZED    uint(0)
 #define UV_PIXEL         uint(1)
 
@@ -301,6 +313,19 @@ struct Border {
     vec4 colors[4];
     vec4 radii[2];
 };
+
+vec4 get_effective_border_widths(Border border) {
+    switch (int(border.style.x)) {
+        case BORDER_STYLE_DOUBLE: {
+            // Calculate the width of a border segment in a style: double
+            // border. Round to the nearest CSS pixel.
+            return floor(0.5 + border.widths / 3.0);
+        }
+        default: {
+            return border.widths;
+        }
+    }
+}
 
 Border fetch_border(int index) {
     vec4 data[8] = fetch_data_8(index);
