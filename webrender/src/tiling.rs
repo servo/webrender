@@ -1301,8 +1301,8 @@ pub struct StackingContext {
     /// context's coordinate system.
     pub reference_frame_offset: LayerPoint,
 
-    /// The `ClipId` used during this context creation.
-    original_clip_id: ClipId,
+    /// The `ClipId` of the owning reference frame.
+    pub reference_frame_id: ClipId,
 
     /// Local bounding rectangle for this stacking context.
     pub local_bounds: LayerRect,
@@ -1330,7 +1330,7 @@ impl StackingContext {
     pub fn new(pipeline_id: PipelineId,
                reference_frame_offset: LayerPoint,
                is_page_root: bool,
-               original_clip_id: ClipId,
+               reference_frame_id: ClipId,
                local_bounds: LayerRect,
                transform_style: TransformStyle,
                composite_ops: CompositeOps)
@@ -1342,7 +1342,7 @@ impl StackingContext {
         StackingContext {
             pipeline_id: pipeline_id,
             reference_frame_offset: reference_frame_offset,
-            original_clip_id: original_clip_id,
+            reference_frame_id: reference_frame_id,
             local_bounds: local_bounds,
             screen_bounds: DeviceIntRect::zero(),
             composite_ops: composite_ops,
@@ -1363,10 +1363,6 @@ impl StackingContext {
             }
         }
         unreachable!("Looking for non-existent ClipScrollGroup");
-    }
-
-    pub fn original_clip_scroll_group(&self) -> ClipScrollGroupIndex {
-        self.clip_scroll_group(self.original_clip_id)
     }
 
     pub fn can_contribute_to_scene(&self) -> bool {

@@ -82,10 +82,10 @@ impl ImageBorderSegment {
     }
 }
 
-fn make_polygon(sc: &StackingContext, layer: &PackedLayer) -> Polygon<f32, WorldPixel> {
+fn make_polygon(sc: &StackingContext, node: &ClipScrollNode) -> Polygon<f32, WorldPixel> {
     let mut bounds = sc.local_bounds;
     bounds.origin = bounds.origin + sc.reference_frame_offset;
-    Polygon::from_transformed_rect(bounds, layer.transform)
+    Polygon::from_transformed_rect(bounds, node.world_content_transform)
 }
 
 #[derive(Clone, Copy)]
@@ -240,7 +240,6 @@ impl FrameBuilder {
                                  pipeline_id: PipelineId,
                                  is_page_root: bool,
                                  composite_ops: CompositeOps,
-                                 original_clip_id: ClipId,
                                  local_bounds: LayerRect,
                                  transform_style: TransformStyle) {
         if let Some(parent_index) = self.stacking_context_stack.last() {
@@ -259,10 +258,11 @@ impl FrameBuilder {
         }
 
         let stacking_context_index = StackingContextIndex(self.stacking_context_store.len());
+        let reference_frame_id = self.current_reference_frame_id();
         self.stacking_context_store.push(StackingContext::new(pipeline_id,
                                                               *reference_frame_offset,
                                                               is_page_root,
-                                                              original_clip_id,
+                                                              reference_frame_id,
                                                               local_bounds,
                                                               transform_style,
                                                               composite_ops));
@@ -1107,7 +1107,8 @@ impl FrameBuilder {
         }
     }
 
-    fn build_render_task(&mut self) -> (RenderTask, usize) {
+    fn build_render_task(&mut self, clip_scroll_tree: &ClipScrollTree)
+                         -> (RenderTask, usize) {
         profile_scope!("build_render_task");
 
         let mut next_z = 0;
@@ -1180,6 +1181,7 @@ impl FrameBuilder {
 
                     match stacking_context.isolation {
                         ContextIsolation::Items => {
+                            //TODO: avoid task creation for SCs with no children items
                             let prev_task = alpha_task_stack.pop().unwrap();
                             let old_current = mem::replace(&mut current_task, prev_task);
                             preserve_3d_stack.push((stacking_context_index, old_current));
@@ -1191,10 +1193,8 @@ impl FrameBuilder {
                             for (sc_index, task) in preserve_3d_stack.drain(..) {
                                 let sc_polygon = {
                                     let stacking_context = &self.stacking_context_store[sc_index.0];
-                                    let scroll_group_id = stacking_context.original_clip_scroll_group();
-                                    let clip_scroll_group = &self.clip_scroll_group_store[scroll_group_id.0];
-                                    let packed_layer = &self.packed_layers[clip_scroll_group.packed_layer_index.0];
-                                    make_polygon(stacking_context, packed_layer)
+                                    let scroll_node = clip_scroll_tree.nodes.get(&stacking_context.reference_frame_id).unwrap();
+                                    make_polygon(stacking_context, scroll_node)
                                 };
                                 let new_polygons = splitter.add(sc_polygon);
                                 let gpu_store = &mut self.prim_store.gpu_split_geometry;
@@ -1338,7 +1338,7 @@ impl FrameBuilder {
                                                       &mut profile_counters,
                                                       device_pixel_ratio);
 
-        let (main_render_task, static_render_task_count) = self.build_render_task();
+        let (main_render_task, static_render_task_count) = self.build_render_task(clip_scroll_tree);
         let mut render_tasks = RenderTaskCollection::new(static_render_task_count);
 
         let mut required_pass_count = 0;
