@@ -28,12 +28,11 @@ impl Serialize for NativeFontHandle {
 impl Deserialize for NativeFontHandle {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer {
         let postscript_name: String = try!(Deserialize::deserialize(deserializer));
-        CGFont::from_name(&CFString::new(&*postscript_name))
-            .map(|font| NativeFontHandle(font))
-            .map_err(|_| {
-                de::Error::custom("Couldn't find a font with that PostScript name!")
-            }
-        )
+
+        match CGFont::from_name(&CFString::new(&*postscript_name)) {
+            Ok(font) => Ok(NativeFontHandle(font)),
+            _ => Err(de::Error::custom("Couldn't find a font with that PostScript name!")),
+        }
     }
 }
 
