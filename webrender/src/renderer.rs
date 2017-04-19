@@ -1680,13 +1680,18 @@ impl Renderer {
             // draw image masks
             for (mask_texture_id, items) in target.clip_batcher.images.iter() {
                 let _gm2 = GpuMarker::new(self.device.rc_gl(), "clip images");
-                let texture_id = self.resolve_source_texture(mask_texture_id);
-                self.device.bind_texture(TextureSampler::Mask, texture_id);
+                let textures = BatchTextures {
+                    colors: [
+                        mask_texture_id.clone(),
+                        SourceTexture::Invalid,
+                        SourceTexture::Invalid,
+                    ]
+                };
                 let shader = self.cs_clip_image.get(&mut self.device).unwrap();
                 self.draw_instanced_batch(items,
                                           vao,
                                           shader,
-                                          &BatchTextures::no_texture(),
+                                          &textures,
                                           &projection);
             }
         }

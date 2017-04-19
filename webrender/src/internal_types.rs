@@ -65,7 +65,6 @@ pub enum TextureSampler {
     Color0,
     Color1,
     Color2,
-    Mask,
     CacheA8,
     CacheRGBA8,
     Data16,
