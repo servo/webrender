@@ -489,9 +489,22 @@ impl AlphaRenderItem {
                         let key = AlphaBatchKey::new(batch_kind, flags, blend_mode, textures);
                         let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
 
+                        let mut cache_task_index = 0;
+                        if prim_metadata.render_task.is_some() {
+                            let cache_task_id = &prim_metadata.render_task.as_ref().unwrap().id;
+                            cache_task_index = render_tasks.get_task_index(cache_task_id,
+                                                                           child_pass_index).0 as i32;
+                        }
+
                         for glyph_index in 0..prim_metadata.gpu_data_count {
+                            let user_data0 = match batch_kind {
+                                AlphaBatchKind::TextRun => text_cpu.resource_address.0 + glyph_index,
+                                AlphaBatchKind::CacheImage => cache_task_index,
+                                _ => panic!("Invalid batch kind for text"),
+                            };
+
                             batch.add_instance(base_instance.build(prim_metadata.gpu_data_address.0 + glyph_index,
-                                                                   text_cpu.resource_address.0 + glyph_index,
+                                                                   user_data0,
                                                                    0));
                         }
                     }
