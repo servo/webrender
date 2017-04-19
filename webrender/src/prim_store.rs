@@ -145,7 +145,7 @@ impl PrimitiveMetadata {
 
 #[derive(Debug, Clone)]
 pub struct SplitGeometry {
-    pub points: [[f32; 4]; 4],
+    pub points: [[f32; 2]; 4],
 }
 
 impl Default for SplitGeometry {
@@ -656,6 +656,7 @@ impl PrimitiveStore {
             gpu_data64: self.gpu_data64.recycle(),
             gpu_data128: self.gpu_data128.recycle(),
             gpu_gradient_data: self.gpu_gradient_data.recycle(),
+            gpu_split_geometry: self.gpu_split_geometry.recycle(),
             gpu_resource_rects: self.gpu_resource_rects.recycle(),
         }
     }

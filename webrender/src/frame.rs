@@ -437,7 +437,6 @@ impl Frame {
                                               pipeline_id,
                                               level == 0,
                                               composition_operations,
-                                              clip_id,
                                               bounds.clone(),
                                               stacking_context.transform_style);
 
