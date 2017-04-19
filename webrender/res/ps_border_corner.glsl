@@ -10,9 +10,10 @@ flat varying vec4 vColorEdgeLine;
 
 // Border radius
 flat varying vec2 vClipCenter;
-flat varying vec2 vOuterRadii;
-flat varying vec2 vInnerRadii;
+flat varying vec4 vRadii0;
+flat varying vec4 vRadii1;
 flat varying vec2 vClipSign;
+flat varying vec4 vEdgeDistance;
 
 #ifdef WR_FEATURE_TRANSFORM
 flat varying RectWithSize vLocalRect;

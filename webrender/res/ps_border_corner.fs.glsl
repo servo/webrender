@@ -92,14 +92,38 @@ void main(void) {
         vec2 p = local_pos - vClipCenter;
 
         // Get signed distance from the inner/outer clips.
-        float d0 = distance_to_ellipse(p, vOuterRadii);
-        float d1 = distance_to_ellipse(p, vInnerRadii);
+        float d0 = distance_to_ellipse(p, vRadii0.xy);
+        float d1 = distance_to_ellipse(p, vRadii0.zw);
+        float d2 = distance_to_ellipse(p, vRadii1.xy);
+        float d3 = distance_to_ellipse(p, vRadii1.zw);
 
         // Signed distance field subtract
-        float d = max(d0, 0.5 * afwidth - d1);
+        float d_outer = max(d0, 0.5 * afwidth - d1);
+        float d_inner = max(d2, 0.5 * afwidth - d3);
+
+        // SDF union
+        float d = min(d_outer, d_inner);
 
         // Only apply AA to fragments outside the signed distance field.
-        alpha = min(alpha, 1.0 - smoothstep(0.0, afwidth, d));
+        alpha = min(alpha, 1.0 - smoothstep(0.0, 0.5 * afwidth, d));
+    } else {
+        // Handle the case where the fragment is outside the clip
+        // region in a corner. This occurs when border width is
+        // greater than border radius.
+
+        // Get linear distances along horizontal and vertical edges.
+        vec2 d0 = vClipSign.xx * (local_pos.xx - vEdgeDistance.xz);
+        vec2 d1 = vClipSign.yy * (local_pos.yy - vEdgeDistance.yw);
+        // Apply union to get the outer edge signed distance.
+        float da = min(d0.x, d1.x);
+        // Apply intersection to get the inner edge signed distance.
+        float db = max(-d0.y, -d1.y);
+        // Apply union to get both edges.
+        float d = min(da, db);
+        // Select fragment on/off based on signed distance.
+        // No AA here, since we know we're on a straight edge
+        // and the width is rounded to a whole CSS pixel.
+        alpha = min(alpha, mix(0.0, 1.0, d < 0.0));
     }
 
     // Select color based on side of line. Get distance from the
