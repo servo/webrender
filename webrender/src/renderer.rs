@@ -22,6 +22,7 @@ use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler};
+use num::FromPrimitive;
 use prim_store::GradientData;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
@@ -54,6 +55,7 @@ use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize
 use webrender_traits::{ImageDescriptor, BlobImageRenderer};
 use webrender_traits::channel;
 use webrender_traits::VRCompositorHandler;
+use webrender_traits::{YuvColorSpace, YuvFormat};
 
 pub const GPU_DATA_TEXTURE_POOL: usize = 5;
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
@@ -65,7 +67,6 @@ const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: debug_
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: debug_colors::SLATEGREY };
 const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: debug_colors::RED };
 const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: debug_colors::GREEN };
-const GPU_TAG_PRIM_IMAGE_RECT: GpuProfileTag = GpuProfileTag { label: "ImageRect", color: debug_colors::GREENYELLOW };
 const GPU_TAG_PRIM_YUV_IMAGE: GpuProfileTag = GpuProfileTag { label: "YuvImage", color: debug_colors::DARKGREEN };
 const GPU_TAG_PRIM_BLEND: GpuProfileTag = GpuProfileTag { label: "Blend", color: debug_colors::LIGHTBLUE };
 const GPU_TAG_PRIM_HW_COMPOSITE: GpuProfileTag = GpuProfileTag { label: "HwComposite", color: debug_colors::DODGERBLUE };
@@ -268,7 +269,6 @@ pub type GradientDataStore = GpuStore<GradientData, GradientDataTextureLayout>;
 const TRANSFORM_FEATURE: &'static str = "TRANSFORM";
 const SUBPIXEL_AA_FEATURE: &'static str = "SUBPIXEL_AA";
 const CLIP_FEATURE: &'static str = "CLIP";
-const TEXTURE_RECT_FEATURE: &'static str = "TEXTURE_RECT";
 
 enum ShaderKind {
     Primitive,
@@ -510,9 +510,8 @@ pub struct Renderer {
     ps_rectangle_clip: PrimitiveShader,
     ps_text_run: PrimitiveShader,
     ps_text_run_subpixel: PrimitiveShader,
-    ps_image: PrimitiveShader,
-    ps_image_rect: PrimitiveShader,
-    ps_yuv_image: PrimitiveShader,
+    ps_image: Vec<Option<PrimitiveShader>>,
+    ps_yuv_image: Vec<Option<PrimitiveShader>>,
     ps_border: PrimitiveShader,
     ps_border_corner: PrimitiveShader,
     ps_border_edge: PrimitiveShader,
@@ -628,6 +627,7 @@ impl Renderer {
         let (api_tx, api_rx) = try!{ channel::msg_channel() };
         let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
         let (result_tx, result_rx) = channel();
+        let gl_type = gl.get_type();
 
         register_thread_with_profiler("Compositor".to_owned());
 
@@ -712,26 +712,72 @@ impl Renderer {
                                  options.precache_shaders)
         };
 
-        let ps_image = try!{
-            PrimitiveShader::new("ps_image",
-                                 &mut device,
-                                 &[],
-                                 options.precache_shaders)
-        };
+        // All image configuration.
+        let mut image_features = Vec::new();
+        let mut ps_image: Vec<Option<PrimitiveShader>> = Vec::new();
+        // PrimitiveShader is not clonable. Use push() to initialize the vec.
+        for _ in 0..(ImageBufferKind::TotalNum as usize) {
+            ps_image.push(None);
+        }
+        for buffer_kind in 0..(ImageBufferKind::TotalNum as usize) {
+            if ImageBufferKind::from_usize(buffer_kind).unwrap().is_platform_support(&gl_type) {
+                let feature_string = ImageBufferKind::from_usize(buffer_kind).unwrap().get_feature_string();
+                if feature_string != "" {
+                    image_features.push(feature_string);
+                }
+                let shader = try!{
+                    PrimitiveShader::new("ps_image",
+                                         &mut device,
+                                         &image_features,
+                                         options.precache_shaders)
+                };
+                ps_image[buffer_kind] = Some(shader);
+            }
+            image_features.clear();
+        }
 
-        let ps_image_rect = try!{
-            PrimitiveShader::new("ps_image",
-                                 &mut device,
-                                 &[ TEXTURE_RECT_FEATURE ],
-                                 options.precache_shaders)
-        };
+        // All yuv_image configuration.
+        let mut yuv_features = Vec::new();
+        let yuv_shader_num = (ImageBufferKind::TotalNum as usize) *
+                             (YuvFormat::TotalNum as usize) *
+                             (YuvColorSpace::TotalNum as usize);
+        let mut ps_yuv_image: Vec<Option<PrimitiveShader>> = Vec::new();
+        // PrimitiveShader is not clonable. Use push() to initialize the vec.
+        for _ in 0..yuv_shader_num {
+            ps_yuv_image.push(None);
+        }
+        for buffer_kind in 0..(ImageBufferKind::TotalNum as usize) {
+            if ImageBufferKind::from_usize(buffer_kind).unwrap().is_platform_support(&gl_type) {
+                for format_kind in 0..(YuvFormat::TotalNum as usize) {
+                    for color_space_kind in 0..(YuvColorSpace::TotalNum as usize) {
+                        let feature_string = ImageBufferKind::from_usize(buffer_kind).unwrap().get_feature_string();
+                        if feature_string != "" {
+                            yuv_features.push(feature_string);
+                        }
+                        let feature_string = YuvFormat::from_usize(format_kind).unwrap().get_feature_string();
+                        if feature_string != "" {
+                            yuv_features.push(feature_string);
+                        }
+                        let feature_string = YuvColorSpace::from_usize(color_space_kind).unwrap().get_feature_string();
+                        if feature_string != "" {
+                            yuv_features.push(feature_string);
+                        }
 
-        let ps_yuv_image = try!{
-            PrimitiveShader::new("ps_yuv_image",
-                                 &mut device,
-                                 &[],
-                                 options.precache_shaders)
-        };
+                        let shader = try!{
+                            PrimitiveShader::new("ps_yuv_image",
+                                                 &mut device,
+                                                 &yuv_features,
+                                                 options.precache_shaders)
+                        };
+                        let index = Renderer::get_yuv_shader_index(ImageBufferKind::from_usize(buffer_kind).unwrap(),
+                                                                   YuvFormat::from_usize(format_kind).unwrap(),
+                                                                   YuvColorSpace::from_usize(color_space_kind).unwrap());
+                        ps_yuv_image[index] = Some(shader);
+                        yuv_features.clear();
+                    }
+                }
+            }
+        }
 
         let ps_border = try!{
             PrimitiveShader::new("ps_border",
@@ -981,7 +1027,6 @@ impl Renderer {
             ps_text_run: ps_text_run,
             ps_text_run_subpixel: ps_text_run_subpixel,
             ps_image: ps_image,
-            ps_image_rect: ps_image_rect,
             ps_yuv_image: ps_yuv_image,
             ps_border: ps_border,
             ps_border_corner: ps_border_corner,
@@ -1027,6 +1072,10 @@ impl Renderer {
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
         Ok((renderer, sender))
+    }
+
+    fn get_yuv_shader_index(buffer_kind: ImageBufferKind, format: YuvFormat, color_space: YuvColorSpace) -> usize {
+        ((buffer_kind as usize) * (YuvFormat::TotalNum as usize) + (format as usize)) * (YuvColorSpace::TotalNum as usize) + (color_space as usize)
     }
 
     pub fn gl(&self) -> &gl::Gl {
@@ -1414,16 +1463,15 @@ impl Renderer {
                 };
                 (GPU_TAG_PRIM_TEXT_RUN, shader)
             }
-            AlphaBatchKind::Image => {
-                let shader = self.ps_image.get(&mut self.device, transform_kind);
+            AlphaBatchKind::Image(image_buffer_kind) => {
+                let shader = self.ps_image[image_buffer_kind as usize].as_mut().unwrap().get(&mut self.device, transform_kind);
                 (GPU_TAG_PRIM_IMAGE, shader)
             }
-            AlphaBatchKind::ImageRect => {
-                let shader = self.ps_image_rect.get(&mut self.device, transform_kind);
-                (GPU_TAG_PRIM_IMAGE_RECT, shader)
-            }
-            AlphaBatchKind::YuvImage => {
-                let shader = self.ps_yuv_image.get(&mut self.device, transform_kind);
+            AlphaBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
+                let shader_index = Renderer::get_yuv_shader_index(image_buffer_kind,
+                                                                  format,
+                                                                  color_space);
+                let shader = self.ps_yuv_image[shader_index].as_mut().unwrap().get(&mut self.device, transform_kind);
                 (GPU_TAG_PRIM_YUV_IMAGE, shader)
             }
             AlphaBatchKind::Border => {
