@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use clap;
-use euclid::{Point2D, TypedPoint2D, SideOffsets2D};
+use euclid::{TypedPoint2D, SideOffsets2D};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
@@ -487,7 +487,7 @@ impl YamlFrameReader {
             let glyphs = glyph_indices.iter().enumerate().map(|k| {
                 GlyphInstance {
                     index: *k.1,
-                    point: Point2D::new(origin.x + glyph_offsets[k.0 * 2],
+                    point: LayoutPoint::new(origin.x + glyph_offsets[k.0 * 2],
                                         origin.y + glyph_offsets[k.0 * 2 + 1])
                 }
             }).collect::<Vec<_>>();
@@ -512,7 +512,7 @@ impl YamlFrameReader {
             let y = origin.y;
             let glyphs = glyph_indices.iter().zip(glyph_advances).map(|arg| {
                 let gi = GlyphInstance { index: *arg.0 as u32,
-                                         point: Point2D::new(x, y), };
+                                         point: LayoutPoint::new(x, y), };
                 x += arg.1;
                 gi
             }).collect::<Vec<_>>();

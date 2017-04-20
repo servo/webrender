@@ -26,7 +26,7 @@ use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextI
 use webrender_traits::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescriptor, ColorF};
 use webrender_traits::{GlyphOptions, GlyphInstance, TileOffset, TileSize};
 use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError};
-use webrender_traits::{ExternalImageData, ExternalImageType};
+use webrender_traits::{ExternalImageData, ExternalImageType, LayoutPoint};
 use threadpool::ThreadPool;
 use euclid::Point2D;
 
@@ -83,7 +83,7 @@ impl RenderedGlyphKey {
                size: Au,
                color: ColorF,
                index: u32,
-               point: Point2D<f32>,
+               point: LayoutPoint,
                render_mode: FontRenderMode,
                glyph_options: Option<GlyphOptions>) -> RenderedGlyphKey {
         RenderedGlyphKey {
@@ -444,7 +444,7 @@ impl ResourceCache {
                                                   size,
                                                   color,
                                                   0,
-                                                  Point2D::new(0.0, 0.0),
+                                                  LayoutPoint::new(0.0, 0.0),
                                                   render_mode,
                                                   glyph_options);
         let mut texture_id = None;
