@@ -30,6 +30,8 @@ webrender_traits = {path = "../webrender_traits"}
 bitflags = "0.7"
 gamma-lut = "0.1"
 thread_profiler = "0.1.1"
+enum_primitive = "0.1.1"
+num = "0.1.32"
 
 [dev-dependencies]
 angle = {git = "https://github.com/servo/angle", branch = "servo"}
