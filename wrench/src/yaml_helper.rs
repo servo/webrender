@@ -40,6 +40,7 @@ fn string_to_color(color: &str) -> Option<ColorF> {
         "blue" => Some(ColorF::new(0.0, 0.0, 1.0, 1.0)),
         "white" => Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
         "black" => Some(ColorF::new(0.0, 0.0, 0.0, 1.0)),
+        "yellow" => Some(ColorF::new(1.0, 1.0, 0.0, 1.0)),
         s => {
             let items: Vec<f32> = s.split_whitespace().map(|s| f32::from_str(s).unwrap()).collect();
             if items.len() == 3 {
