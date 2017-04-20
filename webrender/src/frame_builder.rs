@@ -31,7 +31,7 @@ use webrender_traits::{ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize, Dev
 use webrender_traits::{DeviceUintSize, ExtendMode, FontKey, FontRenderMode, GlyphOptions};
 use webrender_traits::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize};
 use webrender_traits::{LayerToScrollTransform, PipelineId, RepeatMode, TileOffset, TransformStyle};
-use webrender_traits::{WebGLContextId, YuvColorSpace};
+use webrender_traits::{WebGLContextId, YuvColorSpace, YuvFormat};
 
 #[derive(Debug, Clone)]
 struct ImageBorderSegment {
@@ -1008,18 +1008,25 @@ impl FrameBuilder {
                          clip_id: ClipId,
                          rect: LayerRect,
                          clip_region: &ClipRegion,
-                         y_image_key: ImageKey,
-                         u_image_key: ImageKey,
-                         v_image_key: ImageKey,
+                         plane_0_image_key: ImageKey,
+                         plane_1_image_key: Option<ImageKey>,
+                         plane_2_image_key: Option<ImageKey>,
+                         format: YuvFormat,
                          color_space: YuvColorSpace) {
 
         let prim_cpu = YuvImagePrimitiveCpu {
-            yuv_key: [y_image_key, u_image_key, v_image_key],
+            yuv_key: [
+                plane_0_image_key,
+                { if plane_1_image_key.is_some() { plane_1_image_key.unwrap() } else { ImageKey::new(0,0) } },
+                { if plane_2_image_key.is_some() { plane_2_image_key.unwrap() } else { ImageKey::new(0,0) } },
+            ],
             yuv_texture_id: [SourceTexture::Invalid, SourceTexture::Invalid, SourceTexture::Invalid],
             yuv_resource_address: GpuStoreAddress(0),
+            format: format,
+            color_space: color_space,
         };
 
-        let prim_gpu = YuvImagePrimitiveGpu::new(rect.size, color_space);
+        let prim_gpu = YuvImagePrimitiveGpu::new(rect.size);
 
         self.add_primitive(clip_id,
                            &rect,
