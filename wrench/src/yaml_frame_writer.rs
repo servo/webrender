@@ -317,7 +317,8 @@ impl YamlFrameWriter {
         let mut root_dl_table = new_table();
         {
             let mut iter = dl.all_display_items().iter();
-            self.write_display_list(&mut root_dl_table, &mut iter, &aux, &mut ClipIdMapper::new());
+            let pipeline_id = self.pipeline_id.unwrap().clone();
+            self.write_display_list(&mut root_dl_table, &mut iter, &aux, &mut ClipIdMapper::new(pipeline_id));
         }
 
 
@@ -345,7 +346,7 @@ impl YamlFrameWriter {
                 let dl = scene.display_lists.get(&pipeline_id).unwrap();
                 let aux = scene.pipeline_auxiliary_lists.get(&pipeline_id).unwrap();
                 let mut iter = dl.iter();
-                self.write_display_list(&mut pipeline, &mut iter, aux, &mut ClipIdMapper::new());
+                self.write_display_list(&mut pipeline, &mut iter, aux, &mut ClipIdMapper::new(pipeline_id));
                 pipelines.push(Yaml::Hash(pipeline));
             }
 
@@ -853,9 +854,12 @@ struct ClipIdMapper {
 }
 
 impl ClipIdMapper {
-    fn new() -> ClipIdMapper {
+    fn new(pipeline_id: PipelineId) -> ClipIdMapper {
+        let mut map = HashMap::new();
+        map.insert(ClipId::root_scroll_node(pipeline_id), 0);
+
         ClipIdMapper {
-            hash_map: HashMap::new(),
+            hash_map: map,
             current_clip_id: 1,
         }
     }
