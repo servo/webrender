@@ -1,0 +1,11 @@
+---
+root:
+  items:
+        -
+          bounds: [14, 18, 205, 35]
+          glyphs: [55]
+          offsets: [16, 43]
+          size: 18
+          color: black
+          blur-radius: 5
+          font: "VeraBd.ttf"
