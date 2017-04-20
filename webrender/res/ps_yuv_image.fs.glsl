@@ -53,12 +53,40 @@ void main(void) {
     vec2 uv_offset = clamp(
         relative_pos_in_rect / vStretchSize * vTextureSizeUv,
         vHalfTexelUv, vTextureSizeUv - vHalfTexelUv);
+    // NV12 only uses 2 textures. The sColor0 is for y and sColor1 is for uv.
+    // The texture coordinates of u and v are the same. So, we could skip the
+    // st_v.
     vec2 st_u = vTextureOffsetU + uv_offset;
+#ifndef WR_FEATURE_NV12
     vec2 st_v = vTextureOffsetV + uv_offset;
+#endif
 
-    float y = textureLod(sColor0, st_y, 0.0).r;
-    float u = textureLod(sColor1, st_u, 0.0).r;
-    float v = textureLod(sColor2, st_v, 0.0).r;
+    vec3 yuv_value;
+#ifdef WR_FEATURE_NV12
+    #if defined(WR_FEATURE_TEXTURE_EXTERNAL) || defined(WR_FEATURE_TEXTURE_RECT)
+        // The textureLod() doesn't support samplerExternalOES.
+        // https://www.khronos.org/registry/OpenGL/extensions/OES/OES_EGL_image_external_essl3.txt
+        //
+        // The textureLod() doesn't support sampler2DRect, too.
+        //
+        // Use texture() instead.
+        yuv_value.x = texture(sColor0, st_y).r;
+        yuv_value.yz = texture(sColor1, st_u).rg;
+    #else
+        yuv_value.x = textureLod(sColor0, st_y, 0.0).r;
+        yuv_value.yz = textureLod(sColor1, st_u, 0.0).rg;
+    #endif
+#else
+    #if defined(WR_FEATURE_TEXTURE_EXTERNAL) || defined(WR_FEATURE_TEXTURE_RECT)
+        yuv_value.x = texture(sColor0, st_y).r;
+        yuv_value.y = texture(sColor1, st_u).r;
+        yuv_value.z = texture(sColor2, st_v).r;
+    #else
+        yuv_value.x = textureLod(sColor0, st_y, 0.0).r;
+        yuv_value.y = textureLod(sColor1, st_u, 0.0).r;
+        yuv_value.z = textureLod(sColor2, st_v, 0.0).r;
+    #endif
+#endif
 
     // See the YuvColorMatrix definition for an explanation of where the constants come from.
     vec3 rgb = YuvColorMatrix * vec3(yuv_value.x - 0.06275, yuv_value.y - 0.50196, yuv_value.z - 0.50196);
