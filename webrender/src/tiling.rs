@@ -17,6 +17,7 @@ use render_task::{AlphaRenderItem, MaskGeometryKind, MaskSegment, RenderTask, Re
 use render_task::{RenderTaskId, RenderTaskIndex, RenderTaskKey, RenderTaskKind};
 use render_task::RenderTaskLocation;
 use renderer::BlendMode;
+use renderer::ImageBufferKind;
 use resource_cache::ResourceCache;
 use std::{f32, i32, mem, usize};
 use std::collections::HashMap;

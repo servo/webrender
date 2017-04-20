@@ -81,6 +81,48 @@ const GPU_TAG_PRIM_BORDER_EDGE: GpuProfileTag = GpuProfileTag { label: "BorderEd
 const GPU_TAG_PRIM_CACHE_IMAGE: GpuProfileTag = GpuProfileTag { label: "CacheImage", color: debug_colors::SILVER };
 const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag { label: "Blur", color: debug_colors::VIOLET };
 
+enum_from_primitive! {
+    #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+    pub enum ImageBufferKind {
+        Texture2D = 0,
+        TextureRect = 1,
+        TextureExternal = 2,
+        TotalNum = 3,
+    }
+}
+
+impl ImageBufferKind {
+    pub fn get_feature_string(&self) -> &'static str {
+        match *self {
+            ImageBufferKind::Texture2D => "",
+            ImageBufferKind::TextureRect => "TEXTURE_RECT",
+            ImageBufferKind::TextureExternal => "TEXTURE_EXTERNAL",
+            ImageBufferKind::TotalNum => "Invalid",
+        }
+    }
+
+    pub fn is_platform_support(&self, gl_type: &gl::GlType) -> bool {
+        match *gl_type {
+            gl::GlType::Gles => {
+                match *self {
+                    ImageBufferKind::Texture2D => true,
+                    ImageBufferKind::TextureRect => true,
+                    ImageBufferKind::TextureExternal => true,
+                    ImageBufferKind::TotalNum => false,
+                }
+            }
+            gl::GlType::Gl => {
+                match *self {
+                    ImageBufferKind::Texture2D => true,
+                    ImageBufferKind::TextureRect => true,
+                    ImageBufferKind::TextureExternal => false,
+                    ImageBufferKind::TotalNum => false,
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum RendererKind {
     Native,

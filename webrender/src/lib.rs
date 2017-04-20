@@ -45,6 +45,10 @@ extern crate bitflags;
 #[macro_use]
 extern crate thread_profiler;
 
+#[macro_use]
+extern crate enum_primitive;
+extern crate num;
+
 mod border;
 mod clip_scroll_node;
 mod clip_scroll_tree;
