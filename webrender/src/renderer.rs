@@ -1282,7 +1282,9 @@ impl Renderer {
                                             };
                                             handler.unlock(ext_image.id, ext_image.channel_index);
                                         }
-                                        _ => {
+                                        ExternalImageType::Texture2DHandle |
+                                        ExternalImageType::TextureRectHandle |
+                                        ExternalImageType::TextureExternalHandle => {
                                             panic!("External texture handle should not use TextureUpdateOp::Create.");
                                         }
                                     }
@@ -1753,7 +1755,7 @@ impl Renderer {
                     ExternalImageType::Texture2DHandle => TextureTarget::Default,
                     ExternalImageType::TextureRectHandle => TextureTarget::Rect,
                     ExternalImageType::TextureExternalHandle => TextureTarget::External,
-                    _ => {
+                    ExternalImageType::ExternalBuffer => {
                         panic!("{:?} is not a suitable image type in update_deferred_resolves().",
                             ext_image.image_type);
                     }
