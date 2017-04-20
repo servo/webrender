@@ -310,6 +310,9 @@ impl RenderBackend {
                                 };
 
                                 let result = wrapper.new_context(size, attributes, dispatcher);
+                                // Creating a new GLContext may make the current bound context_id dirty.
+                                // Clear it to ensure that  make_current() is called in subsequent commands.
+                                self.current_bound_webgl_context_id = None;
 
                                 match result {
                                     Ok(ctx) => {
@@ -336,7 +339,10 @@ impl RenderBackend {
                         }
                         ApiMsg::ResizeWebGLContext(context_id, size) => {
                             let ctx = self.webgl_contexts.get_mut(&context_id).unwrap();
-                            ctx.make_current();
+                            if Some(context_id) != self.current_bound_webgl_context_id {
+                                ctx.make_current();
+                                self.current_bound_webgl_context_id = Some(context_id);
+                            }
                             match ctx.resize(&size) {
                                 Ok(_) => {
                                     // Update webgl texture size. Texture id may change too.
@@ -354,12 +360,18 @@ impl RenderBackend {
                             // TODO: Buffer the commands and only apply them here if they need to
                             // be synchronous.
                             let ctx = &self.webgl_contexts[&context_id];
-                            ctx.make_current();
+                            if Some(context_id) != self.current_bound_webgl_context_id {
+                                ctx.make_current();
+                                self.current_bound_webgl_context_id = Some(context_id);
+                            }
                             ctx.apply_command(command);
-                            self.current_bound_webgl_context_id = Some(context_id);
                         },
 
                         ApiMsg::VRCompositorCommand(context_id, command) => {
+                            if Some(context_id) != self.current_bound_webgl_context_id {
+                                self.webgl_contexts[&context_id].make_current();
+                                self.current_bound_webgl_context_id = Some(context_id);
+                            }
                             self.handle_vr_compositor_command(context_id, command);
                         }
                         ApiMsg::GenerateFrame(property_bindings) => {
