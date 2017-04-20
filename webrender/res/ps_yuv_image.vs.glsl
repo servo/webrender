@@ -24,7 +24,8 @@ void main(void) {
     vLocalPos = vi.local_pos - prim.local_rect.p0;
 #endif
 
-    YuvImage image = fetch_yuv_image(prim.prim_index);
+    write_clip(vi.screen_pos, prim.clip_area);
+
     ResourceRect y_rect = fetch_resource_rect(prim.user_data.x);
     ResourceRect u_rect = fetch_resource_rect(prim.user_data.x + 1);
     ResourceRect v_rect = fetch_resource_rect(prim.user_data.x + 2);
@@ -48,12 +49,12 @@ void main(void) {
     vTextureOffsetU = u_st0;
     vTextureOffsetV = v_st0;
 
+    YuvImage image = fetch_yuv_image(prim.prim_index);
     vStretchSize = image.size;
 
     vHalfTexelY = vec2(0.5) / y_texture_size;
     vHalfTexelUv = vec2(0.5) / uv_texture_size;
 
 
-    write_clip(vi.screen_pos, prim.clip_area);
 
 }
