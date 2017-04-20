@@ -5,12 +5,36 @@
 use app_units::Au;
 use {ColorU, ColorF, LayoutPoint};
 
+#[cfg(target_os = "macos")] use core_foundation::string::CFString;
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
+#[cfg(target_os = "macos")] use serde::de::{self, Deserialize, Deserializer};
+#[cfg(target_os = "macos")] use serde::ser::{Serialize, Serializer};
 #[cfg(target_os = "windows")] use dwrote::FontDescriptor;
 
 
 #[cfg(target_os = "macos")]
-pub type NativeFontHandle = CGFont;
+#[derive(Clone)]
+pub struct NativeFontHandle(pub CGFont);
+
+#[cfg(target_os = "macos")]
+impl Serialize for NativeFontHandle {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let postscript_name = self.0.postscript_name().to_string();
+        postscript_name.serialize(serializer)
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Deserialize for NativeFontHandle {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer {
+        let postscript_name: String = try!(Deserialize::deserialize(deserializer));
+
+        match CGFont::from_name(&CFString::new(&*postscript_name)) {
+            Ok(font) => Ok(NativeFontHandle(font)),
+            _ => Err(de::Error::custom("Couldn't find a font with that PostScript name!")),
+        }
+    }
+}
 
 /// Native fonts are not used on Linux; all fonts are raw.
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]

@@ -23,6 +23,7 @@ serde_derive = "0.9"
 time = "0.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.3"
 core-graphics = "0.7"
 
 [target.'cfg(target_os = "windows")'.dependencies]
