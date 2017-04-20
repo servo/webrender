@@ -3,8 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use euclid::Point2D;
-use {ColorU, ColorF};
+use {ColorU, ColorF, LayoutPoint};
 
 #[cfg(target_os = "macos")] use core_graphics::font::CGFont;
 #[cfg(target_os = "windows")] use dwrote::FontDescriptor;
@@ -107,7 +106,7 @@ pub struct SubpixelPoint {
 }
 
 impl SubpixelPoint {
-    pub fn new(point: Point2D<f32>,
+    pub fn new(point: LayoutPoint,
                render_mode: FontRenderMode) -> SubpixelPoint {
         SubpixelPoint {
             x: render_mode.subpixel_quantize_offset(point.x),
@@ -119,7 +118,7 @@ impl SubpixelPoint {
         (self.x.into(), self.y.into())
     }
 
-    pub fn set_offset(&mut self, point: Point2D<f32>, render_mode: FontRenderMode) {
+    pub fn set_offset(&mut self, point: LayoutPoint, render_mode: FontRenderMode) {
         self.x = render_mode.subpixel_quantize_offset(point.x);
         self.y = render_mode.subpixel_quantize_offset(point.y);
     }
@@ -144,7 +143,7 @@ impl GlyphKey {
                size: Au,
                color: ColorF,
                index: u32,
-               point: Point2D<f32>,
+               point: LayoutPoint,
                render_mode: FontRenderMode) -> GlyphKey {
         GlyphKey {
             font_key: font_key,
@@ -160,5 +159,5 @@ impl GlyphKey {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GlyphInstance {
     pub index: u32,
-    pub point: Point2D<f32>,
+    pub point: LayoutPoint,
 }

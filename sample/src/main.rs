@@ -10,7 +10,6 @@ extern crate webrender;
 extern crate webrender_traits;
 
 use app_units::Au;
-use euclid::Point2D;
 use gleam::gl;
 use glutin::TouchPhase;
 use std::collections::HashMap;
@@ -333,51 +332,51 @@ fn main() {
         let glyphs = vec![
             GlyphInstance {
                 index: 48,
-                point: Point2D::new(100.0, 100.0),
+                point: LayoutPoint::new(100.0, 100.0),
             },
             GlyphInstance {
                 index: 68,
-                point: Point2D::new(150.0, 100.0),
+                point: LayoutPoint::new(150.0, 100.0),
             },
             GlyphInstance {
                 index: 80,
-                point: Point2D::new(200.0, 100.0),
+                point: LayoutPoint::new(200.0, 100.0),
             },
             GlyphInstance {
                 index: 82,
-                point: Point2D::new(250.0, 100.0),
+                point: LayoutPoint::new(250.0, 100.0),
             },
             GlyphInstance {
                 index: 81,
-                point: Point2D::new(300.0, 100.0),
+                point: LayoutPoint::new(300.0, 100.0),
             },
             GlyphInstance {
                 index: 3,
-                point: Point2D::new(350.0, 100.0),
+                point: LayoutPoint::new(350.0, 100.0),
             },
             GlyphInstance {
                 index: 86,
-                point: Point2D::new(400.0, 100.0),
+                point: LayoutPoint::new(400.0, 100.0),
             },
             GlyphInstance {
                 index: 79,
-                point: Point2D::new(450.0, 100.0),
+                point: LayoutPoint::new(450.0, 100.0),
             },
             GlyphInstance {
                 index: 72,
-                point: Point2D::new(500.0, 100.0),
+                point: LayoutPoint::new(500.0, 100.0),
             },
             GlyphInstance {
                 index: 83,
-                point: Point2D::new(550.0, 100.0),
+                point: LayoutPoint::new(550.0, 100.0),
             },
             GlyphInstance {
                 index: 87,
-                point: Point2D::new(600.0, 100.0),
+                point: LayoutPoint::new(600.0, 100.0),
             },
             GlyphInstance {
                 index: 17,
-                point: Point2D::new(650.0, 100.0),
+                point: LayoutPoint::new(650.0, 100.0),
             },
         ];
 
