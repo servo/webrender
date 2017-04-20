@@ -335,11 +335,50 @@ pub struct YuvImageDisplayItem {
     pub color_space: YuvColorSpace,
 }
 
-#[repr(u32)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub enum YuvColorSpace {
-    Rec601 = 1, // The values must match the ones in prim_shared.glsl
-    Rec709 = 2,
+enum_from_primitive! {
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+    pub enum YuvColorSpace {
+        Rec601 = 0,
+        Rec709 = 1,
+        TotalNum = 2,
+    }
+}
+
+impl YuvColorSpace {
+    pub fn get_feature_string(&self) -> &'static str {
+        match *self {
+            YuvColorSpace::Rec601 => "YUV_REC601",
+            YuvColorSpace::Rec709 => "YUV_REC709",
+            YuvColorSpace::TotalNum => "Invalid",
+        }
+    }
+}
+
+enum_from_primitive! {
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+    pub enum YuvFormat {
+        NV12 = 0,
+        PlanarYCbCr = 1,
+        TotalNum = 2,
+    }
+}
+
+impl YuvFormat {
+    pub fn get_plane_num(&self) -> usize {
+        match *self {
+            YuvFormat::NV12 => 2,
+            YuvFormat::PlanarYCbCr => 3,
+            YuvFormat::TotalNum => 0,
+        }
+    }
+
+    pub fn get_feature_string(&self) -> &'static str {
+        match *self {
+            YuvFormat::NV12 => "NV12",
+            YuvFormat::PlanarYCbCr => "",
+            YuvFormat::TotalNum => "Invalid",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

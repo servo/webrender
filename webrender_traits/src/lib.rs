@@ -31,6 +31,10 @@ extern crate core_graphics;
 #[cfg(target_os = "windows")]
 extern crate dwrote;
 
+#[macro_use]
+extern crate enum_primitive;
+extern crate num;
+
 mod units;
 mod api;
 mod color;
