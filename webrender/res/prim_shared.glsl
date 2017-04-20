@@ -316,7 +316,7 @@ struct Border {
 
 vec4 get_effective_border_widths(Border border) {
     switch (int(border.style.x)) {
-        case BORDER_STYLE_DOUBLE: {
+        case BORDER_STYLE_DOUBLE:
             // Calculate the width of a border segment in a style: double
             // border. Round to the nearest CSS pixel.
 
@@ -328,10 +328,11 @@ vec4 get_effective_border_widths(Border border) {
             // different values in some cases.
             // SEE: https://drafts.csswg.org/css-backgrounds-3/#double
             return floor(0.5 + border.widths / 3.0);
-        }
-        default: {
+        case BORDER_STYLE_GROOVE:
+        case BORDER_STYLE_RIDGE:
+            return floor(0.5 + border.widths * 0.5);
+        default:
             return border.widths;
-        }
     }
 }
 

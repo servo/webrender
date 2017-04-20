@@ -1,3 +1,5 @@
+#line 1
+
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -15,7 +17,6 @@ void main(void) {
 
     // Find the appropriate distance to apply the step over.
     vec2 fw = fwidth(local_pos);
-    float afwidth = length(fw);
 
     // Applies the math necessary to draw a style: double
     // border. In the case of a solid border, the vertex
@@ -35,7 +36,12 @@ void main(void) {
     // Select fragment on/off based on signed distance.
     // No AA here, since we know we're on a straight edge
     // and the width is rounded to a whole CSS pixel.
-    alpha = min(alpha, mix(0.0, 1.0, d < 0.0));
+    alpha = min(alpha, mix(vAlphaSelect, 1.0, d < 0.0));
 
-    oFragColor = vColor * vec4(1.0, 1.0, 1.0, alpha);
+    // Mix color based on first distance.
+    // TODO(gw): Support AA for groove/ridge border edge with transforms.
+    vec4 color = mix(vColor0, vColor1, bvec4(d0 * vEdgeDistance.y > 0.0));
+
+    //oFragColor = vec4(d0 * vEdgeDistance.y, -d0 * vEdgeDistance.y, 0, 1.0);
+    oFragColor = color * vec4(1.0, 1.0, 1.0, alpha);
 }

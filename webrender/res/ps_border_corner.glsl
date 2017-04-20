@@ -4,8 +4,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // Edge color transition
-flat varying vec4 vColor0;
-flat varying vec4 vColor1;
+flat varying vec4 vColor00;
+flat varying vec4 vColor01;
+flat varying vec4 vColor10;
+flat varying vec4 vColor11;
 flat varying vec4 vColorEdgeLine;
 
 // Border radius
@@ -14,6 +16,10 @@ flat varying vec4 vRadii0;
 flat varying vec4 vRadii1;
 flat varying vec2 vClipSign;
 flat varying vec4 vEdgeDistance;
+flat varying float vSDFSelect;
+
+// Border style
+flat varying float vAlphaSelect;
 
 #ifdef WR_FEATURE_TRANSFORM
 flat varying RectWithSize vLocalRect;

@@ -74,7 +74,9 @@ impl NormalBorderHelpers for NormalBorder {
             // drawn with the normal border corner shader.
             (BorderStyle::Outset, BorderStyle::Outset) |
             (BorderStyle::Inset, BorderStyle::Inset) |
-            (BorderStyle::Double, BorderStyle::Double) => BorderCornerKind::Clip,
+            (BorderStyle::Double, BorderStyle::Double) |
+            (BorderStyle::Groove, BorderStyle::Groove) |
+            (BorderStyle::Ridge, BorderStyle::Ridge) => BorderCornerKind::Clip,
 
             // Assume complex for these cases.
             // TODO(gw): There are some cases in here that can be handled with a fast path.
@@ -104,12 +106,12 @@ impl NormalBorderHelpers for NormalBorder {
             BorderStyle::Inset |
             BorderStyle::Outset => (BorderEdgeKind::Solid, width),
 
-            BorderStyle::Double => (BorderEdgeKind::Clip, width),
+            BorderStyle::Double |
+            BorderStyle::Groove |
+            BorderStyle::Ridge => (BorderEdgeKind::Clip, width),
 
             BorderStyle::Dotted |
-            BorderStyle::Dashed |
-            BorderStyle::Groove |
-            BorderStyle::Ridge => (BorderEdgeKind::Unhandled, width),
+            BorderStyle::Dashed => (BorderEdgeKind::Unhandled, width),
         }
     }
 }

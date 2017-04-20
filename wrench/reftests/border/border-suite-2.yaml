@@ -1,0 +1,91 @@
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 1000, 1000]
+      items:
+        - type: border
+          bounds: [ 10, 10, 100, 100 ]
+          width: [ 20, 20, 20, 20 ]
+          border-type: normal
+          style: groove
+          color: [ red, green, blue, yellow ]
+          radius: 0
+        - type: border
+          bounds: [ 120, 10, 100, 100 ]
+          width: [ 20, 20, 20, 20 ]
+          border-type: normal
+          style: groove
+          color: [ red, green, blue, yellow ]
+          radius: 10
+        - type: border
+          bounds: [ 230, 10, 100, 100 ]
+          width: [ 20, 20, 20, 20 ]
+          border-type: normal
+          style: groove
+          color: [ red, green, blue, yellow ]
+          radius: 20
+        - type: border
+          bounds: [ 340, 10, 100, 100 ]
+          width: [ 20, 20, 20, 20 ]
+          border-type: normal
+          style: groove
+          color: [ red, green, blue, yellow ]
+          radius: 30
+        - type: border
+          bounds: [ 450, 10, 100, 100 ]
+          width: [ 20, 20, 20, 20 ]
+          border-type: normal
+          style: groove
+          color: [ red, green, blue, yellow ]
+          radius: 40
+        - type: border
+          bounds: [ 560, 10, 100, 100 ]
+          width: [ 20, 20, 20, 20 ]
+          border-type: normal
+          style: groove
+          color: [ red, green, blue, yellow ]
+          radius: 50
+
+        - type: border
+          bounds: [ 10, 120, 100, 100 ]
+          width: [ 20, 20, 20, 20 ]
+          border-type: normal
+          style: ridge
+          color: [ red, green, blue, yellow ]
+          radius: 0
+        - type: border
+          bounds: [ 120, 120, 100, 100 ]
+          width: [ 20, 20, 20, 20 ]
+          border-type: normal
+          style: ridge
+          color: [ red, green, blue, yellow ]
+          radius: 10
+        - type: border
+          bounds: [ 230, 120, 100, 100 ]
+          width: [ 20, 20, 20, 20 ]
+          border-type: normal
+          style: ridge
+          color: [ red, green, blue, yellow ]
+          radius: 20
+        - type: border
+          bounds: [ 340, 120, 100, 100 ]
+          width: [ 20, 20, 20, 20 ]
+          border-type: normal
+          style: ridge
+          color: [ red, green, blue, yellow ]
+          radius: 30
+        - type: border
+          bounds: [ 450, 120, 100, 100 ]
+          width: [ 20, 20, 20, 20 ]
+          border-type: normal
+          style: ridge
+          color: [ red, green, blue, yellow ]
+          radius: 40
+        - type: border
+          bounds: [ 560, 120, 100, 100 ]
+          width: [ 20, 20, 20, 20 ]
+          border-type: normal
+          style: ridge
+          color: [ red, green, blue, yellow ]
+          radius: 50
