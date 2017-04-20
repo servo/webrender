@@ -1,6 +1,7 @@
 == border-gradient-simple.yaml border-gradient-simple-ref.yaml
 == border-radial-gradient-simple.yaml border-radial-gradient-simple-ref.yaml
 == border-radii.yaml border-radii.png
+== border-suite.yaml border-suite.png
 fuzzy(255,610) == border-double-simple.yaml border-double-simple-ref.yaml
 fuzzy(255,24) == border-groove-simple.yaml border-groove-simple-ref.yaml
 fuzzy(255,24) == border-ridge-simple.yaml border-ridge-simple-ref.yaml
