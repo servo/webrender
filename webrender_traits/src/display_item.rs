@@ -355,9 +355,11 @@ pub enum ImageRendering {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct YuvImageDisplayItem {
-    pub y_image_key: ImageKey,
-    pub u_image_key: ImageKey,
-    pub v_image_key: ImageKey,
+    // YUV image could have 1 to 3 planes.
+    pub plane_0_image_key: ImageKey,
+    pub plane_1_image_key: Option<ImageKey>,
+    pub plane_2_image_key: Option<ImageKey>,
+    pub format: YuvFormat,
     pub color_space: YuvColorSpace,
 }
 

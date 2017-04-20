@@ -14,7 +14,7 @@ use {ImageRendering, ItemRange, LayoutPoint, LayoutRect, LayoutSize, LayoutTrans
 use {MixBlendMode, PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
 use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollPolicy, SpecificDisplayItem};
 use {StackingContext, TextDisplayItem, TransformStyle, WebGLContextId, WebGLDisplayItem};
-use {YuvColorSpace, YuvImageDisplayItem};
+use {YuvColorSpace, YuvFormat, YuvImageDisplayItem};
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct AuxiliaryLists {
@@ -179,18 +179,33 @@ impl DisplayListBuilder {
         self.push_item(item, rect, clip);
     }
 
+    /// Push a yuv image. The number of input plane should match the format.
+    /// e.g.
+    ///   NV12 should have 2 planes.
+    ///
+    /// All planar data should use the same buffer type.
     pub fn push_yuv_image(&mut self,
                           rect: LayoutRect,
                           clip: ClipRegion,
-                          y_key: ImageKey,
-                          u_key: ImageKey,
-                          v_key: ImageKey,
+                          plane_0_image_key: ImageKey,
+                          plane_1_image_key: Option<ImageKey>,
+                          plane_2_image_key: Option<ImageKey>,
+                          format: YuvFormat,
                           color_space: YuvColorSpace) {
+        // Check the plane number for the YuvFormat.
+        match format.get_plane_num() {
+            1 => debug_assert!(plane_1_image_key.is_none() && plane_2_image_key.is_none()),
+            2 => debug_assert!(plane_1_image_key.is_some() && plane_2_image_key.is_none()),
+            3 => debug_assert!(plane_1_image_key.is_some() && plane_2_image_key.is_some()),
+            _ => debug_assert!(false),
+        }
+
         let item = SpecificDisplayItem::YuvImage(YuvImageDisplayItem {
-                y_image_key: y_key,
-                u_image_key: u_key,
-                v_image_key: v_key,
-                color_space: color_space,
+            plane_0_image_key: plane_0_image_key,
+            plane_1_image_key: plane_1_image_key,
+            plane_2_image_key: plane_2_image_key,
+            format: format,
+            color_space: color_space,
         });
         self.push_item(item, rect, clip);
     }
