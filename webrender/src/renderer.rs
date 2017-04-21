@@ -1276,7 +1276,7 @@ impl Renderer {
                                                    width, height, stride,
                                                    &data[offset as usize..]);
                     }
-                    TextureUpdateOp::UpdateForExternalBuffer { rect, id, channel_index, stride } => {
+                    TextureUpdateOp::UpdateForExternalBuffer { rect, id, channel_index, stride, offset } => {
                         let handler = self.external_image_handler
                                           .as_mut()
                                           .expect("Found external image, but no handler set!");
@@ -1290,7 +1290,8 @@ impl Renderer {
                                                       rect.origin.y,
                                                       rect.size.width,
                                                       rect.size.height,
-                                                      stride, data);
+                                                      stride,
+                                                      &data[offset as usize..]);
                             }
                             _ => panic!("No external buffer found"),
                         };
