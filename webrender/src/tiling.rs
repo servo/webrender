@@ -820,7 +820,6 @@ pub struct ColorRenderTarget {
     pub vertical_blurs: Vec<BlurCommand>,
     pub horizontal_blurs: Vec<BlurCommand>,
     pub readbacks: Vec<DeviceIntRect>,
-    pub isolate_clears: Vec<DeviceIntRect>,
     allocator: TextureAllocator,
 }
 
@@ -838,7 +837,6 @@ impl RenderTarget for ColorRenderTarget {
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
             readbacks: Vec::new(),
-            isolate_clears: Vec::new(),
             allocator: TextureAllocator::new(size),
         }
     }
@@ -867,16 +865,6 @@ impl RenderTarget for ColorRenderTarget {
                     task_id: task.id,
                     items: info.items,
                 });
-
-                if info.isolate_clear {
-                    let location = match task.location {
-                        RenderTaskLocation::Dynamic(origin, size) => {
-                            DeviceIntRect::new(origin.unwrap().0, size)
-                        }
-                        RenderTaskLocation::Fixed => panic!()
-                    };
-                    self.isolate_clears.push(location);
-                }
             }
             RenderTaskKind::VerticalBlur(_, prim_index) => {
                 // Find the child render task that we are applying
