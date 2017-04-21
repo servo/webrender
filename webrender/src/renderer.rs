@@ -1515,13 +1515,6 @@ impl Renderer {
                 }
             }
 
-            let isolate_clear_color = Some([0.0, 0.0, 0.0, 0.0]);
-            for isolate_clear in &target.isolate_clears {
-                self.device.clear_target_rect(isolate_clear_color,
-                                              None,
-                                              *isolate_clear);
-            }
-
             self.device.disable_depth_write();
         }
 
@@ -1848,7 +1841,7 @@ impl Renderer {
                                                  ORTHO_FAR_PLANE)
                 } else {
                     size = &frame.cache_size;
-                    clear_color = Some([1.0, 1.0, 1.0, 0.0]);
+                    clear_color = Some([0.0, 0.0, 0.0, 0.0]);
                     projection = Matrix4D::ortho(0.0,
                                                  size.width as f32,
                                                  0.0,

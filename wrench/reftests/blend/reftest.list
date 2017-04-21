@@ -9,3 +9,7 @@
 == isolated-2.yaml isolated-2-ref.yaml
 == isolated-with-filter.yaml isolated-ref.yaml
 == isolated-premultiplied.yaml blank.yaml
+
+# fuzzy because dithering is different for gradients
+# drawn in different render targets
+fuzzy(1,1974) == transparent-composite.yaml transparent-composite-ref.yaml

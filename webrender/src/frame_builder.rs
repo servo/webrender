@@ -1076,7 +1076,6 @@ impl FrameBuilder {
         let mut sc_stack = Vec::new();
         let mut current_task = RenderTask::new_alpha_batch(next_task_index,
                                                            DeviceIntPoint::zero(),
-                                                           false,
                                                            RenderTaskLocation::Fixed);
         next_task_index.0 += 1;
         let mut alpha_task_stack = Vec::new();
@@ -1098,7 +1097,6 @@ impl FrameBuilder {
                         let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
                         let new_task = RenderTask::new_alpha_batch(next_task_index,
                                                                    stacking_context_rect.origin,
-                                                                   stacking_context.should_isolate,
                                                                    location);
                         next_task_index.0 += 1;
                         let prev_task = mem::replace(&mut current_task, new_task);
@@ -1109,7 +1107,6 @@ impl FrameBuilder {
                         let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
                         let new_task = RenderTask::new_alpha_batch(next_task_index,
                                                                    stacking_context_rect.origin,
-                                                                   stacking_context.should_isolate,
                                                                    location);
                         next_task_index.0 += 1;
                         let prev_task = mem::replace(&mut current_task, new_task);
