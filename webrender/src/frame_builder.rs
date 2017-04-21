@@ -721,18 +721,14 @@ impl FrameBuilder {
                            PrimitiveContainer::TextRun(prim_cpu, prim_gpu));
     }
 
-    pub fn add_box_shadow_no_blur(&mut self,
-                                  clip_id: ClipId,
-                                  box_bounds: &LayerRect,
-                                  clip_region: &ClipRegion,
-                                  box_offset: &LayerPoint,
-                                  color: &ColorF,
-                                  spread_radius: f32,
-                                  border_radius: f32,
-                                  clip_mode: BoxShadowClipMode) {
-        assert!(spread_radius == 0.0); // TODO: fix cases where this isn't true.
-        let bs_rect = box_bounds.translate(box_offset);
-
+    pub fn fill_box_shadow_rect(&mut self,
+                                clip_id: ClipId,
+                                box_bounds: &LayerRect,
+                                bs_rect: LayerRect,
+                                clip_region: &ClipRegion,
+                                color: &ColorF,
+                                border_radius: f32,
+                                clip_mode: BoxShadowClipMode) {
         // We can draw a rectangle instead with the proper border radius clipping.
         let (bs_clip_mode, rect_to_draw) = match clip_mode {
             BoxShadowClipMode::Outset |
@@ -802,14 +798,13 @@ impl FrameBuilder {
         }
 
         if blur_radius == 0.0 && spread_radius == 0.0 && border_radius != 0.0 {
-            self.add_box_shadow_no_blur(clip_id,
-                                        box_bounds,
-                                        clip_region,
-                                        box_offset,
-                                        color,
-                                        spread_radius,
-                                        border_radius,
-                                        clip_mode);
+            self.fill_box_shadow_rect(clip_id,
+                                      box_bounds,
+                                      bs_rect,
+                                      clip_region,
+                                      color,
+                                      border_radius,
+                                      clip_mode);
             return;
         }
 
@@ -885,6 +880,16 @@ impl FrameBuilder {
                 }
             }
             BoxShadowKind::Shadow(rects) => {
+                if clip_mode == BoxShadowClipMode::Inset {
+                    self.fill_box_shadow_rect(clip_id,
+                                              box_bounds,
+                                              bs_rect,
+                                              clip_region,
+                                              color,
+                                              border_radius,
+                                              clip_mode);
+                }
+
                 let inverted = match clip_mode {
                     BoxShadowClipMode::Outset | BoxShadowClipMode::None => 0.0,
                     BoxShadowClipMode::Inset => 1.0,
