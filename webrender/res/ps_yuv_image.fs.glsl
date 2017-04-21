@@ -3,6 +3,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#if !defined(WR_FEATURE_YUV_REC601) && !defined(WR_FEATURE_YUV_REC709)
+#define WR_FEATURE_YUV_REC601
+#endif
+
 // The constants added to the Y, U and V components are applied in the fragment shader.
 #if defined(WR_FEATURE_YUV_REC601)
 // From Rec601:
