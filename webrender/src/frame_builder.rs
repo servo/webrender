@@ -24,7 +24,7 @@ use tiling::StackingContextIndex;
 use tiling::{AuxiliaryListsMap, ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, Frame};
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
 use tiling::{RenderTargetContext, RenderTaskCollection, ScrollbarPrimitive, StackingContext};
-use util::{self, pack_as_float, subtract_rect};
+use util::{self, pack_as_float, subtract_rect, recycle_vec};
 use util::RectHelpers;
 use webrender_traits::{BorderDetails, BorderDisplayItem, BoxShadowClipMode, ClipId, ClipRegion};
 use webrender_traits::{ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect};
@@ -140,6 +140,25 @@ impl FrameBuilder {
             reference_frame_stack: Vec::new(),
             stacking_context_stack: Vec::new(),
         }
+    }
+
+    /// Replace our own vectors with empty vectors that reuse the allocations of a previous
+    /// FrameBuilder.
+    pub fn recycle(&mut self, from: &mut Self) {
+        self.stacking_context_store = recycle_vec(&mut from.stacking_context_store);
+        self.clip_scroll_group_store = recycle_vec(&mut from.clip_scroll_group_store);
+        self.cmds = recycle_vec(&mut from.cmds);
+        self.packed_layers = recycle_vec(&mut from.packed_layers);
+        self.scrollbar_prims = recycle_vec(&mut from.scrollbar_prims);
+        self.reference_frame_stack = recycle_vec(&mut from.reference_frame_stack);
+        self.stacking_context_stack = recycle_vec(&mut from.stacking_context_stack);
+        self.prim_store.gpu_data16.recycle(&mut from.prim_store.gpu_data16);
+        self.prim_store.gpu_data32.recycle(&mut from.prim_store.gpu_data32);
+        self.prim_store.gpu_data64.recycle(&mut from.prim_store.gpu_data64);
+        self.prim_store.gpu_data128.recycle(&mut from.prim_store.gpu_data128);
+        self.prim_store.gpu_geometry.recycle(&mut from.prim_store.gpu_geometry);
+        self.prim_store.gpu_gradient_data.recycle(&mut from.prim_store.gpu_gradient_data);
+        self.prim_store.gpu_resource_rects.recycle(&mut from.prim_store.gpu_resource_rects);
     }
 
     pub fn add_primitive(&mut self,

@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::f32::consts::{FRAC_1_SQRT_2};
+use std::mem;
 use euclid::{Point2D, Rect, Size2D};
 use euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedPoint4D, TypedMatrix4D};
 use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize};
@@ -315,4 +316,19 @@ fn extract_inner_rect_impl<U>(rect: &TypedRect<f32, U>,
     } else {
         None
     }
+}
+
+/// Clears the old vector and returns a new one that may reuse the old vector's allocated
+/// memory.
+pub fn recycle_vec<T>(old_vec: &mut Vec<T>) -> Vec<T> {
+    if old_vec.capacity() > 2 * old_vec.len() {
+        // Avoid reusing the buffer if it is a lot larger than it needs to be. This prevents
+        // a frame with exceptionally large allocations to cause subsequent frames to retain
+        // more memory than they need.
+        return Vec::with_capacity(old_vec.len());
+    }
+
+    old_vec.clear();
+
+    return mem::replace(old_vec, Vec::new());
 }

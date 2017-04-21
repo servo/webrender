@@ -320,6 +320,10 @@ impl Frame {
                                                   background_color,
                                                   self.frame_builder_config);
 
+        if let Some(ref mut old_builder) = self.frame_builder {
+            frame_builder.recycle(old_builder);
+        }
+
         {
             let mut context = FlattenContext::new(scene, &mut frame_builder, resource_cache);
 

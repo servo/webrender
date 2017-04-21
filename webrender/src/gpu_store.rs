@@ -6,6 +6,7 @@ use device::TextureFilter;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::Add;
+use util::recycle_vec;
 use webrender_traits::ImageFormat;
 
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
@@ -75,6 +76,10 @@ impl<T: Clone + Default, L: GpuStoreLayout> GpuStore<T, L> {
             layout: PhantomData,
             //free_list: Vec::new(),
         }
+    }
+
+    pub fn recycle(&mut self, from: &mut Self) {
+        self.data = recycle_vec(&mut from.data);
     }
 
     pub fn push<E>(&mut self, data: E) -> GpuStoreAddress where T: From<E> {
