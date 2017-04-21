@@ -23,6 +23,7 @@ use webrender_traits::{BlobImageResult, ClipRegion, ColorF, Epoch, GlyphInstance
 use webrender_traits::{DeviceIntPoint, DeviceUintSize, DeviceUintRect, LayoutPoint, LayoutRect, LayoutSize};
 use webrender_traits::{ImageData, ImageDescriptor, ImageFormat, ImageKey, ImageRendering};
 use webrender_traits::{PipelineId, RasterizedBlobImage, ImageStore, TransformStyle, BoxShadowClipMode};
+use webrender_traits::{YuvColorSpace, YuvFormat};
 
 #[derive(Debug)]
 enum Gesture {
@@ -270,6 +271,55 @@ fn main() {
         LayoutSize::new(0.0, 0.0),
         ImageRendering::Auto,
         vector_img,
+    );
+
+    let yuv_chanel1 = api.generate_image_key();
+    let yuv_chanel2 = api.generate_image_key();
+    let yuv_chanel2_1 = api.generate_image_key();
+    let yuv_chanel3 = api.generate_image_key();
+    api.add_image(
+        yuv_chanel1,
+        ImageDescriptor::new(100, 100, ImageFormat::A8, true),
+        ImageData::new(vec![127; 100 * 100]),
+        None,
+    );
+    api.add_image(
+        yuv_chanel2,
+        ImageDescriptor::new(100, 100, ImageFormat::RG8, true),
+        ImageData::new(vec![0; 100 * 100 * 2]),
+        None,
+    );
+    api.add_image(
+        yuv_chanel2_1,
+        ImageDescriptor::new(100, 100, ImageFormat::A8, true),
+        ImageData::new(vec![127; 100 * 100]),
+        None,
+    );
+    api.add_image(
+        yuv_chanel3,
+        ImageDescriptor::new(100, 100, ImageFormat::A8, true),
+        ImageData::new(vec![127; 100 * 100]),
+        None,
+    );
+
+    builder.push_yuv_image(
+        LayoutRect::new(LayoutPoint::new(400.0, 0.0), LayoutSize::new(100.0, 100.0)),
+        ClipRegion::simple(&bounds),
+        yuv_chanel1,
+        Some(yuv_chanel2),
+        None,
+        YuvFormat::NV12,
+        YuvColorSpace::Rec601,
+    );
+
+    builder.push_yuv_image(
+        LayoutRect::new(LayoutPoint::new(200.0, 0.0), LayoutSize::new(100.0, 100.0)),
+        ClipRegion::simple(&bounds),
+        yuv_chanel1,
+        Some(yuv_chanel2_1),
+        Some(yuv_chanel3),
+        YuvFormat::PlanarYCbCr,
+        YuvColorSpace::Rec601,
     );
 
     let sub_clip = {
