@@ -100,10 +100,6 @@ fn usize_node(parent: &mut Table, key: &str, value: usize) {
     yaml_node(parent, key, Yaml::Integer(value as i64));
 }
 
-fn i32_node(parent: &mut Table, key: &str, value: i32) {
-    yaml_node(parent, key, Yaml::Integer(value as i64));
-}
-
 fn f32_node(parent: &mut Table, key: &str, value: f32) {
     yaml_node(parent, key, Yaml::Real(value.to_string()));
 }
@@ -171,7 +167,6 @@ fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
 
 fn write_sc(parent: &mut Table, sc: &StackingContext) {
     enum_node(parent, "scroll-policy", sc.scroll_policy);
-    i32_node(parent, "z-index", sc.z_index);
 
     match sc.transform {
         Some(PropertyBinding::Value(transform)) => matrix4d_node(parent, "transform", &transform),
