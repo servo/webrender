@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
+use time::precise_time_ns;
 use thread_profiler::register_thread_with_profiler;
 use threadpool::ThreadPool;
 use webgl_types::{GLContextHandleWrapper, GLContextWrapper};
@@ -213,17 +214,30 @@ impl RenderBackend {
                                 self.discard_frame_state_for_pipeline(pipeline_id);
                             }
                             
-                            let counters = &mut profile_counters.ipc;
+                            let display_list_len = built_display_list.data().len();
+                            let aux_list_len = auxiliary_lists.data().len();
+                            let (builder_start_time, builder_finish_time) = built_display_list.times();
+
+                            let display_list_received_time = precise_time_ns();
+                            
                             profile_counters.total_time.profile(|| {
                                 self.scene.set_display_list(pipeline_id,
                                                             epoch,
                                                             built_display_list,
                                                             background_color,
                                                             viewport_size,
-                                                            auxiliary_lists,
-                                                            counters);
+                                                            auxiliary_lists);
                                 self.build_scene();
                             });
+
+                            // Note: this isn't quite right as auxiliary values will be 
+                            // pulled out somewhere in the prim_store, but aux values are
+                            // really simple and cheap to access, so it's not a big deal.
+                            let display_list_consumed_time = precise_time_ns();
+
+                            profile_counters.ipc.set(builder_start_time, builder_finish_time, 
+                                                     display_list_received_time, display_list_consumed_time,
+                                                     display_list_len + aux_list_len);
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
                             profile_scope!("SetRootPipeline");
