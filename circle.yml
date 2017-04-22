@@ -1,0 +1,13 @@
+machine:
+        pre:
+                - git config --global user.email mail@victorquinn.com
+                - git config --global user.name "Victor Quinn"
+                - curl -sS https://static.rust-lang.org/rustup.sh | sh /dev/stdin --channel=nightly
+checkout:
+        post:
+                - git config --global --unset url.ssh://git@github.com:.insteadof
+
+test:
+        override:
+                - (cd wrench && cargo build -v)
+                - (cd wrench && cargo test -v)
