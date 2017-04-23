@@ -12,4 +12,5 @@
 
 # fuzzy because dithering is different for gradients
 # drawn in different render targets
-fuzzy(1,1974) == transparent-composite.yaml transparent-composite-ref.yaml
+fuzzy(1,1974) == transparent-composite-1.yaml transparent-composite-1-ref.yaml
+fuzzy(1,1974) == transparent-composite-2.yaml transparent-composite-2-ref.yaml
