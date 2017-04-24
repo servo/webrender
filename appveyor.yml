@@ -15,7 +15,5 @@ test_script:
   - cargo test --verbose
   - cd ../webrender
   - cargo test --verbose
-  - cd ../sample
-  - cargo test --verbose
   - cd ../wrench
   - cargo test --verbose
