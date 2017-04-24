@@ -18,11 +18,11 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
-use webrender_traits::{BlobImageData, BlobImageDescriptor, BlobImageError, BlobImageRenderer};
+use webrender_traits::{BlobImageData, BlobImageDescriptor, BlobImageError, BlobImageRenderer, BlobImageRequest};
 use webrender_traits::{BlobImageResult, ClipRegion, ColorF, Epoch, GlyphInstance};
 use webrender_traits::{DeviceIntPoint, DeviceUintSize, DeviceUintRect, LayoutPoint, LayoutRect, LayoutSize};
-use webrender_traits::{ImageData, ImageDescriptor, ImageFormat, ImageKey, ImageRendering};
-use webrender_traits::{PipelineId, RasterizedBlobImage, ImageStore, TransformStyle, BoxShadowClipMode};
+use webrender_traits::{ImageData, ImageDescriptor, ImageFormat, ImageStore, ImageRendering};
+use webrender_traits::{PipelineId, RasterizedBlobImage, TransformStyle, BoxShadowClipMode};
 
 #[derive(Debug)]
 enum Gesture {
@@ -468,7 +468,7 @@ fn main() {
 }
 
 struct FakeBlobImageRenderer {
-    images: HashMap<ImageKey, BlobImageResult>,
+    images: HashMap<BlobImageRequest, BlobImageResult>,
 }
 
 impl FakeBlobImageRenderer {
@@ -479,7 +479,7 @@ impl FakeBlobImageRenderer {
 
 impl BlobImageRenderer for FakeBlobImageRenderer {
     fn request_blob_image(&mut self,
-                          key: ImageKey,
+                          key: BlobImageRequest,
                           _: Arc<BlobImageData>,
                           descriptor: &BlobImageDescriptor,
                           _dirty_rect: Option<DeviceUintRect>,
@@ -519,7 +519,7 @@ impl BlobImageRenderer for FakeBlobImageRenderer {
         }));
     }
 
-    fn resolve_blob_image(&mut self, key: ImageKey) -> BlobImageResult {
+    fn resolve_blob_image(&mut self, key: BlobImageRequest) -> BlobImageResult {
         self.images.remove(&key).unwrap_or(Err(BlobImageError::InvalidKey))
     }
 }

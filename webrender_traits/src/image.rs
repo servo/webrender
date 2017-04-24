@@ -4,6 +4,8 @@
 
 use std::sync::Arc;
 use DeviceUintRect;
+use TileOffset;
+use DevicePoint;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -115,12 +117,12 @@ impl ImageData {
 
 pub trait BlobImageRenderer: Send {
     fn request_blob_image(&mut self,
-                          key: ImageKey,
+                          key: BlobImageRequest,
                           data: Arc<BlobImageData>,
                           descriptor: &BlobImageDescriptor,
                           dirty_rect: Option<DeviceUintRect>,
                           images: &ImageStore);
-    fn resolve_blob_image(&mut self, key: ImageKey) -> BlobImageResult;
+    fn resolve_blob_image(&mut self, key: BlobImageRequest) -> BlobImageResult;
 }
 
 pub type BlobImageData = Vec<u8>;
@@ -132,8 +134,8 @@ pub type BlobImageResult = Result<RasterizedBlobImage, BlobImageError>;
 pub struct BlobImageDescriptor {
     pub width: u32,
     pub height: u32,
+    pub offset: DevicePoint,
     pub format: ImageFormat,
-    pub scale_factor: f32,
 }
 
 pub struct RasterizedBlobImage {
@@ -148,6 +150,12 @@ pub enum BlobImageError {
     InvalidKey,
     InvalidData,
     Other(String),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BlobImageRequest {
+    pub key: ImageKey,
+    pub tile: Option<TileOffset>,
 }
 
 pub trait ImageStore {
