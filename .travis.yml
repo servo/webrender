@@ -28,7 +28,5 @@ script:
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_traits && cargo test --verbose); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --no-default-features); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo test --verbose); fi
-  - if [ $BUILD_KIND = DEBUG ]; then (cd sample && cargo test --verbose); fi
-  - if [ $BUILD_KIND = DEBUG ]; then (cd sample && cargo build --verbose --features=profiler); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd wrench && cargo test --verbose); fi
   - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python headless.py --subpixel-aa reftest); fi
