@@ -25,7 +25,7 @@ use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRen
 use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
 use webrender_traits::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescriptor, ColorF};
 use webrender_traits::{GlyphOptions, GlyphInstance, TileOffset, TileSize};
-use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, ImageStore};
+use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest, ImageStore};
 use webrender_traits::{ExternalImageData, ExternalImageType, LayoutPoint};
 use threadpool::ThreadPool;
 
@@ -215,11 +215,21 @@ impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resourc
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-struct ImageRequest {
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct ImageRequest {
     key: ImageKey,
     rendering: ImageRendering,
     tile: Option<TileOffset>,
+}
+
+impl Into<BlobImageRequest> for ImageRequest {
+    fn into(self) -> BlobImageRequest {
+        BlobImageRequest {
+            key: self.key,
+            tile: self.tile,
+        }
+    }
 }
 
 struct GlyphRasterJob {
@@ -418,15 +428,24 @@ impl ResourceCache {
                 };
 
                 if !same_epoch && self.blob_image_requests.insert(request) {
+                    let offset = match request.tile {
+                        Some(tile_offset) => {
+                            let tile_size = template.tiling.unwrap() as f32;
+                            DevicePoint::new(
+                                tile_offset.x as f32 * tile_size,
+                                tile_offset.y as f32 * tile_size,
+                            )
+                        }
+                        None => { DevicePoint::zero() }
+                    };
                     renderer.request_blob_image(
-                        key,
+                        request.into(),
                         Arc::clone(data),
                         &BlobImageDescriptor {
                             width: template.descriptor.width,
                             height: template.descriptor.height,
+                            offset: offset,
                             format: template.descriptor.format,
-                            // TODO(nical): figure out the scale factor (should change with zoom).
-                            scale_factor: 1.0,
                         },
                         template.dirty_rect,
                         &self.image_templates,
@@ -671,7 +690,7 @@ impl ResourceCache {
         if self.blob_image_renderer.is_some() {
             for request in blob_image_requests.drain() {
                 match self.blob_image_renderer.as_mut().unwrap()
-                                                .resolve_blob_image(request.key) {
+                                              .resolve_blob_image(request.into()) {
                     Ok(image) => {
                         self.finalize_image_request(request,
                                                     Some(ImageData::new(image.data)),
