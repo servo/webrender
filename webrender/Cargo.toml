@@ -47,3 +47,6 @@ core-text = "4.0"
 
 [[example]]
 name = "basic"
+
+[[example]]
+name = "scrolling"
