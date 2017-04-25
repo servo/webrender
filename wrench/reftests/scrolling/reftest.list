@@ -1,7 +1,8 @@
-== simple.yaml simple-ref.yaml
-== root-scroll.yaml root-scroll-ref.yaml
-== fixed-position.yaml fixed-position-ref.yaml
-== scroll-layer.yaml scroll-layer-ref.yaml
-== scroll-layer-with-mask.yaml scroll-layer-with-mask-ref.yaml
 == empty-mask.yaml empty-mask-ref.yaml
+== fixed-position.yaml fixed-position-ref.yaml
+== fixed-position-scrolling-clip.yaml fixed-position-scrolling-clip-ref.yaml
 == nested-scroll-offset.yaml nested-scroll-offset-ref.yaml
+== root-scroll.yaml root-scroll-ref.yaml
+== scroll-layer-with-mask.yaml scroll-layer-with-mask-ref.yaml
+== scroll-layer.yaml scroll-layer-ref.yaml
+== simple.yaml simple-ref.yaml

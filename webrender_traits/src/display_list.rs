@@ -7,13 +7,14 @@ use std::mem;
 use std::slice;
 use time::precise_time_ns;
 use {BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMode, BoxShadowDisplayItem};
-use {ClipDisplayItem, ClipId, ClipRegion, ColorF, ComplexClipRegion, DisplayItem, ExtendMode};
-use {FilterOp, FontKey, GlyphInstance, GlyphOptions, Gradient, GradientDisplayItem, GradientStop};
-use {IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask, ImageRendering, ItemRange};
-use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, MixBlendMode, PipelineId};
-use {PropertyBinding, PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
-use {RectangleDisplayItem, ScrollPolicy, SpecificDisplayItem, StackingContext, TextDisplayItem};
-use {TransformStyle, WebGLContextId, WebGLDisplayItem, YuvColorSpace, YuvImageDisplayItem};
+use {ClipAndScrollInfo, ClipDisplayItem, ClipId, ClipRegion, ColorF, ComplexClipRegion};
+use {DisplayItem, ExtendMode, FilterOp, FontKey, GlyphInstance, GlyphOptions, Gradient};
+use {GradientDisplayItem, GradientStop, IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask};
+use {ImageRendering, ItemRange, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
+use {MixBlendMode, PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
+use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollPolicy, SpecificDisplayItem};
+use {StackingContext, TextDisplayItem, TransformStyle, WebGLContextId, WebGLDisplayItem};
+use {YuvColorSpace, YuvImageDisplayItem};
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct AuxiliaryLists {
@@ -106,7 +107,7 @@ pub struct DisplayListBuilder {
     pub list: Vec<DisplayItem>,
     auxiliary_lists_builder: AuxiliaryListsBuilder,
     pub pipeline_id: PipelineId,
-    clip_stack: Vec<ClipId>,
+    clip_stack: Vec<ClipAndScrollInfo>,
     next_clip_id: u64,
     builder_start_time: u64,
 }
@@ -118,7 +119,7 @@ impl DisplayListBuilder {
             list: Vec::new(),
             auxiliary_lists_builder: AuxiliaryListsBuilder::new(),
             pipeline_id: pipeline_id,
-            clip_stack: vec![ClipId::root_scroll_node(pipeline_id)],
+            clip_stack: vec![ClipAndScrollInfo::simple(ClipId::root_scroll_node(pipeline_id))],
 
             // We start at 1 here, because the root scroll id is always 0.
             next_clip_id: 1,
@@ -137,7 +138,7 @@ impl DisplayListBuilder {
             item: item,
             rect: rect,
             clip: clip,
-            clip_id: *self.clip_stack.last().unwrap(),
+            clip_and_scroll: *self.clip_stack.last().unwrap(),
         });
     }
 
@@ -146,7 +147,7 @@ impl DisplayListBuilder {
             item: item,
             rect: LayoutRect::zero(),
             clip: ClipRegion::simple(&LayoutRect::zero()),
-            clip_id: *self.clip_stack.last().unwrap(),
+            clip_and_scroll: *self.clip_stack.last().unwrap(),
         });
     }
 
@@ -473,7 +474,7 @@ impl DisplayListBuilder {
 
         let item = SpecificDisplayItem::Clip(ClipDisplayItem {
             id: id,
-            parent_id: *self.clip_stack.last().unwrap(),
+            parent_id: self.clip_stack.last().unwrap().scroll_node_id,
         });
 
         self.push_item(item, content_rect, clip);
@@ -485,11 +486,15 @@ impl DisplayListBuilder {
                           content_rect: LayoutRect,
                           id: Option<ClipId>) {
         let id = self.define_clip(content_rect, clip, id);
-        self.clip_stack.push(id);
+        self.clip_stack.push(ClipAndScrollInfo::simple(id));
     }
 
     pub fn push_clip_id(&mut self, id: ClipId) {
-        self.clip_stack.push(id);
+        self.clip_stack.push(ClipAndScrollInfo::simple(id));
+    }
+
+    pub fn push_clip_and_scroll_info(&mut self, info: ClipAndScrollInfo) {
+        self.clip_stack.push(info);
     }
 
     pub fn pop_clip_id(&mut self) {
@@ -535,8 +540,10 @@ impl DisplayListBuilder {
                 }
                 _ => {}
             }
-            i.clip.complex = self.auxiliary_lists_builder.add_complex_clip_regions(aux.complex_clip_regions(&i.clip.complex));
-            i.clip_id = *self.clip_stack.last().unwrap();
+            i.clip.complex =
+                self.auxiliary_lists_builder
+                    .add_complex_clip_regions(aux.complex_clip_regions(&i.clip.complex));
+            i.clip_and_scroll = *self.clip_stack.last().unwrap();
             self.list.push(i);
         }
     }
