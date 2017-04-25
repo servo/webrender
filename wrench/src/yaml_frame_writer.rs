@@ -486,7 +486,18 @@ impl YamlFrameWriter {
             let mut v = new_table();
             rect_node(&mut v, "bounds", &base.rect);
             yaml_node(&mut v, "clip", self.make_clip_node(&base.clip, aux));
-            usize_node(&mut v, "clip-id", clip_id_mapper.map(&base.clip_id));
+
+            let scroll_id =
+                Yaml::Integer(clip_id_mapper.map(&base.clip_and_scroll.scroll_node_id) as i64);
+            let clip_and_scroll = match base.clip_and_scroll.clip_node_id {
+                Some(clip_id) => {
+                    let clip_id = Yaml::Integer(clip_id_mapper.map(&clip_id) as i64);
+                    Yaml::Array(vec![scroll_id, clip_id])
+                }
+                None => scroll_id,
+            };
+
+            yaml_node(&mut v, "clip-and-scroll", clip_and_scroll);
 
             match base.item {
                 Rectangle(item) => {
