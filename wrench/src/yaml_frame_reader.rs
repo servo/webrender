@@ -634,7 +634,6 @@ impl YamlFrameReader {
                                           is_root: bool) {
         let default_bounds = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32());
         let bounds = yaml["bounds"].as_rect().unwrap_or(default_bounds);
-        let z_index = yaml["z-index"].as_i64().unwrap_or(0);
 
         // TODO(gw): Add support for specifying the transform origin in yaml.
         let transform_origin = LayoutPoint::new(bounds.origin.x + bounds.size.width * 0.5,
@@ -668,7 +667,6 @@ impl YamlFrameReader {
 
         self.builder().push_stacking_context(scroll_policy,
                                              bounds,
-                                             z_index as i32,
                                              transform.into(),
                                              transform_style,
                                              perspective,

@@ -258,7 +258,6 @@ fn main() {
     let bounds = LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(width as f32, height as f32));
     builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
                                   bounds,
-                                  0,
                                   None,
                                   TransformStyle::Flat,
                                   None,

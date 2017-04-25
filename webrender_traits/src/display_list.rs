@@ -435,7 +435,6 @@ impl DisplayListBuilder {
     pub fn push_stacking_context(&mut self,
                                  scroll_policy: ScrollPolicy,
                                  bounds: LayoutRect,
-                                 z_index: i32,
                                  transform: Option<PropertyBinding<LayoutTransform>>,
                                  transform_style: TransformStyle,
                                  perspective: Option<LayoutTransform>,
@@ -444,7 +443,6 @@ impl DisplayListBuilder {
         let item = SpecificDisplayItem::PushStackingContext(PushStackingContextDisplayItem {
             stacking_context: StackingContext {
                 scroll_policy: scroll_policy,
-                z_index: z_index,
                 transform: transform,
                 transform_style: transform_style,
                 perspective: perspective,
