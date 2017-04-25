@@ -10,39 +10,9 @@ extern crate webrender_traits;
 use gleam::gl;
 use std::env;
 use std::path::PathBuf;
-use webrender_traits::{ClipId, ClipRegion, ColorF, Epoch};
-use webrender_traits::{DeviceUintSize, LayoutPoint, LayoutRect, LayoutSize};
-use webrender_traits::{PipelineId, RenderApi, TransformStyle};
-
-struct ScrollState {
-    root_clip_id: ClipId,
-    root_scroller_pos: LayoutPoint,
-    nested_clip_id: ClipId,
-    nested_scroller_pos: LayoutPoint,
-}
-
-impl ScrollState {
-    pub fn new(root: ClipId, nested: ClipId) -> ScrollState {
-        ScrollState {
-            root_clip_id: root,
-            root_scroller_pos: LayoutPoint::zero(),
-            nested_clip_id: nested,
-            nested_scroller_pos: LayoutPoint::zero(),
-        }
-    }
-
-    pub fn scroll(&mut self, root: bool, delta: (i32, i32), api: &RenderApi) {
-        if root {
-            self.root_scroller_pos.x += delta.0 as f32;
-            self.root_scroller_pos.y += delta.1 as f32;
-            api.scroll_node_with_id(self.root_scroller_pos, self.root_clip_id);
-        } else {
-            self.nested_scroller_pos.x += delta.0 as f32;
-            self.nested_scroller_pos.y += delta.1 as f32;
-            api.scroll_node_with_id(self.nested_scroller_pos, self.nested_clip_id);
-        }
-    }
-}
+use webrender_traits::{ClipId, ClipRegion, ColorF, DeviceUintSize, Epoch, LayoutPoint, LayoutRect};
+use webrender_traits::{LayoutSize, PipelineId, ScrollEventPhase, ScrollLocation, TransformStyle};
+use webrender_traits::WorldPoint;
 
 struct Notifier {
     window_proxy: glutin::WindowProxy,
@@ -214,8 +184,7 @@ fn main() {
     api.set_root_pipeline(pipeline_id);
     api.generate_frame(None);
 
-    let mut scroll_state = ScrollState::new(ClipId::new(42, pipeline_id),
-                                            ClipId::new(43, pipeline_id));
+    let mut cursor_position = WorldPoint::zero();
 
     'outer: for event in window.wait_events() {
         let mut events = Vec::new();
@@ -230,39 +199,36 @@ fn main() {
                 glutin::Event::Closed |
                 glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Escape)) |
                 glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Q)) => break 'outer,
-                // Use up/down/left/right for scrolling the outer scrollbox
-                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
-                                             _, Some(glutin::VirtualKeyCode::Down)) => {
-                    scroll_state.scroll(true, (0, 10), &api);
+                glutin::Event::KeyboardInput(glutin::ElementState::Pressed, _, Some(key)) => {
+                    let offset = match key {
+                         glutin::VirtualKeyCode::Down => (0.0, -10.0),
+                         glutin::VirtualKeyCode::Up => (0.0, 10.0),
+                         glutin::VirtualKeyCode::Right => (-10.0, 0.0),
+                         glutin::VirtualKeyCode::Left => (10.0, 0.0),
+                         _ => continue,
+                    };
+
+                    api.scroll(ScrollLocation::Delta(LayoutPoint::new(offset.0, offset.1)),
+                               cursor_position,
+                               ScrollEventPhase::Start);
                 }
-                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
-                                             _, Some(glutin::VirtualKeyCode::Up)) => {
-                    scroll_state.scroll(true, (0, -10), &api);
+                glutin::Event::MouseMoved(x, y) => {
+                    cursor_position = WorldPoint::new(x as f32, y as f32);
                 }
-                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
-                                             _, Some(glutin::VirtualKeyCode::Left)) => {
-                    scroll_state.scroll(true, (-10, 0), &api);
-                }
-                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
-                                             _, Some(glutin::VirtualKeyCode::Right)) => {
-                    scroll_state.scroll(true, (10, 0), &api);
-                }
-                // Use WASD for scrolling the nested scrollbox
-                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
-                                             _, Some(glutin::VirtualKeyCode::S)) => {
-                    scroll_state.scroll(false, (0, 10), &api);
-                }
-                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
-                                             _, Some(glutin::VirtualKeyCode::W)) => {
-                    scroll_state.scroll(false, (0, -10), &api);
-                }
-                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
-                                             _, Some(glutin::VirtualKeyCode::A)) => {
-                    scroll_state.scroll(false, (-10, 0), &api);
-                }
-                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
-                                             _, Some(glutin::VirtualKeyCode::D)) => {
-                    scroll_state.scroll(false, (10, 0), &api);
+                glutin::Event::MouseWheel(delta, _, event_cursor_position) => {
+                    if let Some((x, y)) = event_cursor_position {
+                        cursor_position = WorldPoint::new(x as f32, y as f32);
+                    }
+
+                    const LINE_HEIGHT: f32 = 38.0;
+                    let (dx, dy) = match delta {
+                        glutin::MouseScrollDelta::LineDelta(dx, dy) => (dx, dy * LINE_HEIGHT),
+                        glutin::MouseScrollDelta::PixelDelta(dx, dy) => (dx, dy),
+                    };
+
+                    api.scroll(ScrollLocation::Delta(LayoutPoint::new(dx, dy)),
+                               cursor_position,
+                               ScrollEventPhase::Start);
                 }
                 _ => ()
             }
