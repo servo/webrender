@@ -17,11 +17,10 @@ use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
-use std::sync::Arc;
 use webrender_traits::{BlobImageData, BlobImageDescriptor, BlobImageError, BlobImageRenderer, BlobImageRequest};
 use webrender_traits::{BlobImageResult, ClipRegion, ColorF, Epoch, GlyphInstance};
 use webrender_traits::{DeviceIntPoint, DeviceUintSize, DeviceUintRect, LayoutPoint, LayoutRect, LayoutSize};
-use webrender_traits::{ImageData, ImageDescriptor, ImageFormat, ImageStore, ImageRendering};
+use webrender_traits::{ImageData, ImageDescriptor, ImageFormat, ImageStore, ImageRendering, ImageKey, TileSize};
 use webrender_traits::{PipelineId, RasterizedBlobImage, TransformStyle, BoxShadowClipMode};
 
 #[derive(Debug)]
@@ -478,12 +477,17 @@ impl FakeBlobImageRenderer {
 }
 
 impl BlobImageRenderer for FakeBlobImageRenderer {
-    fn request_blob_image(&mut self,
-                          key: BlobImageRequest,
-                          _: Arc<BlobImageData>,
-                          descriptor: &BlobImageDescriptor,
-                          _dirty_rect: Option<DeviceUintRect>,
-                          _images: &ImageStore) {
+    fn add(&mut self, _: ImageKey, _: BlobImageData, _: Option<TileSize>) {}
+
+    fn update(&mut self, _: ImageKey, _: BlobImageData) {}
+
+    fn delete(&mut self, _: ImageKey) {}
+
+    fn request(&mut self,
+               key: BlobImageRequest,
+               descriptor: &BlobImageDescriptor,
+               _dirty_rect: Option<DeviceUintRect>,
+               _images: &ImageStore) {
         let mut texels = Vec::with_capacity((descriptor.width * descriptor.height * 4) as usize);
         for y in 0..descriptor.height {
             for x in 0..descriptor.width {
@@ -519,7 +523,7 @@ impl BlobImageRenderer for FakeBlobImageRenderer {
         }));
     }
 
-    fn resolve_blob_image(&mut self, key: BlobImageRequest) -> BlobImageResult {
+    fn resolve(&mut self, key: BlobImageRequest) -> BlobImageResult {
         self.images.remove(&key).unwrap_or(Err(BlobImageError::InvalidKey))
     }
 }

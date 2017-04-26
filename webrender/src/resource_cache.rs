@@ -25,7 +25,7 @@ use webrender_traits::{Epoch, FontKey, GlyphKey, ImageKey, ImageFormat, ImageRen
 use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
 use webrender_traits::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescriptor, ColorF};
 use webrender_traits::{GlyphOptions, GlyphInstance, TileOffset, TileSize};
-use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest, ImageStore};
+use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest, BlobImageData, ImageStore};
 use webrender_traits::{ExternalImageData, ExternalImageType, LayoutPoint};
 use threadpool::ThreadPool;
 
@@ -330,12 +330,20 @@ impl ResourceCache {
     pub fn add_image_template(&mut self,
                               image_key: ImageKey,
                               descriptor: ImageDescriptor,
-                              data: ImageData,
+                              mut data: ImageData,
                               mut tiling: Option<TileSize>) {
         if tiling.is_none() && self.should_tile(&descriptor, &data) {
             // We aren't going to be able to upload a texture this big, so tile it, even
             // if tiling was not requested.
             tiling = Some(DEFAULT_TILE_SIZE);
+        }
+
+        if let ImageData::Blob(ref mut blob) = data {
+            self.blob_image_renderer.as_mut().unwrap().add(
+                image_key,
+                mem::replace(blob, BlobImageData::new()),
+                tiling
+            );
         }
 
         let resource = ImageResource {
@@ -352,7 +360,7 @@ impl ResourceCache {
     pub fn update_image_template(&mut self,
                                  image_key: ImageKey,
                                  descriptor: ImageDescriptor,
-                                 data: ImageData,
+                                 mut data: ImageData,
                                  dirty_rect: Option<DeviceUintRect>) {
         let resource = if let Some(image) = self.image_templates.get(image_key) {
             assert_eq!(image.descriptor.width, descriptor.width);
@@ -364,6 +372,13 @@ impl ResourceCache {
             let mut tiling = image.tiling;
             if tiling.is_none() && self.should_tile(&descriptor, &data) {
                 tiling = Some(DEFAULT_TILE_SIZE);
+            }
+
+            if let ImageData::Blob(ref mut blob) = data {
+                self.blob_image_renderer.as_mut().unwrap().update(
+                    image_key,
+                    mem::replace(blob, BlobImageData::new())
+                );
             }
 
             ImageResource {
@@ -387,8 +402,15 @@ impl ResourceCache {
     pub fn delete_image_template(&mut self, image_key: ImageKey) {
         let value = self.image_templates.remove(image_key);
 
-        if value.is_none() {
-            println!("Delete the non-exist key:{:?}", image_key);
+        match value {
+            Some(image) => {
+                if let ImageData::Blob(_) = image.data {
+                    self.blob_image_renderer.as_mut().unwrap().delete(image_key);
+                }
+            }
+            None => {
+                println!("Delete the non-exist key:{:?}", image_key);
+            }
         }
     }
 
@@ -420,7 +442,7 @@ impl ResourceCache {
         };
 
         let template = self.image_templates.get(key).unwrap();
-        if let ImageData::Blob(ref data) = template.data {
+        if let ImageData::Blob(_) = template.data {
             if let Some(ref mut renderer) = self.blob_image_renderer {
                 let same_epoch = match self.cached_images.resources.get(&request) {
                     Some(entry) => entry.epoch == template.epoch,
@@ -438,9 +460,8 @@ impl ResourceCache {
                         }
                         None => { DevicePoint::zero() }
                     };
-                    renderer.request_blob_image(
+                    renderer.request(
                         request.into(),
-                        Arc::clone(data),
                         &BlobImageDescriptor {
                             width: template.descriptor.width,
                             height: template.descriptor.height,
@@ -689,8 +710,7 @@ impl ResourceCache {
         let mut blob_image_requests = mem::replace(&mut self.blob_image_requests, HashSet::new());
         if self.blob_image_renderer.is_some() {
             for request in blob_image_requests.drain() {
-                match self.blob_image_renderer.as_mut().unwrap()
-                                              .resolve_blob_image(request.into()) {
+                match self.blob_image_renderer.as_mut().unwrap().resolve(request.into()) {
                     Ok(image) => {
                         self.finalize_image_request(request,
                                                     Some(ImageData::new(image.data)),
