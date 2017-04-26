@@ -145,7 +145,7 @@ impl PrimitiveMetadata {
 
 #[derive(Debug, Clone)]
 pub struct SplitGeometry {
-    pub points: [[f32; 4]; 4],
+    pub points: [[f32; 2]; 4],
 }
 
 impl Default for SplitGeometry {

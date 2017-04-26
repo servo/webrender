@@ -366,10 +366,16 @@ impl AlphaRenderItem {
                     z_sort_index: z,
                 });
             }
-            AlphaRenderItem::Primitive(clip_scroll_group_index, prim_index, z) => {
-                let group = &ctx.clip_scroll_group_store[clip_scroll_group_index.0];
+            AlphaRenderItem::Primitive(clip_scroll_group_index_opt, prim_index, z) => {
                 let prim_metadata = ctx.prim_store.get_metadata(prim_index);
-                let transform_kind = group.screen_bounding_rect.as_ref().unwrap().0;
+                let (transform_kind, packed_layer_index) = match clip_scroll_group_index_opt {
+                    Some(group_index) => {
+                        let group = &ctx.clip_scroll_group_store[group_index.0];
+                        let bounding_rect = group.screen_bounding_rect.as_ref().unwrap();
+                        (bounding_rect.0, group.packed_layer_index.0 as i32)
+                    },
+                    None => (TransformedRectKind::AxisAligned, 0),
+                };
                 let needs_clipping = prim_metadata.needs_clipping();
                 let mut flags = AlphaBatchKeyFlags::empty();
                 if needs_clipping {
@@ -390,8 +396,6 @@ impl AlphaRenderItem {
                         OPAQUE_TASK_INDEX
                     }
                 }.0 as i32;
-                let packed_layer_index = ctx.clip_scroll_group_store[clip_scroll_group_index.0]
-                                            .packed_layer_index.0 as i32;
                 let global_prim_id = prim_index.0 as i32;
                 let prim_address = prim_metadata.gpu_prim_index;
                 let task_index = task_index.0 as i32;
@@ -552,9 +556,13 @@ impl AlphaRenderItem {
             AlphaRenderItem::SplitComposite(sc_index, task_id, gpu_address, z) => {
                 let key = AlphaBatchKey::new(AlphaBatchKind::SplitComposite,
                                              AlphaBatchKeyFlags::empty(),
-                                             BlendMode::Alpha,
+                                             BlendMode::PremultipliedAlpha,
                                              BatchTextures::no_texture());
                 let stacking_context = &ctx.stacking_context_store[sc_index.0];
+                let ref_group = stacking_context.clip_scroll_groups.iter().find(|group_id| {
+                    group_id.1.is_reference_frame()
+                }).unwrap();
+                let layer_index = ctx.clip_scroll_group_store[ref_group.0].packed_layer_index;
                 let batch = batch_list.get_suitable_batch(&key, &stacking_context.screen_bounds);
                 let source_task = render_tasks.get_task_index(&task_id, child_pass_index);
                 batch.add_instance(PrimitiveInstance {
@@ -562,7 +570,7 @@ impl AlphaRenderItem {
                     prim_address: gpu_address,
                     task_index: task_index.0 as i32,
                     clip_task_index: -1,
-                    layer_index: -1,
+                    layer_index: layer_index.0 as i32,
                     sub_index: 0,
                     user_data: [ source_task.0 as i32, 0 ],
                     z_sort_index: z,

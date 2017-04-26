@@ -111,7 +111,7 @@ varying vec3 vClipMaskUv;
 #define VECS_PER_LAYER             13
 #define VECS_PER_RENDER_TASK        3
 #define VECS_PER_PRIM_GEOM          2
-#define VECS_PER_SPLIT_GEOM         4
+#define VECS_PER_SPLIT_GEOM         2
 
 uniform sampler2D sLayers;
 uniform sampler2D sRenderTasks;

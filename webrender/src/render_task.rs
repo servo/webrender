@@ -52,7 +52,7 @@ pub enum RenderTaskLocation {
 
 #[derive(Debug, Clone)]
 pub enum AlphaRenderItem {
-    Primitive(ClipScrollGroupIndex, PrimitiveIndex, i32),
+    Primitive(Option<ClipScrollGroupIndex>, PrimitiveIndex, i32),
     Blend(StackingContextIndex, RenderTaskId, LowLevelFilterOp, i32),
     Composite(StackingContextIndex, RenderTaskId, RenderTaskId, MixBlendMode, i32),
     SplitComposite(StackingContextIndex, RenderTaskId, GpuStoreAddress, i32),
