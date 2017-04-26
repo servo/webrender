@@ -574,10 +574,10 @@ impl YamlFrameReader {
                 continue;
             }
 
-            let yaml_clip_id = item["clip-id"].as_i64();
-            if let Some(yaml_id) = yaml_clip_id {
-                let id = ClipId::new(yaml_id as u64, self.builder().pipeline_id);
-                self.builder().push_clip_id(id);
+            let clip_scroll_info =
+                item["clip-and-scroll"].as_clip_and_scroll_info(self.builder().pipeline_id);
+            if let Some(clip_scroll_info) = clip_scroll_info {
+                self.builder().push_clip_and_scroll_info(clip_scroll_info);
             }
 
             match item_type {
@@ -595,7 +595,7 @@ impl YamlFrameReader {
                 _ => println!("Skipping unknown item type: {:?}", item),
             }
 
-            if yaml_clip_id.is_some() {
+            if clip_scroll_info.is_some() {
                 self.builder().pop_clip_id();
             }
         }

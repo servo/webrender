@@ -9,12 +9,38 @@ use {ColorF, FontKey, ImageKey, PipelineId, WebGLContextId};
 use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
 use {PropertyBinding};
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct ClipAndScrollInfo {
+    pub scroll_node_id: ClipId,
+    pub clip_node_id: Option<ClipId>,
+}
+
+impl ClipAndScrollInfo {
+    pub fn simple(node_id: ClipId) -> ClipAndScrollInfo {
+        ClipAndScrollInfo {
+            scroll_node_id: node_id,
+            clip_node_id: None,
+        }
+    }
+
+    pub fn new(scroll_node_id: ClipId, clip_node_id: ClipId) -> ClipAndScrollInfo {
+        ClipAndScrollInfo {
+            scroll_node_id: scroll_node_id,
+            clip_node_id: Some(clip_node_id),
+        }
+    }
+
+    pub fn clip_node_id(&self) -> ClipId {
+        self.clip_node_id.unwrap_or(self.scroll_node_id)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DisplayItem {
     pub item: SpecificDisplayItem,
     pub rect: LayoutRect,
     pub clip: ClipRegion,
-    pub clip_id: ClipId,
+    pub clip_and_scroll: ClipAndScrollInfo,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

@@ -23,9 +23,9 @@ use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use texture_cache::TexturePage;
 use util::{TransformedRect, TransformedRectKind};
-use webrender_traits::{AuxiliaryLists, ClipId, ColorF, DeviceIntPoint, DeviceIntRect};
-use webrender_traits::{DeviceIntSize, DeviceUintPoint, DeviceUintSize, ExternalImageType};
-use webrender_traits::{FontRenderMode, ImageRendering, LayerPoint, LayerRect};
+use webrender_traits::{AuxiliaryLists, ClipAndScrollInfo, ClipId, ColorF, DeviceIntPoint};
+use webrender_traits::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize};
+use webrender_traits::{ExternalImageType, FontRenderMode, ImageRendering, LayerPoint, LayerRect};
 use webrender_traits::{LayerToWorldTransform, MixBlendMode, PipelineId, TransformStyle};
 use webrender_traits::{WorldPoint4D, WorldToLayerTransform};
 
@@ -116,7 +116,7 @@ pub struct ScrollbarPrimitive {
 pub enum PrimitiveRunCmd {
     PushStackingContext(StackingContextIndex),
     PopStackingContext,
-    PrimitiveRun(PrimitiveIndex, usize, ClipId),
+    PrimitiveRun(PrimitiveIndex, usize, ClipAndScrollInfo),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1320,12 +1320,12 @@ impl StackingContext {
         }
     }
 
-    pub fn clip_scroll_group(&self, clip_id: ClipId) -> ClipScrollGroupIndex {
+    pub fn clip_scroll_group(&self, clip_and_scroll: ClipAndScrollInfo) -> ClipScrollGroupIndex {
         // Currently there is only one scrolled stacking context per context,
         // but eventually this will be selected from the vector based on the
         // scroll layer of this primitive.
         for group in &self.clip_scroll_groups {
-            if group.1 == clip_id {
+            if group.1 == clip_and_scroll {
                 return *group;
             }
         }
@@ -1336,18 +1336,19 @@ impl StackingContext {
         !self.composite_ops.will_make_invisible()
     }
 
-    pub fn has_clip_scroll_group(&self, id: ClipId) -> bool {
-        self.clip_scroll_groups.iter().rev().any(|index| index.1 == id)
+    pub fn has_clip_scroll_group(&self, clip_and_scroll: ClipAndScrollInfo) -> bool {
+        self.clip_scroll_groups.iter().rev().any(|index| index.1 == clip_and_scroll)
     }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct ClipScrollGroupIndex(pub usize, pub ClipId);
+pub struct ClipScrollGroupIndex(pub usize, pub ClipAndScrollInfo);
 
 #[derive(Debug)]
 pub struct ClipScrollGroup {
     pub stacking_context_index: StackingContextIndex,
-    pub clip_id: ClipId,
+    pub scroll_node_id: ClipId,
+    pub clip_node_id: ClipId,
     pub packed_layer_index: PackedLayerIndex,
     pub screen_bounding_rect: Option<(TransformedRectKind, DeviceIntRect)>,
 }
