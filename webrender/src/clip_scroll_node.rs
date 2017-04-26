@@ -399,6 +399,14 @@ impl ClipScrollNode {
         }
         ray_intersects_rect(p0, p1, self.local_viewport_rect.to_untyped())
     }
+
+    pub fn scroll_offset(&self) -> Option<LayerPoint> {
+        match self.node_type {
+            NodeType::Clip(_) if self.scrollable_width() > 0. || self.scrollable_height() > 0. =>
+                Some(self.scrolling.offset),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
