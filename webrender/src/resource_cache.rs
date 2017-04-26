@@ -28,7 +28,6 @@ use webrender_traits::{GlyphOptions, GlyphInstance, TileOffset, TileSize};
 use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, ImageStore};
 use webrender_traits::{ExternalImageData, ExternalImageType, LayoutPoint};
 use threadpool::ThreadPool;
-use euclid::Point2D;
 
 const DEFAULT_TILE_SIZE: TileSize = 512;
 
