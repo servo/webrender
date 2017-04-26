@@ -3,9 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::sync::Arc;
-use DeviceUintRect;
-use TileOffset;
-use DevicePoint;
+use {DeviceUintRect, DevicePoint};
+use {TileOffset, TileSize};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -93,7 +92,7 @@ impl ImageDescriptor {
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ImageData {
     Raw(Arc<Vec<u8>>),
-    Blob(Arc<BlobImageData>),
+    Blob(BlobImageData),
     External(ExternalImageData),
 }
 
@@ -107,22 +106,24 @@ impl ImageData {
     }
 
     pub fn new_blob_image(commands: Vec<u8>) -> ImageData {
-        ImageData::Blob(Arc::new(commands))
-    }
-
-    pub fn new_shared_blob_image(commands: Arc<Vec<u8>>) -> ImageData {
         ImageData::Blob(commands)
     }
 }
 
 pub trait BlobImageRenderer: Send {
-    fn request_blob_image(&mut self,
-                          key: BlobImageRequest,
-                          data: Arc<BlobImageData>,
-                          descriptor: &BlobImageDescriptor,
-                          dirty_rect: Option<DeviceUintRect>,
-                          images: &ImageStore);
-    fn resolve_blob_image(&mut self, key: BlobImageRequest) -> BlobImageResult;
+    fn add(&mut self, key: ImageKey, data: BlobImageData, tiling: Option<TileSize>);
+
+    fn update(&mut self, key: ImageKey, data: BlobImageData);
+
+    fn delete(&mut self, key: ImageKey);
+
+    fn request(&mut self,
+               key: BlobImageRequest,
+               descriptor: &BlobImageDescriptor,
+               dirty_rect: Option<DeviceUintRect>,
+               images: &ImageStore);
+
+    fn resolve(&mut self, key: BlobImageRequest) -> BlobImageResult;
 }
 
 pub type BlobImageData = Vec<u8>;
