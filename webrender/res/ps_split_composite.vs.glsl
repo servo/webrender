@@ -16,16 +16,21 @@ SplitGeometry fetch_split_geometry(int index) {
     return SplitGeometry(vec2[4](data0.xy, data0.zw, data1.xy, data1.zw));
 }
 
+vec2 bilerp(vec2 a, vec2 b, vec2 c, vec2 d, float s, float t) {
+  vec2 x = mix(a, b, t);
+  vec2 y = mix(c, d, t);
+  return mix(x, y, s);
+}
+
 void main(void) {
     PrimitiveInstance pi = fetch_prim_instance();
     SplitGeometry geometry = fetch_split_geometry(pi.specific_prim_index);
     AlphaBatchTask src_task = fetch_alpha_batch_task(pi.user_data.x);
     Layer layer = fetch_layer(pi.layer_index);
 
-    vec2 normalized_pos = mix(
-        mix(geometry.points[0], geometry.points[1], aPosition.x),
-        mix(geometry.points[3], geometry.points[2], aPosition.x),
-        aPosition.y);
+    vec2 normalized_pos = bilerp(geometry.points[0], geometry.points[1],
+                                 geometry.points[3], geometry.points[2],
+                                 aPosition.y, aPosition.x);
     vec2 local_pos = normalized_pos * src_task.size; // + layer.local_clip_rect.p0
     vec4 world_pos_homogen = layer.transform * vec4(local_pos, 0.0, 1.0);
     vec2 world_pos = world_pos_homogen.xy / world_pos_homogen.w;

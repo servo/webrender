@@ -82,7 +82,7 @@ macro_rules! define_string_enum {
 
 define_string_enum!(TransformStyle, [
     Flat = "flat",
-    Preserve3D = "preserve3d",
+    Preserve3D = "preserve-3d",
 ]);
 
 define_string_enum!(MixBlendMode, [
