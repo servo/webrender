@@ -7,6 +7,7 @@ flat varying vec4 vColor1;
 flat varying vec2 vEdgeDistance;
 flat varying float vAxisSelect;
 flat varying float vAlphaSelect;
+flat varying vec3 vDashParams;
 
 #ifdef WR_FEATURE_TRANSFORM
 varying vec3 vLocalPos;
