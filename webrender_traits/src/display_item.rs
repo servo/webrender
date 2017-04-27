@@ -355,11 +355,7 @@ pub enum ImageRendering {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct YuvImageDisplayItem {
-    // YUV image could have 1 to 3 planes.
-    pub plane_0_image_key: ImageKey,
-    pub plane_1_image_key: Option<ImageKey>,
-    pub plane_2_image_key: Option<ImageKey>,
-    pub format: YuvFormat,
+    pub yuv_data: YuvData,
     pub color_space: YuvColorSpace,
 }
 
@@ -375,6 +371,21 @@ impl YuvColorSpace {
         match *self {
             YuvColorSpace::Rec601 => "YUV_REC601",
             YuvColorSpace::Rec709 => "YUV_REC709",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub enum YuvData {
+    NV12(ImageKey, ImageKey),
+    PlanarYCbCr(ImageKey, ImageKey, ImageKey),
+}
+
+impl YuvData {
+    pub fn get_format(&self) -> YuvFormat {
+        match *self {
+            YuvData::NV12(..) => YuvFormat::NV12,
+            YuvData::PlanarYCbCr(..) => YuvFormat::PlanarYCbCr,
         }
     }
 }

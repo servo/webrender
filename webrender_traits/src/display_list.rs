@@ -14,7 +14,7 @@ use {ImageRendering, ItemRange, LayoutPoint, LayoutRect, LayoutSize, LayoutTrans
 use {MixBlendMode, PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
 use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollPolicy, SpecificDisplayItem};
 use {StackingContext, TextDisplayItem, TransformStyle, WebGLContextId, WebGLDisplayItem};
-use {YuvColorSpace, YuvFormat, YuvImageDisplayItem};
+use {YuvColorSpace, YuvData, YuvImageDisplayItem};
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct AuxiliaryLists {
@@ -179,32 +179,14 @@ impl DisplayListBuilder {
         self.push_item(item, rect, clip);
     }
 
-    /// Push a yuv image. The number of input plane should match the format.
-    /// e.g.
-    ///   NV12 should have 2 planes.
-    ///
-    /// All planar data should use the same buffer type.
+    /// Push a yuv image. All planar data in yuv image should use the same buffer type.
     pub fn push_yuv_image(&mut self,
                           rect: LayoutRect,
                           clip: ClipRegion,
-                          plane_0_image_key: ImageKey,
-                          plane_1_image_key: Option<ImageKey>,
-                          plane_2_image_key: Option<ImageKey>,
-                          format: YuvFormat,
+                          yuv_data: YuvData,
                           color_space: YuvColorSpace) {
-        // Check the plane number for the YuvFormat.
-        match format.get_plane_num() {
-            1 => debug_assert!(plane_1_image_key.is_none() && plane_2_image_key.is_none()),
-            2 => debug_assert!(plane_1_image_key.is_some() && plane_2_image_key.is_none()),
-            3 => debug_assert!(plane_1_image_key.is_some() && plane_2_image_key.is_some()),
-            _ => debug_assert!(false),
-        }
-
         let item = SpecificDisplayItem::YuvImage(YuvImageDisplayItem {
-            plane_0_image_key: plane_0_image_key,
-            plane_1_image_key: plane_1_image_key,
-            plane_2_image_key: plane_2_image_key,
-            format: format,
+            yuv_data: yuv_data,
             color_space: color_space,
         });
         self.push_item(item, rect, clip);

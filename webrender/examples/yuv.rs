@@ -18,7 +18,7 @@ use webrender_traits::{ClipRegion, ColorF, Epoch};
 use webrender_traits::{DeviceIntPoint, DeviceUintSize, LayoutPoint, LayoutRect, LayoutSize};
 use webrender_traits::{ImageData, ImageDescriptor, ImageFormat};
 use webrender_traits::{PipelineId, TransformStyle};
-use webrender_traits::{YuvColorSpace, YuvFormat};
+use webrender_traits::{YuvColorSpace, YuvData};
 
 #[derive(Debug)]
 enum Gesture {
@@ -278,20 +278,14 @@ fn main() {
     builder.push_yuv_image(
         LayoutRect::new(LayoutPoint::new(100.0, 0.0), LayoutSize::new(100.0, 100.0)),
         ClipRegion::simple(&bounds),
-        yuv_chanel1,
-        Some(yuv_chanel2),
-        None,
-        YuvFormat::NV12,
+        YuvData::NV12(yuv_chanel1, yuv_chanel2),
         YuvColorSpace::Rec601,
     );
 
     builder.push_yuv_image(
         LayoutRect::new(LayoutPoint::new(300.0, 0.0), LayoutSize::new(100.0, 100.0)),
         ClipRegion::simple(&bounds),
-        yuv_chanel1,
-        Some(yuv_chanel2_1),
-        Some(yuv_chanel3),
-        YuvFormat::PlanarYCbCr,
+        YuvData::PlanarYCbCr(yuv_chanel1, yuv_chanel2_1, yuv_chanel3),
         YuvColorSpace::Rec601,
     );
 
@@ -349,3 +343,4 @@ fn main() {
         window.swap_buffers().ok();
     }
 }
+

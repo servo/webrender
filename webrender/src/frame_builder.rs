@@ -31,7 +31,7 @@ use webrender_traits::{ClipId, ClipRegion, ColorF, DeviceIntPoint, DeviceIntRect
 use webrender_traits::{DeviceUintRect, DeviceUintSize, ExtendMode, FontKey, FontRenderMode};
 use webrender_traits::{GlyphOptions, ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect};
 use webrender_traits::{LayerSize, LayerToScrollTransform, PipelineId, RepeatMode, TileOffset};
-use webrender_traits::{TransformStyle, WebGLContextId, YuvColorSpace, YuvFormat};
+use webrender_traits::{TransformStyle, WebGLContextId, YuvColorSpace, YuvData};
 
 #[derive(Debug, Clone)]
 struct ImageBorderSegment {
@@ -1014,18 +1014,17 @@ impl FrameBuilder {
                          clip_and_scroll: ClipAndScrollInfo,
                          rect: LayerRect,
                          clip_region: &ClipRegion,
-                         plane_0_image_key: ImageKey,
-                         plane_1_image_key: Option<ImageKey>,
-                         plane_2_image_key: Option<ImageKey>,
-                         format: YuvFormat,
+                         yuv_data: YuvData,
                          color_space: YuvColorSpace) {
+        let format = yuv_data.get_format();
+        let yuv_key = match yuv_data {
+            YuvData::NV12(plane_0, plane_1) => [plane_0, plane_1, ImageKey::new(0, 0)],
+            YuvData::PlanarYCbCr(plane_0, plane_1, plane_2) =>
+                [plane_0, plane_1, plane_2],
+        };
 
         let prim_cpu = YuvImagePrimitiveCpu {
-            yuv_key: [
-                plane_0_image_key,
-                plane_1_image_key.unwrap_or(ImageKey::new(0, 0)),
-                plane_2_image_key.unwrap_or(ImageKey::new(0, 0)),
-            ],
+            yuv_key: yuv_key,
             yuv_texture_id: [SourceTexture::Invalid, SourceTexture::Invalid, SourceTexture::Invalid],
             yuv_resource_address: GpuStoreAddress(0),
             format: format,
