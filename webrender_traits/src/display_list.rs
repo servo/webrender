@@ -331,6 +331,33 @@ impl DisplayListBuilder {
                                   radius: LayoutSize,
                                   mut stops: Vec<GradientStop>,
                                   extend_mode: ExtendMode) -> RadialGradient {
+        if radius.width <= 0.0 || radius.height <= 0.0 {
+            // The shader cannot handle a non positive radius. So
+            // reuse the stops vector and construct an equivalent
+            // gradient.
+            let last_color = stops.last().unwrap().color;
+
+            stops.clear();
+            stops.push(GradientStop {
+                offset: 0.0,
+                color: last_color,
+            });
+            stops.push(GradientStop {
+                offset: 1.0,
+                color: last_color,
+            });
+
+            return RadialGradient {
+                start_center: center,
+                start_radius: 0.0,
+                end_center: center,
+                end_radius: 1.0,
+                ratio_xy: 1.0,
+                stops: self.auxiliary_lists_builder.add_gradient_stops(&stops),
+                extend_mode: extend_mode,
+            };
+        }
+
         let (start_offset,
              end_offset) = DisplayListBuilder::normalize_stops(&mut stops, extend_mode);
 
