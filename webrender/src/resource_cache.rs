@@ -404,7 +404,7 @@ impl ResourceCache {
 
         match value {
             Some(image) => {
-                if let ImageData::Blob(_) = image.data {
+                if image.data.is_blob() {
                     self.blob_image_renderer.as_mut().unwrap().delete(image_key);
                 }
             }
@@ -442,7 +442,7 @@ impl ResourceCache {
         };
 
         let template = self.image_templates.get(key).unwrap();
-        if let ImageData::Blob(_) = template.data {
+        if template.data.is_blob() {
             if let Some(ref mut renderer) = self.blob_image_renderer {
                 let same_epoch = match self.cached_images.resources.get(&request) {
                     Some(entry) => entry.epoch == template.epoch,
@@ -450,21 +450,27 @@ impl ResourceCache {
                 };
 
                 if !same_epoch && self.blob_image_requests.insert(request) {
-                    let offset = match request.tile {
-                        Some(tile_offset) => {
-                            let tile_size = template.tiling.unwrap() as f32;
-                            DevicePoint::new(
-                                tile_offset.x as f32 * tile_size,
-                                tile_offset.y as f32 * tile_size,
-                            )
+                    let (offset, w, h) = match template.tiling {
+                        Some(tile_size) => {
+                            let tile_offset = request.tile.unwrap();
+                            let (w, h) = compute_tile_size(&template.descriptor, tile_size, tile_offset);
+                            let offset = DevicePoint::new(
+                                tile_offset.x as f32 * tile_size as f32,
+                                tile_offset.y as f32 * tile_size as f32,
+                            );
+
+                            (offset, w, h)
                         }
-                        None => { DevicePoint::zero() }
+                        None => {
+                            (DevicePoint::zero(), template.descriptor.width, template.descriptor.height)
+                        }
                     };
+
                     renderer.request(
                         request.into(),
                         &BlobImageDescriptor {
-                            width: template.descriptor.width,
-                            height: template.descriptor.height,
+                            width: w,
+                            height: h,
                             offset: offset,
                             format: template.descriptor.format,
                         },
@@ -747,32 +753,30 @@ impl ResourceCache {
         });
 
         let descriptor = if let Some(tile) = request.tile {
-            let tile_size = image_template.tiling.unwrap() as u32;
+            let tile_size = image_template.tiling.unwrap();
             let image_descriptor = &image_template.descriptor;
-            let stride = image_descriptor.compute_stride();
-            let bpp = image_descriptor.format.bytes_per_pixel().unwrap();
 
-            // Storage for the tiles on the right and bottom edges is shrunk to
-            // fit the image data (See decompose_tiled_image in frame.rs).
-            let actual_width = if (tile.x as u32) < image_descriptor.width / tile_size {
-                tile_size
+            let (actual_width, actual_height) = compute_tile_size(image_descriptor, tile_size, tile);
+
+            // The tiled image could be stored on the CPU as one large image or be
+            // already broken up into tiles. This affects the way we compute the stride
+            // and offset.
+            let tiled_on_cpu = image_template.data.is_blob();
+
+            let (stride, offset) = if tiled_on_cpu {
+                (image_descriptor.stride, 0)
             } else {
-                image_descriptor.width % tile_size
+                let bpp = image_descriptor.format.bytes_per_pixel().unwrap();
+                let stride = image_descriptor.compute_stride();
+                let offset = image_descriptor.offset + tile.y as u32 * tile_size as u32 * stride
+                                                     + tile.x as u32 * tile_size as u32 * bpp;
+                (Some(stride), offset)
             };
-
-            let actual_height = if (tile.y as u32) < image_descriptor.height / tile_size {
-                tile_size
-            } else {
-                image_descriptor.height % tile_size
-            };
-
-            let offset = image_descriptor.offset + tile.y as u32 * tile_size * stride
-                                                 + tile.x as u32 * tile_size * bpp;
 
             ImageDescriptor {
                 width: actual_width,
                 height: actual_height,
-                stride: Some(stride),
+                stride: stride,
                 offset: offset,
                 format: image_descriptor.format,
                 is_opaque: image_descriptor.is_opaque,
@@ -1044,4 +1048,26 @@ fn spawn_glyph_cache_thread(workers: Arc<Mutex<ThreadPool>>) -> (Sender<GlyphCac
     }).unwrap();
 
     (msg_tx, result_rx)
+}
+
+// Compute the width and height of a tile depending on its position in the image.
+pub fn compute_tile_size(descriptor: &ImageDescriptor,
+                         tile_size: TileSize,
+                         tile: TileOffset) -> (u32, u32) {
+    let tile_size = tile_size as u32;
+    // Storage for the tiles on the right and bottom edges is shrunk to
+    // fit the image data (See decompose_tiled_image in frame.rs).
+    let actual_width = if (tile.x as u32) < descriptor.width / tile_size {
+        tile_size
+    } else {
+        descriptor.width % tile_size
+    };
+
+    let actual_height = if (tile.y as u32) < descriptor.height / tile_size {
+        tile_size
+    } else {
+        descriptor.height % tile_size
+    };
+
+    (actual_width, actual_height)
 }
