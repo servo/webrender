@@ -1023,8 +1023,8 @@ impl FrameBuilder {
         let prim_cpu = YuvImagePrimitiveCpu {
             yuv_key: [
                 plane_0_image_key,
-                { if plane_1_image_key.is_some() { plane_1_image_key.unwrap() } else { ImageKey::new(0,0) } },
-                { if plane_2_image_key.is_some() { plane_2_image_key.unwrap() } else { ImageKey::new(0,0) } },
+                plane_1_image_key.unwrap_or(ImageKey::new(0, 0)),
+                plane_2_image_key.unwrap_or(ImageKey::new(0, 0)),
             ],
             yuv_texture_id: [SourceTexture::Invalid, SourceTexture::Invalid, SourceTexture::Invalid],
             yuv_resource_address: GpuStoreAddress(0),

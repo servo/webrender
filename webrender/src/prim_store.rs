@@ -1003,9 +1003,9 @@ impl PrimitiveStore {
                     let image_cpu = &mut self.cpu_yuv_images[metadata.cpu_prim_index.0];
 
                     //yuv channel
-                    let channel_num = image_cpu.format.get_plane_num();
-                    debug_assert!(channel_num <= 3);
-                    for channel in 0..channel_num {
+                    let channel_count = image_cpu.format.get_plane_num();
+                    debug_assert!(channel_count <= 3);
+                    for channel in 0..channel_count {
                         if image_cpu.yuv_texture_id[channel] == SourceTexture::Invalid {
                             // Check if an external image that needs to be resolved
                             // by the render thread.

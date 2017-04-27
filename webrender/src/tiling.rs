@@ -558,9 +558,9 @@ impl AlphaRenderItem {
 
                         // All yuv textures should be the same type.
                         let buffer_kind = get_buffer_kind(image_yuv_cpu.yuv_texture_id[0]);
-                        for plane_index in 1..image_yuv_cpu.format.get_plane_num() {
-                            debug_assert!(buffer_kind == get_buffer_kind(image_yuv_cpu.yuv_texture_id[plane_index]));
-                        }
+                        assert!(image_yuv_cpu.yuv_texture_id[1.. image_yuv_cpu.format.get_plane_num()].iter().all(
+                            |&tid| buffer_kind == get_buffer_kind(tid)
+                        ));
 
                         let key = AlphaBatchKey::new(AlphaBatchKind::YuvImage(buffer_kind, image_yuv_cpu.format, image_yuv_cpu.color_space),
                                                      flags,
