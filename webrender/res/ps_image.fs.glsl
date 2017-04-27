@@ -28,15 +28,5 @@ void main(void) {
 
     alpha = alpha * float(all(bvec2(step(position_in_tile, vStretchSize))));
 
-#if defined(WR_FEATURE_TEXTURE_EXTERNAL) || defined(WR_FEATURE_TEXTURE_RECT)
-    // The textureLod() doesn't support samplerExternalOES.
-    // https://www.khronos.org/registry/OpenGL/extensions/OES/OES_EGL_image_external_essl3.txt
-    //
-    // The textureLod() doesn't support sampler2DRect, too.
-    //
-    // Use texture() instead.
-    oFragColor = vec4(alpha) * texture(sColor0, st);
-#else
-    oFragColor = vec4(alpha) * textureLod(sColor0, st, 0.0);
-#endif
+    oFragColor = vec4(alpha) * TEX_SAMPLE(sColor0, st);
 }

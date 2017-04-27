@@ -64,32 +64,15 @@ void main(void) {
 
     vec3 yuv_value;
 #ifdef WR_FEATURE_NV12
-    #if defined(WR_FEATURE_TEXTURE_EXTERNAL) || defined(WR_FEATURE_TEXTURE_RECT)
-        // The textureLod() doesn't support samplerExternalOES.
-        // https://www.khronos.org/registry/OpenGL/extensions/OES/OES_EGL_image_external_essl3.txt
-        //
-        // The textureLod() doesn't support sampler2DRect, too.
-        //
-        // Use texture() instead.
-        yuv_value.x = texture(sColor0, st_y).r;
-        yuv_value.yz = texture(sColor1, st_u).rg;
-    #else
-        yuv_value.x = textureLod(sColor0, st_y, 0.0).r;
-        yuv_value.yz = textureLod(sColor1, st_u, 0.0).rg;
-    #endif
+    yuv_value.x = TEX_SAMPLE(sColor0, st_y).r;
+    yuv_value.yz = TEX_SAMPLE(sColor1, st_u).rg;
 #else
     // The yuv_planar format should have this third texture coordinate.
     vec2 st_v = vTextureOffsetV + uv_offset;
 
-    #if defined(WR_FEATURE_TEXTURE_EXTERNAL) || defined(WR_FEATURE_TEXTURE_RECT)
-        yuv_value.x = texture(sColor0, st_y).r;
-        yuv_value.y = texture(sColor1, st_u).r;
-        yuv_value.z = texture(sColor2, st_v).r;
-    #else
-        yuv_value.x = textureLod(sColor0, st_y, 0.0).r;
-        yuv_value.y = textureLod(sColor1, st_u, 0.0).r;
-        yuv_value.z = textureLod(sColor2, st_v, 0.0).r;
-    #endif
+    yuv_value.x = TEX_SAMPLE(sColor0, st_y).r;
+    yuv_value.y = TEX_SAMPLE(sColor1, st_u).r;
+    yuv_value.z = TEX_SAMPLE(sColor2, st_v).r;
 #endif
 
     // See the YuvColorMatrix definition for an explanation of where the constants come from.
