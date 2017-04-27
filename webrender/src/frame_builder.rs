@@ -7,7 +7,7 @@ use frame::FrameId;
 use gpu_store::GpuStoreAddress;
 use internal_types::{HardwareCompositeOp, SourceTexture};
 use mask_cache::{ClipMode, ClipSource, MaskCacheInfo, RegionMode};
-use plane_split::{NaiveSplitter, Polygon, Splitter};
+use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu, ImagePrimitiveGpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
@@ -1135,9 +1135,19 @@ impl FrameBuilder {
                                                            DeviceIntPoint::zero(),
                                                            RenderTaskLocation::Fixed);
         next_task_index.0 += 1;
+        // A stack of the alpha batcher tasks. We create them on the way down,
+        // and then actually populate with items and dependencies on the way up.
         let mut alpha_task_stack = Vec::new();
+        // The stack of "preserve-3d" contexts. We are baking these into render targets
+        // and onlu compositing once we are out of "preserve-3d" hierarchy.
+        // That is why we stack those contexts.
         let mut preserve_3d_stack = Vec::new();
-        let mut has_primitives_stack = Vec::new(); //TODO: simpler implementation?
+        // This is not a beautiful implementation of detecting if there are any primitives
+        // recorded in a stacking context outside of the child stacking contexts.
+        // This stack contains a boolean value per stacking context, initialized to `false`.
+        let mut has_primitives_stack = Vec::new();
+        // The plane splitter, using a simple BSP tree.
+        let mut splitter = BspSplitter::new();
 
         self.prim_store.gpu_split_geometry.clear();
 
@@ -1158,16 +1168,17 @@ impl FrameBuilder {
 
                     match stacking_context.isolation {
                         ContextIsolation::Items => {
-                            let task_size = DeviceIntSize::from_untyped(&stacking_context.local_bounds.size.ceil().to_i32().to_untyped());
-                            let location = RenderTaskLocation::Dynamic(None, task_size);
+                            //Note: this code path accidentally matches the other match arms.
+                            // It doesn't have to, so leaving it as a copy for now.
+                            let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
                             let new_task = RenderTask::new_alpha_batch(next_task_index,
-                                                                       DeviceIntPoint::zero(),
+                                                                       stacking_context_rect.origin,
                                                                        location);
                             next_task_index.0 += 1;
                             let prev_task = mem::replace(&mut current_task, new_task);
                             alpha_task_stack.push(prev_task);
                         }
-                        ContextIsolation::Full if composite_count ==0 => {
+                        ContextIsolation::Full if composite_count == 0 => {
                             let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
                             let new_task = RenderTask::new_alpha_batch(next_task_index,
                                                                        stacking_context_rect.origin,
@@ -1199,6 +1210,8 @@ impl FrameBuilder {
 
                     let has_items = has_primitives_stack.pop().unwrap();
 
+                    // Handle the `Item` isolation type first. Once we are out of an isolated
+                    // sub-tree of stacking contexts, we do plane splitting and compositing.
                     match stacking_context.isolation {
                         ContextIsolation::Items => {
                             let prev_task = alpha_task_stack.pop().unwrap();
@@ -1215,22 +1228,21 @@ impl FrameBuilder {
                         ContextIsolation::None | ContextIsolation::Full => {
                             // We are back from a "preserve-3d" sub-domain.
                             // Time to split those stacking context planes.
-                            let mut splitter = NaiveSplitter::new();
+                            splitter.reset();
                             for &(_, ref task, ref poly) in preserve_3d_stack.iter() {
                                 splitter.add(poly.clone());
                                 current_task.children.push(task.clone());
                             }
-                            splitter.sort(TypedPoint3D::new(0.0, 0.0, -1.0));
+                            let split_results = splitter.sort(TypedPoint3D::new(0.0, 0.0, -1.0));
                             let gpu_store = &mut self.prim_store.gpu_split_geometry;
-                            current_task.as_alpha_batch().items.extend(splitter.get_all().iter().map(|poly| {
-                                let (sc_index, ref task, ref base_poly) = preserve_3d_stack[poly.anchor];
+                            current_task.as_alpha_batch().items.extend(split_results.iter().map(|poly| {
+                                let (sc_index, ref task, _) = preserve_3d_stack[poly.anchor];
+                                let pp = &poly.points;
                                 let split_geo = SplitGeometry {
-                                    points: [
-                                        base_poly.untransform_point(poly.points[0]).to_array(),
-                                        base_poly.untransform_point(poly.points[1]).to_array(),
-                                        base_poly.untransform_point(poly.points[2]).to_array(),
-                                        base_poly.untransform_point(poly.points[3]).to_array(),
-                                    ],
+                                    data: [pp[0].x, pp[0].y, pp[0].z,
+                                           pp[1].x, pp[1].y, pp[1].z,
+                                           pp[2].x, pp[2].y, pp[2].z,
+                                           pp[3].x, pp[3].y, pp[3].z],
                                 };
                                 let gpu_index = gpu_store.push(split_geo);
                                 AlphaRenderItem::SplitComposite(sc_index, task.id, gpu_index, next_z)
@@ -1298,13 +1310,11 @@ impl FrameBuilder {
                         continue
                     }
 
-                    let group_index_opt = match stacking_context.isolation {
-                        ContextIsolation::Items => {
-                            *has_primitives_stack.last_mut().unwrap() = true;
-                            None
-                        },
-                        _ => Some(group_index)
-                    };
+                    let group_index_opt = Some(group_index);
+                    if stacking_context.isolation == ContextIsolation::Items {
+                        // Detected primitives inside a "preserve-3d" context
+                        *has_primitives_stack.last_mut().unwrap() = true;
+                    }
 
                     for i in 0..prim_count {
                         let prim_index = PrimitiveIndex(first_prim_index.0 + i);

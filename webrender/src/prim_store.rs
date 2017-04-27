@@ -145,13 +145,13 @@ impl PrimitiveMetadata {
 
 #[derive(Debug, Clone)]
 pub struct SplitGeometry {
-    pub points: [[f32; 2]; 4],
+    pub data: [f32; 12],
 }
 
 impl Default for SplitGeometry {
     fn default() -> SplitGeometry {
         SplitGeometry {
-            points: unsafe { mem::uninitialized() },
+            data: unsafe { mem::uninitialized() },
         }
     }
 }

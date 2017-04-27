@@ -589,11 +589,6 @@ impl AlphaRenderItem {
                                              BlendMode::PremultipliedAlpha,
                                              BatchTextures::no_texture());
                 let stacking_context = &ctx.stacking_context_store[sc_index.0];
-                //HACK:
-                let ref_group = stacking_context.clip_scroll_groups.iter().find(|group_id| {
-                    group_id.1.scroll_node_id.is_reference_frame()
-                }).unwrap();
-                let layer_index = ctx.clip_scroll_group_store[ref_group.0].packed_layer_index;
                 let batch = batch_list.get_suitable_batch(&key, &stacking_context.screen_bounds);
                 let source_task = render_tasks.get_task_index(&task_id, child_pass_index);
                 batch.add_instance(PrimitiveInstance {
@@ -601,7 +596,7 @@ impl AlphaRenderItem {
                     prim_address: gpu_address,
                     task_index: task_index.0 as i32,
                     clip_task_index: -1,
-                    layer_index: layer_index.0 as i32,
+                    layer_index: -1, // not be used
                     sub_index: 0,
                     user_data: [ source_task.0 as i32, 0 ],
                     z_sort_index: z,

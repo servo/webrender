@@ -6,39 +6,41 @@
 uniform sampler2D sSplitGeometry;
 
 struct SplitGeometry {
-    vec2 points[4];
+    vec3 points[4];
 };
 
 SplitGeometry fetch_split_geometry(int index) {
     ivec2 uv = get_fetch_uv(index, VECS_PER_SPLIT_GEOM);
+
     vec4 data0 = texelFetchOffset(sSplitGeometry, uv, 0, ivec2(0, 0));
     vec4 data1 = texelFetchOffset(sSplitGeometry, uv, 0, ivec2(1, 0));
-    return SplitGeometry(vec2[4](data0.xy, data0.zw, data1.xy, data1.zw));
+    vec4 data2 = texelFetchOffset(sSplitGeometry, uv, 0, ivec2(2, 0));
+
+    return SplitGeometry(vec3[4](
+        data0.xyz, vec3(data0.w, data1.xy),
+        vec3(data1.zw, data2.x), data2.yzw
+    ));
 }
 
-vec2 bilerp(vec2 a, vec2 b, vec2 c, vec2 d, float s, float t) {
-  vec2 x = mix(a, b, t);
-  vec2 y = mix(c, d, t);
-  return mix(x, y, s);
+vec3 bilerp(vec3 a, vec3 b, vec3 c, vec3 d, float s, float t) {
+    vec3 x = mix(a, b, t);
+    vec3 y = mix(c, d, t);
+    return mix(x, y, s);
 }
 
 void main(void) {
     PrimitiveInstance pi = fetch_prim_instance();
     SplitGeometry geometry = fetch_split_geometry(pi.specific_prim_index);
     AlphaBatchTask src_task = fetch_alpha_batch_task(pi.user_data.x);
-    Layer layer = fetch_layer(pi.layer_index);
 
-    vec2 normalized_pos = bilerp(geometry.points[0], geometry.points[1],
-                                 geometry.points[3], geometry.points[2],
-                                 aPosition.y, aPosition.x);
-    vec2 local_pos = normalized_pos * src_task.size; // + layer.local_clip_rect.p0
-    vec4 world_pos_homogen = layer.transform * vec4(local_pos, 0.0, 1.0);
-    vec2 world_pos = world_pos_homogen.xy / world_pos_homogen.w;
-    vec4 final_pos = vec4(world_pos * uDevicePixelRatio, pi.z, 1.0);
+    vec3 world_pos = bilerp(geometry.points[0], geometry.points[1],
+                            geometry.points[3], geometry.points[2],
+                            aPosition.y, aPosition.x);
+    vec4 final_pos = vec4(world_pos.xy * uDevicePixelRatio, pi.z, 1.0);
 
     gl_Position = uTransform * final_pos;
 
-    vec2 uv_pos = src_task.render_target_origin + normalized_pos * src_task.size;
+    vec2 uv_pos = src_task.render_target_origin + world_pos.xy - src_task.screen_space_origin;
     vec2 texture_size = vec2(textureSize(sCacheRGBA8, 0));
     vUv = vec3(uv_pos / texture_size, src_task.render_target_layer_index);
 }
