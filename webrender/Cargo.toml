@@ -50,3 +50,6 @@ name = "basic"
 
 [[example]]
 name = "scrolling"
+
+[[example]]
+name = "yuv"

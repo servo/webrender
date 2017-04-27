@@ -17,6 +17,7 @@ use render_task::{AlphaRenderItem, MaskGeometryKind, MaskSegment, RenderTask, Re
 use render_task::{RenderTaskId, RenderTaskIndex, RenderTaskKey, RenderTaskKind};
 use render_task::RenderTaskLocation;
 use renderer::BlendMode;
+use renderer::ImageBufferKind;
 use resource_cache::ResourceCache;
 use std::{f32, i32, mem, usize};
 use std::collections::HashMap;
@@ -28,6 +29,7 @@ use webrender_traits::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUint
 use webrender_traits::{ExternalImageType, FontRenderMode, ImageRendering, LayerPoint, LayerRect};
 use webrender_traits::{LayerToWorldTransform, MixBlendMode, PipelineId, TransformStyle};
 use webrender_traits::{WorldPoint4D, WorldToLayerTransform};
+use webrender_traits::{YuvColorSpace, YuvFormat};
 
 // Special sentinel value recognized by the shader. It is considered to be
 // a dummy task that doesn't mask out anything.
@@ -457,18 +459,18 @@ impl AlphaRenderItem {
                         let batch_kind = match image_cpu.color_texture_id {
                             SourceTexture::External(ext_image) => {
                                 match ext_image.image_type {
-                                    ExternalImageType::Texture2DHandle => AlphaBatchKind::Image,
-                                    ExternalImageType::TextureRectHandle => AlphaBatchKind::ImageRect,
-                                    ExternalImageType::TextureExternalHandle => {
-                                        panic!("No implementation for single channel TextureExternalHandle image.");
-                                    }
-                                    _ => {
+                                    ExternalImageType::Texture2DHandle => AlphaBatchKind::Image(ImageBufferKind::Texture2D),
+                                    ExternalImageType::TextureRectHandle => AlphaBatchKind::Image(ImageBufferKind::TextureRect),
+                                    ExternalImageType::TextureExternalHandle => AlphaBatchKind::Image(ImageBufferKind::TextureExternal),
+                                    ExternalImageType::ExternalBuffer => {
+                                        // The ExternalImageType::ExternalBuffer should be handled by resource_cache.
+                                        // It should go through the non-external case.
                                         panic!("Non-texture handle type should be handled in other way.");
                                     }
                                 }
                             }
                             _ => {
-                                AlphaBatchKind::Image
+                                AlphaBatchKind::Image(ImageBufferKind::Texture2D)
                             }
                         };
 
@@ -532,10 +534,38 @@ impl AlphaRenderItem {
                                                                0));
                     }
                     PrimitiveKind::YuvImage => {
-                        // TODO (Jerry):
-                        // handle NV12
                         let image_yuv_cpu = &ctx.prim_store.cpu_yuv_images[prim_metadata.cpu_prim_index.0];
-                        let key = AlphaBatchKey::new(AlphaBatchKind::YuvImage, flags, blend_mode, textures);
+
+                        let get_buffer_kind = |texture: SourceTexture| {
+                            match texture {
+                                SourceTexture::External(ext_image) => {
+                                    match ext_image.image_type {
+                                        ExternalImageType::Texture2DHandle => ImageBufferKind::Texture2D,
+                                        ExternalImageType::TextureRectHandle => ImageBufferKind::TextureRect,
+                                        ExternalImageType::TextureExternalHandle => ImageBufferKind::TextureExternal,
+                                        ExternalImageType::ExternalBuffer => {
+                                            // The ExternalImageType::ExternalBuffer should be handled by resource_cache.
+                                            // It should go through the non-external case.
+                                            panic!("Non-texture handle type should be handled in other way.");
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    ImageBufferKind::Texture2D
+                                }
+                            }
+                        };
+
+                        // All yuv textures should be the same type.
+                        let buffer_kind = get_buffer_kind(image_yuv_cpu.yuv_texture_id[0]);
+                        assert!(image_yuv_cpu.yuv_texture_id[1.. image_yuv_cpu.format.get_plane_num()].iter().all(
+                            |&tid| buffer_kind == get_buffer_kind(tid)
+                        ));
+
+                        let key = AlphaBatchKey::new(AlphaBatchKind::YuvImage(buffer_kind, image_yuv_cpu.format, image_yuv_cpu.color_space),
+                                                     flags,
+                                                     blend_mode,
+                                                     textures);
                         let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
 
                         batch.add_instance(base_instance.build(0,
@@ -1116,16 +1146,14 @@ impl RenderPass {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-#[repr(u8)]
 pub enum AlphaBatchKind {
-    Composite = 0,
+    Composite,
     HardwareComposite,
     Blend,
     Rectangle,
     TextRun,
-    Image,
-    ImageRect,
-    YuvImage,
+    Image(ImageBufferKind),
+    YuvImage(ImageBufferKind, YuvFormat, YuvColorSpace),
     Border,
     AlignedGradient,
     AngleGradient,

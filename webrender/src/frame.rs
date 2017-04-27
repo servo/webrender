@@ -594,9 +594,7 @@ impl Frame {
                     context.builder.add_yuv_image(clip_and_scroll,
                                                   item.rect,
                                                   &item.clip,
-                                                  info.y_image_key,
-                                                  info.u_image_key,
-                                                  info.v_image_key,
+                                                  info.yuv_data,
                                                   info.color_space);
                 }
                 SpecificDisplayItem::Text(ref text_info) => {

@@ -14,7 +14,7 @@ use {ImageRendering, ItemRange, LayoutPoint, LayoutRect, LayoutSize, LayoutTrans
 use {MixBlendMode, PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
 use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollPolicy, SpecificDisplayItem};
 use {StackingContext, TextDisplayItem, TransformStyle, WebGLContextId, WebGLDisplayItem};
-use {YuvColorSpace, YuvImageDisplayItem};
+use {YuvColorSpace, YuvData, YuvImageDisplayItem};
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct AuxiliaryLists {
@@ -179,18 +179,15 @@ impl DisplayListBuilder {
         self.push_item(item, rect, clip);
     }
 
+    /// Push a yuv image. All planar data in yuv image should use the same buffer type.
     pub fn push_yuv_image(&mut self,
                           rect: LayoutRect,
                           clip: ClipRegion,
-                          y_key: ImageKey,
-                          u_key: ImageKey,
-                          v_key: ImageKey,
+                          yuv_data: YuvData,
                           color_space: YuvColorSpace) {
         let item = SpecificDisplayItem::YuvImage(YuvImageDisplayItem {
-                y_image_key: y_key,
-                u_image_key: u_key,
-                v_image_key: v_key,
-                color_space: color_space,
+            yuv_data: yuv_data,
+            color_space: color_space,
         });
         self.push_item(item, rect, clip);
     }
