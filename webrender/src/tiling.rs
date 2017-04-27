@@ -589,8 +589,9 @@ impl AlphaRenderItem {
                                              BlendMode::PremultipliedAlpha,
                                              BatchTextures::no_texture());
                 let stacking_context = &ctx.stacking_context_store[sc_index.0];
+                //HACK:
                 let ref_group = stacking_context.clip_scroll_groups.iter().find(|group_id| {
-                    group_id.1.is_reference_frame()
+                    group_id.1.scroll_node_id.is_reference_frame()
                 }).unwrap();
                 let layer_index = ctx.clip_scroll_group_store[ref_group.0].packed_layer_index;
                 let batch = batch_list.get_suitable_batch(&key, &stacking_context.screen_bounds);

@@ -82,6 +82,9 @@ impl ImageBorderSegment {
     }
 }
 
+/// Construct a polygon from stacking context boundaries.
+/// `anchor` here is an index that's going to be preserved in all the
+/// splits of the polygon.
 fn make_polygon(sc: &StackingContext, node: &ClipScrollNode, anchor: usize)
                 -> Polygon<f32, WorldPixel> {
     let mut bounds = sc.local_bounds;
@@ -1153,25 +1156,27 @@ impl FrameBuilder {
                     let stacking_context_rect = &stacking_context.screen_bounds;
                     let composite_count = stacking_context.composite_ops.count();
 
-                    if stacking_context.isolation == ContextIsolation::Items {
-                        let task_size = DeviceIntSize::from_untyped(&stacking_context.local_bounds.size.ceil().to_i32().to_untyped());
-                        let location = RenderTaskLocation::Dynamic(None, task_size);
-                        let new_task = RenderTask::new_alpha_batch(next_task_index,
-                                                                   DeviceIntPoint::zero(),
-                                                                   location);
-                        next_task_index.0 += 1;
-                        let prev_task = mem::replace(&mut current_task, new_task);
-                        alpha_task_stack.push(prev_task);
-                    }
-
-                    if composite_count == 0 && stacking_context.isolation == ContextIsolation::Full {
-                        let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
-                        let new_task = RenderTask::new_alpha_batch(next_task_index,
-                                                                   stacking_context_rect.origin,
-                                                                   location);
-                        next_task_index.0 += 1;
-                        let prev_task = mem::replace(&mut current_task, new_task);
-                        alpha_task_stack.push(prev_task);
+                    match stacking_context.isolation {
+                        ContextIsolation::Items => {
+                            let task_size = DeviceIntSize::from_untyped(&stacking_context.local_bounds.size.ceil().to_i32().to_untyped());
+                            let location = RenderTaskLocation::Dynamic(None, task_size);
+                            let new_task = RenderTask::new_alpha_batch(next_task_index,
+                                                                       DeviceIntPoint::zero(),
+                                                                       location);
+                            next_task_index.0 += 1;
+                            let prev_task = mem::replace(&mut current_task, new_task);
+                            alpha_task_stack.push(prev_task);
+                        }
+                        ContextIsolation::Full if composite_count ==0 => {
+                            let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
+                            let new_task = RenderTask::new_alpha_batch(next_task_index,
+                                                                       stacking_context_rect.origin,
+                                                                       location);
+                            next_task_index.0 += 1;
+                            let prev_task = mem::replace(&mut current_task, new_task);
+                            alpha_task_stack.push(prev_task);
+                        }
+                        ContextIsolation::Full | ContextIsolation::None => {}
                     }
 
                     for _ in 0..composite_count {
