@@ -62,5 +62,10 @@ void main(void) {
     // Use linear filtering to mix in the low bits (vGradientIndex + 1) with the high
     // bits (vGradientIndex)
     float y = vGradientIndex * 2.0 + 0.5 + 1.0 / 256.0;
-    oFragColor = dither(texture(sGradients, vec2(x, y) / texture_size));
+
+#ifdef WR_FEATURE_DITHERING
+    oFragColor = texture(sGradients, vec2(x, y) / texture_size);
+#else
+    oFragColor = texture(sGradients, vec2(x, y) / texture_size);
+#endif
 }

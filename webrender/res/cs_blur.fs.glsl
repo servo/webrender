@@ -36,5 +36,9 @@ void main(void) {
     // Unpremultiply the alpha.
     color.rgb /= color.a;
 
+#ifdef WR_FEATURE_DITHERING
     oFragColor = dither(color);
+#else
+    oFragColor = color;
+#endif
 }

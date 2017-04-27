@@ -528,7 +528,7 @@ pub struct Renderer {
     /// when no target is yet provided as a cache texture input.
     dummy_cache_texture_id: TextureId,
 
-    dither_matrix_texture_id: TextureId,
+    dither_matrix_texture_id: Option<TextureId>,
 
     /// Optional trait object that allows the client
     /// application to provide external buffers for image data.
@@ -719,24 +719,38 @@ impl Renderer {
                                  options.precache_shaders)
         };
 
+        let dithering_feature = ["DITHERING"];
+
         let ps_gradient = try!{
             PrimitiveShader::new("ps_gradient",
                                  &mut device,
-                                 &[],
+                                 if options.enable_dithering {
+                                    &dithering_feature
+                                 } else {
+                                    &[]
+                                 },
                                  options.precache_shaders)
         };
 
         let ps_angle_gradient = try!{
             PrimitiveShader::new("ps_angle_gradient",
                                  &mut device,
-                                 &[],
+                                 if options.enable_dithering {
+                                    &dithering_feature
+                                 } else {
+                                    &[]
+                                 },
                                  options.precache_shaders)
         };
 
         let ps_radial_gradient = try!{
             PrimitiveShader::new("ps_radial_gradient",
                                  &mut device,
-                                 &[],
+                                 if options.enable_dithering {
+                                    &dithering_feature
+                                 } else {
+                                    &[]
+                                 },
                                  options.precache_shaders)
         };
 
@@ -788,17 +802,6 @@ impl Renderer {
             0xff, 0xff,
         ];
 
-        let dither_matrix: [u8; 64] = [
-            00, 48, 12, 60, 03, 51, 15, 63,
-            32, 16, 44, 28, 35, 19, 47, 31,
-            08, 56, 04, 52, 11, 59, 07, 55,
-            40, 24, 36, 20, 43, 27, 39, 23,
-            02, 50, 14, 62, 01, 49, 13, 61,
-            34, 18, 46, 30, 33, 17, 45, 29,
-            10, 58, 06, 54, 09, 57, 05, 53,
-            42, 26, 38, 22, 41, 25, 37, 21
-        ];
-
         // TODO: Ensure that the white texture can never get evicted when the cache supports LRU eviction!
         let white_image_id = texture_cache.new_item_id();
         texture_cache.insert(white_image_id,
@@ -823,14 +826,31 @@ impl Renderer {
                             RenderTargetMode::LayerRenderTarget(1),
                             None);
 
-        let dither_matrix_texture_id = device.create_texture_ids(1, TextureTarget::Default)[0];
-        device.init_texture(dither_matrix_texture_id,
-                            8,
-                            8,
-                            ImageFormat::A8,
-                            TextureFilter::Nearest,
-                            RenderTargetMode::None,
-                            Some(&dither_matrix));
+        let dither_matrix_texture_id = if options.enable_dithering {
+            let dither_matrix: [u8; 64] = [
+                00, 48, 12, 60, 03, 51, 15, 63,
+                32, 16, 44, 28, 35, 19, 47, 31,
+                08, 56, 04, 52, 11, 59, 07, 55,
+                40, 24, 36, 20, 43, 27, 39, 23,
+                02, 50, 14, 62, 01, 49, 13, 61,
+                34, 18, 46, 30, 33, 17, 45, 29,
+                10, 58, 06, 54, 09, 57, 05, 53,
+                42, 26, 38, 22, 41, 25, 37, 21
+            ];
+
+            let id = device.create_texture_ids(1, TextureTarget::Default)[0];
+            device.init_texture(id,
+                                8,
+                                8,
+                                ImageFormat::A8,
+                                TextureFilter::Nearest,
+                                RenderTargetMode::None,
+                                Some(&dither_matrix));
+
+            Some(id)
+        } else {
+            None
+        };
 
         let debug_renderer = DebugRenderer::new(&mut device);
 
@@ -1321,7 +1341,9 @@ impl Renderer {
         }
 
         // TODO: this probably isn't the best place for this.
-        self.device.bind_texture(TextureSampler::Dither, self.dither_matrix_texture_id);
+        if let Some(id) = self.dither_matrix_texture_id {
+            self.device.bind_texture(TextureSampler::Dither, id);
+        }
 
         self.device.update_vao_instances(vao, data, VertexUsageHint::Stream);
         self.device.draw_indexed_triangles_instanced_u16(6, data.len() as i32);
@@ -1997,6 +2019,7 @@ pub struct RendererOptions {
     pub device_pixel_ratio: f32,
     pub resource_override_path: Option<PathBuf>,
     pub enable_aa: bool,
+    pub enable_dithering: bool,
     pub enable_profiler: bool,
     pub max_recorded_profiles: usize,
     pub debug: bool,
@@ -2019,6 +2042,7 @@ impl Default for RendererOptions {
             device_pixel_ratio: 1.0,
             resource_override_path: None,
             enable_aa: true,
+            enable_dithering: true,
             enable_profiler: false,
             max_recorded_profiles: 0,
             debug: false,

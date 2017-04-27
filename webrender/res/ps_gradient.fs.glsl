@@ -12,5 +12,10 @@ void main(void) {
 #endif
 
     alpha = min(alpha, do_clip());
+
+#ifdef WR_FEATURE_DITHERING
     oFragColor = dither(vColor * vec4(1.0, 1.0, 1.0, alpha));
+#else
+    oFragColor = vColor * vec4(1.0, 1.0, 1.0, alpha);
+#endif
 }
