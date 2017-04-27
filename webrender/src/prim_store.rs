@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
+use border::{BorderCornerClipData, BorderCornerDashClipData};
 use euclid::{Size2D};
 use gpu_store::GpuStoreAddress;
 use internal_types::{SourceTexture, PackedTexel};
@@ -1042,6 +1043,7 @@ impl PrimitiveStore {
                 let (rect, is_complex) = match source {
                     ClipSource::Complex(rect, radius, _) => (rect, radius > 0.0),
                     ClipSource::Region(ref region, _) => (region.main, region.is_complex()),
+                    ClipSource::BorderCorner{..} => panic!("Not supported!"),
                 };
                 self.gpu_geometry.get_mut(GpuStoreAddress(index.0 as i32))
                     .local_clip_rect = rect;
@@ -1340,7 +1342,8 @@ define_gpu_block!(GpuBlock16: [f32; 4] =
     TextRunPrimitiveGpu, ImagePrimitiveGpu, YuvImagePrimitiveGpu
 );
 define_gpu_block!(GpuBlock32: [f32; 8] =
-    GradientStopGpu, ClipCorner, ClipRect, ImageMaskData
+    GradientStopGpu, ClipCorner, ClipRect, ImageMaskData,
+    BorderCornerClipData, BorderCornerDashClipData
 );
 define_gpu_block!(GpuBlock64: [f32; 16] =
     GradientPrimitiveGpu, RadialGradientPrimitiveGpu, BoxShadowPrimitiveGpu

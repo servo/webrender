@@ -236,7 +236,7 @@ impl RenderTask {
         if inner_rect.is_some() && clips.len() == 1 {
             let (_, ref clip_info) = clips[0];
             if clip_info.image.is_none() &&
-               clip_info.effective_clip_count == 1 &&
+               clip_info.effective_complex_clip_count == 1 &&
                clip_info.is_aligned {
                 geometry_kind = MaskGeometryKind::CornersOnly;
             }

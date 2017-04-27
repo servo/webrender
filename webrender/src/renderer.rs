@@ -497,6 +497,7 @@ pub struct Renderer {
     /// of these shaders are also used by the primitive shaders.
     cs_clip_rectangle: LazilyCompiledShader,
     cs_clip_image: LazilyCompiledShader,
+    cs_clip_border: LazilyCompiledShader,
 
     // The are "primitive shaders". These shaders draw and blend
     // final results on screen. They are aware of tile boundaries.
@@ -678,6 +679,14 @@ impl Renderer {
         let cs_clip_image = try!{
             LazilyCompiledShader::new(ShaderKind::ClipCache,
                                       "cs_clip_image",
+                                      &[],
+                                      &mut device,
+                                      options.precache_shaders)
+        };
+
+        let cs_clip_border = try!{
+            LazilyCompiledShader::new(ShaderKind::ClipCache,
+                                      "cs_clip_border",
                                       &[],
                                       &mut device,
                                       options.precache_shaders)
@@ -1020,6 +1029,7 @@ impl Renderer {
             cs_text_run: cs_text_run,
             cs_blur: cs_blur,
             cs_clip_rectangle: cs_clip_rectangle,
+            cs_clip_border: cs_clip_border,
             cs_clip_image: cs_clip_image,
             ps_rectangle: ps_rectangle,
             ps_rectangle_clip: ps_rectangle_clip,
@@ -1777,6 +1787,16 @@ impl Renderer {
                                           vao,
                                           shader,
                                           &textures,
+                                          &projection);
+            }
+            // draw special border clips
+            if !target.clip_batcher.borders.is_empty() {
+                let _gm2 = GpuMarker::new(self.device.rc_gl(), "clip borders");
+                let shader = self.cs_clip_border.get(&mut self.device).unwrap();
+                self.draw_instanced_batch(&target.clip_batcher.borders,
+                                          vao,
+                                          shader,
+                                          &BatchTextures::no_texture(),
                                           &projection);
             }
         }

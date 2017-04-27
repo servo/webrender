@@ -89,3 +89,57 @@ root:
           style: ridge
           color: [ red, green, blue, yellow ]
           radius: 50
+
+        - type: border
+          bounds: [ 10, 230, 100, 100 ]
+          width: 1
+          border-type: normal
+          style: dashed
+          color: [ red, green, blue, black ]
+          radius: 16
+        - type: border
+          bounds: [ 120, 230, 100, 100 ]
+          width: 2
+          border-type: normal
+          style: dashed
+          color: [ red, green, blue, black ]
+          radius: 32
+        - type: border
+          bounds: [ 230, 230, 100, 100 ]
+          width: 3
+          border-type: normal
+          style: dashed
+          color: [ red, green, blue, black ]
+          radius: 32
+        - type: border
+          bounds: [ 340, 230, 100, 100 ]
+          width: 8
+          border-type: normal
+          style: dashed
+          color: [ red, green, blue, black ]
+          radius: 32
+
+        - type: border
+          bounds: [ 10, 340, 200, 200 ]
+          width: [4, 8, 16, 8]
+          border-type: normal
+          style: dashed
+          color: [ red, green, blue, black ]
+          radius: {
+            top-left: [32, 64],
+            top-right: [32, 32],
+            bottom-left: [64, 32],
+            bottom-right: [32, 32],
+          }
+        - type: border
+          bounds: [ 230, 340, 200, 200 ]
+          width: 4
+          border-type: normal
+          style: dashed
+          color: [ red, green, blue, black ]
+          radius: {
+            top-left: [64, 128],
+            top-right: [16, 32],
+            bottom-left: [40, 18],
+            bottom-right: [100, 50],
+          }
