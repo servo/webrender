@@ -108,6 +108,14 @@ impl ImageData {
     pub fn new_blob_image(commands: Vec<u8>) -> ImageData {
         ImageData::Blob(commands)
     }
+
+    #[inline]
+    pub fn is_blob(&self) -> bool {
+        match self {
+            &ImageData::Blob(_) => true,
+            _ => false,
+        }
+    }
 }
 
 pub trait BlobImageRenderer: Send {
