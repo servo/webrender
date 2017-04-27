@@ -22,7 +22,6 @@ use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler};
-use num::FromPrimitive;
 use prim_store::GradientData;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
@@ -56,6 +55,7 @@ use webrender_traits::{ImageDescriptor, BlobImageRenderer};
 use webrender_traits::channel;
 use webrender_traits::VRCompositorHandler;
 use webrender_traits::{YuvColorSpace, YuvFormat};
+use webrender_traits::{YUV_COLOR_SPACES, YUV_FORMATS};
 
 pub const GPU_DATA_TEXTURE_POOL: usize = 5;
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
@@ -82,15 +82,17 @@ const GPU_TAG_PRIM_BORDER_EDGE: GpuProfileTag = GpuProfileTag { label: "BorderEd
 const GPU_TAG_PRIM_CACHE_IMAGE: GpuProfileTag = GpuProfileTag { label: "CacheImage", color: debug_colors::SILVER };
 const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag { label: "Blur", color: debug_colors::VIOLET };
 
-enum_from_primitive! {
-    #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-    pub enum ImageBufferKind {
-        Texture2D = 0,
-        TextureRect = 1,
-        TextureExternal = 2,
-        TotalNum = 3,
-    }
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum ImageBufferKind {
+    Texture2D = 0,
+    TextureRect = 1,
+    TextureExternal = 2,
 }
+pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 3] = [
+    ImageBufferKind::Texture2D,
+    ImageBufferKind::TextureRect,
+    ImageBufferKind::TextureExternal
+];
 
 impl ImageBufferKind {
     pub fn get_feature_string(&self) -> &'static str {
@@ -98,18 +100,16 @@ impl ImageBufferKind {
             ImageBufferKind::Texture2D => "",
             ImageBufferKind::TextureRect => "TEXTURE_RECT",
             ImageBufferKind::TextureExternal => "TEXTURE_EXTERNAL",
-            ImageBufferKind::TotalNum => "Invalid",
         }
     }
 
-    pub fn is_platform_support(&self, gl_type: &gl::GlType) -> bool {
+    pub fn has_platform_support(&self, gl_type: &gl::GlType) -> bool {
         match *gl_type {
             gl::GlType::Gles => {
                 match *self {
                     ImageBufferKind::Texture2D => true,
                     ImageBufferKind::TextureRect => true,
                     ImageBufferKind::TextureExternal => true,
-                    ImageBufferKind::TotalNum => false,
                 }
             }
             gl::GlType::Gl => {
@@ -117,7 +117,6 @@ impl ImageBufferKind {
                     ImageBufferKind::Texture2D => true,
                     ImageBufferKind::TextureRect => true,
                     ImageBufferKind::TextureExternal => false,
-                    ImageBufferKind::TotalNum => false,
                 }
             }
         }
@@ -716,12 +715,12 @@ impl Renderer {
         let mut image_features = Vec::new();
         let mut ps_image: Vec<Option<PrimitiveShader>> = Vec::new();
         // PrimitiveShader is not clonable. Use push() to initialize the vec.
-        for _ in 0..(ImageBufferKind::TotalNum as usize) {
+        for _ in 0..IMAGE_BUFFER_KINDS.len() {
             ps_image.push(None);
         }
-        for buffer_kind in 0..(ImageBufferKind::TotalNum as usize) {
-            if ImageBufferKind::from_usize(buffer_kind).unwrap().is_platform_support(&gl_type) {
-                let feature_string = ImageBufferKind::from_usize(buffer_kind).unwrap().get_feature_string();
+        for buffer_kind in 0..IMAGE_BUFFER_KINDS.len() {
+            if IMAGE_BUFFER_KINDS[buffer_kind].has_platform_support(&gl_type) {
+                let feature_string = IMAGE_BUFFER_KINDS[buffer_kind].get_feature_string();
                 if feature_string != "" {
                     image_features.push(feature_string);
                 }
@@ -738,27 +737,27 @@ impl Renderer {
 
         // All yuv_image configuration.
         let mut yuv_features = Vec::new();
-        let yuv_shader_num = (ImageBufferKind::TotalNum as usize) *
-                             (YuvFormat::TotalNum as usize) *
-                             (YuvColorSpace::TotalNum as usize);
+        let yuv_shader_num = IMAGE_BUFFER_KINDS.len() *
+                             YUV_FORMATS.len() *
+                             YUV_COLOR_SPACES.len();
         let mut ps_yuv_image: Vec<Option<PrimitiveShader>> = Vec::new();
         // PrimitiveShader is not clonable. Use push() to initialize the vec.
         for _ in 0..yuv_shader_num {
             ps_yuv_image.push(None);
         }
-        for buffer_kind in 0..(ImageBufferKind::TotalNum as usize) {
-            if ImageBufferKind::from_usize(buffer_kind).unwrap().is_platform_support(&gl_type) {
-                for format_kind in 0..(YuvFormat::TotalNum as usize) {
-                    for color_space_kind in 0..(YuvColorSpace::TotalNum as usize) {
-                        let feature_string = ImageBufferKind::from_usize(buffer_kind).unwrap().get_feature_string();
+        for buffer_kind in 0..IMAGE_BUFFER_KINDS.len() {
+            if IMAGE_BUFFER_KINDS[buffer_kind].has_platform_support(&gl_type) {
+                for format_kind in 0..YUV_FORMATS.len() {
+                    for color_space_kind in 0..YUV_COLOR_SPACES.len() {
+                        let feature_string = IMAGE_BUFFER_KINDS[buffer_kind].get_feature_string();
                         if feature_string != "" {
                             yuv_features.push(feature_string);
                         }
-                        let feature_string = YuvFormat::from_usize(format_kind).unwrap().get_feature_string();
+                        let feature_string = YUV_FORMATS[format_kind].get_feature_string();
                         if feature_string != "" {
                             yuv_features.push(feature_string);
                         }
-                        let feature_string = YuvColorSpace::from_usize(color_space_kind).unwrap().get_feature_string();
+                        let feature_string = YUV_COLOR_SPACES[color_space_kind].get_feature_string();
                         if feature_string != "" {
                             yuv_features.push(feature_string);
                         }
@@ -769,9 +768,9 @@ impl Renderer {
                                                  &yuv_features,
                                                  options.precache_shaders)
                         };
-                        let index = Renderer::get_yuv_shader_index(ImageBufferKind::from_usize(buffer_kind).unwrap(),
-                                                                   YuvFormat::from_usize(format_kind).unwrap(),
-                                                                   YuvColorSpace::from_usize(color_space_kind).unwrap());
+                        let index = Renderer::get_yuv_shader_index(IMAGE_BUFFER_KINDS[buffer_kind],
+                                                                   YUV_FORMATS[format_kind],
+                                                                   YUV_COLOR_SPACES[color_space_kind]);
                         ps_yuv_image[index] = Some(shader);
                         yuv_features.clear();
                     }
@@ -1075,7 +1074,7 @@ impl Renderer {
     }
 
     fn get_yuv_shader_index(buffer_kind: ImageBufferKind, format: YuvFormat, color_space: YuvColorSpace) -> usize {
-        ((buffer_kind as usize) * (YuvFormat::TotalNum as usize) + (format as usize)) * (YuvColorSpace::TotalNum as usize) + (color_space as usize)
+        ((buffer_kind as usize) * YUV_FORMATS.len() + (format as usize)) * YUV_COLOR_SPACES.len() + (color_space as usize)
     }
 
     pub fn gl(&self) -> &gl::Gl {
