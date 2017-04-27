@@ -59,11 +59,8 @@ void main(void) {
         vHalfTexelUv, vTextureSizeUv - vHalfTexelUv);
     // NV12 only uses 2 textures. The sColor0 is for y and sColor1 is for uv.
     // The texture coordinates of u and v are the same. So, we could skip the
-    // st_v.
+    // st_v if the format is NV12.
     vec2 st_u = vTextureOffsetU + uv_offset;
-#ifndef WR_FEATURE_NV12
-    vec2 st_v = vTextureOffsetV + uv_offset;
-#endif
 
     vec3 yuv_value;
 #ifdef WR_FEATURE_NV12
@@ -81,6 +78,9 @@ void main(void) {
         yuv_value.yz = textureLod(sColor1, st_u, 0.0).rg;
     #endif
 #else
+    // The yuv_planar format should have this third texture coordinate.
+    vec2 st_v = vTextureOffsetV + uv_offset;
+
     #if defined(WR_FEATURE_TEXTURE_EXTERNAL) || defined(WR_FEATURE_TEXTURE_RECT)
         yuv_value.x = texture(sColor0, st_y).r;
         yuv_value.y = texture(sColor1, st_u).r;
@@ -93,6 +93,6 @@ void main(void) {
 #endif
 
     // See the YuvColorMatrix definition for an explanation of where the constants come from.
-    vec3 rgb = YuvColorMatrix * vec3(yuv_value.x - 0.06275, yuv_value.y - 0.50196, yuv_value.z - 0.50196);
+    vec3 rgb = YuvColorMatrix * (yuv_value - vec3(0.06275, 0.50196, 0.50196));
     oFragColor = vec4(rgb, alpha);
 }
