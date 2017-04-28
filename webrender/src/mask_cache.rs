@@ -7,7 +7,7 @@ use prim_store::{ClipData, GpuBlock32, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
 use renderer::VertexDataStore;
 use util::{ComplexClipRegionHelpers, MatrixHelpers, TransformedRect};
-use webrender_traits::{AuxiliaryLists, BorderRadius, ClipRegion, ComplexClipRegion, ImageMask};
+use webrender_traits::{BorderRadius, BuiltDisplayList, ClipRegion, ComplexClipRegion, ImageMask};
 use webrender_traits::{DeviceIntRect, LayerToWorldTransform};
 use webrender_traits::{LayerRect, LayerPoint, LayerSize};
 use std::ops::Not;
@@ -53,7 +53,7 @@ impl ClipSource {
     pub fn image_mask(&self) -> Option<ImageMask> {
         match *self {
             ClipSource::Complex(..) => None,
-            ClipSource::Region(ref region, _) => region.image_mask,
+            ClipSource::Region(ref region, ..) => region.image_mask,
         }
     }
 }
@@ -145,7 +145,7 @@ impl MaskCacheInfo {
                         image = Some((info, clip_store.alloc(MASK_DATA_GPU_SIZE)));
                     }
 
-                    clip_count += region.complex.length;
+                    clip_count += region.complex_clip_count;
                     if region_mode == RegionMode::IncludeRect {
                         clip_count += 1;
                     }
@@ -176,7 +176,7 @@ impl MaskCacheInfo {
                   transform: &LayerToWorldTransform,
                   clip_store: &mut VertexDataStore<GpuBlock32>,
                   device_pixel_ratio: f32,
-                  aux_lists: &AuxiliaryLists) {
+                  display_list: &BuiltDisplayList) {
         let is_aligned = transform.can_losslessly_transform_and_perspective_project_a_2d_rect();
 
         // If we haven't cached this info, or if the transform type has changed
@@ -220,7 +220,7 @@ impl MaskCacheInfo {
                             None => local_rect,
                         };
 
-                        let clips = aux_lists.complex_clip_regions(&region.complex);
+                        let clips = display_list.get(region.complex_clips);
                         if !self.is_aligned && region_mode == RegionMode::IncludeRect {
                             // we have an extra clip rect coming from the transformed layer
                             debug_assert!(self.effective_clip_count < self.clip_range.item_count);
@@ -236,8 +236,8 @@ impl MaskCacheInfo {
                         self.effective_clip_count += clips.len();
 
                         let slice = clip_store.get_slice_mut(address, CLIP_DATA_GPU_SIZE * clips.len());
-                        for (clip, chunk) in clips.iter().zip(slice.chunks_mut(CLIP_DATA_GPU_SIZE)) {
-                            let data = ClipData::from_clip_region(clip);
+                        for (clip, chunk) in clips.zip(slice.chunks_mut(CLIP_DATA_GPU_SIZE)) {
+                            let data = ClipData::from_clip_region(&clip);
                             PrimitiveStore::populate_clip_data(chunk, data);
                             local_rect = local_rect.and_then(|r| r.intersection(&clip.rect));
                             local_inner = local_inner.and_then(|r| clip.get_inner_rect_safe()
