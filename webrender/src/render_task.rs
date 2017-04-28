@@ -157,6 +157,12 @@ impl RenderTask {
         }
     }
 
+    pub fn new_dynamic_alpha_batch(task_index: RenderTaskIndex,
+                                   rect: &DeviceIntRect) -> RenderTask {
+        let location = RenderTaskLocation::Dynamic(None, rect.size);
+        Self::new_alpha_batch(task_index, rect.origin, location)
+    }
+
     pub fn new_prim_cache(key: PrimitiveCacheKey,
                           size: DeviceIntSize,
                           prim_index: PrimitiveIndex) -> RenderTask {

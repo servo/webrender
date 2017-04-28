@@ -1142,10 +1142,6 @@ impl FrameBuilder {
         // and onlu compositing once we are out of "preserve-3d" hierarchy.
         // That is why we stack those contexts.
         let mut preserve_3d_stack = Vec::new();
-        // This is not a beautiful implementation of detecting if there are any primitives
-        // recorded in a stacking context outside of the child stacking contexts.
-        // This stack contains a boolean value per stacking context, initialized to `false`.
-        let mut has_primitives_stack = Vec::new();
         // The plane splitter, using a simple BSP tree.
         let mut splitter = BspSplitter::new();
 
@@ -1161,40 +1157,28 @@ impl FrameBuilder {
                         continue;
                     }
 
-                    has_primitives_stack.push(false);
-
                     let stacking_context_rect = &stacking_context.screen_bounds;
                     let composite_count = stacking_context.composite_ops.count();
 
-                    match stacking_context.isolation {
-                        ContextIsolation::Items => {
-                            //Note: this code path accidentally matches the other match arms.
-                            // It doesn't have to, so leaving it as a copy for now.
-                            let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
-                            let new_task = RenderTask::new_alpha_batch(next_task_index,
-                                                                       stacking_context_rect.origin,
-                                                                       location);
-                            next_task_index.0 += 1;
-                            let prev_task = mem::replace(&mut current_task, new_task);
-                            alpha_task_stack.push(prev_task);
-                        }
-                        ContextIsolation::Full if composite_count == 0 => {
-                            let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
-                            let new_task = RenderTask::new_alpha_batch(next_task_index,
-                                                                       stacking_context_rect.origin,
-                                                                       location);
-                            next_task_index.0 += 1;
-                            let prev_task = mem::replace(&mut current_task, new_task);
-                            alpha_task_stack.push(prev_task);
-                        }
-                        ContextIsolation::Full | ContextIsolation::None => {}
+                    let new_task = match stacking_context.isolation {
+                        ContextIsolation::Items => Some(
+                            RenderTask::new_dynamic_alpha_batch(next_task_index, stacking_context_rect)
+                        ),
+                        ContextIsolation::Full if composite_count == 0 => Some(
+                            RenderTask::new_dynamic_alpha_batch(next_task_index, stacking_context_rect)
+                        ),
+                        ContextIsolation::Full | ContextIsolation::None => None,
+                    };
+
+                    if let Some(task) = new_task {
+                        next_task_index.0 += 1;
+                        let prev_task = mem::replace(&mut current_task, task);
+                        alpha_task_stack.push(prev_task);
                     }
 
                     for _ in 0..composite_count {
-                        let location = RenderTaskLocation::Dynamic(None, stacking_context_rect.size);
-                        let new_task = RenderTask::new_alpha_batch(next_task_index,
-                                                                   stacking_context_rect.origin,
-                                                                   location);
+                        let new_task = RenderTask::new_dynamic_alpha_batch(next_task_index,
+                                                                           stacking_context_rect);
                         next_task_index.0 += 1;
                         let prev_task = mem::replace(&mut current_task, new_task);
                         alpha_task_stack.push(prev_task);
@@ -1208,35 +1192,31 @@ impl FrameBuilder {
                         continue;
                     }
 
-                    let has_items = has_primitives_stack.pop().unwrap();
-
                     // Handle the `Item` isolation type first. Once we are out of an isolated
                     // sub-tree of stacking contexts, we do plane splitting and compositing.
                     match stacking_context.isolation {
                         ContextIsolation::Items => {
                             let prev_task = alpha_task_stack.pop().unwrap();
-                            let old_current = mem::replace(&mut current_task, prev_task);
-                            if has_items {
-                                let sc_polygon = {
-                                    let stacking_context = &self.stacking_context_store[stacking_context_index.0];
-                                    let scroll_node = clip_scroll_tree.nodes.get(&stacking_context.reference_frame_id).unwrap();
-                                    make_polygon(stacking_context, scroll_node, preserve_3d_stack.len())
-                                };
-                                preserve_3d_stack.push((stacking_context_index, old_current, sc_polygon));
+                            let mut old_current = mem::replace(&mut current_task, prev_task);
+                            // If there are any items or non-preserve-3d sub-contexts, we have the
+                            // contents to bake and plane split. Note: if the `old_current` is also preserve-3d,
+                            // means we are inside the `ContextIsolation::Items` sub-tree, which only
+                            // gets added as task dependencies on exit (see the next match arm).
+                            if !old_current.as_alpha_batch().items.is_empty() || !old_current.children.is_empty() {
+                                let stacking_context = &self.stacking_context_store[stacking_context_index.0];
+                                let scroll_node = clip_scroll_tree.nodes.get(&stacking_context.reference_frame_id).unwrap();
+                                let sc_polygon = make_polygon(stacking_context, scroll_node, preserve_3d_stack.len());
+                                splitter.add(sc_polygon);
+                                preserve_3d_stack.push((stacking_context_index, old_current));
+                            } else if !old_current.children.is_empty() {
+                                current_task.children.push(old_current);
                             }
                         },
                         ContextIsolation::None | ContextIsolation::Full => {
                             // We are back from a "preserve-3d" sub-domain.
                             // Time to split those stacking context planes.
-                            splitter.reset();
-                            for &(_, ref task, ref poly) in preserve_3d_stack.iter() {
-                                splitter.add(poly.clone());
-                                current_task.children.push(task.clone());
-                            }
-                            let split_results = splitter.sort(TypedPoint3D::new(0.0, 0.0, -1.0));
-                            let gpu_store = &mut self.prim_store.gpu_split_geometry;
-                            current_task.as_alpha_batch().items.extend(split_results.iter().map(|poly| {
-                                let (sc_index, ref task, _) = preserve_3d_stack[poly.anchor];
+                            for poly in splitter.sort(TypedPoint3D::new(0.0, 0.0, -1.0)) {
+                                let (sc_index, ref task) = preserve_3d_stack[poly.anchor];
                                 let pp = &poly.points;
                                 let split_geo = SplitGeometry {
                                     data: [pp[0].x, pp[0].y, pp[0].z,
@@ -1244,9 +1224,12 @@ impl FrameBuilder {
                                            pp[2].x, pp[2].y, pp[2].z,
                                            pp[3].x, pp[3].y, pp[3].z],
                                 };
-                                let gpu_index = gpu_store.push(split_geo);
-                                AlphaRenderItem::SplitComposite(sc_index, task.id, gpu_index, next_z)
-                            }));
+                                let gpu_index = self.prim_store.gpu_split_geometry.push(split_geo);
+                                let item = AlphaRenderItem::SplitComposite(sc_index, task.id, gpu_index, next_z);
+                                current_task.as_alpha_batch().items.push(item);
+                                current_task.children.push(task.clone());
+                            }
+                            splitter.reset();
                             preserve_3d_stack.clear();
                             next_z += 1;
                         },
@@ -1277,6 +1260,7 @@ impl FrameBuilder {
                         prev_task.children.push(current_task);
                         current_task = prev_task;
                     }
+
                     if let Some(mix_blend_mode) = stacking_context.composite_ops.mix_blend_mode {
                         let readback_task =
                             RenderTask::new_readback(stacking_context_index,
@@ -1310,12 +1294,6 @@ impl FrameBuilder {
                         continue
                     }
 
-                    let group_index_opt = Some(group_index);
-                    if stacking_context.isolation == ContextIsolation::Items {
-                        // Detected primitives inside a "preserve-3d" context
-                        *has_primitives_stack.last_mut().unwrap() = true;
-                    }
-
                     for i in 0..prim_count {
                         let prim_index = PrimitiveIndex(first_prim_index.0 + i);
 
@@ -1330,7 +1308,7 @@ impl FrameBuilder {
                                 current_task.children.push(clip_task.clone());
                             }
 
-                            let item = AlphaRenderItem::Primitive(group_index_opt, prim_index, next_z);
+                            let item = AlphaRenderItem::Primitive(Some(group_index), prim_index, next_z);
                             current_task.as_alpha_batch().items.push(item);
                             next_z += 1;
                         }
@@ -1341,7 +1319,6 @@ impl FrameBuilder {
 
         debug_assert!(alpha_task_stack.is_empty());
         debug_assert!(preserve_3d_stack.is_empty());
-        debug_assert!(has_primitives_stack.is_empty());
         (current_task, next_task_index.0)
     }
 
