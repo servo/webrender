@@ -48,6 +48,8 @@
 uniform sampler2DArray sCacheA8;
 uniform sampler2DArray sCacheRGBA8;
 
+uniform sampler2D sGradients;
+
 struct RectWithSize {
     vec2 p0;
     vec2 size;
@@ -777,6 +779,7 @@ void write_clip(vec2 global_pos, ClipArea area) {
 #endif //WR_VERTEX_SHADER
 
 #ifdef WR_FRAGMENT_SHADER
+
 float signed_distance_rect(vec2 pos, vec2 p0, vec2 p1) {
     vec2 d = max(p0 - pos, pos - p1);
     return length(max(vec2(0.0), d)) + min(0.0, max(d.x, d.y));
@@ -835,5 +838,27 @@ vec4 dither(vec4 color) {
     return color;
 }
 #endif
+
+vec4 sample_gradient(float offset, float gradient_repeat, float gradient_index, vec2 gradient_size) {
+    // Either saturate or modulo the offset depending on repeat mode
+    float x = mix(clamp(offset, 0.0, 1.0), fract(offset), gradient_repeat);
+
+    // Scale to the number of gradient color entries (texture width / 2).
+    x = x * 0.5 * gradient_size.x;
+
+    // Calculate the texel to index into the gradient color entries:
+    //     floor(x) is the gradient color entry index
+    //     fract(x) is the linear filtering factor between start and end
+    //     so, 2 * floor(x) + 0.5 is the center of the start color
+    //     finally, add floor(x) to interpolate to end
+    x = 2.0 * floor(x) + 0.5 + fract(x);
+
+    // Gradient color entries are encoded with high bits in one row and low bits in the next
+    // So use linear filtering to mix (gradient_index + 1) with (gradient_index)
+    float y = gradient_index * 2.0 + 0.5 + 1.0 / 256.0;
+
+    // Finally sample and apply dithering
+    return dither(texture(sGradients, vec2(x, y) / gradient_size));
+}
 
 #endif //WR_FRAGMENT_SHADER
