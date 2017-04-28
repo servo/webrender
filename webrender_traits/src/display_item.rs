@@ -336,7 +336,6 @@ pub struct IframeDisplayItem {
     pub pipeline_id: PipelineId,
 }
 
-
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ImageDisplayItem {
     pub image_key: ImageKey,
@@ -359,6 +358,7 @@ pub struct YuvImageDisplayItem {
     pub color_space: YuvColorSpace,
 }
 
+#[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum YuvColorSpace {
     Rec601 = 0,
