@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashMap;
-use webrender_traits::{AuxiliaryLists, BuiltDisplayList, ColorF, DisplayItem, Epoch};
+use webrender_traits::{BuiltDisplayList, ColorF, Epoch};
 use webrender_traits::{LayerSize, PipelineId};
 
 /// A representation of the layout within the display port for a given document or iframe.
@@ -18,8 +18,7 @@ pub struct ScenePipeline {
 pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
     pub pipeline_map: HashMap<PipelineId, ScenePipeline>,
-    pub pipeline_auxiliary_lists: HashMap<PipelineId, AuxiliaryLists>,
-    pub display_lists: HashMap<PipelineId, Vec<DisplayItem>>,
+    pub display_lists: HashMap<PipelineId, BuiltDisplayList>,
 }
 
 impl Scene {
@@ -27,7 +26,6 @@ impl Scene {
         Scene {
             root_pipeline_id: None,
             pipeline_map: HashMap::default(),
-            pipeline_auxiliary_lists: HashMap::default(),
             display_lists: HashMap::default(),
         }
     }
@@ -52,9 +50,7 @@ impl Scene {
 
     pub fn finish_display_list(&mut self,
                                pipeline_id: PipelineId,
-                               built_display_list: BuiltDisplayList,
-                               auxiliary_lists: AuxiliaryLists) {
-        self.pipeline_auxiliary_lists.insert(pipeline_id, auxiliary_lists);
-        self.display_lists.insert(pipeline_id, built_display_list.all_display_items().to_vec());
+                               built_display_list: BuiltDisplayList) {
+        self.display_lists.insert(pipeline_id, built_display_list);
     }
 }
