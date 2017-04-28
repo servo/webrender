@@ -820,6 +820,7 @@ float do_clip() {
         all(inside) ? textureLod(sCacheA8, vClipMaskUv, 0.0).r : 0.0;
 }
 
+#ifdef WR_FEATURE_DITHERING
 vec4 dither(vec4 color) {
     const int matrix_mask = 7;
 
@@ -829,4 +830,10 @@ vec4 dither(vec4 color) {
 
     return color + vec4(noise, noise, noise, 0);
 }
+#else
+vec4 dither(vec4 color) {
+    return color;
+}
+#endif
+
 #endif //WR_FRAGMENT_SHADER
