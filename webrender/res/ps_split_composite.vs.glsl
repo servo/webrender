@@ -40,7 +40,9 @@ void main(void) {
 
     gl_Position = uTransform * final_pos;
 
-    vec2 uv_pos = src_task.render_target_origin + world_pos.xy - src_task.screen_space_origin;
+    vec2 uv_origin = src_task.render_target_origin - src_task.screen_space_origin;
+    vec2 uv_pos = uv_origin + world_pos.xy;
     vec2 texture_size = vec2(textureSize(sCacheRGBA8, 0));
     vUv = vec3(uv_pos / texture_size, src_task.render_target_layer_index);
+    vUvBounds = vec4((uv_origin + 0.5) / texture_size, (uv_origin + src_task.size - 0.5) / texture_size);
 }

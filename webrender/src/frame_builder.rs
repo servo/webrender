@@ -1215,6 +1215,7 @@ impl FrameBuilder {
                         ContextIsolation::None | ContextIsolation::Full => {
                             // We are back from a "preserve-3d" sub-domain.
                             // Time to split those stacking context planes.
+                            current_task.children.extend(preserve_3d_stack.iter().map(|&(_, ref task)| task.clone()));
                             for poly in splitter.sort(TypedPoint3D::new(0.0, 0.0, -1.0)) {
                                 let (sc_index, ref task) = preserve_3d_stack[poly.anchor];
                                 let pp = &poly.points;
@@ -1227,7 +1228,6 @@ impl FrameBuilder {
                                 let gpu_index = self.prim_store.gpu_split_geometry.push(split_geo);
                                 let item = AlphaRenderItem::SplitComposite(sc_index, task.id, gpu_index, next_z);
                                 current_task.as_alpha_batch().items.push(item);
-                                current_task.children.push(task.clone());
                             }
                             splitter.reset();
                             preserve_3d_stack.clear();
