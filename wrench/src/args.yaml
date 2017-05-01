@@ -50,6 +50,10 @@ args:
   - vsync:
       long: vsync
       help: Enable vsync for OpenGL window
+  - no_batch:
+      short: b
+      long: no-batch
+      help: Disable instanced batching
 
 subcommands:
     - png:

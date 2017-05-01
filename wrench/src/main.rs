@@ -324,7 +324,8 @@ fn main() {
                                  args.is_present("rebuild"),
                                  args.is_present("subpixel_aa"),
                                  args.is_present("debug"),
-                                 args.is_present("verbose"));
+                                 args.is_present("verbose"),
+                                 args.is_present("no_batch"));
 
     let mut thing =
         if let Some(subargs) = args.subcommand_matches("show") {

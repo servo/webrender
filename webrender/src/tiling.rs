@@ -215,13 +215,15 @@ struct AlphaBatchTask {
 pub struct BatchList {
     pub alpha_batches: Vec<PrimitiveBatch>,
     pub opaque_batches: Vec<PrimitiveBatch>,
+    force_cut: bool,
 }
 
 impl BatchList {
-    fn new() -> BatchList {
+    fn new(force_cut: bool) -> BatchList {
         BatchList {
             alpha_batches: Vec::new(),
             opaque_batches: Vec::new(),
+            force_cut: force_cut,
         }
     }
 
@@ -272,7 +274,7 @@ impl BatchList {
             }
         }
 
-        if selected_batch_index.is_none() {
+        if self.force_cut || selected_batch_index.is_none() {
             let new_batch = PrimitiveBatch::new(key.clone());
             selected_batch_index = Some(batches.len());
             batches.push(new_batch);
@@ -594,10 +596,10 @@ impl AlphaRenderItem {
 }
 
 impl AlphaBatcher {
-    fn new() -> AlphaBatcher {
+    fn new(force_cut: bool) -> AlphaBatcher {
         AlphaBatcher {
             tasks: Vec::new(),
-            batch_list: BatchList::new(),
+            batch_list: BatchList::new(force_cut),
         }
     }
 
@@ -752,7 +754,7 @@ impl TextureAllocator {
 }
 
 pub trait RenderTarget {
-    fn new(size: DeviceUintSize) -> Self;
+    fn new(size: DeviceUintSize, force_cut: bool) -> Self;
     fn allocate(&mut self, size: DeviceUintSize) -> Option<DeviceUintPoint>;
     fn build(&mut self,
              _ctx: &RenderTargetContext,
@@ -775,18 +777,22 @@ pub enum RenderTargetKind {
 pub struct RenderTargetList<T> {
     target_size: DeviceUintSize,
     pub targets: Vec<T>,
+    force_cut_batches: bool,
 }
 
 impl<T: RenderTarget> RenderTargetList<T> {
-    fn new(target_size: DeviceUintSize, create_initial_target: bool) -> RenderTargetList<T> {
+    fn new(target_size: DeviceUintSize,
+           create_initial_target: bool,
+           force_cut_batches: bool) -> RenderTargetList<T> {
         let mut targets = Vec::new();
         if create_initial_target {
-            targets.push(T::new(target_size));
+            targets.push(T::new(target_size, force_cut_batches));
         }
 
         RenderTargetList {
             targets: targets,
             target_size: target_size,
+            force_cut_batches: force_cut_batches,
         }
     }
 
@@ -820,7 +826,7 @@ impl<T: RenderTarget> RenderTargetList<T> {
         let origin = match existing_origin {
             Some(origin) => origin,
             None => {
-                let mut new_target = T::new(self.target_size);
+                let mut new_target = T::new(self.target_size, self.force_cut_batches);
                 let origin = new_target.allocate(alloc_size)
                                        .expect(&format!("Each render task must allocate <= size of one target! ({:?})", alloc_size));
                 self.targets.push(new_target);
@@ -858,9 +864,9 @@ impl RenderTarget for ColorRenderTarget {
         self.allocator.allocate(&size)
     }
 
-    fn new(size: DeviceUintSize) -> ColorRenderTarget {
+    fn new(size: DeviceUintSize, force_cut: bool) -> ColorRenderTarget {
         ColorRenderTarget {
-            alpha_batcher: AlphaBatcher::new(),
+            alpha_batcher: AlphaBatcher::new(force_cut),
             box_shadow_cache_prims: Vec::new(),
             text_run_cache_prims: Vec::new(),
             text_run_textures: BatchTextures::no_texture(),
@@ -996,7 +1002,7 @@ impl RenderTarget for AlphaRenderTarget {
         self.allocator.allocate(&size)
     }
 
-    fn new(size: DeviceUintSize) -> AlphaRenderTarget {
+    fn new(size: DeviceUintSize, _force_cut: bool) -> AlphaRenderTarget {
         AlphaRenderTarget {
             clip_batcher: ClipBatcher::new(),
             allocator: TextureAllocator::new(size),
@@ -1047,12 +1053,13 @@ pub struct RenderPass {
 }
 
 impl RenderPass {
-    pub fn new(pass_index: isize, is_framebuffer: bool, size: DeviceUintSize) -> RenderPass {
+    pub fn new(pass_index: isize, is_framebuffer: bool, size: DeviceUintSize,
+               force_cut_batches: bool) -> RenderPass {
         RenderPass {
             pass_index: RenderPassIndex(pass_index),
             is_framebuffer: is_framebuffer,
-            color_targets: RenderTargetList::new(size, is_framebuffer),
-            alpha_targets: RenderTargetList::new(size, false),
+            color_targets: RenderTargetList::new(size, is_framebuffer, force_cut_batches),
+            alpha_targets: RenderTargetList::new(size, false, force_cut_batches),
             tasks: vec![],
             color_texture_id: None,
             alpha_texture_id: None,
