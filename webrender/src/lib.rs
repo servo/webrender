@@ -133,6 +133,7 @@ extern crate webrender_traits;
 extern crate offscreen_gl_context;
 extern crate byteorder;
 extern crate threadpool;
+extern crate plane_split;
 
 #[cfg(any(target_os="macos", target_os="windows"))]
 extern crate gamma_lut;
