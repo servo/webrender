@@ -994,9 +994,12 @@ impl Renderer {
             RendererKind::OSMesa => GLContextHandleWrapper::current_osmesa_handle(),
         };
 
-        let config = FrameBuilderConfig::new(options.enable_scrollbars,
-                                             options.enable_subpixel_aa,
-                                             options.debug);
+        let config = FrameBuilderConfig {
+            enable_scrollbars: options.enable_scrollbars,
+            enable_subpixel_aa: options.enable_subpixel_aa,
+            debug: options.debug,
+            force_cut_batches: options.force_cut_batches,
+        };
 
         let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
         let render_target_debug = options.render_target_debug;
@@ -2122,6 +2125,7 @@ pub struct RendererOptions {
     pub clear_color: ColorF,
     pub render_target_debug: bool,
     pub max_texture_size: Option<u32>,
+    pub force_cut_batches: bool,
     pub workers: Option<Arc<Mutex<ThreadPool>>>,
     pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
@@ -2145,6 +2149,7 @@ impl Default for RendererOptions {
             clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
             render_target_debug: false,
             max_texture_size: None,
+            force_cut_batches: false,
             workers: None,
             blob_image_renderer: None,
             recorder: None,

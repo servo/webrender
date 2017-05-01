@@ -86,19 +86,7 @@ pub struct FrameBuilderConfig {
     pub enable_scrollbars: bool,
     pub enable_subpixel_aa: bool,
     pub debug: bool,
-}
-
-impl FrameBuilderConfig {
-    pub fn new(enable_scrollbars: bool,
-               enable_subpixel_aa: bool,
-               debug: bool)
-               -> FrameBuilderConfig {
-        FrameBuilderConfig {
-            enable_scrollbars: enable_scrollbars,
-            enable_subpixel_aa: enable_subpixel_aa,
-            debug: debug,
-        }
-    }
+    pub force_cut_batches: bool,
 }
 
 pub struct FrameBuilder {
@@ -1305,7 +1293,8 @@ impl FrameBuilder {
         for index in 0..required_pass_count {
             passes.push(RenderPass::new(index as isize,
                                         index == required_pass_count-1,
-                                        cache_size));
+                                        cache_size,
+                                        self.config.force_cut_batches));
         }
 
         main_render_task.assign_to_passes(passes.len() - 1, &mut passes);
