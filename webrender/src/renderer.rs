@@ -532,6 +532,7 @@ pub struct Renderer {
     clear_color: ColorF,
     debug: DebugRenderer,
     render_target_debug: bool,
+    enable_batcher: bool,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
     profiler: Profiler,
@@ -1061,6 +1062,7 @@ impl Renderer {
             notifier: notifier,
             debug: debug_renderer,
             render_target_debug: render_target_debug,
+            enable_batcher: options.enable_batcher,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
             profiler: Profiler::new(),
@@ -1437,10 +1439,19 @@ impl Renderer {
             self.device.bind_texture(TextureSampler::Dither, id);
         }
 
-        self.device.update_vao_instances(vao, data, VertexUsageHint::Stream);
-        self.device.draw_indexed_triangles_instanced_u16(6, data.len() as i32);
+        if self.enable_batcher {
+            self.device.update_vao_instances(vao, data, VertexUsageHint::Stream);
+            self.device.draw_indexed_triangles_instanced_u16(6, data.len() as i32);
+            self.profile_counters.draw_calls.inc();
+        } else {
+            for i in 0 .. data.len() {
+                self.device.update_vao_instances(vao, &data[i..i+1], VertexUsageHint::Stream);
+                self.device.draw_triangles_u16(0, 6);
+                self.profile_counters.draw_calls.inc();
+            }
+        }
+
         self.profile_counters.vertices.add(6 * data.len());
-        self.profile_counters.draw_calls.inc();
     }
 
     fn submit_batch(&mut self,
@@ -2120,6 +2131,7 @@ pub struct RendererOptions {
     pub enable_subpixel_aa: bool,
     pub clear_framebuffer: bool,
     pub clear_color: ColorF,
+    pub enable_batcher: bool,
     pub render_target_debug: bool,
     pub max_texture_size: Option<u32>,
     pub workers: Option<Arc<Mutex<ThreadPool>>>,
@@ -2143,6 +2155,7 @@ impl Default for RendererOptions {
             enable_subpixel_aa: false,
             clear_framebuffer: true,
             clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
+            enable_batcher: true,
             render_target_debug: false,
             max_texture_size: None,
             workers: None,
