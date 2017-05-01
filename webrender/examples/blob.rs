@@ -204,18 +204,21 @@ fn main() {
                                   None,
                                   webrender_traits::MixBlendMode::Normal,
                                   Vec::new());
+
+    let clip = builder.push_clip_region(&bounds, vec![], None);
     builder.push_image(
         LayoutRect::new(LayoutPoint::new(30.0, 30.0), LayoutSize::new(500.0, 500.0)),
-        ClipRegion::simple(&bounds),
+        clip,
         LayoutSize::new(500.0, 500.0),
         LayoutSize::new(0.0, 0.0),
         ImageRendering::Auto,
         blob_img1,
     );
 
+    let clip = builder.push_clip_region(&bounds, vec![], None);
     builder.push_image(
         LayoutRect::new(LayoutPoint::new(600.0, 60.0), LayoutSize::new(200.0, 200.0)),
-        ClipRegion::simple(&bounds),
+        clip,
         LayoutSize::new(200.0, 200.0),
         LayoutSize::new(0.0, 0.0),
         ImageRendering::Auto,

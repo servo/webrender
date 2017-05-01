@@ -275,16 +275,18 @@ fn main() {
         None,
     );
 
+    let clip = builder.push_clip_region(&bounds, vec![], None);
     builder.push_yuv_image(
         LayoutRect::new(LayoutPoint::new(100.0, 0.0), LayoutSize::new(100.0, 100.0)),
-        ClipRegion::simple(&bounds),
+        clip,
         YuvData::NV12(yuv_chanel1, yuv_chanel2),
         YuvColorSpace::Rec601,
     );
 
+    let clip = builder.push_clip_region(&bounds, vec![], None);
     builder.push_yuv_image(
         LayoutRect::new(LayoutPoint::new(300.0, 0.0), LayoutSize::new(100.0, 100.0)),
-        ClipRegion::simple(&bounds),
+        clip,
         YuvData::PlanarYCbCr(yuv_chanel1, yuv_chanel2_1, yuv_chanel3),
         YuvColorSpace::Rec601,
     );
