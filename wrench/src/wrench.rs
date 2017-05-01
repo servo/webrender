@@ -146,7 +146,8 @@ impl Wrench {
                do_rebuild: bool,
                subpixel_aa: bool,
                debug: bool,
-               verbose: bool)
+               verbose: bool,
+               no_batch: bool)
            -> Wrench
     {
         println!("Shader override path: {:?}", shader_override_path);
@@ -171,6 +172,7 @@ impl Wrench {
             recorder: recorder,
             enable_subpixel_aa: subpixel_aa,
             debug: debug,
+            enable_batcher: !no_batch,
             max_recorded_profiles: 16,
             .. Default::default()
         };

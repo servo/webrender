@@ -50,6 +50,9 @@ args:
   - vsync:
       long: vsync
       help: Enable vsync for OpenGL window
+  - no_batch:
+      long: no-batch
+      help: Disable batching of instanced draw calls
 
 subcommands:
     - png:
