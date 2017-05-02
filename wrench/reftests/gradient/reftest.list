@@ -6,6 +6,10 @@
 == linear-reverse.yaml linear-ref.png
 fuzzy(1,35000) == linear-stops.yaml linear-stops-ref.png
 
+== linear-clamp-1a.yaml linear-clamp-1-ref.yaml
+== linear-clamp-1b.yaml linear-clamp-1-ref.yaml
+== linear-clamp-2.yaml linear-clamp-2-ref.yaml
+
 # dithering requires us to fuzz here
 fuzzy(1,20000) == linear.yaml linear-ref.yaml
 fuzzy(1,20000) == linear-reverse.yaml linear-ref.yaml
@@ -35,8 +39,9 @@ fuzzy(255,1200) == repeat-linear-reverse.yaml repeat-linear-ref.yaml
 fuzzy(255,2664) == repeat-radial.yaml repeat-radial-ref.yaml
 fuzzy(255,2664) == repeat-radial-negative.yaml repeat-radial-ref.yaml
 
-== tiling-linear-1.yaml tiling-linear-1-ref.yaml
-== tiling-linear-2.yaml tiling-linear-2-ref.yaml
+# fuzzy because of thin spaced out column of pixels that are 1 off
+fuzzy(1,50) == tiling-linear-1.yaml tiling-linear-1-ref.yaml
+fuzzy(1,38) == tiling-linear-2.yaml tiling-linear-2-ref.yaml
 == tiling-linear-3.yaml tiling-linear-3-ref.yaml
 
 fuzzy(1,16) == tiling-radial-1.yaml tiling-radial-1-ref.yaml
