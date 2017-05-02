@@ -11,7 +11,6 @@ flat varying vec3 vDashParams;
 
 #ifdef WR_FEATURE_TRANSFORM
 varying vec3 vLocalPos;
-flat varying RectWithSize vLocalRect;
 #else
 varying vec2 vLocalPos;
 #endif

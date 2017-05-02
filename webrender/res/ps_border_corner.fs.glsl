@@ -69,7 +69,7 @@ void main(void) {
     float alpha = 1.0;
 #ifdef WR_FEATURE_TRANSFORM
     alpha = 0.0;
-    vec2 local_pos = init_transform_fs(vLocalPos, vLocalRect, alpha);
+    vec2 local_pos = init_transform_fs(vLocalPos, alpha);
 #else
     vec2 local_pos = vLocalPos;
 #endif

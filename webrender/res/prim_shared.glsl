@@ -111,6 +111,9 @@ float distance_to_line(vec2 p0, vec2 perp_dir, vec2 p) {
 // TODO: convert back to RectWithEndPoint if driver issues are resolved, if ever.
 flat varying vec4 vClipMaskUvBounds;
 varying vec3 vClipMaskUv;
+#ifdef WR_FEATURE_TRANSFORM
+    flat varying vec4 vLocalBounds;
+#endif
 
 #ifdef WR_VERTEX_SHADER
 
@@ -705,6 +708,8 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
 
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
 
+    vLocalBounds = vec4(local_rect.p0, local_rect.p1);
+
     vec4 layer_pos = get_layer_pos(device_pos / uDevicePixelRatio, layer);
 
     return TransformVertexInfo(layer_pos.xyw, device_pos);
@@ -785,12 +790,13 @@ void write_clip(vec2 global_pos, ClipArea area) {
 
 #ifdef WR_FRAGMENT_SHADER
 
+#ifdef WR_FEATURE_TRANSFORM
 float signed_distance_rect(vec2 pos, vec2 p0, vec2 p1) {
     vec2 d = max(p0 - pos, pos - p1);
     return length(max(vec2(0.0), d)) + min(0.0, max(d.x, d.y));
 }
 
-vec2 init_transform_fs(vec3 local_pos, RectWithSize local_rect, out float fragment_alpha) {
+vec2 init_transform_fs(vec3 local_pos, out float fragment_alpha) {
     fragment_alpha = 1.0;
     vec2 pos = local_pos.xy / local_pos.z;
 
@@ -805,9 +811,7 @@ vec2 init_transform_fs(vec3 local_pos, RectWithSize local_rect, out float fragme
     // Now get the actual signed distance. Inset the local rect by the offset amount
     // above to get correct distance values. This ensures that we only apply
     // anti-aliasing when the fragment has partial coverage.
-    float d = signed_distance_rect(pos,
-                                   local_rect.p0 + dxdy,
-                                   local_rect.p0 + local_rect.size - dxdy);
+    float d = signed_distance_rect(pos, vLocalBounds.xy + dxdy, vLocalBounds.zw - dxdy);
 
     // Find the appropriate distance to apply the AA smoothstep over.
     float afwidth = 0.5 / length(fw);
@@ -817,6 +821,7 @@ vec2 init_transform_fs(vec3 local_pos, RectWithSize local_rect, out float fragme
 
     return pos;
 }
+#endif //WR_FEATURE_TRANSFORM
 
 float do_clip() {
     // anything outside of the mask is considered transparent
@@ -842,7 +847,7 @@ vec4 dither(vec4 color) {
 vec4 dither(vec4 color) {
     return color;
 }
-#endif
+#endif //WR_FEATURE_DITHERING
 
 vec4 sample_gradient(float offset, float gradient_repeat, float gradient_index, vec2 gradient_size) {
     // Either saturate or modulo the offset depending on repeat mode
