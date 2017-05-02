@@ -231,7 +231,7 @@ impl Frame {
 
         let mut traversal = display_list.iter();
 
-        let (root_stacking_context, root_bounds, root_filters) = 
+        let (root_stacking_context, root_bounds, root_filters) =
           match traversal.starting_stacking_context() {
               Some(some) => some,
               None => {
@@ -501,7 +501,10 @@ impl Frame {
         let mut continue_traversal: Option<BuiltDisplayListIter<'a>> = None;
         loop {
             if let Some(trav) = continue_traversal.take() { *traversal = trav; }
-            let item = if let Some(item) = traversal.next() { item } else { break };
+            let item = match traversal.next() {
+                Some(item) => item,
+                None => break,
+            };
 
             let mut clip_and_scroll = item.clip_and_scroll();
             clip_and_scroll.scroll_node_id =
@@ -785,7 +788,7 @@ impl Frame {
         //  ###################-+  -+
         //  #    |    |    |//# |   | image size
         //  #    |    |    |//# |   |
-        //  #----+----+----+--#-+   |  -+ 
+        //  #----+----+----+--#-+   |  -+
         //  #    |    |    |//# |   |   | regular tile size
         //  #    |    |    |//# |   |   |
         //  #----+----+----+--#-+   |  -+-+

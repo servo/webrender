@@ -41,7 +41,7 @@ impl<T> ItemRange<T> {
 /// A display list.
 #[derive(Clone, Default)]
 pub struct BuiltDisplayList {
-    /// Serde encoded bytes. Mostly DispalyItems, but some mixed in slices.
+    /// Serde encoded bytes. Mostly DisplayItems, but some mixed in slices.
     data: Vec<u8>,
     descriptor: BuiltDisplayListDescriptor,
 }
@@ -77,7 +77,11 @@ pub struct DisplayItemRef<'a: 'b, 'b> {
 }
 
 #[derive(PartialEq)]
-enum Peek { StartPeeking, IsPeeking, NotPeeking }
+enum Peek {
+    StartPeeking,
+    IsPeeking,
+    NotPeeking,
+}
 
 #[derive(Clone)]
 pub struct AuxIter<'a, T> {
@@ -120,9 +124,7 @@ impl BuiltDisplayList {
         BuiltDisplayListIter::new(self)
     }
 
-    pub fn get<T>(&self, range: ItemRange<T>) -> AuxIter<T>
-        where T: Deserialize,
-    {
+    pub fn get<T: Deserialize>(&self, range: ItemRange<T>) -> AuxIter<T> {
         AuxIter::new(&self.data[range.start .. range.start + range.length])
     }
 }
@@ -153,11 +155,15 @@ impl<'a> BuiltDisplayListIter<'a> {
     pub fn next<'b>(&'b mut self) -> Option<DisplayItemRef<'a, 'b>> {
         use SpecificDisplayItem::*;
 
-        if self.peeking == Peek::IsPeeking {
-            self.peeking = Peek::NotPeeking;
-            return Some(self.as_ref())
-        } else if self.peeking == Peek::StartPeeking {
-            self.peeking = Peek::IsPeeking;
+        match self.peeking {
+            Peek::IsPeeking => {
+                self.peeking = Peek::NotPeeking;
+                return Some(self.as_ref())
+            }
+            Peek::StartPeeking => {
+                self.peeking = Peek::IsPeeking;
+            }
+            Peek::NotPeeking => { /* do nothing */ }
         }
 
         // Don't let these bleed into another item
@@ -202,13 +208,11 @@ impl<'a> BuiltDisplayListIter<'a> {
 
     /// Returns the byte-range the slice occupied, and the number of elements
     /// in the slice.
-    fn skip_slice<T>(&mut self) -> (ItemRange<T>, usize)
-        where T: Deserialize
-    {
+    fn skip_slice<T: Deserialize>(&mut self) -> (ItemRange<T>, usize) {
         let base = self.list.data.as_ptr() as usize;
         let start = self.data.as_ptr() as usize;
 
-        // Read through the values
+        // Read through the values (this is a bit of a hack to reuse logic)
         let mut iter = AuxIter::<T>::new(self.data);
         let count = iter.len();
         for _ in &mut iter {}
@@ -325,9 +329,7 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
     }
 }
 
-impl<'a, T> AuxIter<'a, T>
-    where T: Deserialize,
-{
+impl<'a, T: Deserialize> AuxIter<'a, T> {
     pub fn new(mut data: &'a [u8]) -> Self {
 
         let size: usize = if data.len() == 0 {
@@ -345,9 +347,7 @@ impl<'a, T> AuxIter<'a, T>
     }
 }
 
-impl<'a, T> Iterator for AuxIter<'a, T>
-    where T: Deserialize,
-{
+impl<'a, T: Deserialize> Iterator for AuxIter<'a, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<T> {
@@ -365,15 +365,12 @@ impl<'a, T> Iterator for AuxIter<'a, T>
     }
 }
 
-impl<'a, T> ::std::iter::ExactSizeIterator for AuxIter<'a, T>
- where T: Deserialize { }
+impl<'a, T: Deserialize> ::std::iter::ExactSizeIterator for AuxIter<'a, T> { }
 
 
 // This is purely for the JSON writer in wrench
 impl Serialize for BuiltDisplayList {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
-    {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(None)?;
         let mut traversal = self.iter();
         while let Some(item) = traversal.next() {
@@ -384,9 +381,7 @@ impl Serialize for BuiltDisplayList {
 }
 
 impl<'a, 'b> Serialize for DisplayItemRef<'a, 'b> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
-    {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
 
         map.serialize_entry("item", self.display_item())?;
@@ -476,8 +471,8 @@ impl DisplayListBuilder {
 
     fn push_iter<I>(&mut self, iter: I)
     where I: IntoIterator,
-        I::IntoIter: ExactSizeIterator,
-        I::Item: Serialize,
+          I::IntoIter: ExactSizeIterator,
+          I::Item: Serialize,
     {
         let iter = iter.into_iter();
         let len = iter.len();
@@ -695,7 +690,7 @@ impl DisplayListBuilder {
                 GradientStop {
                     offset: 1.0,
                     color: last_color,
-                }
+                },
             ];
 
             self.push_stops(&stops);
@@ -905,7 +900,8 @@ impl DisplayListBuilder {
         // NOTE: Iframe and Clips aren't supported.
 
         // FIXME: what `iter` here is doing an expensive deserialization
-        // because we need to update clip_and_scroll info!
+        // because we need to update clip_and_scroll info! If we didn't need to
+        // update that, this function could just be memcopy!
 
         // This implementation is basically BuiltDisplayListIter::next in reverse.
 
@@ -914,9 +910,7 @@ impl DisplayListBuilder {
             // First handle explicit prefix dummy items
             let clip_region = item.clip_region();
             if *clip_region != ClipRegion::empty() {
-                self.push_new_empty_item(SpecificDisplayItem::SetClipRegion(
-                    *clip_region
-                ));
+                self.push_new_empty_item(SpecificDisplayItem::SetClipRegion(*clip_region));
                 self.push_range(clip_region.complex_clips, &dl);
             }
 
@@ -931,7 +925,7 @@ impl DisplayListBuilder {
 
             // Then handle implicit suffix items
             match *item.item() {
-                SpecificDisplayItem::Text(_) =>                self.push_range(item.glyphs(), &dl),
+                SpecificDisplayItem::Text(_)                => self.push_range(item.glyphs(), &dl),
                 SpecificDisplayItem::PushStackingContext(_) => self.push_range(item.filters(), &dl),
                 _ => { /* do nothing */ }
             }
@@ -943,8 +937,8 @@ impl DisplayListBuilder {
                             complex: I,
                             image_mask: Option<ImageMask>)
                             -> ClipRegionToken
-        where I: IntoIterator<Item = ComplexClipRegion>,
-              I::IntoIter: ExactSizeIterator,
+    where I: IntoIterator<Item = ComplexClipRegion>,
+          I::IntoIter: ExactSizeIterator,
     {
         self.push_new_empty_item(SpecificDisplayItem::SetClipRegion(
             ClipRegion::new(rect, image_mask),

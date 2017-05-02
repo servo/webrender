@@ -205,16 +205,16 @@ impl RenderBackend {
                             let built_display_list =
                                 BuiltDisplayList::from_data(data.display_list_data,
                                                             display_list_descriptor);
-                            
+
                             if !preserve_frame_state {
                                 self.discard_frame_state_for_pipeline(pipeline_id);
                             }
-                            
+
                             let display_list_len = built_display_list.data().len();
                             let (builder_start_time, builder_finish_time) = built_display_list.times();
 
                             let display_list_received_time = precise_time_ns();
-                            
+
                             profile_counters.total_time.profile(|| {
                                 self.scene.set_display_list(pipeline_id,
                                                             epoch,
@@ -224,12 +224,12 @@ impl RenderBackend {
                                 self.build_scene();
                             });
 
-                            // Note: this isn't quite right as auxiliary values will be 
+                            // Note: this isn't quite right as auxiliary values will be
                             // pulled out somewhere in the prim_store, but aux values are
                             // really simple and cheap to access, so it's not a big deal.
                             let display_list_consumed_time = precise_time_ns();
 
-                            profile_counters.ipc.set(builder_start_time, builder_finish_time, 
+                            profile_counters.ipc.set(builder_start_time, builder_finish_time,
                                                      display_list_received_time, display_list_consumed_time,
                                                      display_list_len);
                         }

@@ -380,7 +380,7 @@ impl GradientData {
     }
 
     // Build the gradient data from the supplied stops, reversing them if necessary.
-    fn build(&mut self, mut src_stops: AuxIter<GradientStop>, reverse_stops: bool) {
+    fn build(&mut self, src_stops: AuxIter<GradientStop>, reverse_stops: bool) {
 
         const MAX_IDX: usize = GRADIENT_DATA_RESOLUTION;
         const MIN_IDX: usize = 0;
