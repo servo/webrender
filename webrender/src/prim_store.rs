@@ -342,11 +342,7 @@ impl Clone for GradientData {
 
 impl GradientData {
     // Generate a color ramp between the start and end indexes from a start color to an end color.
-    fn fill_colors(&mut self, start_idx: usize, end_idx: usize, start_color: &ColorF, end_color: &ColorF) -> usize {
-        if start_idx >= end_idx {
-            return start_idx;
-        }
-
+    fn fill_colors(&mut self, start_idx: usize, end_idx: usize, start_color: &ColorF, end_color: &ColorF) {
         // Calculate the color difference for individual steps in the ramp.
         let inv_steps = 1.0 / (end_idx - start_idx) as f32;
         let step_r = (end_color.r - start_color.r) * inv_steps;
@@ -374,8 +370,6 @@ impl GradientData {
             high_byte_entry.end_color = cur_color_high;
             low_byte_entry.end_color = cur_color_low;
         }
-
-        end_idx
     }
 
     // Compute an entry index based on a gradient stop offset.
@@ -386,31 +380,46 @@ impl GradientData {
 
     // Build the gradient data from the supplied stops, reversing them if necessary.
     fn build(&mut self, src_stops: &[GradientStop], reverse_stops: bool) {
-        let mut cur_idx = 0usize;
-        let mut cur_color = if let Some(src) = src_stops.first() {
-            src.color
-        } else {
-            ColorF::new(0.0, 0.0, 0.0, 0.0)
-        };
+
+        const MAX_IDX: usize = GRADIENT_DATA_RESOLUTION;
+        const MIN_IDX: usize = 0;
+
+        // Preconditions (should be ensured by DisplayListBuilder):
+        // * we have at least two stops
+        // * first stop has offset 0.0
+        // * last stop has offset 1.0
+
+        let mut src_stops = src_stops.into_iter();
+        let first = src_stops.next().unwrap();
+        let mut cur_color = first.color;
+        debug_assert_eq!(first.offset, 0.0);
 
         if reverse_stops {
-            // If the gradient is reversed, then ensure the stops are processed in reverse order
-            // and that the offsets are inverted.
-            for src in src_stops.iter().rev() {
-                cur_idx = self.fill_colors(cur_idx, Self::get_index(1.0 - src.offset),
-                                           &cur_color, &src.color);
-                cur_color = src.color;
+            // If the gradient is reversed, then we invert offsets and draw right-to-left
+            let mut cur_idx = MAX_IDX;
+            for next in src_stops {
+                let next_idx = Self::get_index(1.0 - next.offset);
+                if next_idx < cur_idx {
+                    self.fill_colors(next_idx, cur_idx,
+                                     &next.color, &cur_color);
+                    cur_idx = next_idx;
+                }
+                cur_color = next.color;
             }
+            debug_assert_eq!(cur_idx, MIN_IDX);
         } else {
-            for src in src_stops {
-                cur_idx = self.fill_colors(cur_idx, Self::get_index(src.offset),
-                                           &cur_color, &src.color);
-                cur_color = src.color;
+            let mut cur_idx = MIN_IDX;
+            for next in src_stops {
+                let next_idx = Self::get_index(next.offset);
+                if next_idx > cur_idx {
+                    self.fill_colors(cur_idx, next_idx,
+                                     &cur_color, &next.color);
+                    cur_idx = next_idx;
+                }
+                cur_color = next.color;
             }
+            debug_assert_eq!(cur_idx, MAX_IDX);
         }
-
-        // Fill out any remaining entries in the gradient.
-        self.fill_colors(cur_idx, GRADIENT_DATA_RESOLUTION, &cur_color, &cur_color);
     }
 }
 
