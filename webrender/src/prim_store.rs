@@ -300,6 +300,8 @@ pub struct RadialGradientPrimitiveCpu {
 
 // The number of entries in a gradient data table.
 pub const GRADIENT_DATA_RESOLUTION: usize = 128;
+pub const GRADIENT_DATA_FIRST: usize = 1;
+pub const GRADIENT_DATA_LAST: usize = GRADIENT_DATA_RESOLUTION - 1;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -316,7 +318,9 @@ pub struct GradientDataEntry {
 // the offset within that entry bucket is used to interpolate between the two colors in that entry.
 // This layout preserves hard stops, as the end color for a given entry can differ from the start
 // color for the following entry, despite them being adjacent. Colors are stored within in BGRA8
-// format for texture upload.
+// format for texture upload. This table requires the gradient color stops to be normalized to the
+// range [0, 1]. The first and last entries hold the first and last color stop colors respectively,
+// while the entries in between hold the interpolated color stop values for the range [0, 1].
 pub struct GradientData {
     pub colors_high: [GradientDataEntry; GRADIENT_DATA_RESOLUTION],
     pub colors_low: [GradientDataEntry; GRADIENT_DATA_RESOLUTION],
@@ -381,7 +385,10 @@ impl GradientData {
     // Compute an entry index based on a gradient stop offset.
     #[inline]
     fn get_index(offset: f32) -> usize {
-        (offset.max(0.0).min(1.0) * GRADIENT_DATA_RESOLUTION as f32).round() as usize
+        let clamped = offset.max(0.0).min(1.0);
+        let scaled = clamped * (GRADIENT_DATA_LAST - GRADIENT_DATA_FIRST) as f32 + GRADIENT_DATA_FIRST as f32;
+
+        scaled.round() as usize
     }
 
     // Build the gradient data from the supplied stops, reversing them if necessary.
@@ -392,6 +399,10 @@ impl GradientData {
         } else {
             ColorF::new(0.0, 0.0, 0.0, 0.0)
         };
+
+        // Fill in the first gradient entry with the first color stop
+        self.fill_colors(cur_idx, cur_idx + 1, &cur_color, &cur_color);
+        cur_idx += 1;
 
         if reverse_stops {
             // If the gradient is reversed, then ensure the stops are processed in reverse order
@@ -409,7 +420,7 @@ impl GradientData {
             }
         }
 
-        // Fill out any remaining entries in the gradient.
+        // Fill in the last gradient entry with the last color stop
         self.fill_colors(cur_idx, GRADIENT_DATA_RESOLUTION, &cur_color, &cur_color);
     }
 }
