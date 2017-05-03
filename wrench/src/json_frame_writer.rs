@@ -46,7 +46,6 @@ pub struct JsonFrameWriter {
     last_frame_written: u32,
 
     dl_descriptor: Option<BuiltDisplayListDescriptor>,
-    aux_descriptor: Option<AuxiliaryListsDescriptor>,
 }
 
 impl JsonFrameWriter {
@@ -66,7 +65,6 @@ impl JsonFrameWriter {
             fonts: HashMap::new(),
 
             dl_descriptor: None,
-            aux_descriptor: None,
 
             last_frame_written: u32::max_value(),
         }
@@ -77,8 +75,7 @@ impl JsonFrameWriter {
                                     _: &Epoch,
                                     _: &PipelineId,
                                     _: &LayoutSize,
-                                    display_list: &BuiltDisplayListDescriptor,
-                                    auxiliary_lists: &AuxiliaryListsDescriptor)
+                                    display_list: &BuiltDisplayListDescriptor)
     {
         unsafe {
             if CURRENT_FRAME_NUMBER == self.last_frame_written {
@@ -88,7 +85,6 @@ impl JsonFrameWriter {
         }
 
         self.dl_descriptor = Some(display_list.clone());
-        self.aux_descriptor = Some(auxiliary_lists.clone());
     }
 
     pub fn finish_write_display_list(&mut self,
@@ -97,10 +93,8 @@ impl JsonFrameWriter {
     {
         let payload = Payload::from_data(data);
         let dl_desc = self.dl_descriptor.take().unwrap();
-        let aux_desc = self.aux_descriptor.take().unwrap();
 
         let dl = BuiltDisplayList::from_data(payload.display_list_data, dl_desc);
-        let aux = AuxiliaryLists::from_data(payload.auxiliary_lists_data, aux_desc);
 
         let mut frame_file_name = self.frame_base.clone();
         let current_shown_frame = unsafe { CURRENT_FRAME_NUMBER };
@@ -108,8 +102,7 @@ impl JsonFrameWriter {
 
         let mut file = File::create(&frame_file_name).unwrap();
 
-        let items: Vec<&DisplayItem> = dl.all_display_items().iter().collect();
-        let s = serde_json::to_string_pretty(&items).unwrap();
+        let s = serde_json::to_string_pretty(&dl).unwrap();
         file.write_all(&s.into_bytes()).unwrap();
         file.write_all(b"\n").unwrap();
     }
@@ -253,14 +246,12 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                                     ref pipeline_id,
                                     ref viewport_size,
                                     ref display_list,
-                                    ref auxiliary_lists,
                                     _preserve_frame_state) => {
                 self.begin_write_display_list(background_color,
                                               epoch,
                                               pipeline_id,
                                               viewport_size,
-                                              display_list,
-                                              auxiliary_lists);
+                                              display_list);
             }
             _ => {}
         }

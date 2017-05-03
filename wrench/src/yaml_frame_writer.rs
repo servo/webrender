@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::{fmt, fs, slice};
+use std::{fmt, fs};
 use super::CURRENT_FRAME_NUMBER;
 use time;
 use webrender;
@@ -227,7 +227,6 @@ pub struct YamlFrameWriter {
     pipeline_id: Option<PipelineId>,
 
     dl_descriptor: Option<BuiltDisplayListDescriptor>,
-    aux_descriptor: Option<AuxiliaryListsDescriptor>,
 }
 
 pub struct YamlFrameWriterReceiver {
@@ -267,7 +266,6 @@ impl YamlFrameWriter {
             fonts: HashMap::new(),
 
             dl_descriptor: None,
-            aux_descriptor: None,
 
             pipeline_id: None,
 
@@ -281,8 +279,7 @@ impl YamlFrameWriter {
                                     epoch: &Epoch,
                                     pipeline_id: &PipelineId,
                                     viewport_size: &LayoutSize,
-                                    display_list: &BuiltDisplayListDescriptor,
-                                    auxiliary_lists: &AuxiliaryListsDescriptor)
+                                    display_list: &BuiltDisplayListDescriptor)
     {
         unsafe {
             if CURRENT_FRAME_NUMBER == self.last_frame_written {
@@ -292,7 +289,6 @@ impl YamlFrameWriter {
         }
 
         self.dl_descriptor = Some(display_list.clone());
-        self.aux_descriptor = Some(auxiliary_lists.clone());
         self.pipeline_id = Some(pipeline_id.clone());
 
         scene.begin_display_list(pipeline_id, epoch,
@@ -302,17 +298,15 @@ impl YamlFrameWriter {
 
     pub fn finish_write_display_list(&mut self, scene: &mut Scene, data: &[u8]) {
         let dl_desc = self.dl_descriptor.take().unwrap();
-        let aux_desc = self.aux_descriptor.take().unwrap();
 
         let payload = Payload::from_data(data);
 
         let dl = BuiltDisplayList::from_data(payload.display_list_data, dl_desc);
-        let aux = AuxiliaryLists::from_data(payload.auxiliary_lists_data, aux_desc);
 
         let mut root_dl_table = new_table();
         {
-            let mut iter = dl.all_display_items().iter();
-            self.write_display_list(&mut root_dl_table, &mut iter, &aux, &mut ClipIdMapper::new());
+            let mut iter = dl.iter();
+            self.write_display_list(&mut root_dl_table, &dl, &mut iter, &mut ClipIdMapper::new());
         }
 
 
@@ -320,14 +314,13 @@ impl YamlFrameWriter {
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
             u32_vec_node(&mut root_dl_table, "id", &[root_pipeline_id.0, root_pipeline_id.1]);
 
-            let referenced_pipeline_ids = dl.all_display_items().iter()
-                .flat_map(|base| {
-                    if let SpecificDisplayItem::Iframe(k) = base.item {
-                        Some(k.pipeline_id)
-                    } else {
-                        None
-                    }
-                });
+            let mut referenced_pipeline_ids = vec![];
+            let mut traversal = dl.iter();
+            while let Some(item) = traversal.next() {
+                if let &SpecificDisplayItem::Iframe(k) = item.item() {
+                    referenced_pipeline_ids.push(k.pipeline_id);
+                }
+            }
 
             let mut pipelines = vec![];
             for pipeline_id in referenced_pipeline_ids {
@@ -338,9 +331,8 @@ impl YamlFrameWriter {
                 u32_vec_node(&mut pipeline, "id", &[pipeline_id.0, pipeline_id.1]);
 
                 let dl = scene.display_lists.get(&pipeline_id).unwrap();
-                let aux = scene.pipeline_auxiliary_lists.get(&pipeline_id).unwrap();
                 let mut iter = dl.iter();
-                self.write_display_list(&mut pipeline, &mut iter, aux, &mut ClipIdMapper::new());
+                self.write_display_list(&mut pipeline, &dl, &mut iter, &mut ClipIdMapper::new());
                 pipelines.push(Yaml::Hash(pipeline));
             }
 
@@ -364,7 +356,7 @@ impl YamlFrameWriter {
 
         }
 
-        scene.finish_display_list(self.pipeline_id.unwrap(), dl, aux);
+        scene.finish_display_list(self.pipeline_id.unwrap(), dl);
     }
 
     fn next_rsrc_paths(prefix: &str, counter: &mut u32, base_path: &Path, base: &str, ext: &str) -> (PathBuf, PathBuf) {
@@ -440,14 +432,14 @@ impl YamlFrameWriter {
         Some(path)
     }
 
-    fn make_clip_node(&mut self, clip: &ClipRegion, aux: &AuxiliaryLists) -> Yaml {
+    fn make_clip_node(&mut self, clip: &ClipRegion, list: &BuiltDisplayList) -> Yaml {
         if clip.is_complex() {
-            let complex = aux.complex_clip_regions(&clip.complex);
+            let complex = list.get(clip.complex_clips);
             let mut complex_table = new_table();
             rect_node(&mut complex_table, "rect", &clip.main);
 
-            if !complex.is_empty() {
-                let complex_items = complex.iter().map(|ccx|
+            if complex.len() != 0 {
+                let complex_items = complex.map(|ccx|
                     if ccx.radii.is_zero() {
                         rect_yaml(&ccx.rect)
                     } else {
@@ -479,17 +471,27 @@ impl YamlFrameWriter {
 
     fn write_display_list_items(&mut self,
                                 list: &mut Vec<Yaml>,
-                                list_iterator: &mut slice::Iter<DisplayItem>,
-                                aux: &AuxiliaryLists,
+                                display_list: &BuiltDisplayList,
+                                list_iterator: &mut BuiltDisplayListIter,
                                 clip_id_mapper: &mut ClipIdMapper) {
-        while let Some(ref base) = list_iterator.next() {
+        // continue_traversal is a big borrowck hack
+        let mut continue_traversal = None;
+        loop {
+            if let Some(traversal) = continue_traversal.take() {
+                *list_iterator = traversal;
+            }
+            let base = match list_iterator.next() {
+                Some(base) => base,
+                None => break,
+            };
+
             let mut v = new_table();
-            rect_node(&mut v, "bounds", &base.rect);
-            yaml_node(&mut v, "clip", self.make_clip_node(&base.clip, aux));
+            rect_node(&mut v, "bounds", &base.rect());
+            yaml_node(&mut v, "clip", self.make_clip_node(&base.clip_region(), display_list));
 
             let scroll_id =
-                Yaml::Integer(clip_id_mapper.map(&base.clip_and_scroll.scroll_node_id) as i64);
-            let clip_and_scroll = match base.clip_and_scroll.clip_node_id {
+                Yaml::Integer(clip_id_mapper.map(&base.clip_and_scroll().scroll_node_id) as i64);
+            let clip_and_scroll = match base.clip_and_scroll().clip_node_id {
                 Some(clip_id) => {
                     let clip_id = Yaml::Integer(clip_id_mapper.map(&clip_id) as i64);
                     Yaml::Array(vec![scroll_id, clip_id])
@@ -499,16 +501,16 @@ impl YamlFrameWriter {
 
             yaml_node(&mut v, "clip-and-scroll", clip_and_scroll);
 
-            match base.item {
+            match *base.item() {
                 Rectangle(item) => {
                     str_node(&mut v, "type", "rect");
                     color_node(&mut v, "color", item.color);
                 },
                 Text(item) => {
-                    let gi = aux.glyph_instances(&item.glyphs);
+                    let gi = display_list.get(base.glyphs());
                     let mut indices: Vec<u32> = vec![];
                     let mut offsets: Vec<f32> = vec![];
-                    for ref g in gi.iter() {
+                    for g in gi {
                         indices.push(g.index);
                         offsets.push(g.point.x);
                         offsets.push(g.point.y);
@@ -653,7 +655,7 @@ impl YamlFrameWriter {
                             point_node(&mut v, "start", &details.gradient.start_point);
                             point_node(&mut v, "end", &details.gradient.end_point);
                             let mut stops = vec![];
-                            for stop in aux.gradient_stops(&details.gradient.stops) {
+                            for stop in display_list.get(base.gradient_stops()) {
                                 stops.push(Yaml::Real(stop.offset.to_string()));
                                 stops.push(Yaml::String(color_to_string(stop.color)));
                             }
@@ -678,7 +680,7 @@ impl YamlFrameWriter {
                             f32_node(&mut v, "end-radius", details.gradient.end_radius);
                             f32_node(&mut v, "ratio-xy", details.gradient.ratio_xy);
                             let mut stops = vec![];
-                            for stop in aux.gradient_stops(&details.gradient.stops) {
+                            for stop in display_list.get(base.gradient_stops()) {
                                 stops.push(Yaml::Real(stop.offset.to_string()));
                                 stops.push(Yaml::String(color_to_string(stop.color)));
                             }
@@ -710,7 +712,7 @@ impl YamlFrameWriter {
                     size_node(&mut v, "tile-size", &item.tile_size);
                     size_node(&mut v, "tile-spacing", &item.tile_spacing);
                     let mut stops = vec![];
-                    for stop in aux.gradient_stops(&item.gradient.stops) {
+                    for stop in display_list.get(base.gradient_stops()) {
                         stops.push(Yaml::Real(stop.offset.to_string()));
                         stops.push(Yaml::String(color_to_string(stop.color)));
                     }
@@ -727,7 +729,7 @@ impl YamlFrameWriter {
                     size_node(&mut v, "tile-size", &item.tile_size);
                     size_node(&mut v, "tile-spacing", &item.tile_spacing);
                     let mut stops = vec![];
-                    for stop in aux.gradient_stops(&item.gradient.stops) {
+                    for stop in display_list.get(base.gradient_stops()) {
                         stops.push(Yaml::Real(stop.offset.to_string()));
                         stops.push(Yaml::String(color_to_string(stop.color)));
                     }
@@ -741,13 +743,17 @@ impl YamlFrameWriter {
                 PushStackingContext(item) => {
                     str_node(&mut v, "type", "stacking-context");
                     write_sc(&mut v, &item.stacking_context);
-                    self.write_display_list(&mut v, list_iterator, aux, clip_id_mapper);
+
+                    let mut sub_iter = base.sub_iter();
+                    self.write_display_list(&mut v, display_list, &mut sub_iter, clip_id_mapper);
+                    continue_traversal = Some(sub_iter);
                 },
                 Clip(item) => {
                     str_node(&mut v, "type", "clip");
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
                 }
                 PopStackingContext => return,
+                SetGradientStops | SetClipRegion(_) => { panic!("dummy item yielded?") },
             }
             if !v.is_empty() {
                 list.push(Yaml::Hash(v));
@@ -757,11 +763,11 @@ impl YamlFrameWriter {
 
     fn write_display_list(&mut self,
                           parent: &mut Table,
-                          list_iterator: &mut slice::Iter<DisplayItem>,
-                          aux: &AuxiliaryLists,
+                          display_list: &BuiltDisplayList,
+                          list_iterator: &mut BuiltDisplayListIter,
                           clip_id_mapper: &mut ClipIdMapper) {
         let mut list = vec![];
-        self.write_display_list_items(&mut list, list_iterator, aux, clip_id_mapper);
+        self.write_display_list_items(&mut list, display_list, list_iterator, clip_id_mapper);
         parent.insert(Yaml::String("items".to_owned()), Yaml::Array(list));
     }
 }
@@ -829,15 +835,13 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                                     ref pipeline_id,
                                     ref viewport_size,
                                     ref display_list,
-                                    ref auxiliary_lists,
                                     _preserve_frame_state) => {
                 self.frame_writer.begin_write_display_list(&mut self.scene,
                                                            background_color,
                                                            epoch,
                                                            pipeline_id,
                                                            viewport_size,
-                                                           display_list,
-                                                           auxiliary_lists);
+                                                           display_list);
             }
             _ => {}
         }

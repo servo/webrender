@@ -115,21 +115,21 @@ impl YamlFrameReader {
         self.add_stacking_context_from_yaml(wrench, &yaml["root"], true);
     }
 
-    fn to_clip_region(&mut self,
+    fn push_clip_region(&mut self,
                       item: &Yaml,
                       item_bounds: &LayoutRect,
-                      wrench: &mut Wrench)
-                      -> Option<ClipRegion> {
+                      default_clip_region: &ClipRegion,
+                      wrench: &mut Wrench) -> ClipRegionToken {
         match *item {
             Yaml::String(_) => {
                 let rect = item.as_rect().expect(&format!("Could not parse rect string: '{:?}'",
                                                           item));
-                Some(self.builder().new_clip_region(&rect, vec![], None))
+                self.builder().push_clip_region(&rect, vec![], None)
             }
             Yaml::Array(ref v) => {
                 if let Some(rect) = item.as_rect() {
                     // it's a rect (as an array)
-                    Some(self.builder().new_clip_region(&rect, vec![], None))
+                    self.builder().push_clip_region(&rect, vec![], None)
                 } else {
                     // it may be an array of simple rects
                     let rects = v.iter().map(|v| {
@@ -139,7 +139,7 @@ impl YamlFrameReader {
                      })
                      .collect::<Result<Vec<_>, _>>()
                      .expect(&format!("Could not parse clip region array: '{:?}'", item));
-                    Some(self.builder().new_clip_region(item_bounds, rects, None))
+                    self.builder().push_clip_region(item_bounds, rects, None)
                 }
             }
             Yaml::Hash(_) => {
@@ -162,7 +162,7 @@ impl YamlFrameReader {
                             None
                         }
                     }
-                ).collect();
+                ).collect::<Vec<_>>();
 
                 let image_mask = if item["image-mask"].as_hash().is_some() {
                     let image_mask = &item["image-mask"];
@@ -176,14 +176,14 @@ impl YamlFrameReader {
                 } else {
                     None
                 };
-                Some(self.builder().new_clip_region(&bounds, complex, image_mask))
+                self.builder().push_clip_region(&bounds, complex, image_mask)
             }
             Yaml::BadValue => {
-                None
+                self.builder().push_clip_region(&default_clip_region.main, vec![], default_clip_region.image_mask)
             }
             _ => {
                 println!("Unable to parse clip region {:?}", item);
-                None
+                self.builder().push_clip_region(&default_clip_region.main, vec![], default_clip_region.image_mask)
             }
         }
     }
@@ -250,7 +250,7 @@ impl YamlFrameReader {
         let rect = item[bounds_key].as_rect().expect("rect type must have bounds");
         let color = item["color"].as_colorf().unwrap_or(*WHITE_COLOR);
 
-        let clip = self.to_clip_region(&item["clip"], &rect, wrench).unwrap_or(*clip_region);
+        let clip = self.push_clip_region(&item["clip"], &rect, &clip_region, wrench);
         self.builder().push_rect(rect, clip, color);
     }
 
@@ -261,7 +261,7 @@ impl YamlFrameReader {
         let tile_size = item["tile-size"].as_size().unwrap_or(bounds.size);
         let tile_spacing = item["tile-spacing"].as_size().unwrap_or(LayoutSize::zero());
 
-        let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
+        let clip = self.push_clip_region(&item["clip"], &bounds, clip_region, wrench);
         self.builder().push_gradient(bounds, clip, gradient, tile_size, tile_spacing);
     }
 
@@ -272,7 +272,7 @@ impl YamlFrameReader {
         let tile_size = item["tile-size"].as_size().unwrap_or(bounds.size);
         let tile_spacing = item["tile-spacing"].as_size().unwrap_or(LayoutSize::zero());
 
-        let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
+        let clip = self.push_clip_region(&item["clip"], &bounds, clip_region, wrench);
         self.builder().push_radial_gradient(bounds, clip, gradient, tile_size, tile_spacing);
     }
 
@@ -384,7 +384,7 @@ impl YamlFrameReader {
             println!("Unable to parse border {:?}", item);
             None
         };
-        let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
+        let clip = self.push_clip_region(&item["clip"], &bounds, clip_region, wrench);
         if let Some(details) = border_details {
             self.builder().push_border(bounds,
                                        clip,
@@ -413,7 +413,7 @@ impl YamlFrameReader {
             BoxShadowClipMode::None
         };
 
-        let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
+        let clip = self.push_clip_region(&item["clip"], &bounds, clip_region, wrench);
         self.builder().push_box_shadow(bounds, clip, box_bounds, offset, color, blur_radius, spread_radius,
                                        border_radius, clip_mode);
     }
@@ -451,7 +451,7 @@ impl YamlFrameReader {
             Some("pixelated") => ImageRendering::Pixelated,
             Some(_) => panic!("ImageRendering can be auto, crisp-edges, or pixelated -- got {:?}", item),
         };
-        let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
+        let clip = self.push_clip_region(&item["clip"], &bounds, clip_region, wrench);
         self.builder().push_image(bounds, clip, stretch_size, tile_spacing, rendering, image_key);
     }
 
@@ -521,7 +521,7 @@ impl YamlFrameReader {
             (glyphs, rect)
         };
 
-        let clip = self.to_clip_region(&item["clip"], &rect, wrench).unwrap_or(*clip_region);
+        let clip = self.push_clip_region(&item["clip"], &rect, clip_region, wrench);
         self.builder().push_text(rect, clip, &glyphs, font_key, color, size, blur_radius, None);
     }
 
@@ -529,15 +529,14 @@ impl YamlFrameReader {
         let bounds = item["bounds"].as_rect().expect("iframe must have bounds");
         let pipeline_id = item["id"].as_pipeline_id().unwrap();
 
-        let clip = self.to_clip_region(&item["clip"], &bounds, wrench).unwrap_or(*clip_region);
+        let clip = self.push_clip_region(&item["clip"], &bounds, clip_region, wrench);
         self.builder().push_iframe(bounds, clip, pipeline_id);
     }
 
     pub fn add_display_list_items_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
         let full_clip_region = {
             let win_size = wrench.window_size_f32();
-            self.builder().new_clip_region(&LayoutRect::new(LayoutPoint::new(0.0, 0.0), win_size),
-                                           Vec::new(), None)
+            ClipRegion::simple(&LayoutRect::new(LayoutPoint::new(0.0, 0.0), win_size))
         };
 
         for item in yaml.as_vec().unwrap() {
@@ -615,8 +614,7 @@ impl YamlFrameReader {
         let content_rect = yaml["bounds"].as_rect().expect("scroll layer must have content rect");
 
         let default_clip = LayoutRect::new(LayoutPoint::zero(), content_rect.size);
-        let clip = self.to_clip_region(&yaml["clip"], &default_clip, wrench)
-                       .unwrap_or(ClipRegion::simple(&default_clip));
+        let clip = self.push_clip_region(&yaml["clip"], &default_clip, &ClipRegion::simple(&default_clip), wrench);
         let id = yaml["id"].as_i64().map(|id| ClipId::new(id as u64, self.builder().pipeline_id));
 
         let id = self.builder().define_clip(content_rect, clip, id);
