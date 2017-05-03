@@ -643,6 +643,7 @@ pub struct ClipBatcher {
     pub rectangles: Vec<CacheClipInstance>,
     /// Image draws apply the image masking.
     pub images: HashMap<SourceTexture, Vec<CacheClipInstance>>,
+    pub border_clears: Vec<CacheClipInstance>,
     pub borders: Vec<CacheClipInstance>,
 }
 
@@ -651,6 +652,7 @@ impl ClipBatcher {
         ClipBatcher {
             rectangles: Vec::new(),
             images: HashMap::new(),
+            border_clears: Vec::new(),
             borders: Vec::new(),
         }
     }
@@ -717,10 +719,16 @@ impl ClipBatcher {
             }
 
             for &(ref source, gpu_address) in &info.border_corners {
-                for dash_index in 0..source.dash_count {
+                self.border_clears.push(CacheClipInstance {
+                    address: gpu_address,
+                    segment: 0,
+                    ..instance
+                });
+
+                for clip_index in 0..source.actual_clip_count {
                     self.borders.push(CacheClipInstance {
                         address: gpu_address,
-                        segment: dash_index as i32,
+                        segment: 1 + clip_index as i32,
                         ..instance
                     })
                 }

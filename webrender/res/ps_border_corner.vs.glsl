@@ -189,6 +189,14 @@ void main(void) {
             vAlphaSelect = 1.0;
             vSDFSelect = 1.0;
             break;
+        case BORDER_STYLE_DOTTED:
+            // Disable normal clip radii for dotted corners, since
+            // all the clipping is handled by the clip mask.
+            vClipSign = vec2(0.0);
+            vEdgeDistance = vec4(0.0);
+            vAlphaSelect = 1.0;
+            vSDFSelect = 0.0;
+            break;
         default: {
             vEdgeDistance = vec4(0.0);
             vAlphaSelect = 1.0;

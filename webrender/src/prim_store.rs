@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use border::{BorderCornerClipData, BorderCornerDashClipData};
+use border::{BorderCornerClipData, BorderCornerDashClipData, BorderCornerDotClipData};
 use euclid::{Size2D};
 use gpu_store::GpuStoreAddress;
 use internal_types::{SourceTexture, PackedTexel};
@@ -1385,7 +1385,7 @@ define_gpu_block!(GpuBlock16: [f32; 4] =
 );
 define_gpu_block!(GpuBlock32: [f32; 8] =
     GradientStopGpu, ClipCorner, ClipRect, ImageMaskData,
-    BorderCornerClipData, BorderCornerDashClipData
+    BorderCornerClipData, BorderCornerDashClipData, BorderCornerDotClipData
 );
 define_gpu_block!(GpuBlock64: [f32; 16] =
     GradientPrimitiveGpu, RadialGradientPrimitiveGpu, BoxShadowPrimitiveGpu
