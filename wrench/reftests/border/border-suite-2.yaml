@@ -118,6 +118,18 @@ root:
           style: dashed
           color: [ red, green, blue, black ]
           radius: 32
+        - type: border
+          bounds: [ 450, 230, 200, 100 ]
+          width: 4
+          border-type: normal
+          style: dotted
+          color: [ red, green, blue, black ]
+          radius: {
+            top-left: [32, 48],
+            top-right: [64, 32],
+            bottom-left: [10, 40],
+            bottom-right: [48, 48],
+          }
 
         - type: border
           bounds: [ 10, 340, 200, 200 ]
@@ -143,3 +155,17 @@ root:
             bottom-left: [40, 18],
             bottom-right: [100, 50],
           }
+        - type: border
+          bounds: [ 450, 340, 200, 100 ]
+          width: 8
+          border-type: normal
+          style: dotted
+          color: [ red, green, blue, black ]
+          radius: 32
+        - type: border
+          bounds: [ 450, 450, 200, 100 ]
+          width: [8, 8, 12, 12]
+          border-type: normal
+          style: dotted
+          color: [ red, green, blue, black ]
+          radius: 40

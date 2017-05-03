@@ -1830,6 +1830,38 @@ impl Renderer {
         {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
             let vao = self.clip_vao_id;
+
+            // If we have border corner clips, the first step is to clear out the
+            // area in the clip mask. This allows drawing multiple invididual clip
+            // in regions below.
+            if !target.clip_batcher.border_clears.is_empty() {
+                let _gm2 = GpuMarker::new(self.device.rc_gl(), "clip borders [clear]");
+                self.device.set_blend(false);
+                let shader = self.cs_clip_border.get(&mut self.device).unwrap();
+                self.draw_instanced_batch(&target.clip_batcher.border_clears,
+                                          vao,
+                                          shader,
+                                          &BatchTextures::no_texture(),
+                                          &projection);
+            }
+
+            // Draw any dots or dashes for border corners.
+            if !target.clip_batcher.borders.is_empty() {
+                let _gm2 = GpuMarker::new(self.device.rc_gl(), "clip borders");
+                // We are masking in parts of the corner (dots or dashes) here.
+                // Blend mode is set to max to allow drawing multiple dots.
+                // The individual dots and dashes in a border never overlap, so using
+                // a max blend mode here is fine.
+                self.device.set_blend(true);
+                self.device.set_blend_mode_max();
+                let shader = self.cs_clip_border.get(&mut self.device).unwrap();
+                self.draw_instanced_batch(&target.clip_batcher.borders,
+                                          vao,
+                                          shader,
+                                          &BatchTextures::no_texture(),
+                                          &projection);
+            }
+
             // switch to multiplicative blending
             self.device.set_blend(true);
             self.device.set_blend_mode_multiply();
@@ -1859,16 +1891,6 @@ impl Renderer {
                                           vao,
                                           shader,
                                           &textures,
-                                          &projection);
-            }
-            // draw special border clips
-            if !target.clip_batcher.borders.is_empty() {
-                let _gm2 = GpuMarker::new(self.device.rc_gl(), "clip borders");
-                let shader = self.cs_clip_border.get(&mut self.device).unwrap();
-                self.draw_instanced_batch(&target.clip_batcher.borders,
-                                          vao,
-                                          shader,
-                                          &BatchTextures::no_texture(),
                                           &projection);
             }
         }
