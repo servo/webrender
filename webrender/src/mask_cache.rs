@@ -162,7 +162,7 @@ impl MaskCacheInfo {
                 ClipSource::BorderCorner(ref source) => {
                     // One block for the corner header, plus one
                     // block per dash to clip out.
-                    let gpu_address = clip_store.alloc(1 + source.dash_count);
+                    let gpu_address = clip_store.alloc(1 + source.max_clip_count);
                     border_corners.push((source.clone(), gpu_address));
                 }
             }
@@ -265,10 +265,10 @@ impl MaskCacheInfo {
                 }
             }
 
-            for &(ref source, gpu_address) in &self.border_corners {
+            for &mut (ref mut source, gpu_address) in &mut self.border_corners {
                 has_border_clip = true;
                 let slice = clip_store.get_slice_mut(gpu_address,
-                                                     1 + source.dash_count);
+                                                     1 + source.max_clip_count);
                 source.populate_gpu_data(slice);
             }
 
