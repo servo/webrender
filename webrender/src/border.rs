@@ -39,7 +39,6 @@ pub enum BorderCornerKind {
     Solid,
     Clip(BorderCornerInstance),
     Mask(BorderCornerClipData, LayerSize, LayerSize, BorderCornerClipKind),
-    Unhandled,
 }
 
 impl BorderCornerKind {
@@ -175,13 +174,17 @@ impl NormalBorderHelpers for NormalBorder {
                                            *border_rect)
             }
 
-            // TODO(gw): Handle border corners with both dots and dashes.
-            //           Once these are handled, the old border path can
-            //           be removed.
+            // Draw border transitions with dots and/or dashes as
+            // solid segments. The old border path didn't support
+            // this anyway, so we might as well start using the new
+            // border path here, since the dashing in the edges is
+            // much higher quality anyway.
             (BorderStyle::Dotted, _) |
             (_, BorderStyle::Dotted) |
             (BorderStyle::Dashed, _) |
-            (_, BorderStyle::Dashed) => BorderCornerKind::Unhandled,
+            (_, BorderStyle::Dashed) => {
+                BorderCornerKind::Clip(BorderCornerInstance::Single)
+            }
 
             // Everything else can be handled by drawing the corner twice,
             // where the shader outputs zero alpha for the side it's not
@@ -223,7 +226,6 @@ impl FrameBuilder {
                                    widths: &BorderWidths,
                                    clip_and_scroll: ClipAndScrollInfo,
                                    clip_region: &ClipRegion,
-                                   use_new_border_path: bool,
                                    corner_instances: [BorderCornerInstance; 4],
                                    extra_clips: &[ClipSource]) {
         let radius = &border.radius;
@@ -239,7 +241,6 @@ impl FrameBuilder {
         let bottom_color    = bottom.border_color(2.0/3.0, 1.0, 0.7, 0.3);
 
         let prim_cpu = BorderPrimitiveCpu {
-            use_new_border_path: use_new_border_path,
             corner_instances: corner_instances,
         };
 
@@ -325,19 +326,6 @@ impl FrameBuilder {
                               BorderCorner::BottomLeft,
                               rect),
         ];
-
-        // If any of the corners are unhandled, fall back to slow path for now.
-        if corners.iter().any(|c| *c == BorderCornerKind::Unhandled) {
-            self.add_normal_border_primitive(rect,
-                                             border,
-                                             widths,
-                                             clip_and_scroll,
-                                             clip_region,
-                                             false,
-                                             [BorderCornerInstance::Single; 4],
-                                             &[]);
-            return;
-        }
 
         let (left_edge, left_len) = border.get_edge(left, widths.left);
         let (top_edge, top_len) = border.get_edge(top, widths.top);
@@ -427,7 +415,6 @@ impl FrameBuilder {
                                              widths,
                                              clip_and_scroll,
                                              clip_region,
-                                             true,
                                              corner_instances,
                                              &extra_clips);
         }

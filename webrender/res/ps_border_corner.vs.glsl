@@ -86,14 +86,26 @@ void write_color(vec4 color0, vec4 color1, int style, vec2 delta, int instance_k
     vColor11 = vec4(color1.rgb * modulate.w, color1.a);
 }
 
-int select_style(int color_select, vec2 style) {
+int select_style(int color_select, vec2 fstyle) {
+    ivec2 style = ivec2(fstyle);
+
     switch (color_select) {
         case SIDE_BOTH:
-            return int(style.x);
+            // TODO(gw): A temporary hack! While we don't support
+            //           border corners that have dots or dashes
+            //           with another style, pretend they are solid
+            //           border corners.
+            bool has_dots = style.x == BORDER_STYLE_DOTTED ||
+                            style.y == BORDER_STYLE_DOTTED;
+            bool has_dashes = style.x == BORDER_STYLE_DASHED ||
+                              style.y == BORDER_STYLE_DASHED;
+            if (style.x != style.y && (has_dots || has_dashes))
+                return BORDER_STYLE_SOLID;
+            return style.x;
         case SIDE_FIRST:
-            return int(style.x);
+            return style.x;
         case SIDE_SECOND:
-            return int(style.y);
+            return style.y;
     }
 }
 
