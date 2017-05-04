@@ -3,6 +3,7 @@
 == border-radii.yaml border-radii.png
 == border-suite.yaml border-suite.png
 == border-suite-2.yaml border-suite-2.png
+== border-suite-3.yaml border-suite-3.png
 fuzzy(255,610) == border-double-simple.yaml border-double-simple-ref.yaml
 fuzzy(255,24) == border-groove-simple.yaml border-groove-simple-ref.yaml
 fuzzy(255,24) == border-ridge-simple.yaml border-ridge-simple-ref.yaml

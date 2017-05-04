@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
+use border::{BorderCornerInstance, BorderCornerSide};
 use device::TextureId;
 use fnv::FnvHasher;
 use gpu_store::GpuStoreAddress;
@@ -425,8 +426,23 @@ impl AlphaRenderItem {
                             let edge_key = AlphaBatchKey::new(AlphaBatchKind::BorderEdge, flags, blend_mode, textures);
 
                             batch_list.with_suitable_batch(&corner_key, item_bounding_rect, |batch| {
-                                for border_segment in 0..4 {
-                                    batch.add_instance(base_instance.build(border_segment, 0, 0));
+                                for (i, instance_kind) in border_cpu.corner_instances.iter().enumerate() {
+                                    let sub_index = i as i32;
+                                    match *instance_kind {
+                                        BorderCornerInstance::Single => {
+                                            batch.add_instance(base_instance.build(sub_index,
+                                                                                   BorderCornerSide::Both as i32,
+                                                                                   0));
+                                        }
+                                        BorderCornerInstance::Double => {
+                                            batch.add_instance(base_instance.build(sub_index,
+                                                                                   BorderCornerSide::First as i32,
+                                                                                   0));
+                                            batch.add_instance(base_instance.build(sub_index,
+                                                                                   BorderCornerSide::Second as i32,
+                                                                                   0));
+                                        }
+                                    }
                                 }
                             });
 
