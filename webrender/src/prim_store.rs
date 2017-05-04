@@ -1046,26 +1046,24 @@ impl PrimitiveStore {
                     let channel_count = image_cpu.format.get_plane_num();
                     debug_assert!(channel_count <= 3);
                     for channel in 0..channel_count {
-                        if image_cpu.yuv_texture_id[channel] == SourceTexture::Invalid {
-                            // Check if an external image that needs to be resolved
-                            // by the render thread.
-                            let resource_address = image_cpu.yuv_resource_address + channel as i32;
+                        // Check if an external image that needs to be resolved
+                        // by the render thread.
+                        let resource_address = image_cpu.yuv_resource_address + channel as i32;
 
-                            let (texture_id, cache_item) =
-                                PrimitiveStore::resolve_image(resource_cache,
-                                                              &mut deferred_resolves,
-                                                              image_cpu.yuv_key[channel],
-                                                              resource_address,
-                                                              ImageRendering::Auto,
-                                                              None);
-                            // texture_id
-                            image_cpu.yuv_texture_id[channel] = texture_id;
-                            // uv coordinates
-                            if let Some(cache_item) = cache_item {
-                                let resource_rect = self.gpu_resource_rects.get_mut(image_cpu.yuv_resource_address + channel as i32);
-                                resource_rect.uv0 = cache_item.uv0;
-                                resource_rect.uv1 = cache_item.uv1;
-                            }
+                        let (texture_id, cache_item) =
+                            PrimitiveStore::resolve_image(resource_cache,
+                                                          &mut deferred_resolves,
+                                                          image_cpu.yuv_key[channel],
+                                                          resource_address,
+                                                          ImageRendering::Auto,
+                                                          None);
+                        // texture_id
+                        image_cpu.yuv_texture_id[channel] = texture_id;
+                        // uv coordinates
+                        if let Some(cache_item) = cache_item {
+                            let resource_rect = self.gpu_resource_rects.get_mut(image_cpu.yuv_resource_address + channel as i32);
+                            resource_rect.uv0 = cache_item.uv0;
+                            resource_rect.uv1 = cache_item.uv1;
                         }
                     }
                 }
