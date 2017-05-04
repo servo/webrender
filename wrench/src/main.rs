@@ -47,7 +47,7 @@ use gleam::gl;
 use glutin::{ElementState, VirtualKeyCode, WindowProxy};
 use perf::PerfHarness;
 use png::save_flipped;
-use reftest::ReftestHarness;
+use reftest::{ReftestHarness, ReftestOptions};
 use std::cmp::{max, min};
 #[cfg(feature = "headless")]
 use std::ffi::CString;
@@ -337,10 +337,16 @@ fn main() {
             png::png(&mut wrench, &mut window, reader);
             return;
         } else if let Some(subargs) = args.subcommand_matches("reftest") {
+            let (w, h) = window.get_inner_size_pixels();
             let harness = ReftestHarness::new(&mut wrench, &mut window);
             let base_manifest = Path::new("reftests/reftest.list");
             let specific_reftest = subargs.value_of("REFTEST").map(|x| Path::new(x));
-            harness.run(base_manifest, specific_reftest);
+            let mut reftest_options = ReftestOptions::default();
+            if let Some(allow_max_diff) = subargs.value_of("fuzz_tolerance") {
+                reftest_options.allow_max_difference = allow_max_diff.parse().unwrap_or(1);
+                reftest_options.allow_num_differences = w as usize * h as usize;
+            }
+            harness.run(base_manifest, specific_reftest, &reftest_options);
             return;
         } else if let Some(subargs) = args.subcommand_matches("perf") {
             let harness = PerfHarness::new(&mut wrench, &mut window);

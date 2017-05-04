@@ -19,6 +19,21 @@ use webrender_traits::*;
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
 
+pub struct ReftestOptions {
+    // These override values that are lower.
+    pub allow_max_difference: usize,
+    pub allow_num_differences: usize,
+}
+
+impl ReftestOptions {
+    pub fn default() -> Self {
+        ReftestOptions {
+            allow_max_difference: 0,
+            allow_num_differences: 0,
+        }
+    }
+}
+
 pub enum ReftestOp {
     Equal,
     NotEqual,
@@ -102,7 +117,7 @@ struct ReftestManifest {
     reftests: Vec<Reftest>,
 }
 impl ReftestManifest {
-    fn new(manifest: &Path) -> ReftestManifest {
+    fn new(manifest: &Path, options: &ReftestOptions) -> ReftestManifest {
         let dir = manifest.parent().unwrap();
         let f = File::open(manifest).expect(&format!("couldn't open manifest: {}", manifest.display()));
         let file = BufReader::new(&f);
@@ -125,7 +140,7 @@ impl ReftestManifest {
                 "include" => {
                     let include = dir.join(items[1]);
 
-                    reftests.append(&mut ReftestManifest::new(include.as_path()).reftests);
+                    reftests.append(&mut ReftestManifest::new(include.as_path(), options).reftests);
                 }
                 item_str => {
                     // If the first item is "fuzzy(<val>,<count>)" the positions of the operator
@@ -138,12 +153,13 @@ impl ReftestManifest {
                     } else {
                         (0, 0, 0)
                     };
+
                     reftests.push(Reftest {
                         op: parse_operator(items[offset]).expect("unexpected match operator"),
                         test: dir.join(items[offset + 1]),
                         reference: dir.join(items[offset + 2]),
-                        max_difference: max,
-                        num_differences: count,
+                        max_difference: cmp::max(max, options.allow_max_difference),
+                        num_differences: cmp::max(count, options.allow_num_differences),
                     });
                 }
             };
@@ -198,8 +214,8 @@ impl<'a> ReftestHarness<'a> {
         }
     }
 
-    pub fn run(mut self, base_manifest: &Path, reftests: Option<&Path>) {
-        let manifest = ReftestManifest::new(base_manifest);
+    pub fn run(mut self, base_manifest: &Path, reftests: Option<&Path>, options: &ReftestOptions) {
+        let manifest = ReftestManifest::new(base_manifest, options);
         let reftests = manifest.find(reftests.unwrap_or(&PathBuf::new()));
 
         let mut total_passing = 0;
