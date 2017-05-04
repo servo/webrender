@@ -102,6 +102,11 @@ subcommands:
     - reftest:
         about: run reftests
         args:
+          - fuzz_tolerance:
+              long: fuzzy
+              takes_value: true
+              help: Add a minimum fuzziness tolerance to all tests.
+              required: false
           - REFTEST:
               help: a specific reftest or directory to run
               required: false
