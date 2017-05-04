@@ -324,8 +324,8 @@ struct Border {
     vec4 radii[2];
 };
 
-vec4 get_effective_border_widths(Border border) {
-    switch (int(border.style.x)) {
+vec4 get_effective_border_widths(Border border, int style) {
+    switch (style) {
         case BORDER_STYLE_DOUBLE:
             // Calculate the width of a border segment in a style: double
             // border. Round to the nearest CSS pixel.

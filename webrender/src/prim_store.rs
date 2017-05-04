@@ -4,6 +4,7 @@
 
 use app_units::Au;
 use border::{BorderCornerClipData, BorderCornerDashClipData, BorderCornerDotClipData};
+use border::BorderCornerInstance;
 use euclid::{Size2D};
 use gpu_store::GpuStoreAddress;
 use internal_types::{SourceTexture, PackedTexel};
@@ -219,6 +220,7 @@ pub struct BorderPrimitiveCpu {
     // TODO(gw): Remove this when all border kinds are switched
     //           over to the new border path!
     pub use_new_border_path: bool,
+    pub corner_instances: [BorderCornerInstance; 4],
 }
 
 #[derive(Debug, Clone)]

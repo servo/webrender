@@ -11,6 +11,20 @@ use util::{lerp, pack_as_float};
 use webrender_traits::{BorderSide, BorderStyle, BorderWidths, ClipAndScrollInfo, ClipRegion};
 use webrender_traits::{ColorF, LayerPoint, LayerRect, LayerSize, NormalBorder};
 
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum BorderCornerInstance {
+    Single,     // Single instance needed - corner styles are same or similar.
+    Double,     // Different corner styles. Draw two instances, one per style.
+}
+
+#[repr(C)]
+pub enum BorderCornerSide {
+    Both,
+    First,
+    Second,
+}
+
 #[repr(C)]
 enum BorderCorner {
     TopLeft,
@@ -23,7 +37,7 @@ enum BorderCorner {
 pub enum BorderCornerKind {
     None,
     Solid,
-    Clip,
+    Clip(BorderCornerInstance),
     Mask(BorderCornerClipData, LayerSize, LayerSize, BorderCornerClipKind),
     Unhandled,
 }
@@ -129,7 +143,7 @@ impl NormalBorderHelpers for NormalBorder {
                 if edge0.color == edge1.color && radius.width == 0.0 && radius.height == 0.0 {
                     BorderCornerKind::Solid
                 } else {
-                    BorderCornerKind::Clip
+                    BorderCornerKind::Clip(BorderCornerInstance::Single)
                 }
             }
 
@@ -139,9 +153,11 @@ impl NormalBorderHelpers for NormalBorder {
             (BorderStyle::Inset, BorderStyle::Inset) |
             (BorderStyle::Double, BorderStyle::Double) |
             (BorderStyle::Groove, BorderStyle::Groove) |
-            (BorderStyle::Ridge, BorderStyle::Ridge) => BorderCornerKind::Clip,
+            (BorderStyle::Ridge, BorderStyle::Ridge) => {
+                BorderCornerKind::Clip(BorderCornerInstance::Single)
+            }
 
-            // Dashed border corners get drawn into a clip mask.
+            // Dashed and dotted border corners get drawn into a clip mask.
             (BorderStyle::Dashed, BorderStyle::Dashed) => {
                 BorderCornerKind::new_mask(BorderCornerClipKind::Dash,
                                            width0,
@@ -150,7 +166,6 @@ impl NormalBorderHelpers for NormalBorder {
                                            *radius,
                                            *border_rect)
             }
-
             (BorderStyle::Dotted, BorderStyle::Dotted) => {
                 BorderCornerKind::new_mask(BorderCornerClipKind::Dot,
                                            width0,
@@ -160,16 +175,20 @@ impl NormalBorderHelpers for NormalBorder {
                                            *border_rect)
             }
 
-            // Assume complex for these cases.
-            // TODO(gw): There are some cases in here that can be handled with a fast path.
-            // For example, with inset/outset borders, two of the four corners are solid.
-            (BorderStyle::Dotted, _) | (_, BorderStyle::Dotted) => BorderCornerKind::Unhandled,
-            (BorderStyle::Dashed, _) | (_, BorderStyle::Dashed) => BorderCornerKind::Unhandled,
-            (BorderStyle::Double, _) | (_, BorderStyle::Double) => BorderCornerKind::Unhandled,
-            (BorderStyle::Groove, _) | (_, BorderStyle::Groove) => BorderCornerKind::Unhandled,
-            (BorderStyle::Ridge, _) | (_, BorderStyle::Ridge) => BorderCornerKind::Unhandled,
-            (BorderStyle::Outset, _) | (_, BorderStyle::Outset) => BorderCornerKind::Unhandled,
-            (BorderStyle::Inset, _) | (_, BorderStyle::Inset) => BorderCornerKind::Unhandled,
+            // TODO(gw): Handle border corners with both dots and dashes.
+            //           Once these are handled, the old border path can
+            //           be removed.
+            (BorderStyle::Dotted, _) |
+            (_, BorderStyle::Dotted) |
+            (BorderStyle::Dashed, _) |
+            (_, BorderStyle::Dashed) => BorderCornerKind::Unhandled,
+
+            // Everything else can be handled by drawing the corner twice,
+            // where the shader outputs zero alpha for the side it's not
+            // drawing. This is somewhat inefficient in terms of pixels
+            // written, but it's a fairly rare case, and we can optimize
+            // this case later.
+            _ => BorderCornerKind::Clip(BorderCornerInstance::Double),
         }
     }
 
@@ -205,6 +224,7 @@ impl FrameBuilder {
                                    clip_and_scroll: ClipAndScrollInfo,
                                    clip_region: &ClipRegion,
                                    use_new_border_path: bool,
+                                   corner_instances: [BorderCornerInstance; 4],
                                    extra_clips: &[ClipSource]) {
         let radius = &border.radius;
         let left = &border.left;
@@ -220,6 +240,7 @@ impl FrameBuilder {
 
         let prim_cpu = BorderPrimitiveCpu {
             use_new_border_path: use_new_border_path,
+            corner_instances: corner_instances,
         };
 
         let prim_gpu = BorderPrimitiveGpu {
@@ -313,6 +334,7 @@ impl FrameBuilder {
                                              clip_and_scroll,
                                              clip_region,
                                              false,
+                                             [BorderCornerInstance::Single; 4],
                                              &[]);
             return;
         }
@@ -382,14 +404,21 @@ impl FrameBuilder {
         } else {
             // Create clip masks for border corners, if required.
             let mut extra_clips = Vec::new();
+            let mut corner_instances = [BorderCornerInstance::Single; 4];
 
-            for corner in corners.iter() {
-                if let &BorderCornerKind::Mask(corner_data, corner_radius, widths, kind) = corner {
-                    let clip_source = BorderCornerClipSource::new(corner_data,
-                                                                  corner_radius,
-                                                                  widths,
-                                                                  kind);
-                    extra_clips.push(ClipSource::BorderCorner(clip_source));
+            for (i, corner) in corners.iter().enumerate() {
+                match corner {
+                    &BorderCornerKind::Mask(corner_data, corner_radius, widths, kind) => {
+                        let clip_source = BorderCornerClipSource::new(corner_data,
+                                                                      corner_radius,
+                                                                      widths,
+                                                                      kind);
+                        extra_clips.push(ClipSource::BorderCorner(clip_source));
+                    }
+                    &BorderCornerKind::Clip(instance_kind) => {
+                        corner_instances[i] = instance_kind;
+                    }
+                    _ => {}
                 }
             }
 
@@ -399,6 +428,7 @@ impl FrameBuilder {
                                              clip_and_scroll,
                                              clip_region,
                                              true,
+                                             corner_instances,
                                              &extra_clips);
         }
     }
