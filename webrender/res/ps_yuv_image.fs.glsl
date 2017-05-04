@@ -54,6 +54,7 @@ void main(void) {
     vec2 st_y = vTextureOffsetY + clamp(
         relative_pos_in_rect / vStretchSize * vTextureSizeY,
         vHalfTexelY, vTextureSizeY - vHalfTexelY);
+#ifndef WR_FEATURE_INTERLEAVED_Y_CB_CR
     vec2 uv_offset = clamp(
         relative_pos_in_rect / vStretchSize * vTextureSizeUv,
         vHalfTexelUv, vTextureSizeUv - vHalfTexelUv);
@@ -61,9 +62,12 @@ void main(void) {
     // The texture coordinates of u and v are the same. So, we could skip the
     // st_v if the format is NV12.
     vec2 st_u = vTextureOffsetU + uv_offset;
+#endif
 
     vec3 yuv_value;
-#ifdef WR_FEATURE_NV12
+#ifdef WR_FEATURE_INTERLEAVED_Y_CB_CR
+    yuv_value = TEX_SAMPLE(sColor0, st_y).rgb;
+#elif defined(WR_FEATURE_NV12)
     yuv_value.x = TEX_SAMPLE(sColor0, st_y).r;
     yuv_value.yz = TEX_SAMPLE(sColor1, st_u).rg;
 #else

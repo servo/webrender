@@ -371,8 +371,9 @@ impl YuvColorSpace {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum YuvData {
-    NV12(ImageKey, ImageKey),
-    PlanarYCbCr(ImageKey, ImageKey, ImageKey),
+    NV12(ImageKey, ImageKey),   // (Y channel, CbCr interleaved channel)
+    PlanarYCbCr(ImageKey, ImageKey, ImageKey),  // (Y channel, Cb channel, Cr Channel)
+    InterleavedYCbCr(ImageKey), // (YCbCr interleaved channel)
 }
 
 impl YuvData {
@@ -380,6 +381,7 @@ impl YuvData {
         match *self {
             YuvData::NV12(..) => YuvFormat::NV12,
             YuvData::PlanarYCbCr(..) => YuvFormat::PlanarYCbCr,
+            YuvData::InterleavedYCbCr(..) => YuvFormat::InterleavedYCbCr,
         }
     }
 }
@@ -388,14 +390,16 @@ impl YuvData {
 pub enum YuvFormat {
     NV12 = 0,
     PlanarYCbCr = 1,
+    InterleavedYCbCr = 2,
 }
-pub const YUV_FORMATS: [YuvFormat; 2] = [YuvFormat::NV12, YuvFormat::PlanarYCbCr];
+pub const YUV_FORMATS: [YuvFormat; 3] = [YuvFormat::NV12, YuvFormat::PlanarYCbCr, YuvFormat::InterleavedYCbCr];
 
 impl YuvFormat {
     pub fn get_plane_num(&self) -> usize {
         match *self {
             YuvFormat::NV12 => 2,
             YuvFormat::PlanarYCbCr => 3,
+            YuvFormat::InterleavedYCbCr => 1,
         }
     }
 
@@ -403,6 +407,7 @@ impl YuvFormat {
         match *self {
             YuvFormat::NV12 => "NV12",
             YuvFormat::PlanarYCbCr => "",
+            YuvFormat::InterleavedYCbCr => "INTERLEAVED_Y_CB_CR"
         }
     }
 }
