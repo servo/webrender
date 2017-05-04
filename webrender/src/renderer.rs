@@ -41,7 +41,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::TextureCache;
-use threadpool::ThreadPool;
+use rayon;
 use tiling::{AlphaBatchKind, BlurCommand, Frame, PrimitiveBatch, RenderTarget};
 use tiling::{AlphaRenderTarget, CacheClipInstance, PrimitiveInstance, ColorRenderTarget, RenderTargetKind};
 use time::precise_time_ns;
@@ -1046,9 +1046,11 @@ impl Renderer {
         let render_target_debug = options.render_target_debug;
         let payload_tx_for_backend = payload_tx.clone();
         let recorder = options.recorder;
+        // TODO(gw): Use a heuristic to select best # of worker threads.
+        let worker_config = rayon::Configuration::new().thread_name(|idx|{ format!("WebRender:Worker#{}", idx) })
+                                                       .num_threads(4);
         let workers = options.workers.take().unwrap_or_else(||{
-            // TODO(gw): Use a heuristic to select best # of worker threads.
-            Arc::new(Mutex::new(ThreadPool::new_with_name("WebRender:Worker".to_string(), 4)))
+            Arc::new(Mutex::new(rayon::ThreadPool::new(worker_config).unwrap()))
         });
 
         let blob_image_renderer = options.blob_image_renderer.take();
@@ -2215,7 +2217,7 @@ pub struct RendererOptions {
     pub enable_batcher: bool,
     pub render_target_debug: bool,
     pub max_texture_size: Option<u32>,
-    pub workers: Option<Arc<Mutex<ThreadPool>>>,
+    pub workers: Option<Arc<Mutex<rayon::ThreadPool>>>,
     pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
 }

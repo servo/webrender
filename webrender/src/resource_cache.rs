@@ -27,7 +27,7 @@ use webrender_traits::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescript
 use webrender_traits::{GlyphOptions, GlyphInstance, TileOffset, TileSize};
 use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest, BlobImageData, ImageStore};
 use webrender_traits::{ExternalImageData, ExternalImageType, LayoutPoint};
-use threadpool::ThreadPool;
+use rayon::ThreadPool;
 
 const DEFAULT_TILE_SIZE: TileSize = 512;
 
@@ -889,7 +889,7 @@ impl Resource for CachedImageInfo {
 
 fn spawn_glyph_cache_thread(workers: Arc<Mutex<ThreadPool>>) -> (Sender<GlyphCacheMsg>, Receiver<GlyphCacheResultMsg>) {
     let worker_count = {
-        workers.lock().unwrap().max_count()
+        workers.lock().unwrap().current_num_threads()
     };
     // Used for messages from resource cache -> glyph cache thread.
     let (msg_tx, msg_rx) = channel();
@@ -907,7 +907,7 @@ fn spawn_glyph_cache_thread(workers: Arc<Mutex<ThreadPool>>) -> (Sender<GlyphCac
         let barrier = Arc::new(Barrier::new(worker_count));
         for i in 0..worker_count {
             let barrier = Arc::clone(&barrier);
-            workers.lock().unwrap().execute(move || {
+            workers.lock().unwrap().spawn_async(move || {
                 register_thread_with_profiler(format!("Glyph Worker {}", i));
                 barrier.wait();
             });
@@ -944,7 +944,7 @@ fn spawn_glyph_cache_thread(workers: Arc<Mutex<ThreadPool>>) -> (Sender<GlyphCac
                     for _ in 0..worker_count {
                         let barrier = Arc::clone(&barrier);
                         let font_template = font_template.clone();
-                        workers.lock().unwrap().execute(move || {
+                        workers.lock().unwrap().spawn_async(move || {
                             FONT_CONTEXT.with(|font_context| {
                                 let mut font_context = font_context.borrow_mut();
                                 match font_template {
@@ -969,7 +969,7 @@ fn spawn_glyph_cache_thread(workers: Arc<Mutex<ThreadPool>>) -> (Sender<GlyphCac
                     let barrier = Arc::new(Barrier::new(worker_count));
                     for _ in 0..worker_count {
                         let barrier = Arc::clone(&barrier);
-                        workers.lock().unwrap().execute(move || {
+                        workers.lock().unwrap().spawn_async(move || {
                             FONT_CONTEXT.with(|font_context| {
                                 let mut font_context = font_context.borrow_mut();
                                 font_context.delete_font(&font_key);
@@ -1002,7 +1002,7 @@ fn spawn_glyph_cache_thread(workers: Arc<Mutex<ThreadPool>>) -> (Sender<GlyphCac
                            !pending_glyphs.contains(&glyph_key) {
                             let glyph_tx = glyph_tx.clone();
                             pending_glyphs.insert(glyph_key.clone());
-                            workers.lock().unwrap().execute(move || {
+                            workers.lock().unwrap().spawn_async(move || {
                                 profile_scope!("glyph");
                                 FONT_CONTEXT.with(move |font_context| {
                                     let mut font_context = font_context.borrow_mut();
