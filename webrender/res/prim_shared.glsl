@@ -262,6 +262,23 @@ AlphaBatchTask fetch_alpha_batch_task(int index) {
     return task;
 }
 
+struct ReadbackTask {
+    vec2 render_target_origin;
+    vec2 size;
+    float render_target_layer_index;
+};
+
+ReadbackTask fetch_readback_task(int index) {
+    RenderTaskData data = fetch_render_task(index);
+
+    ReadbackTask task;
+    task.render_target_origin = data.data0.xy;
+    task.size = data.data0.zw;
+    task.render_target_layer_index = data.data1.x;
+
+    return task;
+}
+
 struct ClipArea {
     vec4 task_bounds;
     vec4 screen_origin_target_index;

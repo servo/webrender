@@ -3,12 +3,16 @@
 == difference.yaml difference-ref.yaml
 == darken.yaml darken-ref.yaml
 == lighten.yaml lighten-ref.yaml
+
 == repeated-difference.yaml repeated-difference-ref.yaml
 == canvas.yaml canvas-ref.yaml
+
 == isolated.yaml isolated-ref.yaml
 == isolated-2.yaml isolated-2-ref.yaml
 == isolated-with-filter.yaml isolated-ref.yaml
 == isolated-premultiplied.yaml blank.yaml
+
+== large.yaml large-ref.yaml
 
 # fuzzy because dithering is different for gradients
 # drawn in different render targets
