@@ -132,7 +132,7 @@ extern crate webrender_traits;
 #[cfg(feature = "webgl")]
 extern crate offscreen_gl_context;
 extern crate byteorder;
-extern crate threadpool;
+extern crate rayon;
 extern crate plane_split;
 
 #[cfg(any(target_os="macos", target_os="windows"))]

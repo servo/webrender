@@ -15,7 +15,7 @@ use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
 use time::precise_time_ns;
 use thread_profiler::register_thread_with_profiler;
-use threadpool::ThreadPool;
+use rayon::ThreadPool;
 use webgl_types::{GLContextHandleWrapper, GLContextWrapper};
 use webrender_traits::{DeviceIntPoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize, LayerPoint};
 use webrender_traits::{ApiMsg, BuiltDisplayList, IdNamespace, ImageData};
@@ -70,7 +70,7 @@ impl RenderBackend {
                result_tx: Sender<ResultMsg>,
                hidpi_factor: f32,
                texture_cache: TextureCache,
-               workers: Arc<Mutex<ThreadPool>>,
+               workers: Arc<ThreadPool>,
                notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
                webrender_context_handle: Option<GLContextHandleWrapper>,
                config: FrameBuilderConfig,
