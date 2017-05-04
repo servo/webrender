@@ -77,7 +77,6 @@ const GPU_TAG_PRIM_GRADIENT: GpuProfileTag = GpuProfileTag { label: "Gradient", 
 const GPU_TAG_PRIM_ANGLE_GRADIENT: GpuProfileTag = GpuProfileTag { label: "AngleGradient", color: debug_colors::POWDERBLUE };
 const GPU_TAG_PRIM_RADIAL_GRADIENT: GpuProfileTag = GpuProfileTag { label: "RadialGradient", color: debug_colors::LIGHTPINK };
 const GPU_TAG_PRIM_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "BoxShadow", color: debug_colors::CYAN };
-const GPU_TAG_PRIM_BORDER: GpuProfileTag = GpuProfileTag { label: "Border", color: debug_colors::ORANGE };
 const GPU_TAG_PRIM_BORDER_CORNER: GpuProfileTag = GpuProfileTag { label: "BorderCorner", color: debug_colors::DARKSLATEGREY };
 const GPU_TAG_PRIM_BORDER_EDGE: GpuProfileTag = GpuProfileTag { label: "BorderEdge", color: debug_colors::LAVENDER };
 const GPU_TAG_PRIM_CACHE_IMAGE: GpuProfileTag = GpuProfileTag { label: "CacheImage", color: debug_colors::SILVER };
@@ -537,7 +536,6 @@ pub struct Renderer {
     ps_text_run_subpixel: PrimitiveShader,
     ps_image: Vec<Option<PrimitiveShader>>,
     ps_yuv_image: Vec<Option<PrimitiveShader>>,
-    ps_border: PrimitiveShader,
     ps_border_corner: PrimitiveShader,
     ps_border_edge: PrimitiveShader,
     ps_gradient: PrimitiveShader,
@@ -814,13 +812,6 @@ impl Renderer {
             }
         }
 
-        let ps_border = try!{
-            PrimitiveShader::new("ps_border",
-                                 &mut device,
-                                 &[],
-                                 options.precache_shaders)
-        };
-
         let ps_border_corner = try!{
             PrimitiveShader::new("ps_border_corner",
                                  &mut device,
@@ -1092,7 +1083,6 @@ impl Renderer {
             ps_text_run_subpixel: ps_text_run_subpixel,
             ps_image: ps_image,
             ps_yuv_image: ps_yuv_image,
-            ps_border: ps_border,
             ps_border_corner: ps_border_corner,
             ps_border_edge: ps_border_edge,
             ps_box_shadow: ps_box_shadow,
@@ -1554,10 +1544,6 @@ impl Renderer {
                                                                   color_space);
                 let shader = self.ps_yuv_image[shader_index].as_mut().unwrap().get(&mut self.device, transform_kind);
                 (GPU_TAG_PRIM_YUV_IMAGE, shader)
-            }
-            AlphaBatchKind::Border => {
-                let shader = self.ps_border.get(&mut self.device, transform_kind);
-                (GPU_TAG_PRIM_BORDER, shader)
             }
             AlphaBatchKind::BorderCorner => {
                 let shader = self.ps_border_corner.get(&mut self.device, transform_kind);
