@@ -148,7 +148,7 @@ impl ReftestManifest {
                     // TODO: This is simple but not great because it does not support having spaces
                     // in the fuzzy syntax, like between the arguments.
                     let (max, count, offset) =  if item_str.starts_with("fuzzy(") {
-                        let (_, args) = parse_function(item_str);
+                        let (_, args, _) = parse_function(item_str);
                         (args[0].parse().unwrap(),  args[1].parse().unwrap(), 1)
                     } else {
                         (0, 0, 0)
