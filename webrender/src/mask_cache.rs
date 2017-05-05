@@ -193,7 +193,7 @@ impl MaskCacheInfo {
                   clip_store: &mut VertexDataStore<GpuBlock32>,
                   device_pixel_ratio: f32,
                   display_list: &BuiltDisplayList) {
-        let is_aligned = transform.can_losslessly_transform_and_perspective_project_a_2d_rect();
+        let is_aligned = transform.preserves_2d_axis_alignment();
 
         // If we haven't cached this info, or if the transform type has changed
         // we need to re-calculate the number of clips.
