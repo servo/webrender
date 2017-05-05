@@ -52,7 +52,7 @@ use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatch
 use webrender_traits::{ExternalImageId, ExternalImageType, ImageData, ImageFormat, RenderApiSender};
 use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use webrender_traits::{ImageDescriptor, BlobImageRenderer};
-use webrender_traits::channel;
+use webrender_traits::{channel, FontRenderMode};
 use webrender_traits::VRCompositorHandler;
 use webrender_traits::{YuvColorSpace, YuvFormat};
 use webrender_traits::{YUV_COLOR_SPACES, YUV_FORMATS};
@@ -1029,11 +1029,17 @@ impl Renderer {
             RendererKind::OSMesa => GLContextHandleWrapper::current_osmesa_handle(),
         };
 
+        let default_font_render_mode = match (options.enable_aa, options.enable_subpixel_aa) {
+            (true, true) => FontRenderMode::Subpixel,
+            (true, false) => FontRenderMode::Alpha,
+            (false, _) => FontRenderMode::Mono,
+        };
+
         let config = FrameBuilderConfig::new(options.enable_scrollbars,
-                                             options.enable_subpixel_aa,
+                                             default_font_render_mode,
                                              options.debug);
 
-        let (device_pixel_ratio, enable_aa) = (options.device_pixel_ratio, options.enable_aa);
+        let device_pixel_ratio = options.device_pixel_ratio;
         let render_target_debug = options.render_target_debug;
         let payload_tx_for_backend = payload_tx.clone();
         let recorder = options.recorder;
@@ -1050,7 +1056,6 @@ impl Renderer {
                                                  result_tx,
                                                  device_pixel_ratio,
                                                  texture_cache,
-                                                 enable_aa,
                                                  workers,
                                                  backend_notifier,
                                                  context_handle,

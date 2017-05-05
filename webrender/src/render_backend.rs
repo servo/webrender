@@ -70,7 +70,6 @@ impl RenderBackend {
                result_tx: Sender<ResultMsg>,
                hidpi_factor: f32,
                texture_cache: TextureCache,
-               enable_aa: bool,
                workers: Arc<Mutex<ThreadPool>>,
                notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
                webrender_context_handle: Option<GLContextHandleWrapper>,
@@ -81,7 +80,7 @@ impl RenderBackend {
                vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
                initial_window_size: DeviceUintSize) -> RenderBackend {
 
-        let resource_cache = ResourceCache::new(texture_cache, workers, blob_image_renderer, enable_aa);
+        let resource_cache = ResourceCache::new(texture_cache, workers, blob_image_renderer);
 
         register_thread_with_profiler("Backend".to_string());
 
