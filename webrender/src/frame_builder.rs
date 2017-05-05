@@ -96,18 +96,18 @@ fn make_polygon(sc: &StackingContext, node: &ClipScrollNode, anchor: usize)
 #[derive(Clone, Copy)]
 pub struct FrameBuilderConfig {
     pub enable_scrollbars: bool,
-    pub enable_subpixel_aa: bool,
+    pub default_font_render_mode: FontRenderMode,
     pub debug: bool,
 }
 
 impl FrameBuilderConfig {
     pub fn new(enable_scrollbars: bool,
-               enable_subpixel_aa: bool,
+               default_font_render_mode: FontRenderMode,
                debug: bool)
                -> FrameBuilderConfig {
         FrameBuilderConfig {
             enable_scrollbars: enable_scrollbars,
-            enable_subpixel_aa: enable_subpixel_aa,
+            default_font_render_mode: default_font_render_mode,
             debug: debug,
         }
     }
@@ -741,12 +741,14 @@ impl FrameBuilder {
         // TODO(gw): Use a proper algorithm to select
         // whether this item should be rendered with
         // subpixel AA!
-        let render_mode = if blur_radius == Au(0) &&
-                             self.config.enable_subpixel_aa {
-            FontRenderMode::Subpixel
-        } else {
-            FontRenderMode::Alpha
-        };
+        let mut render_mode = self.config.default_font_render_mode;
+
+        // If we're using sub-pixel AA by default, but we are
+        // doing a text-blur, we need to force alpha AA for the blur
+        // to produce correct results.
+        if render_mode == FontRenderMode::Subpixel && blur_radius != Au(0) {
+            render_mode = FontRenderMode::Alpha;
+        }
 
         let prim_cpu = TextRunPrimitiveCpu {
             font_key: font_key,

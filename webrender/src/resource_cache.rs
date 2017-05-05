@@ -251,7 +251,6 @@ pub struct ResourceCache {
 
     font_templates: HashMap<FontKey, FontTemplate, BuildHasherDefault<FnvHasher>>,
     image_templates: ImageTemplates,
-    enable_aa: bool,
     state: State,
     current_frame_id: FrameId,
 
@@ -270,8 +269,7 @@ pub struct ResourceCache {
 impl ResourceCache {
     pub fn new(texture_cache: TextureCache,
                workers: Arc<Mutex<ThreadPool>>,
-               blob_image_renderer: Option<Box<BlobImageRenderer>>,
-               enable_aa: bool) -> ResourceCache {
+               blob_image_renderer: Option<Box<BlobImageRenderer>>) -> ResourceCache {
         let (glyph_cache_tx, glyph_cache_result_queue) = spawn_glyph_cache_thread(workers);
 
         ResourceCache {
@@ -283,7 +281,6 @@ impl ResourceCache {
             cached_glyph_dimensions: HashMap::default(),
             texture_cache: texture_cache,
             state: State::Idle,
-            enable_aa: enable_aa,
             current_frame_id: FrameId(0),
             pending_image_requests: Vec::new(),
             glyph_cache_tx: glyph_cache_tx,
@@ -492,7 +489,6 @@ impl ResourceCache {
                           render_mode: FontRenderMode,
                           glyph_options: Option<GlyphOptions>) {
         debug_assert!(self.state == State::AddResources);
-        let render_mode = self.get_glyph_render_mode(render_mode);
         // Immediately request that the glyph cache thread start
         // rasterizing glyphs from this request if they aren't
         // already cached.
@@ -519,7 +515,6 @@ impl ResourceCache {
                          mut f: F) -> SourceTexture where F: FnMut(usize, DevicePoint, DevicePoint) {
         debug_assert!(self.state == State::QueryResources);
         let cache = self.cached_glyphs.as_ref().unwrap();
-        let render_mode = self.get_glyph_render_mode(render_mode);
         let mut glyph_key = RenderedGlyphKey::new(font_key,
                                                   size,
                                                   color,
@@ -854,14 +849,6 @@ impl ResourceCache {
     pub fn end_frame(&mut self) {
         debug_assert!(self.state == State::QueryResources);
         self.state = State::Idle;
-    }
-
-    fn get_glyph_render_mode(&self, requested_mode: FontRenderMode) -> FontRenderMode {
-        if self.enable_aa {
-            requested_mode
-        } else {
-            FontRenderMode::Mono
-        }
     }
 }
 
