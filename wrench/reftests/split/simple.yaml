@@ -10,7 +10,6 @@ root:
       items:
         - type: stacking-context
           bounds: [0, 0, 600, 600]
-          transform-style: preserve-3d
           transform: rotate-y(60.0)
           items:
             - type: rect
@@ -18,7 +17,6 @@ root:
               color: [255, 0, 0, 0.5]
         - type: stacking-context
           bounds: [0, 0, 600, 600]
-          transform-style: preserve-3d
           transform: rotate-y(-60.0)
           items:
             - type: rect
