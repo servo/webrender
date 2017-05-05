@@ -287,8 +287,8 @@ known_heap_size!(0, ScrollPolicy);
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum TransformStyle {
-    Flat,
-    Preserve3D,
+    Flat        = 0,
+    Preserve3D  = 1,
 }
 
 #[repr(u32)]
@@ -628,3 +628,5 @@ macro_rules! define_empty_heap_size_of {
 define_empty_heap_size_of!(ClipId);
 define_empty_heap_size_of!(RepeatMode);
 define_empty_heap_size_of!(ImageKey);
+define_empty_heap_size_of!(MixBlendMode);
+define_empty_heap_size_of!(TransformStyle);

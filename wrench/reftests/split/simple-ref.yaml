@@ -6,7 +6,7 @@ root:
       items:
         - type: rect
           bounds: [150, 0, 150, 600]
-          color: [127, 191, 63]
+          color: [191, 127,  63]
         - type: rect
           bounds: [300, 0, 150, 600]
-          color: [191, 127, 63]
+          color: [127, 191, 63]
