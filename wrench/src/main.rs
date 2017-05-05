@@ -11,6 +11,8 @@ extern crate clap;
 extern crate crossbeam;
 #[cfg(target_os = "windows")]
 extern crate dwrote;
+#[cfg(feature = "logging")]
+extern crate env_logger;
 extern crate euclid;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 extern crate font_loader;
@@ -275,6 +277,9 @@ fn make_window(size: DeviceUintSize,
 }
 
 fn main() {
+    #[cfg(feature = "logging")]
+    env_logger::init().unwrap();
+
     let args_yaml = load_yaml!("args.yaml");
     let args = clap::App::from_yaml(args_yaml)
         .setting(clap::AppSettings::ArgRequiredElseHelp)

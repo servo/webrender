@@ -10,7 +10,7 @@ fn acceptable_arg_character(c: char) -> bool {
 }
 
 // A crapy parser for parsing strings like "translate(1, 3)"
-pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
+pub fn parse_function(s: &str) -> (&str, Vec<&str>, &str) {
     // XXX: This it not particular easy to read. Sorry.
     struct Parser<'a> {
         itr: CharIndices<'a>,
@@ -51,7 +51,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
 
     if let Some(k) = p.o {
         if k.1 != '(' {
-            return (name, args);
+            return (name, args, &s[p.start..]);
         }
         p.start = k.0 + k.1.len_utf8();
         p.o = p.itr.next();
@@ -74,16 +74,20 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>) {
         p.skip_whitespace();
 
         if let Some(k) = p.o {
-            // unless we find a comma we're done
-            if k.1 != ',' {
-                break;
-            }
             p.start = k.0 + k.1.len_utf8();
             p.o = p.itr.next();
+            // unless we find a comma we're done
+            if k.1 != ',' {
+                if k.1 != ')' {
+                    println!("Unexpected closing character: {}", k.1);
+                }
+                break;
+            }
+        } else {
+            break
         }
-
     }
-    (name, args)
+    (name, args, &s[p.start..])
 }
 
 #[test]

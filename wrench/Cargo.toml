@@ -9,6 +9,7 @@ license = "MPL-2.0"
 base64 = "0.3"
 bincode = "1.0.0-alpha2"
 byteorder = "1.0"
+env_logger = { version = "0.4", optional = true }
 euclid = "0.11"
 gleam = "0.4"
 servo-glutin = "0.10.1"
@@ -29,6 +30,7 @@ serde = "0.9"
 
 [features]
 headless = [ "osmesa-sys", "osmesa-src" ]
+logging = [ "env_logger" ]
 
 [target.'cfg(target_os = "windows")'.dependencies]
 dwrote = "0.3"
