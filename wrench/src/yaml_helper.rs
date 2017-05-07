@@ -254,25 +254,45 @@ impl YamlHelper for Yaml {
                                                    nums[12], nums[13], nums[14], nums[15]))
         }
         match *self {
-            Yaml::String(ref string) => match parse_function(string) {
-                ("translate", ref args) if args.len() == 2 => {
-                    Some(LayoutTransform::create_translation(args[0].parse().unwrap(),
-                                                             args[1].parse().unwrap(),
-                                                             0.))
+            Yaml::String(ref string) => {
+                let mut slice = string.as_str();
+                let mut transform = LayoutTransform::identity();
+                while !slice.is_empty() {
+                    let (function, ref args, reminder) = parse_function(slice);
+                    slice = reminder;
+                    let mx = match function {
+                        "translate" if args.len() >= 2 => {
+                            let z = args.get(2).and_then(|a| a.parse().ok()).unwrap_or(0.);
+                            LayoutTransform::create_translation(args[0].parse().unwrap(),
+                                                                args[1].parse().unwrap(),
+                                                                z)
+                        }
+                        "rotate" | "rotate-z" if args.len() == 1 => {
+                            make_rotation(transform_origin, args[0].parse().unwrap(), 0.0, 0.0, 1.0)
+                        }
+                        "rotate-x" if args.len() == 1 => {
+                            make_rotation(transform_origin, args[0].parse().unwrap(), 1.0, 0.0, 0.0)
+                        }
+                        "rotate-y" if args.len() == 1 => {
+                            make_rotation(transform_origin, args[0].parse().unwrap(), 0.0, 1.0, 0.0)
+                        }
+                        _ => {
+                            println!("unknown function {}", function);
+                            break
+                        }
+                    };
+                    transform = transform.post_mul(&mx);
                 }
-                ("rotate", ref args) | ("rotate-z", ref args) if args.len() == 1 => {
-                    Some(make_rotation(transform_origin, args[0].parse::<f32>().unwrap(), 0.0, 0.0, 1.0))
-                }
-                ("rotate-x", ref args) if args.len() == 1 => {
-                    Some(make_rotation(transform_origin, args[0].parse::<f32>().unwrap(), 1.0, 0.0, 0.0))
-                }
-                ("rotate-y", ref args) if args.len() == 1 => {
-                    Some(make_rotation(transform_origin, args[0].parse::<f32>().unwrap(), 0.0, 1.0, 0.0))
-                }
-                (name, _) => {
-                    println!("unknown function {}", name);
-                    None
-                }
+                Some(transform)
+            },
+            Yaml::Array(ref array) => {
+                let transform = array.iter().fold(LayoutTransform::identity(), |u, yaml| {
+                    match yaml.as_matrix4d(transform_origin) {
+                        Some(ref transform) => u.pre_mul(transform),
+                        None => u,
+                    }
+                });
+                Some(transform)
             },
             Yaml::BadValue => None,
             _ => {
@@ -404,35 +424,35 @@ impl YamlHelper for Yaml {
     fn as_filter_op(&self) -> Option<FilterOp> {
         if let Some(s) = self.as_str() {
             match parse_function(s) {
-                ("blur", ref args) if args.len() == 1 => {
+                ("blur", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Blur(Au(args[0].parse().unwrap())))
                 }
-                ("brightness", ref args) if args.len() == 1 => {
+                ("brightness", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Brightness(args[0].parse().unwrap()))
                 }
-                ("contrast", ref args) if args.len() == 1 => {
+                ("contrast", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Contrast(args[0].parse().unwrap()))
                 }
-                ("grayscale", ref args) if args.len() == 1 => {
+                ("grayscale", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Grayscale(args[0].parse().unwrap()))
                 }
-                ("hue-rotate", ref args) if args.len() == 1 => {
+                ("hue-rotate", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::HueRotate(args[0].parse().unwrap()))
                 }
-                ("invert", ref args) if args.len() == 1 => {
+                ("invert", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Invert(args[0].parse().unwrap()))
                 }
-                ("opacity", ref args) if args.len() == 1 => {
+                ("opacity", ref args, _) if args.len() == 1 => {
                     let amount: f32 = args[0].parse().unwrap();
                     Some(FilterOp::Opacity(amount.into()))
                 }
-                ("saturate", ref args) if args.len() == 1 => {
+                ("saturate", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Saturate(args[0].parse().unwrap()))
                 }
-                ("sepia", ref args) if args.len() == 1 => {
+                ("sepia", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Sepia(args[0].parse().unwrap()))
                 }
-                (_, _) => { None }
+                (_, _, _) => { None }
             }
         } else {
             None
