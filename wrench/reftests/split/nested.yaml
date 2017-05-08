@@ -1,5 +1,8 @@
 # This tests have a non-preserve3d stacking context nested within
-# preserve-3d sub-tree.
+# preserve-3d sub-tree. This nested context is still getting baked in
+# and participates (as a whole) in plane splitting.
+# It is layed out in the same plane as the parent, so should be ordered
+# last, given that it's coming later than the parent.
 ---
 root:
   items:
@@ -13,11 +16,10 @@ root:
           items:
             - type: rect
               bounds: [0, 0, 600, 600]
-              color: [255, 0, 0, 0.5]
+              color: red
             - type: stacking-context
               bounds: [0, 0, 100, 100]
-              filters: opacity(0.5)
               items:
                 - type: rect
                   bounds: [0, 0, 600, 200]
-                  color: [0, 255, 0]
+                  color: green

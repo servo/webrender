@@ -1,3 +1,4 @@
 == simple.yaml simple-ref.yaml
 == order.yaml order-ref.yaml
-#TODO: == nested.yaml nested-ref.yaml
+== nested.yaml nested-ref.yaml
+#== cross.yaml cross-ref.yaml #TODO: investigate sub-pixel differences
