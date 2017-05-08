@@ -931,10 +931,10 @@ impl RenderTarget for ColorRenderTarget {
                 render_tasks: &RenderTaskCollection,
                 pass_index: RenderPassIndex) {
         match task.kind {
-            RenderTaskKind::Alpha(info) => {
+            RenderTaskKind::Alpha(mut info) => {
                 self.alpha_batcher.add_task(AlphaBatchTask {
                     task_id: task.id,
-                    items: info.items,
+                    items: mem::replace(&mut info.items, Vec::new()),
                 });
             }
             RenderTaskKind::VerticalBlur(_, prim_index) => {
@@ -1554,4 +1554,3 @@ pub struct Frame {
     // patch the data structures.
     pub deferred_resolves: Vec<DeferredResolve>,
 }
-

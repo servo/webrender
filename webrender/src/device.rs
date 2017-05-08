@@ -45,6 +45,7 @@ static SHADER_PREAMBLE: &'static str = "shared";
 #[repr(u32)]
 pub enum DepthFunction {
     Less = gl::LESS,
+    LessEqual = gl::LEQUAL,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]

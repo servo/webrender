@@ -1746,7 +1746,8 @@ impl Renderer {
         self.device.set_blend(false);
         let mut prev_blend_mode = BlendMode::None;
 
-        self.device.set_depth_func(DepthFunction::Less);
+        //Note: depth equality is needed for split planes
+        self.device.set_depth_func(DepthFunction::LessEqual);
         self.device.enable_depth();
         self.device.enable_depth_write();
 

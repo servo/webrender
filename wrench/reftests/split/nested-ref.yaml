@@ -5,9 +5,8 @@ root:
       bounds: [0, 0, 1024, 1024]
       items:
         - type: rect
-          bounds: [150, 0, 300, 200]
-          color: [128, 192, 64]
+          bounds: [150, 0, 300, 600]
+          color: red
         - type: rect
-          bounds: [150, 200, 300, 400]
-          color: [255, 127, 127]
-
+          bounds: [150, 0, 50, 100]
+          color: green
