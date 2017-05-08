@@ -245,6 +245,7 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                                     ref epoch,
                                     ref pipeline_id,
                                     ref viewport_size,
+                                    ref _content_size,
                                     ref display_list,
                                     _preserve_frame_state) => {
                 self.begin_write_display_list(background_color,

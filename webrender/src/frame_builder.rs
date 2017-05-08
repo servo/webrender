@@ -133,6 +133,10 @@ pub struct FrameBuilder {
     /// A stack of stacking contexts used for creating ClipScrollGroups as
     /// primitives are added to the frame.
     stacking_context_stack: Vec<StackingContextIndex>,
+
+    /// Whether or not we've pushed a root stacking context for the current pipeline.
+    has_root_stacking_context: bool,
+
 }
 
 impl FrameBuilder {
@@ -154,6 +158,7 @@ impl FrameBuilder {
                     screen_size: screen_size,
                     background_color: background_color,
                     config: config,
+                    has_root_stacking_context: false,
                 }
             }
             None => {
@@ -169,6 +174,7 @@ impl FrameBuilder {
                     screen_size: screen_size,
                     background_color: background_color,
                     config: config,
+                    has_root_stacking_context: false,
                 }
             }
         }
@@ -250,10 +256,13 @@ impl FrameBuilder {
         ClipScrollGroupIndex(self.clip_scroll_group_store.len() - 1, info)
     }
 
+    pub fn started_new_pipeline(&mut self) {
+        self.has_root_stacking_context = false;
+    }
+
     pub fn push_stacking_context(&mut self,
                                  reference_frame_offset: &LayerPoint,
                                  pipeline_id: PipelineId,
-                                 is_page_root: bool,
                                  composite_ops: CompositeOps,
                                  local_bounds: LayerRect,
                                  transform_style: TransformStyle) {
@@ -276,11 +285,12 @@ impl FrameBuilder {
         let reference_frame_id = self.current_reference_frame_id();
         self.stacking_context_store.push(StackingContext::new(pipeline_id,
                                                               *reference_frame_offset,
-                                                              is_page_root,
+                                                              !self.has_root_stacking_context,
                                                               reference_frame_id,
                                                               local_bounds,
                                                               transform_style,
                                                               composite_ops));
+        self.has_root_stacking_context = true;
         self.cmds.push(PrimitiveRunCmd::PushStackingContext(stacking_context_index));
         self.stacking_context_stack.push(stacking_context_index);
     }
