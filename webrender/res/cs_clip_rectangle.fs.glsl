@@ -2,35 +2,51 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+void clip_against_ellipse_if_needed(vec2 pos,
+                                    inout float current_distance,
+                                    vec4 ellipse_center_radius,
+                                    vec2 sign_modifier,
+                                    float afwidth) {
+    float ellipse_distance = distance_to_ellipse(pos - ellipse_center_radius.xy,
+                                                 ellipse_center_radius.zw);
+
+    current_distance = mix(current_distance,
+                           ellipse_distance + afwidth,
+                           all(lessThan(sign_modifier * pos, sign_modifier * ellipse_center_radius.xy)));
+}
+
 float rounded_rect(vec2 pos) {
-    vec2 ref_tl = vClipRect.xy + vec2( vClipRadius.x,  vClipRadius.x);
-    vec2 ref_tr = vClipRect.zy + vec2(-vClipRadius.y,  vClipRadius.y);
-    vec2 ref_br = vClipRect.zw + vec2(-vClipRadius.z, -vClipRadius.z);
-    vec2 ref_bl = vClipRect.xw + vec2( vClipRadius.w, -vClipRadius.w);
+    float current_distance = 0.0;
 
-    float d_tl = distance(pos, ref_tl);
-    float d_tr = distance(pos, ref_tr);
-    float d_br = distance(pos, ref_br);
-    float d_bl = distance(pos, ref_bl);
+    // Apply AA
+    float afwidth = 0.5 * length(fwidth(pos));
 
-    float pixels_per_fragment = length(fwidth(pos.xy));
-    float nudge = 0.5 * pixels_per_fragment;
-    vec4 distances = vec4(d_tl, d_tr, d_br, d_bl) - vClipRadius + nudge;
+    // Clip against each ellipse.
+    clip_against_ellipse_if_needed(pos,
+                                   current_distance,
+                                   vClipCenter_Radius[0],
+                                   vec2(1.0),
+                                   afwidth);
 
-    bvec4 is_out = bvec4(pos.x < ref_tl.x && pos.y < ref_tl.y,
-                         pos.x > ref_tr.x && pos.y < ref_tr.y,
-                         pos.x > ref_br.x && pos.y > ref_br.y,
-                         pos.x < ref_bl.x && pos.y > ref_bl.y);
+    clip_against_ellipse_if_needed(pos,
+                                   current_distance,
+                                   vClipCenter_Radius[1],
+                                   vec2(-1.0, 1.0),
+                                   afwidth);
 
-    float distance_from_border = dot(vec4(is_out),
-                                     max(vec4(0.0, 0.0, 0.0, 0.0), distances));
+    clip_against_ellipse_if_needed(pos,
+                                   current_distance,
+                                   vClipCenter_Radius[2],
+                                   vec2(-1.0),
+                                   afwidth);
 
-    // Move the distance back into pixels.
-    distance_from_border /= pixels_per_fragment;
-    // Apply a more gradual fade out to transparent.
-    //distance_from_border -= 0.5;
+    clip_against_ellipse_if_needed(pos,
+                                   current_distance,
+                                   vClipCenter_Radius[3],
+                                   vec2(1.0, -1.0),
+                                   afwidth);
 
-    return 1.0 - smoothstep(0.0, 1.0, distance_from_border);
+    return smoothstep(0.0, afwidth, 1.0 - current_distance);
 }
 
 
