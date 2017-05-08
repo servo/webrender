@@ -99,8 +99,10 @@ impl YamlFrameReader {
                 self.reset();
 
                 let pipeline_id = pipeline["id"].as_pipeline_id().unwrap();
-                self.builder = Some(DisplayListBuilder::new(pipeline_id));
+                let content_size = self.get_root_size_from_yaml(wrench, pipeline);
+                self.builder = Some(DisplayListBuilder::new(pipeline_id, content_size));
                 self.add_stacking_context_from_yaml(wrench, pipeline, true);
+
                 wrench.send_lists(self.frame_count,
                                   self.builder.as_ref().unwrap().clone(),
                                   &self.scroll_offsets);
@@ -109,9 +111,11 @@ impl YamlFrameReader {
         }
 
         self.reset();
-        self.builder = Some(DisplayListBuilder::new(wrench.root_pipeline_id));
+
 
         assert!(!yaml["root"].is_badvalue(), "Missing root stacking context");
+        let content_size = self.get_root_size_from_yaml(wrench, &yaml["root"]);
+        self.builder = Some(DisplayListBuilder::new(wrench.root_pipeline_id, content_size));
         self.add_stacking_context_from_yaml(wrench, &yaml["root"], true);
     }
 
@@ -624,6 +628,10 @@ impl YamlFrameReader {
         }
 
         id
+    }
+
+    pub fn get_root_size_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) -> LayoutSize {
+        yaml["bounds"].as_rect().map(|rect| rect.size).unwrap_or(wrench.window_size_f32())
     }
 
     pub fn add_stacking_context_from_yaml(&mut self,

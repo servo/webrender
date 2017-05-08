@@ -8,10 +8,10 @@ use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::cell::Cell;
 use std::fmt;
 use std::marker::PhantomData;
-use {BuiltDisplayList, BuiltDisplayListDescriptor};
-use {ClipId, ColorF, DeviceIntPoint, DeviceIntSize, DeviceUintRect, DeviceUintSize, FontKey};
-use {GlyphDimensions, GlyphKey, ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutSize};
-use {LayoutTransform, NativeFontHandle, WorldPoint};
+use {BuiltDisplayListDescriptor, ClipId, ColorF, DeviceIntPoint, DeviceIntSize};
+use {DeviceUintRect, DeviceUintSize, DisplayListBuilder, FontKey, GlyphDimensions, GlyphKey};
+use {ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutSize, LayoutTransform};
+use {NativeFontHandle, WorldPoint};
 #[cfg(feature = "webgl")]
 use {WebGLCommand, WebGLContextId};
 
@@ -34,10 +34,12 @@ pub enum ApiMsg {
     /// Supplies a new frame to WebRender.
     ///
     /// After receiving this message, WebRender will read the display list from the payload channel.
+    // TODO: We should consider using named members to avoid confusion.
     SetDisplayList(Option<ColorF>,
                    Epoch,
                    PipelineId,
-                   LayoutSize,
+                   LayoutSize, // viewport_size
+                   LayoutSize, // content size
                    BuiltDisplayListDescriptor,
                    bool),
     SetPageZoom(ZoomFactor),
@@ -301,21 +303,23 @@ impl RenderApi {
                             background_color: Option<ColorF>,
                             epoch: Epoch,
                             viewport_size: LayoutSize,
-                            (pipeline_id, display_list): (PipelineId, BuiltDisplayList),
+                            display_list_builder: DisplayListBuilder,
                             preserve_frame_state: bool) {
-        let (dl_data, dl_desc) = display_list.into_data();
+        let (pipeline_id, content_size, display_list) = display_list_builder.finalize();
+        let (display_list_data, display_list_descriptor) = display_list.into_data();
         let msg = ApiMsg::SetDisplayList(background_color,
-                                             epoch,
-                                             pipeline_id,
-                                             viewport_size,
-                                             dl_desc,
-                                             preserve_frame_state);
+                                         epoch,
+                                         pipeline_id,
+                                         viewport_size,
+                                         content_size,
+                                         display_list_descriptor,
+                                         preserve_frame_state);
         self.api_sender.send(msg).unwrap();
 
         self.payload_sender.send_payload(Payload {
             epoch: epoch,
             pipeline_id: pipeline_id,
-            display_list_data: dl_data,
+            display_list_data: display_list_data,
         }).unwrap();
     }
 

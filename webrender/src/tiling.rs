@@ -1527,6 +1527,15 @@ impl CompositeOps {
     }
 }
 
+impl Default for CompositeOps {
+    fn default() -> CompositeOps {
+        CompositeOps {
+            filters: Vec::new(),
+            mix_blend_mode: None,
+        }
+    }
+}
+
 /// A rendering-oriented representation of frame::Frame built by the render backend
 /// and presented to the renderer.
 pub struct Frame {
