@@ -449,10 +449,10 @@ impl Program {
         self.gl.link_program(self.id);
         if self.gl.get_program_iv(self.id, gl::LINK_STATUS) == (0 as gl::GLint) {
             let error_log = self.gl.get_program_info_log(self.id);
-            println!("Failed to link shader program: {}", error_log);
+            println!("Failed to link shader program: {:?}\n{}", self.name, error_log);
             self.gl.detach_shader(self.id, vs_id);
             self.gl.detach_shader(self.id, fs_id);
-            return Err(ShaderError::Link(error_log));
+            return Err(ShaderError::Link(self.name.clone(), error_log));
         }
 
         Ok(())
@@ -860,7 +860,7 @@ pub struct Capabilities {
 #[derive(Clone, Debug)]
 pub enum ShaderError {
     Compilation(String, String), // name, error mssage
-    Link(String), // error message
+    Link(String, String), // name, error message
 }
 
 pub struct Device {
