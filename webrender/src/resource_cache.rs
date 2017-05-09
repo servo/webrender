@@ -174,10 +174,10 @@ impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resourc
     fn get(&self, key: &K, frame: FrameId) -> &V {
         // This assert catches cases in which we accidentally request a resource that we forgot to
         // mark as needed this frame.
-        debug_assert!(frame == *self.last_access_times
-                                    .get(key)
-                                    .expect("Didn't find the access time for a cached resource \
-                                             with that ID!"));
+        debug_assert_eq!(frame, *self.last_access_times
+                                     .get(key)
+                                     .expect("Didn't find the access time for a cached resource \
+                                              with that ID!"));
         self.resources.get(key).expect("Didn't find a cached resource with that ID!")
     }
 
@@ -431,7 +431,7 @@ impl ResourceCache {
                          rendering: ImageRendering,
                          tile: Option<TileOffset>) {
 
-        debug_assert!(self.state == State::AddResources);
+        debug_assert_eq!(self.state, State::AddResources);
         let request = ImageRequest {
             key: key,
             rendering: rendering,
@@ -488,7 +488,7 @@ impl ResourceCache {
                           glyph_instances: &[GlyphInstance],
                           render_mode: FontRenderMode,
                           glyph_options: Option<GlyphOptions>) {
-        debug_assert!(self.state == State::AddResources);
+        debug_assert_eq!(self.state, State::AddResources);
         // Immediately request that the glyph cache thread start
         // rasterizing glyphs from this request if they aren't
         // already cached.
@@ -513,7 +513,7 @@ impl ResourceCache {
                          render_mode: FontRenderMode,
                          glyph_options: Option<GlyphOptions>,
                          mut f: F) -> SourceTexture where F: FnMut(usize, DevicePoint, DevicePoint) {
-        debug_assert!(self.state == State::QueryResources);
+        debug_assert_eq!(self.state, State::QueryResources);
         let cache = self.cached_glyphs.as_ref().unwrap();
         let mut glyph_key = RenderedGlyphKey::new(font_key,
                                                   size,
@@ -576,7 +576,7 @@ impl ResourceCache {
                             image_key: ImageKey,
                             image_rendering: ImageRendering,
                             tile: Option<TileOffset>) -> CacheItem {
-        debug_assert!(self.state == State::QueryResources);
+        debug_assert_eq!(self.state, State::QueryResources);
         let key = ImageRequest {
             key: image_key,
             rendering: image_rendering,
@@ -641,7 +641,7 @@ impl ResourceCache {
     }
 
     pub fn begin_frame(&mut self, frame_id: FrameId) {
-        debug_assert!(self.state == State::Idle);
+        debug_assert_eq!(self.state, State::Idle);
         self.state = State::AddResources;
         self.current_frame_id = frame_id;
         let glyph_cache = self.cached_glyphs.take().unwrap();
@@ -652,7 +652,7 @@ impl ResourceCache {
                                            texture_cache_profile: &mut TextureCacheProfileCounters) {
         profile_scope!("block_until_all_resources_added");
 
-        debug_assert!(self.state == State::AddResources);
+        debug_assert_eq!(self.state, State::AddResources);
         self.state = State::QueryResources;
 
         // Tell the glyph cache thread that all glyphs have been requested
@@ -847,7 +847,7 @@ impl ResourceCache {
     }
 
     pub fn end_frame(&mut self) {
-        debug_assert!(self.state == State::QueryResources);
+        debug_assert_eq!(self.state, State::QueryResources);
         self.state = State::Idle;
     }
 }
