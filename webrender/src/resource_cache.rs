@@ -996,6 +996,9 @@ fn spawn_glyph_cache_thread(workers: Arc<ThreadPool>) -> (Sender<GlyphCacheMsg>,
                                     let result = font_context.rasterize_glyph(&glyph_key.key,
                                                                               render_mode,
                                                                               glyph_options);
+                                    if let Some(ref glyph) = result {
+                                        assert_eq!(glyph.bytes.len(), 4 * (glyph.width * glyph.height) as usize);
+                                    }
                                     glyph_tx.send((glyph_key, result)).unwrap();
                                 });
                             });
@@ -1015,6 +1018,9 @@ fn spawn_glyph_cache_thread(workers: Arc<ThreadPool>) -> (Sender<GlyphCacheMsg>,
                                                    .expect("BUG: Should be glyphs pending!");
                         debug_assert!(pending_glyphs.contains(&key));
                         pending_glyphs.remove(&key);
+                        if let Some(ref v) = glyph {
+                            debug!("received {}x{} data len {}", v.width, v.height, v.bytes.len());
+                        }
                         rasterized_glyphs.push(GlyphRasterJob {
                             key: key,
                             result: glyph,
