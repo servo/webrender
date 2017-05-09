@@ -834,6 +834,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                                     ref epoch,
                                     ref pipeline_id,
                                     ref viewport_size,
+                                    ref _content_size,
                                     ref display_list,
                                     _preserve_frame_state) => {
                 self.frame_writer.begin_write_display_list(&mut self.scene,

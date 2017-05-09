@@ -17,13 +17,16 @@ use time::precise_time_ns;
 use thread_profiler::register_thread_with_profiler;
 use rayon::ThreadPool;
 use webgl_types::{GLContextHandleWrapper, GLContextWrapper};
-use webrender_traits::{DeviceIntPoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize, LayerPoint};
-use webrender_traits::{ApiMsg, BuiltDisplayList, IdNamespace, ImageData};
-use webrender_traits::{PipelineId, RenderNotifier, RenderDispatcher, WebGLCommand, WebGLContextId};
-use webrender_traits::channel::{PayloadSenderHelperMethods, PayloadReceiverHelperMethods, PayloadReceiver, PayloadSender, MsgReceiver};
-use webrender_traits::{BlobImageRenderer, VRCompositorCommand, VRCompositorHandler};
+use webrender_traits::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
+use webrender_traits::channel::{PayloadSender, PayloadSenderHelperMethods};
+use webrender_traits::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DeviceIntPoint};
+use webrender_traits::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, IdNamespace, ImageData};
+use webrender_traits::{LayerPoint, PipelineId, RenderDispatcher, RenderNotifier};
+use webrender_traits::{VRCompositorCommand, VRCompositorHandler, WebGLCommand, WebGLContextId};
+
 #[cfg(feature = "webgl")]
 use offscreen_gl_context::GLContextDispatcher;
+
 #[cfg(not(feature = "webgl"))]
 use webgl_types::GLContextDispatcher;
 
@@ -179,6 +182,7 @@ impl RenderBackend {
                                                epoch,
                                                pipeline_id,
                                                viewport_size,
+                                               content_size,
                                                display_list_descriptor,
                                                preserve_frame_state) => {
                             profile_scope!("SetDisplayList");
@@ -219,7 +223,8 @@ impl RenderBackend {
                                                             epoch,
                                                             built_display_list,
                                                             background_color,
-                                                            viewport_size);
+                                                            viewport_size,
+                                                            content_size);
                                 self.build_scene();
                             });
 
