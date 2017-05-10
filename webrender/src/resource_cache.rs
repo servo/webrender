@@ -438,6 +438,7 @@ impl ResourceCache {
             tile: tile,
         };
 
+        self.cached_images.mark_as_needed(&request, self.current_frame_id);
         let template = self.image_templates.get(key).unwrap();
         if template.data.is_blob() {
             if let Some(ref mut renderer) = self.blob_image_renderer {
