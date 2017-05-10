@@ -7,7 +7,7 @@ use frame::FrameId;
 use gpu_cache::GpuCache;
 use gpu_store::GpuStoreAddress;
 use internal_types::{HardwareCompositeOp, SourceTexture};
-use mask_cache::{ClipMode, ClipSource, MaskCacheInfo, RegionMode};
+use mask_cache::{ClipMode, ClipSource, MaskBounds, MaskCacheInfo, RegionMode};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveIndex};
@@ -15,7 +15,7 @@ use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu};
 use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
-use render_task::{AlphaRenderItem, MaskCacheKey, MaskResult, RenderTask, RenderTaskIndex};
+use render_task::{AlphaRenderItem, MaskCacheKey, RenderTask, RenderTaskIndex};
 use render_task::{RenderTaskId, RenderTaskLocation};
 use resource_cache::ResourceCache;
 use clip_scroll_node::{ClipInfo, ClipScrollNode, NodeType};
@@ -62,7 +62,7 @@ impl ImageBorderSegment {
             RepeatMode::Stretch => rect.size.width,
             RepeatMode::Repeat => image_size.width,
             RepeatMode::Round | RepeatMode::Space => {
-                println!("Round/Space not supported yet!");
+                error!("Round/Space not supported yet!");
                 rect.size.width
             }
         };
@@ -71,7 +71,7 @@ impl ImageBorderSegment {
             RepeatMode::Stretch => rect.size.height,
             RepeatMode::Repeat => image_size.height,
             RepeatMode::Round | RepeatMode::Space => {
-                println!("Round/Space not supported yet!");
+                error!("Round/Space not supported yet!");
                 rect.size.height
             }
         };
@@ -242,6 +242,7 @@ impl FrameBuilder {
             scroll_node_id: info.scroll_node_id,
             clip_node_id: info.clip_node_id(),
             packed_layer_index: packed_layer_index,
+            viewport_rect: LayerRect::zero(),
             screen_bounding_rect: None,
          });
 
@@ -1476,6 +1477,12 @@ impl FrameBuilder {
 
 }
 
+#[derive(Debug, Clone, Copy)]
+struct LayerClipBounds {
+    outer: DeviceIntRect,
+    inner: DeviceIntRect,
+}
+
 struct LayerRectCalculationAndCullingPass<'a> {
     frame_builder: &'a mut FrameBuilder,
     screen_rect: &'a DeviceIntRect,
@@ -1494,7 +1501,7 @@ struct LayerRectCalculationAndCullingPass<'a> {
 
     /// Information about the cached clip stack, which is used to avoid having
     /// to recalculate it for every primitive.
-    current_clip_info: Option<(ClipId, Option<DeviceIntRect>)>
+    current_clip_info: Option<(ClipId, DeviceIntRect)>
 }
 
 impl<'a> LayerRectCalculationAndCullingPass<'a> {
@@ -1567,6 +1574,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             node_clip_info.screen_bounding_rect = packed_layer.set_rect(&local_viewport_rect,
                                                                         self.screen_rect,
                                                                         self.device_pixel_ratio);
+            node_clip_info.screen_inner_rect = DeviceIntRect::zero();
 
             let mask_info = match node_clip_info.mask_cache_info {
                 Some(ref mut mask_info) => mask_info,
@@ -1581,6 +1589,10 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                              &mut self.frame_builder.prim_store.gpu_data32,
                              self.device_pixel_ratio,
                              display_list);
+
+            if let Some(MaskBounds{ inner: Some(ref inner), ..}) = mask_info.bounds {
+                node_clip_info.screen_inner_rect = inner.device_rect;
+            }
 
             for clip_source in &node_clip_info.clip_sources {
                 if let Some(mask) = clip_source.image_mask() {
@@ -1614,13 +1626,12 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
 
             // Here we move the viewport rectangle into the coordinate system
             // of the stacking context content.
-            let viewport_rect =
-                &clip_node.combined_local_viewport_rect
-                     .translate(&clip_node.reference_frame_relative_scroll_offset)
-                     .translate(&-scroll_node.reference_frame_relative_scroll_offset)
-                     .translate(&-stacking_context.reference_frame_offset)
-                     .translate(&-scroll_node.scroll_offset());
-            group.screen_bounding_rect = packed_layer.set_rect(viewport_rect,
+            group.viewport_rect = clip_node.combined_local_viewport_rect
+                .translate(&clip_node.reference_frame_relative_scroll_offset)
+                .translate(&-scroll_node.reference_frame_relative_scroll_offset)
+                .translate(&-stacking_context.reference_frame_offset)
+                .translate(&-scroll_node.scroll_offset());
+            group.screen_bounding_rect = packed_layer.set_rect(&group.viewport_rect,
                                                                self.screen_rect,
                                                                self.device_pixel_ratio);
         }
@@ -1675,49 +1686,46 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         stacking_context.screen_bounds = DeviceIntRect::zero();
     }
 
-    fn rebuild_clip_info_stack_if_necessary(&mut self, id: ClipId) -> Option<DeviceIntRect> {
-        if let Some((current_scroll_id, bounding_rect)) = self.current_clip_info {
-            if current_scroll_id == id {
-                return bounding_rect;
-            }
+    fn rebuild_clip_info_stack_if_necessary(&mut self, clip_id: ClipId) -> DeviceIntRect {
+        match self.current_clip_info {
+            Some((current_clip_id, rect)) if current_clip_id == clip_id => return rect,
+            _ => ()
         }
 
         // TODO(mrobinson): If we notice that this process is expensive, we can special-case
         // more common situations, such as moving from a child or a parent.
         self.current_clip_stack.clear();
-        let mut bounding_rect = None;
 
-        let mut current_id = Some(id);
+        let mut bounding_rect = *self.screen_rect;
+        let mut current_id = Some(clip_id);
         while let Some(id) = current_id {
             let node = &self.clip_scroll_tree.nodes.get(&id).unwrap();
             current_id = node.parent;
 
-            let clip_info = match node.node_type {
+            let clip = match node.node_type {
                 NodeType::Clip(ref clip) if clip.is_masking() => clip,
                 _ => continue,
             };
 
-            if bounding_rect.is_none() {
-                bounding_rect = Some(match clip_info.screen_bounding_rect {
-                    Some((_kind, rect)) => rect,
-                    None => DeviceIntRect::zero(),
-                });
-            }
-            self.current_clip_stack.push((clip_info.packed_layer_index,
-                                          clip_info.mask_cache_info.clone().unwrap()))
-        }
-        self.current_clip_stack.reverse();
+            bounding_rect = clip.screen_bounding_rect
+                                .and_then(|(_kind, ref rect)| bounding_rect.intersection(rect))
+                                .unwrap_or(DeviceIntRect::zero());
 
-        self.current_clip_info = Some((id, bounding_rect));
+            self.current_clip_stack.push((clip.packed_layer_index,
+                                          clip.mask_cache_info.clone().unwrap()))
+        }
+
+        self.current_clip_stack.reverse();
+        self.current_clip_info = Some((clip_id, bounding_rect));
         bounding_rect
     }
 
     fn handle_primitive_run(&mut self,
-                            prim_index: PrimitiveIndex,
+                            base_prim_index: PrimitiveIndex,
                             prim_count: usize,
                             clip_and_scroll: ClipAndScrollInfo) {
         let stacking_context_index = *self.stacking_context_stack.last().unwrap();
-        let (packed_layer_index, pipeline_id) = {
+        let (packed_layer_index, pipeline_id, viewport_rect) = {
             let stacking_context =
                 &self.frame_builder.stacking_context_store[stacking_context_index.0];
 
@@ -1727,12 +1735,14 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
 
             let group_index = stacking_context.clip_scroll_group(clip_and_scroll);
             let clip_scroll_group = &self.frame_builder.clip_scroll_group_store[group_index.0];
-            (clip_scroll_group.packed_layer_index, stacking_context.pipeline_id)
+            (clip_scroll_group.packed_layer_index,
+             stacking_context.pipeline_id,
+             clip_scroll_group.viewport_rect)
         };
 
-        let clip_bounds =
-            self.rebuild_clip_info_stack_if_necessary(clip_and_scroll.clip_node_id());
-        if clip_bounds.map_or(false, |bounds| bounds.is_empty()) {
+        debug!("\t{:?} at {:?}", base_prim_index, packed_layer_index);
+        let screen_bound = self.rebuild_clip_info_stack_if_necessary(clip_and_scroll.clip_node_id());
+        if screen_bound.is_empty() {
             return;
         }
 
@@ -1742,70 +1752,61 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         let display_list = self.display_lists.get(&pipeline_id)
                                              .expect("No display list?");
         for i in 0..prim_count {
-            let prim_index = PrimitiveIndex(prim_index.0 + i);
-            if self.frame_builder.prim_store.build_bounding_rect(prim_index,
-                                                                 self.screen_rect,
-                                                                 &packed_layer.transform,
-                                                                 &packed_layer.local_clip_rect,
-                                                                 self.device_pixel_ratio) {
-                self.frame_builder.prim_store.prepare_prim_for_render(prim_index,
-                                                                      self.resource_cache,
-                                                                      self.gpu_cache,
-                                                                      &packed_layer.transform,
-                                                                      self.device_pixel_ratio,
-                                                                      display_list);
+            let prim_index = PrimitiveIndex(base_prim_index.0 + i);
+            let prim_store = &mut self.frame_builder.prim_store;
+            let prim_bounding_rect = match prim_store.build_bounding_rect(prim_index,
+                                                                          &screen_bound,
+                                                                          &packed_layer.transform,
+                                                                          self.device_pixel_ratio) {
+                Some(rect) => rect,
+                None => continue,
+            };
 
-                // If the primitive is visible, consider culling it via clip rect(s).
-                // If it is visible but has clips, create the clip task for it.
-                let prim_bounding_rect =
-                    match self.frame_builder.prim_store.cpu_bounding_rects[prim_index.0] {
-                    Some(rect) => rect,
-                    _ => continue,
+            let prim_metadata = match prim_store.prepare_prim_for_render(prim_index,
+                                                                         self.resource_cache,
+                                                                         self.gpu_cache,
+                                                                         &packed_layer.transform,
+                                                                         viewport_rect,
+                                                                         self.device_pixel_ratio,
+                                                                         display_list) {
+                Some(metadata) => metadata,
+                None => continue,
+            };
+
+            stacking_context.screen_bounds = stacking_context.screen_bounds.union(&prim_bounding_rect);
+
+            //TODO-LCCR: now that we updated the mask geometry, we can re-compute
+            // a tighter `prim_bounding_rect` and potentially discard the item.
+
+            // Try to create a mask if we may need to.
+            if !self.current_clip_stack.is_empty() || prim_metadata.clip_cache_info.is_some() {
+                // If the primitive doesn't have a specific clip, key the task ID off the
+                // stacking context. This means that two primitives which are only clipped
+                // by the stacking context stack can share clip masks during render task
+                // assignment to targets.
+                let mut mask_rect = prim_bounding_rect;
+                let (mask_key, extra) = match prim_metadata.clip_cache_info {
+                    Some(ref info) => {
+                        // Take into account the actual clip info of the primitive, and
+                        // mutate the current bounds accordingly.
+                        //TODO-LCCR: what if no `outer` bound is specified here?
+                        if let Some(MaskBounds{ outer: Some(ref outer), .. }) = info.bounds {
+                            mask_rect = match mask_rect.intersection(&outer.device_rect) {
+                                Some(rect) => rect,
+                                None => continue,
+                            }
+                        };
+                        (MaskCacheKey::Primitive(prim_index), Some((packed_layer_index, info.clone())))
+                    },
+                    None => (MaskCacheKey::ClipNode(clip_and_scroll.clip_node_id()), None),
                 };
-
-                let prim_metadata = &mut self.frame_builder.prim_store.cpu_metadata[prim_index.0];
-                let prim_clip_info = prim_metadata.clip_cache_info.as_ref();
-                let mut visible = true;
-
-                stacking_context.screen_bounds =
-                    stacking_context.screen_bounds.union(&prim_bounding_rect);
-
-                if let Some(info) = prim_clip_info {
-                    self.current_clip_stack.push((packed_layer_index, info.clone()));
-                }
-
-                // Try to create a mask if we may need to.
-                if !self.current_clip_stack.is_empty() {
-                    // If the primitive doesn't have a specific clip, key the task ID off the
-                    // stacking context. This means that two primitives which are only clipped
-                    // by the stacking context stack can share clip masks during render task
-                    // assignment to targets.
-                    let clip_bounds = clip_bounds.unwrap_or_else(DeviceIntRect::zero);
-                    let (mask_key, mask_rect) = match prim_clip_info {
-                        Some(..) => (MaskCacheKey::Primitive(prim_index), prim_bounding_rect),
-                        None => (MaskCacheKey::ClipNode(clip_and_scroll.clip_node_id()),
-                                                        clip_bounds)
-                    };
-                    let mask_opt =
-                        RenderTask::new_mask(mask_rect, mask_key, &self.current_clip_stack);
-                    match mask_opt {
-                        MaskResult::Outside => { // Primitive is completely clipped out.
-                            prim_metadata.clip_task = None;
-                            self.frame_builder.prim_store.cpu_bounding_rects[prim_index.0] = None;
-                            visible = false;
-                        }
-                        MaskResult::Inside(task) => prim_metadata.clip_task = Some(task),
-                    }
-                }
-
-                if prim_clip_info.is_some() {
-                    self.current_clip_stack.pop();
-                }
-
-                if visible {
-                    self.profile_counters.visible_primitives.inc();
-                }
+                prim_metadata.clip_task = RenderTask::new_mask(mask_rect,
+                                                               mask_key,
+                                                               &self.current_clip_stack,
+                                                               extra)
             }
+
+            self.profile_counters.visible_primitives.inc();
         }
     }
 }

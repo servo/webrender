@@ -130,7 +130,7 @@ vec4[2] fetch_from_resource_cache_2(int address) {
 
 #ifdef WR_VERTEX_SHADER
 
-#define VECS_PER_LAYER              9
+#define VECS_PER_LAYER              8
 #define VECS_PER_RENDER_TASK        3
 #define VECS_PER_PRIM_HEADER        2
 #define VECS_PER_TEXT_RUN           1
@@ -208,32 +208,23 @@ vec4 fetch_from_resource_cache_1(int address) {
 struct Layer {
     mat4 transform;
     mat4 inv_transform;
-    RectWithSize local_clip_rect;
 };
 
 Layer fetch_layer(int index) {
     Layer layer;
 
     // Create a UV base coord for each 8 texels.
-    // This is required because trying to use an offset
-    // of more than 8 texels doesn't work on some versions
-    // of OSX.
     ivec2 uv = get_fetch_uv(index, VECS_PER_LAYER);
-    ivec2 uv0 = ivec2(uv.x + 0, uv.y);
-    ivec2 uv1 = ivec2(uv.x + 8, uv.y);
 
-    layer.transform[0] = texelFetchOffset(sLayers, uv0, 0, ivec2(0, 0));
-    layer.transform[1] = texelFetchOffset(sLayers, uv0, 0, ivec2(1, 0));
-    layer.transform[2] = texelFetchOffset(sLayers, uv0, 0, ivec2(2, 0));
-    layer.transform[3] = texelFetchOffset(sLayers, uv0, 0, ivec2(3, 0));
+    layer.transform[0] = texelFetchOffset(sLayers, uv, 0, ivec2(0, 0));
+    layer.transform[1] = texelFetchOffset(sLayers, uv, 0, ivec2(1, 0));
+    layer.transform[2] = texelFetchOffset(sLayers, uv, 0, ivec2(2, 0));
+    layer.transform[3] = texelFetchOffset(sLayers, uv, 0, ivec2(3, 0));
 
-    layer.inv_transform[0] = texelFetchOffset(sLayers, uv0, 0, ivec2(4, 0));
-    layer.inv_transform[1] = texelFetchOffset(sLayers, uv0, 0, ivec2(5, 0));
-    layer.inv_transform[2] = texelFetchOffset(sLayers, uv0, 0, ivec2(6, 0));
-    layer.inv_transform[3] = texelFetchOffset(sLayers, uv0, 0, ivec2(7, 0));
-
-    vec4 clip_rect = texelFetchOffset(sLayers, uv1, 0, ivec2(0, 0));
-    layer.local_clip_rect = RectWithSize(clip_rect.xy, clip_rect.zw);
+    layer.inv_transform[0] = texelFetchOffset(sLayers, uv, 0, ivec2(4, 0));
+    layer.inv_transform[1] = texelFetchOffset(sLayers, uv, 0, ivec2(5, 0));
+    layer.inv_transform[2] = texelFetchOffset(sLayers, uv, 0, ivec2(6, 0));
+    layer.inv_transform[3] = texelFetchOffset(sLayers, uv, 0, ivec2(7, 0));
 
     return layer;
 }
@@ -590,7 +581,6 @@ VertexInfo write_vertex(RectWithSize instance_rect,
 
     // Clamp to the two local clip rects.
     local_p0_pos = clamp_rect(local_p0_pos, local_clip_rect);
-    local_p0_pos = clamp_rect(local_p0_pos, layer.local_clip_rect);
 
     // Transform the top corner and current vertex to world space.
     vec4 world_p0 = layer.transform * vec4(local_p0_pos.xy, 0.0, 1.0);

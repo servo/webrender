@@ -9,8 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
 use webrender_traits::{ClipId, LayerPoint, LayerRect, LayerToScrollTransform};
 use webrender_traits::{LayerToWorldTransform, PipelineId, ScrollClamping, ScrollEventPhase};
-use webrender_traits::{ScrollLayerRect, ScrollLayerState, ScrollLocation, WorldPoint};
-use webrender_traits::{as_scroll_parent_rect, LayerVector2D};
+use webrender_traits::{LayerVector2D, ScrollLayerState, ScrollLocation, WorldPoint};
 
 pub type ScrollStates = HashMap<ClipId, ScrollingState, BuildHasherDefault<FnvHasher>>;
 
@@ -231,7 +230,7 @@ impl ClipScrollTree {
         let root_viewport = self.nodes[&root_reference_frame_id].local_clip_rect;
         self.update_node_transform(root_reference_frame_id,
                                    &LayerToWorldTransform::create_translation(pan.x, pan.y, 0.0),
-                                   &as_scroll_parent_rect(&root_viewport),
+                                   &root_viewport,
                                    LayerVector2D::zero(),
                                    LayerVector2D::zero());
     }
@@ -239,7 +238,7 @@ impl ClipScrollTree {
     fn update_node_transform(&mut self,
                              layer_id: ClipId,
                              parent_reference_frame_transform: &LayerToWorldTransform,
-                             parent_viewport_rect: &ScrollLayerRect,
+                             parent_viewport_rect: &LayerRect,
                              parent_scroll_offset: LayerVector2D,
                              parent_accumulated_scroll_offset: LayerVector2D) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
@@ -274,7 +273,7 @@ impl ClipScrollTree {
                     };
 
                     (transform,
-                     as_scroll_parent_rect(&node.combined_local_viewport_rect),
+                     node.combined_local_viewport_rect,
                      offset,
                      accumulated_scroll_offset,
                      node.children.clone())

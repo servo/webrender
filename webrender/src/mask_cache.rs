@@ -73,29 +73,19 @@ pub struct ClipAddressRange {
 }
 
 /// Represents a local rect and a device space
-/// bounding rect that can be updated when the
-/// transform changes.
+/// rectangles that are either outside or inside bounds.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Geometry {
     pub local_rect: LayerRect,
-    pub bounding_rect: DeviceIntRect,
+    pub device_rect: DeviceIntRect,
 }
 
-impl Geometry {
-    fn new(local_rect: LayerRect) -> Geometry {
+impl From<LayerRect> for Geometry {
+    fn from(local_rect: LayerRect) -> Self {
         Geometry {
             local_rect: local_rect,
-            bounding_rect: DeviceIntRect::zero(),
+            device_rect: DeviceIntRect::zero(),
         }
-    }
-
-    fn update(&mut self,
-              transform: &LayerToWorldTransform,
-              device_pixel_ratio: f32) {
-        let transformed = TransformedRect::new(&self.local_rect,
-                                               transform,
-                                               device_pixel_ratio);
-        self.bounding_rect = transformed.bounding_rect;
     }
 }
 
@@ -106,16 +96,26 @@ impl Geometry {
 /// correctness. In the future we can make this a lot
 /// more clever with some proper region handling.
 #[derive(Clone, Debug, PartialEq)]
-pub enum MaskBounds {
-    /// We know both the outer and inner rect. This is the
-    /// fast path for, e.g. a simple rounded rect.
-    OuterInner(Geometry, Geometry),
-    /// We know the outer rect only.
-    Outer(Geometry),
-    /// We can't determine the bounds - draw mask over entire rect.
-    /// This is currently used for clip-out operations on
-    /// box shadows.
-    None,
+pub struct MaskBounds {
+    pub outer: Option<Geometry>,
+    pub inner: Option<Geometry>,
+}
+
+impl MaskBounds {
+    pub fn update(&mut self, transform: &LayerToWorldTransform, device_pixel_ratio: f32) {
+        if let Some(ref mut outer) = self.outer {
+            let transformed = TransformedRect::new(&outer.local_rect,
+                                                   transform,
+                                                   device_pixel_ratio);
+            outer.device_rect = transformed.bounding_rect;
+        }
+        if let Some(ref mut inner) = self.inner {
+            let transformed = TransformedRect::new(&inner.local_rect,
+                                                   transform,
+                                                   device_pixel_ratio);
+            inner.device_rect = transformed.inner_rect;
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -130,7 +130,7 @@ pub struct MaskCacheInfo {
 
 impl MaskCacheInfo {
     /// Create a new mask cache info. It allocates the GPU store data but leaves
-    /// it unitialized for the following `update()` call to deal with.
+    /// it uninitialized for the following `update()` call to deal with.
     pub fn new(clips: &[ClipSource],
                clip_store: &mut VertexDataStore<GpuBlock32>)
                -> Option<MaskCacheInfo> {
@@ -192,7 +192,7 @@ impl MaskCacheInfo {
                   transform: &LayerToWorldTransform,
                   clip_store: &mut VertexDataStore<GpuBlock32>,
                   device_pixel_ratio: f32,
-                  display_list: &BuiltDisplayList) {
+                  display_list: &BuiltDisplayList) -> &MaskBounds {
         let is_aligned = transform.preserves_2d_axis_alignment();
 
         // If we haven't cached this info, or if the transform type has changed
@@ -229,16 +229,18 @@ impl MaskCacheInfo {
                     ClipSource::Region(ref region, region_mode) => {
                         local_rect = local_rect.and_then(|r| r.intersection(&region.main));
                         local_inner = match region.image_mask {
-                            Some(ref mask) if !mask.repeat => {
-                                local_rect = local_rect.and_then(|r| r.intersection(&mask.rect));
+                            Some(ref mask) => {
+                                if !mask.repeat {
+                                    local_rect = local_rect.and_then(|r| r.intersection(&mask.rect));
+                                }
                                 None
                             },
-                            Some(_) => None,
                             None => local_rect,
                         };
 
                         let clips = display_list.get(region.complex_clips);
-                        if !self.is_aligned && region_mode == RegionMode::IncludeRect {
+                        //TODO-LCCR: revisit the condition below
+                        if (!self.is_aligned || true) && region_mode == RegionMode::IncludeRect {
                             // we have an extra clip rect coming from the transformed layer
                             debug_assert!(self.effective_complex_clip_count < self.complex_clip_range.item_count);
                             let address = self.complex_clip_range.start + self.effective_complex_clip_count * CLIP_DATA_GPU_SIZE;
@@ -274,9 +276,12 @@ impl MaskCacheInfo {
 
             // Work out the type of mask geometry we have, based on the
             // list of clip sources above.
-            if has_clip_out || has_border_clip {
+            self.bounds = Some(if has_clip_out || has_border_clip {
                 // For clip-out, the mask rect is not known.
-                self.bounds = Some(MaskBounds::None);
+                MaskBounds {
+                    outer: None,
+                    inner: None,
+                }
             } else {
                 // TODO(gw): local inner is only valid if there's a single clip (for now).
                 // This can be improved in the future, with some proper
@@ -285,31 +290,20 @@ impl MaskCacheInfo {
                     local_inner = None;
                 }
 
-                let local_rect = local_rect.unwrap_or(LayerRect::zero());
-
-                self.bounds = match local_inner {
-                    Some(local_inner) => {
-                        Some(MaskBounds::OuterInner(Geometry::new(local_rect),
-                                                    Geometry::new(local_inner)))
-                    }
-                    None => {
-                        Some(MaskBounds::Outer(Geometry::new(local_rect)))
-                    }
-                };
-            }
+                MaskBounds {
+                    outer: Some(local_rect.unwrap_or(LayerRect::zero()).into()),
+                    inner: local_inner.map(|rect| rect.into()),
+                }
+            });
         }
 
-        // Update the device space bounding rects of the mask
-        // geometry.
-        match self.bounds.as_mut().unwrap() {
-            &mut MaskBounds::None => {}
-            &mut MaskBounds::Outer(ref mut outer) => {
-                outer.update(transform, device_pixel_ratio);
-            }
-            &mut MaskBounds::OuterInner(ref mut outer, ref mut inner) => {
-                outer.update(transform, device_pixel_ratio);
-                inner.update(transform, device_pixel_ratio);
-            }
+        match self.bounds {
+            Some(ref mut bounds) => {
+                // Update the device space bounding rects of the mask geometry.
+                bounds.update(transform, device_pixel_ratio);
+                bounds
+            },
+            None => unreachable!()
         }
     }
 

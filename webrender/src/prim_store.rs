@@ -13,8 +13,7 @@ use mask_cache::{ClipMode, ClipSource, MaskCacheInfo};
 use renderer::{VertexDataStore, MAX_VERTEX_TEXTURE_WIDTH};
 use render_task::{RenderTask, RenderTaskLocation};
 use resource_cache::{CacheItem, ImageProperties, ResourceCache};
-use std::mem;
-use std::usize;
+use std::{mem, usize};
 use util::{TransformedRect, recycle_vec};
 use webrender_traits::{BuiltDisplayList, ColorF, ImageKey, ImageRendering, YuvColorSpace};
 use webrender_traits::{YuvFormat, ClipRegion, ComplexClipRegion, ItemRange, GlyphKey};
@@ -717,10 +716,8 @@ impl PrimitiveStore {
 
         let metadata = match container {
             PrimitiveContainer::Rectangle(rect) => {
-                let is_opaque = rect.color.a == 1.0;
-
                 let metadata = PrimitiveMetadata {
-                    is_opaque: is_opaque,
+                    is_opaque: rect.color.a == 1.0,
                     clips: clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Rectangle,
@@ -1086,13 +1083,11 @@ impl PrimitiveStore {
                                prim_index: PrimitiveIndex,
                                screen_rect: &DeviceIntRect,
                                layer_transform: &LayerToWorldTransform,
-                               layer_combined_local_clip_rect: &LayerRect,
-                               device_pixel_ratio: f32) -> bool {
+                               device_pixel_ratio: f32) -> Option<DeviceIntRect> {
         let metadata = &self.cpu_metadata[prim_index.0];
 
         let bounding_rect = metadata.local_rect
                                     .intersection(&metadata.local_clip_rect)
-                                    .and_then(|rect| rect.intersection(layer_combined_local_clip_rect))
                                     .and_then(|ref local_rect| {
             let xf_rect = TransformedRect::new(local_rect,
                                                layer_transform,
@@ -1101,7 +1096,7 @@ impl PrimitiveStore {
         });
 
         self.cpu_bounding_rects[prim_index.0] = bounding_rect;
-        bounding_rect.is_some()
+        bounding_rect
     }
 
     /// Returns true if the bounding box needs to be updated.
@@ -1110,18 +1105,37 @@ impl PrimitiveStore {
                                    resource_cache: &mut ResourceCache,
                                    gpu_cache: &mut GpuCache,
                                    layer_transform: &LayerToWorldTransform,
+                                   mut combined_local_clip_rect: LayerRect,
                                    device_pixel_ratio: f32,
-                                   display_list: &BuiltDisplayList) {
+                                   display_list: &BuiltDisplayList)
+                                   -> Option<&mut PrimitiveMetadata> {
 
         let metadata = &mut self.cpu_metadata[prim_index.0];
         let mut prim_needs_resolve = false;
 
+        debug!("\t{:?} has local {:?} local_clip = {:?}, combined = {:?}",
+            prim_index, metadata.local_rect, metadata.local_clip_rect, combined_local_clip_rect);
+
+        combined_local_clip_rect = match combined_local_clip_rect.intersection(&metadata.local_clip_rect) {
+            Some(rect) => rect,
+            None => return None,
+        };
+
         if let Some(ref mut clip_info) = metadata.clip_cache_info {
-            clip_info.update(&metadata.clips,
-                             layer_transform,
-                             &mut self.gpu_data32,
-                             device_pixel_ratio,
-                             display_list);
+            let bounds = clip_info.update(&metadata.clips,
+                                          layer_transform,
+                                          &mut self.gpu_data32,
+                                          device_pixel_ratio,
+                                          display_list);
+
+            if let Some(ref outer) = bounds.outer {
+                debug!("\tClip outer local {:?}", outer.local_rect);
+                combined_local_clip_rect = match combined_local_clip_rect.intersection(&outer.local_rect) {
+                    Some(rect) => rect,
+                    None => return None,
+                }
+            }
+
             for clip in &metadata.clips {
                 if let ClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }, ..) = *clip {
                     resource_cache.request_image(mask.image, ImageRendering::Auto, None);
@@ -1129,6 +1143,7 @@ impl PrimitiveStore {
                 }
             }
         }
+        debug!("\tresulting local_clip_rect {:?}", combined_local_clip_rect);
 
         match metadata.prim_kind {
             PrimitiveKind::Rectangle |
@@ -1254,7 +1269,7 @@ impl PrimitiveStore {
         // Mark this GPU resource as required for this frame.
         if let Some(mut request) = gpu_cache.request(&mut metadata.gpu_location) {
             request.push(metadata.local_rect.into());
-            request.push(metadata.local_clip_rect.into());
+            request.push(combined_local_clip_rect.into());
 
             match metadata.prim_kind {
                 PrimitiveKind::Rectangle => {
@@ -1302,6 +1317,8 @@ impl PrimitiveStore {
         if prim_needs_resolve {
             self.prims_to_resolve.push(prim_index);
         }
+
+        Some(metadata)
     }
 }
 

@@ -1530,6 +1530,8 @@ pub struct ClipScrollGroup {
     pub scroll_node_id: ClipId,
     pub clip_node_id: ClipId,
     pub packed_layer_index: PackedLayerIndex,
+    /// The local viewport rectangle in the coordinate system of the stacking context.
+    pub viewport_rect: LayerRect,
     pub screen_bounding_rect: Option<(TransformedRectKind, DeviceIntRect)>,
 }
 
@@ -1544,7 +1546,6 @@ impl ClipScrollGroup {
 pub struct PackedLayer {
     pub transform: LayerToWorldTransform,
     pub inv_transform: WorldToLayerTransform,
-    pub local_clip_rect: LayerRect,
 }
 
 impl Default for PackedLayer {
@@ -1552,7 +1553,6 @@ impl Default for PackedLayer {
         PackedLayer {
             transform: LayerToWorldTransform::identity(),
             inv_transform: WorldToLayerTransform::identity(),
-            local_clip_rect: LayerRect::zero(),
         }
     }
 }
@@ -1573,10 +1573,8 @@ impl PackedLayer {
                     device_pixel_ratio: f32)
                     -> Option<(TransformedRectKind, DeviceIntRect)> {
         let xf_rect = TransformedRect::new(&local_rect, &self.transform, device_pixel_ratio);
-        xf_rect.bounding_rect.intersection(screen_rect).map(|rect| {
-            self.local_clip_rect = *local_rect;
-            (xf_rect.kind, rect)
-        })
+        xf_rect.bounding_rect.intersection(screen_rect)
+                             .map(|rect| (xf_rect.kind, rect))
     }
 }
 
