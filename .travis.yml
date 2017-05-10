@@ -20,6 +20,13 @@ addons:
       - libgl1-mesa-dev
       - llvm-3.8-dev
       - libedit-dev
+      - libcurl4-openssl-dev
+      - libelf-dev
+      - libdw-dev
+      - libiberty-dev
+      - cmake
+      - gcc
+      - binutils-dev
 env:
   - BUILD_KIND=DEBUG RUST_BACKTRACE=1
   - BUILD_KIND=RELEASE RUST_BACKTRACE=1
@@ -30,6 +37,15 @@ script:
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_api && cargo test --verbose --features "ipc"); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --no-default-features); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cargo test --all --verbose); fi
-  - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python headless.py reftest); fi
+  - if [ $BUILD_KIND = RELEASE ]; then (cargo test --all --verbose); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
+                                        tar xzf master.tar.gz &&
+                                        cd kcov-master &&
+                                        mkdir build &&
+                                        cd build &&
+                                        cmake .. &&
+                                        make &&
+                                        sudo make install); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cd wrench && mkdir cov && python headless.py --subpixel-aa reftest); fi
   - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && cargo build --release --features=debugger); fi
   - if [ $TRAVIS_RUST_VERSION == "nightly" ]; then (cd webrender && cargo bench --verbose); fi

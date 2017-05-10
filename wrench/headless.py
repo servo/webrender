@@ -67,4 +67,8 @@ def set_osmesa_env(bin_path):
 
 subprocess.check_call(['cargo', 'build', '--release', '--verbose', '--features', 'headless'])
 set_osmesa_env('../target/release/')
-subprocess.check_call(['../target/release/wrench', '-h'] + sys.argv[1:])
+subprocess.check_call(['kcov', '--verify', 'cov/out',
+                               '--include-path', '../webrender',
+                               '--coveralls-id', os.environ['TRAVIS_JOB_ID'],
+                               '../target/release/wrench', '-h']
+                               + sys.argv[1:])
