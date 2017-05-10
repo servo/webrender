@@ -332,10 +332,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "gamma-lut"
-version = "0.1.6"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "lazy_static 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -980,7 +980,7 @@ dependencies = [
  "euclid 0.11.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "freetype 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "gamma-lut 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gamma-lut 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1112,7 +1112,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum font-loader 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4ec6c97de7cdb6afb2b71ab8805a6865f464f1f9cf824e51e039871c3296ed5f"
 "checksum freetype 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fde23272c687e4570aefec06cb71174ec0f5284b725deac4e77ba2665d635faf"
 "checksum futures 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)" = "55f0008e13fc853f79ea8fc86e931486860d4c4c156cdffb59fa5f7fa833660a"
-"checksum gamma-lut 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "cd8728df930776135895cbb25cbdd17791cde7d4285d53cf58fe6ee2e6412455"
+"checksum gamma-lut 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "41f72af1e933f296b827361eb9e70d0267abf8ad0de9ec7fa667bbe67177b297"
 "checksum gcc 0.3.43 (registry+https://github.com/rust-lang/crates.io-index)" = "c07c758b972368e703a562686adb39125707cc1ef3399da8c019fc6c2498a75d"
 "checksum gdi32-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "0912515a8ff24ba900422ecda800b52f4016a56251922d397c576bf92c690518"
 "checksum gif 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "01c7c19a035de94bd7afbaa62c241aadfbdf1a70f560b348d2312eafa566ca16"
