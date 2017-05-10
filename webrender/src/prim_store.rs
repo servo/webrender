@@ -1144,13 +1144,11 @@ impl PrimitiveStore {
                                prim_index: PrimitiveIndex,
                                screen_rect: &DeviceIntRect,
                                layer_transform: &LayerToWorldTransform,
-                               layer_combined_local_clip_rect: &LayerRect,
                                device_pixel_ratio: f32) -> bool {
         let geom = &self.gpu_geometry.get(GpuStoreAddress(prim_index.0 as i32));
 
         let bounding_rect = geom.local_rect
                                 .intersection(&geom.local_clip_rect)
-                                .and_then(|rect| rect.intersection(layer_combined_local_clip_rect))
                                 .and_then(|ref local_rect| {
             let xf_rect = TransformedRect::new(local_rect,
                                                layer_transform,
