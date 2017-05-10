@@ -178,9 +178,9 @@ impl Frame {
         self.clip_scroll_tree.get_scroll_node_state()
     }
 
-    /// Returns true if any nodes actually changed position or false otherwise.
-    pub fn scroll_nodes(&mut self, origin: LayerPoint, id: ClipId) -> bool {
-        self.clip_scroll_tree.scroll_nodes(origin, id)
+    /// Returns true if the node actually changed position or false otherwise.
+    pub fn scroll_node(&mut self, origin: LayerPoint, id: ClipId, clamp_to_bounds: bool) -> bool {
+        self.clip_scroll_tree.scroll_node(origin, id, clamp_to_bounds)
     }
 
     /// Returns true if any nodes actually changed position or false otherwise.

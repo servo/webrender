@@ -14,7 +14,7 @@ pub type ScrollStates = HashMap<ClipId, ScrollingState, BuildHasherDefault<FnvHa
 
 pub struct ClipScrollTree {
     pub nodes: HashMap<ClipId, ClipScrollNode, BuildHasherDefault<FnvHasher>>,
-    pub pending_scroll_offsets: HashMap<ClipId, LayerPoint>,
+    pub pending_scroll_offsets: HashMap<ClipId, (LayerPoint, bool)>,
 
     /// The ClipId of the currently scrolling node. Used to allow the same
     /// node to scroll even if a touch operation leaves the boundaries of that node.
@@ -131,23 +131,22 @@ impl ClipScrollTree {
         scroll_states
     }
 
-    pub fn scroll_nodes(&mut self, origin: LayerPoint, id: ClipId) -> bool {
+    pub fn scroll_node(&mut self, origin: LayerPoint, id: ClipId, clamp_to_bounds: bool) -> bool {
         if id.is_reference_frame() {
             warn!("Tried to scroll a reference frame.");
             return false;
         }
 
         if self.nodes.is_empty() {
-            self.pending_scroll_offsets.insert(id, origin);
+            self.pending_scroll_offsets.insert(id, (origin, clamp_to_bounds));
             return false;
         }
 
-        let origin = LayerPoint::new(origin.x.max(0.0), origin.y.max(0.0));
         if let Some(node) = self.nodes.get_mut(&id) {
-            return node.set_scroll_origin(&origin);
+            return node.set_scroll_origin(&origin, clamp_to_bounds);
         }
 
-        self.pending_scroll_offsets.insert(id, origin);
+        self.pending_scroll_offsets.insert(id, (origin, clamp_to_bounds));
         false
     }
 
@@ -309,7 +308,7 @@ impl ClipScrollTree {
             node.finalize(&scrolling_state);
 
             if let Some(pending_offset) = self.pending_scroll_offsets.remove(clip_id) {
-                node.set_scroll_origin(&pending_offset);
+                node.set_scroll_origin(&pending_offset.0, pending_offset.1);
             }
         }
 

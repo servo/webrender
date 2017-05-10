@@ -48,7 +48,7 @@ pub enum ApiMsg {
     SetRootPipeline(PipelineId),
     SetWindowParameters(DeviceUintSize, DeviceUintRect),
     Scroll(ScrollLocation, WorldPoint, ScrollEventPhase),
-    ScrollNodeWithId(LayoutPoint, ClipId),
+    ScrollNodeWithId(LayoutPoint, ClipId, bool),
     TickScrollingBounce,
     TranslatePointToLayerSpace(WorldPoint, MsgSender<(LayoutPoint, PipelineId)>),
     GetScrollNodeState(MsgSender<Vec<ScrollLayerState>>),
@@ -332,8 +332,8 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
     }
 
-    pub fn scroll_node_with_id(&self, new_scroll_origin: LayoutPoint, id: ClipId) {
-        let msg = ApiMsg::ScrollNodeWithId(new_scroll_origin, id);
+    pub fn scroll_node_with_id(&self, origin: LayoutPoint, id: ClipId, clamp_to_bounds: bool) {
+        let msg = ApiMsg::ScrollNodeWithId(origin, id, clamp_to_bounds);
         self.api_sender.send(msg).unwrap();
     }
 
