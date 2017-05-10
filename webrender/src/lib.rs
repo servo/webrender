@@ -61,6 +61,7 @@ mod gpu_store;
 mod internal_types;
 mod mask_cache;
 mod prim_store;
+mod print_tree;
 mod profiler;
 mod record;
 mod render_backend;

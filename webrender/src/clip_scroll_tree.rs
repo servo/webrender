@@ -4,6 +4,7 @@
 
 use clip_scroll_node::{ClipScrollNode, NodeType, ScrollingState};
 use fnv::FnvHasher;
+use print_tree::PrintTree;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
 use webrender_traits::{ClipId, LayerPoint, LayerRect, LayerToScrollTransform};
@@ -352,6 +353,48 @@ impl ClipScrollTree {
         match self.currently_scrolling_node_id {
             Some(id) if id.pipeline_id() == pipeline_id => self.currently_scrolling_node_id = None,
             _ => {}
+        }
+    }
+
+    fn print_node(&self, id: &ClipId, pt: &mut PrintTree) {
+        let node = self.nodes.get(id).unwrap();
+
+        match node.node_type {
+            NodeType::Clip(ref info) => {
+                pt.new_level("Clip".to_owned());
+                pt.add_item(format!("screen_bounding_rect: {:?}", info.screen_bounding_rect));
+
+                pt.new_level(format!("Clip Sources [{}]", info.clip_sources.len()));
+                for source in &info.clip_sources {
+                    pt.add_item(format!("{:?}", source));
+                }
+                pt.end_level();
+            }
+            NodeType::ReferenceFrame(ref transform) => {
+                pt.new_level(format!("ReferenceFrame {:?}", transform));
+            }
+        }
+
+        pt.add_item(format!("content_size: {:?}", node.content_size));
+        pt.add_item(format!("scroll.offset: {:?}", node.scrolling.offset));
+        pt.add_item(format!("combined_local_viewport_rect: {:?}", node.combined_local_viewport_rect));
+        pt.add_item(format!("local_viewport_rect: {:?}", node.local_viewport_rect));
+        pt.add_item(format!("local_clip_rect: {:?}", node.local_clip_rect));
+        pt.add_item(format!("world_viewport_transform: {:?}", node.world_viewport_transform));
+        pt.add_item(format!("world_content_transform: {:?}", node.world_content_transform));
+
+        for child_id in &node.children {
+            self.print_node(child_id, pt);
+        }
+
+        pt.end_level();
+    }
+
+    #[allow(dead_code)]
+    pub fn print(&self) {
+        if !self.nodes.is_empty() {
+            let mut pt = PrintTree::new("clip_scroll tree");
+            self.print_node(&self.root_reference_frame_id, &mut pt);
         }
     }
 }
