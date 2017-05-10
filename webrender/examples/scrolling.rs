@@ -186,7 +186,7 @@ fn main() {
         Some(root_background_color),
         epoch,
         LayoutSize::new(width as f32, height as f32),
-        builder,
+        builder.finalize(),
         true);
     api.set_root_pipeline(pipeline_id);
     api.generate_frame(None);

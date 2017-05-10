@@ -371,7 +371,7 @@ impl Wrench {
         self.api.set_display_list(root_background_color,
                                   Epoch(frame_number),
                                   self.window_size_f32(),
-                                  display_list,
+                                  display_list.finalize(),
                                   false);
 
         for (id, offset) in scroll_offsets {
