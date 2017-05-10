@@ -21,9 +21,9 @@ use webrender_traits::{BuiltDisplayList, BuiltDisplayListIter, ClipAndScrollInfo
 use webrender_traits::{ClipId, ClipRegion, ColorF, DeviceUintRect, DeviceUintSize, DisplayItemRef};
 use webrender_traits::{Epoch, FilterOp, ImageDisplayItem, ItemRange, LayerPoint, LayerRect};
 use webrender_traits::{LayerSize, LayerToScrollTransform, LayoutSize, LayoutTransform};
-use webrender_traits::{MixBlendMode, PipelineId, ScrollEventPhase, ScrollLayerState};
-use webrender_traits::{ScrollLocation, ScrollPolicy, SpecificDisplayItem, StackingContext};
-use webrender_traits::{TileOffset, TransformStyle, WorldPoint};
+use webrender_traits::{MixBlendMode, PipelineId, ScrollClamping, ScrollEventPhase};
+use webrender_traits::{ScrollLayerState, ScrollLocation, ScrollPolicy, SpecificDisplayItem};
+use webrender_traits::{StackingContext, TileOffset, TransformStyle, WorldPoint};
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
 pub struct FrameId(pub u32);
@@ -178,9 +178,9 @@ impl Frame {
         self.clip_scroll_tree.get_scroll_node_state()
     }
 
-    /// Returns true if any nodes actually changed position or false otherwise.
-    pub fn scroll_nodes(&mut self, origin: LayerPoint, id: ClipId) -> bool {
-        self.clip_scroll_tree.scroll_nodes(origin, id)
+    /// Returns true if the node actually changed position or false otherwise.
+    pub fn scroll_node(&mut self, origin: LayerPoint, id: ClipId, clamp: ScrollClamping) -> bool {
+        self.clip_scroll_tree.scroll_node(origin, id, clamp)
     }
 
     /// Returns true if any nodes actually changed position or false otherwise.

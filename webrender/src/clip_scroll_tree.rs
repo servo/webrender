@@ -8,14 +8,15 @@ use print_tree::PrintTree;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
 use webrender_traits::{ClipId, LayerPoint, LayerRect, LayerToScrollTransform};
-use webrender_traits::{LayerToWorldTransform, PipelineId, ScrollEventPhase, ScrollLayerRect};
-use webrender_traits::{ScrollLayerState, ScrollLocation, WorldPoint, as_scroll_parent_rect};
+use webrender_traits::{LayerToWorldTransform, PipelineId, ScrollClamping, ScrollEventPhase};
+use webrender_traits::{ScrollLayerRect, ScrollLayerState, ScrollLocation, WorldPoint};
+use webrender_traits::as_scroll_parent_rect;
 
 pub type ScrollStates = HashMap<ClipId, ScrollingState, BuildHasherDefault<FnvHasher>>;
 
 pub struct ClipScrollTree {
     pub nodes: HashMap<ClipId, ClipScrollNode, BuildHasherDefault<FnvHasher>>,
-    pub pending_scroll_offsets: HashMap<ClipId, LayerPoint>,
+    pub pending_scroll_offsets: HashMap<ClipId, (LayerPoint, ScrollClamping)>,
 
     /// The ClipId of the currently scrolling node. Used to allow the same
     /// node to scroll even if a touch operation leaves the boundaries of that node.
@@ -132,23 +133,22 @@ impl ClipScrollTree {
         scroll_states
     }
 
-    pub fn scroll_nodes(&mut self, origin: LayerPoint, id: ClipId) -> bool {
+    pub fn scroll_node(&mut self, origin: LayerPoint, id: ClipId, clamp: ScrollClamping) -> bool {
         if id.is_reference_frame() {
             warn!("Tried to scroll a reference frame.");
             return false;
         }
 
         if self.nodes.is_empty() {
-            self.pending_scroll_offsets.insert(id, origin);
+            self.pending_scroll_offsets.insert(id, (origin, clamp));
             return false;
         }
 
-        let origin = LayerPoint::new(origin.x.max(0.0), origin.y.max(0.0));
         if let Some(node) = self.nodes.get_mut(&id) {
-            return node.set_scroll_origin(&origin);
+            return node.set_scroll_origin(&origin, clamp);
         }
 
-        self.pending_scroll_offsets.insert(id, origin);
+        self.pending_scroll_offsets.insert(id, (origin, clamp));
         false
     }
 
@@ -310,7 +310,7 @@ impl ClipScrollTree {
             node.finalize(&scrolling_state);
 
             if let Some(pending_offset) = self.pending_scroll_offsets.remove(clip_id) {
-                node.set_scroll_origin(&pending_offset);
+                node.set_scroll_origin(&pending_offset.0, pending_offset.1);
             }
         }
 

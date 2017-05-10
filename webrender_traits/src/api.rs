@@ -18,6 +18,12 @@ use {WebGLCommand, WebGLContextId};
 pub type TileSize = u16;
 
 #[derive(Clone, Deserialize, Serialize)]
+pub enum ScrollClamping {
+    ToContentBounds,
+    NoClamping,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>, u32),
     AddNativeFont(FontKey, NativeFontHandle),
@@ -48,7 +54,7 @@ pub enum ApiMsg {
     SetRootPipeline(PipelineId),
     SetWindowParameters(DeviceUintSize, DeviceUintRect),
     Scroll(ScrollLocation, WorldPoint, ScrollEventPhase),
-    ScrollNodeWithId(LayoutPoint, ClipId),
+    ScrollNodeWithId(LayoutPoint, ClipId, ScrollClamping),
     TickScrollingBounce,
     TranslatePointToLayerSpace(WorldPoint, MsgSender<(LayoutPoint, PipelineId)>),
     GetScrollNodeState(MsgSender<Vec<ScrollLayerState>>),
@@ -331,8 +337,8 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
     }
 
-    pub fn scroll_node_with_id(&self, new_scroll_origin: LayoutPoint, id: ClipId) {
-        let msg = ApiMsg::ScrollNodeWithId(new_scroll_origin, id);
+    pub fn scroll_node_with_id(&self, origin: LayoutPoint, id: ClipId, clamp: ScrollClamping) {
+        let msg = ApiMsg::ScrollNodeWithId(origin, id, clamp);
         self.api_sender.send(msg).unwrap();
     }
 

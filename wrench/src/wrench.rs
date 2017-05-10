@@ -375,7 +375,7 @@ impl Wrench {
                                   false);
 
         for (id, offset) in scroll_offsets {
-            self.api.scroll_node_with_id(*offset, *id);
+            self.api.scroll_node_with_id(*offset, *id, ScrollClamping::NoClamping);
         }
 
         self.api.generate_frame(None);
