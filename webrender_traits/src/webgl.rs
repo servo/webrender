@@ -63,6 +63,7 @@ pub enum WebGLCommand {
     FramebufferRenderbuffer(u32, u32, u32, Option<WebGLRenderbufferId>),
     FramebufferTexture2D(u32, u32, u32, Option<WebGLTextureId>, i32),
     GetBufferParameter(u32, u32, MsgSender<WebGLResult<WebGLParameter>>),
+    GetExtensions(MsgSender<String>),
     GetParameter(u32, MsgSender<WebGLResult<WebGLParameter>>),
     GetProgramParameter(WebGLProgramId, u32, MsgSender<WebGLResult<WebGLParameter>>),
     GetShaderParameter(WebGLShaderId, u32, MsgSender<WebGLResult<WebGLParameter>>),
@@ -124,6 +125,9 @@ pub enum WebGLCommand {
     Finish(MsgSender<()>),
     Flush,
     GenerateMipmap(u32),
+    CreateVertexArray(MsgSender<Option<WebGLVertexArrayId>>),
+    DeleteVertexArray(WebGLVertexArrayId),
+    BindVertexArray(Option<WebGLVertexArrayId>),
 }
 
 #[cfg(feature = "nightly")]
@@ -220,6 +224,7 @@ define_resource_id!(WebGLRenderbufferId);
 define_resource_id!(WebGLTextureId);
 define_resource_id!(WebGLProgramId);
 define_resource_id!(WebGLShaderId);
+define_resource_id!(WebGLVertexArrayId);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct WebGLContextId(pub usize);
@@ -317,6 +322,7 @@ impl fmt::Debug for WebGLCommand {
             FramebufferRenderbuffer(..) => "FramebufferRenderbuffer",
             FramebufferTexture2D(..) => "FramebufferTexture2D",
             GetBufferParameter(..) => "GetBufferParameter",
+            GetExtensions(..) => "GetExtensions",
             GetParameter(..) => "GetParameter",
             GetProgramParameter(..) => "GetProgramParameter",
             GetShaderParameter(..) => "GetShaderParameter",
@@ -378,6 +384,9 @@ impl fmt::Debug for WebGLCommand {
             Finish(..) => "Finish",
             Flush => "Flush",
             GenerateMipmap(..) => "GenerateMipmap",
+            CreateVertexArray(..) => "CreateVertexArray",
+            DeleteVertexArray(..) => "DeleteVertexArray",
+            BindVertexArray(..) => "BindVertexArray"
         };
 
         write!(f, "CanvasWebGLMsg::{}(..)", name)
@@ -500,6 +509,8 @@ impl WebGLCommand {
                 Self::shader_parameter(ctx.gl(), shader_id, param_id, chan),
             WebGLCommand::GetShaderPrecisionFormat(shader_type, precision_type, chan) =>
                 Self::shader_precision_format(ctx.gl(), shader_type, precision_type, chan),
+            WebGLCommand::GetExtensions(chan) =>
+                Self::get_extensions(ctx.gl(), chan),
             WebGLCommand::GetUniformLocation(program_id, name, chan) =>
                 Self::uniform_location(ctx.gl(), program_id, name, chan),
             WebGLCommand::GetShaderInfoLog(shader_id, chan) =>
@@ -610,6 +621,12 @@ impl WebGLCommand {
                 ctx.gl().flush(),
             WebGLCommand::GenerateMipmap(target) =>
                 ctx.gl().generate_mipmap(target),
+            WebGLCommand::CreateVertexArray(chan) =>
+                Self::create_vertex_array(ctx.gl(), chan),
+            WebGLCommand::DeleteVertexArray(id) =>
+                ctx.gl().delete_vertex_arrays(&[id.get()]),
+            WebGLCommand::BindVertexArray(id) =>
+                ctx.gl().bind_vertex_array(id.map_or(0, WebGLVertexArrayId::get)),
         }
 
         // FIXME: Use debug_assertions once tests are run with them
@@ -886,6 +903,10 @@ impl WebGLCommand {
         chan.send(result).unwrap();
     }
 
+    fn get_extensions(gl: &gl::Gl, chan: MsgSender<String>) {
+        chan.send(gl.get_string(gl::EXTENSIONS)).unwrap();
+    }
+
     fn uniform_location(gl: &gl::Gl,
                         program_id: WebGLProgramId,
                         name: String,
@@ -971,6 +992,16 @@ impl WebGLCommand {
             Some(unsafe { WebGLShaderId::new(shader) })
         };
         chan.send(shader).unwrap();
+    }
+
+    fn create_vertex_array(gl: &gl::Gl, chan: MsgSender<Option<WebGLVertexArrayId>>) {
+        let vao = gl.gen_vertex_arrays(1)[0];
+        let vao = if vao == 0 {
+            None
+        } else {
+            Some(unsafe { WebGLVertexArrayId::new(vao) })
+        };
+        chan.send(vao).unwrap();
     }
 
     #[inline]
