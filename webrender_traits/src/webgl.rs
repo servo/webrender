@@ -133,7 +133,7 @@ pub enum WebGLCommand {
 #[cfg(feature = "nightly")]
 macro_rules! define_resource_id_struct {
     ($name:ident) => {
-        #[derive(Clone, Copy, PartialEq)]
+        #[derive(Clone, Copy, Eq, Hash, PartialEq)]
         pub struct $name(NonZero<u32>);
 
         impl $name {
@@ -154,7 +154,7 @@ macro_rules! define_resource_id_struct {
 #[cfg(not(feature = "nightly"))]
 macro_rules! define_resource_id_struct {
     ($name:ident) => {
-        #[derive(Clone, Copy, PartialEq)]
+        #[derive(Clone, Copy, Eq, Hash, PartialEq)]
         pub struct $name(u32);
 
         impl $name {
