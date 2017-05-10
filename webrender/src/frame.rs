@@ -602,21 +602,12 @@ impl Frame {
                         pipeline_id: PipelineId,
                         context: &mut FlattenContext,
                         content_size: &LayoutSize) {
-        let needs_stacking_context = traversal.peek().map_or(false, |item| {
-            match item.item() {
-                &SpecificDisplayItem::PushStackingContext(_) => false,
-                _ => true,
-            }
-        });
-
         let root_bounds = LayerRect::new(LayerPoint::zero(), *content_size);
-        if needs_stacking_context {
-            context.builder.push_stacking_context(&LayerPoint::zero(),
-                                                  pipeline_id,
-                                                  CompositeOps::default(),
-                                                  root_bounds,
-                                                  TransformStyle::Flat);
-        }
+        context.builder.push_stacking_context(&LayerPoint::zero(),
+                                              pipeline_id,
+                                              CompositeOps::default(),
+                                              root_bounds,
+                                              TransformStyle::Flat);
 
         // We do this here, rather than above because we want any of the top-level
         // stacking contexts in the display list to be treated like root stacking contexts.
@@ -652,9 +643,7 @@ impl Frame {
                 PrimitiveFlags::Scrollbar(self.clip_scroll_tree.topmost_scrolling_node_id(), 4.0));
         }
 
-        if needs_stacking_context {
-            context.builder.pop_stacking_context();
-        }
+        context.builder.pop_stacking_context();
     }
 
     fn flatten_items<'a>(&mut self,
