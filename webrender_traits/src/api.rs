@@ -8,8 +8,8 @@ use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::cell::Cell;
 use std::fmt;
 use std::marker::PhantomData;
-use {BuiltDisplayListDescriptor, ClipId, ColorF, DeviceIntPoint, DeviceIntSize};
-use {DeviceUintRect, DeviceUintSize, DisplayListBuilder, FontKey, GlyphDimensions, GlyphKey};
+use {BuiltDisplayList, BuiltDisplayListDescriptor, ClipId, ColorF, DeviceIntPoint, DeviceIntSize};
+use {DeviceUintRect, DeviceUintSize, FontKey, GlyphDimensions, GlyphKey};
 use {ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutSize, LayoutTransform};
 use {NativeFontHandle, WorldPoint};
 #[cfg(feature = "webgl")]
@@ -303,9 +303,8 @@ impl RenderApi {
                             background_color: Option<ColorF>,
                             epoch: Epoch,
                             viewport_size: LayoutSize,
-                            display_list_builder: DisplayListBuilder,
+                            (pipeline_id, content_size, display_list): (PipelineId, LayoutSize, BuiltDisplayList),
                             preserve_frame_state: bool) {
-        let (pipeline_id, content_size, display_list) = display_list_builder.finalize();
         let (display_list_data, display_list_descriptor) = display_list.into_data();
         let msg = ApiMsg::SetDisplayList(background_color,
                                          epoch,
