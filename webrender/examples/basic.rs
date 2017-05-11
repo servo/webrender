@@ -195,6 +195,7 @@ fn push_sub_clip(api: &RenderApi, builder: &mut DisplayListBuilder, bounds: &Lay
                  -> ClipRegionToken {
     let mask_image = api.generate_image_key();
     api.add_image(mask_image,
+                  None,
                   ImageDescriptor::new(2, 2, ImageFormat::A8, true),
                   ImageData::new(vec![0, 80, 180, 255]),
                   None);
