@@ -791,7 +791,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 self.frame_writer.fonts.insert(*key, CachedFont::Native(native_font_handle.clone()));
             }
 
-            ApiMsg::AddImage(ref key, ref descriptor, ref data, ref tiling) => {
+            ApiMsg::AddImage(ref key, _, ref descriptor, ref data, ref tiling) => {
                 let stride = descriptor.stride.unwrap_or(
                     descriptor.width * descriptor.format.bytes_per_pixel().unwrap()
                 );
@@ -810,7 +810,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 });
             }
 
-            ApiMsg::UpdateImage(ref key, ref descriptor, ref img_data, _dirty_rect) => {
+            ApiMsg::UpdateImage(ref key, _, ref descriptor, ref img_data, _dirty_rect) => {
                 if let Some(ref mut data) = self.frame_writer.images.get_mut(key) {
                     assert_eq!(data.width, descriptor.width);
                     assert_eq!(data.height, descriptor.height);
