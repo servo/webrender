@@ -27,6 +27,7 @@ use webrender_traits::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescript
 use webrender_traits::{GlyphOptions, GlyphInstance, TileOffset, TileSize};
 use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest, BlobImageData, ImageStore};
 use webrender_traits::{ExternalImageData, ExternalImageType, LayoutPoint};
+use webrender_traits::{ImageChannel, IMAGE_CHANNEL_MAX_SIZE};
 use rayon::ThreadPool;
 
 const DEFAULT_TILE_SIZE: TileSize = 512;
@@ -115,8 +116,10 @@ struct ImageResource {
     dirty_rect: Option<DeviceUintRect>
 }
 
+type ImageResourcesType = [Option<ImageResource>; IMAGE_CHANNEL_MAX_SIZE];
+
 struct ImageTemplates {
-    images: HashMap<ImageKey, ImageResource, BuildHasherDefault<FnvHasher>>,
+    images: HashMap<ImageKey, ImageResourcesType, BuildHasherDefault<FnvHasher>>,
 }
 
 impl ImageTemplates {
@@ -126,20 +129,29 @@ impl ImageTemplates {
         }
     }
 
-    fn insert(&mut self, key: ImageKey, resource: ImageResource) {
-        self.images.insert(key, resource);
+    fn insert(&mut self, key: ImageKey, channel_index: ImageChannel, resource: ImageResource) {
+        let channel_resources = self.images.entry(key).or_insert([None, None, None]);
+        channel_resources[channel_index as usize] = Some(resource);
     }
 
-    fn remove(&mut self, key: ImageKey) -> Option<ImageResource> {
+    fn remove(&mut self, key: ImageKey) -> Option<ImageResourcesType> {
         self.images.remove(&key)
     }
 
-    fn get(&self, key: ImageKey) -> Option<&ImageResource> {
-        self.images.get(&key)
+    fn get(&self, key: ImageKey, channel_index: ImageChannel) -> Option<&ImageResource> {
+        if let Some(channel_resources) = self.images.get(&key) {
+            channel_resources[channel_index as usize].as_ref()
+        } else {
+            None
+        }
     }
 
-    fn get_mut(&mut self, key: ImageKey) -> Option<&mut ImageResource> {
-        self.images.get_mut(&key)
+    fn get_mut(&mut self, key: ImageKey, channel_index: ImageChannel) -> Option<&mut ImageResource> {
+        if let Some(channel_resources) = self.images.get_mut(&key) {
+            channel_resources[channel_index as usize].as_mut()
+        } else {
+            None
+        }
     }
 }
 
