@@ -90,6 +90,22 @@ impl ImageDescriptor {
     }
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub enum ImageChannel {
+    Channel0 = 0,
+    Channel1 = 1,
+    Channel2 = 2,
+}
+pub const IMAGE_CHANNEL_MAX_SIZE: usize = 3;
+pub const IMAGE_CHANNELS: [ImageChannel; IMAGE_CHANNEL_MAX_SIZE] = [
+    ImageChannel::Channel0, ImageChannel::Channel1, ImageChannel::Channel2,
+];
+impl ImageChannel {
+    pub fn get_image_channel_value(channel_index: Option<ImageChannel>) -> ImageChannel {
+        channel_index.unwrap_or(ImageChannel::Channel0)
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ImageData {
     Raw(Arc<Vec<u8>>),
