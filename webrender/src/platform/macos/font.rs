@@ -26,6 +26,10 @@ pub struct FontContext {
     gamma_lut: GammaLut,
 }
 
+// core text is safe to use on multiple threads and non-shareable resources are
+// all hidden inside their font context.
+unsafe impl Send for FontContext {}
+
 pub struct RasterizedGlyph {
     pub width: u32,
     pub height: u32,
@@ -125,6 +129,10 @@ impl FontContext {
             ct_fonts: HashMap::new(),
             gamma_lut: GammaLut::new(contrast, gamma, gamma),
         }
+    }
+
+    pub fn has_font(&self, font_key: &FontKey) -> bool {
+        self.cg_fonts.contains_key(font_key)
     }
 
     pub fn add_raw_font(&mut self, font_key: &FontKey, bytes: &[u8], index: u32) {
