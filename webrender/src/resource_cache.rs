@@ -96,6 +96,7 @@ impl RenderedGlyphKey {
 }
 
 pub struct ImageProperties {
+    pub channel_index: ImageChannel,
     pub descriptor: ImageDescriptor,
     pub external_image: Option<ExternalImageData>,
     pub tiling: Option<TileSize>,

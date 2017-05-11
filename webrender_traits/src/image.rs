@@ -35,7 +35,6 @@ pub enum ExternalImageType {
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct ExternalImageData {
     pub id: ExternalImageId,
-    pub channel_index: u8,
     pub image_type: ExternalImageType,
 }
 
