@@ -1713,12 +1713,7 @@ impl Device {
         let (gl_format, bpp, data) = match self.textures.get(&texture_id).unwrap().format {
             ImageFormat::A8 => {
                 if cfg!(any(target_arch="arm", target_arch="aarch64")) {
-                    for byte in data {
-                        expanded_data.push(*byte);
-                        expanded_data.push(*byte);
-                        expanded_data.push(*byte);
-                        expanded_data.push(*byte);
-                    }
+                    expanded_data.extend(data.iter().flat_map(|byte| repeat(*byte).take(4)));
                     (get_gl_format_bgra(self.gl()), 4, expanded_data.as_slice())
                 } else {
                     (GL_FORMAT_A, 1, data)
@@ -1738,8 +1733,6 @@ impl Device {
         // Take the stride into account for all rows, except the last one.
         let len = bpp * row_length * (height - 1)
                 + width * bpp;
-
-        assert!(data.len() as u32 >= len);
         let data = &data[0..len as usize];
 
         if let Some(..) = stride {
