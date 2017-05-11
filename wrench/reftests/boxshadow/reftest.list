@@ -1,6 +1,6 @@
 != inset-simple.yaml inset-simple-ref.yaml
 != inset-spread.yaml inset-spread-ref.yaml
-== inset-no-blur-radius.yaml inset-no-blur-radius-ref.png
+#== inset-no-blur-radius.yaml inset-no-blur-radius-ref.png #temporary disabled, see #1239
 == inset-spread-large.yaml inset-spread-large-ref.yaml
 fuzzy(1,396) == inset-large-offset.yaml inset-large-offset-ref.png
 

@@ -8,4 +8,3 @@ include border/reftest.list
 include gradient/reftest.list
 include text/reftest.list
 include split/reftest.list
-include aa/reftest.list
