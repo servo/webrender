@@ -180,7 +180,7 @@ impl FontContext {
                                                   dimensions.height as usize *
                                                   4);
 
-        let offset_x = dimensions.left as i32 - unsafe { (*slot).bitmap_left };
+        let offset_x = dimensions.left - unsafe { (*slot).bitmap_left };
 
         for y in 0 .. dimensions.height {
             let src_y = y as i32 + dimensions.top - unsafe { (*slot).bitmap_top };
@@ -190,50 +190,49 @@ impl FontContext {
                 }
                 continue
             }
-            let row = unsafe {
-                let base = bitmap.buffer.offset((src_y * bitmap.pitch) as isize);
-                slice::from_raw_parts(base, bitmap.width as usize)
+            let base = unsafe {
+                bitmap.buffer.offset((src_y * bitmap.pitch) as isize)
             };
+            // determine the destination range of texels that `bitmap` provides data for
+            let dst_start = cmp::max(0, -offset_x);
+            let dst_end = cmp::min(dimensions.width as i32, bitmap.width as i32 - offset_x);
+            for _x in 0 .. dst_start {
+                final_buffer.extend_from_slice(&[0xff, 0xff, 0xff, 0]);
+            }
             match pixel_mode {
                 FT_Pixel_Mode::FT_PIXEL_MODE_MONO => {
-                    for x in 0 .. dimensions.width {
-                        let src_x = x as i32 + offset_x;
+                    for x in dst_start .. dst_end {
+                        let src_x = x + offset_x;
                         let mask = 0x80 >> (src_x & 0x7);
-                        let alpha = if src_x >= 0 && src_x < 8 * bitmap.width as i32 &&
-                                       row[(src_x >> 3) as usize] & mask != 0 {
-                            0xff
-                        } else {
-                            0
+                        let byte = unsafe {
+                            *base.offset((src_x >> 3) as isize)
                         };
+                        let alpha = if byte & mask != 0 { 0xff } else { 0 };
                         final_buffer.extend_from_slice(&[0xff, 0xff, 0xff, alpha]);
                     }
                 }
                 FT_Pixel_Mode::FT_PIXEL_MODE_GRAY => {
-                    for _x in 0 .. -offset_x {
-                        final_buffer.extend_from_slice(&[0xff, 0xff, 0xff, 0]);
-                    }
-                    let cut_length = cmp::max(0, (offset_x + dimensions.width as i32));
-                    for &alpha in &row[.. cmp::min(row.len(), cut_length as usize)] {
+                    for x in dst_start .. dst_end {
+                        let alpha = unsafe {
+                            *base.offset((x + offset_x) as isize)
+                        };
                         final_buffer.extend_from_slice(&[0xff, 0xff, 0xff, alpha]);
-                    }
-                    for _x in bitmap.width as i32 - offset_x .. dimensions.width as i32 {
-                        final_buffer.extend_from_slice(&[0xff, 0xff, 0xff, 0]);
                     }
                 }
                 FT_Pixel_Mode::FT_PIXEL_MODE_LCD => {
-                    assert_eq!(bitmap.width % 3, 0);
-                    for x in 0 .. dimensions.width {
-                        let src_x = (x as i32 + offset_x) * 3;
-                        let slice = if src_x >= 0 && src_x < bitmap.width as i32 {
-                            let t = &row[src_x as usize ..];
-                            [t[2], t[1], t[0], 0xff]
-                        } else {
-                            [0xff, 0xff, 0xff, 0]
+                    for x in dst_start .. dst_end {
+                        let src_x = ((x + offset_x) * 3) as isize;
+                        assert!(src_x+2 < bitmap.pitch as isize);
+                        let t = unsafe {
+                            slice::from_raw_parts(base.offset(src_x), 3)
                         };
-                        final_buffer.extend_from_slice(&slice);
+                        final_buffer.extend_from_slice(&[t[2], t[1], t[0], 0xff]);
                     }
                 }
                 _ => panic!("Unsupported {:?}", pixel_mode)
+            }
+            for _x in dst_end .. dimensions.width as i32 {
+                final_buffer.extend_from_slice(&[0xff, 0xff, 0xff, 0]);
             }
             assert_eq!(final_buffer.len(), ((y+1) * dimensions.width * 4) as usize);
         }
