@@ -436,7 +436,7 @@ impl Frame {
                                                     info.context_id);
             }
             SpecificDisplayItem::Image(ref info) => {
-                let image = context.resource_cache.get_image_properties(info.image_key);
+                let image = context.resource_cache.get_image_properties(info.image_key, None);
                 if let Some(tile_size) = image.tiling {
                     // The image resource is tiled. We have to generate an image primitive
                     // for each tile.
