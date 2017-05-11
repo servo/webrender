@@ -868,7 +868,7 @@ impl FrameBuilder {
             return;
         }
 
-        if blur_radius == 0.0 && spread_radius == 0.0 && border_radius != 0.0 {
+        if blur_radius == 0.0 && border_radius != 0.0 {
             self.fill_box_shadow_rect(clip_and_scroll,
                                       box_bounds,
                                       bs_rect,
@@ -951,6 +951,7 @@ impl FrameBuilder {
                 }
             }
             BoxShadowKind::Shadow(rects) => {
+                assert!(blur_radius > 0.0);
                 if clip_mode == BoxShadowClipMode::Inset {
                     self.fill_box_shadow_rect(clip_and_scroll,
                                               box_bounds,
