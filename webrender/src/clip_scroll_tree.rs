@@ -309,8 +309,8 @@ impl ClipScrollTree {
 
             node.finalize(&scrolling_state);
 
-            if let Some(pending_offset) = self.pending_scroll_offsets.remove(clip_id) {
-                node.set_scroll_origin(&pending_offset.0, pending_offset.1);
+            if let Some((pending_offset, clamping)) = self.pending_scroll_offsets.remove(clip_id) {
+                node.set_scroll_origin(&pending_offset, clamping);
             }
         }
 

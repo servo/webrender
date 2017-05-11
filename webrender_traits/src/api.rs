@@ -18,12 +18,6 @@ use {WebGLCommand, WebGLContextId};
 pub type TileSize = u16;
 
 #[derive(Clone, Deserialize, Serialize)]
-pub enum ScrollClamping {
-    ToContentBounds,
-    NoClamping,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>, u32),
     AddNativeFont(FontKey, NativeFontHandle),
@@ -153,6 +147,11 @@ impl ExternalEvent {
     pub fn unwrap(self) -> usize { self.raw }
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+pub enum ScrollClamping {
+    ToContentBounds,
+    NoClamping,
+}
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct RenderApiSender {
