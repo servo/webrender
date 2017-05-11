@@ -158,8 +158,8 @@ impl ImageTemplates {
 }
 
 impl ImageStore for ImageTemplates {
-    fn get_image(&self, key: ImageKey) -> Option<(&ImageData, &ImageDescriptor)> {
-        self.images.get(&key).map(|resource|{ (&resource.data, &resource.descriptor) })
+    fn get_image(&self, key: ImageKey, channel_index: ImageChannel) -> Option<(&ImageData, &ImageDescriptor)> {
+        self.get(key, channel_index).map(|resource|{ (&resource.data, &resource.descriptor) })
     }
 }
 

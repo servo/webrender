@@ -184,5 +184,5 @@ pub struct BlobImageRequest {
 }
 
 pub trait ImageStore {
-    fn get_image(&self, key: ImageKey) -> Option<(&ImageData, &ImageDescriptor)>;
+    fn get_image(&self, key: ImageKey, channel_index: ImageChannel) -> Option<(&ImageData, &ImageDescriptor)>;
 }
