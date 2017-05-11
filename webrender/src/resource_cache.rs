@@ -7,7 +7,7 @@ use device::TextureFilter;
 use fnv::FnvHasher;
 use frame::FrameId;
 use internal_types::{FontTemplate, SourceTexture, TextureUpdateList};
-use platform::font::{FontContext, RasterizedGlyph};
+use platform::font::{FontContext};
 use profiler::TextureCacheProfileCounters;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -28,12 +28,12 @@ use webrender_traits::{GlyphOptions, GlyphInstance, TileOffset, TileSize};
 use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest, BlobImageData, ImageStore};
 use webrender_traits::{ExternalImageData, ExternalImageType, LayoutPoint};
 use rayon::ThreadPool;
+use font_renderer::{GlyphCache};
+use font_renderer::{GlyphRequest, GlyphRasterJob};
 
 const DEFAULT_TILE_SIZE: TileSize = 512;
 
 thread_local!(pub static FONT_CONTEXT: RefCell<FontContext> = RefCell::new(FontContext::new()));
-
-type GlyphCache = ResourceClassCache<RenderedGlyphKey, Option<TextureCacheItemId>>;
 
 /// Message sent from the resource cache to the glyph cache thread.
 enum GlyphCacheMsg {
@@ -68,30 +68,6 @@ pub struct CacheItem {
     pub texture_id: SourceTexture,
     pub uv0: DevicePoint,
     pub uv1: DevicePoint,
-}
-
-#[derive(Clone, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
-pub struct RenderedGlyphKey {
-    pub key: GlyphKey,
-    pub render_mode: FontRenderMode,
-    pub glyph_options: Option<GlyphOptions>,
-}
-
-impl RenderedGlyphKey {
-    pub fn new(font_key: FontKey,
-               size: Au,
-               color: ColorF,
-               index: u32,
-               point: LayoutPoint,
-               render_mode: FontRenderMode,
-               glyph_options: Option<GlyphOptions>) -> RenderedGlyphKey {
-        RenderedGlyphKey {
-            key: GlyphKey::new(font_key, size, color, index,
-                               point, render_mode),
-            render_mode: render_mode,
-            glyph_options: glyph_options,
-        }
-    }
 }
 
 pub struct ImageProperties {
@@ -181,7 +157,7 @@ impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resourc
         self.resources.get(key).expect("Didn't find a cached resource with that ID!")
     }
 
-    fn insert(&mut self, key: K, value: V, frame: FrameId) {
+    pub fn insert(&mut self, key: K, value: V, frame: FrameId) {
         self.last_access_times.insert(key.clone(), frame);
         self.resources.insert(key, value);
     }
@@ -230,11 +206,6 @@ impl Into<BlobImageRequest> for ImageRequest {
             tile: self.tile,
         }
     }
-}
-
-struct GlyphRasterJob {
-    key: RenderedGlyphKey,
-    result: Option<RasterizedGlyph>,
 }
 
 struct WebGLTexture {
@@ -518,7 +489,7 @@ impl ResourceCache {
                          mut f: F) -> SourceTexture where F: FnMut(usize, DevicePoint, DevicePoint) {
         debug_assert_eq!(self.state, State::QueryResources);
         let cache = self.cached_glyphs.as_ref().unwrap();
-        let mut glyph_key = RenderedGlyphKey::new(font_key,
+        let mut glyph_key = GlyphRequest::new(font_key,
                                                   size,
                                                   color,
                                                   0,
@@ -979,7 +950,7 @@ fn spawn_glyph_cache_thread(workers: Arc<ThreadPool>) -> (Sender<GlyphCacheMsg>,
                     let glyph_cache = glyph_cache.as_mut().unwrap();
 
                     for glyph_instance in glyph_instances {
-                        let glyph_key = RenderedGlyphKey::new(key,
+                        let glyph_key = GlyphRequest::new(key,
                                                               size,
                                                               color,
                                                               glyph_instance.index,

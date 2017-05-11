@@ -53,6 +53,7 @@ mod debug_font_data;
 mod debug_render;
 mod device;
 mod ellipse;
+mod font_renderer;
 mod frame;
 mod frame_builder;
 mod freelist;
