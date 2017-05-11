@@ -145,14 +145,14 @@ impl RenderBackend {
                             };
                             tx.send(glyph_dimensions).unwrap();
                         }
-                        ApiMsg::AddImage(id, descriptor, data, tiling) => {
+                        ApiMsg::AddImage(id, channel, descriptor, data, tiling) => {
                             if let ImageData::Raw(ref bytes) = data {
                                 profile_counters.resources.image_templates.inc(bytes.len());
                             }
-                            self.resource_cache.add_image_template(id, descriptor, data, tiling);
+                            self.resource_cache.add_image_template(id, channel, descriptor, data, tiling);
                         }
-                        ApiMsg::UpdateImage(id, descriptor, bytes, dirty_rect) => {
-                            self.resource_cache.update_image_template(id, descriptor, bytes, dirty_rect);
+                        ApiMsg::UpdateImage(id, channel, descriptor, bytes, dirty_rect) => {
+                            self.resource_cache.update_image_template(id, channel, descriptor, bytes, dirty_rect);
                         }
                         ApiMsg::DeleteImage(id) => {
                             self.resource_cache.delete_image_template(id);

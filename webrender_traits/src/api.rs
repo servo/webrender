@@ -10,7 +10,7 @@ use std::fmt;
 use std::marker::PhantomData;
 use {BuiltDisplayList, BuiltDisplayListDescriptor, ClipId, ColorF, DeviceIntPoint, DeviceIntSize};
 use {DeviceUintRect, DeviceUintSize, FontKey, GlyphDimensions, GlyphKey};
-use {ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutSize, LayoutTransform};
+use {ImageChannel, ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutSize, LayoutTransform};
 use {NativeFontHandle, WorldPoint};
 #[cfg(feature = "webgl")]
 use {WebGLCommand, WebGLContextId};
@@ -31,9 +31,9 @@ pub enum ApiMsg {
     /// Gets the glyph dimensions
     GetGlyphDimensions(Vec<GlyphKey>, MsgSender<Vec<Option<GlyphDimensions>>>),
     /// Adds an image from the resource cache.
-    AddImage(ImageKey, ImageDescriptor, ImageData, Option<TileSize>),
+    AddImage(ImageKey, Option<ImageChannel>, ImageDescriptor, ImageData, Option<TileSize>),
     /// Updates the the resource cache with the new image data.
-    UpdateImage(ImageKey, ImageDescriptor, ImageData, Option<DeviceUintRect>),
+    UpdateImage(ImageKey, Option<ImageChannel>, ImageDescriptor, ImageData, Option<DeviceUintRect>),
     /// Drops an image from the resource cache.
     DeleteImage(ImageKey),
     CloneApi(MsgSender<IdNamespace>),
@@ -241,10 +241,11 @@ impl RenderApi {
     /// Adds an image identified by the `ImageKey`.
     pub fn add_image(&self,
                      key: ImageKey,
+                     channel_index: Option<ImageChannel>,
                      descriptor: ImageDescriptor,
                      data: ImageData,
                      tiling: Option<TileSize>) {
-        let msg = ApiMsg::AddImage(key, descriptor, data, tiling);
+        let msg = ApiMsg::AddImage(key, channel_index, descriptor, data, tiling);
         self.api_sender.send(msg).unwrap();
     }
 
@@ -254,10 +255,11 @@ impl RenderApi {
     // TODO: Support changing dimensions (and format) during image update?
     pub fn update_image(&self,
                         key: ImageKey,
+                        channel_index: Option<ImageChannel>,
                         descriptor: ImageDescriptor,
                         data: ImageData,
                         dirty_rect: Option<DeviceUintRect>) {
-        let msg = ApiMsg::UpdateImage(key, descriptor, data, dirty_rect);
+        let msg = ApiMsg::UpdateImage(key, channel_index, descriptor, data, dirty_rect);
         self.api_sender.send(msg).unwrap();
     }
 
