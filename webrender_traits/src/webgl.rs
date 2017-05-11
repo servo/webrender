@@ -73,6 +73,7 @@ pub enum WebGLCommand {
     GetAttribLocation(WebGLProgramId, String, MsgSender<Option<i32>>),
     GetUniformLocation(WebGLProgramId, String, MsgSender<Option<i32>>),
     GetVertexAttrib(u32, u32, MsgSender<WebGLResult<WebGLParameter>>),
+    GetVertexAttribOffset(u32, u32, MsgSender<WebGLResult<isize>>),
     GetShaderInfoLog(WebGLShaderId, MsgSender<String>),
     GetProgramInfoLog(WebGLProgramId, MsgSender<String>),
     PolygonOffset(f32, f32),
@@ -334,6 +335,7 @@ impl fmt::Debug for WebGLCommand {
             GetShaderInfoLog(..) => "GetShaderInfoLog",
             GetProgramInfoLog(..) => "GetProgramInfoLog",
             GetVertexAttrib(..) => "GetVertexAttrib",
+            GetVertexAttribOffset(..) => "GetVertexAttribOffset",
             PolygonOffset(..) => "PolygonOffset",
             ReadPixels(..) => "ReadPixels",
             RenderbufferStorage(..) => "RenderbufferStorage",
@@ -499,6 +501,8 @@ impl WebGLCommand {
                 Self::attrib_location(ctx.gl(), program_id, name, chan),
             WebGLCommand::GetVertexAttrib(index, pname, chan) =>
                 Self::vertex_attrib(ctx.gl(), index, pname, chan),
+            WebGLCommand::GetVertexAttribOffset(index, pname, chan) =>
+                Self::vertex_attrib_offset(ctx.gl(), index, pname, chan),
             WebGLCommand::GetBufferParameter(target, param_id, chan) =>
                 Self::buffer_parameter(ctx.gl(), target, param_id, chan),
             WebGLCommand::GetParameter(param_id, chan) =>
@@ -827,6 +831,18 @@ impl WebGLCommand {
                 // gl::VERTEX_ATTRIB_ARRAY_BUFFER_BINDING should return WebGLBuffer
                 _ => Err(WebGLError::InvalidEnum),
             }
+        };
+
+        chan.send(result).unwrap();
+    }
+
+    fn vertex_attrib_offset(gl: &gl::Gl,
+                            index: u32,
+                            pname: u32,
+                            chan: MsgSender<WebGLResult<isize>>) {
+        let result = match pname {
+                gl::VERTEX_ATTRIB_ARRAY_POINTER => Ok(gl.get_vertex_attrib_pointer_v(index, pname)),
+                _ => Err(WebGLError::InvalidEnum),
         };
 
         chan.send(result).unwrap();
