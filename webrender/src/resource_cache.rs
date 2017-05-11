@@ -447,7 +447,9 @@ impl ResourceCache {
                     None => false,
                 };
 
-                if !same_epoch && self.blob_image_requests.insert(request) {
+                if same_epoch {
+                    self.cached_images.mark_as_needed(&request, self.current_frame_id);
+                } else if self.blob_image_requests.insert(request) {
                     let (offset, w, h) = match template.tiling {
                         Some(tile_size) => {
                             let tile_offset = request.tile.unwrap();
