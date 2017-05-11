@@ -127,6 +127,10 @@ impl FontContext {
         }
     }
 
+    pub fn has_font(&self, key: &font_key) -> bool {
+        self.cg_fonts.contains_key(key)
+    }
+
     pub fn add_raw_font(&mut self, font_key: &FontKey, bytes: &[u8], index: u32) {
         if self.cg_fonts.contains_key(font_key) {
             return
