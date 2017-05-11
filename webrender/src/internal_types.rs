@@ -267,6 +267,7 @@ pub enum TextureUpdateOp {
     Create {
       width: u32,
       height: u32,
+      channel_index: ImageChannel,
       format: ImageFormat,
       filter: TextureFilter,
       mode: RenderTargetMode,
@@ -277,6 +278,7 @@ pub enum TextureUpdateOp {
         page_pos_y: u32,
         width: u32,
         height: u32,
+        channel_index: ImageChannel,
         data: Arc<Vec<u8>>,
         stride: Option<u32>,
         offset: u32,
@@ -284,13 +286,14 @@ pub enum TextureUpdateOp {
     UpdateForExternalBuffer {
         rect: DeviceUintRect,
         id: ExternalImageId,
-        channel_index: u8,
+        channel_index: ImageChannel,
         stride: Option<u32>,
         offset: u32,
     },
     Grow {
         width: u32,
         height: u32,
+        channel_index: ImageChannel,
         format: ImageFormat,
         filter: TextureFilter,
         mode: RenderTargetMode,
