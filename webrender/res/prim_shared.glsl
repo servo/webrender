@@ -817,21 +817,11 @@ vec2 init_transform_fs(vec3 local_pos, out float fragment_alpha) {
     fragment_alpha = 1.0;
     vec2 pos = local_pos.xy / local_pos.z;
 
-    // Because the local rect is placed on whole coordinates, but the interpolation
-    // occurs at pixel centers, we need to offset the signed distance by that amount.
-    // In the simple case of no zoom, and no transform, this is 0.5. However, we
-    // need to scale this by the amount that the local rect is changing by per
-    // fragment, based on the current zoom and transform.
-    vec2 fw = fwidth(pos.xy);
-    vec2 dxdy = 0.5 * fw;
-
-    // Now get the actual signed distance. Inset the local rect by the offset amount
-    // above to get correct distance values. This ensures that we only apply
-    // anti-aliasing when the fragment has partial coverage.
-    float d = signed_distance_rect(pos, vLocalBounds.xy + dxdy, vLocalBounds.zw - dxdy);
+    // Now get the actual signed distance.
+    float d = signed_distance_rect(pos, vLocalBounds.xy, vLocalBounds.zw);
 
     // Find the appropriate distance to apply the AA smoothstep over.
-    float afwidth = 0.5 / length(fw);
+    float afwidth = 0.5 * length(fwidth(pos.xy));
 
     // Only apply AA to fragments outside the signed distance field.
     fragment_alpha = 1.0 - smoothstep(0.0, afwidth, d);
