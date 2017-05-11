@@ -183,7 +183,7 @@ impl FontContext {
         let offset_x = dimensions.left - unsafe { (*slot).bitmap_left };
 
         for y in 0 .. dimensions.height {
-            let src_y = y as i32 + dimensions.top - unsafe { (*slot).bitmap_top };
+            let src_y = y as i32 - dimensions.top + unsafe { (*slot).bitmap_top };
             if src_y < 0 || src_y >= bitmap.rows as i32 {
                 for _x in 0 .. dimensions.width {
                     final_buffer.extend_from_slice(&[0xff, 0xff, 0xff, 0]);
