@@ -1,6 +1,6 @@
-== premultiplied-aligned.yaml blank.yaml
-== premultiplied-angle.yaml blank.yaml
-== premultiplied-radial.yaml blank.yaml
+== premultiplied-aligned.yaml premultiplied-aligned.png
+== premultiplied-angle.yaml premultiplied-angle.png
+== premultiplied-radial.yaml premultiplied-radial.png
 
 == linear.yaml linear-ref.png
 == linear-reverse.yaml linear-ref.png
