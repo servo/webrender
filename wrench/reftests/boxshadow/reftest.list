@@ -2,6 +2,7 @@
 != inset-spread.yaml inset-spread-ref.yaml
 == inset-no-blur-radius.yaml inset-no-blur-radius-ref.png
 == inset-spread-large.yaml inset-spread-large-ref.yaml
+== boxshadow-spread-only.yaml boxshadow-spread-only-ref.png
 fuzzy(1,396) == inset-large-offset.yaml inset-large-offset-ref.png
 
 # fuzzy because the test is a blur. Just want to test that clip out works.
