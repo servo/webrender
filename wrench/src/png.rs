@@ -62,6 +62,9 @@ pub fn png(wrench: &mut Wrench,
                                                 gl::RGBA,
                                                 gl::UNSIGNED_BYTE);
 
+    let mut out_path = reader.yaml_path().clone();
+    out_path.set_extension("png");
+
     let device_size = DeviceUintSize::new(size.0, size.1);
-    save_flipped("out.png", &data, device_size);
+    save_flipped(out_path, &data, device_size);
 }
