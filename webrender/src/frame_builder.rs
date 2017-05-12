@@ -741,7 +741,7 @@ impl FrameBuilder {
                     clip_region: &ClipRegion,
                     font_key: FontKey,
                     size: Au,
-                    blur_radius: Au,
+                    blur_radius: f32,
                     color: &ColorF,
                     glyph_range: ItemRange<GlyphInstance>,
                     glyph_count: usize,
@@ -762,7 +762,7 @@ impl FrameBuilder {
         // If we're using sub-pixel AA by default, but we are
         // doing a text-blur, we need to force alpha AA for the blur
         // to produce correct results.
-        if render_mode == FontRenderMode::Subpixel && blur_radius != Au(0) {
+        if render_mode == FontRenderMode::Subpixel && blur_radius != 0.0 {
             render_mode = FontRenderMode::Alpha;
         }
 

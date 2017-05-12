@@ -560,7 +560,7 @@ impl DisplayListBuilder {
                      font_key: FontKey,
                      color: ColorF,
                      size: Au,
-                     blur_radius: Au,
+                     blur_radius: f32,
                      glyph_options: Option<GlyphOptions>) {
         // Sanity check - anything with glyphs bigger than this
         // is probably going to consume too much memory to render

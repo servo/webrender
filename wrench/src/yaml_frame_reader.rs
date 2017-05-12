@@ -462,7 +462,7 @@ impl YamlFrameReader {
     fn handle_text(&mut self, wrench: &mut Wrench, clip_region: &ClipRegion, item: &Yaml) {
         let size = item["size"].as_pt_to_au().unwrap_or(Au::from_f32_px(16.0));
         let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
-        let blur_radius = item["blur-radius"].as_px_to_au().unwrap_or(Au::from_f32_px(0.0));
+        let blur_radius = item["blur-radius"].as_force_f32().unwrap_or(0.0);
 
         let (font_key, native_key) = if !item["family"].is_badvalue() {
             wrench.font_key_from_yaml_table(item)
