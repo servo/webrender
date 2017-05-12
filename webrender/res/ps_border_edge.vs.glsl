@@ -108,6 +108,9 @@ void main(void) {
     // TODO(gw): Now that all border styles are supported, the switch
     //           statement below can be tidied up quite a bit.
 
+    float style;
+    bool color_flip;
+
     RectWithSize segment_rect;
     switch (sub_part) {
         case 0: {
@@ -115,8 +118,8 @@ void main(void) {
             segment_rect.size = vec2(border.widths.x, corners.bl_inner.y - corners.tl_inner.y);
             vec4 adjusted_widths = get_effective_border_widths(border, int(border.style.x));
             write_edge_distance(segment_rect.p0.x, border.widths.x, adjusted_widths.x, border.style.x, 0.0, 1.0);
-            write_alpha_select(border.style.x);
-            write_color(color, border.style.x, false);
+            style = border.style.x;
+            color_flip = false;
             write_clip_params(border.style.x,
                               border.widths.x,
                               segment_rect.size.y,
@@ -129,8 +132,8 @@ void main(void) {
             segment_rect.size = vec2(corners.tr_inner.x - corners.tl_inner.x, border.widths.y);
             vec4 adjusted_widths = get_effective_border_widths(border, int(border.style.y));
             write_edge_distance(segment_rect.p0.y, border.widths.y, adjusted_widths.y, border.style.y, 1.0, 1.0);
-            write_alpha_select(border.style.y);
-            write_color(color, border.style.y, false);
+            style = border.style.y;
+            color_flip = false;
             write_clip_params(border.style.y,
                               border.widths.y,
                               segment_rect.size.x,
@@ -143,8 +146,8 @@ void main(void) {
             segment_rect.size = vec2(border.widths.z, corners.br_inner.y - corners.tr_inner.y);
             vec4 adjusted_widths = get_effective_border_widths(border, int(border.style.z));
             write_edge_distance(segment_rect.p0.x, border.widths.z, adjusted_widths.z, border.style.z, 0.0, -1.0);
-            write_alpha_select(border.style.z);
-            write_color(color, border.style.z, true);
+            style = border.style.z;
+            color_flip = true;
             write_clip_params(border.style.z,
                               border.widths.z,
                               segment_rect.size.y,
@@ -157,8 +160,8 @@ void main(void) {
             segment_rect.size = vec2(corners.br_inner.x - corners.bl_inner.x, border.widths.w);
             vec4 adjusted_widths = get_effective_border_widths(border, int(border.style.w));
             write_edge_distance(segment_rect.p0.y, border.widths.w, adjusted_widths.w, border.style.w, 1.0, -1.0);
-            write_alpha_select(border.style.w);
-            write_color(color, border.style.w, true);
+            style = border.style.w;
+            color_flip = true;
             write_clip_params(border.style.w,
                               border.widths.w,
                               segment_rect.size.x,
@@ -167,6 +170,9 @@ void main(void) {
             break;
         }
     }
+
+    write_alpha_select(style);
+    write_color(color, style, color_flip);
 
 #ifdef WR_FEATURE_TRANSFORM
     TransformVertexInfo vi = write_transform_vertex(segment_rect,
