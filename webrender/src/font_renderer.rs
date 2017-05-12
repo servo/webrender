@@ -16,10 +16,9 @@ use std::collections::HashSet;
 use std::mem;
 use texture_cache::{TextureCacheItemId, TextureCache};
 use internal_types::FontTemplate;
-use webrender_traits::{FontKey, GlyphKey, ImageFormat};
-use webrender_traits::{FontRenderMode, ImageData};
+use webrender_traits::{FontKey, FontRenderMode, ImageData, ImageFormat};
 use webrender_traits::{ImageDescriptor, ColorF, LayoutPoint};
-use webrender_traits::{GlyphOptions, GlyphInstance};
+use webrender_traits::{GlyphKey, GlyphOptions, GlyphInstance, GlyphDimensions};
 
 pub type GlyphCache = ResourceClassCache<GlyphRequest, Option<TextureCacheItemId>>;
 
@@ -53,7 +52,7 @@ impl Context {
                 key: request,
                 result: result,
             }
-        );
+        ).unwrap();
     }
 
     pub fn add_font(&mut self, font_key: FontKey, template: &FontTemplate) {
@@ -73,6 +72,10 @@ impl Context {
 
     pub fn has_font(&self, font_key: &FontKey) -> bool {
         self.context.has_font(font_key)
+    }
+
+    pub fn get_glyph_dimensions(&mut self, glyph_key: &GlyphKey) -> Option<GlyphDimensions> {
+        self.context.get_glyph_dimensions(glyph_key)
     }
 }
 
@@ -205,6 +208,8 @@ impl FontRenderer {
 
     pub fn request_glyphs(
         &mut self,
+        glyph_cache: &mut GlyphCache,
+        current_frame_id: FrameId,
         font_key: FontKey,
         size: Au,
         color: ColorF,
@@ -216,32 +221,43 @@ impl FontRenderer {
 
         let mut glyphs = Vec::with_capacity(glyph_instances.len());
 
-        // select glyphs that have not been requested yet.
-        for glyph in glyph_instances {
-            let glyph_request = GlyphRequest::new(
-                font_key,
-                size,
-                color,
-                glyph.index,
-                glyph.point,
-                render_mode,
-                glyph_options,
-            );
+        {
+            // TODO: If this takes too long we can resurect a dedicated glyph
+            // dispatch thread, hopefully not.
+            profile_scope!("glyph-requests");
 
-            if !self.pending_glyphs.contains(&glyph_request) {
-                self.pending_glyphs.insert(glyph_request.clone());
-                glyphs.push(glyph_request);
+            // select glyphs that have not been requested yet.
+            for glyph in glyph_instances {
+                let glyph_request = GlyphRequest::new(
+                    font_key,
+                    size,
+                    color,
+                    glyph.index,
+                    glyph.point,
+                    render_mode,
+                    glyph_options,
+                );
+
+                if !glyph_cache.contains_key(&glyph_request) && !self.pending_glyphs.contains(&glyph_request) {
+                    glyph_cache.mark_as_needed(&glyph_request, current_frame_id);
+                    self.pending_glyphs.insert(glyph_request.clone());
+                    glyphs.push(glyph_request);
+                }
             }
         }
 
         let font_contexts = Arc::clone(&self.font_contexts);
         self.workers.spawn_async(move || {
             glyphs.par_iter().for_each(&|glyph_request: &GlyphRequest|{
-                profile_scope!("glyph");
+                profile_scope!("glyph-raster");
                 let mut font_context = font_contexts.lock_current_context();
                 font_context.rasterize_glyph(glyph_request.clone());
             });
         });
+    }
+
+    pub fn get_glyph_dimensions(&mut self, glyph_key: &GlyphKey) -> Option<GlyphDimensions> {
+        self.font_contexts.lock_shared_context().get_glyph_dimensions(glyph_key)
     }
 
     pub fn resolve_glyphs(
@@ -348,8 +364,7 @@ impl GlyphRequest {
     }
 }
 
-// TODO(nical): temporarily pub, do not merge.
-pub struct GlyphRasterJob {
-    pub key: GlyphRequest,
-    pub result: Option<RasterizedGlyph>,
+struct GlyphRasterJob {
+    key: GlyphRequest,
+    result: Option<RasterizedGlyph>,
 }
