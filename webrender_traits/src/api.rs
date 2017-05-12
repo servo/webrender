@@ -298,6 +298,7 @@ impl RenderApi {
     /// * `epoch`: The unique Frame ID, monotonically increasing.
     /// * `viewport_size`: The size of the viewport for this frame.
     /// * `pipeline_id`: The ID of the pipeline that is supplying this display list.
+    /// * `content_size`: The total screen space size of this display list's display items.
     /// * `display_list`: The root Display list used in this frame.
     /// * `preserve_frame_state`: If a previous frame exists which matches this pipeline
     ///                           id, this setting determines if frame state (such as scrolling
