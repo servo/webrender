@@ -66,6 +66,10 @@ impl YamlFrameReader {
         }
     }
 
+    pub fn yaml_path(&self) -> &PathBuf {
+        &self.yaml_path
+    }
+
     pub fn new_from_args(args: &clap::ArgMatches) -> YamlFrameReader {
         let yaml_file = args.value_of("INPUT").map(|s| PathBuf::from(s)).unwrap();
 
