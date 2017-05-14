@@ -81,7 +81,7 @@ pub struct TextDisplayItem {
     pub font_key: FontKey,
     pub size: Au,
     pub color: ColorF,
-    pub blur_radius: Au,
+    pub blur_radius: f32,
     pub glyph_options: Option<GlyphOptions>,
 } // IMPLICIT: glyphs: Vec<GlyphInstance>
 

@@ -439,7 +439,7 @@ pub struct TextRunPrimitiveGpu {
 pub struct TextRunPrimitiveCpu {
     pub font_key: FontKey,
     pub logical_font_size: Au,
-    pub blur_radius: Au,
+    pub blur_radius: f32,
     pub glyph_range: ItemRange<GlyphInstance>,
     pub glyph_count: usize,
     pub cache_dirty: bool,
@@ -1232,10 +1232,9 @@ impl PrimitiveStore {
                     }
 
                     // Expand the rectangle of the text run by the blur radius.
-                    let local_rect = local_rect.inflate(text.blur_radius.to_f32_px(),
-                                                        text.blur_radius.to_f32_px());
+                    let local_rect = local_rect.inflate(text.blur_radius, text.blur_radius);
 
-                    let render_task = if text.blur_radius.0 == 0 {
+                    let render_task = if text.blur_radius == 0.0 {
                         None
                     } else {
                         // This is a text-shadow element. Create a render task that will
@@ -1246,7 +1245,7 @@ impl PrimitiveStore {
                         let cache_height = (local_rect.size.height * device_pixel_ratio).ceil() as i32;
                         let cache_size = DeviceIntSize::new(cache_width, cache_height);
                         let cache_key = PrimitiveCacheKey::TextShadow(prim_index);
-                        let blur_radius = device_length(text.blur_radius.to_f32_px(),
+                        let blur_radius = device_length(text.blur_radius,
                                                         device_pixel_ratio);
                         Some(RenderTask::new_blur(cache_key,
                                                   cache_size,

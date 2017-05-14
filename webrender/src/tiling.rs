@@ -77,7 +77,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
         match metadata.prim_kind {
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
-                if text_run_cpu.blur_radius.0 == 0 {
+                if text_run_cpu.blur_radius == 0.0 {
                     match text_run_cpu.render_mode {
                         FontRenderMode::Subpixel => BlendMode::Subpixel(text_run_cpu.color),
                         FontRenderMode::Alpha | FontRenderMode::Mono => BlendMode::Alpha,
@@ -483,7 +483,7 @@ impl AlphaRenderItem {
                     }
                     PrimitiveKind::TextRun => {
                         let text_cpu = &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
-                        let batch_kind = if text_cpu.blur_radius.0 == 0 {
+                        let batch_kind = if text_cpu.blur_radius == 0.0 {
                             AlphaBatchKind::TextRun
                         } else {
                             // Select a generic primitive shader that can blit the
@@ -984,7 +984,7 @@ impl RenderTarget for ColorRenderTarget {
                     PrimitiveKind::TextRun => {
                         let text = &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
                         // We only cache text runs with a text-shadow (for now).
-                        debug_assert!(text.blur_radius.0 != 0);
+                        debug_assert!(text.blur_radius != 0.0);
 
                         // TODO(gw): This should always be fine for now, since the texture
                         // atlas grows to 4k. However, it won't be a problem soon, once
