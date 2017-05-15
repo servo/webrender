@@ -391,32 +391,38 @@ impl GradientData {
 
         let mut src_stops = src_stops.into_iter();
         let first = src_stops.next().unwrap();
-        let mut cur_color = first.color;
+        let mut cur_color = first.color.premultiplied();
         debug_assert_eq!(first.offset, 0.0);
 
         if reverse_stops {
             // If the gradient is reversed, then we invert offsets and draw right-to-left
             let mut cur_idx = MAX_IDX;
             for next in src_stops {
+                let next_color = next.color.premultiplied();
                 let next_idx = Self::get_index(1.0 - next.offset);
+
                 if next_idx < cur_idx {
                     self.fill_colors(next_idx, cur_idx,
-                                     &next.color, &cur_color);
+                                     &next_color, &cur_color);
                     cur_idx = next_idx;
                 }
-                cur_color = next.color;
+
+                cur_color = next_color;
             }
             debug_assert_eq!(cur_idx, MIN_IDX);
         } else {
             let mut cur_idx = MIN_IDX;
             for next in src_stops {
+                let next_color = next.color.premultiplied();
                 let next_idx = Self::get_index(next.offset);
+
                 if next_idx > cur_idx {
                     self.fill_colors(cur_idx, next_idx,
-                                     &cur_color, &next.color);
+                                     &cur_color, &next_color);
                     cur_idx = next_idx;
                 }
-                cur_color = next.color;
+
+                cur_color = next_color;
             }
             debug_assert_eq!(cur_idx, MAX_IDX);
         }
@@ -1310,7 +1316,7 @@ impl PrimitiveStore {
                     for (src, dest) in src_stops.zip(dest_stops.iter_mut()) {
                         *dest = GpuBlock32::from(GradientStopGpu {
                             offset: src.offset,
-                            color: src.color,
+                            color: src.color.premultiplied(),
                             padding: [0.0; 3],
                         });
                     }
