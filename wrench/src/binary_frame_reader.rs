@@ -129,14 +129,35 @@ impl WrenchThing for BinaryFrameReader {
             wrench.set_title(&format!("frame {}", self.frame_num));
 
             self.frame_data.clear();
+            let mut found_frame_marker = false;
+            let mut found_display_list = false;
+            let mut found_pipeline = false;
             while let Ok(mut len) = self.file.read_u32::<LittleEndian>() {
                 if len > 0 {
                     let mut buffer = vec![0; len as usize];
                     self.file.read_exact(&mut buffer).unwrap();
                     let msg = deserialize(&buffer).unwrap();
-                    let found_frame_marker = match msg { ApiMsg::GenerateFrame(..) => true, _ => false };
+                    // In order to detect the first valid frame, we
+                    // need to find:
+                    // (a) SetRootPipeline
+                    // (b) SetDisplayList
+                    // (c) GenerateFrame that occurs *after* (a) and (b)
+                    match msg {
+                        ApiMsg::GenerateFrame(..) => {
+                            found_frame_marker = true;
+                        }
+                        ApiMsg::SetDisplayList(..) => {
+                            found_frame_marker = false;
+                            found_display_list = true;
+                        }
+                        ApiMsg::SetRootPipeline(..) => {
+                            found_frame_marker = false;
+                            found_pipeline = true;
+                        }
+                        _ => {}
+                    }
                     self.frame_data.push(Item::Message(msg));
-                    if found_frame_marker {
+                    if found_frame_marker && found_display_list && found_pipeline {
                         break;
                     }
                 } else {
