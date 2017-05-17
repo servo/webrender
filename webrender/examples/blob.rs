@@ -101,7 +101,7 @@ fn render_blob(
         data: texels,
         width: descriptor.width,
         height: descriptor.height,
-    });
+    })
 }
 
 struct CheckerboardRenderer {
@@ -209,7 +209,7 @@ impl BlobImageRenderer for CheckerboardRenderer {
         }
 
         // If we break out of the loop above it means the channel closed unexpectedly.
-        Err(BlobImageError::Other("Channel closed".into()));
+        Err(BlobImageError::Other("Channel closed".into()))
     }
 }
 
