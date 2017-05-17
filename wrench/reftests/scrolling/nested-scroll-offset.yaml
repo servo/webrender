@@ -7,11 +7,11 @@ root:
       items:
       - type: scroll-layer
         bounds: [0, 300, 50, 50]
-        clip: [0, 300, 50, 50]
+        clip: [0, 0, 50, 50]
         items:
         - type: scroll-layer
           bounds: [0, 300, 50, 50]
-          clip: [0, 300, 50, 50]
+          clip: [0, 0, 50, 50]
           items:
             - type: rect
               bounds: [0, 300, 50, 50]
