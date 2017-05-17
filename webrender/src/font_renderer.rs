@@ -368,3 +368,56 @@ struct GlyphRasterJob {
     key: GlyphRequest,
     result: Option<RasterizedGlyph>,
 }
+
+#[test]
+fn raterize_200_glyphs() {
+    // This test loads a font from disc, the renders 4 requests containing
+    // 50 glyphs each, deletes the font and waits for the result.
+
+    use rayon::Configuration;
+    use std::fs::File;
+    use std::io::Read;
+
+    let workers = Arc::new(ThreadPool::new(Configuration::new()).unwrap());
+    let mut font_renderer = FontRenderer::new(workers);
+    let mut glyph_cache = GlyphCache::new();
+
+    let mut font_file = File::open("../wrench/reftests/text/VeraBd.ttf").expect("Couldn't open font file");
+    let mut font_data = vec![];
+    font_file.read_to_end(&mut font_data).expect("failed to read font file");
+
+    let font_key = FontKey::new(0, 0);
+    font_renderer.add_font(font_key, FontTemplate::Raw(Arc::new(font_data), 0));
+
+    let frame_id = FrameId(1);
+
+    let mut glyph_instances = Vec::with_capacity(200);
+    for i in 0..200 {
+        glyph_instances.push(GlyphInstance {
+            index: i, // It doesn't matter which glyphs we are actually rendering.
+            point: LayoutPoint::new(0.0, 0.0),
+        });
+    }
+
+    for i in 0..4 {
+        font_renderer.request_glyphs(
+            &mut glyph_cache,
+            frame_id,
+            font_key,
+            Au::from_px(32),
+            ColorF::new(0.0, 0.0, 0.0, 1.0),
+            &glyph_instances[(50 * i)..(50 * (i + 1))],
+            FontRenderMode::Subpixel,
+            None,
+        );
+    }
+
+    font_renderer.delete_font(font_key);
+
+    font_renderer.resolve_glyphs(
+        frame_id,
+        &mut glyph_cache,
+        &mut TextureCache::new(4096),
+        &mut TextureCacheProfileCounters::new(),
+    );
+}
