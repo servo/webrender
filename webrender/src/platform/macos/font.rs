@@ -26,6 +26,8 @@ pub struct FontContext {
     gamma_lut: GammaLut,
 }
 
+unsafe impl Send for FontContext {}
+
 pub struct RasterizedGlyph {
     pub width: u32,
     pub height: u32,
