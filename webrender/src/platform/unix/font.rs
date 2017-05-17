@@ -175,7 +175,11 @@ impl FontContext {
             return None;
         }
 
-        let dimensions = Self::get_glyph_dimensions_impl(slot).unwrap();
+        let dimensions = match Self::get_glyph_dimensions_impl(slot) {
+            Some(val) => val,
+            None => return None,
+        };
+
         let bitmap = unsafe { &(*slot).bitmap };
         let pixel_mode = unsafe { mem::transmute(bitmap.pixel_mode as u32) };
         info!("Rasterizing {:?} as {:?} with dimensions {:?}", key, render_mode, dimensions);
