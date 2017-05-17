@@ -346,7 +346,7 @@ impl Wrench {
         };
         let tiling = tiling.map(|tile_size|{ tile_size as u16 });
         let image_key = self.api.generate_image_key();
-        self.api.add_image(image_key, descriptor, image_data, tiling);
+        self.api.add_image(image_key, None, descriptor, image_data, tiling);
         let val = (image_key, LayoutSize::new(descriptor.width as f32, descriptor.height as f32));
         self.image_map.insert(key, val);
         val

@@ -180,6 +180,7 @@ fn main() {
     let blob_img1 = api.generate_image_key();
     api.add_image(
         blob_img1,
+        None,
         ImageDescriptor::new(500, 500, ImageFormat::RGBA8, true),
         ImageData::new_blob_image(serialize_blob(ColorU::new(50, 50, 150, 255))),
         Some(128),
@@ -188,6 +189,7 @@ fn main() {
     let blob_img2 = api.generate_image_key();
     api.add_image(
         blob_img2,
+        None,
         ImageDescriptor::new(200, 200, ImageFormat::RGBA8, true),
         ImageData::new_blob_image(serialize_blob(ColorU::new(50, 150, 50, 255))),
         None,

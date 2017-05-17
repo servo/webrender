@@ -52,7 +52,7 @@ use webgl_types::GLContextHandleWrapper;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ExternalImageId, ExternalImageType, ImageData, ImageFormat, RenderApiSender};
 use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
-use webrender_traits::{ImageDescriptor, BlobImageRenderer};
+use webrender_traits::{ImageChannel, ImageDescriptor, BlobImageRenderer};
 use webrender_traits::{channel, FontRenderMode};
 use webrender_traits::VRCompositorHandler;
 use webrender_traits::{YuvColorSpace, YuvFormat};
@@ -602,7 +602,7 @@ pub struct Renderer {
     external_image_handler: Option<Box<ExternalImageHandler>>,
 
     /// Map of external image IDs to native textures.
-    external_images: HashMap<(ExternalImageId, u8), TextureId, BuildHasherDefault<FnvHasher>>,
+    external_images: HashMap<(ExternalImageId, ImageChannel), TextureId, BuildHasherDefault<FnvHasher>>,
 
     // Optional trait object that handles WebVR commands.
     // Some WebVR commands such as SubmitFrame must be synced with the WebGL render thread.
@@ -928,6 +928,7 @@ impl Renderer {
         // TODO: Ensure that the white texture can never get evicted when the cache supports LRU eviction!
         let white_image_id = texture_cache.new_item_id();
         texture_cache.insert(white_image_id,
+                             None,
                              ImageDescriptor::new(2, 2, ImageFormat::RGBA8, false),
                              TextureFilter::Linear,
                              ImageData::Raw(Arc::new(white_pixels)),
@@ -935,6 +936,7 @@ impl Renderer {
 
         let dummy_mask_image_id = texture_cache.new_item_id();
         texture_cache.insert(dummy_mask_image_id,
+                             None,
                              ImageDescriptor::new(2, 2, ImageFormat::A8, false),
                              TextureFilter::Linear,
                              ImageData::Raw(Arc::new(mask_pixels)),
@@ -1219,9 +1221,9 @@ impl Renderer {
         match *texture_id {
             SourceTexture::Invalid => TextureId::invalid(),
             SourceTexture::WebGL(id) => TextureId::new(id, TextureTarget::Default),
-            SourceTexture::External(external_image) => {
+            SourceTexture::External(external_image, channel_index) => {
                 *self.external_images
-                     .get(&(external_image.id, external_image.channel_index))
+                     .get(&(external_image.id, channel_index))
                      .expect("BUG: External image should be resolved by now!")
             }
             SourceTexture::TextureCache(index) => {
@@ -1351,7 +1353,7 @@ impl Renderer {
         for update_list in pending_texture_updates.drain(..) {
             for update in update_list.updates {
                 match update.op {
-                    TextureUpdateOp::Create { width, height, format, filter, mode, data } => {
+                    TextureUpdateOp::Create { width, height, channel_index, format, filter, mode, data } => {
                         let CacheTextureId(cache_texture_index) = update.id;
                         if self.cache_texture_id_map.len() == cache_texture_index {
                             // Create a new native texture, as requested by the texture cache.
@@ -1379,7 +1381,7 @@ impl Renderer {
                                                               .as_mut()
                                                               .expect("Found external image, but no handler set!");
 
-                                            match handler.lock(ext_image.id, ext_image.channel_index).source {
+                                            match handler.lock(ext_image.id, channel_index).source {
                                                 ExternalImageSource::RawData(raw) => {
                                                     self.device.init_texture(texture_id,
                                                                              width,
@@ -1391,7 +1393,7 @@ impl Renderer {
                                                 }
                                                 _ => panic!("No external buffer found"),
                                             };
-                                            handler.unlock(ext_image.id, ext_image.channel_index);
+                                            handler.unlock(ext_image.id, channel_index);
                                         }
                                         ExternalImageType::Texture2DHandle |
                                         ExternalImageType::TextureRectHandle |
@@ -1414,7 +1416,7 @@ impl Renderer {
                                                      None);
                         }
                     }
-                    TextureUpdateOp::Grow { width, height, format, filter, mode } => {
+                    TextureUpdateOp::Grow { width, height, channel_index: _, format, filter, mode } => {
                         let texture_id = self.cache_texture_id_map[update.id.0];
                         self.device.resize_texture(texture_id,
                                                    width,
@@ -1423,7 +1425,7 @@ impl Renderer {
                                                    filter,
                                                    mode);
                     }
-                    TextureUpdateOp::Update { page_pos_x, page_pos_y, width, height, data, stride, offset } => {
+                    TextureUpdateOp::Update { page_pos_x, page_pos_y, width, height, channel_index: _, data, stride, offset } => {
                         let texture_id = self.cache_texture_id_map[update.id.0];
                         self.device.update_texture(texture_id,
                                                    page_pos_x,
@@ -1904,7 +1906,7 @@ impl Renderer {
                 let props = &deferred_resolve.image_properties;
                 let ext_image = props.external_image
                                      .expect("BUG: Deferred resolves must be external images!");
-                let image = handler.lock(ext_image.id, ext_image.channel_index);
+                let image = handler.lock(ext_image.id, props.channel_index);
                 let texture_target = match ext_image.image_type {
                     ExternalImageType::Texture2DHandle => TextureTarget::Default,
                     ExternalImageType::TextureRectHandle => TextureTarget::Rect,
@@ -1920,7 +1922,7 @@ impl Renderer {
                     _ => panic!("No native texture found."),
                 };
 
-                self.external_images.insert((ext_image.id, ext_image.channel_index), texture_id);
+                self.external_images.insert((ext_image.id, props.channel_index), texture_id);
                 let resource_rect_index = deferred_resolve.resource_address.0 as usize;
                 let resource_rect = &mut frame.gpu_resource_rects[resource_rect_index];
                 resource_rect.uv0 = DevicePoint::new(image.u0, image.v0);
@@ -2185,10 +2187,10 @@ pub trait ExternalImageHandler {
     /// Lock the external image. Then, WR could start to read the image content.
     /// The WR client should not change the image content until the unlock()
     /// call.
-    fn lock(&mut self, key: ExternalImageId, channel_index: u8) -> ExternalImage;
+    fn lock(&mut self, key: ExternalImageId, channel_index: ImageChannel) -> ExternalImage;
     /// Unlock the external image. The WR should not read the image content
     /// after this call.
-    fn unlock(&mut self, key: ExternalImageId, channel_index: u8);
+    fn unlock(&mut self, key: ExternalImageId, channel_index: ImageChannel);
 }
 
 pub struct RendererOptions {

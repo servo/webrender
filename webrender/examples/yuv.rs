@@ -16,7 +16,7 @@ use std::env;
 use std::path::PathBuf;
 use webrender_traits::{ColorF, Epoch};
 use webrender_traits::{DeviceIntPoint, DeviceUintSize, LayoutPoint, LayoutRect, LayoutSize};
-use webrender_traits::{ImageData, ImageDescriptor, ImageFormat};
+use webrender_traits::{ImageChannel, ImageData, ImageDescriptor, ImageFormat};
 use webrender_traits::{PipelineId, TransformStyle};
 use webrender_traits::{YuvColorSpace, YuvData};
 
@@ -253,24 +253,28 @@ fn main() {
     let yuv_chanel3 = api.generate_image_key();
     api.add_image(
         yuv_chanel1,
+        Some(ImageChannel::Channel0),
         ImageDescriptor::new(100, 100, ImageFormat::A8, true),
         ImageData::new(vec![127; 100 * 100]),
         None,
     );
     api.add_image(
         yuv_chanel2,
+        Some(ImageChannel::Channel1),
         ImageDescriptor::new(100, 100, ImageFormat::RG8, true),
         ImageData::new(vec![0; 100 * 100 * 2]),
         None,
     );
     api.add_image(
         yuv_chanel2_1,
+        Some(ImageChannel::Channel1),
         ImageDescriptor::new(100, 100, ImageFormat::A8, true),
         ImageData::new(vec![127; 100 * 100]),
         None,
     );
     api.add_image(
         yuv_chanel3,
+        Some(ImageChannel::Channel2),
         ImageDescriptor::new(100, 100, ImageFormat::A8, true),
         ImageData::new(vec![127; 100 * 100]),
         None,

@@ -23,6 +23,7 @@ use webrender_traits::{DeviceRect, DevicePoint, DeviceSize};
 use webrender_traits::{LayerRect, LayerSize, LayerPoint, LayoutPoint};
 use webrender_traits::{LayerToWorldTransform, GlyphInstance, GlyphOptions};
 use webrender_traits::{ExtendMode, GradientStop, AuxIter, TileOffset};
+use webrender_traits::{ImageChannel, IMAGE_CHANNELS};
 
 pub const CLIP_DATA_GPU_SIZE: usize = 5;
 pub const MASK_DATA_GPU_SIZE: usize = 1;
@@ -953,7 +954,7 @@ impl PrimitiveStore {
                                    clip_info: &MaskCacheInfo,
                                    resource_cache: &ResourceCache) {
         if let Some((ref mask, gpu_address)) = clip_info.image {
-            let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto, None);
+            let cache_item = resource_cache.get_cached_image(mask.image, None, ImageRendering::Auto, None);
             let mask_data = gpu_data32.get_slice_mut(gpu_address, MASK_DATA_GPU_SIZE);
             mask_data[0] = GpuBlock32::from(ImageMaskData {
                 uv_rect: DeviceRect::new(cache_item.uv0,
@@ -973,15 +974,18 @@ impl PrimitiveStore {
     fn resolve_image(resource_cache: &ResourceCache,
                      deferred_resolves: &mut Vec<DeferredResolve>,
                      image_key: ImageKey,
+                     channel_index: Option<ImageChannel>,
                      image_uv_address: GpuStoreAddress,
                      image_rendering: ImageRendering,
                      tile_offset: Option<TileOffset>) -> (SourceTexture, Option<CacheItem>) {
-        let image_properties = resource_cache.get_image_properties(image_key);
+        let image_properties = resource_cache.get_image_properties(image_key, channel_index);
 
         // Check if an external image that needs to be resolved
         // by the render thread.
         match image_properties.external_image {
             Some(external_image) => {
+                let channel_index = image_properties.channel_index;
+
                 // This is an external texture - we will add it to
                 // the deferred resolves list to be patched by
                 // the render thread...
@@ -990,10 +994,10 @@ impl PrimitiveStore {
                     resource_address: image_uv_address,
                 });
 
-                (SourceTexture::External(external_image), None)
+                (SourceTexture::External(external_image, channel_index), None)
             }
             None => {
-                let cache_item = resource_cache.get_cached_image(image_key, image_rendering, tile_offset);
+                let cache_item = resource_cache.get_cached_image(image_key, channel_index, image_rendering, tile_offset);
                 (cache_item.texture_id, Some(cache_item))
             }
         }
@@ -1049,6 +1053,7 @@ impl PrimitiveStore {
                             PrimitiveStore::resolve_image(resource_cache,
                                                           &mut deferred_resolves,
                                                           image_key,
+                                                          None,
                                                           image_cpu.resource_address,
                                                           image_rendering,
                                                           tile_offset)
@@ -1091,6 +1096,7 @@ impl PrimitiveStore {
                             PrimitiveStore::resolve_image(resource_cache,
                                                           &mut deferred_resolves,
                                                           image_cpu.yuv_key[channel],
+                                                          Some(IMAGE_CHANNELS[channel]),
                                                           resource_address,
                                                           ImageRendering::Auto,
                                                           None);
@@ -1182,7 +1188,7 @@ impl PrimitiveStore {
                              display_list);
             for clip in &metadata.clips {
                 if let ClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }, ..) = *clip {
-                    resource_cache.request_image(mask.image, ImageRendering::Auto, None);
+                    resource_cache.request_image(mask.image, None, ImageRendering::Auto, None);
                     prim_needs_resolve = true;
                 }
             }
@@ -1309,13 +1315,13 @@ impl PrimitiveStore {
                 prim_needs_resolve = true;
                 match image_cpu.kind {
                     ImagePrimitiveKind::Image(image_key, image_rendering, tile_offset, tile_spacing) => {
-                        resource_cache.request_image(image_key, image_rendering, tile_offset);
+                        resource_cache.request_image(image_key, None, image_rendering, tile_offset);
 
                         // TODO(gw): This doesn't actually need to be calculated each frame.
                         // It's cheap enough that it's not worth introducing a cache for images
                         // right now, but if we introduce a cache for images for some other
                         // reason then we might as well cache this with it.
-                        let image_properties = resource_cache.get_image_properties(image_key);
+                        let image_properties = resource_cache.get_image_properties(image_key, None);
                         metadata.is_opaque = image_properties.descriptor.is_opaque &&
                                              tile_spacing.width == 0.0 &&
                                              tile_spacing.height == 0.0;
@@ -1330,7 +1336,10 @@ impl PrimitiveStore {
                 let channel_num = image_cpu.format.get_plane_num();
                 debug_assert!(channel_num <= 3);
                 for channel in 0..channel_num {
-                    resource_cache.request_image(image_cpu.yuv_key[channel], ImageRendering::Auto, None);
+                    resource_cache.request_image(image_cpu.yuv_key[channel],
+                                                 Some(IMAGE_CHANNELS[channel]),
+                                                 ImageRendering::Auto,
+                                                 None);
                 }
 
                 // TODO(nical): Currently assuming no tile_spacing for yuv images.

@@ -460,7 +460,7 @@ impl AlphaRenderItem {
                         let image_cpu = &ctx.prim_store.cpu_images[prim_metadata.cpu_prim_index.0];
 
                         let batch_kind = match image_cpu.color_texture_id {
-                            SourceTexture::External(ext_image) => {
+                            SourceTexture::External(ext_image, _) => {
                                 match ext_image.image_type {
                                     ExternalImageType::Texture2DHandle => AlphaBatchKind::Image(ImageBufferKind::Texture2D),
                                     ExternalImageType::TextureRectHandle => AlphaBatchKind::Image(ImageBufferKind::TextureRect),
@@ -541,7 +541,7 @@ impl AlphaRenderItem {
 
                         let get_buffer_kind = |texture: SourceTexture| {
                             match texture {
-                                SourceTexture::External(ext_image) => {
+                                SourceTexture::External(ext_image, _) => {
                                     match ext_image.image_type {
                                         ExternalImageType::Texture2DHandle => ImageBufferKind::Texture2D,
                                         ExternalImageType::TextureRectHandle => ImageBufferKind::TextureRect,
@@ -717,7 +717,7 @@ impl ClipBatcher {
             }
 
             if let Some((ref mask, address)) = info.image {
-                let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto, None);
+                let cache_item = resource_cache.get_cached_image(mask.image, None, ImageRendering::Auto, None);
                 self.images.entry(cache_item.texture_id)
                            .or_insert(Vec::new())
                            .push(CacheClipInstance {

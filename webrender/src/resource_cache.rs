@@ -27,6 +27,7 @@ use webrender_traits::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescript
 use webrender_traits::{GlyphOptions, GlyphInstance, TileOffset, TileSize};
 use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest, BlobImageData, ImageStore};
 use webrender_traits::{ExternalImageData, ExternalImageType, LayoutPoint};
+use webrender_traits::{ImageChannel, IMAGE_CHANNEL_MAX_SIZE};
 use rayon::ThreadPool;
 
 const DEFAULT_TILE_SIZE: TileSize = 512;
@@ -95,6 +96,7 @@ impl RenderedGlyphKey {
 }
 
 pub struct ImageProperties {
+    pub channel_index: ImageChannel,
     pub descriptor: ImageDescriptor,
     pub external_image: Option<ExternalImageData>,
     pub tiling: Option<TileSize>,
@@ -107,6 +109,7 @@ enum State {
     QueryResources,
 }
 
+#[derive(Clone)]
 struct ImageResource {
     data: ImageData,
     descriptor: ImageDescriptor,
@@ -115,8 +118,10 @@ struct ImageResource {
     dirty_rect: Option<DeviceUintRect>
 }
 
+type ImageResourcesType = [Option<ImageResource>; IMAGE_CHANNEL_MAX_SIZE];
+
 struct ImageTemplates {
-    images: HashMap<ImageKey, ImageResource, BuildHasherDefault<FnvHasher>>,
+    images: HashMap<ImageKey, ImageResourcesType, BuildHasherDefault<FnvHasher>>,
 }
 
 impl ImageTemplates {
@@ -126,26 +131,35 @@ impl ImageTemplates {
         }
     }
 
-    fn insert(&mut self, key: ImageKey, resource: ImageResource) {
-        self.images.insert(key, resource);
+    fn insert(&mut self, key: ImageKey, channel_index: ImageChannel, resource: ImageResource) {
+        let channel_resources = self.images.entry(key).or_insert([None, None, None]);
+        channel_resources[channel_index as usize] = Some(resource);
     }
 
-    fn remove(&mut self, key: ImageKey) -> Option<ImageResource> {
+    fn remove(&mut self, key: ImageKey) -> Option<ImageResourcesType> {
         self.images.remove(&key)
     }
 
-    fn get(&self, key: ImageKey) -> Option<&ImageResource> {
-        self.images.get(&key)
+    fn get(&self, key: ImageKey, channel_index: ImageChannel) -> Option<&ImageResource> {
+        if let Some(channel_resources) = self.images.get(&key) {
+            channel_resources[channel_index as usize].as_ref()
+        } else {
+            None
+        }
     }
 
-    fn get_mut(&mut self, key: ImageKey) -> Option<&mut ImageResource> {
-        self.images.get_mut(&key)
+    fn get_mut(&mut self, key: ImageKey, channel_index: ImageChannel) -> Option<&mut ImageResource> {
+        if let Some(channel_resources) = self.images.get_mut(&key) {
+            channel_resources[channel_index as usize].as_mut()
+        } else {
+            None
+        }
     }
 }
 
 impl ImageStore for ImageTemplates {
-    fn get_image(&self, key: ImageKey) -> Option<(&ImageData, &ImageDescriptor)> {
-        self.images.get(&key).map(|resource|{ (&resource.data, &resource.descriptor) })
+    fn get_image(&self, key: ImageKey, channel_index: ImageChannel) -> Option<(&ImageData, &ImageDescriptor)> {
+        self.get(key, channel_index).map(|resource|{ (&resource.data, &resource.descriptor) })
     }
 }
 
@@ -216,9 +230,10 @@ impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resourc
 }
 
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 struct ImageRequest {
     key: ImageKey,
+    channel_index: ImageChannel,
     rendering: ImageRendering,
     tile: Option<TileOffset>,
 }
@@ -326,6 +341,7 @@ impl ResourceCache {
 
     pub fn add_image_template(&mut self,
                               image_key: ImageKey,
+                              channel_index: Option<ImageChannel>,
                               descriptor: ImageDescriptor,
                               mut data: ImageData,
                               mut tiling: Option<TileSize>) {
@@ -351,15 +367,18 @@ impl ResourceCache {
             dirty_rect: None,
         };
 
-        self.image_templates.insert(image_key, resource);
+        self.image_templates.insert(image_key, ImageChannel::get_image_channel_value(channel_index), resource);
     }
 
     pub fn update_image_template(&mut self,
                                  image_key: ImageKey,
+                                 channel_index: Option<ImageChannel>,
                                  descriptor: ImageDescriptor,
                                  mut data: ImageData,
                                  dirty_rect: Option<DeviceUintRect>) {
-        let resource = if let Some(image) = self.image_templates.get(image_key) {
+        let channel_index = ImageChannel::get_image_channel_value(channel_index);
+
+        let resource = if let Some(image) = self.image_templates.get(image_key, channel_index) {
             assert_eq!(image.descriptor.width, descriptor.width);
             assert_eq!(image.descriptor.height, descriptor.height);
             assert_eq!(image.descriptor.format, descriptor.format);
@@ -393,21 +412,20 @@ impl ResourceCache {
             panic!("Attempt to update non-existant image (key {:?}).", image_key);
         };
 
-        self.image_templates.insert(image_key, resource);
+        self.image_templates.insert(image_key, channel_index, resource);
     }
 
     pub fn delete_image_template(&mut self, image_key: ImageKey) {
-        let value = self.image_templates.remove(image_key);
-
-        match value {
-            Some(image) => {
+        if let Some(images) = self.image_templates.remove(image_key) {
+            // WR don't support blob image for the multiple-channel image format.
+            // So, we only check the channel0's type here.
+            if let Some(ref image) = images[0] {
                 if image.data.is_blob() {
                     self.blob_image_renderer.as_mut().unwrap().delete(image_key);
                 }
             }
-            None => {
-                println!("Delete the non-exist key:{:?}", image_key);
-            }
+        } else {
+            println!("Delete the non-exist key:{:?}", image_key);
         }
     }
 
@@ -428,18 +446,21 @@ impl ResourceCache {
 
     pub fn request_image(&mut self,
                          key: ImageKey,
+                         channel_index: Option<ImageChannel>,
                          rendering: ImageRendering,
                          tile: Option<TileOffset>) {
-
         debug_assert_eq!(self.state, State::AddResources);
+
+        let channel_index = ImageChannel::get_image_channel_value(channel_index);
         let request = ImageRequest {
             key: key,
+            channel_index: channel_index,
             rendering: rendering,
             tile: tile,
         };
 
         self.cached_images.mark_as_needed(&request, self.current_frame_id);
-        let template = self.image_templates.get(key).unwrap();
+        let template = self.image_templates.get(key, channel_index).unwrap();
         if template.data.is_blob() {
             if let Some(ref mut renderer) = self.blob_image_renderer {
                 let same_epoch = match self.cached_images.resources.get(&request) {
@@ -447,7 +468,7 @@ impl ResourceCache {
                     None => false,
                 };
 
-                if !same_epoch && self.blob_image_requests.insert(request) {
+                if !same_epoch && self.blob_image_requests.insert(request.clone()) {
                     let (offset, w, h) = match template.tiling {
                         Some(tile_size) => {
                             let tile_offset = request.tile.unwrap();
@@ -575,11 +596,14 @@ impl ResourceCache {
     #[inline]
     pub fn get_cached_image(&self,
                             image_key: ImageKey,
+                            channel_index: Option<ImageChannel>,
                             image_rendering: ImageRendering,
                             tile: Option<TileOffset>) -> CacheItem {
         debug_assert_eq!(self.state, State::QueryResources);
+
         let key = ImageRequest {
             key: image_key,
+            channel_index: ImageChannel::get_image_channel_value(channel_index),
             rendering: image_rendering,
             tile: tile,
         };
@@ -594,8 +618,9 @@ impl ResourceCache {
         }
     }
 
-    pub fn get_image_properties(&self, image_key: ImageKey) -> ImageProperties {
-        let image_template = &self.image_templates.get(image_key).unwrap();
+    pub fn get_image_properties(&self, image_key: ImageKey, channel_index: Option<ImageChannel>) -> ImageProperties {
+        let channel_index = ImageChannel::get_image_channel_value(channel_index);
+        let image_template = &self.image_templates.get(image_key, channel_index).unwrap();
 
         let external_image = match image_template.data {
             ImageData::External(ext_image) => {
@@ -614,6 +639,7 @@ impl ResourceCache {
         };
 
         ImageProperties {
+            channel_index: channel_index,
             descriptor: image_template.descriptor,
             external_image: external_image,
             tiling: image_template.tiling,
@@ -678,6 +704,7 @@ impl ResourceCache {
                             if glyph.width > 0 && glyph.height > 0 {
                                 let image_id = self.texture_cache.new_item_id();
                                 self.texture_cache.insert(image_id,
+                                                          None,
                                                           ImageDescriptor {
                                                               width: glyph.width,
                                                               height: glyph.height,
@@ -706,15 +733,15 @@ impl ResourceCache {
 
         let mut image_requests = mem::replace(&mut self.pending_image_requests, Vec::new());
         for request in image_requests.drain(..) {
-            self.finalize_image_request(request, None, texture_cache_profile);
+            self.finalize_image_request(&request, None, texture_cache_profile);
         }
 
         let mut blob_image_requests = mem::replace(&mut self.blob_image_requests, HashSet::new());
         if self.blob_image_renderer.is_some() {
             for request in blob_image_requests.drain() {
-                match self.blob_image_renderer.as_mut().unwrap().resolve(request.into()) {
+                match self.blob_image_renderer.as_mut().unwrap().resolve(request.clone().into()) {
                     Ok(image) => {
-                        self.finalize_image_request(request,
+                        self.finalize_image_request(&request,
                                                     Some(ImageData::new(image.data)),
                                                     texture_cache_profile);
                     }
@@ -743,7 +770,7 @@ impl ResourceCache {
                             request: &ImageRequest,
                             image_data: Option<ImageData>,
                             texture_cache_profile: &mut TextureCacheProfileCounters) {
-        let image_template = self.image_templates.get_mut(request.key).unwrap();
+        let image_template = self.image_templates.get_mut(request.key, request.channel_index).unwrap();
         let image_data = image_data.unwrap_or_else(||{
             image_template.data.clone()
         });
@@ -781,12 +808,13 @@ impl ResourceCache {
             image_template.descriptor.clone()
         };
 
-        match self.cached_images.entry(*request, self.current_frame_id) {
+        match self.cached_images.entry(request.clone(), self.current_frame_id) {
             Occupied(entry) => {
                 let image_id = entry.get().texture_cache_id;
 
                 if entry.get().epoch != image_template.epoch {
                     self.texture_cache.update(image_id,
+                                              Some(request.channel_index),
                                               descriptor,
                                               image_data,
                                               image_template.dirty_rect);
@@ -808,6 +836,7 @@ impl ResourceCache {
                 };
 
                 self.texture_cache.insert(image_id,
+                                          Some(request.channel_index),
                                           descriptor,
                                           filter,
                                           image_data,
@@ -821,10 +850,10 @@ impl ResourceCache {
         }
     }
     fn finalize_image_request(&mut self,
-                              request: ImageRequest,
+                              request: &ImageRequest,
                               image_data: Option<ImageData>,
                               texture_cache_profile: &mut TextureCacheProfileCounters) {
-        match self.image_templates.get(request.key).unwrap().data {
+        match self.image_templates.get(request.key, request.channel_index).unwrap().data {
             ImageData::External(ext_image) => {
                 match ext_image.image_type {
                     ExternalImageType::Texture2DHandle |

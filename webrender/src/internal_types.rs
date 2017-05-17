@@ -16,7 +16,7 @@ use std::sync::Arc;
 use tiling;
 use renderer::BlendMode;
 use webrender_traits::{ClipId, ColorF, DeviceUintRect, Epoch, ExternalImageData, ExternalImageId};
-use webrender_traits::{ImageData, ImageFormat, NativeFontHandle, PipelineId};
+use webrender_traits::{ImageChannel, ImageData, ImageFormat, NativeFontHandle, PipelineId};
 
 // An ID for a texture that is owned by the
 // texture cache module. This can include atlases
@@ -40,7 +40,7 @@ pub struct CacheTextureId(pub usize);
 pub enum SourceTexture {
     Invalid,
     TextureCache(CacheTextureId),
-    External(ExternalImageData),
+    External(ExternalImageData, ImageChannel),
     #[cfg_attr(not(feature = "webgl"), allow(dead_code))]
     /// This is actually a gl::GLuint, with the shared texture id between the
     /// main context and the WebGL context.
@@ -267,6 +267,7 @@ pub enum TextureUpdateOp {
     Create {
       width: u32,
       height: u32,
+      channel_index: ImageChannel,
       format: ImageFormat,
       filter: TextureFilter,
       mode: RenderTargetMode,
@@ -277,6 +278,7 @@ pub enum TextureUpdateOp {
         page_pos_y: u32,
         width: u32,
         height: u32,
+        channel_index: ImageChannel,
         data: Arc<Vec<u8>>,
         stride: Option<u32>,
         offset: u32,
@@ -284,13 +286,14 @@ pub enum TextureUpdateOp {
     UpdateForExternalBuffer {
         rect: DeviceUintRect,
         id: ExternalImageId,
-        channel_index: u8,
+        channel_index: ImageChannel,
         stride: Option<u32>,
         offset: u32,
     },
     Grow {
         width: u32,
         height: u32,
+        channel_index: ImageChannel,
         format: ImageFormat,
         filter: TextureFilter,
         mode: RenderTargetMode,

@@ -18,7 +18,7 @@ use time;
 use util;
 use webrender_traits::{ExternalImageType, ImageData, ImageFormat, DevicePixel, DeviceIntPoint};
 use webrender_traits::{DeviceUintRect, DeviceUintSize, DeviceUintPoint};
-use webrender_traits::ImageDescriptor;
+use webrender_traits::{ImageChannel, ImageDescriptor};
 
 /// The number of bytes we're allowed to use for a texture.
 const MAX_BYTES_PER_TEXTURE: u32 = 1024 * 1024 * 256;  // 256MB
@@ -575,8 +575,9 @@ impl TextureCache {
         self.items.insert(new_item)
     }
 
-    pub fn allocate(&mut self,
+    fn allocate(&mut self,
                     image_id: TextureCacheItemId,
+                    channel_index: ImageChannel,
                     requested_width: u32,
                     requested_height: u32,
                     format: ImageFormat,
@@ -636,7 +637,14 @@ impl TextureCache {
                 let texture_size = DeviceUintSize::new(new_width, new_height);
                 self.pending_updates.push(TextureUpdate {
                     id: page.texture_id,
-                    op: texture_grow_op(texture_size, format, mode),
+                    op: TextureUpdateOp::Grow {
+                        width: texture_size.width,
+                        height: texture_size.height,
+                        channel_index: channel_index,
+                        format: format,
+                        filter: TextureFilter::Linear,
+                        mode: mode,
+                    }
                 });
 
                 let extra_texels = new_width * new_height - page.texture_size.width * page.texture_size.height;
@@ -677,7 +685,15 @@ impl TextureCache {
 
                     let update_op = TextureUpdate {
                         id: texture_id,
-                        op: texture_create_op(texture_size, format, mode),
+                        op: TextureUpdateOp::Create {
+                            width: texture_size.width,
+                            height: texture_size.height,
+                            channel_index: channel_index,
+                            format: format,
+                            filter: TextureFilter::Linear,
+                            mode: mode,
+                            data: None,
+                        }
                     };
                     self.pending_updates.push(update_op);
 
@@ -709,10 +725,12 @@ impl TextureCache {
 
     pub fn update(&mut self,
                   image_id: TextureCacheItemId,
+                  channel_index: Option<ImageChannel>,
                   descriptor: ImageDescriptor,
                   data: ImageData,
                   dirty_rect: Option<DeviceUintRect>) {
         let existing_item = self.items.get(image_id);
+        let channel_index = ImageChannel::get_image_channel_value(channel_index);
 
         // TODO(gw): Handle updates to size/format!
         debug_assert_eq!(existing_item.allocated_rect.size.width, descriptor.width);
@@ -735,6 +753,7 @@ impl TextureCache {
                             page_pos_y: existing_item.allocated_rect.origin.y + dirty.origin.y,
                             width: dirty.size.width,
                             height: dirty.size.height,
+                            channel_index: channel_index,
                             data: bytes,
                             stride: Some(stride),
                             offset: offset,
@@ -746,6 +765,7 @@ impl TextureCache {
                             page_pos_y: existing_item.allocated_rect.origin.y,
                             width: descriptor.width,
                             height: descriptor.height,
+                            channel_index: channel_index,
                             data: bytes,
                             stride: descriptor.stride,
                             offset: descriptor.offset,
@@ -765,6 +785,7 @@ impl TextureCache {
 
     pub fn insert(&mut self,
                   image_id: TextureCacheItemId,
+                  channel_index: Option<ImageChannel>,
                   descriptor: ImageDescriptor,
                   filter: TextureFilter,
                   data: ImageData,
@@ -773,6 +794,7 @@ impl TextureCache {
             panic!("must rasterize the vector image before adding to the cache");
         }
 
+        let channel_index = ImageChannel::get_image_channel_value(channel_index);
         let width = descriptor.width;
         let height = descriptor.height;
         let format = descriptor.format;
@@ -786,6 +808,7 @@ impl TextureCache {
         }
 
         let result = self.allocate(image_id,
+                                   channel_index,
                                    width,
                                    height,
                                    format,
@@ -808,7 +831,7 @@ impl TextureCache {
                                     op: TextureUpdateOp::UpdateForExternalBuffer {
                                         rect: result.item.allocated_rect,
                                         id: ext_image.id,
-                                        channel_index: ext_image.channel_index,
+                                        channel_index: channel_index,
                                         stride: stride,
                                         offset: descriptor.offset,
                                     },
@@ -829,6 +852,7 @@ impl TextureCache {
                                 page_pos_y: result.item.allocated_rect.origin.y,
                                 width: result.item.allocated_rect.size.width,
                                 height: result.item.allocated_rect.size.height,
+                                channel_index: channel_index,
                                 data: bytes,
                                 stride: stride,
                                 offset: descriptor.offset,
@@ -854,6 +878,7 @@ impl TextureCache {
                                     op: TextureUpdateOp::Create {
                                         width: width,
                                         height: height,
+                                        channel_index: channel_index,
                                         format: format,
                                         filter: filter,
                                         mode: RenderTargetMode::None,
@@ -871,6 +896,7 @@ impl TextureCache {
                             op: TextureUpdateOp::Create {
                                 width: width,
                                 height: height,
+                                channel_index: channel_index,
                                 format: format,
                                 filter: filter,
                                 mode: RenderTargetMode::None,
@@ -903,31 +929,6 @@ impl TextureCache {
                 self.cache_id_list.free(item.texture_id);
             }
         }
-    }
-}
-
-fn texture_create_op(texture_size: DeviceUintSize, format: ImageFormat, mode: RenderTargetMode)
-                     -> TextureUpdateOp {
-    TextureUpdateOp::Create {
-        width: texture_size.width,
-        height: texture_size.height,
-        format: format,
-        filter: TextureFilter::Linear,
-        mode: mode,
-        data: None,
-    }
-}
-
-fn texture_grow_op(texture_size: DeviceUintSize,
-                   format: ImageFormat,
-                   mode: RenderTargetMode)
-                   -> TextureUpdateOp {
-    TextureUpdateOp::Grow {
-        width: texture_size.width,
-        height: texture_size.height,
-        format: format,
-        filter: TextureFilter::Linear,
-        mode: mode,
     }
 }
 

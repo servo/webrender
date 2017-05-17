@@ -35,7 +35,6 @@ pub enum ExternalImageType {
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct ExternalImageData {
     pub id: ExternalImageId,
-    pub channel_index: u8,
     pub image_type: ExternalImageType,
 }
 
@@ -87,6 +86,22 @@ impl ImageDescriptor {
 
     pub fn compute_stride(&self) -> u32 {
         self.stride.unwrap_or(self.width * self.format.bytes_per_pixel().unwrap())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub enum ImageChannel {
+    Channel0 = 0,
+    Channel1 = 1,
+    Channel2 = 2,
+}
+pub const IMAGE_CHANNEL_MAX_SIZE: usize = 3;
+pub const IMAGE_CHANNELS: [ImageChannel; IMAGE_CHANNEL_MAX_SIZE] = [
+    ImageChannel::Channel0, ImageChannel::Channel1, ImageChannel::Channel2,
+];
+impl ImageChannel {
+    pub fn get_image_channel_value(channel_index: Option<ImageChannel>) -> ImageChannel {
+        channel_index.unwrap_or(ImageChannel::Channel0)
     }
 }
 
@@ -169,5 +184,5 @@ pub struct BlobImageRequest {
 }
 
 pub trait ImageStore {
-    fn get_image(&self, key: ImageKey) -> Option<(&ImageData, &ImageDescriptor)>;
+    fn get_image(&self, key: ImageKey, channel_index: ImageChannel) -> Option<(&ImageData, &ImageDescriptor)>;
 }
