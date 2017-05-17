@@ -108,7 +108,7 @@ pub struct ResourceClassCache<K,V> {
 }
 
 impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resource {
-    fn new() -> ResourceClassCache<K,V> {
+    pub fn new() -> ResourceClassCache<K,V> {
         ResourceClassCache {
             resources: HashMap::default(),
             last_access_times: HashMap::default(),
