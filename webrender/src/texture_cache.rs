@@ -50,6 +50,12 @@ const COALESCING_TIMEOUT_CHECKING_INTERVAL: usize = 256;
 
 pub type TextureCacheItemId = FreeListItemId;
 
+enum CoalescingStatus {
+    Changed,
+    Unchanged,
+    Timeout,
+}
+
 /// A texture allocator using the guillotine algorithm with the rectangle merge improvement. See
 /// sections 2.2 and 2.2.5 in "A Thousand Ways to Pack the Bin - A Practical Approach to Two-
 /// Dimensional Rectangle Bin Packing":
@@ -175,7 +181,66 @@ impl TexturePage {
         Some(chosen_rect.origin)
     }
 
-    #[inline(never)]
+    fn coalesce_impl<F, U>(rects: &mut [DeviceUintRect], deadline: u64, fun_key: F, fun_union: U)
+                    -> CoalescingStatus where
+        F: Fn(&DeviceUintRect) -> (u32, u32),
+        U: Fn(&mut DeviceUintRect, &mut DeviceUintRect) -> usize,
+    {
+        let mut num_changed = 0;
+        rects.sort_by_key(&fun_key);
+
+        for work_index in 0..rects.len() {
+            if work_index % COALESCING_TIMEOUT_CHECKING_INTERVAL == 0 &&
+                    time::precise_time_ns() >= deadline {
+                return CoalescingStatus::Timeout
+            }
+
+            let (left, candidates) = rects.split_at_mut(work_index + 1);
+            let mut item = left.last_mut().unwrap();
+            if item.size.width == 0 || item.size.height == 0 {
+                continue
+            }
+
+            let key = fun_key(item);
+            for candidate in candidates.iter_mut()
+                                       .take_while(|r| key == fun_key(r)) {
+                num_changed += fun_union(item, candidate);
+            }
+        }
+
+        if num_changed > 0 {
+            CoalescingStatus::Changed
+        } else {
+            CoalescingStatus::Unchanged
+        }
+    }
+
+    /// Combine rects that have the same width and are adjacent.
+    fn coalesce_horisontal(rects: &mut [DeviceUintRect], deadline: u64) -> CoalescingStatus {
+        Self::coalesce_impl(rects, deadline,
+                            |item| (item.size.width, item.origin.x),
+                            |item, candidate| {
+            if item.origin.y == candidate.max_y() || item.max_y() == candidate.origin.y {
+                *item = item.union(candidate);
+                candidate.size.width = 0;
+                1
+            } else { 0 }
+        })
+    }
+
+    /// Combine rects that have the same height and are adjacent.
+    fn coalesce_vertical(rects: &mut [DeviceUintRect], deadline: u64) -> CoalescingStatus {
+        Self::coalesce_impl(rects, deadline,
+                            |item| (item.size.height, item.origin.y),
+                            |item, candidate| {
+            if item.origin.x == candidate.max_x() || item.max_x() == candidate.origin.x {
+                *item = item.union(candidate);
+                candidate.size.height = 0;
+                1
+            } else { 0 }
+        })
+    }
+
     pub fn coalesce(&mut self) -> bool {
         if !self.dirty {
             return false
@@ -186,59 +251,24 @@ impl TexturePage {
         self.free_list.copy_to_vec(&mut self.coalesce_vec);
         let mut changed = false;
 
-        // Combine rects that have the same width and are adjacent.
-        self.coalesce_vec.sort_by_key(|item| (item.size.width, item.origin.x));
-        for work_index in 0..self.coalesce_vec.len() {
-            if work_index % COALESCING_TIMEOUT_CHECKING_INTERVAL == 0 &&
-                    time::precise_time_ns() >= deadline {
+        //Note: we might want to consider try to use the last sorted order first
+        // but the elements get shuffled around a bit anyway during the bin placement
+
+        match Self::coalesce_horisontal(&mut self.coalesce_vec, deadline) {
+            CoalescingStatus::Changed => changed = true,
+            CoalescingStatus::Unchanged => (),
+            CoalescingStatus::Timeout => {
                 self.free_list.init_from_slice(&self.coalesce_vec);
                 return true
-            }
-
-            let (left, candidates) = self.coalesce_vec.split_at_mut(work_index + 1);
-            let mut item = left.last_mut().unwrap();
-            if item.size.width == 0 {
-                continue
-            }
-            for mut candidate in candidates.iter_mut() {
-                if item.size.width != candidate.size.width ||
-                        item.origin.x != candidate.origin.x {
-                    break
-                }
-                if item.origin.y == candidate.max_y() ||
-                        item.max_y() == candidate.origin.y {
-                    changed = true;
-                    *item = item.union(candidate);
-                    candidate.size.width = 0;
-                }
             }
         }
 
-        // Combine rects that have the same height and are adjacent.
-        self.coalesce_vec.sort_by_key(|item| (item.size.height, item.origin.y));
-        for work_index in 0..self.coalesce_vec.len() {
-            if work_index % COALESCING_TIMEOUT_CHECKING_INTERVAL == 0 &&
-                    time::precise_time_ns() >= deadline {
+        match Self::coalesce_vertical(&mut self.coalesce_vec, deadline) {
+            CoalescingStatus::Changed => changed = true,
+            CoalescingStatus::Unchanged => (),
+            CoalescingStatus::Timeout => {
                 self.free_list.init_from_slice(&self.coalesce_vec);
                 return true
-            }
-
-            let (left, candidates) = self.coalesce_vec.split_at_mut(work_index + 1);
-            let mut item = left.last_mut().unwrap();
-            if item.size.width == 0 || item.size.height == 0 {
-                continue
-            }
-            for mut candidate in candidates.iter_mut() {
-                if item.size.height != candidate.size.height ||
-                        item.origin.y != candidate.origin.y {
-                    break
-                }
-                if item.origin.x == candidate.max_x() ||
-                        item.max_x() == candidate.origin.x {
-                    changed = true;
-                    *item = item.union(candidate);
-                    candidate.size.height = 0;
-                }
             }
         }
 
