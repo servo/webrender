@@ -1505,8 +1505,12 @@ impl Renderer {
         let transform_kind = batch.key.flags.transform_kind();
         let needs_clipping = batch.key.flags.needs_clipping();
         debug_assert!(!needs_clipping ||
-                      batch.key.blend_mode == BlendMode::Alpha ||
-                      batch.key.blend_mode == BlendMode::PremultipliedAlpha);
+                      match batch.key.blend_mode {
+                          BlendMode::Alpha |
+                          BlendMode::PremultipliedAlpha |
+                          BlendMode::Subpixel(..) => true,
+                          BlendMode::None => false,
+                      });
 
         let (marker, shader) = match batch.key.kind {
             AlphaBatchKind::Composite => {
