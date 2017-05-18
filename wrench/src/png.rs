@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use WindowWrapper;
-use gleam::gl;
 use image::ColorType;
 use image::png::PNGEncoder;
 use std::fs::File;
@@ -55,12 +54,8 @@ pub fn png(wrench: &mut Wrench,
     wrench.render();
 
     let size = window.get_inner_size_pixels();
-    let data = wrench.renderer.gl().read_pixels(0,
-                                                0,
-                                                size.0 as gl::GLsizei,
-                                                size.1 as gl::GLsizei,
-                                                gl::RGBA,
-                                                gl::UNSIGNED_BYTE);
+    let data = wrench.renderer.read_pixels_rgba8(DeviceUintRect::new(DeviceUintPoint::zero(),
+                                                                     DeviceUintSize::new(size.0, size.1)));
 
     let mut out_path = reader.yaml_path().clone();
     out_path.set_extension("png");

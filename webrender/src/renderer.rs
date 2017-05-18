@@ -51,7 +51,7 @@ use util::TransformedRectKind;
 use webgl_types::GLContextHandleWrapper;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ExternalImageId, ExternalImageType, ImageData, ImageFormat, RenderApiSender};
-use webrender_traits::{DeviceIntRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
+use webrender_traits::{DeviceIntRect, DeviceUintRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use webrender_traits::{ImageDescriptor, BlobImageRenderer};
 use webrender_traits::{channel, FontRenderMode};
 use webrender_traits::VRCompositorHandler;
@@ -82,6 +82,18 @@ const GPU_TAG_PRIM_BORDER_CORNER: GpuProfileTag = GpuProfileTag { label: "Border
 const GPU_TAG_PRIM_BORDER_EDGE: GpuProfileTag = GpuProfileTag { label: "BorderEdge", color: debug_colors::LAVENDER };
 const GPU_TAG_PRIM_CACHE_IMAGE: GpuProfileTag = GpuProfileTag { label: "CacheImage", color: debug_colors::SILVER };
 const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag { label: "Blur", color: debug_colors::VIOLET };
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum GraphicsApi {
+    OpenGL,
+}
+
+#[derive(Clone, Debug)]
+pub struct GraphicsApiInfo {
+    pub kind: GraphicsApi,
+    pub renderer: String,
+    pub version: String,
+}
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum ImageBufferKind {
@@ -1136,12 +1148,16 @@ impl Renderer {
         Ok((renderer, sender))
     }
 
-    fn get_yuv_shader_index(buffer_kind: ImageBufferKind, format: YuvFormat, color_space: YuvColorSpace) -> usize {
-        ((buffer_kind as usize) * YUV_FORMATS.len() + (format as usize)) * YUV_COLOR_SPACES.len() + (color_space as usize)
+    pub fn get_graphics_api_info(&self) -> GraphicsApiInfo {
+        GraphicsApiInfo {
+            kind: GraphicsApi::OpenGL,
+            version: self.device.gl().get_string(gl::VERSION),
+            renderer: self.device.gl().get_string(gl::RENDERER),
+        }
     }
 
-    pub fn gl(&self) -> &gl::Gl {
-        self.device.gl()
+    fn get_yuv_shader_index(buffer_kind: ImageBufferKind, format: YuvFormat, color_space: YuvColorSpace) -> usize {
+        ((buffer_kind as usize) * YUV_FORMATS.len() + (format as usize)) * YUV_COLOR_SPACES.len() + (color_space as usize)
     }
 
     /// Sets the new RenderNotifier.
@@ -2146,6 +2162,15 @@ impl Renderer {
                 }
             }
         }
+    }
+
+    pub fn read_pixels_rgba8(&self, rect: DeviceUintRect) -> Vec<u8> {
+            self.device.gl().read_pixels(rect.origin.x as gl::GLint,
+                                         rect.origin.y as gl::GLint,
+                                         rect.size.width as gl::GLsizei,
+                                         rect.size.height as gl::GLsizei,
+                                         gl::RGBA,
+                                         gl::UNSIGNED_BYTE)
     }
 
     // De-initialize the Renderer safely, assuming the GL is still alive and active.

@@ -4,7 +4,6 @@
 
 use WindowWrapper;
 use base64;
-use gleam::gl;
 use image::load as load_piston_image;
 use image::png::PNGEncoder;
 use image::{ColorType, ImageFormat};
@@ -306,12 +305,9 @@ impl<'a> ReftestHarness<'a> {
         assert!(size.width <= window_size.0 && size.height <= window_size.1);
 
         // taking the bottom left sub-rectangle
-        let pixels = self.window.gl().read_pixels(0,
-                                                  (window_size.1 - size.height) as gl::GLsizei,
-                                                  size.width as gl::GLsizei,
-                                                  size.height as gl::GLsizei,
-                                                  gl::RGBA,
-                                                  gl::UNSIGNED_BYTE);
+        let rect = DeviceUintRect::new(DeviceUintPoint::new(0, window_size.1 - size.height),
+                                       size);
+        let pixels = self.wrench.renderer.read_pixels_rgba8(rect);
         self.window.swap_buffers();
 
         let write_debug_images = false;

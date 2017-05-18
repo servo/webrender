@@ -10,7 +10,6 @@ use crossbeam::sync::chase_lev;
 use dwrote;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use font_loader::system_fonts;
-use gleam::gl;
 use glutin::WindowProxy;
 use image;
 use image::GenericImage;
@@ -21,7 +20,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use time;
 use webrender;
-use webrender::renderer::{CpuProfile, GpuProfile};
+use webrender::renderer::{CpuProfile, GpuProfile, GraphicsApiInfo};
 use webrender_traits::*;
 use yaml_frame_writer::YamlFrameWriterReceiver;
 use yaml_rust::Yaml;
@@ -128,8 +127,7 @@ pub struct Wrench {
 
     image_map: HashMap<(PathBuf, Option<i64>), (ImageKey, LayoutSize)>,
 
-    gl_renderer: String,
-    gl_version: String,
+    graphics_api: GraphicsApiInfo,
 
     pub rebuild_display_lists: bool,
     pub verbose: bool,
@@ -191,8 +189,7 @@ impl Wrench {
         let notifier = Box::new(Notifier::new(proxy, timing_receiver, verbose));
         renderer.set_render_notifier(notifier);
 
-        let gl_version = renderer.gl().get_string(gl::VERSION);
-        let gl_renderer = renderer.gl().get_string(gl::RENDERER);
+        let graphics_api = renderer.get_graphics_api_info();
 
         let mut wrench = Wrench {
             window_size: size,
@@ -209,8 +206,7 @@ impl Wrench {
 
             root_pipeline_id: PipelineId(0, 0),
 
-            gl_renderer: gl_renderer,
-            gl_version: gl_version,
+            graphics_api: graphics_api,
             frame_start_sender: timing_sender,
         };
 
@@ -222,7 +218,7 @@ impl Wrench {
 
     pub fn set_title(&mut self, extra: &str) {
         self.window_title_to_set = Some(format!("Wrench: {} ({}x) - {} - {}", extra,
-            self.device_pixel_ratio, self.gl_renderer, self.gl_version));
+            self.device_pixel_ratio, self.graphics_api.renderer, self.graphics_api.version));
     }
 
     pub fn take_title(&mut self) -> Option<String> {
@@ -361,7 +357,6 @@ impl Wrench {
 
     pub fn update(&mut self, dim: DeviceUintSize) {
         if dim != self.window_size {
-            self.renderer.gl().viewport(0, 0, dim.width as i32, dim.height as i32);
             self.window_size = dim;
         }
     }
