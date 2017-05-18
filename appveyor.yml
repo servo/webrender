@@ -12,8 +12,8 @@ build: false
 
 test_script:
   - cd webrender_traits
-  - cargo test --verbose
+  - RUST_BACKTRACE=1 cargo test --verbose
   - cd ../webrender
-  - cargo test --verbose
+  - RUST_BACKTRACE=1 cargo test --verbose
   - cd ../wrench
-  - cargo test --verbose
+  - RUST_BACKTRACE=1 cargo test --verbose

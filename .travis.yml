@@ -24,9 +24,9 @@ before_install:
   - pip install mako servo-tidy
 script:
   - servo-tidy
-  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_traits && cargo test --verbose --features "ipc"); fi
-  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_traits && cargo test --verbose); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_traits && RUST_BACKTRACE=1 cargo test --verbose --features "ipc"); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_traits && RUST_BACKTRACE=1 cargo test --verbose); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --no-default-features); fi
-  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo test --verbose); fi
-  - if [ $BUILD_KIND = DEBUG ]; then (cd wrench && cargo test --verbose); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && RUST_BACKTRACE=1 cargo test --verbose); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cd wrench && RUST_BACKTRACE=1 cargo test --verbose); fi
   - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python headless.py --subpixel-aa reftest); fi
