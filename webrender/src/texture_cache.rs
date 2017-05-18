@@ -296,6 +296,25 @@ impl TexturePage {
     }
 }
 
+// testing functionality
+impl TexturePage {
+    #[doc(hidden)]
+    pub fn new_dummy(size: DeviceUintSize) -> TexturePage {
+        Self::new(CacheTextureId(0), size)
+    }
+
+    #[doc(hidden)]
+    pub fn fill_from(&mut self, other: &TexturePage) {
+        self.dirty = true;
+        self.free_list.small.clear();
+        self.free_list.small.extend_from_slice(&other.free_list.small);
+        self.free_list.medium.clear();
+        self.free_list.medium.extend_from_slice(&other.free_list.medium);
+        self.free_list.large.clear();
+        self.free_list.large.extend_from_slice(&other.free_list.large);
+    }
+}
+
 /// A binning free list. Binning is important to avoid sifting through lots of small strips when
 /// allocating many texture items.
 struct FreeRectList {
