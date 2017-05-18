@@ -281,9 +281,16 @@ impl Wrench {
         self.font_key_from_bytes(font, index as u32)
     }
 
-    #[cfg(not(target_os = "windows"))]
-    pub fn font_key_from_name(&mut self, _font_name: &str) -> (FontKey, Option<NativeFontHandle>) {
-        panic!("Can't font_key_from_name on this platform");
+    #[cfg(unix)]
+    pub fn font_key_from_name(&mut self, font_name: &str) -> (FontKey, Option<NativeFontHandle>) {
+        let property = system_fonts::FontPropertyBuilder::new().family(font_name).build();
+        let (font, index) = system_fonts::get(&property).unwrap();
+        self.font_key_from_bytes(font, index as u32)
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn font_key_from_name(&mut self, font_name: &str) -> (FontKey, Option<NativeFontHandle>) {
+        unimplemented!()
     }
 
     pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>, index: u32) -> (FontKey, Option<NativeFontHandle>) {
