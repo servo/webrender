@@ -11,9 +11,10 @@ install:
 build: false
 
 test_script:
+  - export RUST_BACKTRACE=1
   - cd webrender_traits
-  - RUST_BACKTRACE=1 cargo test --verbose
+  - cargo test --verbose
   - cd ../webrender
-  - RUST_BACKTRACE=1 cargo test --verbose
+  - cargo test --verbose
   - cd ../wrench
-  - RUST_BACKTRACE=1 cargo test --verbose
+  - cargo test --verbose
