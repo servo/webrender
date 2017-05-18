@@ -10,8 +10,9 @@ install:
 
 build: false
 
+environment:
+  RUST_BACKTRACE: 1
 test_script:
-  - export RUST_BACKTRACE=1
   - cd webrender_traits
   - cargo test --verbose
   - cd ../webrender
