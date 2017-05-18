@@ -8,7 +8,7 @@ use freelist::{FreeList, FreeListItem, FreeListItemId};
 use internal_types::{TextureUpdate, TextureUpdateOp};
 use internal_types::{CacheTextureId, RenderTargetMode, TextureUpdateList, RectUv};
 use profiler::TextureCacheProfileCounters;
-use std::cmp::{self, Ordering};
+use std::cmp;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::hash::BuildHasherDefault;
@@ -62,6 +62,7 @@ pub struct TexturePage {
     texture_id: CacheTextureId,
     texture_size: DeviceUintSize,
     free_list: FreeRectList,
+    coalesce_vec: Vec<DeviceUintRect>,
     allocations: u32,
     dirty: bool,
 }
@@ -72,6 +73,7 @@ impl TexturePage {
             texture_id: texture_id,
             texture_size: texture_size,
             free_list: FreeRectList::new(),
+            coalesce_vec: Vec::new(),
             allocations: 0,
             dirty: false,
         };
@@ -181,21 +183,19 @@ impl TexturePage {
 
         // Iterate to a fixed point or until a timeout is reached.
         let deadline = time::precise_time_ns() + COALESCING_TIMEOUT;
-        let mut free_list = self.free_list.into_vec();
+        self.free_list.copy_to_vec(&mut self.coalesce_vec);
         let mut changed = false;
 
         // Combine rects that have the same width and are adjacent.
-        let mut new_free_list = Vec::new();
-        free_list.sort_by_key(|item| (item.size.width, item.origin.x));
-        for work_index in 0..free_list.len() {
+        self.coalesce_vec.sort_by_key(|item| (item.size.width, item.origin.x));
+        for work_index in 0..self.coalesce_vec.len() {
             if work_index % COALESCING_TIMEOUT_CHECKING_INTERVAL == 0 &&
                     time::precise_time_ns() >= deadline {
-                self.free_list.init_from_slice(&free_list);
-                self.dirty = true;
+                self.free_list.init_from_slice(&self.coalesce_vec);
                 return true
             }
 
-            let (left, candidates) = free_list.split_at_mut(work_index + 1);
+            let (left, candidates) = self.coalesce_vec.split_at_mut(work_index + 1);
             let mut item = left.last_mut().unwrap();
             if item.size.width == 0 {
                 continue
@@ -212,24 +212,20 @@ impl TexturePage {
                     candidate.size.width = 0;
                 }
             }
-            new_free_list.push(*item);
         }
-        free_list = new_free_list;
 
         // Combine rects that have the same height and are adjacent.
-        let mut new_free_list = Vec::new();
-        free_list.sort_by_key(|item| (item.size.height, item.origin.y));
-        for work_index in 0..free_list.len() {
+        self.coalesce_vec.sort_by_key(|item| (item.size.height, item.origin.y));
+        for work_index in 0..self.coalesce_vec.len() {
             if work_index % COALESCING_TIMEOUT_CHECKING_INTERVAL == 0 &&
                     time::precise_time_ns() >= deadline {
-                self.free_list = FreeRectList::from_slice(&free_list[..]);
-                self.dirty = true;
+                self.free_list.init_from_slice(&self.coalesce_vec);
                 return true
             }
 
-            let (left, candidates) = free_list.split_at_mut(work_index + 1);
+            let (left, candidates) = self.coalesce_vec.split_at_mut(work_index + 1);
             let mut item = left.last_mut().unwrap();
-            if item.size.height == 0 {
+            if item.size.width == 0 || item.size.height == 0 {
                 continue
             }
             for mut candidate in candidates.iter_mut() {
@@ -244,11 +240,9 @@ impl TexturePage {
                     candidate.size.height = 0;
                 }
             }
-            new_free_list.push(*item)
         }
-        free_list = new_free_list;
 
-        self.free_list = FreeRectList::from_slice(&free_list[..]);
+        self.free_list.init_from_slice(&self.coalesce_vec);
         self.dirty = changed;
         changed
     }
@@ -319,18 +313,18 @@ impl FreeRectList {
         }
     }
 
-    fn from_slice(vector: &[DeviceUintRect]) -> FreeRectList {
-        let mut free_list = FreeRectList::new();
-        for rect in vector {
-            free_list.push(rect)
+    fn init_from_slice(&mut self, rects: &[DeviceUintRect]) {
+        self.small.clear();
+        self.medium.clear();
+        self.large.clear();
+        for rect in rects {
+            if rect.size.width != 0 && rect.size.height != 0 {
+                self.push(rect)
+            }
         }
-        free_list
     }
 
     fn push(&mut self, rect: &DeviceUintRect) {
-        if rect.size.width == 0 || rect.size.height == 0 {
-            return
-        }
         match FreeListBin::for_size(&rect.size) {
             FreeListBin::Small => self.small.push(*rect),
             FreeListBin::Medium => self.medium.push(*rect),
@@ -354,10 +348,11 @@ impl FreeRectList {
         }
     }
 
-    fn into_vec(mut self) -> Vec<DeviceUintRect> {
-        self.small.extend(self.medium.drain(..));
-        self.small.extend(self.large.drain(..));
-        self.small
+    fn copy_to_vec(&self, rects: &mut Vec<DeviceUintRect>) {
+        rects.clear();
+        rects.extend_from_slice(&self.small);
+        rects.extend_from_slice(&self.medium);
+        rects.extend_from_slice(&self.large);
     }
 }
 
@@ -372,13 +367,14 @@ enum FreeListBin {
 }
 
 impl FreeListBin {
-    pub fn for_size(size: &DeviceUintSize) -> FreeListBin {
+    fn for_size(size: &DeviceUintSize) -> FreeListBin {
         if size.width >= MINIMUM_LARGE_RECT_SIZE && size.height >= MINIMUM_LARGE_RECT_SIZE {
             FreeListBin::Large
         } else if size.width >= MINIMUM_MEDIUM_RECT_SIZE &&
                 size.height >= MINIMUM_MEDIUM_RECT_SIZE {
             FreeListBin::Medium
         } else {
+            debug_assert!(size.width > 0 && size.height > 0);
             FreeListBin::Small
         }
     }
