@@ -181,54 +181,44 @@ impl TexturePage {
 
         // Iterate to a fixed point or until a timeout is reached.
         let deadline = time::precise_time_ns() + COALESCING_TIMEOUT;
-        let mut free_list = mem::replace(&mut self.free_list, FreeRectList::new()).into_vec();
+        let mut free_list = self.free_list.into_vec();
         let mut changed = false;
 
         // Combine rects that have the same width and are adjacent.
         let mut new_free_list = Vec::new();
-        free_list.sort_by(|a, b| {
-            match a.size.width.cmp(&b.size.width) {
-                Ordering::Equal => a.origin.x.cmp(&b.origin.x),
-                ordering => ordering,
-            }
-        });
+        free_list.sort_by_key(|item| (item.size.width, item.origin.x));
         for work_index in 0..free_list.len() {
             if work_index % COALESCING_TIMEOUT_CHECKING_INTERVAL == 0 &&
                     time::precise_time_ns() >= deadline {
-                self.free_list = FreeRectList::from_slice(&free_list[..]);
+                self.free_list.init_from_slice(&free_list);
                 self.dirty = true;
                 return true
             }
 
-            if free_list[work_index].size.width == 0 {
+            let (left, candidates) = free_list.split_at_mut(work_index + 1);
+            let mut item = left.last_mut().unwrap();
+            if item.size.width == 0 {
                 continue
             }
-            for candidate_index in (work_index + 1)..free_list.len() {
-                if free_list[work_index].size.width != free_list[candidate_index].size.width ||
-                        free_list[work_index].origin.x != free_list[candidate_index].origin.x {
+            for mut candidate in candidates.iter_mut() {
+                if item.size.width != candidate.size.width ||
+                        item.origin.x != candidate.origin.x {
                     break
                 }
-                if free_list[work_index].origin.y == free_list[candidate_index].max_y() ||
-                        free_list[work_index].max_y() == free_list[candidate_index].origin.y {
+                if item.origin.y == candidate.max_y() ||
+                        item.max_y() == candidate.origin.y {
                     changed = true;
-                    free_list[work_index] =
-                        free_list[work_index].union(&free_list[candidate_index]);
-                    free_list[candidate_index].size.width = 0
+                    *item = item.union(candidate);
+                    candidate.size.width = 0;
                 }
-                new_free_list.push(free_list[work_index])
             }
-            new_free_list.push(free_list[work_index])
+            new_free_list.push(*item);
         }
         free_list = new_free_list;
 
         // Combine rects that have the same height and are adjacent.
         let mut new_free_list = Vec::new();
-        free_list.sort_by(|a, b| {
-            match a.size.height.cmp(&b.size.height) {
-                Ordering::Equal => a.origin.y.cmp(&b.origin.y),
-                ordering => ordering,
-            }
-        });
+        free_list.sort_by_key(|item| (item.size.height, item.origin.y));
         for work_index in 0..free_list.len() {
             if work_index % COALESCING_TIMEOUT_CHECKING_INTERVAL == 0 &&
                     time::precise_time_ns() >= deadline {
@@ -237,24 +227,24 @@ impl TexturePage {
                 return true
             }
 
-            if free_list[work_index].size.height == 0 {
+            let (left, candidates) = free_list.split_at_mut(work_index + 1);
+            let mut item = left.last_mut().unwrap();
+            if item.size.height == 0 {
                 continue
             }
-            for candidate_index in (work_index + 1)..free_list.len() {
-                if free_list[work_index].size.height !=
-                        free_list[candidate_index].size.height ||
-                        free_list[work_index].origin.y != free_list[candidate_index].origin.y {
+            for mut candidate in candidates.iter_mut() {
+                if item.size.height != candidate.size.height ||
+                        item.origin.y != candidate.origin.y {
                     break
                 }
-                if free_list[work_index].origin.x == free_list[candidate_index].max_x() ||
-                        free_list[work_index].max_x() == free_list[candidate_index].origin.x {
+                if item.origin.x == candidate.max_x() ||
+                        item.max_x() == candidate.origin.x {
                     changed = true;
-                    free_list[work_index] =
-                        free_list[work_index].union(&free_list[candidate_index]);
-                    free_list[candidate_index].size.height = 0
+                    *item = item.union(candidate);
+                    candidate.size.height = 0;
                 }
             }
-            new_free_list.push(free_list[work_index])
+            new_free_list.push(*item)
         }
         free_list = new_free_list;
 
@@ -338,6 +328,9 @@ impl FreeRectList {
     }
 
     fn push(&mut self, rect: &DeviceUintRect) {
+        if rect.size.width == 0 || rect.size.height == 0 {
+            return
+        }
         match FreeListBin::for_size(&rect.size) {
             FreeListBin::Small => self.small.push(*rect),
             FreeListBin::Medium => self.medium.push(*rect),
