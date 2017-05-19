@@ -89,7 +89,7 @@ enum FBOTarget {
     Draw,
 }
 
-fn get_gl_format_bgra(gl: &gl::Gl) -> gl::GLuint {
+pub fn get_gl_format_bgra(gl: &gl::Gl) -> gl::GLuint {
     match gl.get_type() {
         gl::GlType::Gl => {
             GL_FORMAT_BGRA_GL

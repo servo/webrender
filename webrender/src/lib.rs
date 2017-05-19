@@ -140,4 +140,4 @@ extern crate plane_split;
 extern crate gamma_lut;
 
 pub use renderer::{ExternalImage, ExternalImageSource, ExternalImageHandler};
-pub use renderer::{GraphicsApi, GraphicsApiInfo, Renderer, RendererOptions};
+pub use renderer::{GraphicsApi, GraphicsApiInfo, ReadPixelsFormat, Renderer, RendererOptions};

@@ -13,6 +13,7 @@ use debug_colors;
 use debug_render::DebugRenderer;
 use device::{DepthFunction, Device, FrameId, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler};
 use device::{GpuSample, TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
+use device::get_gl_format_bgra;
 use euclid::Matrix4D;
 use fnv::FnvHasher;
 use frame_builder::FrameBuilderConfig;
@@ -512,6 +513,12 @@ impl GpuDataTextures {
         device.bind_texture(TextureSampler::Gradients, self.gradient_data_texture.id);
         device.bind_texture(TextureSampler::SplitGeometry, self.split_geometry_texture.id);
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ReadPixelsFormat {
+    Rgba8,
+    Bgra8,
 }
 
 /// The renderer is responsible for submitting to the GPU the work prepared by the
@@ -2165,12 +2172,28 @@ impl Renderer {
     }
 
     pub fn read_pixels_rgba8(&self, rect: DeviceUintRect) -> Vec<u8> {
-            self.device.gl().read_pixels(rect.origin.x as gl::GLint,
-                                         rect.origin.y as gl::GLint,
-                                         rect.size.width as gl::GLsizei,
-                                         rect.size.height as gl::GLsizei,
-                                         gl::RGBA,
-                                         gl::UNSIGNED_BYTE)
+        let mut pixels = vec![0u8; (4 * rect.size.width * rect.size.height) as usize];
+        self.read_pixels_into(rect, ReadPixelsFormat::Rgba8, &mut pixels);
+        pixels
+    }
+
+    pub fn read_pixels_into(&self,
+                            rect: DeviceUintRect,
+                            format: ReadPixelsFormat,
+                            output: &mut [u8]) {
+        let (gl_format, gl_type, size) = match format {
+            ReadPixelsFormat::Rgba8 => (gl::RGBA, gl::UNSIGNED_BYTE, 4),
+            ReadPixelsFormat::Bgra8 => (get_gl_format_bgra(self.device.gl()), gl::UNSIGNED_BYTE, 4),
+        };
+        assert_eq!(output.len(), (size * rect.size.width * rect.size.height) as usize);
+        self.device.gl().flush();
+        self.device.gl().read_pixels_into_buffer(rect.origin.x as gl::GLint,
+                                                 rect.origin.y as gl::GLint,
+                                                 rect.size.width as gl::GLsizei,
+                                                 rect.size.height as gl::GLsizei,
+                                                 gl_format,
+                                                 gl_type,
+                                                 output);
     }
 
     // De-initialize the Renderer safely, assuming the GL is still alive and active.
