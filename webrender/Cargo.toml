@@ -29,7 +29,7 @@ rayon = {version = "0.7", features = ["unstable"]}
 webrender_traits = {path = "../webrender_traits"}
 bitflags = "0.7"
 gamma-lut = "0.2"
-thread_profiler = "0.1.1"
+thread_profiler = "0.1.3"
 plane-split = "0.3"
 
 [dev-dependencies]
