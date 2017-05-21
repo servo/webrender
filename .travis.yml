@@ -18,8 +18,8 @@ addons:
       - llvm-3.8-dev
       - libedit-dev
 env:
-  - BUILD_KIND=DEBUG
-  - BUILD_KIND=RELEASE
+  - BUILD_KIND=DEBUG RUST_BACKTRACE=1
+  - BUILD_KIND=RELEASE RUST_BACKTRACE=1
 before_install:
   - pip install mako servo-tidy
 script:
