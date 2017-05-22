@@ -1,11 +1,11 @@
 dist: trusty
 language: rust
-rust: stable
+rust:
+  - stable
+  - nightly
 os:
   - linux
   - osx
-rust:
-  - nightly-2017-01-26
 notifications:
   webhooks: http://build.servo.org:54856/travis
 addons:
@@ -25,8 +25,7 @@ before_install:
 script:
   - servo-tidy
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_traits && cargo test --verbose --features "ipc"); fi
-  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_traits && cargo test --verbose); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --no-default-features); fi
-  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo test --verbose); fi
-  - if [ $BUILD_KIND = DEBUG ]; then (cd wrench && cargo test --verbose); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cargo test --all --verbose); fi
   - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python headless.py --subpixel-aa reftest); fi
+  - if [ $TRAVIS_RUST_VERSION == "nightly" ]; then (cd webrender && cargo bench --verbose); fi
