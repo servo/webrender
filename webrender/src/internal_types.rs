@@ -129,14 +129,6 @@ pub enum VertexAttribute {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum ClearAttribute {
-    // vertex frequency
-    Position,
-    // instance frequency
-    Rectangle,
-}
-
-#[derive(Clone, Copy, Debug)]
 pub enum BlurAttribute {
     // vertex frequency
     Position,

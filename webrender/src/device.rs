@@ -6,7 +6,7 @@ use euclid::Matrix4D;
 use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{PackedVertex, RenderTargetMode, TextureSampler, DEFAULT_TEXTURE};
-use internal_types::{BlurAttribute, ClearAttribute, ClipAttribute, VertexAttribute};
+use internal_types::{BlurAttribute, ClipAttribute, VertexAttribute};
 use internal_types::{DebugFontVertex, DebugColorVertex};
 //use notify::{self, Watcher};
 use super::shader_source;
@@ -76,10 +76,8 @@ pub enum TextureFilter {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum VertexFormat {
     Triangles,
-    Rectangles,
     DebugFont,
     DebugColor,
-    Clear,
     Blur,
     Clip,
 }
@@ -190,7 +188,6 @@ impl VertexFormat {
                                           vertex_stride as gl::GLint,
                                           8 + vertex_stride * offset);
             }
-            VertexFormat::Rectangles |
             VertexFormat::Triangles => {
                 let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLuint;
                 gl.enable_vertex_attrib_array(VertexAttribute::Position as gl::GLuint);
@@ -231,28 +228,6 @@ impl VertexFormat {
                                             gl::INT,
                                             instance_stride,
                                             offset);
-            }
-            VertexFormat::Clear => {
-                let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLuint;
-                gl.enable_vertex_attrib_array(ClearAttribute::Position as gl::GLuint);
-                gl.vertex_attrib_divisor(ClearAttribute::Position as gl::GLuint, 0);
-
-                gl.vertex_attrib_pointer(ClearAttribute::Position as gl::GLuint,
-                                          2,
-                                          gl::FLOAT,
-                                          false,
-                                          vertex_stride as gl::GLint,
-                                          0);
-
-                instance.bind(gl);
-
-                gl.enable_vertex_attrib_array(ClearAttribute::Rectangle as gl::GLuint);
-                gl.vertex_attrib_divisor(ClearAttribute::Rectangle as gl::GLuint, 1);
-                gl.vertex_attrib_i_pointer(ClearAttribute::Rectangle as gl::GLuint,
-                                            4,
-                                            gl::INT,
-                                            instance_stride,
-                                            0);
             }
             VertexFormat::Blur => {
                 let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLuint;
@@ -412,8 +387,9 @@ impl Program {
         self.gl.attach_shader(self.id, fs_id);
 
         match vertex_format {
-            VertexFormat::Triangles | VertexFormat::Rectangles |
-            VertexFormat::DebugFont |  VertexFormat::DebugColor => {
+            VertexFormat::Triangles |
+            VertexFormat::DebugFont |
+            VertexFormat::DebugColor => {
                 self.gl.bind_attrib_location(self.id, VertexAttribute::Position as gl::GLuint, "aPosition");
                 self.gl.bind_attrib_location(self.id, VertexAttribute::Color as gl::GLuint, "aColor");
                 self.gl.bind_attrib_location(self.id, VertexAttribute::ColorTexCoord as gl::GLuint, "aColorTexCoord");
@@ -426,10 +402,6 @@ impl Program {
                 self.gl.bind_attrib_location(self.id, VertexAttribute::ElementIndex as gl::GLuint, "aElementIndex");
                 self.gl.bind_attrib_location(self.id, VertexAttribute::UserData as gl::GLuint, "aUserData");
                 self.gl.bind_attrib_location(self.id, VertexAttribute::ZIndex as gl::GLuint, "aZIndex");
-            }
-            VertexFormat::Clear => {
-                self.gl.bind_attrib_location(self.id, ClearAttribute::Position as gl::GLuint, "aPosition");
-                self.gl.bind_attrib_location(self.id, ClearAttribute::Rectangle as gl::GLuint, "aClearRectangle");
             }
             VertexFormat::Blur => {
                 self.gl.bind_attrib_location(self.id, BlurAttribute::Position as gl::GLuint, "aPosition");

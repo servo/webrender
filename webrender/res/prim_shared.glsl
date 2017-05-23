@@ -471,28 +471,6 @@ PrimitiveInstance fetch_prim_instance() {
     return pi;
 }
 
-struct CachePrimitiveInstance {
-    int global_prim_index;
-    int specific_prim_index;
-    int render_task_index;
-    int sub_index;
-    ivec2 user_data;
-};
-
-CachePrimitiveInstance fetch_cache_instance() {
-    CachePrimitiveInstance cpi;
-
-    PrimitiveInstance pi = fetch_prim_instance();
-
-    cpi.global_prim_index = pi.global_prim_index;
-    cpi.specific_prim_index = pi.specific_prim_index;
-    cpi.render_task_index = pi.render_task_index;
-    cpi.sub_index = pi.sub_index;
-    cpi.user_data = pi.user_data;
-
-    return cpi;
-}
-
 struct Primitive {
     Layer layer;
     ClipArea clip_area;
