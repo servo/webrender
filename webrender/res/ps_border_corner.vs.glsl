@@ -91,6 +91,7 @@ int select_style(int color_select, vec2 fstyle) {
 
     switch (color_select) {
         case SIDE_BOTH:
+        {
             // TODO(gw): A temporary hack! While we don't support
             //           border corners that have dots or dashes
             //           with another style, pretend they are solid
@@ -102,6 +103,7 @@ int select_style(int color_select, vec2 fstyle) {
             if (style.x != style.y && (has_dots || has_dashes))
                 return BORDER_STYLE_SOLID;
             return style.x;
+        }
         case SIDE_FIRST:
             return style.x;
         case SIDE_SECOND:
