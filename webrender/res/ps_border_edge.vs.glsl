@@ -42,11 +42,15 @@ void write_color(vec4 color, float style, bool flip) {
 
     switch (int(style)) {
         case BORDER_STYLE_GROOVE:
+        {
             modulate = flip ? vec2(1.3, 0.7) : vec2(0.7, 1.3);
             break;
+        }
         case BORDER_STYLE_RIDGE:
+        {
             modulate = flip ? vec2(0.7, 1.3) : vec2(1.3, 0.7);
             break;
+        }
         default:
             modulate = vec2(1.0);
             break;
