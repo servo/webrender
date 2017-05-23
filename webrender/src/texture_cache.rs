@@ -125,6 +125,9 @@ impl TexturePage {
 
     pub fn allocate(&mut self,
                     requested_dimensions: &DeviceUintSize) -> Option<DeviceUintPoint> {
+        if requested_dimensions.width == 0 || requested_dimensions.height == 0 {
+            return Some(DeviceUintPoint::new(0, 0))
+        }
         let index = match self.find_index_of_best_rect(requested_dimensions) {
             None => return None,
             Some(index) => index,
@@ -197,7 +200,7 @@ impl TexturePage {
 
             let (left, candidates) = rects.split_at_mut(work_index + 1);
             let mut item = left.last_mut().unwrap();
-            if item.size.width == 0 || item.size.height == 0 {
+            if util::rect_is_empty(item) {
                 continue
             }
 
@@ -272,7 +275,9 @@ impl TexturePage {
             }
         }
 
-        self.free_list.init_from_slice(&self.coalesce_vec);
+        if changed {
+            self.free_list.init_from_slice(&self.coalesce_vec);
+        }
         self.dirty = changed;
         changed
     }
@@ -287,6 +292,9 @@ impl TexturePage {
     }
 
     fn free(&mut self, rect: &DeviceUintRect) {
+        if util::rect_is_empty(rect) {
+            return
+        }
         debug_assert!(self.allocations > 0);
         self.allocations -= 1;
         if self.allocations == 0 {
@@ -367,7 +375,7 @@ impl FreeRectList {
         self.medium.clear();
         self.large.clear();
         for rect in rects {
-            if rect.size.width != 0 && rect.size.height != 0 {
+            if !util::rect_is_empty(rect) {
                 self.push(rect)
             }
         }
