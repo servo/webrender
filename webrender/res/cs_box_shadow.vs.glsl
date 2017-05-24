@@ -6,7 +6,7 @@
 void main(void) {
     PrimitiveInstance pi = fetch_prim_instance();
     RenderTaskData task = fetch_render_task(pi.render_task_index);
-    BoxShadow bs = fetch_boxshadow(pi.specific_prim_index);
+    BoxShadow bs = fetch_boxshadow(pi.specific_prim_address);
 
     vec2 p0 = task.data0.xy;
     vec2 p1 = p0 + task.data0.zw;

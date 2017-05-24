@@ -118,14 +118,8 @@ pub enum VertexAttribute {
     Color,
     ColorTexCoord,
     // instance-frequency primitive attributes
-    GlobalPrimId,
-    PrimitiveAddress,
-    TaskIndex,
-    ClipTaskIndex,
-    LayerIndex,
-    ElementIndex,
-    UserData,
-    ZIndex,
+    Data0,
+    Data1,
 }
 
 #[derive(Clone, Copy, Debug)]

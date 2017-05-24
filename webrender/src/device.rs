@@ -203,31 +203,18 @@ impl VertexFormat {
                 instance.bind(gl);
                 let mut offset = 0;
 
-                for &attrib in [VertexAttribute::GlobalPrimId,
-                                VertexAttribute::PrimitiveAddress,
-                                VertexAttribute::TaskIndex,
-                                VertexAttribute::ClipTaskIndex,
-                                VertexAttribute::LayerIndex,
-                                VertexAttribute::ElementIndex,
-                                VertexAttribute::ZIndex,
+                for &attrib in [VertexAttribute::Data0,
+                                VertexAttribute::Data1,
                                ].into_iter() {
                     gl.enable_vertex_attrib_array(attrib as gl::GLuint);
                     gl.vertex_attrib_divisor(attrib as gl::GLuint, 1);
                     gl.vertex_attrib_i_pointer(attrib as gl::GLuint,
-                                                1,
+                                                4,
                                                 gl::INT,
                                                 instance_stride,
                                                 offset);
-                    offset += 4;
+                    offset += 16;
                 }
-
-                gl.enable_vertex_attrib_array(VertexAttribute::UserData as gl::GLuint);
-                gl.vertex_attrib_divisor(VertexAttribute::UserData as gl::GLuint, 1);
-                gl.vertex_attrib_i_pointer(VertexAttribute::UserData as gl::GLuint,
-                                            2,
-                                            gl::INT,
-                                            instance_stride,
-                                            offset);
             }
             VertexFormat::Blur => {
                 let vertex_stride = mem::size_of::<PackedVertex>() as gl::GLuint;
@@ -394,14 +381,8 @@ impl Program {
                 self.gl.bind_attrib_location(self.id, VertexAttribute::Color as gl::GLuint, "aColor");
                 self.gl.bind_attrib_location(self.id, VertexAttribute::ColorTexCoord as gl::GLuint, "aColorTexCoord");
 
-                self.gl.bind_attrib_location(self.id, VertexAttribute::GlobalPrimId as gl::GLuint, "aGlobalPrimId");
-                self.gl.bind_attrib_location(self.id, VertexAttribute::PrimitiveAddress as gl::GLuint, "aPrimitiveAddress");
-                self.gl.bind_attrib_location(self.id, VertexAttribute::TaskIndex as gl::GLuint, "aTaskIndex");
-                self.gl.bind_attrib_location(self.id, VertexAttribute::ClipTaskIndex as gl::GLuint, "aClipTaskIndex");
-                self.gl.bind_attrib_location(self.id, VertexAttribute::LayerIndex as gl::GLuint, "aLayerIndex");
-                self.gl.bind_attrib_location(self.id, VertexAttribute::ElementIndex as gl::GLuint, "aElementIndex");
-                self.gl.bind_attrib_location(self.id, VertexAttribute::UserData as gl::GLuint, "aUserData");
-                self.gl.bind_attrib_location(self.id, VertexAttribute::ZIndex as gl::GLuint, "aZIndex");
+                self.gl.bind_attrib_location(self.id, VertexAttribute::Data0 as gl::GLuint, "aData0");
+                self.gl.bind_attrib_location(self.id, VertexAttribute::Data1 as gl::GLuint, "aData1");
             }
             VertexFormat::Blur => {
                 self.gl.bind_attrib_location(self.id, BlurAttribute::Position as gl::GLuint, "aPosition");
