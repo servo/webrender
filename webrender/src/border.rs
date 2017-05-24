@@ -296,6 +296,11 @@ impl FrameBuilder {
         let top = &border.top;
         let bottom = &border.bottom;
 
+        let has_no_curve = radius.bottom_left.width  == 0.0 && radius.bottom_left.height  == 0.0
+                        && radius.top_left.width     == 0.0 && radius.top_left.height     == 0.0
+                        && radius.top_right.width    == 0.0 && radius.top_right.height    == 0.0
+                        && radius.bottom_right.width == 0.0 && radius.bottom_right.height == 0.0;
+
         let corners = [
             border.get_corner(left,
                               widths.left,
@@ -348,7 +353,7 @@ impl FrameBuilder {
             *e == BorderEdgeKind::Solid || *e == BorderEdgeKind::None
         });
 
-        if all_corners_simple && all_edges_simple {
+        if has_no_curve && all_corners_simple && all_edges_simple {
             let p0 = rect.origin;
             let p1 = rect.bottom_right();
             let rect_width = rect.size.width;
