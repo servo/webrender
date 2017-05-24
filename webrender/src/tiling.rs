@@ -1457,7 +1457,6 @@ pub struct PackedLayer {
     pub transform: LayerToWorldTransform,
     pub inv_transform: WorldToLayerTransform,
     pub local_clip_rect: LayerRect,
-    pub screen_vertices: [WorldPoint4D; 4],
 }
 
 impl Default for PackedLayer {
@@ -1466,7 +1465,6 @@ impl Default for PackedLayer {
             transform: LayerToWorldTransform::identity(),
             inv_transform: WorldToLayerTransform::identity(),
             local_clip_rect: LayerRect::zero(),
-            screen_vertices: [WorldPoint4D::zero(); 4],
         }
     }
 }
@@ -1488,7 +1486,6 @@ impl PackedLayer {
                     -> Option<(TransformedRectKind, DeviceIntRect)> {
         let xf_rect = TransformedRect::new(&local_rect, &self.transform, device_pixel_ratio);
         xf_rect.bounding_rect.intersection(screen_rect).map(|rect| {
-            self.screen_vertices = xf_rect.vertices.clone();
             self.local_clip_rect = *local_rect;
             (xf_rect.kind, rect)
         })

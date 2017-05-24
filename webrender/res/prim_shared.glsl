@@ -117,7 +117,7 @@ varying vec3 vClipMaskUv;
 
 #ifdef WR_VERTEX_SHADER
 
-#define VECS_PER_LAYER             13
+#define VECS_PER_LAYER              9
 #define VECS_PER_RENDER_TASK        3
 #define VECS_PER_PRIM_GEOM          2
 #define VECS_PER_SPLIT_GEOM         3
@@ -190,7 +190,6 @@ struct Layer {
     mat4 transform;
     mat4 inv_transform;
     RectWithSize local_clip_rect;
-    vec4 screen_vertices[4];
 };
 
 Layer fetch_layer(int index) {
@@ -216,11 +215,6 @@ Layer fetch_layer(int index) {
 
     vec4 clip_rect = texelFetchOffset(sLayers, uv1, 0, ivec2(0, 0));
     layer.local_clip_rect = RectWithSize(clip_rect.xy, clip_rect.zw);
-
-    layer.screen_vertices[0] = texelFetchOffset(sLayers, uv1, 0, ivec2(1, 0));
-    layer.screen_vertices[1] = texelFetchOffset(sLayers, uv1, 0, ivec2(2, 0));
-    layer.screen_vertices[2] = texelFetchOffset(sLayers, uv1, 0, ivec2(3, 0));
-    layer.screen_vertices[3] = texelFetchOffset(sLayers, uv1, 0, ivec2(4, 0));
 
     return layer;
 }
@@ -517,7 +511,7 @@ Primitive load_primitive() {
 bool ray_plane(vec3 normal, vec3 point, vec3 ray_origin, vec3 ray_dir, out float t)
 {
     float denom = dot(normal, ray_dir);
-    if (denom > 1e-6) {
+    if (abs(denom) > 1e-6) {
         vec3 d = point - ray_origin;
         t = dot(d, normal) / denom;
         return t >= 0.0;
@@ -546,12 +540,11 @@ vec4 untransform(vec2 ref, vec3 n, vec3 a, mat4 inv_transform) {
 
 // Given a CSS space position, transform it back into the layer space.
 vec4 get_layer_pos(vec2 pos, Layer layer) {
-    // get 3 of the layer corners in CSS space
-    vec3 a = layer.screen_vertices[0].xyz / layer.screen_vertices[0].w;
-    vec3 b = layer.screen_vertices[3].xyz / layer.screen_vertices[3].w;
-    vec3 c = layer.screen_vertices[2].xyz / layer.screen_vertices[2].w;
+    // get a point on the layer plane
+    vec4 ah = layer.transform * vec4(0.0, 0.0, 0.0, 1.0);
+    vec3 a = ah.xyz / ah.w;
     // get the normal to the layer plane
-    vec3 n = normalize(cross(b-a, c-a));
+    vec3 n = transpose(mat3(layer.inv_transform)) * vec3(0.0, 0.0, 1.0);
     return untransform(pos, n, a, layer.inv_transform);
 }
 
