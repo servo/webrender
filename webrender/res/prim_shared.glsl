@@ -556,6 +556,30 @@ vec4 get_layer_pos(vec2 pos, Layer layer) {
     return untransform(pos, n, a, layer.inv_transform);
 }
 
+// Compute a snapping offset in world space (adjusted to pixel ratio),
+// given local position on the layer and a snap rectangle.
+vec2 compute_snap_offset(vec2 local_pos,
+                         RectWithSize local_clip_rect,
+                         Layer layer,
+                         RectWithSize raw_snap_rect) {
+    // Clamp the snap rectangle.
+    RectWithSize snap_rect = intersect_rect(intersect_rect(raw_snap_rect, local_clip_rect),
+                                            layer.local_clip_rect);
+    // Transform the snap corners to the world space.
+    vec4 world_snap_p0 = layer.transform * vec4(snap_rect.p0, 0.0, 1.0);
+    vec4 world_snap_p1 = layer.transform * vec4(snap_rect.p0 + snap_rect.size, 0.0, 1.0);
+    // Snap bounds in world coordinates, adjusted for pixel ratio. XY = top left, ZW = bottom right
+    vec4 world_snap = uDevicePixelRatio * vec4(world_snap_p0.xy, world_snap_p1.xy) /
+                                          vec4(world_snap_p0.ww, world_snap_p1.ww);
+    /// World offsets applied to the corners of the snap rectangle.
+    vec4 snap_offsets = floor(world_snap + 0.5) - world_snap;
+
+    /// Compute the position of this vertex inside the snap rectangle.
+    vec2 normalized_snap_pos = (local_pos - snap_rect.p0) / snap_rect.size;
+    /// Compute the actual world offset for this vertex needed to make it snap.
+    return mix(snap_offsets.xy, snap_offsets.zw, normalized_snap_pos);
+}
+
 struct VertexInfo {
     vec2 local_pos;
     vec2 screen_pos;
@@ -575,22 +599,8 @@ VertexInfo write_vertex(RectWithSize instance_rect,
     vec2 clamped_local_pos = clamp_rect(clamp_rect(local_pos, local_clip_rect),
                                         layer.local_clip_rect);
 
-    // Adjust the snap rectangle.
-    RectWithSize clamped_snap_rect = intersect_rect(intersect_rect(snap_rect, local_clip_rect),
-                                                    layer.local_clip_rect);
-    // Transform the snap corners to the world space.
-    vec4 world_snap_p0 = layer.transform * vec4(clamped_snap_rect.p0, 0.0, 1.0);
-    vec4 world_snap_p1 = layer.transform * vec4(clamped_snap_rect.p0 + clamped_snap_rect.size, 0.0, 1.0);
-    // Snap bounds in world coordinates, adjusted for pixel ratio. XY = top left, ZW = bottom right
-    vec4 world_snap = uDevicePixelRatio * vec4(world_snap_p0.xy, world_snap_p1.xy) /
-                                          vec4(world_snap_p0.ww, world_snap_p1.ww);
-    /// World offsets applied to the corners of the snap rectangle.
-    vec4 snap_offsets = floor(world_snap + 0.5) - world_snap;
-
-    /// Compute the position of this vertex inside the snap rectangle.
-    vec2 normalized_snap_pos = (clamped_local_pos - clamped_snap_rect.p0) / clamped_snap_rect.size;
-    /// Compute the actual world offset for this vertex needed to make it snap.
-    vec2 snap_offset = mix(snap_offsets.xy, snap_offsets.zw, normalized_snap_pos);
+    /// Compute the snapping offset.
+    vec2 snap_offset = compute_snap_offset(clamped_local_pos, local_clip_rect, layer, snap_rect);
 
     // Transform the current vertex to the world cpace.
     vec4 world_pos = layer.transform * vec4(clamped_local_pos, 0.0, 1.0);
@@ -699,23 +709,20 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
                                       adjusted_next_p0,
                                       adjusted_next_p1);
 
-    // Calculate the snap amount based on the first vertex as a reference point.
-    //TODO: full rectangle snapping, similar to `write_vertex`
-    vec4 world_p0 = layer.transform * vec4(snap_rect.p0, 0.0, 1.0);
-    vec2 device_p0 = uDevicePixelRatio * world_p0.xy / world_p0.w;
-    vec2 snap_delta = device_p0 - floor(device_p0 + 0.5);
+    vec4 layer_pos = get_layer_pos(device_pos / uDevicePixelRatio, layer);
+
+    /// Compute the snapping offset.
+    vec2 snap_offset = compute_snap_offset(layer_pos.xy / layer_pos.w,
+                                           local_clip_rect, layer, snap_rect);
 
     // Apply offsets for the render task to get correct screen location.
-    vec2 final_pos = device_pos -
-                     snap_delta -
+    vec2 final_pos = device_pos + snap_offset -
                      task.screen_space_origin +
                      task.render_target_origin;
 
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
 
     vLocalBounds = vec4(local_rect.p0, local_rect.p1);
-
-    vec4 layer_pos = get_layer_pos(device_pos / uDevicePixelRatio, layer);
 
     return TransformVertexInfo(layer_pos.xyw, device_pos);
 }
