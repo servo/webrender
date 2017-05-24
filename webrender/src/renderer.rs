@@ -44,7 +44,7 @@ use std::thread;
 use texture_cache::TextureCache;
 use rayon::ThreadPool;
 use rayon::Configuration as ThreadPoolConfig;
-use tiling::{AlphaBatchKind, BlurCommand, Frame, PrimitiveBatch, RenderTarget};
+use tiling::{AlphaBatchKind, BlurCommand, CompositePrimitiveInstance, Frame, PrimitiveBatch, RenderTarget};
 use tiling::{AlphaRenderTarget, CacheClipInstance, PrimitiveInstance, ColorRenderTarget, RenderTargetKind};
 use time::precise_time_ns;
 use thread_profiler::{register_thread_with_profiler, write_profile};
@@ -1613,7 +1613,7 @@ impl Renderer {
             // composites can't be grouped together because
             // they may overlap and affect each other.
             debug_assert!(batch.instances.len() == 1);
-            let instance = &batch.instances[0];
+            let instance = CompositePrimitiveInstance::from(&batch.instances[0]);
 
             // TODO(gw): This code branch is all a bit hacky. We rely
             // on pulling specific values from the render target data
@@ -1626,9 +1626,9 @@ impl Renderer {
             // composite operation in this batch.
             let cache_texture_dimensions = self.device.get_texture_dimensions(cache_texture);
 
-            let backdrop = &render_task_data[instance.task_index as usize];
-            let readback = &render_task_data[instance.user_data[0] as usize];
-            let source = &render_task_data[instance.user_data[1] as usize];
+            let backdrop = &render_task_data[instance.task_index.0 as usize];
+            let readback = &render_task_data[instance.backdrop_task_index.0 as usize];
+            let source = &render_task_data[instance.src_task_index.0 as usize];
 
             // Bind the FBO to blit the backdrop to.
             // Called per-instance in case the layer (and therefore FBO)
