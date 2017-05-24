@@ -133,14 +133,8 @@ uniform sampler2D sData128;
 uniform sampler2D sResourceRects;
 
 // Instanced attributes
-in int aGlobalPrimId;
-in int aPrimitiveAddress;
-in int aTaskIndex;
-in int aClipTaskIndex;
-in int aLayerIndex;
-in int aElementIndex;
-in ivec2 aUserData;
-in int aZIndex;
+in ivec4 aData0;
+in ivec4 aData1;
 
 // get_fetch_uv is a macro to work around a macOS Intel driver parsing bug.
 // TODO: convert back to a function once the driver issues are resolved, if ever.
@@ -441,28 +435,51 @@ PrimitiveGeometry fetch_prim_geometry(int index) {
 
 struct PrimitiveInstance {
     int global_prim_index;
-    int specific_prim_index;
+    int specific_prim_address;
     int render_task_index;
     int clip_task_index;
     int layer_index;
-    int sub_index;
     int z;
-    ivec2 user_data;
+    int user_data0;
+    int user_data1;
 };
 
 PrimitiveInstance fetch_prim_instance() {
     PrimitiveInstance pi;
 
-    pi.global_prim_index = aGlobalPrimId;
-    pi.specific_prim_index = aPrimitiveAddress;
-    pi.render_task_index = aTaskIndex;
-    pi.clip_task_index = aClipTaskIndex;
-    pi.layer_index = aLayerIndex;
-    pi.sub_index = aElementIndex;
-    pi.user_data = aUserData;
-    pi.z = aZIndex;
+    pi.global_prim_index = aData0.x;
+    pi.specific_prim_address = aData0.y;
+    pi.render_task_index = aData0.z;
+    pi.clip_task_index = aData0.w;
+    pi.layer_index = aData1.x;
+    pi.z = aData1.y;
+    pi.user_data0 = aData1.z;
+    pi.user_data1 = aData1.w;
 
     return pi;
+}
+
+struct CompositeInstance {
+    int render_task_index;
+    int src_task_index;
+    int backdrop_task_index;
+    int user_data0;
+    int user_data1;
+    float z;
+};
+
+CompositeInstance fetch_composite_instance() {
+    CompositeInstance ci;
+
+    ci.render_task_index = aData0.x;
+    ci.src_task_index = aData0.y;
+    ci.backdrop_task_index = aData0.z;
+    ci.z = float(aData0.w);
+
+    ci.user_data0 = aData1.x;
+    ci.user_data1 = aData1.y;
+
+    return ci;
 }
 
 struct Primitive {
@@ -474,8 +491,8 @@ struct Primitive {
     int prim_index;
     // when sending multiple primitives of the same type (e.g. border segments)
     // this index allows the vertex shader to recognize the difference
-    int sub_index;
-    ivec2 user_data;
+    int user_data0;
+    int user_data1;
     float z;
 };
 
@@ -490,9 +507,9 @@ Primitive load_primitive_custom(PrimitiveInstance pi) {
     prim.local_rect = pg.local_rect;
     prim.local_clip_rect = pg.local_clip_rect;
 
-    prim.prim_index = pi.specific_prim_index;
-    prim.sub_index = pi.sub_index;
-    prim.user_data = pi.user_data;
+    prim.prim_index = pi.specific_prim_address;
+    prim.user_data0 = pi.user_data0;
+    prim.user_data1 = pi.user_data1;
     prim.z = float(pi.z);
 
     return prim;

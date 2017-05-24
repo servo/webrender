@@ -10,10 +10,10 @@
 void main(void) {
     PrimitiveInstance pi = fetch_prim_instance();
     RenderTaskData task = fetch_render_task(pi.render_task_index);
-    TextRun text = fetch_text_run(pi.specific_prim_index);
-    Glyph glyph = fetch_glyph(pi.sub_index);
+    TextRun text = fetch_text_run(pi.specific_prim_address);
+    Glyph glyph = fetch_glyph(pi.user_data0);
     PrimitiveGeometry pg = fetch_prim_geometry(pi.global_prim_index);
-    ResourceRect res = fetch_resource_rect(pi.user_data.x);
+    ResourceRect res = fetch_resource_rect(pi.user_data1);
 
     // Glyphs size is already in device-pixels.
     // The render task origin is in device-pixels. Offset that by
