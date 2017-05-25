@@ -13,6 +13,7 @@ use clip_scroll_tree::{ClipScrollTree, ScrollStates};
 use profiler::TextureCacheProfileCounters;
 use resource_cache::ResourceCache;
 use scene::{Scene, SceneProperties};
+use std::cmp;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use tiling::{CompositeOps, DisplayListMap, PrimitiveFlags};
@@ -29,6 +30,7 @@ use webrender_traits::{StackingContext, TileOffset, TransformStyle, WorldPoint};
 pub struct FrameId(pub u32);
 
 static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF { r: 0.3, g: 0.3, b: 0.3, a: 0.6 };
+const CACHE_EXPIRY_TIME: u32 = 600;         // 10 seconds when running at 60fps.
 
 struct FlattenContext<'a> {
     scene: &'a Scene,
@@ -976,7 +978,9 @@ impl Frame {
                                      display_lists,
                                      device_pixel_ratio,
                                      texture_cache_profile);
-        resource_cache.expire_old_resources(self.id);
+        // Expire any resources that haven't been used for CACHE_EXPIRY_TIME frames.
+        let expiry_frame = FrameId(cmp::max(CACHE_EXPIRY_TIME, self.id.0) - CACHE_EXPIRY_TIME);
+        resource_cache.expire_old_resources(expiry_frame);
         frame
     }
 
