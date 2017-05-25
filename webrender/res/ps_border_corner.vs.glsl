@@ -27,15 +27,19 @@ void set_radii(int style,
         case BORDER_STYLE_RIDGE:
         case BORDER_STYLE_GROOVE:
             vRadii1.xy = radii - adjusted_widths;
-            vRadii1.zw = -widths;
+            // See comment in default branch
+            vRadii1.zw = vec2(-100, -100);
             break;
         case BORDER_STYLE_DOUBLE:
             vRadii1.xy = get_radii(radii - adjusted_widths, -widths);
             vRadii1.zw = get_radii(radii - widths + adjusted_widths, -widths);
             break;
         default:
-            vRadii1.xy = -widths;
-            vRadii1.zw = -widths;
+            // These aren't needed, so we set them to some reasonably large
+            // negative value so later computations will discard them. This
+            // avoids branches and numerical issues in the fragment shader.
+            vRadii1.xy = vec2(-100, -100);
+            vRadii1.zw = vec2(-100, -100);
             break;
     }
 }
