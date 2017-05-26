@@ -150,6 +150,15 @@ pub fn subtract_rect<U>(rect: &TypedRect<f32, U>,
         }
     }
 }
+
+pub fn ensure_float_is_normal(x: f32) -> f32 {
+    if x.is_normal() {
+        x
+    } else {
+        0.0
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[repr(u8)]
 pub enum TransformedRectKind {
@@ -234,8 +243,8 @@ impl TransformedRect {
 
                 for (vertex, (x, y)) in vertices.iter().zip(xs.iter_mut().zip(ys.iter_mut())) {
                     let inv_w = 1.0 / vertex.w;
-                    *x = vertex.x * inv_w;
-                    *y = vertex.y * inv_w;
+                    *x = ensure_float_is_normal(vertex.x * inv_w);
+                    *y = ensure_float_is_normal(vertex.y * inv_w);
                 }
 
                 xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
