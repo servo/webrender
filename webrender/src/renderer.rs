@@ -65,10 +65,10 @@ pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: debug_colors::BLACK };
 const GPU_TAG_CACHE_CLIP: GpuProfileTag = GpuProfileTag { label: "C_Clip", color: debug_colors::PURPLE };
 const GPU_TAG_CACHE_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "C_TextRun", color: debug_colors::MISTYROSE };
-const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: debug_colors::WHITE };
-const GPU_TAG_DEINIT: GpuProfileTag = GpuProfileTag { label: "Deinit", color: debug_colors::DARKGRAY };
-const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: debug_colors::SLATEGREY };
-const GPU_TAG_SETUP_DATA: GpuProfileTag = GpuProfileTag { label: "DataInit", color: debug_colors::LIGHTGREY };
+const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "init", color: debug_colors::WHITE };
+const GPU_TAG_DEINIT: GpuProfileTag = GpuProfileTag { label: "de-init", color: debug_colors::DARKGRAY };
+const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "target", color: debug_colors::SLATEGREY };
+const GPU_TAG_SETUP_DATA: GpuProfileTag = GpuProfileTag { label: "data init", color: debug_colors::LIGHTGREY };
 const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: debug_colors::RED };
 const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: debug_colors::GREEN };
 const GPU_TAG_PRIM_YUV_IMAGE: GpuProfileTag = GpuProfileTag { label: "YuvImage", color: debug_colors::DARKGREEN };
@@ -1297,7 +1297,7 @@ impl Renderer {
 
                 let cpu_frame_id = profile_timers.cpu_time.profile(|| {
                     let cpu_frame_id = {
-                        let _gm = self.gpu_profile.add_marker(GPU_TAG_INIT);
+                        let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_DATA);
                         let frame_id = self.device.begin_frame(frame.device_pixel_ratio);
                         self.gpu_profile.begin_frame(frame_id);
 
@@ -1979,6 +1979,66 @@ impl Renderer {
         }
     }
 
+    fn start_frame(&mut self, frame: &mut Frame) {
+        let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_DATA);
+
+        // Assign render targets to the passes.
+        for pass in &mut frame.passes {
+            debug_assert!(pass.color_texture_id.is_none());
+            debug_assert!(pass.alpha_texture_id.is_none());
+
+            if pass.needs_render_target_kind(RenderTargetKind::Color) {
+                pass.color_texture_id = Some(self.color_render_targets
+                                                 .pop()
+                                                 .unwrap_or_else(|| {
+                                                     self.device
+                                                         .create_texture_ids(1, TextureTarget::Array)[0]
+                                                  }));
+            }
+
+            if pass.needs_render_target_kind(RenderTargetKind::Alpha) {
+                pass.alpha_texture_id = Some(self.alpha_render_targets
+                                                 .pop()
+                                                 .unwrap_or_else(|| {
+                                                     self.device
+                                                         .create_texture_ids(1, TextureTarget::Array)[0]
+                                                  }));
+            }
+        }
+
+
+        // Init textures and render targets to match this scene.
+        for pass in &frame.passes {
+            if let Some(texture_id) = pass.color_texture_id {
+                let target_count = pass.required_target_count(RenderTargetKind::Color);
+                self.device.init_texture(texture_id,
+                                         frame.cache_size.width as u32,
+                                         frame.cache_size.height as u32,
+                                         ImageFormat::RGBA8,
+                                         TextureFilter::Linear,
+                                         RenderTargetMode::LayerRenderTarget(target_count as i32),
+                                         None);
+            }
+            if let Some(texture_id) = pass.alpha_texture_id {
+                let target_count = pass.required_target_count(RenderTargetKind::Alpha);
+                self.device.init_texture(texture_id,
+                                         frame.cache_size.width as u32,
+                                         frame.cache_size.height as u32,
+                                         ImageFormat::A8,
+                                         TextureFilter::Nearest,
+                                         RenderTargetMode::LayerRenderTarget(target_count as i32),
+                                         None);
+            }
+        }
+
+        // TODO(gw): This is a hack / workaround for #728.
+        // We should find a better way to implement these updates rather
+        // than wasting this extra memory, but for now it removes a large
+        // number of driver stalls.
+        self.gpu_data_textures[self.gdt_index].init_frame(&mut self.device, frame);
+        self.gdt_index = (self.gdt_index + 1) % GPU_DATA_TEXTURE_POOL;
+    }
+
     fn draw_tile_frame(&mut self,
                        frame: &mut Frame,
                        framebuffer_size: &DeviceUintSize) {
@@ -1998,63 +2058,7 @@ impl Renderer {
         if frame.passes.is_empty() {
             self.device.clear_target(Some(self.clear_color.to_array()), Some(1.0));
         } else {
-            // Assign render targets to the passes.
-            for pass in &mut frame.passes {
-                debug_assert!(pass.color_texture_id.is_none());
-                debug_assert!(pass.alpha_texture_id.is_none());
-
-                if pass.needs_render_target_kind(RenderTargetKind::Color) {
-                    pass.color_texture_id = Some(self.color_render_targets
-                                                     .pop()
-                                                     .unwrap_or_else(|| {
-                                                         self.device
-                                                             .create_texture_ids(1, TextureTarget::Array)[0]
-                                                      }));
-                }
-
-                if pass.needs_render_target_kind(RenderTargetKind::Alpha) {
-                    pass.alpha_texture_id = Some(self.alpha_render_targets
-                                                     .pop()
-                                                     .unwrap_or_else(|| {
-                                                         self.device
-                                                             .create_texture_ids(1, TextureTarget::Array)[0]
-                                                      }));
-                }
-            }
-
-            // Init textures and render targets to match this scene.
-            for pass in &frame.passes {
-                if let Some(texture_id) = pass.color_texture_id {
-                    let target_count = pass.required_target_count(RenderTargetKind::Color);
-                    self.device.init_texture(texture_id,
-                                             frame.cache_size.width as u32,
-                                             frame.cache_size.height as u32,
-                                             ImageFormat::RGBA8,
-                                             TextureFilter::Linear,
-                                             RenderTargetMode::LayerRenderTarget(target_count as i32),
-                                             None);
-                }
-                if let Some(texture_id) = pass.alpha_texture_id {
-                    let target_count = pass.required_target_count(RenderTargetKind::Alpha);
-                    self.device.init_texture(texture_id,
-                                             frame.cache_size.width as u32,
-                                             frame.cache_size.height as u32,
-                                             ImageFormat::A8,
-                                             TextureFilter::Nearest,
-                                             RenderTargetMode::LayerRenderTarget(target_count as i32),
-                                             None);
-                }
-            }
-
-            {
-                let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_DATA);
-                // TODO(gw): This is a hack / workaround for #728.
-                // We should find a better way to implement these updates rather
-                // than wasting this extra memory, but for now it removes a large
-                // number of driver stalls.
-                self.gpu_data_textures[self.gdt_index].init_frame(&mut self.device, frame);
-                self.gdt_index = (self.gdt_index + 1) % GPU_DATA_TEXTURE_POOL;
-            }
+            self.start_frame(frame);
 
             let mut src_color_id = self.dummy_cache_texture_id;
             let mut src_alpha_id = self.dummy_cache_texture_id;
