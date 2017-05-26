@@ -66,7 +66,9 @@ const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxSha
 const GPU_TAG_CACHE_CLIP: GpuProfileTag = GpuProfileTag { label: "C_Clip", color: debug_colors::PURPLE };
 const GPU_TAG_CACHE_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "C_TextRun", color: debug_colors::MISTYROSE };
 const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "Init", color: debug_colors::WHITE };
+const GPU_TAG_DEINIT: GpuProfileTag = GpuProfileTag { label: "Deinit", color: debug_colors::DARKGRAY };
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "Target", color: debug_colors::SLATEGREY };
+const GPU_TAG_SETUP_DATA: GpuProfileTag = GpuProfileTag { label: "DataInit", color: debug_colors::LIGHTGREY };
 const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: debug_colors::RED };
 const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: debug_colors::GREEN };
 const GPU_TAG_PRIM_YUV_IMAGE: GpuProfileTag = GpuProfileTag { label: "YuvImage", color: debug_colors::DARKGREEN };
@@ -1276,31 +1278,35 @@ impl Renderer {
             if let Some(ref mut frame) = frame.frame {
                 let mut profile_timers = RendererProfileTimers::new();
 
-                // Block CPU waiting for last frame's GPU profiles to arrive.
-                // In general this shouldn't block unless heavily GPU limited.
-                if let Some((gpu_frame_id, samples)) = self.gpu_profile.build_samples() {
-                    if self.max_recorded_profiles > 0 {
-                        while self.gpu_profiles.len() >= self.max_recorded_profiles {
-                            self.gpu_profiles.pop_front();
+                {
+                    let _gm = self.gpu_profile.add_marker(GPU_TAG_INIT);
+                    // Block CPU waiting for last frame's GPU profiles to arrive.
+                    // In general this shouldn't block unless heavily GPU limited.
+                    if let Some((gpu_frame_id, samples)) = self.gpu_profile.build_samples() {
+                        if self.max_recorded_profiles > 0 {
+                            while self.gpu_profiles.len() >= self.max_recorded_profiles {
+                                self.gpu_profiles.pop_front();
+                            }
+                            self.gpu_profiles.push_back(GpuProfile::new(gpu_frame_id, &samples));
                         }
-                        self.gpu_profiles.push_back(GpuProfile::new(gpu_frame_id, &samples));
+                        profile_timers.gpu_samples = samples;
                     }
-                    profile_timers.gpu_samples = samples;
                 }
 
                 let cpu_frame_id = profile_timers.cpu_time.profile(|| {
-                    let cpu_frame_id = self.device.begin_frame(frame.device_pixel_ratio);
-                    self.gpu_profile.begin_frame(cpu_frame_id);
-                    {
+                    let cpu_frame_id = {
                         let _gm = self.gpu_profile.add_marker(GPU_TAG_INIT);
+                        let frame_id = self.device.begin_frame(frame.device_pixel_ratio);
+                        self.gpu_profile.begin_frame(frame_id);
 
                         self.device.disable_scissor();
                         self.device.disable_depth();
                         self.device.set_blend(false);
-
                         //self.update_shaders();
                         self.update_texture_cache();
-                    }
+
+                        frame_id
+                    };
 
                     self.draw_tile_frame(frame, &framebuffer_size);
 
@@ -1337,7 +1343,10 @@ impl Renderer {
                 let debug_size = DeviceUintSize::new(framebuffer_size.width as u32,
                                                      framebuffer_size.height as u32);
                 self.debug.render(&mut self.device, &debug_size);
-                self.device.end_frame();
+                {
+                    let _gm = self.gpu_profile.add_marker(GPU_TAG_DEINIT);
+                    self.device.end_frame();
+                }
                 self.last_time = current_time;
             }
 
@@ -2035,12 +2044,15 @@ impl Renderer {
                 }
             }
 
-            // TODO(gw): This is a hack / workaround for #728.
-            // We should find a better way to implement these updates rather
-            // than wasting this extra memory, but for now it removes a large
-            // number of driver stalls.
-            self.gpu_data_textures[self.gdt_index].init_frame(&mut self.device, frame);
-            self.gdt_index = (self.gdt_index + 1) % GPU_DATA_TEXTURE_POOL;
+            {
+                let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_DATA);
+                // TODO(gw): This is a hack / workaround for #728.
+                // We should find a better way to implement these updates rather
+                // than wasting this extra memory, but for now it removes a large
+                // number of driver stalls.
+                self.gpu_data_textures[self.gdt_index].init_frame(&mut self.device, frame);
+                self.gdt_index = (self.gdt_index + 1) % GPU_DATA_TEXTURE_POOL;
+            }
 
             let mut src_color_id = self.dummy_cache_texture_id;
             let mut src_alpha_id = self.dummy_cache_texture_id;
