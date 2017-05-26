@@ -330,6 +330,7 @@ fn main() {
                                  args.is_present("subpixel_aa"),
                                  args.is_present("debug"),
                                  args.is_present("verbose"),
+                                 args.is_present("no_scissor"),
                                  args.is_present("no_batch"));
 
     let mut thing =

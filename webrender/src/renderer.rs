@@ -577,6 +577,7 @@ pub struct Renderer {
     max_recorded_profiles: usize,
     clear_framebuffer: bool,
     clear_color: ColorF,
+    enable_clear_scissor: bool,
     debug: DebugRenderer,
     render_target_debug: bool,
     enable_batcher: bool,
@@ -1132,6 +1133,7 @@ impl Renderer {
             max_recorded_profiles: options.max_recorded_profiles,
             clear_framebuffer: options.clear_framebuffer,
             clear_color: options.clear_color,
+            enable_clear_scissor: options.enable_clear_scissor,
             last_time: 0,
             color_render_targets: Vec::new(),
             alpha_render_targets: Vec::new(),
@@ -1702,7 +1704,7 @@ impl Renderer {
             self.device.set_blend(false);
             self.device.set_blend_mode_alpha();
             match render_target {
-                Some(..) => {
+                Some(..) if self.enable_clear_scissor => {
                     // TODO(gw): Applying a scissor rect and minimal clear here
                     // is a very large performance win on the Intel and nVidia
                     // GPUs that I have tested with. It's possible it may be a
@@ -1712,7 +1714,7 @@ impl Renderer {
                                                   Some(1.0),
                                                   target.used_rect());
                 }
-                None => {
+                _ => {
                     self.device.clear_target(clear_color, Some(1.0));
                 }
             }
@@ -2269,6 +2271,7 @@ pub struct RendererOptions {
     pub enable_subpixel_aa: bool,
     pub clear_framebuffer: bool,
     pub clear_color: ColorF,
+    pub enable_clear_scissor: bool,
     pub enable_batcher: bool,
     pub render_target_debug: bool,
     pub max_texture_size: Option<u32>,
@@ -2293,6 +2296,7 @@ impl Default for RendererOptions {
             enable_subpixel_aa: false,
             clear_framebuffer: true,
             clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
+            enable_clear_scissor: true,
             enable_batcher: true,
             render_target_debug: false,
             max_texture_size: None,
