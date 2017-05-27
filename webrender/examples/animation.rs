@@ -64,7 +64,7 @@ fn event_handler(event: &glutin::Event,
             // Update the transform based on the keyboard input and push it to
             // webrender using the generate_frame API. This will recomposite with
             // the updated transform.
-            let new_transform = TRANSFORM.lock().unwrap().post_translated(offset.0, offset.1, 0.0);
+            let new_transform = TRANSFORM.lock().unwrap().post_translate(LayoutVector3D::new(offset.0, offset.1, 0.0));
             api.generate_frame(Some(DynamicProperties {
                 transforms: vec![
                   PropertyValue {

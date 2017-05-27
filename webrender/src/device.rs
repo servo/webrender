@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use euclid::Matrix4D;
+use euclid::Transform3D;
 use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{PackedVertex, RenderTargetMode, TextureSampler, DEFAULT_TEXTURE};
@@ -1059,7 +1059,7 @@ impl Device {
 
     pub fn bind_program(&mut self,
                         program_id: ProgramId,
-                        projection: &Matrix4D<f32>) {
+                        projection: &Transform3D<f32>) {
         debug_assert!(self.inside_frame);
 
         if self.bound_program != program_id {
@@ -1622,7 +1622,7 @@ impl Device {
 
     fn set_uniforms(&self,
                     program: &Program,
-                    transform: &Matrix4D<f32>,
+                    transform: &Transform3D<f32>,
                     device_pixel_ratio: f32) {
         debug_assert!(self.inside_frame);
         self.gl.uniform_matrix_4fv(program.u_transform,

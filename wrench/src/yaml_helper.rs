@@ -18,6 +18,7 @@ pub trait YamlHelper {
     fn as_rect(&self) -> Option<LayoutRect>;
     fn as_size(&self) -> Option<LayoutSize>;
     fn as_point(&self) -> Option<LayoutPoint>;
+    fn as_vector(&self) -> Option<LayoutVector2D>;
     fn as_matrix4d(&self, transform_origin: &LayoutPoint) -> Option<LayoutTransform>;
     fn as_colorf(&self) -> Option<ColorF>;
     fn as_vec_colorf(&self) -> Option<Vec<ColorF>>;
@@ -121,10 +122,10 @@ fn make_rotation(origin: &LayoutPoint, degrees: f32, axis_x: f32, axis_y: f32, a
                                                              -0.0);
 
     let theta = 2.0f32 * f32::consts::PI - degrees.to_radians();
-    let transform = LayoutTransform::identity().pre_rotated(axis_x,
-                                                            axis_y,
-                                                            axis_z,
-                                                            Radians::new(theta));
+    let transform = LayoutTransform::identity().pre_rotate(axis_x,
+                                                           axis_y,
+                                                           axis_z,
+                                                           Radians::new(theta));
 
     pre_transform.pre_mul(&transform).pre_mul(&post_transform)
 }
@@ -243,6 +244,10 @@ impl YamlHelper for Yaml {
         }
 
         None
+    }
+
+    fn as_vector(&self) -> Option<LayoutVector2D> {
+        self.as_point().map(|p|{ p.to_vector() })
     }
 
     fn as_matrix4d(&self, transform_origin: &LayoutPoint) -> Option<LayoutTransform> {

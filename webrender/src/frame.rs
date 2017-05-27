@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use euclid::rect::rect;
+use euclid::rect;
 use fnv::FnvHasher;
 use gpu_cache::GpuCache;
 use internal_types::{ANGLE_FLOAT_TO_FIXED, AxisDirection};
@@ -22,7 +22,7 @@ use util::{ComplexClipRegionHelpers, subtract_rect};
 use webrender_traits::{BuiltDisplayList, BuiltDisplayListIter, ClipAndScrollInfo, ClipDisplayItem};
 use webrender_traits::{ClipId, ClipRegion, ColorF, DeviceUintRect, DeviceUintSize, DisplayItemRef};
 use webrender_traits::{Epoch, FilterOp, ImageDisplayItem, ItemRange, LayerPoint, LayerRect};
-use webrender_traits::{LayerSize, LayerToScrollTransform, LayoutSize, LayoutTransform};
+use webrender_traits::{LayerSize, LayerToScrollTransform, LayoutSize, LayoutTransform, LayerVector2D};
 use webrender_traits::{MixBlendMode, PipelineId, ScrollClamping, ScrollEventPhase};
 use webrender_traits::{ScrollLayerState, ScrollLocation, ScrollPolicy, SpecificDisplayItem};
 use webrender_traits::{StackingContext, TileOffset, TransformStyle, WorldPoint};
@@ -288,7 +288,7 @@ impl Frame {
                                     pipeline_id: PipelineId,
                                     context: &mut FlattenContext,
                                     context_scroll_node_id: ClipId,
-                                    mut reference_frame_relative_offset: LayerPoint,
+                                    mut reference_frame_relative_offset: LayerVector2D,
                                     bounds: &LayerRect,
                                     stacking_context: &StackingContext,
                                     filters: ItemRange<FilterOp>) {
@@ -333,7 +333,7 @@ impl Frame {
                 LayerToScrollTransform::create_translation(reference_frame_relative_offset.x,
                                                            reference_frame_relative_offset.y,
                                                            0.0)
-                                        .pre_translated(bounds.origin.x, bounds.origin.y, 0.0)
+                                        .pre_translate(bounds.origin.to_vector().to_3d())
                                         .pre_mul(&transform)
                                         .pre_mul(&perspective);
 
@@ -344,9 +344,9 @@ impl Frame {
                                                            &transform,
                                                            &mut self.clip_scroll_tree);
             context.replacements.push((context_scroll_node_id, clip_id));
-            reference_frame_relative_offset = LayerPoint::zero();
+            reference_frame_relative_offset = LayerVector2D::zero();
         } else {
-            reference_frame_relative_offset = LayerPoint::new(
+            reference_frame_relative_offset = LayerVector2D::new(
                 reference_frame_relative_offset.x + bounds.origin.x,
                 reference_frame_relative_offset.y + bounds.origin.y);
         }
@@ -379,7 +379,7 @@ impl Frame {
                           parent_id: ClipId,
                           bounds: &LayerRect,
                           context: &mut FlattenContext,
-                          reference_frame_relative_offset: LayerPoint) {
+                          reference_frame_relative_offset: LayerVector2D) {
         let pipeline = match context.scene.pipeline_map.get(&pipeline_id) {
             Some(pipeline) => pipeline,
             None => return,
@@ -422,7 +422,7 @@ impl Frame {
                             item: DisplayItemRef<'a, 'b>,
                             pipeline_id: PipelineId,
                             context: &mut FlattenContext,
-                            reference_frame_relative_offset: LayerPoint)
+                            reference_frame_relative_offset: LayerVector2D)
                             -> Option<BuiltDisplayListIter<'a>> {
         let mut clip_and_scroll = item.clip_and_scroll();
         clip_and_scroll.scroll_node_id =
@@ -601,7 +601,7 @@ impl Frame {
                         context: &mut FlattenContext,
                         content_size: &LayoutSize) {
         let root_bounds = LayerRect::new(LayerPoint::zero(), *content_size);
-        context.builder.push_stacking_context(&LayerPoint::zero(),
+        context.builder.push_stacking_context(&LayerVector2D::zero(),
                                               pipeline_id,
                                               CompositeOps::default(),
                                               root_bounds,
@@ -629,7 +629,7 @@ impl Frame {
         }
 
 
-        self.flatten_items(traversal, pipeline_id, context, LayerPoint::zero());
+        self.flatten_items(traversal, pipeline_id, context, LayerVector2D::zero());
 
         if self.frame_builder_config.enable_scrollbars {
             let scrollbar_rect = LayerRect::new(LayerPoint::zero(), LayerSize::new(10.0, 70.0));
@@ -648,7 +648,7 @@ impl Frame {
                          traversal: &mut BuiltDisplayListIter<'a>,
                          pipeline_id: PipelineId,
                          context: &mut FlattenContext,
-                         reference_frame_relative_offset: LayerPoint) {
+                         reference_frame_relative_offset: LayerVector2D) {
         loop {
             let subtraversal = {
                 let item = match traversal.next() {
@@ -931,7 +931,7 @@ impl Frame {
         );
 
         let mut prim_rect = LayerRect::new(
-            item_rect.origin + LayerPoint::new(
+            item_rect.origin + LayerVector2D::new(
                 tile_offset.x as f32 * stretched_tile_size.width,
                 tile_offset.y as f32 * stretched_tile_size.height,
             ),

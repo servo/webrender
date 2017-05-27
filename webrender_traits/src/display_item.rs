@@ -5,7 +5,7 @@
 use app_units::Au;
 use euclid::SideOffsets2D;
 use {ColorF, FontKey, ImageKey, ItemRange, PipelineId, WebGLContextId};
-use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
+use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
 use {PropertyBinding};
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
@@ -207,7 +207,7 @@ pub enum BoxShadowClipMode {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BoxShadowDisplayItem {
     pub box_bounds: LayoutRect,
-    pub offset: LayoutPoint,
+    pub offset: LayoutVector2D,
     pub color: ColorF,
     pub blur_radius: f32,
     pub spread_radius: f32,
