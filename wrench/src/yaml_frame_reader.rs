@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use clap;
-use euclid::{TypedPoint2D, SideOffsets2D};
+use euclid::SideOffsets2D;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
@@ -405,7 +405,7 @@ impl YamlFrameReader {
         let bounds_key = if item["type"].is_badvalue() { "box-shadow" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("box shadow must have bounds");
         let box_bounds = item["box-bounds"].as_rect().unwrap_or(bounds);
-        let offset = item["offset"].as_point().unwrap_or(TypedPoint2D::zero());
+        let offset = item["offset"].as_vector().unwrap_or(LayoutVector2D::zero());
         let color = item["color"].as_colorf().unwrap_or(ColorF::new(0.0, 0.0, 0.0, 1.0));
         let blur_radius = item["blur-radius"].as_force_f32().unwrap_or(0.0);
         let spread_radius = item["spread-radius"].as_force_f32().unwrap_or(0.0);

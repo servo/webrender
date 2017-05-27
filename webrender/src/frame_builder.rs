@@ -22,7 +22,7 @@ use clip_scroll_node::{ClipInfo, ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
 use std::{cmp, f32, i32, mem, usize};
 use std::collections::HashMap;
-use euclid::{SideOffsets2D, TypedPoint3D};
+use euclid::{SideOffsets2D, vec2, vec3};
 use tiling::{ContextIsolation, StackingContextIndex};
 use tiling::{ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, DisplayListMap, Frame};
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
@@ -35,7 +35,7 @@ use webrender_traits::{DeviceUintRect, DeviceUintSize, ExtendMode, FontKey, Font
 use webrender_traits::{GlyphInstance, GlyphOptions, GradientStop, ImageKey, ImageRendering};
 use webrender_traits::{ItemRange, LayerPoint, LayerRect, LayerSize, LayerToScrollTransform};
 use webrender_traits::{PipelineId, RepeatMode, TileOffset, TransformStyle, WebGLContextId};
-use webrender_traits::{WorldPixel, YuvColorSpace, YuvData};
+use webrender_traits::{WorldPixel, YuvColorSpace, YuvData, LayerVector2D};
 
 #[derive(Debug, Clone)]
 struct ImageBorderSegment {
@@ -96,7 +96,7 @@ fn make_polygon(sc: &StackingContext, node: &ClipScrollNode, anchor: usize)
     // Which in turn needs it to be a render task property obeyed by all primitives
     // upon rendering, possibly not limited to `write_*_vertex` implementations.
     let size = sc.local_bounds.bottom_right();
-    let bounds = LayerRect::new(sc.reference_frame_offset, LayerSize::new(size.x, size.y));
+    let bounds = LayerRect::new(sc.reference_frame_offset.to_point(), LayerSize::new(size.x, size.y));
     Polygon::from_transformed_rect(bounds, node.world_content_transform, anchor)
 }
 
@@ -253,7 +253,7 @@ impl FrameBuilder {
     }
 
     pub fn push_stacking_context(&mut self,
-                                 reference_frame_offset: &LayerPoint,
+                                 reference_frame_offset: &LayerVector2D,
                                  pipeline_id: PipelineId,
                                  composite_ops: CompositeOps,
                                  local_bounds: LayerRect,
@@ -434,17 +434,17 @@ impl FrameBuilder {
             let rect = LayerRect::new(origin, size);
 
             let tl_outer = LayerPoint::new(rect.origin.x, rect.origin.y);
-            let tl_inner = tl_outer + LayerPoint::new(border_item.widths.left, border_item.widths.top);
+            let tl_inner = tl_outer + vec2(border_item.widths.left, border_item.widths.top);
 
             let tr_outer = LayerPoint::new(rect.origin.x + rect.size.width, rect.origin.y);
-            let tr_inner = tr_outer + LayerPoint::new(-border_item.widths.right, border_item.widths.top);
+            let tr_inner = tr_outer + vec2(-border_item.widths.right, border_item.widths.top);
 
             let bl_outer = LayerPoint::new(rect.origin.x, rect.origin.y + rect.size.height);
-            let bl_inner = bl_outer + LayerPoint::new(border_item.widths.left, -border_item.widths.bottom);
+            let bl_inner = bl_outer + vec2(border_item.widths.left, -border_item.widths.bottom);
 
             let br_outer = LayerPoint::new(rect.origin.x + rect.size.width,
                                            rect.origin.y + rect.size.height);
-            let br_inner = br_outer - LayerPoint::new(border_item.widths.right, border_item.widths.bottom);
+            let br_inner = br_outer - vec2(border_item.widths.right, border_item.widths.bottom);
 
             // Build the list of gradient segments
             vec![
@@ -488,17 +488,17 @@ impl FrameBuilder {
                 let py3 = border.patch.height;
 
                 let tl_outer = LayerPoint::new(rect.origin.x, rect.origin.y);
-                let tl_inner = tl_outer + LayerPoint::new(border_item.widths.left, border_item.widths.top);
+                let tl_inner = tl_outer + vec2(border_item.widths.left, border_item.widths.top);
 
                 let tr_outer = LayerPoint::new(rect.origin.x + rect.size.width, rect.origin.y);
-                let tr_inner = tr_outer + LayerPoint::new(-border_item.widths.right, border_item.widths.top);
+                let tr_inner = tr_outer + vec2(-border_item.widths.right, border_item.widths.top);
 
                 let bl_outer = LayerPoint::new(rect.origin.x, rect.origin.y + rect.size.height);
-                let bl_inner = bl_outer + LayerPoint::new(border_item.widths.left, -border_item.widths.bottom);
+                let bl_inner = bl_outer + vec2(border_item.widths.left, -border_item.widths.bottom);
 
                 let br_outer = LayerPoint::new(rect.origin.x + rect.size.width,
                                                rect.origin.y + rect.size.height);
-                let br_inner = br_outer - LayerPoint::new(border_item.widths.right, border_item.widths.bottom);
+                let br_inner = br_outer - vec2(border_item.widths.right, border_item.widths.bottom);
 
                 // Build the list of image segments
                 let mut segments = vec![
@@ -822,7 +822,7 @@ impl FrameBuilder {
                           clip_and_scroll: ClipAndScrollInfo,
                           box_bounds: &LayerRect,
                           clip_region: &ClipRegion,
-                          box_offset: &LayerPoint,
+                          box_offset: &LayerVector2D,
                           color: &ColorF,
                           blur_radius: f32,
                           spread_radius: f32,
@@ -1284,7 +1284,7 @@ impl FrameBuilder {
                         current_task.children.extend(preserve_3d_map.values().cloned());
                         debug!("\tplane splitting in {:?}", current_task.id);
                         // Z axis is directed at the screen, `sort` is ascending, and we need back-to-front order.
-                        for poly in splitter.sort(TypedPoint3D::new(0.0, 0.0, 1.0)) {
+                        for poly in splitter.sort(vec3(0.0, 0.0, 1.0)) {
                             let sc_index = StackingContextIndex(poly.anchor);
                             let task_id = preserve_3d_map[&sc_index].id;
                             debug!("\t\tproduce {:?} -> {:?} for {:?}", sc_index, poly, task_id);
@@ -1538,15 +1538,13 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             // so we need to account for that origin in the transformation we assign to
             // the packed layer.
             let transform = node.world_viewport_transform
-                                .pre_translated(node.local_viewport_rect.origin.x,
-                                                node.local_viewport_rect.origin.y,
-                                                0.0);
+                .pre_translate(node.local_viewport_rect.origin.to_vector().to_3d());
             packed_layer.set_transform(transform);
 
             // Meanwhile, the combined viewport rect is relative to the reference frame, so
             // we move it into the local coordinate system of the node.
             let local_viewport_rect =
-                node.combined_local_viewport_rect.translate(&-node.local_viewport_rect.origin);
+                node.combined_local_viewport_rect.translate(&-node.local_viewport_rect.origin.to_vector());
 
             node_clip_info.screen_bounding_rect = packed_layer.set_rect(&local_viewport_rect,
                                                                         self.screen_rect,
@@ -1589,9 +1587,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             // The world content transform is relative to the containing reference frame,
             // so we translate into the origin of the stacking context itself.
             let transform = scroll_node.world_content_transform
-                                       .pre_translated(stacking_context.reference_frame_offset.x,
-                                                       stacking_context.reference_frame_offset.y,
-                                                       0.0);
+                .pre_translate(stacking_context.reference_frame_offset.to_3d());
             packed_layer.set_transform(transform);
 
             if !stacking_context.can_contribute_to_scene() {

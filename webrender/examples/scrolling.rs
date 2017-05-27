@@ -118,7 +118,7 @@ fn event_handler(event: &glutin::Event,
                  _ => return,
             };
 
-            api.scroll(ScrollLocation::Delta(LayoutPoint::new(offset.0, offset.1)),
+            api.scroll(ScrollLocation::Delta(LayoutVector2D::new(offset.0, offset.1)),
                        *CURSOR_POSITION.lock().unwrap(),
                        ScrollEventPhase::Start);
         }
@@ -136,7 +136,7 @@ fn event_handler(event: &glutin::Event,
                 glutin::MouseScrollDelta::PixelDelta(dx, dy) => (dx, dy),
             };
 
-            api.scroll(ScrollLocation::Delta(LayoutPoint::new(dx, dy)),
+            api.scroll(ScrollLocation::Delta(LayoutVector2D::new(dx, dy)),
                        *CURSOR_POSITION.lock().unwrap(),
                        ScrollEventPhase::Start);
         }

@@ -28,9 +28,9 @@ use texture_cache::TexturePage;
 use util::{TransformedRect, TransformedRectKind};
 use webrender_traits::{BuiltDisplayList, ClipAndScrollInfo, ClipId, ColorF, DeviceIntPoint};
 use webrender_traits::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize};
-use webrender_traits::{ExternalImageType, FontRenderMode, ImageRendering, LayerPoint, LayerRect};
+use webrender_traits::{ExternalImageType, FontRenderMode, ImageRendering, LayerRect};
 use webrender_traits::{LayerToWorldTransform, MixBlendMode, PipelineId, TransformStyle};
-use webrender_traits::{WorldToLayerTransform, YuvColorSpace, YuvFormat};
+use webrender_traits::{WorldToLayerTransform, YuvColorSpace, YuvFormat, LayerVector2D};
 
 // Special sentinel value recognized by the shader. It is considered to be
 // a dummy task that doesn't mask out anything.
@@ -1446,7 +1446,7 @@ pub struct StackingContext {
 
     /// Offset in the parent reference frame to the origin of this stacking
     /// context's coordinate system.
-    pub reference_frame_offset: LayerPoint,
+    pub reference_frame_offset: LayerVector2D,
 
     /// The `ClipId` of the owning reference frame.
     pub reference_frame_id: ClipId,
@@ -1475,7 +1475,7 @@ pub struct StackingContext {
 
 impl StackingContext {
     pub fn new(pipeline_id: PipelineId,
-               reference_frame_offset: LayerPoint,
+               reference_frame_offset: LayerVector2D,
                is_page_root: bool,
                reference_frame_id: ClipId,
                local_bounds: LayerRect,

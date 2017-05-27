@@ -4,7 +4,7 @@
 
 extern crate yaml_rust;
 
-use euclid::{TypedMatrix4D, TypedPoint2D, TypedRect, TypedSize2D};
+use euclid::{TypedTransform3D, TypedPoint2D, TypedVector2D, TypedRect, TypedSize2D};
 use image::{ColorType, save_buffer};
 use premultiply::unpremultiply;
 use scene::Scene;
@@ -76,6 +76,10 @@ fn point_node<U>(parent: &mut Table, key: &str, value: &TypedPoint2D<f32, U>) {
     f32_vec_node(parent, key, &[value.x, value.y]);
 }
 
+fn vector_node<U>(parent: &mut Table, key: &str, value: &TypedVector2D<f32, U>) {
+    f32_vec_node(parent, key, &[value.x, value.y]);
+}
+
 fn size_node<U>(parent: &mut Table, key: &str, value: &TypedSize2D<f32, U>) {
     f32_vec_node(parent, key, &[value.width, value.height]);
 }
@@ -88,7 +92,7 @@ fn rect_node<U>(parent: &mut Table, key: &str, value: &TypedRect<f32, U>) {
     yaml_node(parent, key, rect_yaml(value));
 }
 
-fn matrix4d_node<U1, U2>(parent: &mut Table, key: &str, value: &TypedMatrix4D<f32, U1, U2>) {
+fn matrix4d_node<U1, U2>(parent: &mut Table, key: &str, value: &TypedTransform3D<f32, U1, U2>) {
     f32_vec_node(parent, key, &value.to_row_major_array());
 }
 
@@ -693,7 +697,7 @@ impl YamlFrameWriter {
                 BoxShadow(item) => {
                     str_node(&mut v, "type", "box-shadow");
                     rect_node(&mut v, "box-bounds", &item.box_bounds);
-                    point_node(&mut v, "offset", &item.offset);
+                    vector_node(&mut v, "offset", &item.offset);
                     color_node(&mut v, "color", item.color);
                     f32_node(&mut v, "blur-radius", item.blur_radius);
                     f32_node(&mut v, "spread-radius", item.spread_radius);

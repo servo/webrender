@@ -10,7 +10,7 @@ use std::hash::BuildHasherDefault;
 use webrender_traits::{ClipId, LayerPoint, LayerRect, LayerToScrollTransform};
 use webrender_traits::{LayerToWorldTransform, PipelineId, ScrollClamping, ScrollEventPhase};
 use webrender_traits::{ScrollLayerRect, ScrollLayerState, ScrollLocation, WorldPoint};
-use webrender_traits::as_scroll_parent_rect;
+use webrender_traits::{as_scroll_parent_rect, LayerVector2D};
 
 pub type ScrollStates = HashMap<ClipId, ScrollingState, BuildHasherDefault<FnvHasher>>;
 
@@ -188,7 +188,7 @@ impl ClipScrollTree {
             // and it is not the root scroll node.
             let child_node = self.nodes.get(&clip_id).unwrap();
             let overscroll_amount = child_node.overscroll_amount();
-            overscroll_amount.width != 0.0 || overscroll_amount.height != 0.0
+            overscroll_amount.x != 0.0 || overscroll_amount.y != 0.0
         } else {
             false
         };
@@ -235,16 +235,16 @@ impl ClipScrollTree {
         self.update_node_transform(root_reference_frame_id,
                                    &LayerToWorldTransform::create_translation(pan.x, pan.y, 0.0),
                                    &as_scroll_parent_rect(&root_viewport),
-                                   LayerPoint::zero(),
-                                   LayerPoint::zero());
+                                   LayerVector2D::zero(),
+                                   LayerVector2D::zero());
     }
 
     fn update_node_transform(&mut self,
                              layer_id: ClipId,
                              parent_reference_frame_transform: &LayerToWorldTransform,
                              parent_viewport_rect: &ScrollLayerRect,
-                             parent_scroll_offset: LayerPoint,
-                             parent_accumulated_scroll_offset: LayerPoint) {
+                             parent_scroll_offset: LayerVector2D,
+                             parent_accumulated_scroll_offset: LayerVector2D) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
         //           Restructure this to avoid the clones!
         let (reference_frame_transform,
@@ -265,7 +265,7 @@ impl ClipScrollTree {
                     // we need to reset both these values.
                     let (transform, offset, accumulated_scroll_offset) = match node.node_type {
                         NodeType::ReferenceFrame(..) =>
-                            (node.world_viewport_transform, LayerPoint::zero(), LayerPoint::zero()),
+                            (node.world_viewport_transform, LayerVector2D::zero(), LayerVector2D::zero()),
                         NodeType::Clip(_) => {
                             (*parent_reference_frame_transform,
                              node.scrolling.offset,
