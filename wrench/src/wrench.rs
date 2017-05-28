@@ -145,6 +145,7 @@ impl Wrench {
                subpixel_aa: bool,
                debug: bool,
                verbose: bool,
+               no_scissor: bool,
                no_batch: bool)
            -> Wrench
     {
@@ -170,6 +171,7 @@ impl Wrench {
             recorder: recorder,
             enable_subpixel_aa: subpixel_aa,
             debug: debug,
+            enable_clear_scissor: !no_scissor,
             enable_batcher: !no_batch,
             max_recorded_profiles: 16,
             .. Default::default()
