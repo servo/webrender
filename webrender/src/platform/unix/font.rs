@@ -27,6 +27,9 @@ pub struct FontContext {
     faces: HashMap<FontKey, Face>,
 }
 
+// FreeType resources are safe to move between threads as long as they
+// are not shared. In our case, everything is hidden inside a given
+// FontContext so it is safe to send the latter between threads.
 unsafe impl Send for FontContext {}
 
 pub struct RasterizedGlyph {
