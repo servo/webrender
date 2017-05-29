@@ -122,8 +122,8 @@ uniform sampler2D sPrimGeometry;
 uniform sampler2D sData16;
 uniform sampler2D sData32;
 uniform sampler2D sData64;
-uniform sampler2D sData128;
 uniform sampler2D sResourceRects;
+uniform sampler2D sResourceCache;
 
 // Instanced attributes
 in ivec4 aData0;
@@ -158,20 +158,36 @@ vec4[4] fetch_data_4(int index) {
     );
 }
 
-vec4[8] fetch_data_8(int index) {
-    ivec2 uv = get_fetch_uv(index, 8);
+// TODO(gw): This is here temporarily while we have
+//           both GPU store and cache. When the GPU
+//           store code is removed, we can change the
+//           PrimitiveInstance instance structure to
+//           use 2x unsigned shorts as vertex attributes
+//           instead of an int, and encode the UV directly
+//           in the vertices.
+ivec2 get_resource_cache_uv(int address) {
+    return ivec2(address % WR_MAX_VERTEX_TEXTURE_WIDTH,
+                 address / WR_MAX_VERTEX_TEXTURE_WIDTH);
+}
+
+vec4[8] fetch_from_resource_cache_8(int address) {
+    ivec2 uv = get_resource_cache_uv(address);
     return vec4[8](
-        texelFetchOffset(sData128, uv, 0, ivec2(0, 0)),
-        texelFetchOffset(sData128, uv, 0, ivec2(1, 0)),
-        texelFetchOffset(sData128, uv, 0, ivec2(2, 0)),
-        texelFetchOffset(sData128, uv, 0, ivec2(3, 0)),
-        texelFetchOffset(sData128, uv, 0, ivec2(4, 0)),
-        texelFetchOffset(sData128, uv, 0, ivec2(5, 0)),
-        texelFetchOffset(sData128, uv, 0, ivec2(6, 0)),
-        texelFetchOffset(sData128, uv, 0, ivec2(7, 0))
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(0, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(1, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(2, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(3, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(4, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(5, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(6, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(7, 0))
     );
 }
 
+vec4 fetch_from_resource_cache_1(int address) {
+    ivec2 uv = get_resource_cache_uv(address);
+    return texelFetch(sResourceCache, uv, 0);
+}
 
 struct Layer {
     mat4 transform;
@@ -344,8 +360,8 @@ vec4 get_effective_border_widths(Border border, int style) {
     }
 }
 
-Border fetch_border(int index) {
-    vec4 data[8] = fetch_data_8(index);
+Border fetch_border(int address) {
+    vec4 data[8] = fetch_from_resource_cache_8(address);
     return Border(data[0], data[1],
                   vec4[4](data[2], data[3], data[4], data[5]),
                   vec4[2](data[6], data[7]));
@@ -747,8 +763,8 @@ struct Rectangle {
     vec4 color;
 };
 
-Rectangle fetch_rectangle(int index) {
-    vec4 data = fetch_data_1(index);
+Rectangle fetch_rectangle(int address) {
+    vec4 data = fetch_from_resource_cache_1(address);
     return Rectangle(data);
 }
 

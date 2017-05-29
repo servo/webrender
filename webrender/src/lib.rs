@@ -57,6 +57,7 @@ mod frame;
 mod frame_builder;
 mod freelist;
 mod geometry;
+mod gpu_cache;
 mod gpu_store;
 mod internal_types;
 mod mask_cache;

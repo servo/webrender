@@ -13,7 +13,7 @@ use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, Prim
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
 use prim_store::{RectanglePrimitive, SplitGeometry, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
 use prim_store::{BoxShadowPrimitiveGpu, TexelRect, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu};
-use profiler::{FrameProfileCounters, TextureCacheProfileCounters};
+use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_task::{AlphaRenderItem, MaskCacheKey, MaskResult, RenderTask, RenderTaskIndex};
 use render_task::{RenderTaskId, RenderTaskLocation};
 use resource_cache::ResourceCache;
@@ -668,6 +668,8 @@ impl FrameBuilder {
             extend_mode: extend_mode,
             reverse_stops: reverse_stops,
             cache_dirty: true,
+            gpu_data_address: GpuStoreAddress(0),
+            gpu_data_count: 0,
         };
 
         // To get reftests exactly matching with reverse start/end
@@ -714,6 +716,8 @@ impl FrameBuilder {
             stops_range: stops,
             extend_mode: extend_mode,
             cache_dirty: true,
+            gpu_data_address: GpuStoreAddress(0),
+            gpu_data_count: 0,
         };
 
         let radial_gradient_gpu = RadialGradientPrimitiveGpu {
@@ -793,6 +797,8 @@ impl FrameBuilder {
             render_mode: render_mode,
             glyph_options: glyph_options,
             resource_address: GpuStoreAddress(0),
+            gpu_data_address: GpuStoreAddress(0),
+            gpu_data_count: 0,
         };
 
         let prim_gpu = TextRunPrimitiveGpu {
@@ -1380,13 +1386,15 @@ impl FrameBuilder {
                  clip_scroll_tree: &mut ClipScrollTree,
                  display_lists: &DisplayListMap,
                  device_pixel_ratio: f32,
-                 texture_cache_profile: &mut TextureCacheProfileCounters)
+                 texture_cache_profile: &mut TextureCacheProfileCounters,
+                 gpu_cache_profile: &mut GpuCacheProfileCounters)
                  -> Frame {
         profile_scope!("build");
 
         let mut profile_counters = FrameProfileCounters::new();
         profile_counters.total_primitives.set(self.prim_store.prim_count());
 
+        self.prim_store.gpu_cache.begin_frame(gpu_cache_profile);
         resource_cache.begin_frame(frame_id);
 
         let screen_rect = DeviceIntRect::new(
@@ -1429,6 +1437,8 @@ impl FrameBuilder {
         let deferred_resolves = self.prim_store.resolve_primitives(resource_cache,
                                                                    device_pixel_ratio);
 
+        let gpu_cache_updates = self.prim_store.end_frame(gpu_cache_profile);
+
         let mut passes = Vec::new();
 
         // Do the allocations now, assigning each tile's tasks to a render
@@ -1470,12 +1480,12 @@ impl FrameBuilder {
             gpu_data16: self.prim_store.gpu_data16.build(),
             gpu_data32: self.prim_store.gpu_data32.build(),
             gpu_data64: self.prim_store.gpu_data64.build(),
-            gpu_data128: self.prim_store.gpu_data128.build(),
             gpu_geometry: self.prim_store.gpu_geometry.build(),
             gpu_gradient_data: self.prim_store.gpu_gradient_data.build(),
             gpu_split_geometry: self.prim_store.gpu_split_geometry.build(),
             gpu_resource_rects: self.prim_store.gpu_resource_rects.build(),
             deferred_resolves: deferred_resolves,
+            gpu_cache_updates: Some(gpu_cache_updates),
         }
     }
 
