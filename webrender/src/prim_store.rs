@@ -6,7 +6,7 @@ use app_units::Au;
 use border::{BorderCornerClipData, BorderCornerDashClipData, BorderCornerDotClipData};
 use border::BorderCornerInstance;
 use euclid::{Size2D};
-use gpu_cache::{GpuBlockData, GpuCache, GpuCacheUpdateList, GpuCacheSlotId, IntoGpuBlocks};
+use gpu_cache::{GpuBlockData, GpuCache, GpuCacheUpdateList, GpuCacheSlotId, ToGpuBlocks};
 use gpu_store::GpuStoreAddress;
 use internal_types::{SourceTexture, PackedTexel};
 use mask_cache::{ClipMode, ClipSource, MaskCacheInfo};
@@ -194,7 +194,7 @@ pub struct RectanglePrimitive {
     pub color: ColorF,
 }
 
-impl IntoGpuBlocks for RectanglePrimitive {
+impl ToGpuBlocks for RectanglePrimitive {
     fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
         blocks.push(self.color.into());
     }
@@ -256,7 +256,7 @@ pub struct BorderPrimitiveCpu {
     pub gpu_blocks: [GpuBlockData; 8],
 }
 
-impl IntoGpuBlocks for BorderPrimitiveCpu {
+impl ToGpuBlocks for BorderPrimitiveCpu {
     fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
         blocks.extend_from_slice(&self.gpu_blocks);
     }
@@ -1256,18 +1256,15 @@ impl PrimitiveStore {
         let mut prim_needs_resolve = false;
         let mut rebuild_bounding_rect = false;
 
-        match metadata.gpu_location {
-            GpuLocation::GpuCache(ref mut cache_id) => {
-                // Reserve a slot for the primitive data in the resource cache, if needed.
-                if cache_id.is_none() {
-                    let key = GpuCacheKey::Primitive(prim_index);
-                    *cache_id = Some(self.gpu_cache.reserve_slot(key));
-                }
-
-                // Mark this GPU resource as required for this frame.
-                self.gpu_cache.request_slot(cache_id.unwrap());
+        if let GpuLocation::GpuCache(ref mut cache_id) = metadata.gpu_location {
+            // Reserve a slot for the primitive data in the resource cache, if needed.
+            if cache_id.is_none() {
+                let key = GpuCacheKey::Primitive(prim_index);
+                *cache_id = Some(self.gpu_cache.reserve_slot(key));
             }
-            GpuLocation::GpuStore(..) => {}
+
+            // Mark this GPU resource as required for this frame.
+            self.gpu_cache.request_slot(cache_id.unwrap());
         }
 
         if let Some(ref mut clip_info) = metadata.clip_cache_info {

@@ -2,6 +2,32 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+//! Overview of the GPU cache.
+//!
+//! The main goal of the GPU cache is to allow on-demand
+//! allocation and construction of GPU resources for the
+//! vertex shaders to consume.
+//!
+//! Every item that wants to be stored in the GPU cache
+//! should reserve a "slot" once via ```reserve_slot```.
+//! This maps from a user provided unique key to a slot
+//! id. Reserving a slot is a cheap operation, that does
+//! *not* allocate room in the cache.
+//!
+//! On any frame when that data is required, the caller
+//! must request that slot, via ```request_slot```.
+//!
+//! When ```end_frame``` is called, a user provided
+//! closure is invoked. This closure is responsible
+//! for building the GPU resources for the given
+//! key. The closure will only be invoked for resources
+//! that were not already in the cache.
+//!
+//! After ```end_frame``` has occurred, callers can
+//! use the ```get_address``` API to get the allocated
+//! address in the GPU cache of a given resource slot
+//! for this frame.
+
 use device::FrameId;
 use profiler::GpuCacheProfileCounters;
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
@@ -11,45 +37,16 @@ use std::hash::Hash;
 use std::mem;
 use webrender_traits::ColorF;
 
-/*
-    Overview of the GPU cache.
-
-    The main goal of the GPU cache is to allow on-demand
-    allocation and construction of GPU resources for the
-    vertex shaders to consume.
-
-    Every item that wants to be stored in the GPU cache
-    should reserve a "slot" once via ```reserve_slot```.
-    This maps from a user provided unique key to a slot
-    id. Reserving a slot is a cheap operation, that does
-    *not* allocate room in the cache.
-
-    On any frame when that data is required, the caller
-    must request that slot, via ```request_slot```.
-
-    When ```end_frame``` is called, a user provided
-    closure is invoked. This closure is responsible
-    for building the GPU resources for the given
-    key. The closure will only be invoked for resources
-    that were not already in the cache.
-
-    After ```end_frame``` has occurred, callers can
-    use the ```get_address``` API to get the allocated
-    address in the GPU cache of a given resource slot
-    for this frame.
-
- */
-
 pub const GPU_CACHE_INITIAL_HEIGHT: u32 = 512;
 const FRAMES_BEFORE_EVICTION: usize = 10;
 
-// A single texel in RGBAF32 texture - 16 bytes.
+/// A single texel in RGBAF32 texture - 16 bytes.
 #[derive(Copy, Clone, Debug)]
 pub struct GpuBlockData {
     pub data: [f32; 4],
 }
 
-// Conversion helpers for GpuBlockData
+/// Conversion helpers for GpuBlockData
 impl Into<GpuBlockData> for ColorF {
     fn into(self) -> GpuBlockData {
         GpuBlockData {
@@ -68,7 +65,7 @@ impl Into<GpuBlockData> for [f32; 4] {
 
 // Any data type that can be stored in the GPU cache should
 // implement this trait.
-pub trait IntoGpuBlocks {
+pub trait ToGpuBlocks {
     // Append an arbitrary number of GPU blocks to the
     // provided array.
     fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>);
@@ -116,7 +113,7 @@ impl Block {
 }
 
 #[derive(Debug, Copy, Clone)]
-struct BlockIndex(u32);
+struct BlockIndex(usize);
 
 // A row in the cache texture.
 struct Row {
@@ -128,11 +125,11 @@ struct Row {
     // The index in the ```blocks``` array where the free blocks
     // exist for this row. Allows finding the block structure quickly
     // when free'ing a block, from its address only.
-    first_block_index: usize,
+    first_block_index: BlockIndex,
 }
 
 impl Row {
-    fn new(block_size: usize, first_block_index: usize) -> Row {
+    fn new(block_size: usize, first_block_index: BlockIndex) -> Row {
         Row {
             block_size: block_size,
             first_block_index: first_block_index,
@@ -185,11 +182,7 @@ impl FreeBlockLists {
     }
 
     fn clear(&mut self) {
-        self.free_list_1 = None;
-        self.free_list_2 = None;
-        self.free_list_4 = None;
-        self.free_list_8 = None;
-        self.free_list_large = None;
+        *self = Self::new();
     }
 
     fn get_block_size_and_free_list(&mut self, block_count: usize) -> (usize, &mut Option<BlockIndex>) {
@@ -273,7 +266,7 @@ impl Texture {
             // Create a new row.
             let items_per_row = MAX_VERTEX_TEXTURE_WIDTH / alloc_size;
             let row_index = self.rows.len();
-            self.rows.push(Row::new(items_per_row, self.blocks.len()));
+            self.rows.push(Row::new(items_per_row, BlockIndex(self.blocks.len())));
             profile_counters.allocated_rows.inc();
 
             // Create a ```Block``` for each possible allocation address
@@ -282,7 +275,7 @@ impl Texture {
             let mut prev_block_index = None;
             for i in 0..items_per_row {
                 let address = GpuCacheAddress::new(i * alloc_size, row_index);
-                let block_index = BlockIndex(self.blocks.len() as u32);
+                let block_index = BlockIndex(self.blocks.len());
                 let block = Block::new(address, prev_block_index);
                 self.blocks.push(block);
                 prev_block_index = Some(block_index);
@@ -325,10 +318,10 @@ impl Texture {
 
         // Find the actual ```Block``` structure and link it in
         // to the correct free-list linked list.
-        let block_index = row.first_block_index + address.u as usize;
+        let block_index = row.first_block_index.0 + address.u as usize;
         let block = &mut self.blocks[block_index];
         block.next = *free_list;
-        *free_list = Some(BlockIndex(block_index as u32));
+        *free_list = Some(BlockIndex(block_index));
     }
 }
 
@@ -355,9 +348,9 @@ enum SlotDetails {
 
 /// A reserved cache slot.
 struct CacheSlot<K> {
-    /// Intrusive link to the next cache slot
-    /// in the cache slot free-list (pending or
-    /// occupied).
+    /// Intrusive link. This will either be in
+    /// a free-list linked list, or the pending
+    /// or occupied linked list.
     next: Option<GpuCacheSlotId>,
     /// The key of the data itself - passed to caller
     /// when the data needs to be built.
@@ -370,7 +363,7 @@ struct CacheSlot<K> {
 pub struct GpuCache<K: Hash + Eq> {
     /// Current frame ID.
     frame_id: FrameId,
-    /// Free-list of cache slots. Each cach slot exists
+    /// Free-list of cache slots.
     slots: Vec<CacheSlot<K>>,
     /// Mapping of caller data keys to reserved slots in the cache.
     keys: HashMap<K, GpuCacheSlotId>,
@@ -388,9 +381,9 @@ pub struct GpuCache<K: Hash + Eq> {
 impl<K> GpuCache<K> where K: Hash + Eq + Copy + fmt::Debug {
     pub fn new() -> GpuCache<K> {
         GpuCache {
-            frame_id: FrameId(0),
+            frame_id: FrameId::new(0),
             slots: Vec::new(),
-        	keys: HashMap::new(),
+            keys: HashMap::new(),
             pending_list_head: None,
             occupied_list_head: None,
             texture: Texture::new(),
@@ -401,7 +394,7 @@ impl<K> GpuCache<K> where K: Hash + Eq + Copy + fmt::Debug {
     /// Begin a new frame.
     pub fn begin_frame(&mut self, profile_counters: &mut GpuCacheProfileCounters) {
         debug_assert!(self.texture.pending_blocks.is_empty());
-        self.frame_id = FrameId(self.frame_id.0 + 1);
+        self.frame_id = self.frame_id + 1;
 
         if self.reset_counters {
             profile_counters.allocated_blocks.set(0);
@@ -495,8 +488,7 @@ impl<K> GpuCache<K> where K: Hash + Eq + Copy + fmt::Debug {
                         // If this resource has not been used in the last
                         // few frames, free it from the texture and mark
                         // as empty.
-                        if self.frame_id.0 > FRAMES_BEFORE_EVICTION &&
-                           last_access_time.0 < self.frame_id.0 - FRAMES_BEFORE_EVICTION {
+                        if last_access_time + FRAMES_BEFORE_EVICTION < self.frame_id {
                             self.texture.free(address, profile_counters);
                             slot.details = SlotDetails::Empty;
                             slot.next = None;
@@ -571,13 +563,13 @@ impl<K> GpuCache<K> where K: Hash + Eq + Copy + fmt::Debug {
     /// freed or pending slot will panic!
     pub fn get_address(&self, id: &GpuCacheSlotId) -> GpuCacheAddress {
         match self.slots[id.0 as usize].details {
-            SlotDetails::Empty => panic!("Trying to access a vacant gpu cache entry!"),
-            SlotDetails::Pending => panic!("Trying to get address before build!"),
+            SlotDetails::Empty => panic!("Trying to access a vacant gpu cache entry {:?}", id),
+            SlotDetails::Pending => panic!("Trying to get address before build {:?}", id),
             SlotDetails::Occupied { last_access_time, address } => {
                 // Ensure that it was actually requested this frame, and not
                 // just accidentally left over in the cache from previous
                 // frames.
-                debug_assert!(last_access_time == self.frame_id);
+                debug_assert_eq!(last_access_time, self.frame_id);
                 address
             }
         }

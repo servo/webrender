@@ -16,6 +16,7 @@ use std::hash::BuildHasherDefault;
 use std::io::Read;
 use std::iter::repeat;
 use std::mem;
+use std::ops::Add;
 use std::path::PathBuf;
 use std::rc::Rc;
 //use std::sync::mpsc::{channel, Sender};
@@ -24,7 +25,21 @@ use webrender_traits::{ColorF, ImageFormat};
 use webrender_traits::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintSize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
-pub struct FrameId(pub usize);
+pub struct FrameId(usize);
+
+impl FrameId {
+    pub fn new(value: usize) -> FrameId {
+        FrameId(value)
+    }
+}
+
+impl Add<usize> for FrameId {
+    type Output = FrameId;
+
+    fn add(self, other: usize) -> FrameId {
+        FrameId(self.0 + other)
+    }
+}
 
 #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
 const GL_FORMAT_A: gl::GLuint = gl::RED;
