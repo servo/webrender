@@ -172,8 +172,8 @@ impl FontRenderer {
                     glyph_options,
                 );
 
+                glyph_cache.mark_as_needed(&glyph_request, current_frame_id);
                 if !glyph_cache.contains_key(&glyph_request) && !self.pending_glyphs.contains(&glyph_request) {
-                    glyph_cache.mark_as_needed(&glyph_request, current_frame_id);
                     self.pending_glyphs.insert(glyph_request.clone());
                     glyphs.push(glyph_request);
                 }
