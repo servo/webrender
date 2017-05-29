@@ -65,7 +65,6 @@ pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: debug_colors::BLACK };
 const GPU_TAG_CACHE_CLIP: GpuProfileTag = GpuProfileTag { label: "C_Clip", color: debug_colors::PURPLE };
 const GPU_TAG_CACHE_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "C_TextRun", color: debug_colors::MISTYROSE };
-const GPU_TAG_INIT: GpuProfileTag = GpuProfileTag { label: "init", color: debug_colors::WHITE };
 const GPU_TAG_DEINIT: GpuProfileTag = GpuProfileTag { label: "de-init", color: debug_colors::DARKGRAY };
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "target", color: debug_colors::SLATEGREY };
 const GPU_TAG_SETUP_DATA: GpuProfileTag = GpuProfileTag { label: "data init", color: debug_colors::LIGHTGREY };
@@ -1281,7 +1280,8 @@ impl Renderer {
                 let mut profile_timers = RendererProfileTimers::new();
 
                 {
-                    let _gm = self.gpu_profile.add_marker(GPU_TAG_INIT);
+                    //Note: avoiding `self.gpu_profile.add_marker` - it would block here
+                    let _gm = GpuMarker::new(self.device.rc_gl(), "build samples");
                     // Block CPU waiting for last frame's GPU profiles to arrive.
                     // In general this shouldn't block unless heavily GPU limited.
                     if let Some((gpu_frame_id, samples)) = self.gpu_profile.build_samples() {
