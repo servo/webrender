@@ -263,11 +263,11 @@ impl TransformedRect {
                     local_rect: *rect,
                     vertices: vertices,
                     bounding_rect: DeviceIntRect::new(outer_min_dp,
-                                                      DeviceIntSize::new(outer_max_dp.x - outer_min_dp.x,
-                                                                         outer_max_dp.y - outer_min_dp.y)),
+                                                      DeviceIntSize::new(outer_max_dp.x.saturating_sub(outer_min_dp.x),
+                                                                         outer_max_dp.y.saturating_sub(outer_min_dp.y))),
                     inner_rect: DeviceIntRect::new(inner_min_dp,
-                                                   DeviceIntSize::new(inner_max_dp.x - inner_min_dp.x,
-                                                                      inner_max_dp.y - inner_min_dp.y)),
+                                                   DeviceIntSize::new(inner_max_dp.x.saturating_sub(inner_min_dp.x),
+                                                                      inner_max_dp.y.saturating_sub(inner_min_dp.y))),
                     kind: kind,
                 }
                 /*
