@@ -70,7 +70,7 @@ pub enum TextureSampler {
     Data16,
     Data32,
     Data64,
-    Data128,
+    ResourceCache,
     Layers,
     RenderTasks,
     Geometry,
