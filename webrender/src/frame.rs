@@ -468,7 +468,8 @@ impl Frame {
                                               item.rect(),
                                               item.clip_region(),
                                               info.yuv_data,
-                                              info.color_space);
+                                              info.color_space,
+                                              info.image_rendering);
             }
             SpecificDisplayItem::Text(ref text_info) => {
                 context.builder.add_text(clip_and_scroll,

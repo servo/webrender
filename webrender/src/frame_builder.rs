@@ -1075,7 +1075,8 @@ impl FrameBuilder {
                          rect: LayerRect,
                          clip_region: &ClipRegion,
                          yuv_data: YuvData,
-                         color_space: YuvColorSpace) {
+                         color_space: YuvColorSpace,
+                         image_rendering: ImageRendering) {
         let format = yuv_data.get_format();
         let yuv_key = match yuv_data {
             YuvData::NV12(plane_0, plane_1) => [plane_0, plane_1, ImageKey::new(0, 0)],
@@ -1091,6 +1092,7 @@ impl FrameBuilder {
             yuv_resource_address: GpuStoreAddress(0),
             format: format,
             color_space: color_space,
+            image_rendering: image_rendering,
         };
 
         let prim_gpu = YuvImagePrimitiveGpu::new(rect.size);

@@ -350,6 +350,7 @@ pub enum ImageRendering {
 pub struct YuvImageDisplayItem {
     pub yuv_data: YuvData,
     pub color_space: YuvColorSpace,
+    pub image_rendering: ImageRendering
 }
 
 #[repr(u32)]
