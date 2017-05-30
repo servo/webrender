@@ -427,7 +427,7 @@ pub struct ClipRegion {
     pub complex_clips: ItemRange<ComplexClipRegion>,
     #[serde(default, skip_serializing, skip_deserializing)]
     pub complex_clip_count: usize,
-} 
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ComplexClipRegion {
