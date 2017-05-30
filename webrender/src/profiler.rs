@@ -65,6 +65,11 @@ impl IntProfileCounter {
     }
 
     #[inline(always)]
+    pub fn sub(&mut self, amount: usize) {
+        self.value -= amount;
+    }
+
+    #[inline(always)]
     pub fn set(&mut self, amount: usize) {
         self.value = amount;
     }
@@ -290,6 +295,21 @@ impl TextureCacheProfileCounters {
 }
 
 #[derive(Clone)]
+pub struct GpuCacheProfileCounters {
+    pub allocated_rows: IntProfileCounter,
+    pub allocated_blocks: IntProfileCounter,
+}
+
+impl GpuCacheProfileCounters {
+    pub fn new() -> GpuCacheProfileCounters {
+        GpuCacheProfileCounters {
+            allocated_rows: IntProfileCounter::new("GPU cache rows"),
+            allocated_blocks: IntProfileCounter::new("GPU cache blocks"),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct BackendProfileCounters {
     pub total_time: TimeProfileCounter,
     pub resources: ResourceProfileCounters,
@@ -301,6 +321,7 @@ pub struct ResourceProfileCounters {
     pub font_templates: ResourceProfileCounter,
     pub image_templates: ResourceProfileCounter,
     pub texture_cache: TextureCacheProfileCounters,
+    pub gpu_cache: GpuCacheProfileCounters,
 }
 
 #[derive(Clone)]
@@ -332,6 +353,7 @@ impl BackendProfileCounters {
                 font_templates: ResourceProfileCounter::new("Font Templates"),
                 image_templates: ResourceProfileCounter::new("Image Templates"),
                 texture_cache: TextureCacheProfileCounters::new(),
+                gpu_cache: GpuCacheProfileCounters::new(),
             },
             ipc: IpcProfileCounters {
                 build_time: TimeProfileCounter::new("Display List Build Time", false),
@@ -339,7 +361,7 @@ impl BackendProfileCounters {
                 send_time: TimeProfileCounter::new("Display List Send Time", false),
                 total_time: TimeProfileCounter::new("Total Display List Time", false),
                 display_lists: ResourceProfileCounter::new("Display Lists Sent"),
-            }
+            },
         }
     }
 
@@ -721,6 +743,8 @@ impl Profiler {
             &frame_profile.passes,
             &frame_profile.color_targets,
             &frame_profile.alpha_targets,
+            &backend_profile.resources.gpu_cache.allocated_rows,
+            &backend_profile.resources.gpu_cache.allocated_blocks,
         ], debug_renderer, true);
 
         self.draw_counters(&[
@@ -753,9 +777,6 @@ impl Profiler {
             &renderer_timers.cpu_time,
             &renderer_timers.gpu_time,
         ], debug_renderer, false);
-        
-
-
 
         self.backend_time.push(backend_profile.total_time.nanoseconds);
         self.compositor_time.push(renderer_timers.cpu_time.nanoseconds);
