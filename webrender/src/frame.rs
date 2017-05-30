@@ -30,7 +30,6 @@ use webrender_traits::{StackingContext, TileOffset, TransformStyle, WorldPoint};
 pub struct FrameId(pub u32);
 
 static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF { r: 0.3, g: 0.3, b: 0.3, a: 0.6 };
-const CACHE_EXPIRY_TIME: u32 = 600;         // 10 seconds when running at 60fps.
 
 struct FlattenContext<'a> {
     scene: &'a Scene,
@@ -978,8 +977,9 @@ impl Frame {
                                      display_lists,
                                      device_pixel_ratio,
                                      texture_cache_profile);
-        // Expire any resources that haven't been used for CACHE_EXPIRY_TIME frames.
-        let expiry_frame = FrameId(cmp::max(CACHE_EXPIRY_TIME, self.id.0) - CACHE_EXPIRY_TIME);
+        // Expire any resources that haven't been used for `cache_expiry_frames`.
+        let num_frames_back = self.frame_builder_config.cache_expiry_frames;
+        let expiry_frame = FrameId(cmp::max(num_frames_back, self.id.0) - num_frames_back);
         resource_cache.expire_old_resources(expiry_frame);
         frame
     }

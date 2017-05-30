@@ -104,19 +104,7 @@ pub struct FrameBuilderConfig {
     pub enable_scrollbars: bool,
     pub default_font_render_mode: FontRenderMode,
     pub debug: bool,
-}
-
-impl FrameBuilderConfig {
-    pub fn new(enable_scrollbars: bool,
-               default_font_render_mode: FontRenderMode,
-               debug: bool)
-               -> FrameBuilderConfig {
-        FrameBuilderConfig {
-            enable_scrollbars: enable_scrollbars,
-            default_font_render_mode: default_font_render_mode,
-            debug: debug,
-        }
-    }
+    pub cache_expiry_frames: u32,
 }
 
 pub struct FrameBuilder {
