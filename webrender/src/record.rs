@@ -76,7 +76,7 @@ pub fn should_record_msg(msg: &ApiMsg) -> bool {
         ApiMsg::Scroll(..) |
         ApiMsg::TickScrollingBounce |
         ApiMsg::WebGLCommand(..) |
-        ApiMsg::SetWindowParameters(..) =>
+        ApiMsg::SetViewGeometry(..) =>
             true,
         _ => false
     }

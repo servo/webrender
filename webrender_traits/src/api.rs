@@ -9,7 +9,7 @@ use std::cell::Cell;
 use std::fmt;
 use std::marker::PhantomData;
 use {BuiltDisplayList, BuiltDisplayListDescriptor, ClipId, ColorF, DeviceIntPoint, DeviceIntSize};
-use {DeviceUintRect, DeviceUintSize, FontKey, GlyphDimensions, GlyphKey};
+use {DeviceUintRect, FontKey, GlyphDimensions, GlyphKey};
 use {ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutSize, LayoutTransform};
 use {NativeFontHandle, WorldPoint};
 #[cfg(feature = "webgl")]
@@ -46,7 +46,7 @@ pub enum ApiMsg {
     SetPinchZoom(ZoomFactor),
     SetPan(DeviceIntPoint),
     SetRootPipeline(PipelineId),
-    SetWindowParameters(DeviceUintSize, DeviceUintRect),
+    SetViewGeometry(DeviceUintRect, DeviceUintRect),
     Scroll(ScrollLocation, WorldPoint, ScrollEventPhase),
     ScrollNodeWithId(LayoutPoint, ClipId, ScrollClamping),
     TickScrollingBounce,
@@ -93,7 +93,7 @@ impl fmt::Debug for ApiMsg {
             ApiMsg::SetPageZoom(..) => "ApiMsg::SetPageZoom",
             ApiMsg::SetPinchZoom(..) => "ApiMsg::SetPinchZoom",
             ApiMsg::SetPan(..) => "ApiMsg::SetPan",
-            ApiMsg::SetWindowParameters(..) => "ApiMsg::SetWindowParameters",
+            ApiMsg::SetViewGeometry(..) => "ApiMsg::SetViewGeometry",
         })
     }
 }
@@ -357,10 +357,10 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
     }
 
-    pub fn set_window_parameters(&self,
-                                 window_size: DeviceUintSize,
-                                 inner_rect: DeviceUintRect) {
-        let msg = ApiMsg::SetWindowParameters(window_size, inner_rect);
+    pub fn set_view_geometry(&self,
+                             rendering_rect: DeviceUintRect,
+                             viewport_rect: DeviceUintRect) {
+        let msg = ApiMsg::SetViewGeometry(rendering_rect, viewport_rect);
         self.api_sender.send(msg).unwrap();
     }
 
