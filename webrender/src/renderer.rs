@@ -1057,9 +1057,12 @@ impl Renderer {
             (false, _) => FontRenderMode::Mono,
         };
 
-        let config = FrameBuilderConfig::new(options.enable_scrollbars,
-                                             default_font_render_mode,
-                                             options.debug);
+        let config = FrameBuilderConfig {
+            enable_scrollbars: options.enable_scrollbars,
+            default_font_render_mode,
+            debug: options.debug,
+            cache_expiry_frames: options.cache_expiry_frames,
+        };
 
         let device_pixel_ratio = options.device_pixel_ratio;
         let render_target_debug = options.render_target_debug;
@@ -2279,6 +2282,7 @@ pub struct RendererOptions {
     pub enable_batcher: bool,
     pub render_target_debug: bool,
     pub max_texture_size: Option<u32>,
+    pub cache_expiry_frames: u32,
     pub workers: Option<Arc<ThreadPool>>,
     pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
@@ -2304,6 +2308,7 @@ impl Default for RendererOptions {
             enable_batcher: true,
             render_target_debug: false,
             max_texture_size: None,
+            cache_expiry_frames: 600, // roughly, 10 seconds
             workers: None,
             blob_image_renderer: None,
             recorder: None,
