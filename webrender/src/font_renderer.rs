@@ -180,6 +180,10 @@ impl FontRenderer {
             }
         }
 
+        if glyphs.is_empty() {
+            return;
+        }
+
         let font_contexts = Arc::clone(&self.font_contexts);
         let glyph_tx = self.glyph_tx.clone();
         // spawn an async task to get off of the render backend thread as early as
