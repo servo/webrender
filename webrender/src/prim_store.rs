@@ -1332,7 +1332,7 @@ impl PrimitiveStore {
                 let channel_num = image_cpu.format.get_plane_num();
                 debug_assert!(channel_num <= 3);
                 for channel in 0..channel_num {
-                    resource_cache.request_image(image_cpu.yuv_key[channel], ImageRendering::Auto, None);
+                    resource_cache.request_image(image_cpu.yuv_key[channel], image_cpu.image_rendering, None);
                 }
 
                 // TODO(nical): Currently assuming no tile_spacing for yuv images.
