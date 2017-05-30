@@ -92,6 +92,8 @@ void write_color(vec4 color0, vec4 color1, int style, vec2 delta, int instance_k
 
 int select_style(int color_select, vec2 fstyle) {
     ivec2 style = ivec2(fstyle);
+    int result = BORDER_STYLE_SOLID;
+    //Note: working around Angle warts by not returning within `switch`
 
     switch (color_select) {
         case SIDE_BOTH:
@@ -104,15 +106,16 @@ int select_style(int color_select, vec2 fstyle) {
                             style.y == BORDER_STYLE_DOTTED;
             bool has_dashes = style.x == BORDER_STYLE_DASHED ||
                               style.y == BORDER_STYLE_DASHED;
-            if (style.x != style.y && (has_dots || has_dashes))
-                return BORDER_STYLE_SOLID;
-            return style.x;
+            if (style.x == style.y || !(has_dots || has_dashes))
+                result = style.x;
         }
         case SIDE_FIRST:
-            return style.x;
+            result = style.x;
         case SIDE_SECOND:
-            return style.y;
+            result = style.y;
     }
+
+    return result;
 }
 
 void main(void) {
