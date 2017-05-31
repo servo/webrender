@@ -1384,7 +1384,7 @@ impl FrameBuilder {
         let mut profile_counters = FrameProfileCounters::new();
         profile_counters.total_primitives.set(self.prim_store.prim_count());
 
-        self.prim_store.gpu_cache.begin_frame(gpu_cache_profile);
+        self.prim_store.gpu_cache.begin_frame();
         resource_cache.begin_frame(frame_id);
 
         let screen_rect = DeviceIntRect::new(
