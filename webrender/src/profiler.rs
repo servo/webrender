@@ -65,11 +65,6 @@ impl IntProfileCounter {
     }
 
     #[inline(always)]
-    pub fn sub(&mut self, amount: usize) {
-        self.value -= amount;
-    }
-
-    #[inline(always)]
     pub fn set(&mut self, amount: usize) {
         self.value = amount;
     }

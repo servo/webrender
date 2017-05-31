@@ -6,7 +6,7 @@ use app_units::Au;
 use border::{BorderCornerClipData, BorderCornerDashClipData, BorderCornerDotClipData};
 use border::BorderCornerInstance;
 use euclid::{Size2D};
-use gpu_cache::{GpuBlockData, GpuCache, GpuCacheUpdateList, GpuCacheSlotId, ToGpuBlocks};
+use gpu_cache::{GpuBlockData, GpuCache, GpuCacheUpdateList, GpuCacheHandle, ToGpuBlocks};
 use gpu_store::GpuStoreAddress;
 use internal_types::{SourceTexture, PackedTexel};
 use mask_cache::{ClipMode, ClipSource, MaskCacheInfo};
@@ -28,14 +28,6 @@ use webrender_traits::{ExtendMode, GradientStop, AuxIter, TileOffset};
 
 pub const CLIP_DATA_GPU_SIZE: usize = 5;
 pub const MASK_DATA_GPU_SIZE: usize = 1;
-
-/// A unique key for items that can be placed in the GpuCache.
-#[derive(Hash, Eq, Debug, Copy, Clone, PartialEq)]
-pub enum GpuCacheKey {
-    Primitive(PrimitiveIndex),
-    // TODO(gw): Expand this as we move more items to use
-    //           the GPU cache (e.g. PackedLayers).
-}
 
 /// Stores two coordinates in texel space. The coordinates
 /// are stored in texel coordinates because the texture atlas
@@ -125,15 +117,15 @@ pub enum PrimitiveCacheKey {
 //           ported to use the GPU cache, we should remove this enum!
 #[derive(Debug)]
 pub enum GpuLocation {
-    GpuCache(Option<GpuCacheSlotId>),
+    GpuCache(GpuCacheHandle),
     GpuStore(GpuStoreAddress),
 }
 
 impl GpuLocation {
-    pub fn as_int(&self, gpu_cache: &GpuCache<GpuCacheKey>) -> i32 {
+    pub fn as_int(&self, gpu_cache: &GpuCache) -> i32 {
         match *self {
             GpuLocation::GpuCache(cache_id) => {
-                 let address = gpu_cache.get_address(&cache_id.expect("BUG: No cache slot reserved!"));
+                let address = gpu_cache.get_address(&cache_id);
 
                 // TODO(gw): Temporarily encode GPU Cache addresses as a single int.
                 //           In the future, we can change the PrimitiveInstance struct
@@ -710,7 +702,7 @@ pub struct PrimitiveStore {
     /// Resolved resource rects.
     pub gpu_resource_rects: VertexDataStore<TexelRect>,
 
-    pub gpu_cache: GpuCache<GpuCacheKey>,
+    pub gpu_cache: GpuCache,
 
     /// General
     prims_to_resolve: Vec<PrimitiveIndex>,
@@ -792,7 +784,7 @@ impl PrimitiveStore {
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Rectangle,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_rectangles.len()),
-                    gpu_location: GpuLocation::GpuCache(None),
+                    gpu_location: GpuLocation::GpuCache(GpuCacheHandle::new()),
                     render_task: None,
                     clip_task: None,
                 };
@@ -867,7 +859,7 @@ impl PrimitiveStore {
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Border,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_borders.len()),
-                    gpu_location: GpuLocation::GpuCache(None),
+                    gpu_location: GpuLocation::GpuCache(GpuCacheHandle::new()),
                     render_task: None,
                     clip_task: None,
                 };
@@ -1167,31 +1159,7 @@ impl PrimitiveStore {
 
     pub fn end_frame(&mut self,
                      profile_counters: &mut GpuCacheProfileCounters) -> GpuCacheUpdateList {
-        let gpu_cache = &mut self.gpu_cache;
-        let cpu_metadata = &self.cpu_metadata;
-        let cpu_borders = &self.cpu_borders;
-        let cpu_rectangles = &self.cpu_rectangles;
-
-        gpu_cache.end_frame(profile_counters, |key, blocks| {
-            match key {
-                GpuCacheKey::Primitive(prim_index) => {
-                    let prim_metadata = &cpu_metadata[prim_index.0];
-                    match prim_metadata.prim_kind {
-                        PrimitiveKind::Rectangle => {
-                            let rect = &cpu_rectangles[prim_metadata.cpu_prim_index.0];
-                            rect.write_gpu_blocks(blocks);
-                        }
-                        PrimitiveKind::Border => {
-                            let border = &cpu_borders[prim_metadata.cpu_prim_index.0];
-                            border.write_gpu_blocks(blocks);
-                        }
-                        _ => {
-                            unreachable!("Only rects and borders use GPU cache so far!");
-                        }
-                    }
-                }
-            }
-        })
+        self.gpu_cache.end_frame(profile_counters)
     }
 
     pub fn set_clip_source(&mut self, index: PrimitiveIndex, source: Option<ClipSource>) {
@@ -1259,14 +1227,28 @@ impl PrimitiveStore {
         let mut rebuild_bounding_rect = false;
 
         if let GpuLocation::GpuCache(ref mut cache_id) = metadata.gpu_location {
-            // Reserve a slot for the primitive data in the resource cache, if needed.
-            if cache_id.is_none() {
-                let key = GpuCacheKey::Primitive(prim_index);
-                *cache_id = Some(self.gpu_cache.reserve_slot(key));
-            }
+            let gpu_cache = &mut self.gpu_cache;
+            let cpu_borders = &self.cpu_borders;
+            let cpu_rectangles = &self.cpu_rectangles;
+            let cpu_prim_index = metadata.cpu_prim_index;
+            let prim_kind = metadata.prim_kind;
 
             // Mark this GPU resource as required for this frame.
-            self.gpu_cache.request_slot(cache_id.unwrap());
+            gpu_cache.request(cache_id, |blocks| {
+                match prim_kind {
+                    PrimitiveKind::Rectangle => {
+                        let rect = &cpu_rectangles[cpu_prim_index.0];
+                        rect.write_gpu_blocks(blocks);
+                    }
+                    PrimitiveKind::Border => {
+                        let border = &cpu_borders[cpu_prim_index.0];
+                        border.write_gpu_blocks(blocks);
+                    }
+                    _ => {
+                        unreachable!("Only rects and borders use GPU cache so far!");
+                    }
+                }
+            });
         }
 
         if let Some(ref mut clip_info) = metadata.clip_cache_info {
