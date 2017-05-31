@@ -1067,7 +1067,9 @@ impl Renderer {
         let render_target_debug = options.render_target_debug;
         let payload_tx_for_backend = payload_tx.clone();
         let recorder = options.recorder;
-        let worker_config = ThreadPoolConfig::new().thread_name(|idx|{ format!("WebRender:Worker#{}", idx) });
+        let worker_config = ThreadPoolConfig::new()
+            .thread_name(|idx|{ format!("WebRender:Worker#{}", idx) })
+            .start_handler(|idx| { register_thread_with_profiler(format!("WebRender:Worker#{}", idx)); });
         let workers = options.workers.take().unwrap_or_else(||{
             Arc::new(ThreadPool::new(worker_config).unwrap())
         });
