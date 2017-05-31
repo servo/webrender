@@ -491,10 +491,11 @@ pub struct GpuFrameProfile<T> {
     next_query: usize,
     pending_query: gl::GLuint,
     frame_id: FrameId,
+    inside_frame: bool,
 }
 
 impl<T> GpuFrameProfile<T> {
-    fn new(gl: Rc<gl::Gl>) -> GpuFrameProfile<T> {
+    fn new(gl: Rc<gl::Gl>) -> Self {
         match gl.get_type() {
             gl::GlType::Gl => {
                 let queries = gl.gen_queries(MAX_EVENTS_PER_FRAME as gl::GLint);
@@ -505,6 +506,7 @@ impl<T> GpuFrameProfile<T> {
                     next_query: 0,
                     pending_query: 0,
                     frame_id: FrameId(0),
+                    inside_frame: false,
                 }
             }
             gl::GlType::Gles => {
@@ -515,6 +517,7 @@ impl<T> GpuFrameProfile<T> {
                     next_query: 0,
                     pending_query: 0,
                     frame_id: FrameId(0),
+                    inside_frame: false,
                 }
             }
         }
@@ -525,9 +528,11 @@ impl<T> GpuFrameProfile<T> {
         self.next_query = 0;
         self.pending_query = 0;
         self.samples.clear();
+        self.inside_frame = true;
     }
 
     fn end_frame(&mut self) {
+        self.inside_frame = false;
         match self.gl.get_type() {
             gl::GlType::Gl => {
                 if self.pending_query != 0 {
@@ -540,6 +545,7 @@ impl<T> GpuFrameProfile<T> {
 
     fn add_marker(&mut self, tag: T) -> GpuMarker
     where T: NamedTag {
+        debug_assert!(self.inside_frame);
         match self.gl.get_type() {
             gl::GlType::Gl => {
                 self.add_marker_gl(tag)
@@ -588,6 +594,7 @@ impl<T> GpuFrameProfile<T> {
     }
 
     fn build_samples(&mut self) -> Vec<GpuSample<T>> {
+        debug_assert!(!self.inside_frame);
         match self.gl.get_type() {
             gl::GlType::Gl => {
                 self.build_samples_gl()
