@@ -1462,8 +1462,7 @@ impl Renderer {
 
     fn update_gpu_cache(&mut self) {
         let _gm = GpuMarker::new(self.device.rc_gl(), "gpu cache update");
-        let pending_gpu_cache_updates = mem::replace(&mut self.pending_gpu_cache_updates, vec![]);
-        for update_list in pending_gpu_cache_updates {
+        for update_list in self.pending_gpu_cache_updates.drain(..) {
             self.gpu_cache_texture.update(&mut self.device, &update_list);
         }
     }

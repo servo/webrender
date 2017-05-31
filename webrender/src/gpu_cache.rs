@@ -110,7 +110,9 @@ impl GpuCacheAddress {
 struct Block {
     // The location in the cache of this block.
     address: GpuCacheAddress,
-    // Index of the next free block in this list.
+    // Index of the next free block in the list it
+    // belongs to (either a free-list or the
+    // occupied list).
     next: Option<BlockIndex>,
     // The current epoch (generation) of this block.
     epoch: Epoch,
@@ -140,13 +142,13 @@ struct Row {
     // Each row becomes a slab allocator for a fixed block size.
     // This means no dealing with fragmentation within a cache
     // row as items are allocated and freed.
-    block_size: usize,
+    block_count_per_item: usize,
 }
 
 impl Row {
-    fn new(block_size: usize) -> Row {
+    fn new(block_count_per_item: usize) -> Row {
         Row {
-            block_size: block_size,
+            block_count_per_item: block_count_per_item,
         }
     }
 }
@@ -199,7 +201,8 @@ impl FreeBlockLists {
         *self = Self::new();
     }
 
-    fn get_block_size_and_free_list(&mut self, block_count: usize) -> (usize, &mut Option<BlockIndex>) {
+    fn get_actual_block_count_and_free_list(&mut self,
+                                            block_count: usize) -> (usize, &mut Option<BlockIndex>) {
         // Find the appropriate free list to use
         // based on the block size.
         match block_count {
@@ -277,7 +280,7 @@ impl Texture {
                  frame_id: FrameId) -> CacheLocation {
         // Find the appropriate free list to use based on the block size.
         let (alloc_size, free_list) = self.free_lists
-                                          .get_block_size_and_free_list(block_count);
+                                          .get_actual_block_count_and_free_list(block_count);
 
         // See if we need a new row (if free-list has nothing available)
         if free_list.is_none() {
@@ -361,13 +364,13 @@ impl Texture {
                     // Use the row metadata to determine which free-list
                     // this block belongs to.
                     let (_, free_list) = self.free_lists
-                                             .get_block_size_and_free_list(row.block_size);
+                                             .get_actual_block_count_and_free_list(row.block_count_per_item);
 
                     block.epoch = Epoch(block.epoch.0 + 1);
                     block.next = *free_list;
                     *free_list = Some(index);
 
-                    self.allocated_block_count -= row.block_size;
+                    self.allocated_block_count -= row.block_count_per_item;
                 };
 
                 (next_block, should_unlink)
@@ -381,7 +384,7 @@ impl Texture {
                         self.blocks[prev_block.0 as usize].next = next_block;
                     }
                     None => {
-                        self.occupied_list_head = prev_block;
+                        self.occupied_list_head = next_block;
                     }
                 }
             } else {
