@@ -65,7 +65,6 @@ pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: debug_colors::BLACK };
 const GPU_TAG_CACHE_CLIP: GpuProfileTag = GpuProfileTag { label: "C_Clip", color: debug_colors::PURPLE };
 const GPU_TAG_CACHE_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "C_TextRun", color: debug_colors::MISTYROSE };
-const GPU_TAG_DEINIT: GpuProfileTag = GpuProfileTag { label: "de-init", color: debug_colors::DARKGRAY };
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "target", color: debug_colors::SLATEGREY };
 const GPU_TAG_SETUP_DATA: GpuProfileTag = GpuProfileTag { label: "data init", color: debug_colors::LIGHTGREY };
 const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: debug_colors::RED };
@@ -1300,7 +1299,7 @@ impl Renderer {
 
                 let cpu_frame_id = profile_timers.cpu_time.profile(|| {
                     let cpu_frame_id = {
-                        let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_DATA);
+                        let _gm = GpuMarker::new(self.device.rc_gl(), "begin frame");
                         let frame_id = self.device.begin_frame(frame.device_pixel_ratio);
                         self.gpu_profile.begin_frame(frame_id);
 
@@ -1349,7 +1348,7 @@ impl Renderer {
                                                      framebuffer_size.height as u32);
                 self.debug.render(&mut self.device, &debug_size);
                 {
-                    let _gm = self.gpu_profile.add_marker(GPU_TAG_DEINIT);
+                    let _gm = GpuMarker::new(self.device.rc_gl(), "end frame");
                     self.device.end_frame();
                 }
                 self.last_time = current_time;
