@@ -562,6 +562,14 @@ vec2 compute_snap_offset(vec2 local_pos,
                          RectWithSize local_clip_rect,
                          Layer layer,
                          RectWithSize raw_snap_rect) {
+    // Ensure that the snap rect is at *least* one device pixel in size.
+    // TODO(gw): It's not clear to me that this is "correct". Specifically,
+    //           how should it interact with sub-pixel snap rects when there
+    //           is a layer transform with scale present? But it does fix
+    //           the test cases we have in Servo that are failing without it
+    //           and seem better than not having this at all.
+    raw_snap_rect.size = max(raw_snap_rect.size, vec2(1.0 / uDevicePixelRatio));
+
     // Clamp the snap rectangle.
     RectWithSize snap_rect = intersect_rect(intersect_rect(raw_snap_rect, local_clip_rect),
                                             layer.local_clip_rect);
