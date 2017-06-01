@@ -266,14 +266,8 @@ pub struct BoxShadowPrimitiveCacheKey {
 
 #[derive(Debug, Clone)]
 pub struct BoxShadowPrimitiveCpu {
-    pub gpu_data_address: GpuStoreAddress,
-    pub gpu_data_count: i32,
-    pub edge_size: f32,
-}
-
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct BoxShadowPrimitiveGpu {
+    // todo(gw): generate on demand
+    // gpu data
     pub src_rect: LayerRect,
     pub bs_rect: LayerRect,
     pub color: ColorF,
@@ -281,6 +275,22 @@ pub struct BoxShadowPrimitiveGpu {
     pub edge_size: f32,
     pub blur_radius: f32,
     pub inverted: f32,
+    pub rects: Vec<LayerRect>,
+}
+
+impl ToGpuBlocks for BoxShadowPrimitiveCpu {
+    fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
+        blocks.push(self.src_rect.into());
+        blocks.push(self.bs_rect.into());
+        blocks.push(self.color.into());
+        blocks.push([self.border_radius,
+                     self.edge_size,
+                     self.blur_radius,
+                     self.inverted].into());
+        for rect in &self.rects {
+            blocks.push((*rect).into());
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -673,7 +683,7 @@ pub enum PrimitiveContainer {
     AlignedGradient(GradientPrimitiveCpu, GradientPrimitiveGpu),
     AngleGradient(GradientPrimitiveCpu, GradientPrimitiveGpu),
     RadialGradient(RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu),
-    BoxShadow(BoxShadowPrimitiveGpu, Vec<LayerRect>),
+    BoxShadow(BoxShadowPrimitiveCpu),
 }
 
 pub struct PrimitiveStore {
@@ -933,13 +943,13 @@ impl PrimitiveStore {
                 self.cpu_radial_gradients.push(radial_gradient_cpu);
                 metadata
             }
-            PrimitiveContainer::BoxShadow(box_shadow_gpu, instance_rects) => {
+            PrimitiveContainer::BoxShadow(box_shadow) => {
                 let cache_key = PrimitiveCacheKey::BoxShadow(BoxShadowPrimitiveCacheKey {
-                    blur_radius: Au::from_f32_px(box_shadow_gpu.blur_radius),
-                    border_radius: Au::from_f32_px(box_shadow_gpu.border_radius),
-                    inverted: box_shadow_gpu.inverted != 0.0,
-                    shadow_rect_size: Size2D::new(Au::from_f32_px(box_shadow_gpu.bs_rect.size.width),
-                                                  Au::from_f32_px(box_shadow_gpu.bs_rect.size.height)),
+                    blur_radius: Au::from_f32_px(box_shadow.blur_radius),
+                    border_radius: Au::from_f32_px(box_shadow.border_radius),
+                    inverted: box_shadow.inverted != 0.0,
+                    shadow_rect_size: Size2D::new(Au::from_f32_px(box_shadow.bs_rect.size.width),
+                                                  Au::from_f32_px(box_shadow.bs_rect.size.height)),
                 });
 
                 // The actual cache size is calculated during prepare_prim_for_render().
@@ -959,34 +969,18 @@ impl PrimitiveStore {
                                                              cache_size,
                                                              PrimitiveIndex(prim_index));
 
-                let edge_size = box_shadow_gpu.edge_size;
-                let gpu_prim_address = self.gpu_data64.push(box_shadow_gpu);
-                let gpu_data_address = self.gpu_data16.get_next_address();
-
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
                     clips: clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::BoxShadow,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_box_shadows.len()),
-                    gpu_location: GpuLocation::GpuStore(gpu_prim_address),
+                    gpu_location: GpuLocation::GpuCache(GpuCacheHandle::new()),
                     render_task: Some(render_task),
                     clip_task: None,
                 };
 
-                let box_shadow_cpu = BoxShadowPrimitiveCpu {
-                    gpu_data_address: gpu_data_address,
-                    gpu_data_count: instance_rects.len() as i32,
-                    edge_size: edge_size,
-                };
-
-                for rect in instance_rects {
-                    self.gpu_data16.push(InstanceRect {
-                        rect: rect,
-                    });
-                }
-
-                self.cpu_box_shadows.push(box_shadow_cpu);
+                self.cpu_box_shadows.push(box_shadow);
                 metadata
             }
         };
@@ -1229,6 +1223,7 @@ impl PrimitiveStore {
         if let GpuLocation::GpuCache(ref mut cache_id) = metadata.gpu_location {
             let gpu_cache = &mut self.gpu_cache;
             let cpu_borders = &self.cpu_borders;
+            let cpu_box_shadows = &self.cpu_box_shadows;
             let cpu_rectangles = &self.cpu_rectangles;
             let cpu_prim_index = metadata.cpu_prim_index;
             let prim_kind = metadata.prim_kind;
@@ -1243,6 +1238,10 @@ impl PrimitiveStore {
                     PrimitiveKind::Border => {
                         let border = &cpu_borders[cpu_prim_index.0];
                         border.write_gpu_blocks(blocks);
+                    }
+                    PrimitiveKind::BoxShadow => {
+                        let box_shadow = &cpu_box_shadows[cpu_prim_index.0];
+                        box_shadow.write_gpu_blocks(blocks);
                     }
                     _ => {
                         unreachable!("Only rects and borders use GPU cache so far!");
@@ -1497,7 +1496,7 @@ define_gpu_block!(GpuBlock32: [f32; 8] =
     BorderCornerClipData, BorderCornerDashClipData, BorderCornerDotClipData
 );
 define_gpu_block!(GpuBlock64: [f32; 16] =
-    GradientPrimitiveGpu, RadialGradientPrimitiveGpu, BoxShadowPrimitiveGpu
+    GradientPrimitiveGpu, RadialGradientPrimitiveGpu
 );
 
 

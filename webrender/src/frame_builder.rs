@@ -12,7 +12,7 @@ use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu, 
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
 use prim_store::{RectanglePrimitive, SplitGeometry, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
-use prim_store::{BoxShadowPrimitiveGpu, TexelRect, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu};
+use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_task::{AlphaRenderItem, MaskCacheKey, MaskResult, RenderTask, RenderTaskIndex};
 use render_task::{RenderTaskId, RenderTaskLocation};
@@ -989,7 +989,7 @@ impl FrameBuilder {
                                                 extra_clip_mode));
                 }
 
-                let prim_gpu = BoxShadowPrimitiveGpu {
+                let prim_cpu = BoxShadowPrimitiveCpu {
                     src_rect: *box_bounds,
                     bs_rect: bs_rect,
                     color: *color,
@@ -997,13 +997,14 @@ impl FrameBuilder {
                     border_radius: border_radius,
                     edge_size: edge_size,
                     inverted: inverted,
+                    rects: rects,
                 };
 
                 self.add_primitive(clip_and_scroll,
                                    &outer_rect,
                                    clip_region,
                                    extra_clips.as_slice(),
-                                   PrimitiveContainer::BoxShadow(prim_gpu, rects));
+                                   PrimitiveContainer::BoxShadow(prim_cpu));
             }
         }
     }

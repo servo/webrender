@@ -28,7 +28,7 @@ use device::FrameId;
 use profiler::GpuCacheProfileCounters;
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use std::mem;
-use webrender_traits::ColorF;
+use webrender_traits::{ColorF, LayerRect};
 
 pub const GPU_CACHE_INITIAL_HEIGHT: u32 = 512;
 const FRAMES_BEFORE_EVICTION: usize = 10;
@@ -61,6 +61,17 @@ impl Into<GpuBlockData> for [f32; 4] {
     fn into(self) -> GpuBlockData {
         GpuBlockData {
             data: self,
+        }
+    }
+}
+
+impl Into<GpuBlockData> for LayerRect {
+    fn into(self) -> GpuBlockData {
+        GpuBlockData {
+            data: [ self.origin.x,
+                    self.origin.y,
+                    self.size.width,
+                    self.size.height ],
         }
     }
 }
