@@ -564,7 +564,7 @@ impl AlphaRenderItem {
                                                                0));
                     }
                     PrimitiveKind::BoxShadow => {
-                        let box_shadow_cpu = &ctx.prim_store.cpu_box_shadows[prim_metadata.cpu_prim_index.0];
+                        let box_shadow = &ctx.prim_store.cpu_box_shadows[prim_metadata.cpu_prim_index.0];
                         let cache_task_id = &prim_metadata.render_task.as_ref().unwrap().id;
                         let cache_task_index = render_tasks.get_task_index(cache_task_id,
                                                                            child_pass_index);
@@ -572,8 +572,8 @@ impl AlphaRenderItem {
                         let key = AlphaBatchKey::new(AlphaBatchKind::BoxShadow, flags, blend_mode, textures);
                         let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
 
-                        for rect_index in 0..box_shadow_cpu.gpu_data_count {
-                            batch.add_instance(base_instance.build(box_shadow_cpu.gpu_data_address.0 + rect_index,
+                        for rect_index in 0..box_shadow.rects.len() {
+                            batch.add_instance(base_instance.build(rect_index as i32,
                                                                    cache_task_index.0 as i32));
                         }
                     }

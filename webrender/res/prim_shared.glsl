@@ -184,6 +184,16 @@ vec4[8] fetch_from_resource_cache_8(int address) {
     );
 }
 
+vec4[4] fetch_from_resource_cache_4(int address) {
+    ivec2 uv = get_resource_cache_uv(address);
+    return vec4[4](
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(0, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(1, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(2, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(3, 0))
+    );
+}
+
 vec4 fetch_from_resource_cache_1(int address) {
     ivec2 uv = get_resource_cache_uv(address);
     return texelFetch(sResourceCache, uv, 0);
@@ -419,8 +429,8 @@ Glyph fetch_glyph(int index) {
     return Glyph(data);
 }
 
-RectWithSize fetch_instance_geometry(int index) {
-    vec4 data = fetch_data_1(index);
+RectWithSize fetch_instance_geometry(int address) {
+    vec4 data = fetch_from_resource_cache_1(address);
     return RectWithSize(data.xy, data.zw);
 }
 
@@ -811,8 +821,8 @@ struct BoxShadow {
     vec4 border_radius_edge_size_blur_radius_inverted;
 };
 
-BoxShadow fetch_boxshadow(int index) {
-    vec4 data[4] = fetch_data_4(index);
+BoxShadow fetch_boxshadow(int address) {
+    vec4 data[4] = fetch_from_resource_cache_4(address);
     return BoxShadow(data[0], data[1], data[2], data[3]);
 }
 
