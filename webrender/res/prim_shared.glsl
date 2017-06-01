@@ -80,13 +80,9 @@ vec2 clamp_rect(vec2 point, RectWithSize rect) {
     return clamp(point, rect.p0, rect.p0 + rect.size);
 }
 
-vec2 clamp_rect(vec2 point, RectWithEndpoint rect) {
-    return clamp(point, rect.p0, rect.p1);
-}
-
 RectWithEndpoint intersect_rect(RectWithEndpoint a, RectWithEndpoint b) {
-    vec2 p0 = clamp_rect(a.p0, b);
-    vec2 p1 = clamp_rect(a.p1, b);
+    vec2 p0 = clamp(a.p0, b.p0, b.p1);
+    vec2 p1 = clamp(a.p1, b.p0, b.p1);
     return RectWithEndpoint(p0, max(p0, p1));
 }
 
