@@ -800,8 +800,8 @@ struct Image {
                                          //     tiled instances of this image.
 };
 
-Image fetch_image(int index) {
-    vec4 data = fetch_data_1(index);
+Image fetch_image(int address) {
+    vec4 data = fetch_from_resource_cache_1(address);
     return Image(data);
 }
 
@@ -809,8 +809,8 @@ struct YuvImage {
     vec2 size;
 };
 
-YuvImage fetch_yuv_image(int index) {
-    vec4 data = fetch_data_1(index);
+YuvImage fetch_yuv_image(int address) {
+    vec4 data = fetch_from_resource_cache_1(address);
     return YuvImage(data.xy);
 }
 

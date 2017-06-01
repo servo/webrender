@@ -8,11 +8,11 @@ use gpu_store::GpuStoreAddress;
 use internal_types::{HardwareCompositeOp, SourceTexture};
 use mask_cache::{ClipMode, ClipSource, MaskCacheInfo, RegionMode};
 use plane_split::{BspSplitter, Polygon, Splitter};
-use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu, ImagePrimitiveGpu};
+use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
 use prim_store::{RectanglePrimitive, SplitGeometry, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
-use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu, YuvImagePrimitiveGpu};
+use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_task::{AlphaRenderItem, MaskCacheKey, MaskResult, RenderTask, RenderTaskIndex};
 use render_task::{RenderTaskId, RenderTaskLocation};
@@ -1019,18 +1019,14 @@ impl FrameBuilder {
             color_texture_id: SourceTexture::Invalid,
             resource_address: GpuStoreAddress(0),
             sub_rect: None,
-        };
-
-        let prim_gpu = ImagePrimitiveGpu {
-            stretch_size: rect.size,
-            tile_spacing: LayerSize::zero(),
+            gpu_block: [rect.size.width, rect.size.height, 0.0, 0.0].into(),
         };
 
         self.add_primitive(clip_and_scroll,
                            &rect,
                            clip_region,
                            &[],
-                           PrimitiveContainer::Image(prim_cpu, prim_gpu));
+                           PrimitiveContainer::Image(prim_cpu));
     }
 
     pub fn add_image(&mut self,
@@ -1051,18 +1047,17 @@ impl FrameBuilder {
             color_texture_id: SourceTexture::Invalid,
             resource_address: GpuStoreAddress(0),
             sub_rect: sub_rect,
-        };
-
-        let prim_gpu = ImagePrimitiveGpu {
-            stretch_size: *stretch_size,
-            tile_spacing: *tile_spacing,
+            gpu_block: [ stretch_size.width,
+                         stretch_size.height,
+                         tile_spacing.width,
+                         tile_spacing.height ].into(),
         };
 
         self.add_primitive(clip_and_scroll,
                            &rect,
                            clip_region,
                            &[],
-                           PrimitiveContainer::Image(prim_cpu, prim_gpu));
+                           PrimitiveContainer::Image(prim_cpu));
     }
 
     pub fn add_yuv_image(&mut self,
@@ -1088,15 +1083,14 @@ impl FrameBuilder {
             format: format,
             color_space: color_space,
             image_rendering: image_rendering,
+            gpu_block: [rect.size.width, rect.size.height, 0.0, 0.0].into(),
         };
-
-        let prim_gpu = YuvImagePrimitiveGpu::new(rect.size);
 
         self.add_primitive(clip_and_scroll,
                            &rect,
                            clip_region,
                            &[],
-                           PrimitiveContainer::YuvImage(prim_cpu, prim_gpu));
+                           PrimitiveContainer::YuvImage(prim_cpu));
     }
 
     /// Compute the contribution (bounding rectangles, and resources) of layers and their

@@ -204,13 +204,14 @@ pub struct ImagePrimitiveCpu {
     pub color_texture_id: SourceTexture,
     pub resource_address: GpuStoreAddress,
     pub sub_rect: Option<TexelRect>,
+    // TODO(gw): Build on demand
+    pub gpu_block: GpuBlockData,
 }
 
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct ImagePrimitiveGpu {
-    pub stretch_size: LayerSize,
-    pub tile_spacing: LayerSize,
+impl ToGpuBlocks for ImagePrimitiveCpu {
+    fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
+        blocks.push(self.gpu_block);
+    }
 }
 
 #[derive(Debug)]
@@ -226,21 +227,14 @@ pub struct YuvImagePrimitiveCpu {
     pub yuv_resource_address: GpuStoreAddress,
 
     pub image_rendering: ImageRendering,
+
+    // TODO(gw): Generate on demand
+    pub gpu_block: GpuBlockData,
 }
 
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct YuvImagePrimitiveGpu {
-    pub size: LayerSize,
-    pub padding: [f32; 2],
-}
-
-impl YuvImagePrimitiveGpu {
-    pub fn new(size: LayerSize) -> Self {
-        YuvImagePrimitiveGpu {
-            size: size,
-            padding: [0.0; 2],
-        }
+impl ToGpuBlocks for YuvImagePrimitiveCpu {
+    fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
+        blocks.push(self.gpu_block);
     }
 }
 
@@ -677,8 +671,8 @@ impl ClipData {
 pub enum PrimitiveContainer {
     Rectangle(RectanglePrimitive),
     TextRun(TextRunPrimitiveCpu, TextRunPrimitiveGpu),
-    Image(ImagePrimitiveCpu, ImagePrimitiveGpu),
-    YuvImage(YuvImagePrimitiveCpu, YuvImagePrimitiveGpu),
+    Image(ImagePrimitiveCpu),
+    YuvImage(YuvImagePrimitiveCpu),
     Border(BorderPrimitiveCpu),
     AlignedGradient(GradientPrimitiveCpu, GradientPrimitiveGpu),
     AngleGradient(GradientPrimitiveCpu, GradientPrimitiveGpu),
@@ -824,10 +818,8 @@ impl PrimitiveStore {
                 self.cpu_text_runs.push(text_cpu);
                 metadata
             }
-            PrimitiveContainer::Image(mut image_cpu, image_gpu) => {
+            PrimitiveContainer::Image(mut image_cpu) => {
                 image_cpu.resource_address = self.gpu_resource_rects.alloc(1);
-
-                let gpu_address = self.gpu_data16.push(image_gpu);
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
@@ -835,7 +827,7 @@ impl PrimitiveStore {
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Image,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_images.len()),
-                    gpu_location: GpuLocation::GpuStore(gpu_address),
+                    gpu_location: GpuLocation::GpuCache(GpuCacheHandle::new()),
                     render_task: None,
                     clip_task: None,
                 };
@@ -843,10 +835,8 @@ impl PrimitiveStore {
                 self.cpu_images.push(image_cpu);
                 metadata
             }
-            PrimitiveContainer::YuvImage(mut image_cpu, image_gpu) => {
+            PrimitiveContainer::YuvImage(mut image_cpu) => {
                 image_cpu.yuv_resource_address = self.gpu_resource_rects.alloc(3);
-
-                let gpu_address = self.gpu_data16.push(image_gpu);
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: true,
@@ -854,7 +844,7 @@ impl PrimitiveStore {
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::YuvImage,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_yuv_images.len()),
-                    gpu_location: GpuLocation::GpuStore(gpu_address),
+                    gpu_location: GpuLocation::GpuCache(GpuCacheHandle::new()),
                     render_task: None,
                     clip_task: None,
                 };
@@ -1224,6 +1214,8 @@ impl PrimitiveStore {
             let gpu_cache = &mut self.gpu_cache;
             let cpu_borders = &self.cpu_borders;
             let cpu_box_shadows = &self.cpu_box_shadows;
+            let cpu_images = &self.cpu_images;
+            let cpu_yuv_images = &self.cpu_yuv_images;
             let cpu_rectangles = &self.cpu_rectangles;
             let cpu_prim_index = metadata.cpu_prim_index;
             let prim_kind = metadata.prim_kind;
@@ -1243,8 +1235,16 @@ impl PrimitiveStore {
                         let box_shadow = &cpu_box_shadows[cpu_prim_index.0];
                         box_shadow.write_gpu_blocks(blocks);
                     }
+                    PrimitiveKind::Image => {
+                        let image = &cpu_images[cpu_prim_index.0];
+                        image.write_gpu_blocks(blocks);
+                    }
+                    PrimitiveKind::YuvImage => {
+                        let yuv_image = &cpu_yuv_images[cpu_prim_index.0];
+                        yuv_image.write_gpu_blocks(blocks);
+                    }
                     _ => {
-                        unreachable!("Only rects and borders use GPU cache so far!");
+                        unreachable!("Encountered a type not supported by GPU cache!");
                     }
                 }
             });
@@ -1488,8 +1488,7 @@ macro_rules! define_gpu_block {
 }
 
 define_gpu_block!(GpuBlock16: [f32; 4] =
-    RectanglePrimitive, InstanceRect, GlyphPrimitive,
-    TextRunPrimitiveGpu, ImagePrimitiveGpu, YuvImagePrimitiveGpu
+    RectanglePrimitive, InstanceRect, GlyphPrimitive, TextRunPrimitiveGpu
 );
 define_gpu_block!(GpuBlock32: [f32; 8] =
     GradientStopGpu, ClipCorner, ClipRect, ImageMaskData,
