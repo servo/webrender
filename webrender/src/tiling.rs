@@ -400,7 +400,7 @@ impl AlphaRenderItem {
                 let blend_mode = ctx.prim_store.get_blend_mode(needs_blending, prim_metadata);
 
                 let prim_cache_address = prim_metadata.gpu_location
-                                                      .as_int(&ctx.prim_store.gpu_cache);
+                                                      .as_int(&ctx.resource_cache.gpu_cache);
 
                 let base_instance = SimplePrimitiveInstance::new(prim_index,
                                                                  prim_cache_address,
@@ -956,7 +956,7 @@ impl RenderTarget for ColorRenderTarget {
                 let prim_metadata = ctx.prim_store.get_metadata(prim_index);
 
                 let prim_address = prim_metadata.gpu_location
-                                                .as_int(&ctx.prim_store.gpu_cache);
+                                                .as_int(&ctx.resource_cache.gpu_cache);
 
                 match prim_metadata.prim_kind {
                     PrimitiveKind::BoxShadow => {

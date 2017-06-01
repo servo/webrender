@@ -1385,7 +1385,6 @@ impl FrameBuilder {
         let mut profile_counters = FrameProfileCounters::new();
         profile_counters.total_primitives.set(self.prim_store.prim_count());
 
-        self.prim_store.gpu_cache.begin_frame();
         resource_cache.begin_frame(frame_id);
 
         let screen_rect = DeviceIntRect::new(
@@ -1428,7 +1427,8 @@ impl FrameBuilder {
         let deferred_resolves = self.prim_store.resolve_primitives(resource_cache,
                                                                    device_pixel_ratio);
 
-        let gpu_cache_updates = self.prim_store.end_frame(gpu_cache_profile);
+        let gpu_cache_updates = resource_cache.gpu_cache
+                                              .end_frame(gpu_cache_profile);
 
         let mut passes = Vec::new();
 
