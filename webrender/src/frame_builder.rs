@@ -746,6 +746,9 @@ impl FrameBuilder {
             return
         }
 
+        // Expand the rectangle of the text run by the blur radius.
+        let rect = rect.inflate(blur_radius, blur_radius);
+
         // TODO(gw): Use a proper algorithm to select
         // whether this item should be rendered with
         // subpixel AA!
@@ -1754,17 +1757,11 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                                                                  &packed_layer.transform,
                                                                  &packed_layer.local_clip_rect,
                                                                  self.device_pixel_ratio) {
-                if self.frame_builder.prim_store.prepare_prim_for_render(prim_index,
-                                                                         self.resource_cache,
-                                                                         &packed_layer.transform,
-                                                                         self.device_pixel_ratio,
-                                                                         display_list) {
-                    self.frame_builder.prim_store.build_bounding_rect(prim_index,
-                                                                      self.screen_rect,
+                self.frame_builder.prim_store.prepare_prim_for_render(prim_index,
+                                                                      self.resource_cache,
                                                                       &packed_layer.transform,
-                                                                      &packed_layer.local_clip_rect,
-                                                                      self.device_pixel_ratio);
-                }
+                                                                      self.device_pixel_ratio,
+                                                                      display_list);
 
                 // If the primitive is visible, consider culling it via clip rect(s).
                 // If it is visible but has clips, create the clip task for it.
