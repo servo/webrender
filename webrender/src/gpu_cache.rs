@@ -311,6 +311,7 @@ impl Texture {
 
         // Add the block to the occupied linked list.
         block.next = self.occupied_list_head;
+        block.last_access_time = frame_id;
         self.occupied_list_head = Some(free_block_index);
         self.allocated_block_count += alloc_size;
 
