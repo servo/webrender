@@ -881,9 +881,11 @@ impl DisplayListBuilder {
     pub fn push_clip_node(&mut self,
                           content_rect: LayoutRect,
                           token: ClipRegionToken,
-                          id: Option<ClipId>){
+                          id: Option<ClipId>)
+                          -> ClipId {
         let id = self.define_clip(content_rect, token, id);
         self.clip_stack.push(ClipAndScrollInfo::simple(id));
+        id
     }
 
     pub fn push_clip_id(&mut self, id: ClipId) {
