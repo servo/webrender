@@ -1560,8 +1560,8 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
 
             // Meanwhile, the combined viewport rect is relative to the reference frame, so
             // we move it into the local coordinate system of the node.
-            let local_viewport_rect =
-                node.combined_local_viewport_rect.translate(&-node.local_viewport_rect.origin);
+            let local_viewport_rect = node.local_viewport_rect;
+                //node.local_viewport_rect.translate(&-node.local_viewport_rect.origin);
 
             node_clip_info.screen_bounding_rect = packed_layer.set_rect(&local_viewport_rect,
                                                                         self.screen_rect,
@@ -1616,7 +1616,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             // Here we move the viewport rectangle into the coordinate system
             // of the stacking context content.
             let viewport_rect =
-                &clip_node.combined_local_viewport_rect
+                &clip_node.local_viewport_rect
                      .translate(&clip_node.reference_frame_relative_scroll_offset)
                      .translate(&-scroll_node.reference_frame_relative_scroll_offset)
                      .translate(&-stacking_context.reference_frame_offset)
@@ -1747,7 +1747,6 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             if self.frame_builder.prim_store.build_bounding_rect(prim_index,
                                                                  self.screen_rect,
                                                                  &packed_layer.transform,
-                                                                 &packed_layer.local_clip_rect,
                                                                  self.device_pixel_ratio) {
                 if self.frame_builder.prim_store.prepare_prim_for_render(prim_index,
                                                                          self.resource_cache,
@@ -1757,7 +1756,6 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                     self.frame_builder.prim_store.build_bounding_rect(prim_index,
                                                                       self.screen_rect,
                                                                       &packed_layer.transform,
-                                                                      &packed_layer.local_clip_rect,
                                                                       self.device_pixel_ratio);
                 }
 

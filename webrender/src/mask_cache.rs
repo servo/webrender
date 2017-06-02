@@ -238,7 +238,7 @@ impl MaskCacheInfo {
                         };
 
                         let clips = display_list.get(region.complex_clips);
-                        if !self.is_aligned && region_mode == RegionMode::IncludeRect {
+                        if /* !self.is_aligned && */ region_mode == RegionMode::IncludeRect {
                             // we have an extra clip rect coming from the transformed layer
                             debug_assert!(self.effective_complex_clip_count < self.complex_clip_range.item_count);
                             let address = self.complex_clip_range.start + self.effective_complex_clip_count * CLIP_DATA_GPU_SIZE;

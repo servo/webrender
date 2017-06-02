@@ -231,10 +231,8 @@ impl ClipScrollTree {
         }
 
         let root_reference_frame_id = self.root_reference_frame_id();
-        let root_viewport = self.nodes[&root_reference_frame_id].local_clip_rect;
         self.update_node_transform(root_reference_frame_id,
                                    &LayerToWorldTransform::create_translation(pan.x, pan.y, 0.0),
-                                   &as_scroll_parent_rect(&root_viewport),
                                    LayerPoint::zero(),
                                    LayerPoint::zero());
     }
@@ -242,20 +240,17 @@ impl ClipScrollTree {
     fn update_node_transform(&mut self,
                              layer_id: ClipId,
                              parent_reference_frame_transform: &LayerToWorldTransform,
-                             parent_viewport_rect: &ScrollLayerRect,
                              parent_scroll_offset: LayerPoint,
                              parent_accumulated_scroll_offset: LayerPoint) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
         //           Restructure this to avoid the clones!
         let (reference_frame_transform,
-             viewport_rect,
              scroll_offset,
              accumulated_scroll_offset,
              node_children) = {
             match self.nodes.get_mut(&layer_id) {
                 Some(node) => {
                     node.update_transform(parent_reference_frame_transform,
-                                          parent_viewport_rect,
                                           parent_scroll_offset,
                                           parent_accumulated_scroll_offset);
 
@@ -274,7 +269,6 @@ impl ClipScrollTree {
                     };
 
                     (transform,
-                     as_scroll_parent_rect(&node.combined_local_viewport_rect),
                      offset,
                      accumulated_scroll_offset,
                      node.children.clone())
@@ -286,7 +280,6 @@ impl ClipScrollTree {
         for child_layer_id in node_children {
             self.update_node_transform(child_layer_id,
                                        &reference_frame_transform,
-                                       &viewport_rect,
                                        scroll_offset,
                                        accumulated_scroll_offset);
         }
@@ -377,7 +370,7 @@ impl ClipScrollTree {
 
         pt.add_item(format!("content_size: {:?}", node.content_size));
         pt.add_item(format!("scroll.offset: {:?}", node.scrolling.offset));
-        pt.add_item(format!("combined_local_viewport_rect: {:?}", node.combined_local_viewport_rect));
+        //pt.add_item(format!("combined_local_viewport_rect: {:?}", node.combined_local_viewport_rect));
         pt.add_item(format!("local_viewport_rect: {:?}", node.local_viewport_rect));
         pt.add_item(format!("local_clip_rect: {:?}", node.local_clip_rect));
         pt.add_item(format!("world_viewport_transform: {:?}", node.world_viewport_transform));
