@@ -1194,11 +1194,10 @@ impl PrimitiveStore {
                                    resource_cache: &mut ResourceCache,
                                    layer_transform: &LayerToWorldTransform,
                                    device_pixel_ratio: f32,
-                                   display_list: &BuiltDisplayList) -> bool {
+                                   display_list: &BuiltDisplayList) {
 
         let metadata = &mut self.cpu_metadata[prim_index.0];
         let mut prim_needs_resolve = false;
-        let mut rebuild_bounding_rect = false;
 
         if let GpuLocation::GpuCache(ref mut cache_id) = metadata.gpu_location {
             let cpu_borders = &self.cpu_borders;
@@ -1279,7 +1278,6 @@ impl PrimitiveStore {
                 prim_needs_resolve = true;
 
                 if text.cache_dirty {
-                    rebuild_bounding_rect = true;
                     text.cache_dirty = false;
 
                     debug_assert!(text.gpu_data_count == src_glyphs.len() as i32);
@@ -1294,7 +1292,6 @@ impl PrimitiveStore {
                                                       0,
                                                       LayoutPoint::new(0.0, 0.0),
                                                       text.render_mode);
-                    let mut local_rect = LayerRect::zero();
                     let mut actual_glyph_count = 0;
 
                     for src in src_glyphs {
@@ -1312,28 +1309,20 @@ impl PrimitiveStore {
                         let x = src.point.x + dimensions.left as f32 / device_pixel_ratio;
                         let y = src.point.y - dimensions.top as f32 / device_pixel_ratio;
 
-                        let width = dimensions.width as f32 / device_pixel_ratio;
-                        let height = dimensions.height as f32 / device_pixel_ratio;
-
-                        let local_glyph_rect = LayerRect::new(LayerPoint::new(x, y),
-                                                              LayerSize::new(width, height));
-                        local_rect = local_rect.union(&local_glyph_rect);
+                        let glyph_pos = LayerPoint::new(x, y);
 
                         dest_glyphs[actual_glyph_count] = GpuBlock16::from(GlyphPrimitive {
                             padding: LayerPoint::zero(),
-                            offset: local_glyph_rect.origin,
+                            offset: glyph_pos,
                         });
 
                         text.glyph_instances.push(GlyphInstance {
                             index: src.index,
-                            point: LayoutPoint::new(src.point.x, src.point.y),
+                            point: glyph_pos,
                         });
 
                         actual_glyph_count += 1;
                     }
-
-                    // Expand the rectangle of the text run by the blur radius.
-                    let local_rect = local_rect.inflate(text.blur_radius, text.blur_radius);
 
                     let render_task = if text.blur_radius == 0.0 {
                         None
@@ -1342,8 +1331,9 @@ impl PrimitiveStore {
                         // render the text run to a target, and then apply a gaussian
                         // blur to that text run in order to build the actual primitive
                         // which will be blitted to the framebuffer.
-                        let cache_width = (local_rect.size.width * device_pixel_ratio).ceil() as i32;
-                        let cache_height = (local_rect.size.height * device_pixel_ratio).ceil() as i32;
+                        let geom = &self.gpu_geometry.get(GpuStoreAddress(prim_index.0 as i32));
+                        let cache_width = (geom.local_rect.size.width * device_pixel_ratio).ceil() as i32;
+                        let cache_height = (geom.local_rect.size.height * device_pixel_ratio).ceil() as i32;
                         let cache_size = DeviceIntSize::new(cache_width, cache_height);
                         let cache_key = PrimitiveCacheKey::TextShadow(prim_index);
                         let blur_radius = device_length(text.blur_radius,
@@ -1356,7 +1346,6 @@ impl PrimitiveStore {
 
                     text.gpu_data_count = actual_glyph_count as i32;
                     metadata.render_task = render_task;
-                    self.gpu_geometry.get_mut(GpuStoreAddress(prim_index.0 as i32)).local_rect = local_rect;
                 }
 
                 resource_cache.request_glyphs(text.font_key,
@@ -1444,8 +1433,6 @@ impl PrimitiveStore {
         if prim_needs_resolve {
             self.prims_to_resolve.push(prim_index);
         }
-
-        rebuild_bounding_rect
     }
 }
 

@@ -46,6 +46,7 @@ trait AlphaBatchHelpers {
     fn get_blend_mode(&self,
                       needs_blending: bool,
                       metadata: &PrimitiveMetadata) -> BlendMode;
+    fn can_draw(&self, metadata: &PrimitiveMetadata) -> bool;
 }
 
 impl AlphaBatchHelpers for PrimitiveStore {
@@ -103,6 +104,26 @@ impl AlphaBatchHelpers for PrimitiveStore {
                 } else {
                     BlendMode::None
                 }
+            }
+        }
+    }
+
+    fn can_draw(&self, metadata: &PrimitiveMetadata) -> bool {
+        match metadata.prim_kind {
+            PrimitiveKind::Border |
+            PrimitiveKind::BoxShadow |
+            PrimitiveKind::Rectangle |
+            PrimitiveKind::AlignedGradient |
+            PrimitiveKind::AngleGradient |
+            PrimitiveKind::RadialGradient |
+            PrimitiveKind::Image |
+            PrimitiveKind::YuvImage => true,
+            PrimitiveKind::TextRun => {
+                // If the glyph failed to rasterize, we may have a text run
+                // without a valid texture. In this case, we need to prevent
+                // drawing the primitive this frame.
+                let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
+                text_run_cpu.color_texture_id != SourceTexture::Invalid
             }
         }
     }
@@ -366,6 +387,10 @@ impl AlphaRenderItem {
             }
             AlphaRenderItem::Primitive(clip_scroll_group_index_opt, prim_index, z) => {
                 let prim_metadata = ctx.prim_store.get_metadata(prim_index);
+                // Bail out if this primitive can't be drawn this frame for some reason.
+                if !ctx.prim_store.can_draw(prim_metadata) {
+                    return;
+                }
                 let (transform_kind, packed_layer_index) = match clip_scroll_group_index_opt {
                     Some(group_index) => {
                         let group = &ctx.clip_scroll_group_store[group_index.0];
