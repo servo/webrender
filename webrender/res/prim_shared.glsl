@@ -117,7 +117,6 @@ uniform sampler2D sPrimGeometry;
 
 uniform sampler2D sData16;
 uniform sampler2D sData32;
-uniform sampler2D sData64;
 uniform sampler2D sResourceRects;
 uniform sampler2D sResourceCache;
 
@@ -144,16 +143,6 @@ vec4[2] fetch_data_2(int index) {
     );
 }
 
-vec4[4] fetch_data_4(int index) {
-    ivec2 uv = get_fetch_uv(index, 4);
-    return vec4[4](
-        texelFetchOffset(sData64, uv, 0, ivec2(0, 0)),
-        texelFetchOffset(sData64, uv, 0, ivec2(1, 0)),
-        texelFetchOffset(sData64, uv, 0, ivec2(2, 0)),
-        texelFetchOffset(sData64, uv, 0, ivec2(3, 0))
-    );
-}
-
 // TODO(gw): This is here temporarily while we have
 //           both GPU store and cache. When the GPU
 //           store code is removed, we can change the
@@ -177,6 +166,15 @@ vec4[8] fetch_from_resource_cache_8(int address) {
         texelFetchOffset(sResourceCache, uv, 0, ivec2(5, 0)),
         texelFetchOffset(sResourceCache, uv, 0, ivec2(6, 0)),
         texelFetchOffset(sResourceCache, uv, 0, ivec2(7, 0))
+    );
+}
+
+vec4[3] fetch_from_resource_cache_3(int address) {
+    ivec2 uv = get_resource_cache_uv(address);
+    return vec4[3](
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(0, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(1, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(2, 0))
     );
 }
 
@@ -311,8 +309,8 @@ struct Gradient {
     vec4 extend_mode;
 };
 
-Gradient fetch_gradient(int index) {
-    vec4 data[4] = fetch_data_4(index);
+Gradient fetch_gradient(int address) {
+    vec4 data[3] = fetch_from_resource_cache_3(address);
     return Gradient(data[0], data[1], data[2]);
 }
 
@@ -332,8 +330,8 @@ struct RadialGradient {
     vec4 tile_size_repeat;
 };
 
-RadialGradient fetch_radial_gradient(int index) {
-    vec4 data[4] = fetch_data_4(index);
+RadialGradient fetch_radial_gradient(int address) {
+    vec4 data[3] = fetch_from_resource_cache_3(address);
     return RadialGradient(data[0], data[1], data[2]);
 }
 
@@ -783,8 +781,8 @@ struct TextRun {
     vec4 color;
 };
 
-TextRun fetch_text_run(int index) {
-    vec4 data = fetch_data_1(index);
+TextRun fetch_text_run(int address) {
+    vec4 data = fetch_from_resource_cache_1(address);
     return TextRun(data);
 }
 

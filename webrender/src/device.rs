@@ -1569,11 +1569,6 @@ impl Device {
             self.gl.uniform_1i(u_data32, TextureSampler::Data32 as i32);
         }
 
-        let u_data64 = self.gl.get_uniform_location(program.id, "sData64");
-        if u_data64 != -1 {
-            self.gl.uniform_1i(u_data64, TextureSampler::Data64 as i32);
-        }
-
         let u_resource_cache = self.gl.get_uniform_location(program.id, "sResourceCache");
         if u_resource_cache != -1 {
             self.gl.uniform_1i(u_resource_cache, TextureSampler::ResourceCache as i32);
