@@ -79,9 +79,8 @@ impl Into<GpuBlockData> for LayerRect {
 // Any data type that can be stored in the GPU cache should
 // implement this trait.
 pub trait ToGpuBlocks {
-    // Append an arbitrary number of GPU blocks to the
-    // provided array.
-    fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>);
+    // Request an arbitrary number of GPU data blocks.
+    fn write_gpu_blocks(&self, GpuDataRequest);
 }
 
 // A handle to a GPU resource.
@@ -389,6 +388,39 @@ impl Texture {
     }
 }
 
+
+/// A wrapper object for GPU data requests,
+/// works as a container that can only grow.
+#[must_use]
+pub struct GpuDataRequest<'a> {
+    handle: &'a mut GpuCacheHandle,
+    frame_id: FrameId,
+    start_index: usize,
+    texture: &'a mut Texture,
+}
+
+impl<'a> GpuDataRequest<'a> {
+    pub fn push(&mut self, block: GpuBlockData) {
+        self.texture.pending_blocks.push(block);
+    }
+
+    pub fn extend_from_slice(&mut self, blocks: &[GpuBlockData]) {
+        self.texture.pending_blocks.extend_from_slice(blocks);
+    }
+}
+
+impl<'a> Drop for GpuDataRequest<'a> {
+    fn drop(&mut self) {
+        // Push the data to the texture pending updates list.
+        let block_count = self.texture.pending_blocks.len() - self.start_index;
+        let location = self.texture.push_data(self.start_index,
+                                              block_count,
+                                              self.frame_id);
+        self.handle.location = Some(location);
+    }
+}
+
+
 /// The main LRU cache interface.
 pub struct GpuCache {
     /// Current frame ID.
@@ -412,40 +444,24 @@ impl GpuCache {
         self.texture.evict_old_blocks(self.frame_id);
     }
 
-    /// Request a resource be added to the cache. If the resource
-    /// is already in the cache, the closure to build the data
-    /// will be skipped.
-    pub fn request<F>(&mut self,
-                      handle: &mut GpuCacheHandle,
-                      f: F) where F: Fn(&mut Vec<GpuBlockData>) {
-        // First, check if the allocation for this handle is still valid.
-        let need_to_build = match handle.location {
-            Some(ref location) => {
-                let block = &mut self.texture.blocks[location.block_index.0];
-                if block.epoch == location.epoch {
-                    // Mark last access time to avoid evicting this block.
-                    block.last_access_time = self.frame_id;
-                    false
-                } else {
-                    true
-                }
+    // Request a resource be added to the cache. If the resource
+    /// is already in the cache, `None` will be returned.
+    pub fn request<'a>(&'a mut self, handle: &'a mut GpuCacheHandle) -> Option<GpuDataRequest<'a>> {
+        // Check if the allocation for this handle is still valid.
+        if let Some(ref location) = handle.location {
+            let block = &mut self.texture.blocks[location.block_index.0];
+            if block.epoch == location.epoch {
+                // Mark last access time to avoid evicting this block.
+                block.last_access_time = self.frame_id;
+                return None
             }
-            None => true,
-        };
-
-        if need_to_build {
-            // Build it!
-            let start_index = self.texture.pending_blocks.len();
-            f(&mut self.texture.pending_blocks);
-            let block_count = self.texture.pending_blocks.len() - start_index;
-
-            // Push the data to the texture pending updates list.
-            let location = self.texture.push_data(start_index,
-                                                  block_count,
-                                                  self.frame_id);
-
-            handle.location = Some(location);
         }
+        Some(GpuDataRequest {
+            handle: handle,
+            frame_id: self.frame_id,
+            start_index: self.texture.pending_blocks.len(),
+            texture: &mut self.texture,
+        })
     }
 
     /// End the frame. Return the list of updates to apply to the
