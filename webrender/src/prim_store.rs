@@ -6,11 +6,10 @@ use app_units::Au;
 use border::{BorderCornerClipData, BorderCornerDashClipData, BorderCornerDotClipData};
 use border::BorderCornerInstance;
 use euclid::{Size2D};
-use gpu_cache::{GpuBlockData, GpuCache, GpuCacheUpdateList, GpuCacheHandle, ToGpuBlocks};
+use gpu_cache::{GpuBlockData, GpuCache, GpuCacheHandle, ToGpuBlocks};
 use gpu_store::GpuStoreAddress;
 use internal_types::{SourceTexture, PackedTexel};
 use mask_cache::{ClipMode, ClipSource, MaskCacheInfo};
-use profiler::GpuCacheProfileCounters;
 use renderer::{VertexDataStore, GradientDataStore, SplitGeometryStore, MAX_VERTEX_TEXTURE_WIDTH};
 use render_task::{RenderTask, RenderTaskLocation};
 use resource_cache::{CacheItem, ImageProperties, ResourceCache};
@@ -706,8 +705,6 @@ pub struct PrimitiveStore {
     /// Resolved resource rects.
     pub gpu_resource_rects: VertexDataStore<TexelRect>,
 
-    pub gpu_cache: GpuCache,
-
     /// General
     prims_to_resolve: Vec<PrimitiveIndex>,
 }
@@ -733,7 +730,6 @@ impl PrimitiveStore {
             gpu_gradient_data: GradientDataStore::new(),
             gpu_split_geometry: SplitGeometryStore::new(),
             gpu_resource_rects: VertexDataStore::new(),
-            gpu_cache: GpuCache::new(),
         }
     }
 
@@ -757,7 +753,6 @@ impl PrimitiveStore {
             gpu_gradient_data: self.gpu_gradient_data.recycle(),
             gpu_split_geometry: self.gpu_split_geometry.recycle(),
             gpu_resource_rects: self.gpu_resource_rects.recycle(),
-            gpu_cache: self.gpu_cache.recycle(),
         }
     }
 
@@ -1141,11 +1136,6 @@ impl PrimitiveStore {
         deferred_resolves
     }
 
-    pub fn end_frame(&mut self,
-                     profile_counters: &mut GpuCacheProfileCounters) -> GpuCacheUpdateList {
-        self.gpu_cache.end_frame(profile_counters)
-    }
-
     pub fn set_clip_source(&mut self, index: PrimitiveIndex, source: Option<ClipSource>) {
         let metadata = &mut self.cpu_metadata[index.0];
         metadata.clips = match source {
@@ -1211,7 +1201,6 @@ impl PrimitiveStore {
         let mut rebuild_bounding_rect = false;
 
         if let GpuLocation::GpuCache(ref mut cache_id) = metadata.gpu_location {
-            let gpu_cache = &mut self.gpu_cache;
             let cpu_borders = &self.cpu_borders;
             let cpu_box_shadows = &self.cpu_box_shadows;
             let cpu_images = &self.cpu_images;
@@ -1221,7 +1210,7 @@ impl PrimitiveStore {
             let prim_kind = metadata.prim_kind;
 
             // Mark this GPU resource as required for this frame.
-            gpu_cache.request(cache_id, |blocks| {
+            resource_cache.gpu_cache.request(cache_id, |blocks| {
                 match prim_kind {
                     PrimitiveKind::Rectangle => {
                         let rect = &cpu_rectangles[cpu_prim_index.0];

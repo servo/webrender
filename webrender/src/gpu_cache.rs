@@ -208,10 +208,6 @@ impl FreeBlockLists {
         }
     }
 
-    fn clear(&mut self) {
-        *self = Self::new();
-    }
-
     fn get_actual_block_count_and_free_list(&mut self,
                                             block_count: usize) -> (usize, &mut Option<BlockIndex>) {
         // Find the appropriate free list to use
@@ -265,21 +261,6 @@ impl Texture {
             occupied_list_head: None,
             allocated_block_count: 0,
         }
-    }
-
-    fn clear(&mut self) {
-        self.blocks.clear();
-        self.rows.clear();
-        self.free_lists.clear();
-        self.pending_blocks.clear();
-        self.updates.clear();
-        self.occupied_list_head = None;
-        self.allocated_block_count = 0;
-
-        // TODO(gw): Right now, we never shrink the size of the backing
-        // texture. We could consider shrinking the texture here, if
-        // you navigate away from a page that required a very large
-        // texture backing store.
     }
 
     // Push new data into the cache. The ```pending_block_index``` field represents
@@ -464,15 +445,6 @@ impl GpuCache {
 
             handle.location = Some(location);
         }
-    }
-
-    /// Recycle the GPU cache for a new display list. This allows
-    /// re-using existing backing allocations rather than calling
-    /// the system memory allocator again.
-    pub fn recycle(mut self) -> GpuCache {
-        self.texture.clear();
-
-        self
     }
 
     /// End the frame. Return the list of updates to apply to the
