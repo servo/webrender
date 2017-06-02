@@ -11,7 +11,7 @@ use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
-use prim_store::{RectanglePrimitive, SplitGeometry, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
+use prim_store::{RectanglePrimitive, SplitGeometry, TextRunPrimitiveCpu};
 use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_task::{AlphaRenderItem, MaskCacheKey, MaskResult, RenderTask, RenderTaskIndex};
@@ -780,15 +780,11 @@ impl FrameBuilder {
             gpu_data_count: 0,
         };
 
-        let prim_gpu = TextRunPrimitiveGpu {
-            color: *color,
-        };
-
         self.add_primitive(clip_and_scroll,
                            &rect,
                            clip_region,
                            &[],
-                           PrimitiveContainer::TextRun(prim_cpu, prim_gpu));
+                           PrimitiveContainer::TextRun(prim_cpu));
     }
 
     pub fn fill_box_shadow_rect(&mut self,

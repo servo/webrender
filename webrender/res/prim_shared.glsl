@@ -784,8 +784,8 @@ struct TextRun {
     vec4 color;
 };
 
-TextRun fetch_text_run(int index) {
-    vec4 data = fetch_data_1(index);
+TextRun fetch_text_run(int address) {
+    vec4 data = fetch_from_resource_cache_1(address);
     return TextRun(data);
 }
 

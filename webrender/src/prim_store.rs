@@ -498,12 +498,6 @@ struct InstanceRect {
 }
 
 #[derive(Debug, Clone)]
-#[repr(C)]
-pub struct TextRunPrimitiveGpu {
-    pub color: ColorF,
-}
-
-#[derive(Debug, Clone)]
 pub struct TextRunPrimitiveCpu {
     pub font_key: FontKey,
     pub logical_font_size: Au,
@@ -520,6 +514,12 @@ pub struct TextRunPrimitiveCpu {
     pub glyph_options: Option<GlyphOptions>,
     pub gpu_data_address: GpuStoreAddress,
     pub gpu_data_count: i32,
+}
+
+impl ToGpuBlocks for TextRunPrimitiveCpu {
+    fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
+        blocks.push(self.color.into());
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -658,7 +658,7 @@ impl ClipData {
 #[derive(Debug)]
 pub enum PrimitiveContainer {
     Rectangle(RectanglePrimitive),
-    TextRun(TextRunPrimitiveCpu, TextRunPrimitiveGpu),
+    TextRun(TextRunPrimitiveCpu),
     Image(ImagePrimitiveCpu),
     YuvImage(YuvImagePrimitiveCpu),
     Border(BorderPrimitiveCpu),
@@ -778,8 +778,7 @@ impl PrimitiveStore {
 
                 metadata
             }
-            PrimitiveContainer::TextRun(mut text_cpu, text_gpu) => {
-                let gpu_address = self.gpu_data16.push(text_gpu);
+            PrimitiveContainer::TextRun(mut text_cpu) => {
                 let gpu_glyphs_address = self.gpu_data16.alloc(text_cpu.glyph_count);
                 text_cpu.resource_address = self.gpu_resource_rects.alloc(text_cpu.glyph_count);
                 text_cpu.gpu_data_address = gpu_glyphs_address;
@@ -791,7 +790,7 @@ impl PrimitiveStore {
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::TextRun,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_runs.len()),
-                    gpu_location: GpuLocation::GpuStore(gpu_address),
+                    gpu_location: GpuLocation::GpuCache(GpuCacheHandle::new()),
                     render_task: None,
                     clip_task: None,
                 };
@@ -1191,6 +1190,7 @@ impl PrimitiveStore {
             let cpu_images = &self.cpu_images;
             let cpu_yuv_images = &self.cpu_yuv_images;
             let cpu_rectangles = &self.cpu_rectangles;
+            let cpu_text_runs = &self.cpu_text_runs;
             let cpu_prim_index = metadata.cpu_prim_index;
             let prim_kind = metadata.prim_kind;
 
@@ -1226,8 +1226,9 @@ impl PrimitiveStore {
                         let gradient = &cpu_radial_gradients[cpu_prim_index.0];
                         gradient.write_gpu_blocks(blocks);
                     }
-                    _ => {
-                        unreachable!("Encountered a type not supported by GPU cache!");
+                    PrimitiveKind::TextRun => {
+                        let text = &cpu_text_runs[cpu_prim_index.0];
+                        text.write_gpu_blocks(blocks);
                     }
                 }
             });
@@ -1471,7 +1472,7 @@ macro_rules! define_gpu_block {
 }
 
 define_gpu_block!(GpuBlock16: [f32; 4] =
-    RectanglePrimitive, InstanceRect, GlyphPrimitive, TextRunPrimitiveGpu
+    InstanceRect, GlyphPrimitive
 );
 define_gpu_block!(GpuBlock32: [f32; 8] =
     GradientStopGpu, ClipCorner, ClipRect, ImageMaskData,
