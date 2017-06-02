@@ -6,7 +6,7 @@ use app_units::Au;
 use border::{BorderCornerClipData, BorderCornerDashClipData, BorderCornerDotClipData};
 use border::BorderCornerInstance;
 use euclid::{Size2D};
-use gpu_cache::{GpuBlockData, GpuCache, GpuCacheHandle, ToGpuBlocks};
+use gpu_cache::{GpuBlockData, GpuCache, GpuCacheHandle, GpuDataRequest, ToGpuBlocks};
 use gpu_store::GpuStoreAddress;
 use internal_types::{SourceTexture, PackedTexel};
 use mask_cache::{ClipMode, ClipSource, MaskCacheInfo};
@@ -170,8 +170,8 @@ pub struct RectanglePrimitive {
 }
 
 impl ToGpuBlocks for RectanglePrimitive {
-    fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
-        blocks.push(self.color.into());
+    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
+        request.push(self.color.into());
     }
 }
 
@@ -192,8 +192,8 @@ pub struct ImagePrimitiveCpu {
 }
 
 impl ToGpuBlocks for ImagePrimitiveCpu {
-    fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
-        blocks.push(self.gpu_block);
+    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
+        request.push(self.gpu_block);
     }
 }
 
@@ -216,8 +216,8 @@ pub struct YuvImagePrimitiveCpu {
 }
 
 impl ToGpuBlocks for YuvImagePrimitiveCpu {
-    fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
-        blocks.push(self.gpu_block);
+    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
+        request.push(self.gpu_block);
     }
 }
 
@@ -228,8 +228,8 @@ pub struct BorderPrimitiveCpu {
 }
 
 impl ToGpuBlocks for BorderPrimitiveCpu {
-    fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
-        blocks.extend_from_slice(&self.gpu_blocks);
+    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
+        request.extend_from_slice(&self.gpu_blocks);
     }
 }
 
@@ -256,16 +256,16 @@ pub struct BoxShadowPrimitiveCpu {
 }
 
 impl ToGpuBlocks for BoxShadowPrimitiveCpu {
-    fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
-        blocks.push(self.src_rect.into());
-        blocks.push(self.bs_rect.into());
-        blocks.push(self.color.into());
-        blocks.push([self.border_radius,
-                     self.edge_size,
-                     self.blur_radius,
-                     self.inverted].into());
-        for rect in &self.rects {
-            blocks.push((*rect).into());
+    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
+        request.push(self.src_rect.into());
+        request.push(self.bs_rect.into());
+        request.push(self.color.into());
+        request.push([self.border_radius,
+                      self.edge_size,
+                      self.blur_radius,
+                      self.inverted].into());
+        for &rect in &self.rects {
+            request.push(rect.into());
         }
     }
 }
@@ -291,8 +291,8 @@ pub struct GradientPrimitiveCpu {
 }
 
 impl ToGpuBlocks for GradientPrimitiveCpu {
-    fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
-        blocks.extend_from_slice(&self.gpu_blocks);
+    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
+        request.extend_from_slice(&self.gpu_blocks);
     }
 }
 
@@ -307,8 +307,8 @@ pub struct RadialGradientPrimitiveCpu {
 }
 
 impl ToGpuBlocks for RadialGradientPrimitiveCpu {
-    fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
-        blocks.extend_from_slice(&self.gpu_blocks);
+    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
+        request.extend_from_slice(&self.gpu_blocks);
     }
 }
 
@@ -501,8 +501,8 @@ pub struct TextRunPrimitiveCpu {
 }
 
 impl ToGpuBlocks for TextRunPrimitiveCpu {
-    fn write_gpu_blocks(&self, blocks: &mut Vec<GpuBlockData>) {
-        blocks.push(self.color.into());
+    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
+        request.push(self.color.into());
     }
 }
 
@@ -1166,57 +1166,44 @@ impl PrimitiveStore {
         let mut prim_needs_resolve = false;
         let mut rebuild_bounding_rect = false;
 
-        // TODO(gw): Restructure this code so the borrow checker
-        //           doesn't force the locals below!
-        let cpu_borders = &self.cpu_borders;
-        let cpu_box_shadows = &self.cpu_box_shadows;
-        let cpu_gradients = &mut self.cpu_gradients;
-        let cpu_radial_gradients = &mut self.cpu_radial_gradients;
-        let cpu_images = &mut self.cpu_images;
-        let cpu_yuv_images = &mut self.cpu_yuv_images;
-        let cpu_rectangles = &self.cpu_rectangles;
-        let cpu_text_runs = &mut self.cpu_text_runs;
-        let cpu_prim_index = metadata.cpu_prim_index;
-        let prim_kind = metadata.prim_kind;
-
         // Mark this GPU resource as required for this frame.
-        resource_cache.gpu_cache.request(&mut metadata.gpu_location, |blocks| {
-            match prim_kind {
+        if let Some(request) = resource_cache.gpu_cache.request(&mut metadata.gpu_location) {
+            match metadata.prim_kind {
                 PrimitiveKind::Rectangle => {
-                    let rect = &cpu_rectangles[cpu_prim_index.0];
-                    rect.write_gpu_blocks(blocks);
+                    let rect = &self.cpu_rectangles[metadata.cpu_prim_index.0];
+                    rect.write_gpu_blocks(request);
                 }
                 PrimitiveKind::Border => {
-                    let border = &cpu_borders[cpu_prim_index.0];
-                    border.write_gpu_blocks(blocks);
+                    let border = &self.cpu_borders[metadata.cpu_prim_index.0];
+                    border.write_gpu_blocks(request);
                 }
                 PrimitiveKind::BoxShadow => {
-                    let box_shadow = &cpu_box_shadows[cpu_prim_index.0];
-                    box_shadow.write_gpu_blocks(blocks);
+                    let box_shadow = &self.cpu_box_shadows[metadata.cpu_prim_index.0];
+                    box_shadow.write_gpu_blocks(request);
                 }
                 PrimitiveKind::Image => {
-                    let image = &cpu_images[cpu_prim_index.0];
-                    image.write_gpu_blocks(blocks);
+                    let image = &self.cpu_images[metadata.cpu_prim_index.0];
+                    image.write_gpu_blocks(request);
                 }
                 PrimitiveKind::YuvImage => {
-                    let yuv_image = &cpu_yuv_images[cpu_prim_index.0];
-                    yuv_image.write_gpu_blocks(blocks);
+                    let yuv_image = &self.cpu_yuv_images[metadata.cpu_prim_index.0];
+                    yuv_image.write_gpu_blocks(request);
                 }
                 PrimitiveKind::AlignedGradient |
                 PrimitiveKind::AngleGradient => {
-                    let gradient = &cpu_gradients[cpu_prim_index.0];
-                    gradient.write_gpu_blocks(blocks);
+                    let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
+                    gradient.write_gpu_blocks(request);
                 }
                 PrimitiveKind::RadialGradient => {
-                    let gradient = &cpu_radial_gradients[cpu_prim_index.0];
-                    gradient.write_gpu_blocks(blocks);
+                    let gradient = &self.cpu_radial_gradients[metadata.cpu_prim_index.0];
+                    gradient.write_gpu_blocks(request);
                 }
                 PrimitiveKind::TextRun => {
-                    let text = &cpu_text_runs[cpu_prim_index.0];
-                    text.write_gpu_blocks(blocks);
+                    let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
+                    text.write_gpu_blocks(request);
                 }
             }
-        });
+        }
 
         if let Some(ref mut clip_info) = metadata.clip_cache_info {
             clip_info.update(&metadata.clips,
@@ -1251,7 +1238,7 @@ impl PrimitiveStore {
                 metadata.render_task.as_mut().unwrap().location = location;
             }
             PrimitiveKind::TextRun => {
-                let text = &mut cpu_text_runs[metadata.cpu_prim_index.0];
+                let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
 
                 let font_size_dp = text.logical_font_size.scale_by(device_pixel_ratio);
                 let src_glyphs = display_list.get(text.glyph_range);
@@ -1346,7 +1333,7 @@ impl PrimitiveStore {
                                               text.glyph_options);
             }
             PrimitiveKind::Image => {
-                let image_cpu = &mut cpu_images[metadata.cpu_prim_index.0];
+                let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
 
                 prim_needs_resolve = true;
                 match image_cpu.kind {
@@ -1366,7 +1353,7 @@ impl PrimitiveStore {
                 }
             }
             PrimitiveKind::YuvImage => {
-                let image_cpu = &mut cpu_yuv_images[metadata.cpu_prim_index.0];
+                let image_cpu = &mut self.cpu_yuv_images[metadata.cpu_prim_index.0];
                 prim_needs_resolve = true;
 
                 let channel_num = image_cpu.format.get_plane_num();
@@ -1379,7 +1366,7 @@ impl PrimitiveStore {
                 metadata.is_opaque = true;
             }
             PrimitiveKind::AlignedGradient => {
-                let gradient = &mut cpu_gradients[metadata.cpu_prim_index.0];
+                let gradient = &mut self.cpu_gradients[metadata.cpu_prim_index.0];
                 if gradient.cache_dirty {
                     let src_stops = display_list.get(gradient.stops_range);
 
@@ -1399,7 +1386,7 @@ impl PrimitiveStore {
                 }
             }
             PrimitiveKind::AngleGradient => {
-                let gradient = &mut cpu_gradients[metadata.cpu_prim_index.0];
+                let gradient = &mut self.cpu_gradients[metadata.cpu_prim_index.0];
                 if gradient.cache_dirty {
                     let src_stops = display_list.get(gradient.stops_range);
 
@@ -1409,7 +1396,7 @@ impl PrimitiveStore {
                 }
             }
             PrimitiveKind::RadialGradient => {
-                let gradient = &mut cpu_radial_gradients[metadata.cpu_prim_index.0];
+                let gradient = &mut self.cpu_radial_gradients[metadata.cpu_prim_index.0];
                 if gradient.cache_dirty {
                     let src_stops = display_list.get(gradient.stops_range);
 
