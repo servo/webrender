@@ -12,7 +12,7 @@ use internal_types::{ANGLE_FLOAT_TO_FIXED, BatchTextures, CacheTextureId, LowLev
 use internal_types::SourceTexture;
 use mask_cache::MaskCacheInfo;
 use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve, GpuBlock16, GpuBlock32};
-use prim_store::{GpuBlock64, GradientData, SplitGeometry, PrimitiveCacheKey, PrimitiveGeometry};
+use prim_store::{GradientData, SplitGeometry, PrimitiveCacheKey, PrimitiveGeometry};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore, TexelRect};
 use profiler::FrameProfileCounters;
 use render_task::{AlphaRenderItem, MaskGeometryKind, MaskSegment, RenderTask, RenderTaskData};
@@ -1619,7 +1619,6 @@ pub struct Frame {
     pub render_task_data: Vec<RenderTaskData>,
     pub gpu_data16: Vec<GpuBlock16>,
     pub gpu_data32: Vec<GpuBlock32>,
-    pub gpu_data64: Vec<GpuBlock64>,
     pub gpu_geometry: Vec<PrimitiveGeometry>,
     pub gpu_gradient_data: Vec<GradientData>,
     pub gpu_split_geometry: Vec<SplitGeometry>,

@@ -8,9 +8,9 @@ use gpu_store::GpuStoreAddress;
 use internal_types::{HardwareCompositeOp, SourceTexture};
 use mask_cache::{ClipMode, ClipSource, MaskCacheInfo, RegionMode};
 use plane_split::{BspSplitter, Polygon, Splitter};
-use prim_store::{GradientPrimitiveCpu, GradientPrimitiveGpu, ImagePrimitiveCpu};
+use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
-use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, RadialGradientPrimitiveGpu};
+use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{RectanglePrimitive, SplitGeometry, TextRunPrimitiveCpu, TextRunPrimitiveGpu};
 use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
@@ -650,16 +650,6 @@ impl FrameBuilder {
                              (start_point.x == end_point.x &&
                               start_point.y > end_point.y));
 
-        let gradient_cpu = GradientPrimitiveCpu {
-            stops_range: stops,
-            stops_count: stops_count,
-            extend_mode: extend_mode,
-            reverse_stops: reverse_stops,
-            cache_dirty: true,
-            gpu_data_address: GpuStoreAddress(0),
-            gpu_data_count: 0,
-        };
-
         // To get reftests exactly matching with reverse start/end
         // points, it's necessary to reverse the gradient
         // line in some cases.
@@ -669,19 +659,25 @@ impl FrameBuilder {
             (start_point, end_point)
         };
 
-        let gradient_gpu = GradientPrimitiveGpu {
-            start_point: sp,
-            end_point: ep,
-            extend_mode: pack_as_float(extend_mode as u32),
-            tile_size: tile_size,
-            tile_repeat: tile_repeat,
-            padding: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        let gradient_cpu = GradientPrimitiveCpu {
+            stops_range: stops,
+            stops_count: stops_count,
+            extend_mode: extend_mode,
+            reverse_stops: reverse_stops,
+            cache_dirty: true,
+            gpu_data_address: GpuStoreAddress(0),
+            gpu_data_count: 0,
+            gpu_blocks: [
+                [sp.x, sp.y, ep.x, ep.y].into(),
+                [tile_size.width, tile_size.height, tile_repeat.width, tile_repeat.height].into(),
+                [pack_as_float(extend_mode as u32), 0.0, 0.0, 0.0].into(),
+            ],
         };
 
         let prim = if aligned {
-            PrimitiveContainer::AlignedGradient(gradient_cpu, gradient_gpu)
+            PrimitiveContainer::AlignedGradient(gradient_cpu)
         } else {
-            PrimitiveContainer::AngleGradient(gradient_cpu, gradient_gpu)
+            PrimitiveContainer::AngleGradient(gradient_cpu)
         };
 
         self.add_primitive(clip_and_scroll, &rect, clip_region, &[], prim);
@@ -700,31 +696,26 @@ impl FrameBuilder {
                                extend_mode: ExtendMode,
                                tile_size: LayerSize,
                                tile_spacing: LayerSize) {
+        let tile_repeat = tile_size + tile_spacing;
+
         let radial_gradient_cpu = RadialGradientPrimitiveCpu {
             stops_range: stops,
             extend_mode: extend_mode,
             cache_dirty: true,
             gpu_data_address: GpuStoreAddress(0),
             gpu_data_count: 0,
-        };
-
-        let radial_gradient_gpu = RadialGradientPrimitiveGpu {
-            start_center: start_center,
-            end_center: end_center,
-            start_radius: start_radius,
-            end_radius: end_radius,
-            ratio_xy: ratio_xy,
-            extend_mode: pack_as_float(extend_mode as u32),
-            tile_size: tile_size,
-            tile_repeat: tile_size + tile_spacing,
-            padding: [0.0, 0.0, 0.0, 0.0],
+            gpu_blocks: [
+                [start_center.x, start_center.y, end_center.x, end_center.y].into(),
+                [start_radius, end_radius, ratio_xy, pack_as_float(extend_mode as u32)].into(),
+                [tile_size.width, tile_size.height, tile_repeat.width, tile_repeat.height].into(),
+            ],
         };
 
         self.add_primitive(clip_and_scroll,
                            &rect,
                            clip_region,
                            &[],
-                           PrimitiveContainer::RadialGradient(radial_gradient_cpu, radial_gradient_gpu));
+                           PrimitiveContainer::RadialGradient(radial_gradient_cpu));
     }
 
     pub fn add_text(&mut self,
@@ -1464,7 +1455,6 @@ impl FrameBuilder {
             render_task_data: render_tasks.render_task_data,
             gpu_data16: self.prim_store.gpu_data16.build(),
             gpu_data32: self.prim_store.gpu_data32.build(),
-            gpu_data64: self.prim_store.gpu_data64.build(),
             gpu_geometry: self.prim_store.gpu_geometry.build(),
             gpu_gradient_data: self.prim_store.gpu_gradient_data.build(),
             gpu_split_geometry: self.prim_store.gpu_split_geometry.build(),

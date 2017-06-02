@@ -533,7 +533,6 @@ struct GpuDataTextures {
     prim_geom_texture: VertexDataTexture,
     data16_texture: VertexDataTexture,
     data32_texture: VertexDataTexture,
-    data64_texture: VertexDataTexture,
     resource_rects_texture: VertexDataTexture,
     gradient_data_texture: GradientDataTexture,
     split_geometry_texture: SplitGeometryTexture,
@@ -547,7 +546,6 @@ impl GpuDataTextures {
             prim_geom_texture: VertexDataTexture::new(device),
             data16_texture: VertexDataTexture::new(device),
             data32_texture: VertexDataTexture::new(device),
-            data64_texture: VertexDataTexture::new(device),
             resource_rects_texture: VertexDataTexture::new(device),
             gradient_data_texture: GradientDataTexture::new(device),
             split_geometry_texture: SplitGeometryTexture::new(device),
@@ -557,7 +555,6 @@ impl GpuDataTextures {
     fn init_frame(&mut self, device: &mut Device, frame: &mut Frame) {
         self.data16_texture.init(device, &mut frame.gpu_data16);
         self.data32_texture.init(device, &mut frame.gpu_data32);
-        self.data64_texture.init(device, &mut frame.gpu_data64);
         self.prim_geom_texture.init(device, &mut frame.gpu_geometry);
         self.resource_rects_texture.init(device, &mut frame.gpu_resource_rects);
         self.layer_texture.init(device, &mut frame.layer_texture_data);
@@ -570,7 +567,6 @@ impl GpuDataTextures {
         device.bind_texture(TextureSampler::Geometry, self.prim_geom_texture.id);
         device.bind_texture(TextureSampler::Data16, self.data16_texture.id);
         device.bind_texture(TextureSampler::Data32, self.data32_texture.id);
-        device.bind_texture(TextureSampler::Data64, self.data64_texture.id);
         device.bind_texture(TextureSampler::ResourceRects, self.resource_rects_texture.id);
         device.bind_texture(TextureSampler::Gradients, self.gradient_data_texture.id);
         device.bind_texture(TextureSampler::SplitGeometry, self.split_geometry_texture.id);
