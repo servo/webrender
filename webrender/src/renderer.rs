@@ -530,7 +530,6 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
 struct GpuDataTextures {
     layer_texture: VertexDataTexture,
     render_task_texture: VertexDataTexture,
-    prim_geom_texture: VertexDataTexture,
     data16_texture: VertexDataTexture,
     data32_texture: VertexDataTexture,
     resource_rects_texture: VertexDataTexture,
@@ -543,7 +542,6 @@ impl GpuDataTextures {
         GpuDataTextures {
             layer_texture: VertexDataTexture::new(device),
             render_task_texture: VertexDataTexture::new(device),
-            prim_geom_texture: VertexDataTexture::new(device),
             data16_texture: VertexDataTexture::new(device),
             data32_texture: VertexDataTexture::new(device),
             resource_rects_texture: VertexDataTexture::new(device),
@@ -555,7 +553,6 @@ impl GpuDataTextures {
     fn init_frame(&mut self, device: &mut Device, frame: &mut Frame) {
         self.data16_texture.init(device, &mut frame.gpu_data16);
         self.data32_texture.init(device, &mut frame.gpu_data32);
-        self.prim_geom_texture.init(device, &mut frame.gpu_geometry);
         self.resource_rects_texture.init(device, &mut frame.gpu_resource_rects);
         self.layer_texture.init(device, &mut frame.layer_texture_data);
         self.render_task_texture.init(device, &mut frame.render_task_data);
@@ -564,7 +561,6 @@ impl GpuDataTextures {
 
         device.bind_texture(TextureSampler::Layers, self.layer_texture.id);
         device.bind_texture(TextureSampler::RenderTasks, self.render_task_texture.id);
-        device.bind_texture(TextureSampler::Geometry, self.prim_geom_texture.id);
         device.bind_texture(TextureSampler::Data16, self.data16_texture.id);
         device.bind_texture(TextureSampler::Data32, self.data32_texture.id);
         device.bind_texture(TextureSampler::ResourceRects, self.resource_rects_texture.id);

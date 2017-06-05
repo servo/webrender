@@ -12,7 +12,7 @@ use internal_types::{ANGLE_FLOAT_TO_FIXED, BatchTextures, CacheTextureId, LowLev
 use internal_types::SourceTexture;
 use mask_cache::MaskCacheInfo;
 use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve, GpuBlock16, GpuBlock32};
-use prim_store::{GradientData, SplitGeometry, PrimitiveCacheKey, PrimitiveGeometry};
+use prim_store::{GradientData, SplitGeometry, PrimitiveCacheKey};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore, TexelRect};
 use profiler::FrameProfileCounters;
 use render_task::{AlphaRenderItem, MaskGeometryKind, MaskSegment, RenderTask, RenderTaskData};
@@ -427,8 +427,7 @@ impl AlphaRenderItem {
                 let prim_cache_address = prim_metadata.gpu_location
                                                       .as_int(&ctx.resource_cache.gpu_cache);
 
-                let base_instance = SimplePrimitiveInstance::new(prim_index,
-                                                                 prim_cache_address,
+                let base_instance = SimplePrimitiveInstance::new(prim_cache_address,
                                                                  task_index,
                                                                  clip_task_index,
                                                                  packed_layer_index,
@@ -985,8 +984,7 @@ impl RenderTarget for ColorRenderTarget {
 
                 match prim_metadata.prim_kind {
                     PrimitiveKind::BoxShadow => {
-                        let instance = SimplePrimitiveInstance::new(prim_index,
-                                                                    prim_address,
+                        let instance = SimplePrimitiveInstance::new(prim_address,
                                                                     render_tasks.get_task_index(&task.id, pass_index),
                                                                     RenderTaskIndex(0),
                                                                     PackedLayerIndex(0),
@@ -1010,8 +1008,7 @@ impl RenderTarget for ColorRenderTarget {
                                       self.text_run_textures.colors[0] == textures.colors[0]);
                         self.text_run_textures = textures;
 
-                        let instance = SimplePrimitiveInstance::new(prim_index,
-                                                                    prim_address,
+                        let instance = SimplePrimitiveInstance::new(prim_address,
                                                                     render_tasks.get_task_index(&task.id, pass_index),
                                                                     RenderTaskIndex(0),
                                                                     PackedLayerIndex(0),
@@ -1307,7 +1304,6 @@ pub struct PrimitiveInstance {
 }
 
 struct SimplePrimitiveInstance {
-    pub global_prim_index: i32,
     // TODO(gw): specific_prim_address is encoded as an i32, since
     //           some primitives use GPU Cache and some still use
     //           GPU Store. Once everything is converted to use the
@@ -1322,14 +1318,12 @@ struct SimplePrimitiveInstance {
 }
 
 impl SimplePrimitiveInstance {
-    fn new(prim_index: PrimitiveIndex,
-           specific_prim_address: i32,
+    fn new(specific_prim_address: i32,
            task_index: RenderTaskIndex,
            clip_task_index: RenderTaskIndex,
            layer_index: PackedLayerIndex,
            z_sort_index: i32) -> SimplePrimitiveInstance {
         SimplePrimitiveInstance {
-            global_prim_index: prim_index.0 as i32,
             specific_prim_address: specific_prim_address,
             task_index: task_index.0 as i32,
             clip_task_index: clip_task_index.0 as i32,
@@ -1341,7 +1335,6 @@ impl SimplePrimitiveInstance {
     fn build(&self, data0: i32, data1: i32) -> PrimitiveInstance {
         PrimitiveInstance {
             data: [
-                self.global_prim_index,
                 self.specific_prim_address,
                 self.task_index,
                 self.clip_task_index,
@@ -1349,6 +1342,7 @@ impl SimplePrimitiveInstance {
                 self.z_sort_index,
                 data0,
                 data1,
+                0,
             ]
         }
     }
@@ -1644,7 +1638,6 @@ pub struct Frame {
     pub render_task_data: Vec<RenderTaskData>,
     pub gpu_data16: Vec<GpuBlock16>,
     pub gpu_data32: Vec<GpuBlock32>,
-    pub gpu_geometry: Vec<PrimitiveGeometry>,
     pub gpu_gradient_data: Vec<GradientData>,
     pub gpu_split_geometry: Vec<SplitGeometry>,
     pub gpu_resource_rects: Vec<TexelRect>,

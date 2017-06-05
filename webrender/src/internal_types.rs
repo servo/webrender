@@ -72,7 +72,6 @@ pub enum TextureSampler {
     ResourceCache,
     Layers,
     RenderTasks,
-    Geometry,
     ResourceRects,
     Gradients,
     SplitGeometry,

@@ -4,12 +4,13 @@
 
 use app_units::Au;
 use frame::FrameId;
+use gpu_cache::GpuCache;
 use gpu_store::GpuStoreAddress;
 use internal_types::{HardwareCompositeOp, SourceTexture};
 use mask_cache::{ClipMode, ClipSource, MaskCacheInfo, RegionMode};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu};
-use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveGeometry, PrimitiveIndex};
+use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{RectanglePrimitive, SplitGeometry, TextRunPrimitiveCpu};
 use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu};
@@ -197,10 +198,6 @@ impl FrameBuilder {
 
         self.create_clip_scroll_group_if_necessary(stacking_context_index, clip_and_scroll);
 
-        let geometry = PrimitiveGeometry {
-            local_rect: *rect,
-            local_clip_rect: clip_region.main,
-        };
         let mut clip_sources = Vec::new();
         if clip_region.is_complex() {
             clip_sources.push(ClipSource::Region(clip_region.clone(), RegionMode::ExcludeRect));
@@ -211,7 +208,8 @@ impl FrameBuilder {
         let clip_info = MaskCacheInfo::new(&clip_sources,
                                            &mut self.prim_store.gpu_data32);
 
-        let prim_index = self.prim_store.add_primitive(geometry,
+        let prim_index = self.prim_store.add_primitive(rect,
+                                                       &clip_region.main,
                                                        clip_sources,
                                                        clip_info,
                                                        container);
@@ -1102,18 +1100,22 @@ impl FrameBuilder {
                                                            device_pixel_ratio);
     }
 
-    fn update_scroll_bars(&mut self, clip_scroll_tree: &ClipScrollTree) {
+    fn update_scroll_bars(&mut self,
+                          clip_scroll_tree: &ClipScrollTree,
+                          gpu_cache: &mut GpuCache) {
         let distance_from_edge = 8.0;
 
         for scrollbar_prim in &self.scrollbar_prims {
-            let mut geom = (*self.prim_store.gpu_geometry.get(GpuStoreAddress(scrollbar_prim.prim_index.0 as i32))).clone();
+            let metadata = &mut self.prim_store.cpu_metadata[scrollbar_prim.prim_index.0];
             let clip_scroll_node = &clip_scroll_tree.nodes[&scrollbar_prim.clip_id];
+
+            // Invalidate what's in the cache so it will get rebuilt.
+            gpu_cache.invalidate(&metadata.gpu_location);
 
             let scrollable_distance = clip_scroll_node.scrollable_height();
 
             if scrollable_distance <= 0.0 {
-                geom.local_clip_rect.size = LayerSize::zero();
-                *self.prim_store.gpu_geometry.get_mut(GpuStoreAddress(scrollbar_prim.prim_index.0 as i32)) = geom;
+                metadata.local_clip_rect.size = LayerSize::zero();
                 continue;
             }
 
@@ -1126,24 +1128,21 @@ impl FrameBuilder {
             let max_y = clip_scroll_node.local_viewport_rect.origin.y +
                         clip_scroll_node.local_viewport_rect.size.height -
                         clip_scroll_node.scrolling.offset.y -
-                        geom.local_rect.size.height -
+                        metadata.local_rect.size.height -
                         distance_from_edge;
 
-            geom.local_rect.origin.x = clip_scroll_node.local_viewport_rect.origin.x +
-                                       clip_scroll_node.local_viewport_rect.size.width -
-                                       geom.local_rect.size.width -
-                                       distance_from_edge;
+            metadata.local_rect.origin.x = clip_scroll_node.local_viewport_rect.origin.x +
+                                           clip_scroll_node.local_viewport_rect.size.width -
+                                           metadata.local_rect.size.width -
+                                           distance_from_edge;
 
-            geom.local_rect.origin.y = util::lerp(min_y, max_y, f);
-            geom.local_clip_rect = geom.local_rect;
+            metadata.local_rect.origin.y = util::lerp(min_y, max_y, f);
+            metadata.local_clip_rect = metadata.local_rect;
 
-            let clip_source = if scrollbar_prim.border_radius > 0.0 {
-                Some(ClipSource::Complex(geom.local_rect, scrollbar_prim.border_radius, ClipMode::Clip))
-            } else {
-                None
-            };
-            self.prim_store.set_clip_source(scrollbar_prim.prim_index, clip_source);
-            *self.prim_store.gpu_geometry.get_mut(GpuStoreAddress(scrollbar_prim.prim_index.0 as i32)) = geom;
+            // TODO(gw): The code to set / update border clips on scroll bars
+            //           has been broken for a long time, so I've removed it
+            //           for now. We can re-add that code once the clips
+            //           data is moved over to the GPU cache!
         }
     }
 
@@ -1383,7 +1382,7 @@ impl FrameBuilder {
         let cache_size = DeviceUintSize::new(cmp::max(1024, screen_rect.size.width as u32),
                                              cmp::max(1024, screen_rect.size.height as u32));
 
-        self.update_scroll_bars(clip_scroll_tree);
+        self.update_scroll_bars(clip_scroll_tree, &mut resource_cache.gpu_cache);
 
         self.build_layer_screen_rects_and_cull_layers(&screen_rect,
                                                       clip_scroll_tree,
@@ -1454,7 +1453,6 @@ impl FrameBuilder {
             render_task_data: render_tasks.render_task_data,
             gpu_data16: self.prim_store.gpu_data16.build(),
             gpu_data32: self.prim_store.gpu_data32.build(),
-            gpu_geometry: self.prim_store.gpu_geometry.build(),
             gpu_gradient_data: self.prim_store.gpu_gradient_data.build(),
             gpu_split_geometry: self.prim_store.gpu_split_geometry.build(),
             gpu_resource_rects: self.prim_store.gpu_resource_rects.build(),

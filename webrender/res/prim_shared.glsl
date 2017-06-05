@@ -108,12 +108,11 @@ varying vec3 vClipMaskUv;
 
 #define VECS_PER_LAYER              9
 #define VECS_PER_RENDER_TASK        3
-#define VECS_PER_PRIM_GEOM          2
 #define VECS_PER_SPLIT_GEOM         3
+#define VECS_PER_PRIM_HEADER        2
 
 uniform sampler2D sLayers;
 uniform sampler2D sRenderTasks;
-uniform sampler2D sPrimGeometry;
 
 uniform sampler2D sData16;
 uniform sampler2D sData32;
@@ -185,6 +184,14 @@ vec4[4] fetch_from_resource_cache_4(int address) {
         texelFetchOffset(sResourceCache, uv, 0, ivec2(1, 0)),
         texelFetchOffset(sResourceCache, uv, 0, ivec2(2, 0)),
         texelFetchOffset(sResourceCache, uv, 0, ivec2(3, 0))
+    );
+}
+
+vec4[2] fetch_from_resource_cache_2(int address) {
+    ivec2 uv = get_resource_cache_uv(address);
+    return vec4[2](
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(0, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(1, 0))
     );
 }
 
@@ -428,26 +435,8 @@ RectWithSize fetch_instance_geometry(int address) {
     return RectWithSize(data.xy, data.zw);
 }
 
-struct PrimitiveGeometry {
-    RectWithSize local_rect;
-    RectWithSize local_clip_rect;
-};
-
-PrimitiveGeometry fetch_prim_geometry(int index) {
-    PrimitiveGeometry pg;
-
-    ivec2 uv = get_fetch_uv(index, VECS_PER_PRIM_GEOM);
-
-    vec4 local_rect = texelFetchOffset(sPrimGeometry, uv, 0, ivec2(0, 0));
-    pg.local_rect = RectWithSize(local_rect.xy, local_rect.zw);
-    vec4 local_clip_rect = texelFetchOffset(sPrimGeometry, uv, 0, ivec2(1, 0));
-    pg.local_clip_rect = RectWithSize(local_clip_rect.xy, local_clip_rect.zw);
-
-    return pg;
-}
-
 struct PrimitiveInstance {
-    int global_prim_index;
+    int prim_address;
     int specific_prim_address;
     int render_task_index;
     int clip_task_index;
@@ -460,14 +449,14 @@ struct PrimitiveInstance {
 PrimitiveInstance fetch_prim_instance() {
     PrimitiveInstance pi;
 
-    pi.global_prim_index = aData0.x;
-    pi.specific_prim_address = aData0.y;
-    pi.render_task_index = aData0.z;
-    pi.clip_task_index = aData0.w;
-    pi.layer_index = aData1.x;
-    pi.z = aData1.y;
-    pi.user_data0 = aData1.z;
-    pi.user_data1 = aData1.w;
+    pi.prim_address = aData0.x;
+    pi.specific_prim_address = pi.prim_address + VECS_PER_PRIM_HEADER;
+    pi.render_task_index = aData0.y;
+    pi.clip_task_index = aData0.z;
+    pi.layer_index = aData0.w;
+    pi.z = aData1.x;
+    pi.user_data0 = aData1.y;
+    pi.user_data1 = aData1.z;
 
     return pi;
 }
@@ -501,37 +490,32 @@ struct Primitive {
     AlphaBatchTask task;
     RectWithSize local_rect;
     RectWithSize local_clip_rect;
-    int prim_index;
+    int specific_prim_address;
     int user_data0;
     int user_data1;
     float z;
 };
 
-Primitive load_primitive_custom(PrimitiveInstance pi) {
+Primitive load_primitive() {
+    PrimitiveInstance pi = fetch_prim_instance();
+
     Primitive prim;
 
     prim.layer = fetch_layer(pi.layer_index);
     prim.clip_area = fetch_clip_area(pi.clip_task_index);
     prim.task = fetch_alpha_batch_task(pi.render_task_index);
 
-    PrimitiveGeometry pg = fetch_prim_geometry(pi.global_prim_index);
-    prim.local_rect = pg.local_rect;
-    prim.local_clip_rect = pg.local_clip_rect;
+    vec4 geom[2] = fetch_from_resource_cache_2(pi.prim_address);
+    prim.local_rect = RectWithSize(geom[0].xy, geom[0].zw);
+    prim.local_clip_rect = RectWithSize(geom[1].xy, geom[1].zw);
 
-    prim.prim_index = pi.specific_prim_address;
+    prim.specific_prim_address = pi.specific_prim_address;
     prim.user_data0 = pi.user_data0;
     prim.user_data1 = pi.user_data1;
     prim.z = float(pi.z);
 
     return prim;
 }
-
-Primitive load_primitive() {
-    PrimitiveInstance pi = fetch_prim_instance();
-
-    return load_primitive_custom(pi);
-}
-
 
 // Return the intersection of the plane (set up by "normal" and "point")
 // with the ray (set up by "ray_origin" and "ray_dir"),
