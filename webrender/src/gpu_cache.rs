@@ -32,6 +32,7 @@ use webrender_traits::{ColorF, LayerRect};
 
 pub const GPU_CACHE_INITIAL_HEIGHT: u32 = 512;
 const FRAMES_BEFORE_EVICTION: usize = 10;
+const NEW_ROWS_PER_RESIZE: u32 = 512;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 struct Epoch(u32);
@@ -293,10 +294,8 @@ impl Texture {
 
         // See if we need a new row (if free-list has nothing available)
         if free_list.is_none() {
-            // TODO(gw): Handle the case where we need to resize
-            //           the cache texture itself!
             if self.rows.len() as u32 == self.height {
-                panic!("need to re-alloc texture!!");
+                self.height += NEW_ROWS_PER_RESIZE;
             }
 
             // Create a new row.
