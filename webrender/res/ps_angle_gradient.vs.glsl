@@ -5,7 +5,7 @@
 
 void main(void) {
     Primitive prim = load_primitive();
-    Gradient gradient = fetch_gradient(prim.prim_index);
+    Gradient gradient = fetch_gradient(prim.specific_prim_address);
 
     VertexInfo vi = write_vertex(prim.local_rect,
                                  prim.local_clip_rect,

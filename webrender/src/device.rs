@@ -1554,11 +1554,6 @@ impl Device {
             self.gl.uniform_1i(u_tasks, TextureSampler::RenderTasks as i32);
         }
 
-        let u_prim_geom = self.gl.get_uniform_location(program.id, "sPrimGeometry");
-        if u_prim_geom != -1 {
-            self.gl.uniform_1i(u_prim_geom, TextureSampler::Geometry as i32);
-        }
-
         let u_data16 = self.gl.get_uniform_location(program.id, "sData16");
         if u_data16 != -1 {
             self.gl.uniform_1i(u_data16, TextureSampler::Data16 as i32);

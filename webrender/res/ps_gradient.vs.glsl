@@ -5,7 +5,7 @@
 
 void main(void) {
     Primitive prim = load_primitive();
-    Gradient gradient = fetch_gradient(prim.prim_index);
+    Gradient gradient = fetch_gradient(prim.specific_prim_address);
 
     vec4 abs_start_end_point = gradient.start_end_point + prim.local_rect.p0.xyxy;
 

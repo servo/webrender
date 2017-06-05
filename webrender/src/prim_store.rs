@@ -89,22 +89,6 @@ pub enum PrimitiveKind {
     BoxShadow,
 }
 
-/// Geometry description for simple rectangular primitives, uploaded to the GPU.
-#[derive(Debug, Clone)]
-pub struct PrimitiveGeometry {
-    pub local_rect: LayerRect,
-    pub local_clip_rect: LayerRect,
-}
-
-impl Default for PrimitiveGeometry {
-    fn default() -> PrimitiveGeometry {
-        PrimitiveGeometry {
-            local_rect: unsafe { mem::uninitialized() },
-            local_clip_rect: unsafe { mem::uninitialized() },
-        }
-    }
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum PrimitiveCacheKey {
     BoxShadow(BoxShadowPrimitiveCacheKey),
@@ -141,6 +125,12 @@ pub struct PrimitiveMetadata {
     // text run.
     pub render_task: Option<RenderTask>,
     pub clip_task: Option<RenderTask>,
+
+    // TODO(gw): In the future, we should just pull these
+    //           directly from the DL item, instead of
+    //           storing them here.
+    pub local_rect: LayerRect,
+    pub local_clip_rect: LayerRect,
 }
 
 impl PrimitiveMetadata {
@@ -666,7 +656,6 @@ pub struct PrimitiveStore {
     pub cpu_box_shadows: Vec<BoxShadowPrimitiveCpu>,
 
     /// Gets uploaded directly to GPU via vertex texture.
-    pub gpu_geometry: VertexDataStore<PrimitiveGeometry>,
     pub gpu_data16: VertexDataStore<GpuBlock16>,
     pub gpu_data32: VertexDataStore<GpuBlock32>,
     pub gpu_gradient_data: GradientDataStore,
@@ -695,7 +684,6 @@ impl PrimitiveStore {
             cpu_borders: Vec::new(),
             cpu_box_shadows: Vec::new(),
             prims_to_resolve: Vec::new(),
-            gpu_geometry: VertexDataStore::new(),
             gpu_data16: VertexDataStore::new(),
             gpu_data32: VertexDataStore::new(),
             gpu_gradient_data: GradientDataStore::new(),
@@ -717,7 +705,6 @@ impl PrimitiveStore {
             cpu_borders: recycle_vec(self.cpu_borders),
             cpu_box_shadows: recycle_vec(self.cpu_box_shadows),
             prims_to_resolve: recycle_vec(self.prims_to_resolve),
-            gpu_geometry: self.gpu_geometry.recycle(),
             gpu_data16: self.gpu_data16.recycle(),
             gpu_data32: self.gpu_data32.recycle(),
             gpu_gradient_data: self.gpu_gradient_data.recycle(),
@@ -735,13 +722,13 @@ impl PrimitiveStore {
     }
 
     pub fn add_primitive(&mut self,
-                         geometry: PrimitiveGeometry,
+                         local_rect: &LayerRect,
+                         local_clip_rect: &LayerRect,
                          clips: Vec<ClipSource>,
                          clip_info: Option<MaskCacheInfo>,
                          container: PrimitiveContainer) -> PrimitiveIndex {
         let prim_index = self.cpu_metadata.len();
         self.cpu_bounding_rects.push(None);
-        self.gpu_geometry.push(geometry);
 
         let metadata = match container {
             PrimitiveContainer::Rectangle(rect) => {
@@ -756,6 +743,8 @@ impl PrimitiveStore {
                     gpu_location: GpuCacheHandle::new(),
                     render_task: None,
                     clip_task: None,
+                    local_rect: *local_rect,
+                    local_clip_rect: *local_clip_rect,
                 };
 
                 self.cpu_rectangles.push(rect);
@@ -777,6 +766,8 @@ impl PrimitiveStore {
                     gpu_location: GpuCacheHandle::new(),
                     render_task: None,
                     clip_task: None,
+                    local_rect: *local_rect,
+                    local_clip_rect: *local_clip_rect,
                 };
 
                 self.cpu_text_runs.push(text_cpu);
@@ -794,6 +785,8 @@ impl PrimitiveStore {
                     gpu_location: GpuCacheHandle::new(),
                     render_task: None,
                     clip_task: None,
+                    local_rect: *local_rect,
+                    local_clip_rect: *local_clip_rect,
                 };
 
                 self.cpu_images.push(image_cpu);
@@ -811,6 +804,8 @@ impl PrimitiveStore {
                     gpu_location: GpuCacheHandle::new(),
                     render_task: None,
                     clip_task: None,
+                    local_rect: *local_rect,
+                    local_clip_rect: *local_clip_rect,
                 };
 
                 self.cpu_yuv_images.push(image_cpu);
@@ -826,6 +821,8 @@ impl PrimitiveStore {
                     gpu_location: GpuCacheHandle::new(),
                     render_task: None,
                     clip_task: None,
+                    local_rect: *local_rect,
+                    local_clip_rect: *local_clip_rect,
                 };
 
                 self.cpu_borders.push(border_cpu);
@@ -847,6 +844,8 @@ impl PrimitiveStore {
                     gpu_location: GpuCacheHandle::new(),
                     render_task: None,
                     clip_task: None,
+                    local_rect: *local_rect,
+                    local_clip_rect: *local_clip_rect,
                 };
 
                 self.cpu_gradients.push(gradient_cpu);
@@ -868,6 +867,8 @@ impl PrimitiveStore {
                     gpu_location: GpuCacheHandle::new(),
                     render_task: None,
                     clip_task: None,
+                    local_rect: *local_rect,
+                    local_clip_rect: *local_clip_rect,
                 };
 
                 self.cpu_gradients.push(gradient_cpu);
@@ -889,6 +890,8 @@ impl PrimitiveStore {
                     gpu_location: GpuCacheHandle::new(),
                     render_task: None,
                     clip_task: None,
+                    local_rect: *local_rect,
+                    local_clip_rect: *local_clip_rect,
                 };
 
                 self.cpu_radial_gradients.push(radial_gradient_cpu);
@@ -929,6 +932,8 @@ impl PrimitiveStore {
                     gpu_location: GpuCacheHandle::new(),
                     render_task: Some(render_task),
                     clip_task: None,
+                    local_rect: *local_rect,
+                    local_clip_rect: *local_clip_rect,
                 };
 
                 self.cpu_box_shadows.push(box_shadow);
@@ -1102,28 +1107,6 @@ impl PrimitiveStore {
         deferred_resolves
     }
 
-    pub fn set_clip_source(&mut self, index: PrimitiveIndex, source: Option<ClipSource>) {
-        let metadata = &mut self.cpu_metadata[index.0];
-        metadata.clips = match source {
-            Some(source) => {
-                let (rect, is_complex) = match source {
-                    ClipSource::Complex(rect, radius, _) => (rect, radius > 0.0),
-                    ClipSource::Region(ref region, _) => (region.main, region.is_complex()),
-                    ClipSource::BorderCorner{..} => panic!("Not supported!"),
-                };
-                self.gpu_geometry.get_mut(GpuStoreAddress(index.0 as i32))
-                    .local_clip_rect = rect;
-                if is_complex {
-                    metadata.clip_cache_info = None; //CLIP TODO: re-use the existing GPU allocation
-                }
-                vec![source]
-            }
-            None => {
-                vec![]
-            }
-        }
-    }
-
     pub fn get_metadata(&self, index: PrimitiveIndex) -> &PrimitiveMetadata {
         &self.cpu_metadata[index.0]
     }
@@ -1138,12 +1121,12 @@ impl PrimitiveStore {
                                layer_transform: &LayerToWorldTransform,
                                layer_combined_local_clip_rect: &LayerRect,
                                device_pixel_ratio: f32) -> bool {
-        let geom = &self.gpu_geometry.get(GpuStoreAddress(prim_index.0 as i32));
+        let metadata = &self.cpu_metadata[prim_index.0];
 
-        let bounding_rect = geom.local_rect
-                                .intersection(&geom.local_clip_rect)
-                                .and_then(|rect| rect.intersection(layer_combined_local_clip_rect))
-                                .and_then(|ref local_rect| {
+        let bounding_rect = metadata.local_rect
+                                    .intersection(&metadata.local_clip_rect)
+                                    .and_then(|rect| rect.intersection(layer_combined_local_clip_rect))
+                                    .and_then(|ref local_rect| {
             let xf_rect = TransformedRect::new(local_rect,
                                                layer_transform,
                                                device_pixel_ratio);
@@ -1166,7 +1149,10 @@ impl PrimitiveStore {
         let mut prim_needs_resolve = false;
 
         // Mark this GPU resource as required for this frame.
-        if let Some(request) = resource_cache.gpu_cache.request(&mut metadata.gpu_location) {
+        if let Some(mut request) = resource_cache.gpu_cache.request(&mut metadata.gpu_location) {
+            request.push(metadata.local_rect.into());
+            request.push(metadata.local_clip_rect.into());
+
             match metadata.prim_kind {
                 PrimitiveKind::Rectangle => {
                     let rect = &self.cpu_rectangles[metadata.cpu_prim_index.0];
@@ -1297,9 +1283,8 @@ impl PrimitiveStore {
                         // render the text run to a target, and then apply a gaussian
                         // blur to that text run in order to build the actual primitive
                         // which will be blitted to the framebuffer.
-                        let geom = &self.gpu_geometry.get(GpuStoreAddress(prim_index.0 as i32));
-                        let cache_width = (geom.local_rect.size.width * device_pixel_ratio).ceil() as i32;
-                        let cache_height = (geom.local_rect.size.height * device_pixel_ratio).ceil() as i32;
+                        let cache_width = (metadata.local_rect.size.width * device_pixel_ratio).ceil() as i32;
+                        let cache_height = (metadata.local_rect.size.height * device_pixel_ratio).ceil() as i32;
                         let cache_size = DeviceIntSize::new(cache_width, cache_height);
                         let cache_key = PrimitiveCacheKey::TextShadow(prim_index);
                         let blur_radius = device_length(text.blur_radius,
