@@ -188,9 +188,10 @@ pub enum BlendMode {
     None,
     Alpha,
     PremultipliedAlpha,
-
-    // Use the color of the text itself as a constant color blend factor.
+    /// Use the color of the text itself as a constant color blend factor.
     Subpixel(ColorF),
+    /// Mask out destination pixels.
+    Mask,
 }
 
 /// The device-specific representation of the cache texture in gpu_cache.rs
@@ -373,6 +374,7 @@ enum ShaderKind {
     Primitive,
     Cache(VertexFormat),
     ClipCache,
+    Immediate,
 }
 
 struct LazilyCompiledShader {
@@ -420,6 +422,9 @@ impl LazilyCompiledShader {
                     }
                     ShaderKind::ClipCache => {
                         create_clip_shader(self.name, device)
+                    }
+                    ShaderKind::Immediate => {
+                        device.create_program_with_prefix(self.name, &[], None, VertexFormat::Triangles)
                     }
                 }
             };
@@ -628,6 +633,8 @@ pub struct Renderer {
     ps_split_composite: LazilyCompiledShader,
     ps_composite: LazilyCompiledShader,
 
+    im_rectangle: LazilyCompiledShader,
+
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
     enable_profiler: bool,
@@ -650,6 +657,7 @@ pub struct Renderer {
     prim_vao_id: VAOId,
     blur_vao_id: VAOId,
     clip_vao_id: VAOId,
+    im_vao_id: VAOId,
 
     gdt_index: usize,
     gpu_data_textures: [GpuDataTextures; GPU_DATA_TEXTURE_POOL],
@@ -825,6 +833,14 @@ impl Renderer {
                                  &mut device,
                                  &[ SUBPIXEL_AA_FEATURE ],
                                  options.precache_shaders)
+        };
+
+        let im_rectangle = try!{
+            LazilyCompiledShader::new(ShaderKind::Immediate,
+                                      "im_rectangle",
+                                      &[],
+                                      &mut device,
+                                      options.precache_shaders)
         };
 
         // All image configuration.
@@ -1095,6 +1111,8 @@ impl Renderer {
         let blur_vao_id = device.create_vao_with_new_instances(VertexFormat::Blur, mem::size_of::<BlurCommand>() as i32, prim_vao_id);
         let clip_vao_id = device.create_vao_with_new_instances(VertexFormat::Clip, mem::size_of::<CacheClipInstance>() as i32, prim_vao_id);
 
+        let im_vao_id = device.create_vao(VertexFormat::Triangles, 0);
+
         device.end_frame();
 
         let main_thread_dispatcher = Arc::new(Mutex::new(None));
@@ -1189,6 +1207,7 @@ impl Renderer {
             ps_hw_composite: ps_hw_composite,
             ps_split_composite: ps_split_composite,
             ps_composite: ps_composite,
+            im_rectangle: im_rectangle,
             notifier: notifier,
             debug: debug_renderer,
             render_target_debug: render_target_debug,
@@ -1208,6 +1227,7 @@ impl Renderer {
             prim_vao_id: prim_vao_id,
             blur_vao_id: blur_vao_id,
             clip_vao_id: clip_vao_id,
+            im_vao_id: im_vao_id,
             gdt_index: 0,
             gpu_data_textures: gpu_data_textures,
             pipeline_epoch_map: HashMap::default(),
@@ -1628,7 +1648,8 @@ impl Renderer {
                       match batch.key.blend_mode {
                           BlendMode::Alpha |
                           BlendMode::PremultipliedAlpha |
-                          BlendMode::Subpixel(..) => true,
+                          BlendMode::Subpixel(..) |
+                          BlendMode::Mask => true,
                           BlendMode::None => false,
                       });
 
@@ -1659,8 +1680,12 @@ impl Renderer {
             }
             AlphaBatchKind::TextRun => {
                 let shader = match batch.key.blend_mode {
-                    BlendMode::Subpixel(..) => self.ps_text_run_subpixel.get(&mut self.device, transform_kind),
-                    BlendMode::Alpha | BlendMode::PremultipliedAlpha | BlendMode::None => self.ps_text_run.get(&mut self.device, transform_kind),
+                    BlendMode::Subpixel(..) => {
+                        self.ps_text_run_subpixel.get(&mut self.device, transform_kind)
+                    }
+                    BlendMode::Alpha | BlendMode::PremultipliedAlpha | BlendMode::Mask | BlendMode::None => {
+                        self.ps_text_run.get(&mut self.device, transform_kind)
+                    }
                 };
                 (GPU_TAG_PRIM_TEXT_RUN, shader)
             }
@@ -1772,6 +1797,30 @@ impl Renderer {
                                   shader,
                                   &batch.key.textures,
                                   projection);
+    }
+
+    fn set_blend_mode(&self, mode: BlendMode) {
+        match mode {
+            BlendMode::None => {
+                self.device.set_blend(false);
+            }
+            BlendMode::Alpha => {
+                self.device.set_blend(true);
+                self.device.set_blend_mode_alpha();
+            }
+            BlendMode::PremultipliedAlpha => {
+                self.device.set_blend(true);
+                self.device.set_blend_mode_premultiplied_alpha();
+            }
+            BlendMode::Subpixel(color) => {
+                self.device.set_blend(true);
+                self.device.set_blend_mode_subpixel(color);
+            }
+            BlendMode::Mask => {
+                self.device.set_blend(true);
+                self.device.set_blend_mode_mask();
+            }
+        }
     }
 
     fn draw_color_target(&mut self,
@@ -1889,23 +1938,7 @@ impl Renderer {
 
         for batch in &target.alpha_batcher.batch_list.alpha_batches {
             if batch.key.blend_mode != prev_blend_mode {
-                match batch.key.blend_mode {
-                    BlendMode::None => {
-                        self.device.set_blend(false);
-                    }
-                    BlendMode::Alpha => {
-                        self.device.set_blend(true);
-                        self.device.set_blend_mode_alpha();
-                    }
-                    BlendMode::PremultipliedAlpha => {
-                        self.device.set_blend(true);
-                        self.device.set_blend_mode_premultiplied_alpha();
-                    }
-                    BlendMode::Subpixel(color) => {
-                        self.device.set_blend(true);
-                        self.device.set_blend_mode_subpixel(color);
-                    }
-                }
+                self.set_blend_mode(batch.key.blend_mode);
                 prev_blend_mode = batch.key.blend_mode;
             }
 
@@ -2300,7 +2333,43 @@ impl Renderer {
                                                  output);
     }
 
-    // De-initialize the Renderer safely, assuming the GL is still alive and active.
+    /// Immediate mode rectangle rendering with blending, needed to draw the UI parts of Gecko.
+    pub fn draw_textured_rect(&mut self, rect: DeviceUintRect, texture: &SourceTexture, blend: BlendMode,
+                              framebuffer_size: DeviceUintSize) {
+        let texture_id = self.resolve_source_texture(texture);
+        let shader = self.im_rectangle.get(&mut self.device).unwrap();
+        let x0 = rect.origin.x as f32 / framebuffer_size.width as f32;
+        let y0 = rect.origin.y as f32 / framebuffer_size.height as f32;
+        let x1 = (rect.origin.x + rect.size.width) as f32 / framebuffer_size.width as f32;
+        let y1 = (rect.origin.y + rect.size.height) as f32 / framebuffer_size.height as f32;
+        let quad_vertices = [
+            PackedVertex {
+                pos: [x0, y0],
+            },
+            PackedVertex {
+                pos: [x1, y0],
+            },
+            PackedVertex {
+                pos: [x0, y1],
+            },
+            PackedVertex {
+                pos: [x1, y1],
+            },
+        ];
+
+        self.device.bind_vao(self.im_vao_id);
+        self.device.update_vao_main_vertices(self.im_vao_id, &quad_vertices, VertexUsageHint::Stream);
+        self.set_blend_mode(blend);
+        self.device.disable_depth_write();
+        self.device.disable_stencil();
+        self.device.bind_program(shader, &Matrix4D::identity());
+        self.device.bind_texture(TextureSampler::color(0), texture_id);
+
+        self.device.draw_quad();
+        self.profile_counters.draw_calls.inc();
+    }
+
+    /// De-initialize the Renderer safely, assuming the GL is still alive and active.
     pub fn deinit(mut self) {
         //Note: this is a fake frame, only needed because texture deletion is require to happen inside a frame
         self.device.begin_frame(1.0);
