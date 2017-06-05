@@ -55,8 +55,7 @@ use webgl_types::GLContextHandleWrapper;
 use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
 use webrender_traits::{ExternalImageId, ExternalImageType, ImageData, ImageFormat, RenderApiSender};
 use webrender_traits::{DeviceIntRect, DeviceUintRect, DevicePoint, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
-use webrender_traits::{ImageDescriptor, BlobImageRenderer};
-use webrender_traits::{channel, FontRenderMode};
+use webrender_traits::{BlobImageRenderer, channel, FontRenderMode};
 use webrender_traits::VRCompositorHandler;
 use webrender_traits::{YuvColorSpace, YuvFormat};
 use webrender_traits::{YUV_COLOR_SPACES, YUV_FORMATS};
@@ -992,34 +991,8 @@ impl Renderer {
         let device_max_size = device.max_texture_size();
         let max_texture_size = cmp::min(device_max_size, options.max_texture_size.unwrap_or(device_max_size));
 
-        let mut texture_cache = TextureCache::new(max_texture_size);
-        let mut backend_profile_counters = BackendProfileCounters::new();
-
-        let white_pixels: Vec<u8> = vec![
-            0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff, 0xff,
-        ];
-        let mask_pixels: Vec<u8> = vec![
-            0xff, 0xff,
-            0xff, 0xff,
-        ];
-
-        // TODO: Ensure that the white texture can never get evicted when the cache supports LRU eviction!
-        let white_image_id = texture_cache.new_item_id();
-        texture_cache.insert(white_image_id,
-                             ImageDescriptor::new(2, 2, ImageFormat::RGBA8, false),
-                             TextureFilter::Linear,
-                             ImageData::Raw(Arc::new(white_pixels)),
-                             &mut backend_profile_counters.resources.texture_cache);
-
-        let dummy_mask_image_id = texture_cache.new_item_id();
-        texture_cache.insert(dummy_mask_image_id,
-                             ImageDescriptor::new(2, 2, ImageFormat::A8, false),
-                             TextureFilter::Linear,
-                             ImageData::Raw(Arc::new(mask_pixels)),
-                             &mut backend_profile_counters.resources.texture_cache);
+        let texture_cache = TextureCache::new(max_texture_size);
+        let backend_profile_counters = BackendProfileCounters::new();
 
         let dummy_cache_texture_id = device.create_texture_ids(1, TextureTarget::Array)[0];
         device.init_texture(dummy_cache_texture_id,

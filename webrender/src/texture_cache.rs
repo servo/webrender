@@ -583,6 +583,7 @@ pub enum AllocationKind {
 
 #[derive(Debug)]
 pub struct AllocationResult {
+    image_id: TextureCacheItemId,
     kind: AllocationKind,
     item: TextureCacheItem,
 }
@@ -611,18 +612,7 @@ impl TextureCache {
         mem::replace(&mut self.pending_updates, TextureUpdateList::new())
     }
 
-    // TODO(gw): This API is a bit ugly (having to allocate an ID and
-    //           then use it). But it has to be that way for now due to
-    //           how the raster_jobs code works.
-    pub fn new_item_id(&mut self) -> TextureCacheItemId {
-        let new_item = TextureCacheItem::new(CacheTextureId(0),
-                                             DeviceUintRect::zero(),
-                                             &DeviceUintSize::zero());
-        self.items.insert(new_item)
-    }
-
     pub fn allocate(&mut self,
-                    image_id: TextureCacheItemId,
                     requested_width: u32,
                     requested_height: u32,
                     format: ImageFormat,
@@ -643,11 +633,12 @@ impl TextureCache {
                 texture_id,
                 DeviceUintRect::new(DeviceUintPoint::zero(), requested_size),
                 &requested_size);
-            *self.items.get_mut(image_id) = cache_item;
+            let image_id = self.items.insert(cache_item);
 
             return AllocationResult {
                 item: self.items.get(image_id).clone(),
                 kind: AllocationKind::Standalone,
+                image_id: image_id,
             }
         }
 
@@ -745,11 +736,12 @@ impl TextureCache {
         let cache_item = TextureCacheItem::new(page.texture_id,
                                                DeviceUintRect::new(location, requested_size),
                                                &page.texture_size);
-        *self.items.get_mut(image_id) = cache_item.clone();
+        let image_id = self.items.insert(cache_item.clone());
 
         AllocationResult {
             item: cache_item,
             kind: AllocationKind::TexturePage,
+            image_id: image_id,
         }
     }
 
@@ -810,11 +802,10 @@ impl TextureCache {
     }
 
     pub fn insert(&mut self,
-                  image_id: TextureCacheItemId,
                   descriptor: ImageDescriptor,
                   filter: TextureFilter,
                   data: ImageData,
-                  profile: &mut TextureCacheProfileCounters) {
+                  profile: &mut TextureCacheProfileCounters) -> TextureCacheItemId {
         if let ImageData::Blob(..) = data {
             panic!("must rasterize the vector image before adding to the cache");
         }
@@ -831,8 +822,7 @@ impl TextureCache {
             assert!(vec.len() >= finish as usize);
         }
 
-        let result = self.allocate(image_id,
-                                   width,
+        let result = self.allocate(width,
                                    height,
                                    format,
                                    filter,
@@ -929,6 +919,8 @@ impl TextureCache {
                 }
             }
         }
+
+        result.image_id
     }
 
     pub fn get(&self, id: TextureCacheItemId) -> &TextureCacheItem {
