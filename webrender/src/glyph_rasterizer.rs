@@ -248,9 +248,7 @@ impl GlyphRasterizer {
         for job in rasterized_glyphs {
             let image_id = job.result.and_then(
                 |glyph| if glyph.width > 0 && glyph.height > 0 {
-                    let image_id = texture_cache.new_item_id();
-                    texture_cache.insert(
-                        image_id,
+                    let image_id = texture_cache.insert(
                         ImageDescriptor {
                             width: glyph.width,
                             height: glyph.height,

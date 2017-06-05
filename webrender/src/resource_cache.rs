@@ -680,18 +680,15 @@ impl ResourceCache {
                 }
             }
             Vacant(entry) => {
-                let image_id = self.texture_cache.new_item_id();
-
                 let filter = match request.rendering {
                     ImageRendering::Pixelated => TextureFilter::Nearest,
                     ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
                 };
 
-                self.texture_cache.insert(image_id,
-                                          descriptor,
-                                          filter,
-                                          image_data,
-                                          texture_cache_profile);
+                let image_id = self.texture_cache.insert(descriptor,
+                                                         filter,
+                                                         image_data,
+                                                         texture_cache_profile);
 
                 entry.insert(CachedImageInfo {
                     texture_cache_id: image_id,
