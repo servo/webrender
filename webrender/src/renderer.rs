@@ -194,37 +194,53 @@ pub enum BlendMode {
 
 /// The device-specific representation of the cache texture in gpu_cache.rs
 struct CacheTexture {
-    id: TextureId,
+    current_id: TextureId,
+    next_id: TextureId,
 }
 
 impl CacheTexture {
     fn new(device: &mut Device) -> CacheTexture {
-        let id = device.create_texture_ids(1, TextureTarget::Default)[0];
+        let ids = device.create_texture_ids(2, TextureTarget::Default);
 
         CacheTexture {
-            id: id,
+            current_id: ids[0],
+            next_id: ids[1],
         }
     }
 
     fn update(&mut self, device: &mut Device, updates: &GpuCacheUpdateList) {
         // See if we need to create or resize the texture.
-        let current_dimensions = device.get_texture_dimensions(self.id);
-
+        let current_dimensions = device.get_texture_dimensions(self.current_id);
         if updates.height > current_dimensions.height {
-            // TODO(gw): Handle resizing an existing cache texture.
-            if current_dimensions.height > 0 {
-                panic!("TODO: Implement texture copy!!!");
-            }
-
             // Create a f32 texture that can be used for the vertex shader
             // to fetch data from.
-            device.init_texture(self.id,
+            device.init_texture(self.next_id,
                                 MAX_VERTEX_TEXTURE_WIDTH as u32,
                                 updates.height as u32,
                                 ImageFormat::RGBAF32,
                                 TextureFilter::Nearest,
-                                RenderTargetMode::None,
+                                RenderTargetMode::SimpleRenderTarget,
                                 None);
+
+            // Copy the current texture into the newly resized texture.
+            if current_dimensions.height > 0 {
+                device.bind_draw_target(Some((self.next_id, 0)), None);
+
+                let blit_rect = DeviceIntRect::new(DeviceIntPoint::zero(),
+                                                   DeviceIntSize::new(MAX_VERTEX_TEXTURE_WIDTH as i32,
+                                                                      current_dimensions.height as i32));
+
+                // TODO(gw): Should probably switch this to glCopyTexSubImage2D, since we
+                // don't do any stretching here.
+                device.blit_render_target(Some((self.current_id, 0)),
+                                          Some(blit_rect),
+                                          blit_rect);
+
+                // Free the GPU memory for that texture until we need to resize again.
+                device.deinit_texture(self.current_id);
+            }
+
+            mem::swap(&mut self.current_id, &mut self.next_id);
         }
 
         for update in &updates.updates {
@@ -243,7 +259,7 @@ impl CacheTexture {
                                          .offset(block_index as isize);
                         slice::from_raw_parts(ptr as *const _, block_count * 16)
                     };
-                    device.update_texture(self.id,
+                    device.update_texture(self.current_id,
                                           address.u as u32,
                                           address.v as u32,
                                           block_count as u32,
@@ -1353,7 +1369,7 @@ impl Renderer {
                         self.update_texture_cache();
 
                         self.update_gpu_cache();
-                        self.device.bind_texture(TextureSampler::ResourceCache, self.gpu_cache_texture.id);
+                        self.device.bind_texture(TextureSampler::ResourceCache, self.gpu_cache_texture.current_id);
 
                         frame_id
                     };
