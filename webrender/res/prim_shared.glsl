@@ -84,16 +84,23 @@ vec2 clamp_rect(vec2 point, RectWithEndpoint rect) {
     return clamp(point, rect.p0, rect.p1);
 }
 
-RectWithEndpoint intersect_rect(RectWithEndpoint a, RectWithEndpoint b) {
-    vec2 p0 = clamp_rect(a.p0, b);
-    vec2 p1 = clamp_rect(a.p1, b);
-    return RectWithEndpoint(p0, max(p0, p1));
+// Clamp 2 points at once.
+vec4 clamp_rect(vec4 points, RectWithSize rect) {
+    return clamp(points, rect.p0.xyxy, rect.p0.xyxy + rect.size.xyxy);
+}
+
+vec4 clamp_rect(vec4 points, RectWithEndpoint rect) {
+    return clamp(points, rect.p0.xyxy, rect.p1.xyxy);
 }
 
 RectWithSize intersect_rect(RectWithSize a, RectWithSize b) {
-    RectWithEndpoint r = intersect_rect(to_rect_with_endpoint(a),
-                                        to_rect_with_endpoint(b));
-    return to_rect_with_size(r);
+    vec4 p = clamp_rect(vec4(a.p0, a.p0 + a.size), b);
+    return RectWithSize(p.xy, max(vec2(0.0), p.zw - p.xy));
+}
+
+RectWithEndpoint intersect_rect(RectWithEndpoint a, RectWithEndpoint b) {
+    vec4 p = clamp_rect(vec4(a.p0, a.p1), b);
+    return RectWithEndpoint(p.xy, max(p.xy, p.zw));
 }
 
 float distance_to_line(vec2 p0, vec2 perp_dir, vec2 p) {
@@ -590,46 +597,38 @@ VertexInfo write_vertex(RectWithSize instance_rect,
                         float z,
                         Layer layer,
                         AlphaBatchTask task,
-                        RectWithSize snap_rect) {
-
+                        vec2 snap_ref) {
     // Select the corner of the local rect that we are processing.
     vec2 local_pos = instance_rect.p0 + instance_rect.size * aPosition.xy;
 
+    // xy = top left corner of the local rect, zw = position of current vertex.
+    vec4 local_p0_pos = vec4(snap_ref, local_pos);
+
     // Clamp to the two local clip rects.
-    vec2 clamped_local_pos = clamp_rect(clamp_rect(local_pos, local_clip_rect),
-                                        layer.local_clip_rect);
+    local_p0_pos = clamp_rect(local_p0_pos, local_clip_rect);
+    local_p0_pos = clamp_rect(local_p0_pos, layer.local_clip_rect);
 
-    // Adjust the snap rectangle.
-    RectWithSize clamped_snap_rect = intersect_rect(intersect_rect(snap_rect, local_clip_rect),
-                                                    layer.local_clip_rect);
-    // Transform the snap corners to the world space.
-    vec4 world_snap_p0 = layer.transform * vec4(clamped_snap_rect.p0, 0.0, 1.0);
-    vec4 world_snap_p1 = layer.transform * vec4(clamped_snap_rect.p0 + clamped_snap_rect.size, 0.0, 1.0);
-    // Snap bounds in world coordinates, adjusted for pixel ratio. XY = top left, ZW = bottom right
-    vec4 world_snap = uDevicePixelRatio * vec4(world_snap_p0.xy, world_snap_p1.xy) /
-                                          vec4(world_snap_p0.ww, world_snap_p1.ww);
-    /// World offsets applied to the corners of the snap rectangle.
-    vec4 snap_offsets = floor(world_snap + 0.5) - world_snap;
+    // Transform the top corner and current vertex to world space.
+    vec4 world_p0 = layer.transform * vec4(local_p0_pos.xy, 0.0, 1.0);
+    world_p0.xyz /= world_p0.w;
+    vec4 world_pos = layer.transform * vec4(local_p0_pos.zw, 0.0, 1.0);
+    world_pos.xyz /= world_pos.w;
 
-    /// Compute the position of this vertex inside the snap rectangle.
-    vec2 normalized_snap_pos = (clamped_local_pos - clamped_snap_rect.p0) / clamped_snap_rect.size;
-    /// Compute the actual world offset for this vertex needed to make it snap.
-    vec2 snap_offset = mix(snap_offsets.xy, snap_offsets.zw, normalized_snap_pos);
+    // Convert the world positions to device pixel space. xy=top left corner. zw=current vertex.
+    vec4 device_p0_pos = vec4(world_p0.xy, world_pos.xy) * uDevicePixelRatio;
 
-    // Transform the current vertex to the world cpace.
-    vec4 world_pos = layer.transform * vec4(clamped_local_pos, 0.0, 1.0);
-
-    // Convert the world positions to device pixel space.
-    vec2 device_pos = world_pos.xy / world_pos.w * uDevicePixelRatio;
+    // Calculate the distance to snap the vertex by (snap top left corner).
+    vec2 snap_delta = device_p0_pos.xy - floor(device_p0_pos.xy + 0.5);
 
     // Apply offsets for the render task to get correct screen location.
-    vec2 final_pos = device_pos + snap_offset -
+    vec2 final_pos = device_p0_pos.zw -
+                     snap_delta -
                      task.screen_space_origin +
                      task.render_target_origin;
 
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
 
-    VertexInfo vi = VertexInfo(clamped_local_pos, device_pos);
+    VertexInfo vi = VertexInfo(local_p0_pos.zw, device_p0_pos.zw);
     return vi;
 }
 
@@ -664,7 +663,7 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
                                            float z,
                                            Layer layer,
                                            AlphaBatchTask task,
-                                           RectWithSize snap_rect) {
+                                           vec2 snap_ref) {
     RectWithEndpoint local_rect = to_rect_with_endpoint(instance_rect);
 
     vec2 current_local_pos, prev_local_pos, next_local_pos;
@@ -724,8 +723,7 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
                                       adjusted_next_p1);
 
     // Calculate the snap amount based on the first vertex as a reference point.
-    //TODO: full rectangle snapping, similar to `write_vertex`
-    vec4 world_p0 = layer.transform * vec4(snap_rect.p0, 0.0, 1.0);
+    vec4 world_p0 = layer.transform * vec4(snap_ref, 0.0, 1.0);
     vec2 device_p0 = uDevicePixelRatio * world_p0.xy / world_p0.w;
     vec2 snap_delta = device_p0 - floor(device_p0 + 0.5);
 
