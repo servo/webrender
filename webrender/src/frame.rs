@@ -218,8 +218,7 @@ impl Frame {
             None => return,
         };
 
-        let display_list = scene.display_lists.get(&root_pipeline_id);
-        let display_list = match display_list {
+        let display_list = match scene.display_lists.get(&root_pipeline_id) {
             Some(display_list) => display_list,
             None => return,
         };
@@ -386,8 +385,7 @@ impl Frame {
             None => return,
         };
 
-        let display_list = context.scene.display_lists.get(&pipeline_id);
-        let display_list = match display_list {
+        let display_list = match context.scene.display_lists.get(&pipeline_id) {
             Some(display_list) => display_list,
             None => return,
         };
@@ -484,13 +482,10 @@ impl Frame {
                                          text_info.glyph_options);
             }
             SpecificDisplayItem::Rectangle(ref info) => {
-                let display_list = context.scene.display_lists
-                                          .get(&pipeline_id)
-                                          .expect("No display list?!");
                 // Try to extract the opaque inner rectangle out of the clipped primitive.
                 if let Some(opaque_rect) = clip_intersection(&item.rect(),
                                                              item.clip_region(),
-                                                             display_list) {
+                                                             item.display_list()) {
                     let mut results = Vec::new();
                     subtract_rect(&item.rect(), &opaque_rect, &mut results);
                     // The inner rectangle is considered opaque within this layer.
@@ -621,7 +616,7 @@ impl Frame {
         // For the root pipeline, there's no need to add a full screen rectangle
         // here, as it's handled by the framebuffer clear.
         let clip_id = ClipId::root_scroll_node(pipeline_id);
-        if context.scene.root_pipeline_id.unwrap() != pipeline_id {
+        if context.scene.root_pipeline_id != Some(pipeline_id) {
             if let Some(pipeline) = context.scene.pipeline_map.get(&pipeline_id) {
                 if let Some(bg_color) = pipeline.background_color {
                     context.builder.add_solid_rectangle(ClipAndScrollInfo::simple(clip_id),
