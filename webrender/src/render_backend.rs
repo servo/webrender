@@ -4,6 +4,7 @@
 
 use frame::Frame;
 use frame_builder::FrameBuilderConfig;
+use gpu_cache::GpuCache;
 use internal_types::{FontTemplate, SourceTexture, ResultMsg, RendererFrame};
 use profiler::{BackendProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use record::ApiRecordingReceiver;
@@ -49,6 +50,7 @@ pub struct RenderBackend {
     inner_rect: DeviceUintRect,
     next_namespace_id: IdNamespace,
 
+    gpu_cache: GpuCache,
     resource_cache: ResourceCache,
 
     scene: Scene,
@@ -97,6 +99,7 @@ impl RenderBackend {
             pinch_zoom_factor: 1.0,
             pan: DeviceIntPoint::zero(),
             resource_cache: resource_cache,
+            gpu_cache: GpuCache::new(),
             scene: Scene::new(),
             frame: Frame::new(config),
             next_namespace_id: IdNamespace(1),
@@ -494,6 +497,7 @@ impl RenderBackend {
         let pan = LayerPoint::new(self.pan.x as f32 / accumulated_scale_factor,
                                   self.pan.y as f32 / accumulated_scale_factor);
         let frame = self.frame.build(&mut self.resource_cache,
+                                     &mut self.gpu_cache,
                                      &self.scene.display_lists,
                                      accumulated_scale_factor,
                                      pan,

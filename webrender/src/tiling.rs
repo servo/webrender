@@ -6,7 +6,7 @@ use app_units::Au;
 use border::{BorderCornerInstance, BorderCornerSide};
 use device::TextureId;
 use fnv::FnvHasher;
-use gpu_cache::GpuCacheUpdateList;
+use gpu_cache::{GpuCache, GpuCacheUpdateList};
 use gpu_store::GpuStoreAddress;
 use internal_types::{ANGLE_FLOAT_TO_FIXED, BatchTextures, CacheTextureId, LowLevelFilterOp};
 use internal_types::SourceTexture;
@@ -425,7 +425,7 @@ impl AlphaRenderItem {
                 let blend_mode = ctx.prim_store.get_blend_mode(needs_blending, prim_metadata);
 
                 let prim_cache_address = prim_metadata.gpu_location
-                                                      .as_int(&ctx.resource_cache.gpu_cache);
+                                                      .as_int(&ctx.gpu_cache);
 
                 let base_instance = SimplePrimitiveInstance::new(prim_cache_address,
                                                                  task_index,
@@ -761,6 +761,7 @@ pub struct RenderTargetContext<'a> {
     pub clip_scroll_group_store: &'a [ClipScrollGroup],
     pub prim_store: &'a PrimitiveStore,
     pub resource_cache: &'a ResourceCache,
+    pub gpu_cache: &'a GpuCache,
 }
 
 struct TextureAllocator {
@@ -980,7 +981,7 @@ impl RenderTarget for ColorRenderTarget {
                 let prim_metadata = ctx.prim_store.get_metadata(prim_index);
 
                 let prim_address = prim_metadata.gpu_location
-                                                .as_int(&ctx.resource_cache.gpu_cache);
+                                                .as_int(&ctx.gpu_cache);
 
                 match prim_metadata.prim_kind {
                     PrimitiveKind::BoxShadow => {
