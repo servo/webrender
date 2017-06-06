@@ -1141,6 +1141,7 @@ impl PrimitiveStore {
     pub fn prepare_prim_for_render(&mut self,
                                    prim_index: PrimitiveIndex,
                                    resource_cache: &mut ResourceCache,
+                                   gpu_cache: &mut GpuCache,
                                    layer_transform: &LayerToWorldTransform,
                                    device_pixel_ratio: f32,
                                    display_list: &BuiltDisplayList) {
@@ -1149,7 +1150,7 @@ impl PrimitiveStore {
         let mut prim_needs_resolve = false;
 
         // Mark this GPU resource as required for this frame.
-        if let Some(mut request) = resource_cache.gpu_cache.request(&mut metadata.gpu_location) {
+        if let Some(mut request) = gpu_cache.request(&mut metadata.gpu_location) {
             request.push(metadata.local_rect.into());
             request.push(metadata.local_clip_rect.into());
 

@@ -5,6 +5,7 @@
 use app_units::Au;
 use euclid::rect::rect;
 use fnv::FnvHasher;
+use gpu_cache::GpuCache;
 use internal_types::{ANGLE_FLOAT_TO_FIXED, AxisDirection};
 use internal_types::{LowLevelFilterOp};
 use internal_types::{RendererFrame};
@@ -968,6 +969,7 @@ impl Frame {
 
     pub fn build(&mut self,
                  resource_cache: &mut ResourceCache,
+                 gpu_cache: &mut GpuCache,
                  display_lists: &DisplayListMap,
                  device_pixel_ratio: f32,
                  pan: LayerPoint,
@@ -976,6 +978,7 @@ impl Frame {
                  -> RendererFrame {
         self.clip_scroll_tree.update_all_node_transforms(pan);
         let frame = self.build_frame(resource_cache,
+                                     gpu_cache,
                                      display_lists,
                                      device_pixel_ratio,
                                      texture_cache_profile,
@@ -989,6 +992,7 @@ impl Frame {
 
     fn build_frame(&mut self,
                    resource_cache: &mut ResourceCache,
+                   gpu_cache: &mut GpuCache,
                    display_lists: &DisplayListMap,
                    device_pixel_ratio: f32,
                    texture_cache_profile: &mut TextureCacheProfileCounters,
@@ -997,6 +1001,7 @@ impl Frame {
         let mut frame_builder = self.frame_builder.take();
         let frame = frame_builder.as_mut().map(|builder|
             builder.build(resource_cache,
+                          gpu_cache,
                           self.id,
                           &mut self.clip_scroll_tree,
                           display_lists,

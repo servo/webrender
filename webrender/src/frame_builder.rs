@@ -1088,6 +1088,7 @@ impl FrameBuilder {
                                                 clip_scroll_tree: &mut ClipScrollTree,
                                                 display_lists: &DisplayListMap,
                                                 resource_cache: &mut ResourceCache,
+                                                gpu_cache: &mut GpuCache,
                                                 profile_counters: &mut FrameProfileCounters,
                                                 device_pixel_ratio: f32) {
         profile_scope!("cull");
@@ -1096,6 +1097,7 @@ impl FrameBuilder {
                                                            clip_scroll_tree,
                                                            display_lists,
                                                            resource_cache,
+                                                           gpu_cache,
                                                            profile_counters,
                                                            device_pixel_ratio);
     }
@@ -1356,6 +1358,7 @@ impl FrameBuilder {
 
     pub fn build(&mut self,
                  resource_cache: &mut ResourceCache,
+                 gpu_cache: &mut GpuCache,
                  frame_id: FrameId,
                  clip_scroll_tree: &mut ClipScrollTree,
                  display_lists: &DisplayListMap,
@@ -1369,6 +1372,7 @@ impl FrameBuilder {
         profile_counters.total_primitives.set(self.prim_store.prim_count());
 
         resource_cache.begin_frame(frame_id);
+        gpu_cache.begin_frame();
 
         let screen_rect = DeviceIntRect::new(
             DeviceIntPoint::zero(),
@@ -1382,12 +1386,13 @@ impl FrameBuilder {
         let cache_size = DeviceUintSize::new(cmp::max(1024, screen_rect.size.width as u32),
                                              cmp::max(1024, screen_rect.size.height as u32));
 
-        self.update_scroll_bars(clip_scroll_tree, &mut resource_cache.gpu_cache);
+        self.update_scroll_bars(clip_scroll_tree, gpu_cache);
 
         self.build_layer_screen_rects_and_cull_layers(&screen_rect,
                                                       clip_scroll_tree,
                                                       display_lists,
                                                       resource_cache,
+                                                      gpu_cache,
                                                       &mut profile_counters,
                                                       device_pixel_ratio);
 
@@ -1410,8 +1415,7 @@ impl FrameBuilder {
         let deferred_resolves = self.prim_store.resolve_primitives(resource_cache,
                                                                    device_pixel_ratio);
 
-        let gpu_cache_updates = resource_cache.gpu_cache
-                                              .end_frame(gpu_cache_profile);
+        let gpu_cache_updates = gpu_cache.end_frame(gpu_cache_profile);
 
         let mut passes = Vec::new();
 
@@ -1431,6 +1435,7 @@ impl FrameBuilder {
                 clip_scroll_group_store: &self.clip_scroll_group_store,
                 prim_store: &self.prim_store,
                 resource_cache: resource_cache,
+                gpu_cache: gpu_cache,
             };
 
             pass.build(&ctx, &mut render_tasks);
@@ -1469,6 +1474,7 @@ struct LayerRectCalculationAndCullingPass<'a> {
     clip_scroll_tree: &'a mut ClipScrollTree,
     display_lists: &'a DisplayListMap,
     resource_cache: &'a mut ResourceCache,
+    gpu_cache: &'a mut GpuCache,
     profile_counters: &'a mut FrameProfileCounters,
     device_pixel_ratio: f32,
     stacking_context_stack: Vec<StackingContextIndex>,
@@ -1489,6 +1495,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                       clip_scroll_tree: &'a mut ClipScrollTree,
                       display_lists: &'a DisplayListMap,
                       resource_cache: &'a mut ResourceCache,
+                      gpu_cache: &'a mut GpuCache,
                       profile_counters: &'a mut FrameProfileCounters,
                       device_pixel_ratio: f32) {
 
@@ -1498,6 +1505,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             clip_scroll_tree: clip_scroll_tree,
             display_lists: display_lists,
             resource_cache: resource_cache,
+            gpu_cache: gpu_cache,
             profile_counters: profile_counters,
             device_pixel_ratio: device_pixel_ratio,
             stacking_context_stack: Vec::new(),
@@ -1738,6 +1746,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                                                                  self.device_pixel_ratio) {
                 self.frame_builder.prim_store.prepare_prim_for_render(prim_index,
                                                                       self.resource_cache,
+                                                                      self.gpu_cache,
                                                                       &packed_layer.transform,
                                                                       self.device_pixel_ratio,
                                                                       display_list);
