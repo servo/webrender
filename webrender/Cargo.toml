@@ -48,6 +48,9 @@ core-graphics = "0.7.0"
 core-text = "4.0"
 
 [[example]]
+name = "animation"
+
+[[example]]
 name = "basic"
 
 [[example]]
