@@ -46,15 +46,3 @@ dwrote = "0.3"
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.7.0"
 core-text = "4.0"
-
-[[example]]
-name = "basic"
-
-[[example]]
-name = "blob"
-
-[[example]]
-name = "scrolling"
-
-[[example]]
-name = "yuv"
