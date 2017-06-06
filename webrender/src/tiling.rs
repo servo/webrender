@@ -6,12 +6,12 @@ use app_units::Au;
 use border::{BorderCornerInstance, BorderCornerSide};
 use device::TextureId;
 use fnv::FnvHasher;
-use gpu_cache::GpuCacheUpdateList;
+use gpu_cache::{GpuCache, GpuCacheUpdateList};
 use gpu_store::GpuStoreAddress;
 use internal_types::{ANGLE_FLOAT_TO_FIXED, BatchTextures, CacheTextureId, LowLevelFilterOp};
 use internal_types::SourceTexture;
 use mask_cache::MaskCacheInfo;
-use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve, GpuBlock16, GpuBlock32};
+use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve, GpuBlock32};
 use prim_store::{GradientData, SplitGeometry, PrimitiveCacheKey};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore, TexelRect};
 use profiler::FrameProfileCounters;
@@ -425,7 +425,7 @@ impl AlphaRenderItem {
                 let blend_mode = ctx.prim_store.get_blend_mode(needs_blending, prim_metadata);
 
                 let prim_cache_address = prim_metadata.gpu_location
-                                                      .as_int(&ctx.resource_cache.gpu_cache);
+                                                      .as_int(&ctx.gpu_cache);
 
                 let base_instance = SimplePrimitiveInstance::new(prim_cache_address,
                                                                  task_index,
@@ -516,15 +516,14 @@ impl AlphaRenderItem {
                             None => 0,
                         };
 
-                        for glyph_index in 0..text_cpu.gpu_data_count {
-                            let user_data1 = match batch_kind {
-                                AlphaBatchKind::TextRun => text_cpu.resource_address.0 + glyph_index,
-                                AlphaBatchKind::CacheImage => cache_task_index,
-                                _ => unreachable!(),
-                            };
+                        let user_data1 = match batch_kind {
+                            AlphaBatchKind::TextRun => text_cpu.resource_address.0,
+                            AlphaBatchKind::CacheImage => cache_task_index,
+                            _ => unreachable!(),
+                        };
 
-                            batch.add_instance(base_instance.build(text_cpu.gpu_data_address.0 + glyph_index,
-                                                                   user_data1));
+                        for glyph_index in 0..text_cpu.glyph_instances.len() {
+                            batch.add_instance(base_instance.build(glyph_index as i32, user_data1));
                         }
                     }
                     PrimitiveKind::AlignedGradient => {
@@ -761,6 +760,7 @@ pub struct RenderTargetContext<'a> {
     pub clip_scroll_group_store: &'a [ClipScrollGroup],
     pub prim_store: &'a PrimitiveStore,
     pub resource_cache: &'a ResourceCache,
+    pub gpu_cache: &'a GpuCache,
 }
 
 struct TextureAllocator {
@@ -980,7 +980,7 @@ impl RenderTarget for ColorRenderTarget {
                 let prim_metadata = ctx.prim_store.get_metadata(prim_index);
 
                 let prim_address = prim_metadata.gpu_location
-                                                .as_int(&ctx.resource_cache.gpu_cache);
+                                                .as_int(&ctx.gpu_cache);
 
                 match prim_metadata.prim_kind {
                     PrimitiveKind::BoxShadow => {
@@ -1014,9 +1014,9 @@ impl RenderTarget for ColorRenderTarget {
                                                                     PackedLayerIndex(0),
                                                                     0);     // z is disabled for rendering cache primitives
 
-                        for glyph_index in 0..text.gpu_data_count {
-                            self.text_run_cache_prims.push(instance.build(text.gpu_data_address.0 + glyph_index,
-                                                                          text.resource_address.0 + glyph_index));
+                        for glyph_index in 0..text.glyph_instances.len() {
+                            self.text_run_cache_prims.push(instance.build(glyph_index as i32,
+                                                                          text.resource_address.0));
                         }
                     }
                     _ => {
@@ -1636,7 +1636,6 @@ pub struct Frame {
 
     pub layer_texture_data: Vec<PackedLayer>,
     pub render_task_data: Vec<RenderTaskData>,
-    pub gpu_data16: Vec<GpuBlock16>,
     pub gpu_data32: Vec<GpuBlock32>,
     pub gpu_gradient_data: Vec<GradientData>,
     pub gpu_split_geometry: Vec<SplitGeometry>,

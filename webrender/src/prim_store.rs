@@ -466,19 +466,12 @@ impl GradientData {
 }
 
 #[derive(Debug, Clone)]
-#[repr(C)]
-struct InstanceRect {
-    rect: LayerRect,
-}
-
-#[derive(Debug, Clone)]
 pub struct TextRunPrimitiveCpu {
     pub font_key: FontKey,
     pub logical_font_size: Au,
     pub blur_radius: f32,
     pub glyph_range: ItemRange<GlyphInstance>,
     pub glyph_count: usize,
-    pub cache_dirty: bool,
     // TODO(gw): Maybe make this an Arc for sharing with resource cache
     pub glyph_instances: Vec<GlyphInstance>,
     pub color_texture_id: SourceTexture,
@@ -486,13 +479,24 @@ pub struct TextRunPrimitiveCpu {
     pub render_mode: FontRenderMode,
     pub resource_address: GpuStoreAddress,
     pub glyph_options: Option<GlyphOptions>,
-    pub gpu_data_address: GpuStoreAddress,
-    pub gpu_data_count: i32,
 }
 
 impl ToGpuBlocks for TextRunPrimitiveCpu {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
         request.push(self.color.into());
+
+        // Two glyphs are packed per GPU block.
+        for glyph_chunk in self.glyph_instances.chunks(2) {
+            // In the case of an odd number of glyphs, the
+            // last glyph will get duplicated in the final
+            // GPU block.
+            let first_glyph = glyph_chunk.first().unwrap();
+            let second_glyph = glyph_chunk.last().unwrap();
+            request.push([first_glyph.point.x,
+                          first_glyph.point.y,
+                          second_glyph.point.x,
+                          second_glyph.point.y].into());
+        }
     }
 }
 
@@ -656,7 +660,6 @@ pub struct PrimitiveStore {
     pub cpu_box_shadows: Vec<BoxShadowPrimitiveCpu>,
 
     /// Gets uploaded directly to GPU via vertex texture.
-    pub gpu_data16: VertexDataStore<GpuBlock16>,
     pub gpu_data32: VertexDataStore<GpuBlock32>,
     pub gpu_gradient_data: GradientDataStore,
 
@@ -684,7 +687,6 @@ impl PrimitiveStore {
             cpu_borders: Vec::new(),
             cpu_box_shadows: Vec::new(),
             prims_to_resolve: Vec::new(),
-            gpu_data16: VertexDataStore::new(),
             gpu_data32: VertexDataStore::new(),
             gpu_gradient_data: GradientDataStore::new(),
             gpu_split_geometry: SplitGeometryStore::new(),
@@ -705,7 +707,6 @@ impl PrimitiveStore {
             cpu_borders: recycle_vec(self.cpu_borders),
             cpu_box_shadows: recycle_vec(self.cpu_box_shadows),
             prims_to_resolve: recycle_vec(self.prims_to_resolve),
-            gpu_data16: self.gpu_data16.recycle(),
             gpu_data32: self.gpu_data32.recycle(),
             gpu_gradient_data: self.gpu_gradient_data.recycle(),
             gpu_split_geometry: self.gpu_split_geometry.recycle(),
@@ -752,10 +753,7 @@ impl PrimitiveStore {
                 metadata
             }
             PrimitiveContainer::TextRun(mut text_cpu) => {
-                let gpu_glyphs_address = self.gpu_data16.alloc(text_cpu.glyph_count);
                 text_cpu.resource_address = self.gpu_resource_rects.alloc(text_cpu.glyph_count);
-                text_cpu.gpu_data_address = gpu_glyphs_address;
-                text_cpu.gpu_data_count = text_cpu.glyph_count as i32;
 
                 let metadata = PrimitiveMetadata {
                     is_opaque: false,
@@ -1141,54 +1139,13 @@ impl PrimitiveStore {
     pub fn prepare_prim_for_render(&mut self,
                                    prim_index: PrimitiveIndex,
                                    resource_cache: &mut ResourceCache,
+                                   gpu_cache: &mut GpuCache,
                                    layer_transform: &LayerToWorldTransform,
                                    device_pixel_ratio: f32,
                                    display_list: &BuiltDisplayList) {
 
         let metadata = &mut self.cpu_metadata[prim_index.0];
         let mut prim_needs_resolve = false;
-
-        // Mark this GPU resource as required for this frame.
-        if let Some(mut request) = resource_cache.gpu_cache.request(&mut metadata.gpu_location) {
-            request.push(metadata.local_rect.into());
-            request.push(metadata.local_clip_rect.into());
-
-            match metadata.prim_kind {
-                PrimitiveKind::Rectangle => {
-                    let rect = &self.cpu_rectangles[metadata.cpu_prim_index.0];
-                    rect.write_gpu_blocks(request);
-                }
-                PrimitiveKind::Border => {
-                    let border = &self.cpu_borders[metadata.cpu_prim_index.0];
-                    border.write_gpu_blocks(request);
-                }
-                PrimitiveKind::BoxShadow => {
-                    let box_shadow = &self.cpu_box_shadows[metadata.cpu_prim_index.0];
-                    box_shadow.write_gpu_blocks(request);
-                }
-                PrimitiveKind::Image => {
-                    let image = &self.cpu_images[metadata.cpu_prim_index.0];
-                    image.write_gpu_blocks(request);
-                }
-                PrimitiveKind::YuvImage => {
-                    let yuv_image = &self.cpu_yuv_images[metadata.cpu_prim_index.0];
-                    yuv_image.write_gpu_blocks(request);
-                }
-                PrimitiveKind::AlignedGradient |
-                PrimitiveKind::AngleGradient => {
-                    let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                    gradient.write_gpu_blocks(request);
-                }
-                PrimitiveKind::RadialGradient => {
-                    let gradient = &self.cpu_radial_gradients[metadata.cpu_prim_index.0];
-                    gradient.write_gpu_blocks(request);
-                }
-                PrimitiveKind::TextRun => {
-                    let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
-                    text.write_gpu_blocks(request);
-                }
-            }
-        }
 
         if let Some(ref mut clip_info) = metadata.clip_cache_info {
             clip_info.update(&metadata.clips,
@@ -1229,23 +1186,14 @@ impl PrimitiveStore {
                 let src_glyphs = display_list.get(text.glyph_range);
                 prim_needs_resolve = true;
 
-                if text.cache_dirty {
-                    text.cache_dirty = false;
-
-                    debug_assert!(text.gpu_data_count == src_glyphs.len() as i32);
-                    debug_assert!(text.glyph_instances.is_empty());
-
-                    let dest_glyphs = self.gpu_data16.get_slice_mut(text.gpu_data_address,
-                                                                    src_glyphs.len());
-
+                // Cache the glyph positions, if not in the cache already.
+                if text.glyph_instances.is_empty() {
                     let mut glyph_key = GlyphKey::new(text.font_key,
                                                       font_size_dp,
                                                       text.color,
                                                       0,
                                                       LayoutPoint::new(0.0, 0.0),
                                                       text.render_mode);
-                    let mut actual_glyph_count = 0;
-
                     for src in src_glyphs {
                         glyph_key.index = src.index;
                         glyph_key.subpixel_point.set_offset(src.point, text.render_mode);
@@ -1263,41 +1211,31 @@ impl PrimitiveStore {
 
                         let glyph_pos = LayerPoint::new(x, y);
 
-                        dest_glyphs[actual_glyph_count] = GpuBlock16::from(GlyphPrimitive {
-                            padding: LayerPoint::zero(),
-                            offset: glyph_pos,
-                        });
-
                         text.glyph_instances.push(GlyphInstance {
                             index: src.index,
                             point: glyph_pos,
                         });
-
-                        actual_glyph_count += 1;
                     }
-
-                    let render_task = if text.blur_radius == 0.0 {
-                        None
-                    } else {
-                        // This is a text-shadow element. Create a render task that will
-                        // render the text run to a target, and then apply a gaussian
-                        // blur to that text run in order to build the actual primitive
-                        // which will be blitted to the framebuffer.
-                        let cache_width = (metadata.local_rect.size.width * device_pixel_ratio).ceil() as i32;
-                        let cache_height = (metadata.local_rect.size.height * device_pixel_ratio).ceil() as i32;
-                        let cache_size = DeviceIntSize::new(cache_width, cache_height);
-                        let cache_key = PrimitiveCacheKey::TextShadow(prim_index);
-                        let blur_radius = device_length(text.blur_radius,
-                                                        device_pixel_ratio);
-                        Some(RenderTask::new_blur(cache_key,
-                                                  cache_size,
-                                                  blur_radius,
-                                                  prim_index))
-                    };
-
-                    text.gpu_data_count = actual_glyph_count as i32;
-                    metadata.render_task = render_task;
                 }
+
+                metadata.render_task = if text.blur_radius == 0.0 {
+                    None
+                } else {
+                    // This is a text-shadow element. Create a render task that will
+                    // render the text run to a target, and then apply a gaussian
+                    // blur to that text run in order to build the actual primitive
+                    // which will be blitted to the framebuffer.
+                    let cache_width = (metadata.local_rect.size.width * device_pixel_ratio).ceil() as i32;
+                    let cache_height = (metadata.local_rect.size.height * device_pixel_ratio).ceil() as i32;
+                    let cache_size = DeviceIntSize::new(cache_width, cache_height);
+                    let cache_key = PrimitiveCacheKey::TextShadow(prim_index);
+                    let blur_radius = device_length(text.blur_radius,
+                                                    device_pixel_ratio);
+                    Some(RenderTask::new_blur(cache_key,
+                                              cache_size,
+                                              blur_radius,
+                                              prim_index))
+                };
 
                 resource_cache.request_glyphs(text.font_key,
                                               font_size_dp,
@@ -1381,6 +1319,48 @@ impl PrimitiveStore {
             }
         }
 
+        // Mark this GPU resource as required for this frame.
+        if let Some(mut request) = gpu_cache.request(&mut metadata.gpu_location) {
+            request.push(metadata.local_rect.into());
+            request.push(metadata.local_clip_rect.into());
+
+            match metadata.prim_kind {
+                PrimitiveKind::Rectangle => {
+                    let rect = &self.cpu_rectangles[metadata.cpu_prim_index.0];
+                    rect.write_gpu_blocks(request);
+                }
+                PrimitiveKind::Border => {
+                    let border = &self.cpu_borders[metadata.cpu_prim_index.0];
+                    border.write_gpu_blocks(request);
+                }
+                PrimitiveKind::BoxShadow => {
+                    let box_shadow = &self.cpu_box_shadows[metadata.cpu_prim_index.0];
+                    box_shadow.write_gpu_blocks(request);
+                }
+                PrimitiveKind::Image => {
+                    let image = &self.cpu_images[metadata.cpu_prim_index.0];
+                    image.write_gpu_blocks(request);
+                }
+                PrimitiveKind::YuvImage => {
+                    let yuv_image = &self.cpu_yuv_images[metadata.cpu_prim_index.0];
+                    yuv_image.write_gpu_blocks(request);
+                }
+                PrimitiveKind::AlignedGradient |
+                PrimitiveKind::AngleGradient => {
+                    let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
+                    gradient.write_gpu_blocks(request);
+                }
+                PrimitiveKind::RadialGradient => {
+                    let gradient = &self.cpu_radial_gradients[metadata.cpu_prim_index.0];
+                    gradient.write_gpu_blocks(request);
+                }
+                PrimitiveKind::TextRun => {
+                    let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
+                    text.write_gpu_blocks(request);
+                }
+            }
+        }
+
         if prim_needs_resolve {
             self.prims_to_resolve.push(prim_index);
         }
@@ -1414,9 +1394,6 @@ macro_rules! define_gpu_block {
     )
 }
 
-define_gpu_block!(GpuBlock16: [f32; 4] =
-    InstanceRect, GlyphPrimitive
-);
 define_gpu_block!(GpuBlock32: [f32; 8] =
     GradientStopGpu, ClipCorner, ClipRect, ImageMaskData,
     BorderCornerClipData, BorderCornerDashClipData, BorderCornerDotClipData
