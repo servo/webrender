@@ -10,14 +10,17 @@
 void main(void) {
     Primitive prim = load_primitive();
     TextRun text = fetch_text_run(prim.specific_prim_address);
-    Glyph glyph = fetch_glyph(prim.user_data0);
-    ResourceRect res = fetch_resource_rect(prim.user_data1);
+
+    int glyph_index = prim.user_data0;
+    int resource_address = prim.user_data1;
+    Glyph glyph = fetch_glyph(prim.specific_prim_address, glyph_index);
+    ResourceRect res = fetch_resource_rect(resource_address + glyph_index);
 
     // Glyphs size is already in device-pixels.
     // The render task origin is in device-pixels. Offset that by
     // the glyph offset, relative to its primitive bounding rect.
     vec2 size = res.uv_rect.zw - res.uv_rect.xy;
-    vec2 origin = prim.task.screen_space_origin + uDevicePixelRatio * (glyph.offset.xy - prim.local_rect.p0);
+    vec2 origin = prim.task.screen_space_origin + uDevicePixelRatio * (glyph.offset - prim.local_rect.p0);
     vec4 local_rect = vec4(origin, size);
 
     vec2 texture_size = vec2(textureSize(sColor0, 0));

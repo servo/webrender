@@ -112,6 +112,7 @@ varying vec3 vClipMaskUv;
 #define VECS_PER_RENDER_TASK        3
 #define VECS_PER_SPLIT_GEOM         3
 #define VECS_PER_PRIM_HEADER        2
+#define VECS_PER_TEXT_RUN           1
 
 uniform sampler2D sLayers;
 uniform sampler2D sRenderTasks;
@@ -424,12 +425,18 @@ BorderCorners get_border_corners(Border border, RectWithSize local_rect) {
 }
 
 struct Glyph {
-    vec4 offset;
+    vec2 offset;
 };
 
-Glyph fetch_glyph(int index) {
-    vec4 data = fetch_data_1(index);
-    return Glyph(data);
+Glyph fetch_glyph(int specific_prim_address, int glyph_index) {
+    // Two glyphs are packed in each texel in the GPU cache.
+    int glyph_address = specific_prim_address +
+                        VECS_PER_TEXT_RUN +
+                        glyph_index / 2;
+    vec4 data = fetch_from_resource_cache_1(glyph_address);
+    // Select XY or ZW based on glyph index.
+    vec2 glyph = mix(data.xy, data.zw, bvec2(glyph_index % 2 == 1));
+    return Glyph(glyph);
 }
 
 RectWithSize fetch_instance_geometry(int address) {

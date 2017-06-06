@@ -770,15 +770,12 @@ impl FrameBuilder {
             blur_radius: blur_radius,
             glyph_range: glyph_range,
             glyph_count: glyph_count,
-            cache_dirty: true,
             glyph_instances: Vec::new(),
             color_texture_id: SourceTexture::Invalid,
             color: *color,
             render_mode: render_mode,
             glyph_options: glyph_options,
             resource_address: GpuStoreAddress(0),
-            gpu_data_address: GpuStoreAddress(0),
-            gpu_data_count: 0,
         };
 
         self.add_primitive(clip_and_scroll,
@@ -1456,7 +1453,6 @@ impl FrameBuilder {
             cache_size: cache_size,
             layer_texture_data: self.packed_layers.clone(),
             render_task_data: render_tasks.render_task_data,
-            gpu_data16: self.prim_store.gpu_data16.build(),
             gpu_data32: self.prim_store.gpu_data32.build(),
             gpu_gradient_data: self.prim_store.gpu_gradient_data.build(),
             gpu_split_geometry: self.prim_store.gpu_split_geometry.build(),

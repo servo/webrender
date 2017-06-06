@@ -1554,11 +1554,6 @@ impl Device {
             self.gl.uniform_1i(u_tasks, TextureSampler::RenderTasks as i32);
         }
 
-        let u_data16 = self.gl.get_uniform_location(program.id, "sData16");
-        if u_data16 != -1 {
-            self.gl.uniform_1i(u_data16, TextureSampler::Data16 as i32);
-        }
-
         let u_data32 = self.gl.get_uniform_location(program.id, "sData32");
         if u_data32 != -1 {
             self.gl.uniform_1i(u_data32, TextureSampler::Data32 as i32);
