@@ -583,7 +583,7 @@ impl ComplexClipRegion {
 pub enum ClipId {
     Clip(u64, PipelineId),
     ClipExternalId(u64, PipelineId),
-    ReferenceFrame(u64, PipelineId),
+    DynamicallyAddedNode(u64, PipelineId),
 }
 
 impl ClipId {
@@ -592,7 +592,7 @@ impl ClipId {
     }
 
     pub fn root_reference_frame(pipeline_id: PipelineId) -> ClipId {
-        ClipId::ReferenceFrame(0, pipeline_id)
+        ClipId::DynamicallyAddedNode(0, pipeline_id)
     }
 
     pub fn new(id: u64, pipeline_id: PipelineId) -> ClipId {
@@ -609,14 +609,7 @@ impl ClipId {
         match *self {
             ClipId::Clip(_, pipeline_id) |
             ClipId::ClipExternalId(_, pipeline_id) |
-            ClipId::ReferenceFrame(_, pipeline_id) => pipeline_id,
-        }
-    }
-
-    pub fn is_reference_frame(&self) -> bool {
-        match *self {
-            ClipId::ReferenceFrame(..) => true,
-            _ => false,
+            ClipId::DynamicallyAddedNode(_, pipeline_id) => pipeline_id,
         }
     }
 

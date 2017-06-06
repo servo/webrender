@@ -267,12 +267,20 @@ impl Frame {
                         item: &ClipDisplayItem,
                         content_rect: &LayerRect,
                         clip: &ClipRegion) {
-        context.builder.add_clip_scroll_node(item.id,
+        let clip_viewport = LayerRect::new(content_rect.origin, clip.main.size);
+        let new_clip_id = self.clip_scroll_tree.generate_new_clip_id(pipeline_id);
+        context.builder.add_clip_scroll_node(new_clip_id,
                                              parent_id,
                                              pipeline_id,
-                                             &content_rect,
+                                             &clip_viewport,
                                              clip,
                                              &mut self.clip_scroll_tree);
+        context.builder.add_scroll_frame(item.id,
+                                         new_clip_id,
+                                         pipeline_id,
+                                         &content_rect,
+                                         &clip_viewport,
+                                         &mut self.clip_scroll_tree);
 
     }
 
@@ -371,6 +379,7 @@ impl Frame {
                           pipeline_id: PipelineId,
                           parent_id: ClipId,
                           bounds: &LayerRect,
+                          clip_region: &ClipRegion,
                           context: &mut FlattenContext,
                           reference_frame_relative_offset: LayerVector2D) {
         let pipeline = match context.scene.pipeline_map.get(&pipeline_id) {
@@ -391,19 +400,27 @@ impl Frame {
             reference_frame_relative_offset.y + bounds.origin.y,
             0.0);
 
+        let new_clip_id = self.clip_scroll_tree.generate_new_clip_id(pipeline_id);
+        context.builder.add_clip_scroll_node(new_clip_id,
+                                             parent_id,
+                                             parent_id.pipeline_id(),
+                                             bounds,
+                                             clip_region,
+                                             &mut self.clip_scroll_tree);
+
         let iframe_reference_frame_id =
-            context.builder.push_reference_frame(Some(parent_id),
+            context.builder.push_reference_frame(Some(new_clip_id),
                                                  pipeline_id,
                                                  &iframe_rect,
                                                  &transform,
                                                  &mut self.clip_scroll_tree);
 
-        context.builder.add_clip_scroll_node(
+        context.builder.add_scroll_frame(
             ClipId::root_scroll_node(pipeline_id),
             iframe_reference_frame_id,
             pipeline_id,
             &LayerRect::new(LayerPoint::zero(), pipeline.content_size),
-            &ClipRegion::simple(&iframe_rect),
+            &iframe_rect,
             &mut self.clip_scroll_tree);
 
         self.flatten_root(&mut display_list.iter(), pipeline_id, context, &pipeline.content_size);
@@ -566,6 +583,7 @@ impl Frame {
                 self.flatten_iframe(info.pipeline_id,
                                     clip_and_scroll.scroll_node_id,
                                     &item.rect(),
+                                    &item.clip_region(),
                                     context,
                                     reference_frame_relative_offset);
             }
