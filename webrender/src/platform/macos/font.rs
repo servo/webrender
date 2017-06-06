@@ -211,7 +211,8 @@ impl FontContext {
         self.get_ct_font(key.font_key, key.size).and_then(|ref ct_font| {
             let glyph = key.index as CGGlyph;
             let metrics = get_glyph_metrics(ct_font, glyph, &key.subpixel_point);
-            if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
+            // Take into account 1 pixel offset we added from each side
+            if metrics.rasterized_width <= 2 || metrics.rasterized_height <= 2 {
                 None
             } else {
                 Some(GlyphDimensions {
@@ -276,7 +277,7 @@ impl FontContext {
 
         let glyph = key.index as CGGlyph;
         let metrics = get_glyph_metrics(&ct_font, glyph, &key.subpixel_point);
-        if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
+        if metrics.rasterized_width <= 2 || metrics.rasterized_height <= 2 {
             return Some(RasterizedGlyph::blank())
         }
 
@@ -337,8 +338,8 @@ impl FontContext {
 
         // CG Origin is bottom left, WR is top left. Need -y offset
         let rasterization_origin = CGPoint {
-            x: -metrics.rasterized_left as f64 + x_offset,
-            y: metrics.rasterized_descent as f64 - y_offset,
+            x: -1.0 - metrics.rasterized_left as f64 + x_offset,
+            y: -1.0 + metrics.rasterized_descent as f64 - y_offset,
         };
 
         // Always draw black text on a white background
