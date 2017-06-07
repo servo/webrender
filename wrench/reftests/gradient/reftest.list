@@ -44,7 +44,7 @@ fuzzy(1,50) == tiling-linear-1.yaml tiling-linear-1-ref.yaml
 fuzzy(1,38) == tiling-linear-2.yaml tiling-linear-2-ref.yaml
 == tiling-linear-3.yaml tiling-linear-3-ref.yaml
 
-fuzzy(1,16) == tiling-radial-1.yaml tiling-radial-1-ref.yaml
+fuzzy(1,17) == tiling-radial-1.yaml tiling-radial-1-ref.yaml
 fuzzy(1,1) == tiling-radial-2.yaml tiling-radial-2-ref.yaml
 == tiling-radial-3.yaml tiling-radial-3-ref.yaml
 fuzzy(1,17) == tiling-radial-4.yaml tiling-radial-4-ref.yaml

@@ -1569,11 +1569,6 @@ impl Device {
             self.gl.uniform_1i(u_resource_rects, TextureSampler::ResourceRects as i32);
         }
 
-        let u_gradients = self.gl.get_uniform_location(program.id, "sGradients");
-        if u_gradients != -1 {
-            self.gl.uniform_1i(u_gradients, TextureSampler::Gradients as i32);
-        }
-
         let u_split_geometry = self.gl.get_uniform_location(program.id, "sSplitGeometry");
         if u_split_geometry != -1 {
             self.gl.uniform_1i(u_split_geometry, TextureSampler::SplitGeometry as i32);
