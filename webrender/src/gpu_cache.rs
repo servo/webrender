@@ -483,12 +483,30 @@ impl GpuCache {
                 return None
             }
         }
+
         Some(GpuDataRequest {
             handle: handle,
             frame_id: self.frame_id,
             start_index: self.texture.pending_blocks.len(),
             texture: &mut self.texture,
         })
+    }
+
+    // Push an array of data blocks to be uploaded to the GPU
+    // unconditionally for this frame. The cache handle will
+    // assert if the caller tries to retrieve the address
+    // of this handle on a subsequent frame. This is typically
+    // used for uploading data that changes every frame, and
+    // therefore makes no sense to try and cache.
+    pub fn push_per_frame_blocks(&mut self, blocks: &[GpuBlockData]) -> GpuCacheHandle {
+        let start_index = self.texture.pending_blocks.len();
+        self.texture.pending_blocks.extend_from_slice(blocks);
+        let location = self.texture.push_data(start_index,
+                                              blocks.len(),
+                                              self.frame_id);
+        GpuCacheHandle {
+            location: Some(location),
+        }
     }
 
     /// End the frame. Return the list of updates to apply to the

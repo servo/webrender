@@ -24,7 +24,7 @@ use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler};
-use prim_store::{GradientData, SplitGeometry};
+use prim_store::GradientData;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use record::ApiRecordingReceiver;
@@ -360,26 +360,6 @@ impl GpuStoreLayout for GradientDataTextureLayout {
 type GradientDataTexture = GpuDataTexture<GradientDataTextureLayout>;
 pub type GradientDataStore = GpuStore<GradientData, GradientDataTextureLayout>;
 
-pub struct SplitGeometryTextureLayout;
-
-impl GpuStoreLayout for SplitGeometryTextureLayout {
-    fn image_format() -> ImageFormat {
-        //TODO: use normalized integers
-        ImageFormat::RGBAF32
-    }
-
-    fn texture_width<T>() -> usize {
-        MAX_VERTEX_TEXTURE_WIDTH - (MAX_VERTEX_TEXTURE_WIDTH % Self::texels_per_item::<T>())
-    }
-
-    fn texture_filter() -> TextureFilter {
-        TextureFilter::Nearest
-    }
-}
-
-type SplitGeometryTexture = GpuDataTexture<SplitGeometryTextureLayout>;
-pub type SplitGeometryStore = GpuStore<SplitGeometry, SplitGeometryTextureLayout>;
-
 const TRANSFORM_FEATURE: &'static str = "TRANSFORM";
 const SUBPIXEL_AA_FEATURE: &'static str = "SUBPIXEL_AA";
 const CLIP_FEATURE: &'static str = "CLIP";
@@ -548,7 +528,6 @@ struct GpuDataTextures {
     data32_texture: VertexDataTexture,
     resource_rects_texture: VertexDataTexture,
     gradient_data_texture: GradientDataTexture,
-    split_geometry_texture: SplitGeometryTexture,
 }
 
 impl GpuDataTextures {
@@ -559,7 +538,6 @@ impl GpuDataTextures {
             data32_texture: VertexDataTexture::new(device),
             resource_rects_texture: VertexDataTexture::new(device),
             gradient_data_texture: GradientDataTexture::new(device),
-            split_geometry_texture: SplitGeometryTexture::new(device),
         }
     }
 
@@ -569,14 +547,12 @@ impl GpuDataTextures {
         self.layer_texture.init(device, &mut frame.layer_texture_data);
         self.render_task_texture.init(device, &mut frame.render_task_data);
         self.gradient_data_texture.init(device, &mut frame.gpu_gradient_data);
-        self.split_geometry_texture.init(device, &mut frame.gpu_split_geometry);
 
         device.bind_texture(TextureSampler::Layers, self.layer_texture.id);
         device.bind_texture(TextureSampler::RenderTasks, self.render_task_texture.id);
         device.bind_texture(TextureSampler::Data32, self.data32_texture.id);
         device.bind_texture(TextureSampler::ResourceRects, self.resource_rects_texture.id);
         device.bind_texture(TextureSampler::Gradients, self.gradient_data_texture.id);
-        device.bind_texture(TextureSampler::SplitGeometry, self.split_geometry_texture.id);
     }
 }
 
