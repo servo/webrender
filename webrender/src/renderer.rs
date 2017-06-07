@@ -24,7 +24,6 @@ use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler};
-use prim_store::GradientData;
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use record::ApiRecordingReceiver;
@@ -341,25 +340,6 @@ impl GpuStoreLayout for VertexDataTextureLayout {
 type VertexDataTexture = GpuDataTexture<VertexDataTextureLayout>;
 pub type VertexDataStore<T> = GpuStore<T, VertexDataTextureLayout>;
 
-pub struct GradientDataTextureLayout;
-
-impl GpuStoreLayout for GradientDataTextureLayout {
-    fn image_format() -> ImageFormat {
-        ImageFormat::RGBA8
-    }
-
-    fn texture_width<T>() -> usize {
-        mem::size_of::<GradientData>() / Self::texel_size() / 2
-    }
-
-    fn texture_filter() -> TextureFilter {
-        TextureFilter::Linear
-    }
-}
-
-type GradientDataTexture = GpuDataTexture<GradientDataTextureLayout>;
-pub type GradientDataStore = GpuStore<GradientData, GradientDataTextureLayout>;
-
 const TRANSFORM_FEATURE: &'static str = "TRANSFORM";
 const SUBPIXEL_AA_FEATURE: &'static str = "SUBPIXEL_AA";
 const CLIP_FEATURE: &'static str = "CLIP";
@@ -527,7 +507,6 @@ struct GpuDataTextures {
     render_task_texture: VertexDataTexture,
     data32_texture: VertexDataTexture,
     resource_rects_texture: VertexDataTexture,
-    gradient_data_texture: GradientDataTexture,
 }
 
 impl GpuDataTextures {
@@ -537,7 +516,6 @@ impl GpuDataTextures {
             render_task_texture: VertexDataTexture::new(device),
             data32_texture: VertexDataTexture::new(device),
             resource_rects_texture: VertexDataTexture::new(device),
-            gradient_data_texture: GradientDataTexture::new(device),
         }
     }
 
@@ -546,13 +524,11 @@ impl GpuDataTextures {
         self.resource_rects_texture.init(device, &mut frame.gpu_resource_rects);
         self.layer_texture.init(device, &mut frame.layer_texture_data);
         self.render_task_texture.init(device, &mut frame.render_task_data);
-        self.gradient_data_texture.init(device, &mut frame.gpu_gradient_data);
 
         device.bind_texture(TextureSampler::Layers, self.layer_texture.id);
         device.bind_texture(TextureSampler::RenderTasks, self.render_task_texture.id);
         device.bind_texture(TextureSampler::Data32, self.data32_texture.id);
         device.bind_texture(TextureSampler::ResourceRects, self.resource_rects_texture.id);
-        device.bind_texture(TextureSampler::Gradients, self.gradient_data_texture.id);
     }
 }
 

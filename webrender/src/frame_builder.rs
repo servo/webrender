@@ -662,9 +662,6 @@ impl FrameBuilder {
             stops_count: stops_count,
             extend_mode: extend_mode,
             reverse_stops: reverse_stops,
-            cache_dirty: true,
-            gpu_data_address: GpuStoreAddress(0),
-            gpu_data_count: 0,
             gpu_blocks: [
                 [sp.x, sp.y, ep.x, ep.y].into(),
                 [tile_size.width, tile_size.height, tile_repeat.width, tile_repeat.height].into(),
@@ -699,7 +696,6 @@ impl FrameBuilder {
         let radial_gradient_cpu = RadialGradientPrimitiveCpu {
             stops_range: stops,
             extend_mode: extend_mode,
-            cache_dirty: true,
             gpu_data_address: GpuStoreAddress(0),
             gpu_data_count: 0,
             gpu_blocks: [
@@ -1454,7 +1450,6 @@ impl FrameBuilder {
             layer_texture_data: self.packed_layers.clone(),
             render_task_data: render_tasks.render_task_data,
             gpu_data32: self.prim_store.gpu_data32.build(),
-            gpu_gradient_data: self.prim_store.gpu_gradient_data.build(),
             gpu_resource_rects: self.prim_store.gpu_resource_rects.build(),
             deferred_resolves: deferred_resolves,
             gpu_cache_updates: Some(gpu_cache_updates),

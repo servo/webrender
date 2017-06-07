@@ -12,7 +12,7 @@ use internal_types::{ANGLE_FLOAT_TO_FIXED, BatchTextures, CacheTextureId, LowLev
 use internal_types::SourceTexture;
 use mask_cache::MaskCacheInfo;
 use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve, GpuBlock32};
-use prim_store::{GradientData, PrimitiveCacheKey};
+use prim_store::PrimitiveCacheKey;
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore, TexelRect};
 use profiler::FrameProfileCounters;
 use render_task::{AlphaRenderItem, MaskGeometryKind, MaskSegment, RenderTask, RenderTaskData};
@@ -530,23 +530,19 @@ impl AlphaRenderItem {
                         let gradient_cpu = &ctx.prim_store.cpu_gradients[prim_metadata.cpu_prim_index.0];
                         let key = AlphaBatchKey::new(AlphaBatchKind::AlignedGradient, flags, blend_mode, textures);
                         let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
-                        for part_index in 0..(gradient_cpu.gpu_data_count - 1) {
-                            batch.add_instance(base_instance.build(gradient_cpu.gpu_data_address.0 + part_index, 0));
+                        for part_index in 0..(gradient_cpu.stops_count - 1) {
+                            batch.add_instance(base_instance.build(part_index as i32, 0));
                         }
                     }
                     PrimitiveKind::AngleGradient => {
-                        let gradient_cpu = &ctx.prim_store.cpu_gradients[prim_metadata.cpu_prim_index.0];
                         let key = AlphaBatchKey::new(AlphaBatchKind::AngleGradient, flags, blend_mode, textures);
                         let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
-                        batch.add_instance(base_instance.build(gradient_cpu.gpu_data_address.0,
-                                                               0));
+                        batch.add_instance(base_instance.build(0, 0));
                     }
                     PrimitiveKind::RadialGradient => {
-                        let gradient_cpu = &ctx.prim_store.cpu_radial_gradients[prim_metadata.cpu_prim_index.0];
                         let key = AlphaBatchKey::new(AlphaBatchKind::RadialGradient, flags, blend_mode, textures);
                         let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
-                        batch.add_instance(base_instance.build(gradient_cpu.gpu_data_address.0,
-                                                               0));
+                        batch.add_instance(base_instance.build(0, 0));
                     }
                     PrimitiveKind::YuvImage => {
                         let image_yuv_cpu = &ctx.prim_store.cpu_yuv_images[prim_metadata.cpu_prim_index.0];
@@ -1638,7 +1634,6 @@ pub struct Frame {
     pub layer_texture_data: Vec<PackedLayer>,
     pub render_task_data: Vec<RenderTaskData>,
     pub gpu_data32: Vec<GpuBlock32>,
-    pub gpu_gradient_data: Vec<GradientData>,
     pub gpu_resource_rects: Vec<TexelRect>,
 
     // List of updates that need to be pushed to the

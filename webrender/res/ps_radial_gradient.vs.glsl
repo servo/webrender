@@ -34,11 +34,7 @@ void main(void) {
     vTileSize.y *= ratio_xy;
     vTileRepeat.y *= ratio_xy;
 
-    // V coordinate of gradient row in lookup texture.
-    vGradientIndex = float(prim.user_data0);
-
-    // The texture size of the lookup texture
-    vGradientTextureSize = vec2(textureSize(sGradients, 0));
+    vGradientAddress = prim.specific_prim_address + VECS_PER_GRADIENT;
 
     // Whether to repeat the gradient instead of clamping.
     vGradientRepeat = float(int(gradient.start_end_radius_ratio_xy_extend_mode.w) == EXTEND_MODE_REPEAT);
