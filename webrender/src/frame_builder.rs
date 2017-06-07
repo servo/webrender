@@ -12,7 +12,7 @@ use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
-use prim_store::{RectanglePrimitive, SplitGeometry, TextRunPrimitiveCpu};
+use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu};
 use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_task::{AlphaRenderItem, MaskCacheKey, MaskResult, RenderTask, RenderTaskIndex};
@@ -1145,7 +1145,9 @@ impl FrameBuilder {
         }
     }
 
-    fn build_render_task(&mut self, clip_scroll_tree: &ClipScrollTree)
+    fn build_render_task(&mut self,
+                         clip_scroll_tree: &ClipScrollTree,
+                         gpu_cache: &mut GpuCache)
                          -> (RenderTask, usize) {
         profile_scope!("build_render_task");
 
@@ -1169,7 +1171,6 @@ impl FrameBuilder {
         // The plane splitter, using a simple BSP tree.
         let mut splitter = BspSplitter::new();
 
-        self.prim_store.gpu_split_geometry.clear();
         debug!("build_render_task()");
 
         for cmd in &self.cmds {
@@ -1292,14 +1293,13 @@ impl FrameBuilder {
                             let task_id = preserve_3d_map[&sc_index].id;
                             debug!("\t\tproduce {:?} -> {:?} for {:?}", sc_index, poly, task_id);
                             let pp = &poly.points;
-                            let split_geo = SplitGeometry {
-                                data: [pp[0].x, pp[0].y, pp[0].z,
-                                       pp[1].x, pp[1].y, pp[1].z,
-                                       pp[2].x, pp[2].y, pp[2].z,
-                                       pp[3].x, pp[3].y, pp[3].z],
-                            };
-                            let gpu_index = self.prim_store.gpu_split_geometry.push(split_geo);
-                            let item = AlphaRenderItem::SplitComposite(sc_index, task_id, gpu_index, next_z);
+                            let gpu_blocks = [
+                                [pp[0].x, pp[0].y, pp[0].z, pp[1].x].into(),
+                                [pp[1].y, pp[1].z, pp[2].x, pp[2].y].into(),
+                                [pp[2].z, pp[3].x, pp[3].y, pp[3].z].into(),
+                            ];
+                            let handle = gpu_cache.push_per_frame_blocks(&gpu_blocks);
+                            let item = AlphaRenderItem::SplitComposite(sc_index, task_id, handle, next_z);
                             current_task.as_alpha_batch().items.push(item);
                         }
                         splitter.reset();
@@ -1393,7 +1393,7 @@ impl FrameBuilder {
                                                       &mut profile_counters,
                                                       device_pixel_ratio);
 
-        let (main_render_task, static_render_task_count) = self.build_render_task(clip_scroll_tree);
+        let (main_render_task, static_render_task_count) = self.build_render_task(clip_scroll_tree, gpu_cache);
         let mut render_tasks = RenderTaskCollection::new(static_render_task_count);
 
         let mut required_pass_count = 0;
@@ -1455,7 +1455,6 @@ impl FrameBuilder {
             render_task_data: render_tasks.render_task_data,
             gpu_data32: self.prim_store.gpu_data32.build(),
             gpu_gradient_data: self.prim_store.gpu_gradient_data.build(),
-            gpu_split_geometry: self.prim_store.gpu_split_geometry.build(),
             gpu_resource_rects: self.prim_store.gpu_resource_rects.build(),
             deferred_resolves: deferred_resolves,
             gpu_cache_updates: Some(gpu_cache_updates),

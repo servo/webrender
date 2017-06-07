@@ -12,7 +12,7 @@ use internal_types::{ANGLE_FLOAT_TO_FIXED, BatchTextures, CacheTextureId, LowLev
 use internal_types::SourceTexture;
 use mask_cache::MaskCacheInfo;
 use prim_store::{CLIP_DATA_GPU_SIZE, DeferredResolve, GpuBlock32};
-use prim_store::{GradientData, SplitGeometry, PrimitiveCacheKey};
+use prim_store::{GradientData, PrimitiveCacheKey};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore, TexelRect};
 use profiler::FrameProfileCounters;
 use render_task::{AlphaRenderItem, MaskGeometryKind, MaskSegment, RenderTask, RenderTaskData};
@@ -602,7 +602,7 @@ impl AlphaRenderItem {
                     }
                 }
             }
-            AlphaRenderItem::SplitComposite(sc_index, task_id, gpu_address, z) => {
+            AlphaRenderItem::SplitComposite(sc_index, task_id, gpu_handle, z) => {
                 let key = AlphaBatchKey::new(AlphaBatchKind::SplitComposite,
                                              AlphaBatchKeyFlags::empty(),
                                              BlendMode::PremultipliedAlpha,
@@ -610,11 +610,12 @@ impl AlphaRenderItem {
                 let stacking_context = &ctx.stacking_context_store[sc_index.0];
                 let batch = batch_list.get_suitable_batch(&key, &stacking_context.screen_bounds);
                 let source_task = render_tasks.get_task_index(&task_id, child_pass_index);
+                let gpu_address = gpu_handle.as_int(ctx.gpu_cache);
 
                 let instance = CompositePrimitiveInstance::new(task_index,
                                                                source_task,
                                                                RenderTaskIndex(0),
-                                                               gpu_address.0,
+                                                               gpu_address,
                                                                0,
                                                                z);
 
@@ -1638,7 +1639,6 @@ pub struct Frame {
     pub render_task_data: Vec<RenderTaskData>,
     pub gpu_data32: Vec<GpuBlock32>,
     pub gpu_gradient_data: Vec<GradientData>,
-    pub gpu_split_geometry: Vec<SplitGeometry>,
     pub gpu_resource_rects: Vec<TexelRect>,
 
     // List of updates that need to be pushed to the

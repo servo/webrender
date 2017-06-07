@@ -110,7 +110,6 @@ varying vec3 vClipMaskUv;
 
 #define VECS_PER_LAYER              9
 #define VECS_PER_RENDER_TASK        3
-#define VECS_PER_SPLIT_GEOM         3
 #define VECS_PER_PRIM_HEADER        2
 #define VECS_PER_TEXT_RUN           1
 
