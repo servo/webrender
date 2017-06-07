@@ -106,12 +106,36 @@ varying vec3 vClipMaskUv;
     flat varying vec4 vLocalBounds;
 #endif
 
+// TODO(gw): This is here temporarily while we have
+//           both GPU store and cache. When the GPU
+//           store code is removed, we can change the
+//           PrimitiveInstance instance structure to
+//           use 2x unsigned shorts as vertex attributes
+//           instead of an int, and encode the UV directly
+//           in the vertices.
+ivec2 get_resource_cache_uv(int address) {
+    return ivec2(address % WR_MAX_VERTEX_TEXTURE_WIDTH,
+                 address / WR_MAX_VERTEX_TEXTURE_WIDTH);
+}
+
+uniform sampler2D sResourceCache;
+
+vec4[2] fetch_from_resource_cache_2(int address) {
+    ivec2 uv = get_resource_cache_uv(address);
+    return vec4[2](
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(0, 0)),
+        texelFetchOffset(sResourceCache, uv, 0, ivec2(1, 0))
+    );
+}
+
 #ifdef WR_VERTEX_SHADER
 
 #define VECS_PER_LAYER              9
 #define VECS_PER_RENDER_TASK        3
 #define VECS_PER_PRIM_HEADER        2
 #define VECS_PER_TEXT_RUN           1
+#define VECS_PER_GRADIENT           3
+#define VECS_PER_GRADIENT_STOP      2
 
 uniform sampler2D sLayers;
 uniform sampler2D sRenderTasks;
@@ -119,7 +143,6 @@ uniform sampler2D sRenderTasks;
 uniform sampler2D sData16;
 uniform sampler2D sData32;
 uniform sampler2D sResourceRects;
-uniform sampler2D sResourceCache;
 
 // Instanced attributes
 in ivec4 aData0;
@@ -142,18 +165,6 @@ vec4[2] fetch_data_2(int index) {
         texelFetchOffset(sData32, uv, 0, ivec2(0, 0)),
         texelFetchOffset(sData32, uv, 0, ivec2(1, 0))
     );
-}
-
-// TODO(gw): This is here temporarily while we have
-//           both GPU store and cache. When the GPU
-//           store code is removed, we can change the
-//           PrimitiveInstance instance structure to
-//           use 2x unsigned shorts as vertex attributes
-//           instead of an int, and encode the UV directly
-//           in the vertices.
-ivec2 get_resource_cache_uv(int address) {
-    return ivec2(address % WR_MAX_VERTEX_TEXTURE_WIDTH,
-                 address / WR_MAX_VERTEX_TEXTURE_WIDTH);
 }
 
 vec4[8] fetch_from_resource_cache_8(int address) {
@@ -186,14 +197,6 @@ vec4[4] fetch_from_resource_cache_4(int address) {
         texelFetchOffset(sResourceCache, uv, 0, ivec2(1, 0)),
         texelFetchOffset(sResourceCache, uv, 0, ivec2(2, 0)),
         texelFetchOffset(sResourceCache, uv, 0, ivec2(3, 0))
-    );
-}
-
-vec4[2] fetch_from_resource_cache_2(int address) {
-    ivec2 uv = get_resource_cache_uv(address);
-    return vec4[2](
-        texelFetchOffset(sResourceCache, uv, 0, ivec2(0, 0)),
-        texelFetchOffset(sResourceCache, uv, 0, ivec2(1, 0))
     );
 }
 
@@ -328,8 +331,8 @@ struct GradientStop {
     vec4 offset;
 };
 
-GradientStop fetch_gradient_stop(int index) {
-    vec4 data[2] = fetch_data_2(index);
+GradientStop fetch_gradient_stop(int address) {
+    vec4 data[2] = fetch_from_resource_cache_2(address);
     return GradientStop(data[0], data[1]);
 }
 
@@ -847,10 +850,8 @@ vec4 dither(vec4 color) {
 }
 #endif //WR_FEATURE_DITHERING
 
-vec4 sample_gradient(float offset, float gradient_repeat, float gradient_index, vec2 gradient_size) {
-    // Modulo the offset if the gradient repeats. We don't need to clamp non-repeating
-    // gradients because the gradient data texture is bound with CLAMP_TO_EDGE, and the
-    // first and last color entries are filled with the first and last stop colors
+vec4 sample_gradient(int address, float offset, float gradient_repeat) {
+    // Modulo the offset if the gradient repeats.
     float x = mix(offset, fract(offset), gradient_repeat);
 
     // Calculate the color entry index to use for this offset:
@@ -858,22 +859,25 @@ vec4 sample_gradient(float offset, float gradient_repeat, float gradient_index, 
     //     offsets from [0, 1) use the color entries in the range of [1, N-1)
     //     offsets >= 1 use the last color entry, N-1
     //     so transform the range [0, 1) -> [1, N-1)
-    float gradient_entries = 0.5 * gradient_size.x;
-    x = x * (gradient_entries - 2.0) + 1.0;
+
+    // TODO(gw): In the future we might consider making the size of the
+    // LUT vary based on number / distribution of stops in the gradient.
+    const int GRADIENT_ENTRIES = 128;
+    x = 1.0 + x * float(GRADIENT_ENTRIES);
 
     // Calculate the texel to index into the gradient color entries:
     //     floor(x) is the gradient color entry index
     //     fract(x) is the linear filtering factor between start and end
-    //     so, 2 * floor(x) + 0.5 is the center of the start color
-    //     finally, add floor(x) to interpolate to end
-    x = 2.0 * floor(x) + 0.5 + fract(x);
+    int lut_offset = 2 * int(floor(x));     // There is a [start, end] color per entry.
 
-    // Gradient color entries are encoded with high bits in one row and low bits in the next
-    // So use linear filtering to mix (gradient_index + 1) with (gradient_index)
-    float y = gradient_index * 2.0 + 0.5 + 1.0 / 256.0;
+    // Ensure we don't fetch outside the valid range of the LUT.
+    lut_offset = clamp(lut_offset, 0, 2 * (GRADIENT_ENTRIES + 1));
 
-    // Finally sample and apply dithering
-    return dither(texture(sGradients, vec2(x, y) / gradient_size));
+    // Fetch the start and end color.
+    vec4 texels[2] = fetch_from_resource_cache_2(address + lut_offset);
+
+    // Finally interpolate and apply dithering
+    return dither(mix(texels[0], texels[1], fract(x)));
 }
 
 //

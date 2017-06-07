@@ -9,8 +9,12 @@ void main(void) {
 
     vec4 abs_start_end_point = gradient.start_end_point + prim.local_rect.p0.xyxy;
 
-    GradientStop g0 = fetch_gradient_stop(prim.user_data0 + 0);
-    GradientStop g1 = fetch_gradient_stop(prim.user_data0 + 1);
+    int stop_address = prim.specific_prim_address +
+                       VECS_PER_GRADIENT +
+                       VECS_PER_GRADIENT_STOP * prim.user_data0;
+
+    GradientStop g0 = fetch_gradient_stop(stop_address);
+    GradientStop g1 = fetch_gradient_stop(stop_address + VECS_PER_GRADIENT_STOP);
 
     RectWithSize segment_rect;
     vec2 axis;
