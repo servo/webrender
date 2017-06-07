@@ -185,7 +185,7 @@ impl GlyphRasterizer {
         // glyphs in the thread pool.
         self.workers.spawn_async(move || {
             let jobs = glyphs.par_iter().map(|request: &GlyphRequest| {
-                profile_scope!("glyph-raster");
+                //profile_scope!("glyph-raster");
                 let mut context = font_contexts.lock_current_context();
                 let job = GlyphRasterJob {
                     request: request.clone(),
