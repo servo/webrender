@@ -22,6 +22,7 @@ use time;
 use webrender;
 use webrender::api::*;
 use webrender::renderer::{CpuProfile, GpuProfile, GraphicsApiInfo};
+use webrender::RenderBackendThread;
 use yaml_frame_writer::YamlFrameWriterReceiver;
 use yaml_rust::Yaml;
 use {WHITE_COLOR, BLACK_COLOR};
@@ -119,7 +120,7 @@ pub struct Wrench {
     window_size: DeviceUintSize,
     device_pixel_ratio: f32,
 
-    pub renderer: webrender::renderer::Renderer,
+    pub renderer: webrender::Renderer,
     pub api: RenderApi,
     pub root_pipeline_id: PipelineId,
 
@@ -177,7 +178,10 @@ impl Wrench {
             .. Default::default()
         };
 
-        let (renderer, sender) = webrender::renderer::Renderer::new(window.clone_gl(), opts, size).unwrap();
+        let mut backend_thread = RenderBackendThread::new("Backend".to_string()).unwrap();
+
+        let (renderer, sender) = backend_thread.new_renderer(window.clone_gl(), opts, size).unwrap();
+
         let api = sender.create_api();
 
         let proxy = window.create_window_proxy();
