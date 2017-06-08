@@ -90,6 +90,8 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
 
     let (width, height) = window.get_inner_size_pixels().unwrap();
 
+    let mut backend_thread = webrender::RenderBackendThread::new("Backend".to_string()).unwrap();
+
     let opts = webrender::RendererOptions {
         resource_override_path: res_path,
         debug: true,
@@ -99,7 +101,7 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
     };
 
     let size = DeviceUintSize::new(width, height);
-    let (mut renderer, sender) = webrender::renderer::Renderer::new(gl, opts, size).unwrap();
+    let (mut renderer, sender) = webrender::renderer::Renderer::new(gl, opts, size, &mut backend_thread).unwrap();
     let api = sender.create_api();
 
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));

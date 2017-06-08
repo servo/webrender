@@ -100,6 +100,10 @@ impl fmt::Debug for ApiMsg {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct RendererId(pub u32);
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Epoch(pub u32);
 
 #[cfg(not(feature = "webgl"))]
@@ -155,47 +159,57 @@ pub enum ScrollClamping {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct RenderApiSender {
-    api_sender: MsgSender<ApiMsg>,
+    api_sender: MsgSender<(ApiMsg, RendererId)>,
     payload_sender: PayloadSender,
+    renderer_id: RendererId,
 }
 
 impl RenderApiSender {
-    pub fn new(api_sender: MsgSender<ApiMsg>,
-               payload_sender: PayloadSender)
+    pub fn new(api_sender: MsgSender<(ApiMsg, RendererId)>,
+               payload_sender: PayloadSender,
+               id: RendererId)
                -> RenderApiSender {
         RenderApiSender {
             api_sender: api_sender,
             payload_sender: payload_sender,
+            renderer_id: id,
         }
     }
 
     pub fn create_api(&self) -> RenderApi {
         let RenderApiSender {
             ref api_sender,
-            ref payload_sender
+            ref payload_sender,
+            renderer_id,
         } = *self;
         let (sync_tx, sync_rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::CloneApi(sync_tx);
-        api_sender.send(msg).unwrap();
+        api_sender.send((msg, self.renderer_id)).unwrap();
         RenderApi {
             api_sender: api_sender.clone(),
             payload_sender: payload_sender.clone(),
             id_namespace: sync_rx.recv().unwrap(),
             next_id: Cell::new(ResourceId(0)),
+            renderer_id: renderer_id,
         }
     }
 }
 
 pub struct RenderApi {
-    pub api_sender: MsgSender<ApiMsg>,
+    pub api_sender: MsgSender<(ApiMsg, RendererId)>,
     pub payload_sender: PayloadSender,
     pub id_namespace: IdNamespace,
     pub next_id: Cell<ResourceId>,
+    pub renderer_id: RendererId,
 }
 
 impl RenderApi {
     pub fn clone_sender(&self) -> RenderApiSender {
-        RenderApiSender::new(self.api_sender.clone(), self.payload_sender.clone())
+        RenderApiSender::new(self.api_sender.clone(), self.payload_sender.clone(), self.renderer_id)
+    }
+
+    pub fn send_api_msg(&self, msg: ApiMsg) {
+        self.api_sender.send((msg, self.renderer_id)).unwrap()
     }
 
     pub fn generate_font_key(&self) -> FontKey {
@@ -205,17 +219,17 @@ impl RenderApi {
 
     pub fn add_raw_font(&self, key: FontKey, bytes: Vec<u8>, index: u32) {
         let msg = ApiMsg::AddRawFont(key, bytes, index);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     pub fn add_native_font(&self, key: FontKey, native_font_handle: NativeFontHandle) {
         let msg = ApiMsg::AddNativeFont(key, native_font_handle);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     pub fn delete_font(&self, key: FontKey) {
         let msg = ApiMsg::DeleteFont(key);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     /// Gets the dimensions for the supplied glyph keys
@@ -227,7 +241,7 @@ impl RenderApi {
                                 -> Vec<Option<GlyphDimensions>> {
         let (tx, rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::GetGlyphDimensions(glyph_keys, tx);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
         rx.recv().unwrap()
     }
 
@@ -244,7 +258,7 @@ impl RenderApi {
                      data: ImageData,
                      tiling: Option<TileSize>) {
         let msg = ApiMsg::AddImage(key, descriptor, data, tiling);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     /// Updates a specific image.
@@ -257,13 +271,13 @@ impl RenderApi {
                         data: ImageData,
                         dirty_rect: Option<DeviceUintRect>) {
         let msg = ApiMsg::UpdateImage(key, descriptor, data, dirty_rect);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     /// Deletes the specific image.
     pub fn delete_image(&self, key: ImageKey) {
         let msg = ApiMsg::DeleteImage(key);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     /// Sets the root pipeline.
@@ -281,7 +295,7 @@ impl RenderApi {
     /// ```
     pub fn set_root_pipeline(&self, pipeline_id: PipelineId) {
         let msg = ApiMsg::SetRootPipeline(pipeline_id);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     /// Supplies a new frame to WebRender.
@@ -319,7 +333,7 @@ impl RenderApi {
                                          content_size,
                                          display_list_descriptor,
                                          preserve_frame_state);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
 
         self.payload_sender.send_payload(Payload {
             epoch: epoch,
@@ -334,39 +348,39 @@ impl RenderApi {
     /// which has `ScrollPolicy::Scrollable` set.
     pub fn scroll(&self, scroll_location: ScrollLocation, cursor: WorldPoint, phase: ScrollEventPhase) {
         let msg = ApiMsg::Scroll(scroll_location, cursor, phase);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     pub fn scroll_node_with_id(&self, origin: LayoutPoint, id: ClipId, clamp: ScrollClamping) {
         let msg = ApiMsg::ScrollNodeWithId(origin, id, clamp);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     pub fn set_page_zoom(&self, page_zoom: ZoomFactor) {
         let msg = ApiMsg::SetPageZoom(page_zoom);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     pub fn set_pinch_zoom(&self, pinch_zoom: ZoomFactor) {
         let msg = ApiMsg::SetPinchZoom(pinch_zoom);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     pub fn set_pan(&self, pan: DeviceIntPoint) {
         let msg = ApiMsg::SetPan(pan);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     pub fn set_window_parameters(&self,
                                  window_size: DeviceUintSize,
                                  inner_rect: DeviceUintRect) {
         let msg = ApiMsg::SetWindowParameters(window_size, inner_rect);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     pub fn tick_scrolling_bounce_animations(&self) {
         let msg = ApiMsg::TickScrollingBounce;
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     /// Translates a point from viewport coordinates to layer space
@@ -374,14 +388,14 @@ impl RenderApi {
                                           -> (LayoutPoint, PipelineId) {
         let (tx, rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::TranslatePointToLayerSpace(*point, tx);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
         rx.recv().unwrap()
     }
 
     pub fn get_scroll_node_state(&self) -> Vec<ScrollLayerState> {
         let (tx, rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::GetScrollNodeState(tx);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
         rx.recv().unwrap()
     }
 
@@ -389,18 +403,18 @@ impl RenderApi {
                                  -> Result<(WebGLContextId, GLLimits), String> {
         let (tx, rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::RequestWebGLContext(*size, attributes, tx);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
         rx.recv().unwrap()
     }
 
     pub fn resize_webgl_context(&self, context_id: WebGLContextId, size: &DeviceIntSize) {
         let msg = ApiMsg::ResizeWebGLContext(context_id, *size);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     pub fn send_webgl_command(&self, context_id: WebGLContextId, command: WebGLCommand) {
         let msg = ApiMsg::WebGLCommand(context_id, command);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     /// Generate a new frame. Optionally, supply a list of animated
@@ -408,21 +422,21 @@ impl RenderApi {
     /// in the current display list.
     pub fn generate_frame(&self, property_bindings: Option<DynamicProperties>) {
         let msg = ApiMsg::GenerateFrame(property_bindings);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     pub fn send_vr_compositor_command(&self, context_id: WebGLContextId, command: VRCompositorCommand) {
         let msg = ApiMsg::VRCompositorCommand(context_id, command);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     pub fn send_external_event(&self, evt: ExternalEvent) {
         let msg = ApiMsg::ExternalEvent(evt);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send((msg, self.renderer_id)).unwrap();
     }
 
     pub fn shut_down(&self) {
-        self.api_sender.send(ApiMsg::ShutDown).unwrap();
+        self.api_sender.send((ApiMsg::ShutDown, self.renderer_id)).unwrap();
     }
 
     /// Create a new unique key that can be used for

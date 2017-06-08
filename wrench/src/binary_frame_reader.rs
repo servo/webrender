@@ -183,7 +183,7 @@ impl WrenchThing for BinaryFrameReader {
                 match item {
                     Item::Message(msg) => {
                         if !self.should_skip_upload_msg(&msg) {
-                            wrench.api.api_sender.send(msg).unwrap();
+                            wrench.api.send_api_msg(msg);
                         }
                     }
                     Item::Data(buf) => {
