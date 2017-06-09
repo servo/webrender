@@ -22,7 +22,7 @@ use std::rc::Rc;
 //use std::sync::mpsc::{channel, Sender};
 //use std::thread;
 use webrender_traits::{ColorF, ImageFormat};
-use webrender_traits::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintSize};
+use webrender_traits::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
 pub struct FrameId(usize);
@@ -875,10 +875,13 @@ pub struct Device {
     // Frame counter. This is used to map between CPU
     // frames and GPU frames.
     frame_id: FrameId,
+
+    origin: DeviceUintPoint,
 }
 
 impl Device {
     pub fn new(gl: Rc<gl::Gl>,
+               origin: DeviceUintPoint,
                resource_override_path: Option<PathBuf>,
                _file_changed_handler: Box<FileWatcherHandler>) -> Device {
         //let file_watcher = FileWatcherThread::new(file_changed_handler);
@@ -921,6 +924,8 @@ impl Device {
 
             max_texture_size: max_texture_size,
             frame_id: FrameId(0),
+
+            origin: origin,
         }
     }
 
@@ -1053,7 +1058,7 @@ impl Device {
         }
 
         if let Some(dimensions) = dimensions {
-            self.gl.viewport(0, 0, dimensions.width as gl::GLint, dimensions.height as gl::GLint);
+            self.gl.viewport(self.origin.x as i32, self.origin.y as i32, dimensions.width as gl::GLint, dimensions.height as gl::GLint);
         }
     }
 

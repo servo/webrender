@@ -689,7 +689,8 @@ impl Renderer {
     /// [rendereroptions]: struct.RendererOptions.html
     pub fn new(gl: Rc<gl::Gl>,
                mut options: RendererOptions,
-               initial_window_size: DeviceUintSize) -> Result<(Renderer, RenderApiSender), InitError> {
+               rendering_rect: DeviceUintRect,
+               viewport_rect: DeviceUintRect) -> Result<(Renderer, RenderApiSender), InitError> {
         let (api_tx, api_rx) = try!{ channel::msg_channel() };
         let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
         let (result_tx, result_rx) = channel();
@@ -705,6 +706,7 @@ impl Renderer {
         };
 
         let mut device = Device::new(gl,
+                                     rendering_rect.origin,
                                      options.resource_override_path.clone(),
                                      Box::new(file_watch_handler));
         // device-pixel ratio doesn't matter here - we are just creating resources.
@@ -1084,7 +1086,8 @@ impl Renderer {
                                                  backend_main_thread_dispatcher,
                                                  blob_image_renderer,
                                                  backend_vr_compositor,
-                                                 initial_window_size);
+                                                 rendering_rect,
+                                                 viewport_rect);
             backend.run(backend_profile_counters);
         })};
 

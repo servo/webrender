@@ -21,7 +21,7 @@ use webgl_types::{GLContextHandleWrapper, GLContextWrapper};
 use webrender_traits::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
 use webrender_traits::channel::{PayloadSender, PayloadSenderHelperMethods};
 use webrender_traits::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DeviceIntPoint};
-use webrender_traits::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, IdNamespace, ImageData};
+use webrender_traits::{DeviceUintRect, IdNamespace, ImageData};
 use webrender_traits::{LayerPoint, PipelineId, RenderDispatcher, RenderNotifier};
 use webrender_traits::{VRCompositorCommand, VRCompositorHandler, WebGLCommand, WebGLContextId};
 
@@ -46,8 +46,8 @@ pub struct RenderBackend {
     page_zoom_factor: f32,
     pinch_zoom_factor: f32,
     pan: DeviceIntPoint,
-    window_size: DeviceUintSize,
-    inner_rect: DeviceUintRect,
+    rendering_rect: DeviceUintRect,
+    viewport_rect: DeviceUintRect,
     next_namespace_id: IdNamespace,
 
     gpu_cache: GpuCache,
@@ -83,7 +83,8 @@ impl RenderBackend {
                main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
                blob_image_renderer: Option<Box<BlobImageRenderer>>,
                vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
-               initial_window_size: DeviceUintSize) -> RenderBackend {
+               rendering_rect: DeviceUintRect,
+               viewport_rect: DeviceUintRect) -> RenderBackend {
 
         let resource_cache = ResourceCache::new(texture_cache, workers, blob_image_renderer);
 
@@ -111,8 +112,8 @@ impl RenderBackend {
             main_thread_dispatcher: main_thread_dispatcher,
             next_webgl_id: 0,
             vr_compositor_handler: vr_compositor_handler,
-            window_size: initial_window_size,
-            inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), initial_window_size),
+            rendering_rect: rendering_rect,
+            viewport_rect: viewport_rect,
         }
     }
 
@@ -169,9 +170,9 @@ impl RenderBackend {
                         ApiMsg::SetPan(pan) => {
                             self.pan = pan;
                         }
-                        ApiMsg::SetWindowParameters(window_size, inner_rect) => {
-                            self.window_size = window_size;
-                            self.inner_rect = inner_rect;
+                        ApiMsg::SetViewGeometry(rendering_rect, viewport_rect) => {
+                            self.rendering_rect = rendering_rect;
+                            self.viewport_rect = viewport_rect;
                         }
                         ApiMsg::CloneApi(sender) => {
                             let result = self.next_namespace_id;
@@ -484,8 +485,8 @@ impl RenderBackend {
         let accumulated_scale_factor = self.accumulated_scale_factor();
         self.frame.create(&self.scene,
                           &mut self.resource_cache,
-                          self.window_size,
-                          self.inner_rect,
+                          self.rendering_rect.size,
+                          self.viewport_rect,
                           accumulated_scale_factor);
     }
 
