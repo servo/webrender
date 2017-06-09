@@ -1603,9 +1603,8 @@ impl CompositeOps {
 
     pub fn will_make_invisible(&self) -> bool {
         for op in &self.filters {
-            match op {
-                &LowLevelFilterOp::Opacity(Au(0)) => return true,
-                _ => {}
+            if op == &LowLevelFilterOp::Opacity(Au(0)) {
+                return true;
             }
         }
         false
