@@ -20,26 +20,26 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Sender, Receiver};
-use webrender_traits::*;
+use webrender_traits as wt;
 
 // This example shows how to implement a very basic BlobImageRenderer that can only render
 // a checkerboard pattern.
 
 // The deserialized command list internally used by this example is just a color.
-type ImageRenderingCommands = ColorU;
+type ImageRenderingCommands = wt::ColorU;
 
 // Serialize/deserialze the blob.
 // Ror real usecases you should probably use serde rather than doing it by hand.
 
-fn serialize_blob(color: ColorU) -> Vec<u8> {
+fn serialize_blob(color: wt::ColorU) -> Vec<u8> {
     vec![color.r, color.g, color.b, color.a]
 }
 
 fn deserialize_blob(blob: &[u8]) -> Result<ImageRenderingCommands, ()> {
     let mut iter = blob.iter();
     return match (iter.next(), iter.next(), iter.next(), iter.next()) {
-        (Some(&r), Some(&g), Some(&b), Some(&a)) => Ok(ColorU::new(r, g, b, a)),
-        (Some(&a), None, None, None) => Ok(ColorU::new(a, a, a, a)),
+        (Some(&r), Some(&g), Some(&b), Some(&a)) => Ok(wt::ColorU::new(r, g, b, a)),
+        (Some(&a), None, None, None) => Ok(wt::ColorU::new(a, a, a, a)),
         _ => Err(()),
     }
 }
@@ -48,9 +48,9 @@ fn deserialize_blob(blob: &[u8]) -> Result<ImageRenderingCommands, ()> {
 // actual image data.
 fn render_blob(
     commands: Arc<ImageRenderingCommands>,
-    descriptor: &BlobImageDescriptor,
-    tile: Option<TileOffset>,
-) -> BlobImageResult {
+    descriptor: &wt::BlobImageDescriptor,
+    tile: Option<wt::TileOffset>,
+) -> wt::BlobImageResult {
     let color = *commands;
 
     // Allocate storage for the result. Right now the resource cache expects the
@@ -77,17 +77,17 @@ fn render_blob(
             let tc = if tile_checker { 0 } else { (1 - checker) * 40 };
 
             match descriptor.format {
-                ImageFormat::RGBA8 => {
+                wt::ImageFormat::RGBA8 => {
                     texels.push(color.b * checker + tc);
                     texels.push(color.g * checker + tc);
                     texels.push(color.r * checker + tc);
                     texels.push(color.a * checker + tc);
                 }
-                ImageFormat::A8 => {
+                wt::ImageFormat::A8 => {
                     texels.push(color.a * checker + tc);
                 }
                 _ => {
-                    return Err(BlobImageError::Other(format!(
+                    return Err(wt::BlobImageError::Other(format!(
                         "Usupported image format {:?}",
                         descriptor.format
                     )));
@@ -96,7 +96,7 @@ fn render_blob(
         }
     }
 
-    Ok(RasterizedBlobImage {
+    Ok(wt::RasterizedBlobImage {
         data: texels,
         width: descriptor.width,
         height: descriptor.height,
@@ -111,18 +111,18 @@ struct CheckerboardRenderer {
     workers: Arc<ThreadPool>,
 
     // the workers will use an mpsc channel to communicate the result.
-    tx: Sender<(BlobImageRequest, BlobImageResult)>,
-    rx: Receiver<(BlobImageRequest, BlobImageResult)>,
+    tx: Sender<(wt::BlobImageRequest, wt::BlobImageResult)>,
+    rx: Receiver<(wt::BlobImageRequest, wt::BlobImageResult)>,
 
     // The deserialized drawing commands.
     // In this example we store them in Arcs. This isn't necessary since in this simplified
     // case the command list is a simple 32 bits value and would be cheap to clone before sending
     // to the workers. But in a more realistic scenario the commands would typically be bigger
     // and more expensive to clone, so let's pretend it is also the case here.
-    image_cmds: HashMap<ImageKey, Arc<ImageRenderingCommands>>,
+    image_cmds: HashMap<wt::ImageKey, Arc<ImageRenderingCommands>>,
 
     // The images rendered in the current frame (not kept here between frames).
-    rendered_images: HashMap<BlobImageRequest, Option<BlobImageResult>>,
+    rendered_images: HashMap<wt::BlobImageRequest, Option<wt::BlobImageResult>>,
 }
 
 impl CheckerboardRenderer {
@@ -138,26 +138,26 @@ impl CheckerboardRenderer {
     }
 }
 
-impl BlobImageRenderer for CheckerboardRenderer {
-    fn add(&mut self, key: ImageKey, cmds: BlobImageData, _: Option<TileSize>) {
+impl wt::BlobImageRenderer for CheckerboardRenderer {
+    fn add(&mut self, key: wt::ImageKey, cmds: wt::BlobImageData, _: Option<wt::TileSize>) {
         self.image_cmds.insert(key, Arc::new(deserialize_blob(&cmds[..]).unwrap()));
     }
 
-    fn update(&mut self, key: ImageKey, cmds: BlobImageData) {
+    fn update(&mut self, key: wt::ImageKey, cmds: wt::BlobImageData) {
         // Here, updating is just replacing the current version of the commands with
         // the new one (no incremental updates).
         self.image_cmds.insert(key, Arc::new(deserialize_blob(&cmds[..]).unwrap()));
     }
 
-    fn delete(&mut self, key: ImageKey) {
+    fn delete(&mut self, key: wt::ImageKey) {
         self.image_cmds.remove(&key);
     }
 
     fn request(&mut self,
-               request: BlobImageRequest,
-               descriptor: &BlobImageDescriptor,
-               _dirty_rect: Option<DeviceUintRect>,
-               _images: &ImageStore) {
+               request: wt::BlobImageRequest,
+               descriptor: &wt::BlobImageDescriptor,
+               _dirty_rect: Option<wt::DeviceUintRect>,
+               _images: &wt::ImageStore) {
         // This method is where we kick off our rendering jobs.
         // It should avoid doing work on the calling thread as much as possible.
         // In this example we will use the thread pool to render individual tiles.
@@ -179,7 +179,7 @@ impl BlobImageRenderer for CheckerboardRenderer {
         self.rendered_images.insert(request, None);
     }
 
-    fn resolve(&mut self, request: BlobImageRequest) -> BlobImageResult {
+    fn resolve(&mut self, request: wt::BlobImageRequest) -> wt::BlobImageResult {
         // In this method we wait until the work is complete on the worker threads and
         // gather the results.
 
@@ -187,7 +187,7 @@ impl BlobImageRenderer for CheckerboardRenderer {
         // that we are looking for.
         match self.rendered_images.entry(request) {
             Entry::Vacant(_) => {
-                return Err(BlobImageError::InvalidKey);
+                return Err(wt::BlobImageError::InvalidKey);
             }
             Entry::Occupied(entry) => {
                 // None means we haven't yet received the result.
@@ -208,47 +208,47 @@ impl BlobImageRenderer for CheckerboardRenderer {
         }
 
         // If we break out of the loop above it means the channel closed unexpectedly.
-        Err(BlobImageError::Other("Channel closed".into()))
+        Err(wt::BlobImageError::Other("Channel closed".into()))
     }
 }
 
-fn body(api: &RenderApi,
-        builder: &mut DisplayListBuilder,
-        _pipeline_id: &PipelineId,
-        layout_size: &LayoutSize)
+fn body(api: &wt::RenderApi,
+        builder: &mut wt::DisplayListBuilder,
+        _pipeline_id: &wt::PipelineId,
+        layout_size: &wt::LayoutSize)
 {
     let blob_img1 = api.generate_image_key();
     api.add_image(
         blob_img1,
-        ImageDescriptor::new(500, 500, ImageFormat::RGBA8, true),
-        ImageData::new_blob_image(serialize_blob(ColorU::new(50, 50, 150, 255))),
+        wt::ImageDescriptor::new(500, 500, wt::ImageFormat::RGBA8, true),
+        wt::ImageData::new_blob_image(serialize_blob(wt::ColorU::new(50, 50, 150, 255))),
         Some(128),
     );
 
     let blob_img2 = api.generate_image_key();
     api.add_image(
         blob_img2,
-        ImageDescriptor::new(200, 200, ImageFormat::RGBA8, true),
-        ImageData::new_blob_image(serialize_blob(ColorU::new(50, 150, 50, 255))),
+        wt::ImageDescriptor::new(200, 200, wt::ImageFormat::RGBA8, true),
+        wt::ImageData::new_blob_image(serialize_blob(wt::ColorU::new(50, 150, 50, 255))),
         None,
     );
 
-    let bounds = LayoutRect::new(LayoutPoint::zero(), *layout_size);
-    builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
+    let bounds = wt::LayoutRect::new(wt::LayoutPoint::zero(), *layout_size);
+    builder.push_stacking_context(wt::ScrollPolicy::Scrollable,
                                   bounds,
                                   None,
-                                  TransformStyle::Flat,
+                                  wt::TransformStyle::Flat,
                                   None,
-                                  webrender_traits::MixBlendMode::Normal,
+                                  wt::MixBlendMode::Normal,
                                   Vec::new());
 
     let clip = builder.push_clip_region(&bounds, vec![], None);
     builder.push_image(
         (30, 30).by(500, 500),
         clip,
-        LayoutSize::new(500.0, 500.0),
-        LayoutSize::new(0.0, 0.0),
-        ImageRendering::Auto,
+        wt::LayoutSize::new(500.0, 500.0),
+        wt::LayoutSize::new(0.0, 0.0),
+        wt::ImageRendering::Auto,
         blob_img1,
     );
 
@@ -256,9 +256,9 @@ fn body(api: &RenderApi,
     builder.push_image(
         (600, 600).by(200, 200),
         clip,
-        LayoutSize::new(200.0, 200.0),
-        LayoutSize::new(0.0, 0.0),
-        ImageRendering::Auto,
+        wt::LayoutSize::new(200.0, 200.0),
+        wt::LayoutSize::new(0.0, 0.0),
+        wt::ImageRendering::Auto,
         blob_img2,
     );
 
@@ -266,7 +266,7 @@ fn body(api: &RenderApi,
 }
 
 fn event_handler(_event: &glutin::Event,
-                 _api: &RenderApi)
+                 _api: &wt::RenderApi)
 {
 }
 
