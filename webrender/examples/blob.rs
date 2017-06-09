@@ -13,6 +13,7 @@ extern crate rayon;
 #[path="common/boilerplate.rs"]
 mod boilerplate;
 
+use boilerplate::HandyDandyRectBuilder;
 use rayon::ThreadPool;
 use rayon::Configuration as ThreadPoolConfig;
 use std::collections::HashMap;
@@ -243,7 +244,7 @@ fn body(api: &RenderApi,
 
     let clip = builder.push_clip_region(&bounds, vec![], None);
     builder.push_image(
-        LayoutRect::new(LayoutPoint::new(30.0, 30.0), LayoutSize::new(500.0, 500.0)),
+        (30, 30).by(500, 500),
         clip,
         LayoutSize::new(500.0, 500.0),
         LayoutSize::new(0.0, 0.0),
@@ -253,7 +254,7 @@ fn body(api: &RenderApi,
 
     let clip = builder.push_clip_region(&bounds, vec![], None);
     builder.push_image(
-        LayoutRect::new(LayoutPoint::new(600.0, 60.0), LayoutSize::new(200.0, 200.0)),
+        (600, 600).by(200, 200),
         clip,
         LayoutSize::new(200.0, 200.0),
         LayoutSize::new(0.0, 0.0),
