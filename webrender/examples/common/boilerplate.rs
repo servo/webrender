@@ -61,6 +61,7 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
 
     let window = glutin::WindowBuilder::new()
                 .with_title("WebRender Sample App")
+                .with_multitouch()
                 .with_gl(glutin::GlRequest::GlThenGles {
                     opengl_version: (3, 2),
                     opengles_version: (3, 0)
@@ -128,6 +129,14 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
                 glutin::Event::Closed |
                 glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Escape)) |
                 glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Q)) => break 'outer,
+
+                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
+                                             _, Some(glutin::VirtualKeyCode::P)) => {
+                    let enable_profiler = !renderer.get_profiler_enabled();
+                    renderer.set_profiler_enabled(enable_profiler);
+                    api.generate_frame(None);
+                }
+
                 _ => event_handler(&event, &api),
             }
         }

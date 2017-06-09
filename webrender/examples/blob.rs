@@ -10,18 +10,16 @@ extern crate webrender;
 extern crate webrender_traits;
 extern crate rayon;
 
-use gleam::gl;
+#[path="common/boilerplate.rs"]
+mod boilerplate;
+
 use rayon::ThreadPool;
 use rayon::Configuration as ThreadPoolConfig;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Sender, Receiver};
-use webrender_traits::{BlobImageData, BlobImageDescriptor, BlobImageError, BlobImageRenderer, BlobImageRequest};
-use webrender_traits::{BlobImageResult, TileOffset, ImageStore, ColorF, ColorU, Epoch};
-use webrender_traits::{DeviceUintSize, DeviceUintRect, LayoutPoint, LayoutRect, LayoutSize};
-use webrender_traits::{ImageData, ImageDescriptor, ImageFormat, ImageRendering, ImageKey, TileSize};
-use webrender_traits::{PipelineId, RasterizedBlobImage, TransformStyle};
+use webrender_traits::*;
 
 // This example shows how to implement a very basic BlobImageRenderer that can only render
 // a checkerboard pattern.
@@ -213,56 +211,11 @@ impl BlobImageRenderer for CheckerboardRenderer {
     }
 }
 
-fn main() {
-    let window = glutin::WindowBuilder::new()
-                .with_title("WebRender Sample (BlobImageRenderer)")
-                .with_multitouch()
-                .with_gl(glutin::GlRequest::GlThenGles {
-                    opengl_version: (3, 2),
-                    opengles_version: (3, 0)
-                })
-                .build()
-                .unwrap();
-
-    unsafe {
-        window.make_current().ok();
-    }
-
-    let gl = match gl::GlType::default() {
-        gl::GlType::Gl => unsafe { gl::GlFns::load_with(|symbol| window.get_proc_address(symbol) as *const _) },
-        gl::GlType::Gles => unsafe { gl::GlesFns::load_with(|symbol| window.get_proc_address(symbol) as *const _) },
-    };
-
-    println!("OpenGL version {}", gl.get_string(gl::VERSION));
-
-    let (width, height) = window.get_inner_size_pixels().unwrap();
-
-    let worker_config = ThreadPoolConfig::new().thread_name(|idx|{
-        format!("WebRender:Worker#{}", idx)
-    });
-
-    let workers = Arc::new(ThreadPool::new(worker_config).unwrap());
-
-    let opts = webrender::RendererOptions {
-        debug: true,
-        workers: Some(Arc::clone(&workers)),
-        // Register our blob renderer, so that WebRender integrates it in the resource cache..
-        // Share the same pool of worker threads between WebRender and our blob renderer.
-        blob_image_renderer: Some(Box::new(CheckerboardRenderer::new(Arc::clone(&workers)))),
-        device_pixel_ratio: window.hidpi_factor(),
-        .. Default::default()
-    };
-
-    let size = DeviceUintSize::new(width, height);
-    let (mut renderer, sender) = webrender::renderer::Renderer::new(gl, opts, size).unwrap();
-    let api = sender.create_api();
-
-    let notifier = Box::new(Notifier::new(window.create_window_proxy()));
-    renderer.set_render_notifier(notifier);
-
-    let epoch = Epoch(0);
-    let root_background_color = ColorF::new(0.2, 0.2, 0.2, 1.0);
-
+fn body(api: &RenderApi,
+        builder: &mut DisplayListBuilder,
+        _pipeline_id: &PipelineId,
+        layout_size: &LayoutSize)
+{
     let blob_img1 = api.generate_image_key();
     api.add_image(
         blob_img1,
@@ -279,11 +232,7 @@ fn main() {
         None,
     );
 
-    let pipeline_id = PipelineId(0, 0);
-    let layout_size = LayoutSize::new(width as f32, height as f32);
-    let mut builder = webrender_traits::DisplayListBuilder::new(pipeline_id, layout_size);
-
-    let bounds = LayoutRect::new(LayoutPoint::zero(), layout_size);
+    let bounds = LayoutRect::new(LayoutPoint::zero(), *layout_size);
     builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
                                   bounds,
                                   None,
@@ -313,65 +262,27 @@ fn main() {
     );
 
     builder.pop_stacking_context();
-
-    api.set_display_list(
-        Some(root_background_color),
-        epoch,
-        LayoutSize::new(width as f32, height as f32),
-        builder.finalize(),
-        true);
-    api.set_root_pipeline(pipeline_id);
-    api.generate_frame(None);
-
-    'outer: for event in window.wait_events() {
-        let mut events = Vec::new();
-        events.push(event);
-
-        for event in window.poll_events() {
-            events.push(event);
-        }
-
-        for event in events {
-            match event {
-                glutin::Event::Closed |
-                glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Escape)) |
-                glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Q)) => break 'outer,
-                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
-                                             _, Some(glutin::VirtualKeyCode::P)) => {
-                    let enable_profiler = !renderer.get_profiler_enabled();
-                    renderer.set_profiler_enabled(enable_profiler);
-                    api.generate_frame(None);
-                }
-                _ => ()
-            }
-        }
-
-        renderer.update();
-        renderer.render(DeviceUintSize::new(width, height));
-        window.swap_buffers().ok();
-    }
 }
 
-struct Notifier {
-    window_proxy: glutin::WindowProxy,
+fn event_handler(_event: &glutin::Event,
+                 _api: &RenderApi)
+{
 }
 
-impl Notifier {
-    fn new(window_proxy: glutin::WindowProxy) -> Notifier {
-        Notifier {
-            window_proxy: window_proxy,
-        }
-    }
-}
+fn main() {
+    let worker_config = ThreadPoolConfig::new().thread_name(|idx|{
+        format!("WebRender:Worker#{}", idx)
+    });
 
-impl webrender_traits::RenderNotifier for Notifier {
-    fn new_frame_ready(&mut self) {
-        #[cfg(not(target_os = "android"))]
-        self.window_proxy.wakeup_event_loop();
-    }
+    let workers = Arc::new(ThreadPool::new(worker_config).unwrap());
 
-    fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {
-        #[cfg(not(target_os = "android"))]
-        self.window_proxy.wakeup_event_loop();
-    }
+    let opts = webrender::RendererOptions {
+        workers: Some(Arc::clone(&workers)),
+        // Register our blob renderer, so that WebRender integrates it in the resource cache..
+        // Share the same pool of worker threads between WebRender and our blob renderer.
+        blob_image_renderer: Some(Box::new(CheckerboardRenderer::new(Arc::clone(&workers)))),
+        .. Default::default()
+    };
+
+    boilerplate::main_wrapper(body, event_handler, Some(opts));
 }
