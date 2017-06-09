@@ -82,5 +82,5 @@ fn event_handler(event: &glutin::Event,
 }
 
 fn main() {
-    boilerplate::main_wrapper(body, event_handler);
+    boilerplate::main_wrapper(body, event_handler, None);
 }

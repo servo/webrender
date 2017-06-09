@@ -49,7 +49,8 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
                                          &PipelineId,
                                          &LayoutSize) -> (),
                     event_handler: fn(&glutin::Event,
-                                      &RenderApi) -> ())
+                                      &RenderApi) -> (),
+                    options: Option<webrender::RendererOptions>)
 {
     let args: Vec<String> = env::args().collect();
     let res_path = if args.len() > 1 {
@@ -86,7 +87,7 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
         debug: true,
         precache_shaders: true,
         device_pixel_ratio: window.hidpi_factor(),
-        .. Default::default()
+        .. options.unwrap_or(webrender::RendererOptions::default())
     };
 
     let size = DeviceUintSize::new(width, height);
