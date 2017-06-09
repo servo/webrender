@@ -330,6 +330,17 @@ pub enum LowLevelFilterOp {
     Sepia(Au),
 }
 
+impl LowLevelFilterOp {
+    pub fn can_discard(&self) -> bool {
+        match *self {
+            LowLevelFilterOp::Blur(length, _) if length == Au(0) => true,
+            LowLevelFilterOp::Opacity(opacity) if opacity == Au::from_f32_px(1.0) => true,
+            _ => false,
+        }
+    }
+}
+
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum HardwareCompositeOp {
     PremultipliedAlpha,

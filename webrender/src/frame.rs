@@ -93,24 +93,17 @@ impl StackingContextHelpers for StackingContext {
         for filter in display_list.get(input_filters) {
             match filter {
                 FilterOp::Blur(radius) => {
-                    filters.push(LowLevelFilterOp::Blur(
-                        radius,
-                        AxisDirection::Horizontal));
-                    filters.push(LowLevelFilterOp::Blur(
-                        radius,
-                        AxisDirection::Vertical));
+                    filters.push(LowLevelFilterOp::Blur(radius,AxisDirection::Horizontal));
+                    filters.push(LowLevelFilterOp::Blur(radius, AxisDirection::Vertical));
                 }
                 FilterOp::Brightness(amount) => {
-                    filters.push(
-                            LowLevelFilterOp::Brightness(Au::from_f32_px(amount)));
+                    filters.push(LowLevelFilterOp::Brightness(Au::from_f32_px(amount)));
                 }
                 FilterOp::Contrast(amount) => {
-                    filters.push(
-                            LowLevelFilterOp::Contrast(Au::from_f32_px(amount)));
+                    filters.push(LowLevelFilterOp::Contrast(Au::from_f32_px(amount)));
                 }
                 FilterOp::Grayscale(amount) => {
-                    filters.push(
-                            LowLevelFilterOp::Grayscale(Au::from_f32_px(amount)));
+                    filters.push(LowLevelFilterOp::Grayscale(Au::from_f32_px(amount)));
                 }
                 FilterOp::HueRotate(angle) => {
                     filters.push(
@@ -118,21 +111,17 @@ impl StackingContextHelpers for StackingContext {
                                     angle * ANGLE_FLOAT_TO_FIXED) as i32));
                 }
                 FilterOp::Invert(amount) => {
-                    filters.push(
-                            LowLevelFilterOp::Invert(Au::from_f32_px(amount)));
+                    filters.push(LowLevelFilterOp::Invert(Au::from_f32_px(amount)));
                 }
                 FilterOp::Opacity(ref value) => {
                     let amount = properties.resolve_float(value, 1.0);
-                    filters.push(
-                            LowLevelFilterOp::Opacity(Au::from_f32_px(amount)));
+                    filters.push(LowLevelFilterOp::Opacity(Au::from_f32_px(amount)));
                 }
                 FilterOp::Saturate(amount) => {
-                    filters.push(
-                            LowLevelFilterOp::Saturate(Au::from_f32_px(amount)));
+                    filters.push(LowLevelFilterOp::Saturate(Au::from_f32_px(amount)));
                 }
                 FilterOp::Sepia(amount) => {
-                    filters.push(
-                            LowLevelFilterOp::Sepia(Au::from_f32_px(amount)));
+                    filters.push(LowLevelFilterOp::Sepia(Au::from_f32_px(amount)));
                 }
             }
         }

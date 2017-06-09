@@ -1480,12 +1480,15 @@ impl StackingContext {
                reference_frame_id: ClipId,
                local_bounds: LayerRect,
                transform_style: TransformStyle,
-               composite_ops: CompositeOps)
+               mut composite_ops: CompositeOps)
                -> StackingContext {
         let isolation = match transform_style {
             TransformStyle::Flat => ContextIsolation::None,
             TransformStyle::Preserve3D => ContextIsolation::Items,
         };
+
+        composite_ops.filters.retain(|filter| !filter.can_discard());
+
         StackingContext {
             pipeline_id: pipeline_id,
             reference_frame_offset: reference_frame_offset,
@@ -1603,9 +1606,8 @@ impl CompositeOps {
 
     pub fn will_make_invisible(&self) -> bool {
         for op in &self.filters {
-            match op {
-                &LowLevelFilterOp::Opacity(Au(0)) => return true,
-                _ => {}
+            if op == &LowLevelFilterOp::Opacity(Au(0)) {
+                return true;
             }
         }
         false

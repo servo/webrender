@@ -1240,6 +1240,8 @@ impl FrameBuilder {
                     }
 
                     for filter in &stacking_context.composite_ops.filters {
+                        debug_assert!(!filter.can_discard());
+
                         let mut prev_task = alpha_task_stack.pop().unwrap();
                         let item = AlphaRenderItem::Blend(stacking_context_index,
                                                           current_task.id,
