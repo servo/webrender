@@ -44,11 +44,12 @@ impl HandyDandyRectBuilder for (i32, i32) {
     }
 }
 
-pub fn main_wrapper(builder_callback: fn(&mut DisplayListBuilder,
+pub fn main_wrapper(builder_callback: fn(&RenderApi,
+                                         &mut DisplayListBuilder,
                                          &PipelineId,
                                          &LayoutSize) -> (),
-                    event_handler: fn(event: &glutin::Event,
-                                      api: &RenderApi) -> ())
+                    event_handler: fn(&glutin::Event,
+                                      &RenderApi) -> ())
 {
     let args: Vec<String> = env::args().collect();
     let res_path = if args.len() > 1 {
@@ -102,7 +103,7 @@ pub fn main_wrapper(builder_callback: fn(&mut DisplayListBuilder,
     let layout_size = LayoutSize::new(width as f32, height as f32);
     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
 
-    builder_callback(&mut builder, &pipeline_id, &layout_size);
+    builder_callback(&api, &mut builder, &pipeline_id, &layout_size);
 
     api.set_display_list(
         Some(root_background_color),

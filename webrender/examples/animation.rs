@@ -20,7 +20,8 @@ use webrender_traits::*;
 // This example creates a 100x100 white rect and allows the user to move it
 // around by using the arrow keys. It does this by using the animation API.
 
-fn body(builder: &mut DisplayListBuilder,
+fn body(_api: &RenderApi,
+        builder: &mut DisplayListBuilder,
         _pipeline_id: &PipelineId,
         _layout_size: &LayoutSize)
 {
