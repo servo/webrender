@@ -63,7 +63,7 @@ struct GlyphMetrics {
 // this function from Skia which is used to check if a glyph
 // can be rendered with subpixel AA.
 fn supports_subpixel_aa() -> bool {
-    let mut cg_context = CGContext::create_bitmap_context(1, 1, 8, 4,
+    let mut cg_context = CGContext::create_bitmap_context(None, 1, 1, 8, 4,
                                                           &CGColorSpace::create_device_rgb(),
                                                           kCGImageAlphaNoneSkipFirst |
                                                           kCGBitmapByteOrder32Little);
@@ -289,7 +289,7 @@ impl FontContext {
             FontRenderMode::Alpha | FontRenderMode::Mono => kCGImageAlphaPremultipliedLast,
         };
 
-        let mut cg_context = CGContext::create_bitmap_context(metrics.rasterized_width as usize,
+        let mut cg_context = CGContext::create_bitmap_context(None, metrics.rasterized_width as usize,
                                                               metrics.rasterized_height as usize,
                                                               8,
                                                               metrics.rasterized_width as usize * 4,
