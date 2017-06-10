@@ -7,33 +7,32 @@ license = "MPL-2.0"
 
 [dependencies]
 base64 = "0.3"
-bincode = "1.0.0-alpha2"
+bincode = "0.8"
 byteorder = "1.0"
 env_logger = { version = "0.4", optional = true }
-euclid = "0.14.4"
+euclid = "0.15"
 gleam = "0.4"
-servo-glutin = "0.10.1"
-app_units = "0.4"
+servo-glutin = "0.11"
+app_units = "0.5"
 image = "0.12"
 clap = { version = "2", features = ["yaml"] }
 lazy_static = "0.2"
 yaml-rust = { git = "https://github.com/vvuk/yaml-rust", features = ["preserve_order"] }
-serde_json = "0.9"
+serde_json = "1.0"
 time = "0.1"
 crossbeam = "0.2"
 osmesa-sys = { version = "0.1.2", optional = true }
 osmesa-src = { git = "https://github.com/servo/osmesa-src", optional = true }
 webrender = {path = "../webrender"}
 webrender_traits = {path = "../webrender_traits"}
-serde_derive = "0.9"
-serde = "0.9"
+serde = {version = "1.0", features = ["derive"] }
 
 [features]
 headless = [ "osmesa-sys", "osmesa-src" ]
 logging = [ "env_logger" ]
 
 [target.'cfg(target_os = "windows")'.dependencies]
-dwrote = "0.3"
+dwrote = "0.4"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
-font-loader = "0.2.0"
+font-loader = "0.3.0"
