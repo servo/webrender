@@ -14,7 +14,7 @@ webgl = ["offscreen_gl_context", "webrender_traits/webgl"]
 
 [dependencies]
 app_units = "0.4"
-bincode = "1.0.0-alpha6"
+bincode = "0.8"
 bit-set = "0.4"
 byteorder = "1.0"
 euclid = "0.14.4"
@@ -44,5 +44,5 @@ freetype = { version = "0.2", default-features = false }
 dwrote = "0.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-core-graphics = "0.7.0"
-core-text = "4.0"
+core-graphics = "0.8.0"
+core-text = "5.0"
