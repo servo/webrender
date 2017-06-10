@@ -14,7 +14,7 @@ use debug_render::DebugRenderer;
 use device::{DepthFunction, Device, FrameId, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler};
 use device::{GpuSample, TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use device::get_gl_format_bgra;
-use euclid::Matrix4D;
+use euclid::Transform3D;
 use fnv::FnvHasher;
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
@@ -1519,7 +1519,7 @@ impl Renderer {
                                vao: VAOId,
                                shader: ProgramId,
                                textures: &BatchTextures,
-                               projection: &Matrix4D<f32>) {
+                               projection: &Transform3D<f32>) {
         self.device.bind_vao(vao);
         self.device.bind_program(shader, projection);
 
@@ -1550,7 +1550,7 @@ impl Renderer {
 
     fn submit_batch(&mut self,
                     batch: &PrimitiveBatch,
-                    projection: &Matrix4D<f32>,
+                    projection: &Transform3D<f32>,
                     render_task_data: &[RenderTaskData],
                     cache_texture: TextureId,
                     render_target: Option<(TextureId, i32)>,
@@ -1714,7 +1714,7 @@ impl Renderer {
                          color_cache_texture: TextureId,
                          clear_color: Option<[f32; 4]>,
                          render_task_data: &[RenderTaskData],
-                         projection: &Matrix4D<f32>) {
+                         projection: &Transform3D<f32>) {
         {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
             self.device.bind_draw_target(render_target, Some(target_size));
@@ -1858,7 +1858,7 @@ impl Renderer {
                          render_target: (TextureId, i32),
                          target: &AlphaRenderTarget,
                          target_size: DeviceUintSize,
-                         projection: &Matrix4D<f32>) {
+                         projection: &Transform3D<f32>) {
         {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
             self.device.bind_draw_target(Some(render_target), Some(target_size));
@@ -2096,7 +2096,7 @@ impl Renderer {
                         None
                     };
                     size = framebuffer_size;
-                    projection = Matrix4D::ortho(0.0,
+                    projection = Transform3D::ortho(0.0,
                                                  size.width as f32,
                                                  size.height as f32,
                                                  0.0,
@@ -2105,7 +2105,7 @@ impl Renderer {
                 } else {
                     size = &frame.cache_size;
                     clear_color = Some([0.0, 0.0, 0.0, 0.0]);
-                    projection = Matrix4D::ortho(0.0,
+                    projection = Transform3D::ortho(0.0,
                                                  size.width as f32,
                                                  0.0,
                                                  size.height as f32,
