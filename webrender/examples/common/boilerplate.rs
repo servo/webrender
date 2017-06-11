@@ -35,20 +35,29 @@ impl RenderNotifier for Notifier {
 
 pub trait HandyDandyRectBuilder {
     fn to(&self, x2: i32, y2: i32) -> LayoutRect;
+    fn by(&self, w: i32, h: i32) -> LayoutRect;
 }
-// Allows doing `(x, y).to(x2, y2)` to build a LayoutRect
+// Allows doing `(x, y).to(x2, y2)` or `(x, y).by(width, height)` with i32
+// values to build a f32 LayoutRect
 impl HandyDandyRectBuilder for (i32, i32) {
     fn to(&self, x2: i32, y2: i32) -> LayoutRect {
         LayoutRect::new(LayoutPoint::new(self.0 as f32, self.1 as f32),
                         LayoutSize::new((x2 - self.0) as f32, (y2 - self.1) as f32))
     }
+
+    fn by(&self, w: i32, h: i32) -> LayoutRect {
+        LayoutRect::new(LayoutPoint::new(self.0 as f32, self.1 as f32),
+                        LayoutSize::new(w as f32, h as f32))
+    }
 }
 
-pub fn main_wrapper(builder_callback: fn(&mut DisplayListBuilder,
+pub fn main_wrapper(builder_callback: fn(&RenderApi,
+                                         &mut DisplayListBuilder,
                                          &PipelineId,
                                          &LayoutSize) -> (),
-                    event_handler: fn(event: &glutin::Event,
-                                      api: &RenderApi) -> ())
+                    event_handler: fn(&glutin::Event,
+                                      &RenderApi) -> (),
+                    options: Option<webrender::RendererOptions>)
 {
     let args: Vec<String> = env::args().collect();
     let res_path = if args.len() > 1 {
@@ -59,6 +68,7 @@ pub fn main_wrapper(builder_callback: fn(&mut DisplayListBuilder,
 
     let window = glutin::WindowBuilder::new()
                 .with_title("WebRender Sample App")
+                .with_multitouch()
                 .with_gl(glutin::GlRequest::GlThenGles {
                     opengl_version: (3, 2),
                     opengles_version: (3, 0)
@@ -85,7 +95,7 @@ pub fn main_wrapper(builder_callback: fn(&mut DisplayListBuilder,
         debug: true,
         precache_shaders: true,
         device_pixel_ratio: window.hidpi_factor(),
-        .. Default::default()
+        .. options.unwrap_or(webrender::RendererOptions::default())
     };
 
     let size = DeviceUintSize::new(width, height);
@@ -102,7 +112,7 @@ pub fn main_wrapper(builder_callback: fn(&mut DisplayListBuilder,
     let layout_size = LayoutSize::new(width as f32, height as f32);
     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
 
-    builder_callback(&mut builder, &pipeline_id, &layout_size);
+    builder_callback(&api, &mut builder, &pipeline_id, &layout_size);
 
     api.set_display_list(
         Some(root_background_color),
@@ -126,6 +136,14 @@ pub fn main_wrapper(builder_callback: fn(&mut DisplayListBuilder,
                 glutin::Event::Closed |
                 glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Escape)) |
                 glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Q)) => break 'outer,
+
+                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
+                                             _, Some(glutin::VirtualKeyCode::P)) => {
+                    let enable_profiler = !renderer.get_profiler_enabled();
+                    renderer.set_profiler_enabled(enable_profiler);
+                    api.generate_frame(None);
+                }
+
                 _ => event_handler(&event, &api),
             }
         }

@@ -17,7 +17,8 @@ use boilerplate::HandyDandyRectBuilder;
 use std::sync::Mutex;
 use webrender_traits::*;
 
-fn body(builder: &mut DisplayListBuilder,
+fn body(_api: &RenderApi,
+        builder: &mut DisplayListBuilder,
         pipeline_id: &PipelineId,
         layout_size: &LayoutSize)
 {
@@ -145,5 +146,5 @@ fn event_handler(event: &glutin::Event,
 }
 
 fn main() {
-    boilerplate::main_wrapper(body, event_handler);
+    boilerplate::main_wrapper(body, event_handler, None);
 }
