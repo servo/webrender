@@ -1845,6 +1845,11 @@ impl Device {
         self.gl.draw_elements_instanced(gl::TRIANGLES, index_count, gl::UNSIGNED_SHORT, 0, instance_count);
     }
 
+    pub fn draw_quad(&mut self) {
+        //debug_assert!(self.inside_frame); //TODO?
+        self.gl.draw_arrays(gl::TRIANGLE_STRIP, 0, 4);
+    }
+
     pub fn end_frame(&mut self) {
         self.bind_draw_target(None, None);
         self.bind_read_target(None);
@@ -2013,6 +2018,10 @@ impl Device {
         self.gl.blend_func_separate(gl::ONE, gl::ONE,
                                      gl::ONE, gl::ONE);
         self.gl.blend_equation_separate(gl::MIN, gl::FUNC_ADD);
+    }
+    pub fn set_blend_mode_mask(&self) {
+        self.gl.blend_func(gl::ZERO, gl::SRC_ALPHA);
+        self.gl.blend_equation(gl::FUNC_ADD);
     }
 }
 

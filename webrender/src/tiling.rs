@@ -253,7 +253,8 @@ impl BatchList {
             BlendMode::None => {
                 (&mut self.opaque_batches, false)
             }
-            BlendMode::Alpha | BlendMode::PremultipliedAlpha | BlendMode::Subpixel(..) => {
+            BlendMode::Alpha | BlendMode::PremultipliedAlpha |
+            BlendMode::Subpixel(..) | BlendMode::Mask => {
                 (&mut self.alpha_batches, true)
             }
         };
