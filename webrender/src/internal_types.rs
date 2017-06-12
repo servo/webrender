@@ -53,12 +53,6 @@ pub const ANGLE_FLOAT_TO_FIXED: f32 = 65535.0;
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
 pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
 
-#[derive(Clone)]
-pub enum FontTemplate {
-    Raw(Arc<Vec<u8>>, u32),
-    Native(NativeFontHandle),
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum TextureSampler {
     Color0,

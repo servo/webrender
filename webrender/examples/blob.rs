@@ -154,10 +154,10 @@ impl wt::BlobImageRenderer for CheckerboardRenderer {
     }
 
     fn request(&mut self,
+               resources: &wt::BlobImageResources,
                request: wt::BlobImageRequest,
                descriptor: &wt::BlobImageDescriptor,
-               _dirty_rect: Option<wt::DeviceUintRect>,
-               _images: &wt::ImageStore) {
+               _dirty_rect: Option<wt::DeviceUintRect>) {
         // This method is where we kick off our rendering jobs.
         // It should avoid doing work on the calling thread as much as possible.
         // In this example we will use the thread pool to render individual tiles.
@@ -210,6 +210,7 @@ impl wt::BlobImageRenderer for CheckerboardRenderer {
         // If we break out of the loop above it means the channel closed unexpectedly.
         Err(wt::BlobImageError::Other("Channel closed".into()))
     }
+    fn delete_font(&mut self, font: wt::FontKey) {}
 }
 
 fn body(api: &wt::RenderApi,
