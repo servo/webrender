@@ -353,12 +353,14 @@ impl FrameBuilder {
 
         let topmost_scrolling_node_id = ClipId::root_scroll_node(pipeline_id);
         clip_scroll_tree.topmost_scrolling_node_id = topmost_scrolling_node_id;
-        self.add_clip_scroll_node(topmost_scrolling_node_id,
-                                   clip_scroll_tree.root_reference_frame_id,
-                                   pipeline_id,
-                                   &LayerRect::new(LayerPoint::zero(), *content_size),
-                                   &ClipRegion::simple(&viewport_rect),
-                                   clip_scroll_tree);
+
+        self.add_scroll_frame(topmost_scrolling_node_id,
+                              clip_scroll_tree.root_reference_frame_id,
+                              pipeline_id,
+                              &LayerRect::new(LayerPoint::zero(), *content_size),
+                              &viewport_rect,
+                              clip_scroll_tree);
+
         topmost_scrolling_node_id
     }
 
@@ -380,6 +382,21 @@ impl FrameBuilder {
 
         clip_scroll_tree.add_node(node, new_node_id);
         self.packed_layers.push(PackedLayer::empty());
+    }
+
+    pub fn add_scroll_frame(&mut self,
+                            new_node_id: ClipId,
+                            parent_id: ClipId,
+                            pipeline_id: PipelineId,
+                            content_rect: &LayerRect,
+                            frame_rect: &LayerRect,
+                            clip_scroll_tree: &mut ClipScrollTree) {
+        let node = ClipScrollNode::new_scroll_frame(pipeline_id,
+                                                    parent_id,
+                                                    content_rect,
+                                                    frame_rect);
+
+        clip_scroll_tree.add_node(node, new_node_id);
     }
 
     pub fn pop_reference_frame(&mut self) {
@@ -1114,15 +1131,16 @@ impl FrameBuilder {
                 continue;
             }
 
-            let f = -clip_scroll_node.scrolling.offset.y / scrollable_distance;
+            let scroll_offset = clip_scroll_node.scroll_offset();
+            let f = -scroll_offset.y / scrollable_distance;
 
             let min_y = clip_scroll_node.local_viewport_rect.origin.y -
-                        clip_scroll_node.scrolling.offset.y +
+                        scroll_offset.y +
                         distance_from_edge;
 
             let max_y = clip_scroll_node.local_viewport_rect.origin.y +
                         clip_scroll_node.local_viewport_rect.size.height -
-                        clip_scroll_node.scrolling.offset.y -
+                        scroll_offset.y -
                         metadata.local_rect.size.height -
                         distance_from_edge;
 
@@ -1528,7 +1546,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         for (_, ref mut node) in self.clip_scroll_tree.nodes.iter_mut() {
             let node_clip_info = match node.node_type {
                 NodeType::Clip(ref mut clip_info) => clip_info,
-                NodeType::ReferenceFrame(_) => continue,
+                _ => continue,
             };
 
             let packed_layer_index = node_clip_info.packed_layer_index;
@@ -1601,7 +1619,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                      .translate(&clip_node.reference_frame_relative_scroll_offset)
                      .translate(&-scroll_node.reference_frame_relative_scroll_offset)
                      .translate(&-stacking_context.reference_frame_offset)
-                     .translate(&-scroll_node.scrolling.offset);
+                     .translate(&-scroll_node.scroll_offset());
             group.screen_bounding_rect = packed_layer.set_rect(viewport_rect,
                                                                self.screen_rect,
                                                                self.device_pixel_ratio);

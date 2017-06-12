@@ -2,7 +2,7 @@ root:
   items:
     - type: scroll-layer
       bounds: [10, 10, 50, 100]
-      content-size: [50, 100]
+      clip: [10, 10, 50, 100]
       scroll-offset: [0, 50]
       items:
         - type: rect
