@@ -15,7 +15,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::collections::HashSet;
 use std::mem;
 use texture_cache::{TextureCacheItemId, TextureCache};
-use internal_types::FontTemplate;
+use webrender_traits::FontTemplate;
 use webrender_traits::{FontKey, FontRenderMode, ImageData, ImageFormat};
 use webrender_traits::{ImageDescriptor, ColorF, LayoutPoint};
 use webrender_traits::{GlyphKey, GlyphOptions, GlyphInstance, GlyphDimensions};

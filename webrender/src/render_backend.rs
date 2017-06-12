@@ -5,7 +5,7 @@
 use frame::Frame;
 use frame_builder::FrameBuilderConfig;
 use gpu_cache::GpuCache;
-use internal_types::{FontTemplate, SourceTexture, ResultMsg, RendererFrame};
+use internal_types::{SourceTexture, ResultMsg, RendererFrame};
 use profiler::{BackendProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use record::ApiRecordingReceiver;
 use resource_cache::ResourceCache;
@@ -24,6 +24,7 @@ use webrender_traits::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DeviceIntPoi
 use webrender_traits::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, IdNamespace, ImageData};
 use webrender_traits::{LayerPoint, PipelineId, RenderDispatcher, RenderNotifier};
 use webrender_traits::{VRCompositorCommand, VRCompositorHandler, WebGLCommand, WebGLContextId};
+use webrender_traits::{FontTemplate};
 
 #[cfg(feature = "webgl")]
 use offscreen_gl_context::GLContextDispatcher;
