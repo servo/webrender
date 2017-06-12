@@ -70,7 +70,6 @@ pub enum TextureSampler {
     ResourceCache,
     Layers,
     RenderTasks,
-    ResourceRects,
     Dither,
 }
 
@@ -135,6 +134,7 @@ pub enum ClipAttribute {
     LayerIndex,
     DataIndex,
     SegmentIndex,
+    ResourceAddress,
 }
 
 // A packed RGBA8 color ordered for vertex data or similar.

@@ -27,9 +27,9 @@ void main(void) {
 
     ResourceRect y_rect = fetch_resource_rect(prim.user_data0);
 #ifndef WR_FEATURE_INTERLEAVED_Y_CB_CR  // only 1 channel
-    ResourceRect u_rect = fetch_resource_rect(prim.user_data0 + 1);
+    ResourceRect u_rect = fetch_resource_rect(prim.user_data1);
 #ifndef WR_FEATURE_NV12 // 2 channel
-    ResourceRect v_rect = fetch_resource_rect(prim.user_data0 + 2);
+    ResourceRect v_rect = fetch_resource_rect(prim.user_data2);
 #endif
 #endif
 

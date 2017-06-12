@@ -140,9 +140,7 @@ vec4[2] fetch_from_resource_cache_2(int address) {
 uniform sampler2D sLayers;
 uniform sampler2D sRenderTasks;
 
-uniform sampler2D sData16;
 uniform sampler2D sData32;
-uniform sampler2D sResourceRects;
 
 // Instanced attributes
 in ivec4 aData0;
@@ -153,11 +151,6 @@ in ivec4 aData1;
 // https://github.com/servo/webrender/pull/623
 // https://github.com/servo/servo/issues/13953
 #define get_fetch_uv(i, vpi)  ivec2(vpi * (i % (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi)), i / (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi))
-
-vec4 fetch_data_1(int index) {
-    ivec2 uv = get_fetch_uv(index, 1);
-    return texelFetch(sData16, uv, 0);
-}
 
 vec4[2] fetch_data_2(int index) {
     ivec2 uv = get_fetch_uv(index, 2);
@@ -455,6 +448,7 @@ struct PrimitiveInstance {
     int z;
     int user_data0;
     int user_data1;
+    int user_data2;
 };
 
 PrimitiveInstance fetch_prim_instance() {
@@ -468,6 +462,7 @@ PrimitiveInstance fetch_prim_instance() {
     pi.z = aData1.x;
     pi.user_data0 = aData1.y;
     pi.user_data1 = aData1.z;
+    pi.user_data2 = aData1.w;
 
     return pi;
 }
@@ -504,6 +499,7 @@ struct Primitive {
     int specific_prim_address;
     int user_data0;
     int user_data1;
+    int user_data2;
     float z;
 };
 
@@ -523,6 +519,7 @@ Primitive load_primitive() {
     prim.specific_prim_address = pi.specific_prim_address;
     prim.user_data0 = pi.user_data0;
     prim.user_data1 = pi.user_data1;
+    prim.user_data2 = pi.user_data2;
     prim.z = float(pi.z);
 
     return prim;
@@ -732,14 +729,9 @@ struct ResourceRect {
     vec4 uv_rect;
 };
 
-ResourceRect fetch_resource_rect(int index) {
-    ResourceRect rect;
-
-    ivec2 uv = get_fetch_uv(index, 1);
-
-    rect.uv_rect = texelFetchOffset(sResourceRects, uv, 0, ivec2(0, 0));
-
-    return rect;
+ResourceRect fetch_resource_rect(int address) {
+    vec4 data = fetch_from_resource_cache_1(address);
+    return ResourceRect(data);
 }
 
 struct Rectangle {
@@ -763,11 +755,12 @@ TextRun fetch_text_run(int address) {
 struct Image {
     vec4 stretch_size_and_tile_spacing;  // Size of the actual image and amount of space between
                                          //     tiled instances of this image.
+    vec4 sub_rect;                          // If negative, ignored.
 };
 
 Image fetch_image(int address) {
-    vec4 data = fetch_from_resource_cache_1(address);
-    return Image(data);
+    vec4 data[2] = fetch_from_resource_cache_2(address);
+    return Image(data[0], data[1]);
 }
 
 struct YuvImage {

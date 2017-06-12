@@ -36,9 +36,19 @@ void main(void) {
     vec2 texture_size_normalization_factor = vec2(textureSize(sColor0, 0));
 #endif
 
+    vec2 uv0, uv1;
+
+    if (image.sub_rect.x < 0.0) {
+        uv0 = res.uv_rect.xy;
+        uv1 = res.uv_rect.zw;
+    } else {
+        uv0 = res.uv_rect.xy + image.sub_rect.xy;
+        uv1 = res.uv_rect.xy + image.sub_rect.zw;
+    }
+
     // vUv will contain how many times this image has wrapped around the image size.
-    vec2 st0 = res.uv_rect.xy / texture_size_normalization_factor;
-    vec2 st1 = res.uv_rect.zw / texture_size_normalization_factor;
+    vec2 st0 = uv0 / texture_size_normalization_factor;
+    vec2 st1 = uv1 / texture_size_normalization_factor;
 
     vTextureSize = st1 - st0;
     vTextureOffset = st0;
