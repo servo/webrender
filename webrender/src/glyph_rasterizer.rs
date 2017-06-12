@@ -12,6 +12,7 @@ use rayon::prelude::*;
 use resource_cache::ResourceClassCache;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::collections::hash_map::Entry;
 use std::collections::HashSet;
 use std::mem;
 use texture_cache::{TextureCacheItemId, TextureCache};
@@ -150,6 +151,7 @@ impl GlyphRasterizer {
         glyph_instances: &[GlyphInstance],
         render_mode: FontRenderMode,
         glyph_options: Option<GlyphOptions>,
+        requested_items: &mut HashSet<TextureCacheItemId>,
     ) {
         assert!(self.font_contexts.lock_shared_context().has_font(&font_key));
 
@@ -167,10 +169,18 @@ impl GlyphRasterizer {
                 glyph_options,
             );
 
-            glyph_cache.mark_as_needed(&glyph_request, current_frame_id);
-            if !glyph_cache.contains_key(&glyph_request) && !self.pending_glyphs.contains(&glyph_request) {
-                self.pending_glyphs.insert(glyph_request.clone());
-                glyphs.push(glyph_request);
+            match glyph_cache.entry(glyph_request.clone(), current_frame_id) {
+                Entry::Occupied(entry) => {
+                    if let &Some(texture_cache_item_id) = entry.get() {
+                        requested_items.insert(texture_cache_item_id);
+                    }
+                }
+                Entry::Vacant(..) => {
+                    if !self.pending_glyphs.contains(&glyph_request) {
+                        self.pending_glyphs.insert(glyph_request.clone());
+                        glyphs.push(glyph_request);
+                    }
+                }
             }
         }
 
@@ -218,6 +228,7 @@ impl GlyphRasterizer {
         current_frame_id: FrameId,
         glyph_cache: &mut GlyphCache,
         texture_cache: &mut TextureCache,
+        requested_items: &mut HashSet<TextureCacheItemId>,
         texture_cache_profile: &mut TextureCacheProfileCounters,
     ) {
         let mut rasterized_glyphs = Vec::with_capacity(self.pending_glyphs.len());
@@ -261,6 +272,7 @@ impl GlyphRasterizer {
                         ImageData::Raw(Arc::new(glyph.bytes)),
                         texture_cache_profile,
                     );
+                    requested_items.insert(image_id);
                     Some(image_id)
                 } else {
                     None
@@ -345,6 +357,7 @@ fn raterize_200_glyphs() {
     let workers = Arc::new(ThreadPool::new(Configuration::new()).unwrap());
     let mut glyph_rasterizer = GlyphRasterizer::new(workers);
     let mut glyph_cache = GlyphCache::new();
+    let mut requested_items = HashSet::new();
 
     let mut font_file = File::open("../wrench/reftests/text/VeraBd.ttf").expect("Couldn't open font file");
     let mut font_data = vec![];
@@ -373,6 +386,7 @@ fn raterize_200_glyphs() {
             &glyph_instances[(50 * i)..(50 * (i + 1))],
             FontRenderMode::Subpixel,
             None,
+            &mut requested_items,
         );
     }
 
@@ -382,6 +396,7 @@ fn raterize_200_glyphs() {
         frame_id,
         &mut glyph_cache,
         &mut TextureCache::new(4096),
+        &mut requested_items,
         &mut TextureCacheProfileCounters::new(),
     );
 }
