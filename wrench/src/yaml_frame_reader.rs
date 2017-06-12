@@ -328,9 +328,8 @@ impl YamlFrameReader {
                     }))
                 },
                 "image" => {
-                    let image = &item["image"];
                     let (image_key, _) =
-                        wrench.add_or_get_image(&self.rsrc_path(&image["image"]), None);
+                        wrench.add_or_get_image(&self.rsrc_path(&item["image-source"]), None);
                     let image_width = item["image-width"].as_i64().expect("border must have image-width");
                     let image_height = item["image-height"].as_i64().expect("border must have image-height");
                     let slice = item["slice"].as_vec_u32().expect("border must have slice");
