@@ -5,6 +5,7 @@
 use device::TextureFilter;
 use fnv::FnvHasher;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
+use gpu_cache::GpuCacheHandle;
 use internal_types::{TextureUpdate, TextureUpdateOp};
 use internal_types::{CacheTextureId, RenderTargetMode, TextureUpdateList, RectUv};
 use profiler::TextureCacheProfileCounters;
@@ -447,6 +448,9 @@ pub struct TextureCacheItem {
 
     // The size of the allocated rectangle.
     pub allocated_rect: DeviceUintRect,
+
+    // Handle to the location of the UV rect for this item in GPU cache.
+    pub uv_rect_handle: GpuCacheHandle,
 }
 
 // Structure squat the width/height fields to maintain the free list information :)
@@ -498,6 +502,7 @@ impl TextureCacheItem {
                                                   (rect.origin.y + rect.size.height) as i32)
             },
             allocated_rect: rect,
+            uv_rect_handle: GpuCacheHandle::new(),
         }
     }
 }
@@ -912,6 +917,10 @@ impl TextureCache {
 
     pub fn get(&self, id: TextureCacheItemId) -> &TextureCacheItem {
         self.items.get(id)
+    }
+
+    pub fn get_mut(&mut self, id: TextureCacheItemId) -> &mut TextureCacheItem {
+        self.items.get_mut(id)
     }
 
     pub fn free(&mut self, id: TextureCacheItemId) {

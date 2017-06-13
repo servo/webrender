@@ -276,6 +276,7 @@ impl VertexFormat {
                                      ClipAttribute::LayerIndex,
                                      ClipAttribute::DataIndex,
                                      ClipAttribute::SegmentIndex,
+                                     ClipAttribute::ResourceAddress,
                                     ].into_iter().enumerate() {
                     gl.enable_vertex_attrib_array(attrib as gl::GLuint);
                     gl.vertex_attrib_divisor(attrib as gl::GLuint, 1);
@@ -411,6 +412,7 @@ impl Program {
                 self.gl.bind_attrib_location(self.id, ClipAttribute::LayerIndex as gl::GLuint, "aClipLayerIndex");
                 self.gl.bind_attrib_location(self.id, ClipAttribute::DataIndex as gl::GLuint, "aClipDataIndex");
                 self.gl.bind_attrib_location(self.id, ClipAttribute::SegmentIndex as gl::GLuint, "aClipSegmentIndex");
+                self.gl.bind_attrib_location(self.id, ClipAttribute::ResourceAddress as gl::GLuint, "aClipResourceAddress");
             }
         }
 
@@ -1562,11 +1564,6 @@ impl Device {
         let u_resource_cache = self.gl.get_uniform_location(program.id, "sResourceCache");
         if u_resource_cache != -1 {
             self.gl.uniform_1i(u_resource_cache, TextureSampler::ResourceCache as i32);
-        }
-
-        let u_resource_rects = self.gl.get_uniform_location(program.id, "sResourceRects");
-        if u_resource_rects != -1 {
-            self.gl.uniform_1i(u_resource_rects, TextureSampler::ResourceRects as i32);
         }
 
         Ok(())
