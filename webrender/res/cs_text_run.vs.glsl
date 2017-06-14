@@ -14,7 +14,7 @@ void main(void) {
     int glyph_index = prim.user_data0;
     int resource_address = prim.user_data2;
     Glyph glyph = fetch_glyph(prim.specific_prim_address, glyph_index);
-    ResourceRect res = fetch_resource_rect(resource_address);
+    GlyphResource res = fetch_glyph_resource(resource_address);
 
     // Glyphs size is already in device-pixels.
     // The render task origin is in device-pixels. Offset that by

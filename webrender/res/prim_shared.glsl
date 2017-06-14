@@ -725,13 +725,23 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
 
 #endif //WR_FEATURE_TRANSFORM
 
-struct ResourceRect {
+struct GlyphResource {
+    vec4 uv_rect;
+    vec2 user_data;
+};
+
+GlyphResource fetch_glyph_resource(int address) {
+    vec4 data[2] = fetch_from_resource_cache_2(address);
+    return GlyphResource(data[0], data[1].xy);
+}
+
+struct ImageResource {
     vec4 uv_rect;
 };
 
-ResourceRect fetch_resource_rect(int address) {
+ImageResource fetch_image_resource(int address) {
     vec4 data = fetch_from_resource_cache_1(address);
-    return ResourceRect(data);
+    return ImageResource(data);
 }
 
 struct Rectangle {
