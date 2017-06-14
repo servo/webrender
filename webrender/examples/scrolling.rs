@@ -5,7 +5,6 @@
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
-extern crate webrender_traits;
 
 #[macro_use]
 extern crate lazy_static;
@@ -15,31 +14,31 @@ mod boilerplate;
 
 use boilerplate::HandyDandyRectBuilder;
 use std::sync::Mutex;
-use webrender_traits::*;
+use webrender::api::*;
 
 fn body(_api: &RenderApi,
         builder: &mut DisplayListBuilder,
         _pipeline_id: &PipelineId,
         layout_size: &LayoutSize) {
     let bounds = LayoutRect::new(LayoutPoint::zero(), *layout_size);
-    builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
+    builder.push_stacking_context(ScrollPolicy::Scrollable,
                                   bounds,
                                   None,
                                   TransformStyle::Flat,
                                   None,
-                                  webrender_traits::MixBlendMode::Normal,
+                                  MixBlendMode::Normal,
                                   Vec::new());
 
     if true {   // scrolling and clips stuff
         // let's make a scrollbox
         let scrollbox = (0, 0).to(300, 400);
-        builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
+        builder.push_stacking_context(ScrollPolicy::Scrollable,
                                       LayoutRect::new(LayoutPoint::new(10.0, 10.0),
                                                       LayoutSize::zero()),
                                       None,
                                       TransformStyle::Flat,
                                       None,
-                                      webrender_traits::MixBlendMode::Normal,
+                                      MixBlendMode::Normal,
                                       Vec::new());
         // set the scrolling clip
         let clip_id = builder.define_clip(None, (0, 0).by(1000, 1000), scrollbox, vec![], None);

@@ -24,11 +24,11 @@ use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use texture_cache::TexturePage;
 use util::{TransformedRect, TransformedRectKind};
-use webrender_traits::{BuiltDisplayList, ClipAndScrollInfo, ClipId, ColorF, DeviceIntPoint, ImageKey};
-use webrender_traits::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize};
-use webrender_traits::{ExternalImageType, FontRenderMode, ImageRendering, LayerRect};
-use webrender_traits::{LayerToWorldTransform, MixBlendMode, PipelineId, TransformStyle};
-use webrender_traits::{TileOffset, WorldToLayerTransform, YuvColorSpace, YuvFormat, LayerVector2D};
+use api::{BuiltDisplayList, ClipAndScrollInfo, ClipId, ColorF, DeviceIntPoint, ImageKey};
+use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize};
+use api::{ExternalImageType, FontRenderMode, ImageRendering, LayerRect};
+use api::{LayerToWorldTransform, MixBlendMode, PipelineId, TransformStyle};
+use api::{TileOffset, WorldToLayerTransform, YuvColorSpace, YuvFormat, LayerVector2D};
 
 // Special sentinel value recognized by the shader. It is considered to be
 // a dummy task that doesn't mask out anything.

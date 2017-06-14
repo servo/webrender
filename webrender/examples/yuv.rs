@@ -7,7 +7,6 @@ extern crate euclid;
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
-extern crate webrender_traits;
 
 #[macro_use]
 extern crate lazy_static;
@@ -18,7 +17,7 @@ mod boilerplate;
 use glutin::TouchPhase;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use webrender_traits::*;
+use webrender::api::*;
 
 #[derive(Debug)]
 enum Gesture {

@@ -9,8 +9,8 @@ use mask_cache::ClipSource;
 use prim_store::{BorderPrimitiveCpu, PrimitiveContainer};
 use tiling::PrimitiveFlags;
 use util::{lerp, pack_as_float};
-use webrender_traits::{BorderSide, BorderStyle, BorderWidths, ClipAndScrollInfo, ColorF};
-use webrender_traits::{LayerPoint, LayerRect, LayerSize, NormalBorder};
+use api::{BorderSide, BorderStyle, BorderWidths, ClipAndScrollInfo, ColorF};
+use api::{LayerPoint, LayerRect, LayerSize, NormalBorder};
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq)]

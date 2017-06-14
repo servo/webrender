@@ -17,10 +17,10 @@ To use a custom WebRender with servo, go to your servo build directory and:
 ```
 [replace]
 "https://github.com/servo/webrender#0.36.0" = { path = 'Path/To/webrender/webrender/' }
-"https://github.com/servo/webrender#webrender_traits:0.36.0" = { path = 'Path/To/webrender/webrender_traits' }
+"https://github.com/servo/webrender#webrender_api:0.36.0" = { path = 'Path/To/webrender/webrender_api' }
 ```
 
-The exact replace references can be obtained with `cargo pkgid webrender`/`cargo pkgid webrender_traits` command.
+The exact replace references can be obtained with `cargo pkgid webrender`/`cargo pkgid webrender_api` command.
 
   * Build as normal
 
