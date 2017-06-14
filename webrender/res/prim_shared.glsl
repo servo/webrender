@@ -36,7 +36,7 @@
 #define BORDER_RIGHT     2
 #define BORDER_BOTTOM    3
 
-// Border styles as defined in webrender_traits/types.rs
+// Border styles as defined in webrender_api/types.rs
 #define BORDER_STYLE_NONE         0
 #define BORDER_STYLE_SOLID        1
 #define BORDER_STYLE_DOUBLE       2

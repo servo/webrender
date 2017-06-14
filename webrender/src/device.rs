@@ -22,8 +22,8 @@ use std::ptr;
 use std::rc::Rc;
 //use std::sync::mpsc::{channel, Sender};
 //use std::thread;
-use webrender_traits::{ColorF, ImageFormat};
-use webrender_traits::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintSize};
+use api::{ColorF, ImageFormat};
+use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintSize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
 pub struct FrameId(usize);

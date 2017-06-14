@@ -49,13 +49,13 @@ use time::precise_time_ns;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use util::TransformedRectKind;
 use webgl_types::GLContextHandleWrapper;
-use webrender_traits::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
-use webrender_traits::{ExternalImageId, ExternalImageType, ImageData, ImageFormat, RenderApiSender};
-use webrender_traits::{DeviceIntRect, DeviceUintRect, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
-use webrender_traits::{BlobImageRenderer, channel, FontRenderMode};
-use webrender_traits::VRCompositorHandler;
-use webrender_traits::{YuvColorSpace, YuvFormat};
-use webrender_traits::{YUV_COLOR_SPACES, YUV_FORMATS};
+use api::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
+use api::{ExternalImageId, ExternalImageType, ImageData, ImageFormat, RenderApiSender};
+use api::{DeviceIntRect, DeviceUintRect, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
+use api::{BlobImageRenderer, channel, FontRenderMode};
+use api::VRCompositorHandler;
+use api::{YuvColorSpace, YuvFormat};
+use api::{YUV_COLOR_SPACES, YUV_FORMATS};
 
 pub const GPU_DATA_TEXTURE_POOL: usize = 5;
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
@@ -1350,7 +1350,7 @@ impl Renderer {
     /// Renders the current frame.
     ///
     /// A Frame is supplied by calling [`set_display_list()`][newframe].
-    /// [newframe]: ../../webrender_traits/struct.RenderApi.html#method.set_display_list
+    /// [newframe]: ../../webrender_api/struct.RenderApi.html#method.set_display_list
     pub fn render(&mut self, framebuffer_size: DeviceUintSize) {
         profile_scope!("render");
 

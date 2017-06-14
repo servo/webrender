@@ -6,9 +6,9 @@ use border::BorderCornerClipSource;
 use gpu_cache::{GpuCache, GpuCacheHandle, ToGpuBlocks};
 use prim_store::{CLIP_DATA_GPU_BLOCKS, ClipData, ImageMaskData};
 use util::{ComplexClipRegionHelpers, TransformedRect};
-use webrender_traits::{BorderRadius, BuiltDisplayList, ClipRegion, ComplexClipRegion, ImageMask};
-use webrender_traits::{DeviceIntRect, LayerToWorldTransform};
-use webrender_traits::{LayerRect, LayerPoint, LayerSize};
+use api::{BorderRadius, BuiltDisplayList, ClipRegion, ComplexClipRegion, ImageMask};
+use api::{DeviceIntRect, LayerToWorldTransform};
+use api::{LayerRect, LayerPoint, LayerSize};
 use std::ops::Not;
 
 const MAX_CLIP: f32 = 1000000.0;

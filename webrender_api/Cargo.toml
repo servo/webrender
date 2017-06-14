@@ -1,5 +1,5 @@
 [package]
-name = "webrender_traits"
+name = "webrender_api"
 version = "0.44.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"

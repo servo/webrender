@@ -22,7 +22,6 @@ dependencies = [
  "servo-glutin 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender 0.44.0",
- "webrender_traits 0.44.0",
  "yaml-rust 0.3.4 (git+https://github.com/vvuk/yaml-rust)",
 ]
 
@@ -1040,11 +1039,11 @@ dependencies = [
  "servo-glutin 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "thread_profiler 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)",
- "webrender_traits 0.44.0",
+ "webrender_api 0.44.0",
 ]
 
 [[package]]
-name = "webrender_traits"
+name = "webrender_api"
 version = "0.44.0"
 dependencies = [
  "app_units 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",

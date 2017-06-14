@@ -19,13 +19,13 @@ use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use tiling::{CompositeOps, DisplayListMap, PrimitiveFlags};
 use util::subtract_rect;
-use webrender_traits::{BuiltDisplayList, BuiltDisplayListIter, ClipAndScrollInfo, ClipDisplayItem};
-use webrender_traits::{ClipId, ClipRegion, ColorF, DeviceUintRect, DeviceUintSize, DisplayItemRef};
-use webrender_traits::{Epoch, FilterOp, ImageDisplayItem, ItemRange, LayerPoint, LayerRect};
-use webrender_traits::{LayerSize, LayerToScrollTransform, LayoutSize, LayoutTransform, LayerVector2D};
-use webrender_traits::{MixBlendMode, PipelineId, ScrollClamping, ScrollEventPhase};
-use webrender_traits::{ScrollLayerState, ScrollLocation, ScrollPolicy, SpecificDisplayItem};
-use webrender_traits::{StackingContext, TileOffset, TransformStyle, WorldPoint};
+use api::{BuiltDisplayList, BuiltDisplayListIter, ClipAndScrollInfo, ClipDisplayItem};
+use api::{ClipId, ClipRegion, ColorF, DeviceUintRect, DeviceUintSize, DisplayItemRef};
+use api::{Epoch, FilterOp, ImageDisplayItem, ItemRange, LayerPoint, LayerRect};
+use api::{LayerSize, LayerToScrollTransform, LayoutSize, LayoutTransform, LayerVector2D};
+use api::{MixBlendMode, PipelineId, ScrollClamping, ScrollEventPhase};
+use api::{ScrollLayerState, ScrollLocation, ScrollPolicy, SpecificDisplayItem};
+use api::{StackingContext, TileOffset, TransformStyle, WorldPoint};
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
 pub struct FrameId(pub u32);

@@ -17,9 +17,9 @@ use std::{fmt, fs};
 use super::CURRENT_FRAME_NUMBER;
 use time;
 use webrender;
-use webrender_traits::*;
-use webrender_traits::SpecificDisplayItem::*;
-use webrender_traits::channel::Payload;
+use webrender::api::*;
+use webrender::api::SpecificDisplayItem::*;
+use webrender::api::channel::Payload;
 use yaml_helper::StringEnum;
 use yaml_rust::{Yaml, YamlEmitter};
 
