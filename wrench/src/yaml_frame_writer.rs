@@ -493,17 +493,13 @@ impl YamlFrameWriter {
             rect_node(&mut v, "bounds", &base.rect());
             yaml_node(&mut v, "clip", self.make_clip_node(&base.clip_region(), display_list));
 
-            let scroll_id =
-                Yaml::Integer(clip_id_mapper.map(&base.clip_and_scroll().scroll_node_id) as i64);
-            let clip_and_scroll = match base.clip_and_scroll().clip_node_id {
-                Some(clip_id) => {
-                    let clip_id = Yaml::Integer(clip_id_mapper.map(&clip_id) as i64);
-                    Yaml::Array(vec![scroll_id, clip_id])
-                }
-                None => scroll_id,
+            let clip_and_scroll_info = clip_id_mapper.fix_ids_for_nesting(&base.clip_and_scroll());
+            let clip_and_scroll_yaml = match clip_id_mapper.map_info(&clip_and_scroll_info) {
+                (scroll_id, Some(clip_id)) =>
+                    Yaml::Array(vec![Yaml::Integer(scroll_id), Yaml::Integer(clip_id)]),
+                (scroll_id, None) => Yaml::Integer(scroll_id),
             };
-
-            yaml_node(&mut v, "clip-and-scroll", clip_and_scroll);
+            yaml_node(&mut v, "clip-and-scroll", clip_and_scroll_yaml);
 
             match *base.item() {
                 Rectangle(item) => {
@@ -756,6 +752,9 @@ impl YamlFrameWriter {
                     str_node(&mut v, "type", "clip");
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
                 }
+                PushNestedDisplayList =>
+                    clip_id_mapper.push_nested_display_list_ids(clip_and_scroll_info),
+                PopNestedDisplayList => clip_id_mapper.pop_nested_display_list_ids(),
                 PopStackingContext => return,
                 SetGradientStops | SetClipRegion(_) => { panic!("dummy item yielded?") },
             }
@@ -865,12 +864,14 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
 struct ClipIdMapper {
     hash_map: HashMap<ClipId, usize>,
     current_clip_id: usize,
+    nested_display_list_info: Vec<(ClipId, ClipId)>,
 }
 
 impl ClipIdMapper {
     fn new() -> ClipIdMapper {
         ClipIdMapper {
             hash_map: HashMap::new(),
+            nested_display_list_info: Vec::new(),
             current_clip_id: 1,
         }
     }
@@ -881,11 +882,39 @@ impl ClipIdMapper {
         self.current_clip_id - 1
     }
 
-    fn map(&self, id: &ClipId) -> usize {
+    fn push_nested_display_list_ids(&mut self, info: ClipAndScrollInfo) {
+        self.nested_display_list_info.push((info.scroll_node_id, info.clip_node_id()));
+    }
+
+    fn pop_nested_display_list_ids(&mut self) {
+        self.nested_display_list_info.pop();
+    }
+
+    fn map_id(&self, id: &ClipId) -> usize {
         if id.is_root_scroll_node() {
             return 0;
         }
-
         *self.hash_map.get(id).unwrap()
+    }
+
+    fn fix_ids_for_nesting(&self, info: &ClipAndScrollInfo) -> ClipAndScrollInfo {
+        let mut info = *info;
+        for nested_info in self.nested_display_list_info.iter().rev() {
+            if info.scroll_node_id.is_root_scroll_node() {
+                info.scroll_node_id = nested_info.0;
+            }
+
+            match info.clip_node_id {
+                Some(id) if id.is_root_scroll_node() => info.clip_node_id = Some(nested_info.1),
+                _ => {}
+            }
+        }
+
+        info
+    }
+
+    fn map_info(&self, info: &ClipAndScrollInfo) -> (i64, Option<i64>) {
+        (self.map_id(&info.scroll_node_id) as i64,
+         info.clip_node_id.map(|ref id| self.map_id(id) as i64))
     }
 }

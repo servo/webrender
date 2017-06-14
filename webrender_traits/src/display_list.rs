@@ -498,10 +498,6 @@ impl DisplayListBuilder {
         debug_assert_eq!(len, count);
     }
 
-    fn push_range<T>(&mut self, range: ItemRange<T>, src: &BuiltDisplayList) {
-        self.data.extend_from_slice(&src.data[range.start..range.start+range.length]);
-    }
-
     pub fn push_rect(&mut self,
                      rect: LayoutRect,
                      _token: ClipRegionToken,
@@ -909,42 +905,22 @@ impl DisplayListBuilder {
     }
 
     // Don't use this function. It will go away.
-    // We're using it as a hack in Gecko to retain parts sub-parts of display lists so that
-    // we can regenerate them without building Gecko display items.
-    pub fn push_built_display_list(&mut self, dl: BuiltDisplayList) {
-        // NOTE: Iframe and Clips aren't supported.
+    //
+    // We're using this method as a hack in Gecko to retain parts sub-parts of display
+    // lists so that we can regenerate them without building Gecko display items. WebRender
+    // will replace references to the root scroll frame id with the current scroll frame
+    // id.
+    //
+    // New clips and scroll frames are only supported if they can be guaranteed to have
+    // a unique id (ie a unique id must be passed when creating them).
+    pub fn push_nested_display_list(&mut self, built_display_list: &BuiltDisplayList) {
+        self.push_clip_region(&LayoutRect::zero(), vec![], None);
+        self.push_new_empty_item(SpecificDisplayItem::PushNestedDisplayList);
 
-        // FIXME: what `iter` here is doing an expensive deserialization
-        // because we need to update clip_and_scroll info! If we didn't need to
-        // update that, this function could just be memcopy!
+        self.data.extend_from_slice(&built_display_list.data);
 
-        // This implementation is basically BuiltDisplayListIter::next in reverse.
-
-        let mut iter = dl.iter();
-        while let Some(item) = iter.next() {
-            // First handle explicit prefix dummy items
-            let clip_region = item.clip_region();
-            if *clip_region != ClipRegion::empty() {
-                self.push_new_empty_item(SpecificDisplayItem::SetClipRegion(*clip_region));
-                self.push_range(clip_region.complex_clips, &dl);
-            }
-
-            let stops = item.gradient_stops();
-            if stops != ItemRange::default() {
-                self.push_new_empty_item(SpecificDisplayItem::SetGradientStops);
-                self.push_range(stops, &dl);
-            }
-
-            // Then reinsert the actual item, updating its clip_and_scroll
-            self.push_item(*item.item(), item.rect());
-
-            // Then handle implicit suffix items
-            match *item.item() {
-                SpecificDisplayItem::Text(_)                => self.push_range(item.glyphs(), &dl),
-                SpecificDisplayItem::PushStackingContext(_) => self.push_range(item.filters(), &dl),
-                _ => { /* do nothing */ }
-            }
-        }
+        self.push_clip_region(&LayoutRect::zero(), vec![], None);
+        self.push_new_empty_item(SpecificDisplayItem::PopNestedDisplayList);
     }
 
     pub fn push_clip_region<I>(&mut self,

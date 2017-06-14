@@ -37,6 +37,7 @@ struct FlattenContext<'a> {
     builder: &'a mut FrameBuilder,
     resource_cache: &'a mut ResourceCache,
     replacements: Vec<(ClipId, ClipId)>,
+    nested_display_list_info: Vec<(ClipId, ClipId)>,
 }
 
 impl<'a> FlattenContext<'a> {
@@ -49,14 +50,52 @@ impl<'a> FlattenContext<'a> {
             builder: builder,
             resource_cache: resource_cache,
             replacements: Vec::new(),
+            nested_display_list_info: Vec::new(),
         }
     }
 
-    fn clip_id_with_replacement(&self, id: ClipId) -> ClipId {
-        match self.replacements.last() {
+    fn push_nested_display_list_ids(&mut self, info: ClipAndScrollInfo) {
+        self.nested_display_list_info.push((info.scroll_node_id, info.clip_node_id()));
+    }
+
+    fn pop_nested_display_list_ids(&mut self) {
+        self.nested_display_list_info.pop();
+    }
+
+    fn apply_clip_and_scroll_info_replacements(&self, info: &mut ClipAndScrollInfo) {
+        info.scroll_node_id = self.apply_scroll_frame_id_replacement(info.scroll_node_id);
+
+        let mut clip_node_id = match info.clip_node_id {
+            Some(id) => id,
+            None => return,
+        };
+
+        for &(_, nested_clip_node_id) in self.nested_display_list_info.iter().rev() {
+            if clip_node_id.is_root_scroll_node() {
+                clip_node_id = nested_clip_node_id;
+            } else {
+                break;
+            }
+        }
+
+        info.clip_node_id = Some(clip_node_id);
+    }
+
+    fn apply_scroll_frame_id_replacement(&self, id: ClipId) -> ClipId {
+        let mut id = match self.replacements.last() {
             Some(&(to_replace, replacement)) if to_replace == id => replacement,
             _ => id,
+        };
+
+        for &(nested_scroll_id, _) in self.nested_display_list_info.iter().rev() {
+            if id.is_root_scroll_node() {
+                id = nested_scroll_id;
+            } else {
+                break;
+            }
         }
+
+        id
     }
 }
 
@@ -314,7 +353,7 @@ impl Frame {
             return;
         }
 
-        let mut clip_id = context.clip_id_with_replacement(context_scroll_node_id);
+        let mut clip_id = context.apply_scroll_frame_id_replacement(context_scroll_node_id);
 
         if stacking_context.scroll_policy == ScrollPolicy::Fixed {
             context.replacements.push((context_scroll_node_id,
@@ -435,8 +474,7 @@ impl Frame {
                             reference_frame_relative_offset: LayerVector2D)
                             -> Option<BuiltDisplayListIter<'a>> {
         let mut clip_and_scroll = item.clip_and_scroll();
-        clip_and_scroll.scroll_node_id =
-            context.clip_id_with_replacement(clip_and_scroll.scroll_node_id);
+        context.apply_clip_and_scroll_info_replacements(&mut clip_and_scroll);
 
         match *item.item() {
             SpecificDisplayItem::WebGL(ref info) => {
@@ -596,6 +634,10 @@ impl Frame {
                                   &content_rect,
                                   item.clip_region());
             }
+            SpecificDisplayItem::PushNestedDisplayList => {
+                context.push_nested_display_list_ids(item.clip_and_scroll());
+            }
+            SpecificDisplayItem::PopNestedDisplayList => context.pop_nested_display_list_ids(),
 
             // Do nothing; these are dummy items for the display list parser
             SpecificDisplayItem::SetGradientStops | SpecificDisplayItem::SetClipRegion(_) => { }
