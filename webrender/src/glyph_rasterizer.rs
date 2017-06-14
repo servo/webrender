@@ -270,6 +270,7 @@ impl GlyphRasterizer {
                         },
                         TextureFilter::Linear,
                         ImageData::Raw(Arc::new(glyph.bytes)),
+                        [glyph.left, glyph.top],
                         texture_cache_profile,
                     );
                     requested_items.insert(image_id);

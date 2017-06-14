@@ -451,6 +451,11 @@ pub struct TextureCacheItem {
 
     // Handle to the location of the UV rect for this item in GPU cache.
     pub uv_rect_handle: GpuCacheHandle,
+
+    // Some arbitrary data associated with this item.
+    // In the case of glyphs, it is the top / left offset
+    // from the rasterized glyph.
+    pub user_data: [f32; 2],
 }
 
 // Structure squat the width/height fields to maintain the free list information :)
@@ -487,7 +492,8 @@ impl FreeListItem for TextureCacheItem {
 
 impl TextureCacheItem {
     fn new(texture_id: CacheTextureId,
-           rect: DeviceUintRect)
+           rect: DeviceUintRect,
+           user_data: [f32; 2])
            -> TextureCacheItem {
         TextureCacheItem {
             texture_id: texture_id,
@@ -503,6 +509,7 @@ impl TextureCacheItem {
             },
             allocated_rect: rect,
             uv_rect_handle: GpuCacheHandle::new(),
+            user_data: user_data,
         }
     }
 }
@@ -617,6 +624,7 @@ impl TextureCache {
                     requested_height: u32,
                     format: ImageFormat,
                     filter: TextureFilter,
+                    user_data: [f32; 2],
                     profile: &mut TextureCacheProfileCounters)
                     -> AllocationResult {
         let requested_size = DeviceUintSize::new(requested_width, requested_height);
@@ -631,7 +639,8 @@ impl TextureCache {
             let texture_id = self.cache_id_list.allocate();
             let cache_item = TextureCacheItem::new(
                 texture_id,
-                DeviceUintRect::new(DeviceUintPoint::zero(), requested_size));
+                DeviceUintRect::new(DeviceUintPoint::zero(), requested_size),
+                user_data);
             let image_id = self.items.insert(cache_item);
 
             return AllocationResult {
@@ -727,7 +736,8 @@ impl TextureCache {
         let location = page.allocate(&requested_size)
                            .expect("All the checks have passed till now, there is no way back.");
         let cache_item = TextureCacheItem::new(page.texture_id,
-                                               DeviceUintRect::new(location, requested_size));
+                                               DeviceUintRect::new(location, requested_size),
+                                               user_data);
         let image_id = self.items.insert(cache_item.clone());
 
         AllocationResult {
@@ -797,6 +807,7 @@ impl TextureCache {
                   descriptor: ImageDescriptor,
                   filter: TextureFilter,
                   data: ImageData,
+                  user_data: [f32; 2],
                   profile: &mut TextureCacheProfileCounters) -> TextureCacheItemId {
         if let ImageData::Blob(..) = data {
             panic!("must rasterize the vector image before adding to the cache");
@@ -818,6 +829,7 @@ impl TextureCache {
                                    height,
                                    format,
                                    filter,
+                                   user_data,
                                    profile);
 
         match result.kind {

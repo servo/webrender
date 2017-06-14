@@ -16,11 +16,11 @@ use std::mem;
 use std::usize;
 use util::{TransformedRect, recycle_vec};
 use webrender_traits::{BuiltDisplayList, ColorF, ImageKey, ImageRendering, YuvColorSpace};
-use webrender_traits::{YuvFormat, ClipRegion, ComplexClipRegion, ItemRange, GlyphKey};
+use webrender_traits::{YuvFormat, ClipRegion, ComplexClipRegion, ItemRange};
 use webrender_traits::{FontKey, FontRenderMode, WebGLContextId};
 use webrender_traits::{device_length, DeviceIntRect, DeviceIntSize};
 use webrender_traits::{DeviceRect, DevicePoint};
-use webrender_traits::{LayerRect, LayerSize, LayerPoint, LayoutPoint};
+use webrender_traits::{LayerRect, LayerSize, LayerPoint};
 use webrender_traits::{LayerToWorldTransform, GlyphInstance, GlyphOptions};
 use webrender_traits::{ExtendMode, GradientStop, TileOffset};
 
@@ -970,33 +970,14 @@ impl PrimitiveStore {
                 let src_glyphs = display_list.get(text.glyph_range);
 
                 // Cache the glyph positions, if not in the cache already.
+                // TODO(gw): In the future, remove `glyph_instances`
+                //           completely, and just reference the glyphs
+                //           directly from the displaty list.
                 if text.glyph_instances.is_empty() {
-                    let mut glyph_key = GlyphKey::new(text.font_key,
-                                                      font_size_dp,
-                                                      text.color,
-                                                      0,
-                                                      LayoutPoint::new(0.0, 0.0),
-                                                      text.render_mode);
                     for src in src_glyphs {
-                        glyph_key.index = src.index;
-                        glyph_key.subpixel_point.set_offset(src.point, text.render_mode);
-
-                        let dimensions = match resource_cache.get_glyph_dimensions(&glyph_key) {
-                            None => continue,
-                            Some(dimensions) => dimensions,
-                        };
-
-                        // TODO(gw): Check for this and ensure platforms return None in this case!!!
-                        debug_assert!(dimensions.width > 0 && dimensions.height > 0);
-
-                        let x = src.point.x + dimensions.left as f32 / device_pixel_ratio;
-                        let y = src.point.y - dimensions.top as f32 / device_pixel_ratio;
-
-                        let glyph_pos = LayerPoint::new(x, y);
-
                         text.glyph_instances.push(GlyphInstance {
                             index: src.index,
-                            point: glyph_pos,
+                            point: src.point,
                         });
                     }
                 }

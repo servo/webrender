@@ -727,11 +727,12 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
 
 struct ResourceRect {
     vec4 uv_rect;
+    vec2 user_data;
 };
 
 ResourceRect fetch_resource_rect(int address) {
-    vec4 data = fetch_from_resource_cache_1(address);
-    return ResourceRect(data);
+    vec4 data[2] = fetch_from_resource_cache_2(address);
+    return ResourceRect(data[0], data[1].xy);
 }
 
 struct Rectangle {

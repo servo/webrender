@@ -31,6 +31,8 @@ pub struct FontContext {
 unsafe impl Send for FontContext {}
 
 pub struct RasterizedGlyph {
+    pub top: f32,
+    pub left: f32,
     pub width: u32,
     pub height: u32,
     pub bytes: Vec<u8>,
@@ -39,6 +41,8 @@ pub struct RasterizedGlyph {
 impl RasterizedGlyph {
     pub fn blank() -> RasterizedGlyph {
         RasterizedGlyph {
+            top: 0.0,
+            left: 0.0,
             width: 0,
             height: 0,
             bytes: vec![],
@@ -400,6 +404,8 @@ impl FontContext {
                                   key.color);
 
         Some(RasterizedGlyph {
+            left: metrics.rasterized_left as f32,
+            top: metrics.rasterized_ascent as f32,
             width: metrics.rasterized_width,
             height: metrics.rasterized_height,
             bytes: rasterized_pixels,

@@ -12,7 +12,9 @@ void main(void) {
     Glyph glyph = fetch_glyph(prim.specific_prim_address, glyph_index);
     ResourceRect res = fetch_resource_rect(resource_address);
 
-    RectWithSize local_rect = RectWithSize(glyph.offset,
+    vec2 local_pos = glyph.offset + vec2(res.user_data.x, -res.user_data.y) / uDevicePixelRatio;
+
+    RectWithSize local_rect = RectWithSize(local_pos,
                                            (res.uv_rect.zw - res.uv_rect.xy) / uDevicePixelRatio);
 
 #ifdef WR_FEATURE_TRANSFORM

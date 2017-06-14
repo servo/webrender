@@ -626,6 +626,7 @@ impl ResourceCache {
                 let uv1 = DevicePoint::new(item.pixel_rect.bottom_right.x as f32,
                                            item.pixel_rect.bottom_right.y as f32);
                 request.push([uv0.x, uv0.y, uv1.x, uv1.y].into());
+                request.push([item.user_data[0], item.user_data[1], 0.0, 0.0].into());
             }
         }
     }
@@ -701,6 +702,7 @@ impl ResourceCache {
                 let image_id = self.texture_cache.insert(descriptor,
                                                          filter,
                                                          image_data,
+                                                         [0.0; 2],
                                                          texture_cache_profile);
 
                 entry.insert(CachedImageInfo {
