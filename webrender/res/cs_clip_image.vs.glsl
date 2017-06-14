@@ -18,7 +18,7 @@ void main(void) {
     Layer layer = fetch_layer(cci.layer_index);
     ImageMaskData mask = fetch_mask_data(cci.data_index);
     RectWithSize local_rect = mask.local_rect;
-    ResourceRect res = fetch_resource_rect(cci.resource_address);
+    ImageResource res = fetch_image_resource(cci.resource_address);
 
     ClipVertexInfo vi = write_clip_tile_vertex(local_rect,
                                                layer,
