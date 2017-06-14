@@ -8,9 +8,9 @@ use prim_store::{ClipData, GpuBlock32, ImageMaskData, PrimitiveStore};
 use prim_store::{CLIP_DATA_GPU_SIZE, MASK_DATA_GPU_SIZE};
 use renderer::VertexDataStore;
 use util::{ComplexClipRegionHelpers, MatrixHelpers, TransformedRect};
-use webrender_traits::{BorderRadius, BuiltDisplayList, ClipRegion, ComplexClipRegion, ImageMask};
-use webrender_traits::{DeviceIntRect, LayerToWorldTransform};
-use webrender_traits::{DeviceRect, LayerRect, LayerPoint, LayerSize};
+use api::{BorderRadius, BuiltDisplayList, ClipRegion, ComplexClipRegion, ImageMask};
+use api::{DeviceIntRect, LayerToWorldTransform};
+use api::{DeviceRect, LayerRect, LayerPoint, LayerSize};
 use std::ops::Not;
 
 const MAX_CLIP: f32 = 1000000.0;

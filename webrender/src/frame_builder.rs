@@ -29,13 +29,13 @@ use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, Ren
 use tiling::{RenderTargetContext, RenderTaskCollection, ScrollbarPrimitive, StackingContext};
 use util::{self, pack_as_float, subtract_rect, recycle_vec};
 use util::RectHelpers;
-use webrender_traits::{BorderDetails, BorderDisplayItem, BoxShadowClipMode, ClipAndScrollInfo};
-use webrender_traits::{ClipId, ClipRegion, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use webrender_traits::{DeviceUintRect, DeviceUintSize, ExtendMode, FontKey, FontRenderMode};
-use webrender_traits::{GlyphInstance, GlyphOptions, GradientStop, ImageKey, ImageRendering};
-use webrender_traits::{ItemRange, LayerPoint, LayerRect, LayerSize, LayerToScrollTransform};
-use webrender_traits::{PipelineId, RepeatMode, TileOffset, TransformStyle, WebGLContextId};
-use webrender_traits::{WorldPixel, YuvColorSpace, YuvData, LayerVector2D};
+use api::{BorderDetails, BorderDisplayItem, BoxShadowClipMode, ClipAndScrollInfo};
+use api::{ClipId, ClipRegion, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use api::{DeviceUintRect, DeviceUintSize, ExtendMode, FontKey, FontRenderMode};
+use api::{GlyphInstance, GlyphOptions, GradientStop, ImageKey, ImageRendering};
+use api::{ItemRange, LayerPoint, LayerRect, LayerSize, LayerToScrollTransform};
+use api::{PipelineId, RepeatMode, TileOffset, TransformStyle, WebGLContextId};
+use api::{WorldPixel, YuvColorSpace, YuvData, LayerVector2D};
 
 #[derive(Debug, Clone)]
 struct ImageBorderSegment {

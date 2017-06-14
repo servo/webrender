@@ -11,8 +11,8 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::{mem, process};
 use webrender::WEBRENDER_RECORDING_HEADER;
-use webrender_traits::ApiMsg;
-use webrender_traits::channel::{Payload, PayloadSenderHelperMethods};
+use webrender::api::ApiMsg;
+use webrender::api::channel::{Payload, PayloadSenderHelperMethods};
 use wrench::{Wrench, WrenchThing};
 
 #[derive(Clone)]

@@ -9,7 +9,7 @@ use std::any::TypeId;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use webrender_traits::ApiMsg;
+use api::ApiMsg;
 use byteorder::{LittleEndian, WriteBytesExt};
 
 pub static WEBRENDER_RECORDING_HEADER: u64 = 0xbeefbeefbeefbe01u64;

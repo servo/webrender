@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use webrender_traits::*;
+use webrender::api::*;
 use wrench::{Wrench, WrenchThing, layout_simple_ascii};
 use yaml_helper::YamlHelper;
 use yaml_rust::{Yaml, YamlLoader};

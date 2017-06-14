@@ -7,10 +7,10 @@ use fnv::FnvHasher;
 use print_tree::PrintTree;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
-use webrender_traits::{ClipId, LayerPoint, LayerRect, LayerToScrollTransform};
-use webrender_traits::{LayerToWorldTransform, PipelineId, ScrollClamping, ScrollEventPhase};
-use webrender_traits::{ScrollLayerRect, ScrollLayerState, ScrollLocation, WorldPoint};
-use webrender_traits::{as_scroll_parent_rect, LayerVector2D};
+use api::{ClipId, LayerPoint, LayerRect, LayerToScrollTransform};
+use api::{LayerToWorldTransform, PipelineId, ScrollClamping, ScrollEventPhase};
+use api::{ScrollLayerRect, ScrollLayerState, ScrollLocation, WorldPoint};
+use api::{as_scroll_parent_rect, LayerVector2D};
 
 pub type ScrollStates = HashMap<ClipId, ScrollingState, BuildHasherDefault<FnvHasher>>;
 

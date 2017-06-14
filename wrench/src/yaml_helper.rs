@@ -7,7 +7,7 @@ use euclid::{Radians, TypedSize2D};
 use parse_function::parse_function;
 use std::f32;
 use std::str::FromStr;
-use webrender_traits::*;
+use webrender::api::*;
 use yaml_rust::Yaml;
 
 pub trait YamlHelper {

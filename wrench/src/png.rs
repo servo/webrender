@@ -8,7 +8,7 @@ use image::png::PNGEncoder;
 use std::fs::File;
 use std::path::Path;
 use std::sync::mpsc::{channel, Sender};
-use webrender_traits::*;
+use webrender::api::*;
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
 

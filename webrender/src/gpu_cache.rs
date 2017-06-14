@@ -28,7 +28,7 @@ use device::FrameId;
 use profiler::GpuCacheProfileCounters;
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use std::{mem, u32};
-use webrender_traits::{ColorF, LayerRect};
+use api::{ColorF, LayerRect};
 
 pub const GPU_CACHE_INITIAL_HEIGHT: u32 = 512;
 const FRAMES_BEFORE_EVICTION: usize = 10;

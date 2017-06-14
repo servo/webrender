@@ -9,8 +9,8 @@ use prim_store::{PrimitiveCacheKey, PrimitiveIndex};
 use std::{cmp, f32, i32, mem, usize};
 use tiling::{ClipScrollGroupIndex, PackedLayerIndex, RenderPass, RenderTargetIndex};
 use tiling::{RenderTargetKind, StackingContextIndex};
-use webrender_traits::{ClipId, DeviceIntLength, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use webrender_traits::{MixBlendMode};
+use api::{ClipId, DeviceIntLength, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use api::{MixBlendMode};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 12;
 

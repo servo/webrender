@@ -16,10 +16,10 @@ use std::collections::hash_map::Entry;
 use std::collections::HashSet;
 use std::mem;
 use texture_cache::{TextureCacheItemId, TextureCache};
-use webrender_traits::FontTemplate;
-use webrender_traits::{FontKey, FontRenderMode, ImageData, ImageFormat};
-use webrender_traits::{ImageDescriptor, ColorF, LayoutPoint};
-use webrender_traits::{GlyphKey, GlyphOptions, GlyphInstance, GlyphDimensions};
+use api::FontTemplate;
+use api::{FontKey, FontRenderMode, ImageData, ImageFormat};
+use api::{ImageDescriptor, ColorF, LayoutPoint};
+use api::{GlyphKey, GlyphOptions, GlyphInstance, GlyphDimensions};
 
 pub type GlyphCache = ResourceClassCache<GlyphRequest, Option<TextureCacheItemId>>;
 

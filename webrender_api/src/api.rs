@@ -271,7 +271,7 @@ impl RenderApi {
     /// # Examples
     ///
     /// ```
-    /// # use webrender_traits::{PipelineId, RenderApiSender};
+    /// # use webrender_api::{PipelineId, RenderApiSender};
     /// # fn example(sender: RenderApiSender) {
     /// let api = sender.create_api();
     /// // ...

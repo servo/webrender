@@ -15,8 +15,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tiling;
 use renderer::BlendMode;
-use webrender_traits::{ClipId, ColorF, DeviceUintRect, Epoch, ExternalImageData, ExternalImageId};
-use webrender_traits::{ImageData, ImageFormat, NativeFontHandle, PipelineId};
+use api::{ClipId, ColorF, DeviceUintRect, Epoch, ExternalImageData, ExternalImageId};
+use api::{ImageData, ImageFormat, NativeFontHandle, PipelineId};
 
 // An ID for a texture that is owned by the
 // texture cache module. This can include atlases

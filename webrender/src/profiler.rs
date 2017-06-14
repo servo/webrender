@@ -8,7 +8,7 @@ use euclid::{Point2D, Size2D, Rect, vec2};
 use std::collections::vec_deque::VecDeque;
 use std::f32;
 use std::mem;
-use webrender_traits::ColorF;
+use api::ColorF;
 use time::precise_time_ns;
 
 const GRAPH_WIDTH: f32 = 1024.0;

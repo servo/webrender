@@ -18,13 +18,13 @@ use time::precise_time_ns;
 use thread_profiler::register_thread_with_profiler;
 use rayon::ThreadPool;
 use webgl_types::{GLContextHandleWrapper, GLContextWrapper};
-use webrender_traits::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
-use webrender_traits::channel::{PayloadSender, PayloadSenderHelperMethods};
-use webrender_traits::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DeviceIntPoint};
-use webrender_traits::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, IdNamespace, ImageData};
-use webrender_traits::{LayerPoint, PipelineId, RenderDispatcher, RenderNotifier};
-use webrender_traits::{VRCompositorCommand, VRCompositorHandler, WebGLCommand, WebGLContextId};
-use webrender_traits::{FontTemplate};
+use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
+use api::channel::{PayloadSender, PayloadSenderHelperMethods};
+use api::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DeviceIntPoint};
+use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, IdNamespace, ImageData};
+use api::{LayerPoint, PipelineId, RenderDispatcher, RenderNotifier};
+use api::{VRCompositorCommand, VRCompositorHandler, WebGLCommand, WebGLContextId};
+use api::{FontTemplate};
 
 #[cfg(feature = "webgl")]
 use offscreen_gl_context::GLContextDispatcher;
@@ -312,7 +312,7 @@ impl RenderBackend {
                             self.publish_frame_and_notify_compositor(frame, &mut profile_counters);
                         }
                         ApiMsg::TranslatePointToLayerSpace(..) => {
-                            panic!("unused api - remove from webrender_traits");
+                            panic!("unused api - remove from webrender_api");
                         }
                         ApiMsg::GetScrollNodeState(tx) => {
                             profile_scope!("GetScrollNodeState");

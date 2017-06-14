@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use std::mem;
 use std::ops::Add;
 use util::recycle_vec;
-use webrender_traits::ImageFormat;
+use api::ImageFormat;
 
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
 pub struct GpuStoreAddress(pub i32);

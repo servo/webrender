@@ -7,18 +7,17 @@ extern crate euclid;
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
-extern crate webrender_traits;
 
 use gleam::gl;
 use glutin::TouchPhase;
 use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
-use webrender_traits::{ColorF, Epoch};
-use webrender_traits::{DeviceIntPoint, DeviceUintSize, LayoutPoint, LayoutRect, LayoutSize};
-use webrender_traits::{ImageData, ImageDescriptor, ImageFormat, ImageRendering};
-use webrender_traits::{PipelineId, TransformStyle};
-use webrender_traits::{YuvColorSpace, YuvData};
+use webrender::api::{ColorF, Epoch};
+use webrender::api::{DeviceIntPoint, DeviceUintSize, LayoutPoint, LayoutRect, LayoutSize};
+use webrender::api::{ImageData, ImageDescriptor, ImageFormat, ImageRendering};
+use webrender::api::{PipelineId, TransformStyle};
+use webrender::api::{YuvColorSpace, YuvData};
 
 #[derive(Debug)]
 enum Gesture {
@@ -170,7 +169,7 @@ impl Notifier {
     }
 }
 
-impl webrender_traits::RenderNotifier for Notifier {
+impl api::RenderNotifier for Notifier {
     fn new_frame_ready(&mut self) {
         #[cfg(not(target_os = "android"))]
         self.window_proxy.wakeup_event_loop();
@@ -235,15 +234,15 @@ fn main() {
 
     let pipeline_id = PipelineId(0, 0);
     let layout_size = LayoutSize::new(width as f32, height as f32);
-    let mut builder = webrender_traits::DisplayListBuilder::new(pipeline_id, layout_size);
+    let mut builder = api::DisplayListBuilder::new(pipeline_id, layout_size);
 
     let bounds = LayoutRect::new(LayoutPoint::zero(), layout_size);
-    builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
+    builder.push_stacking_context(api::ScrollPolicy::Scrollable,
                                   bounds,
                                   None,
                                   TransformStyle::Flat,
                                   None,
-                                  webrender_traits::MixBlendMode::Normal,
+                                  api::MixBlendMode::Normal,
                                   Vec::new());
 
 
@@ -333,7 +332,7 @@ fn main() {
                             api.generate_frame(None);
                         }
                         TouchResult::Zoom(zoom) => {
-                            api.set_pinch_zoom(webrender_traits::ZoomFactor::new(zoom));
+                            api.set_pinch_zoom(api::ZoomFactor::new(zoom));
                             api.generate_frame(None);
                         }
                         TouchResult::None => {}

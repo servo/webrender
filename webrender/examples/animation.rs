@@ -5,7 +5,6 @@
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
-extern crate webrender_traits;
 
 #[macro_use]
 extern crate lazy_static;
@@ -15,7 +14,7 @@ mod boilerplate;
 
 use boilerplate::HandyDandyRectBuilder;
 use std::sync::Mutex;
-use webrender_traits::*;
+use webrender::api::*;
 
 // This example creates a 100x100 white rect and allows the user to move it
 // around by using the arrow keys. It does this by using the animation API.
@@ -29,12 +28,12 @@ fn body(_api: &RenderApi,
     // Note the magic "42" we use as the animation key. That is used to update
     // the transform in the keyboard event handler code.
     let bounds = (0,0).to(100, 100);
-    builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
+    builder.push_stacking_context(api::ScrollPolicy::Scrollable,
                                   bounds,
                                   Some(PropertyBinding::Binding(PropertyBindingKey::new(42))),
                                   TransformStyle::Flat,
                                   None,
-                                  webrender_traits::MixBlendMode::Normal,
+                                  api::MixBlendMode::Normal,
                                   Vec::new());
 
     // Fill it with a white rect

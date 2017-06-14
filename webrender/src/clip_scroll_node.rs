@@ -9,11 +9,11 @@ use renderer::VertexDataStore;
 use spring::{DAMPING, STIFFNESS, Spring};
 use tiling::PackedLayerIndex;
 use util::TransformedRectKind;
-use webrender_traits::{ClipId, ClipRegion, DeviceIntRect, LayerPixel, LayerPoint, LayerRect};
-use webrender_traits::{LayerSize, LayerToScrollTransform, LayerToWorldTransform, PipelineId};
-use webrender_traits::{ScrollClamping, ScrollEventPhase, ScrollLayerRect, ScrollLocation};
-use webrender_traits::{WorldPoint, LayerVector2D};
-use webrender_traits::{as_scroll_parent_vector};
+use api::{ClipId, ClipRegion, DeviceIntRect, LayerPixel, LayerPoint, LayerRect};
+use api::{LayerSize, LayerToScrollTransform, LayerToWorldTransform, PipelineId};
+use api::{ScrollClamping, ScrollEventPhase, ScrollLayerRect, ScrollLocation};
+use api::{WorldPoint, LayerVector2D};
+use api::{as_scroll_parent_vector};
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;

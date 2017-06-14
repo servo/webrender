@@ -5,8 +5,8 @@
 use fnv::FnvHasher;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
-use webrender_traits::{BuiltDisplayList, ColorF, DynamicProperties, Epoch, LayerSize, LayoutSize};
-use webrender_traits::{LayoutTransform, PipelineId, PropertyBinding, PropertyBindingId};
+use api::{BuiltDisplayList, ColorF, DynamicProperties, Epoch, LayerSize, LayoutSize};
+use api::{LayoutTransform, PipelineId, PropertyBinding, PropertyBindingId};
 
 /// Stores a map of the animated property bindings for the current display list. These
 /// can be used to animate the transform and/or opacity of a display list without

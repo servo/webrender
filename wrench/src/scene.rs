@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashMap;
-use webrender_traits::{BuiltDisplayList, ColorF, Epoch};
-use webrender_traits::{LayerSize, PipelineId};
+use webrender::api::{BuiltDisplayList, ColorF, Epoch};
+use webrender::api::{LayerSize, PipelineId};
 
 /// A representation of the layout within the display port for a given document or iframe.
 #[derive(Debug)]

@@ -18,8 +18,8 @@ use std::{fmt, fs};
 use super::CURRENT_FRAME_NUMBER;
 use time;
 use webrender;
-use webrender_traits::*;
-use webrender_traits::channel::Payload;
+use webrender::api::*;
+use webrender::api::channel::Payload;
 
 enum CachedFont {
     Native(NativeFontHandle),

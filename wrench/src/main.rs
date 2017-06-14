@@ -28,7 +28,6 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate time;
 extern crate webrender;
-extern crate webrender_traits;
 extern crate yaml_rust;
 
 mod binary_frame_reader;
@@ -59,7 +58,7 @@ use std::os::raw::c_void;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::rc::Rc;
-use webrender_traits::*;
+use webrender::api::*;
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
 

@@ -7,7 +7,6 @@ extern crate euclid;
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
-extern crate webrender_traits;
 
 use app_units::Au;
 use gleam::gl;
@@ -17,10 +16,10 @@ use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
-use webrender_traits::{ClipRegionToken, ColorF, DisplayListBuilder, Epoch, GlyphInstance};
-use webrender_traits::{DeviceIntPoint, DeviceUintSize, LayoutPoint, LayoutRect, LayoutSize};
-use webrender_traits::{ImageData, ImageDescriptor, ImageFormat};
-use webrender_traits::{PipelineId, RenderApi, TransformStyle, BoxShadowClipMode};
+use webrender::api::{ClipRegionToken, ColorF, DisplayListBuilder, Epoch, GlyphInstance};
+use webrender::api::{DeviceIntPoint, DeviceUintSize, LayoutPoint, LayoutRect, LayoutSize};
+use webrender::api::{ImageData, ImageDescriptor, ImageFormat};
+use webrender::api::{PipelineId, RenderApi, TransformStyle, BoxShadowClipMode};
 use euclid::vec2;
 
 #[derive(Debug)]
@@ -180,7 +179,7 @@ impl Notifier {
     }
 }
 
-impl webrender_traits::RenderNotifier for Notifier {
+impl api::RenderNotifier for Notifier {
     fn new_frame_ready(&mut self) {
         #[cfg(not(target_os = "android"))]
         self.window_proxy.wakeup_event_loop();
@@ -199,14 +198,14 @@ fn push_sub_clip(api: &RenderApi, builder: &mut DisplayListBuilder, bounds: &Lay
                   ImageDescriptor::new(2, 2, ImageFormat::A8, true),
                   ImageData::new(vec![0, 80, 180, 255]),
                   None);
-    let mask = webrender_traits::ImageMask {
+    let mask = api::ImageMask {
         image: mask_image,
         rect: LayoutRect::new(LayoutPoint::new(75.0, 75.0), LayoutSize::new(100.0, 100.0)),
         repeat: false,
     };
-    let complex = webrender_traits::ComplexClipRegion::new(
+    let complex = api::ComplexClipRegion::new(
         LayoutRect::new(LayoutPoint::new(50.0, 50.0), LayoutSize::new(100.0, 100.0)),
-        webrender_traits::BorderRadius::uniform(20.0));
+        api::BorderRadius::uniform(20.0));
 
     builder.push_clip_region(bounds, vec![complex], Some(mask))
 }
@@ -264,15 +263,15 @@ fn main() {
 
     let pipeline_id = PipelineId(0, 0);
     let layout_size = LayoutSize::new(width as f32, height as f32);
-    let mut builder = webrender_traits::DisplayListBuilder::new(pipeline_id, layout_size);
+    let mut builder = api::DisplayListBuilder::new(pipeline_id, layout_size);
 
     let bounds = LayoutRect::new(LayoutPoint::zero(), layout_size);
-    builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
+    builder.push_stacking_context(api::ScrollPolicy::Scrollable,
                                   bounds,
                                   None,
                                   TransformStyle::Flat,
                                   None,
-                                  webrender_traits::MixBlendMode::Normal,
+                                  api::MixBlendMode::Normal,
                                   Vec::new());
 
     let clip = push_sub_clip(&api, &mut builder, &bounds);
@@ -284,22 +283,22 @@ fn main() {
     builder.push_rect(LayoutRect::new(LayoutPoint::new(250.0, 100.0), LayoutSize::new(100.0, 100.0)),
                       clip,
                       ColorF::new(0.0, 1.0, 0.0, 1.0));
-    let border_side = webrender_traits::BorderSide {
+    let border_side = api::BorderSide {
         color: ColorF::new(0.0, 0.0, 1.0, 1.0),
-        style: webrender_traits::BorderStyle::Groove,
+        style: api::BorderStyle::Groove,
     };
-    let border_widths = webrender_traits::BorderWidths {
+    let border_widths = api::BorderWidths {
         top: 10.0,
         left: 10.0,
         bottom: 10.0,
         right: 10.0,
     };
-    let border_details = webrender_traits::BorderDetails::Normal(webrender_traits::NormalBorder {
+    let border_details = api::BorderDetails::Normal(api::NormalBorder {
         top: border_side,
         right: border_side,
         bottom: border_side,
         left: border_side,
-        radius: webrender_traits::BorderRadius::uniform(20.0),
+        radius: api::BorderRadius::uniform(20.0),
     });
 
     let clip = push_sub_clip(&api, &mut builder, &bounds);
@@ -440,7 +439,7 @@ fn main() {
                             api.generate_frame(None);
                         }
                         TouchResult::Zoom(zoom) => {
-                            api.set_pinch_zoom(webrender_traits::ZoomFactor::new(zoom));
+                            api.set_pinch_zoom(api::ZoomFactor::new(zoom));
                             api.generate_frame(None);
                         }
                         TouchResult::None => {}

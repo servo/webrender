@@ -5,9 +5,9 @@
 use std::f32::consts::{FRAC_1_SQRT_2};
 use euclid::{Point2D, Rect, Size2D};
 use euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedTransform3D};
-use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize};
-use webrender_traits::{LayerRect, WorldPoint3D, LayerToWorldTransform};
-use webrender_traits::{BorderRadius, ComplexClipRegion, LayoutRect};
+use api::{DeviceIntRect, DeviceIntPoint, DeviceIntSize};
+use api::{LayerRect, WorldPoint3D, LayerToWorldTransform};
+use api::{BorderRadius, ComplexClipRegion, LayoutRect};
 use num_traits::Zero;
 
 // Matches the definition of SK_ScalarNearlyZero in Skia.

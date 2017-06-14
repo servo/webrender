@@ -17,9 +17,9 @@ use std::mem;
 use std::slice::Iter;
 use time;
 use util;
-use webrender_traits::{ExternalImageType, ImageData, ImageFormat, DevicePixel, DeviceIntPoint};
-use webrender_traits::{DeviceUintRect, DeviceUintSize, DeviceUintPoint};
-use webrender_traits::ImageDescriptor;
+use api::{ExternalImageType, ImageData, ImageFormat, DevicePixel, DeviceIntPoint};
+use api::{DeviceUintRect, DeviceUintSize, DeviceUintPoint};
+use api::ImageDescriptor;
 
 /// The number of bytes we're allowed to use for a texture.
 const MAX_BYTES_PER_TEXTURE: u32 = 1024 * 1024 * 256;  // 256MB
