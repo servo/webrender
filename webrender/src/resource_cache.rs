@@ -392,10 +392,21 @@ impl ResourceCache {
         }
         if template.data.is_blob() {
             if let Some(ref mut renderer) = self.blob_image_renderer {
-                let same_epoch = match self.cached_images.resources.get(&request) {
-                    Some(entry) => entry.epoch == template.epoch,
-                    None => false,
+                let (same_epoch, texture_cache_id) = match self.cached_images.resources
+                                                               .get(&request) {
+                    Some(entry) => {
+                        (entry.epoch == template.epoch, Some(entry.texture_cache_id))
+                    }
+                    None => {
+                        (false, None)
+                    }
                 };
+
+                // Ensure that blobs are added to the list of requested items
+                // foe the GPU cache, even if the cached blob image is up to date.
+                if let Some(texture_cache_id) = texture_cache_id {
+                    self.requested_items.insert(texture_cache_id);
+                }
 
                 if !same_epoch && self.blob_image_requests.insert(request) {
                     let (offset, w, h) = match template.tiling {
