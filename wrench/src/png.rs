@@ -54,12 +54,12 @@ pub fn png(wrench: &mut Wrench,
     wrench.render();
 
     let size = window.get_inner_size_pixels();
+    let device_size = DeviceUintSize::new(size.0, size.1);
     let data = wrench.renderer.read_pixels_rgba8(DeviceUintRect::new(DeviceUintPoint::zero(),
-                                                                     DeviceUintSize::new(size.0, size.1)));
+                                                                     device_size));
 
     let mut out_path = reader.yaml_path().clone();
     out_path.set_extension("png");
 
-    let device_size = DeviceUintSize::new(size.0, size.1);
     save_flipped(out_path, &data, device_size);
 }
