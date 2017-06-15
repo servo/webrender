@@ -147,7 +147,7 @@ impl JsonFrameWriter {
                     false
                 }
             }
-            ImageFormat::RGBA8 => {
+            ImageFormat::BGRA8 => {
                 if data.stride == data.width * 4 {
                     unpremultiply(bytes.as_mut_slice());
                     save_buffer(&path_file, &bytes, data.width, data.height, ColorType::RGBA(8)).unwrap();

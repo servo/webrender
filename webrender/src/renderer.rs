@@ -960,7 +960,7 @@ impl Renderer {
         device.init_texture(dummy_cache_texture_id,
                             1,
                             1,
-                            ImageFormat::RGBA8,
+                            ImageFormat::BGRA8,
                             TextureFilter::Linear,
                             RenderTargetMode::LayerRenderTarget(1),
                             None);
@@ -2042,7 +2042,7 @@ impl Renderer {
                 self.device.init_texture(texture_id,
                                          frame.cache_size.width as u32,
                                          frame.cache_size.height as u32,
-                                         ImageFormat::RGBA8,
+                                         ImageFormat::BGRA8,
                                          TextureFilter::Linear,
                                          RenderTargetMode::LayerRenderTarget(target_count as i32),
                                          None);
