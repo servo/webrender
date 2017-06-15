@@ -63,6 +63,8 @@ pub enum SpecificDisplayItem {
     PopStackingContext,
     SetGradientStops,
     SetClipRegion(ClipRegion),
+    PushNestedDisplayList,
+    PopNestedDisplayList,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
