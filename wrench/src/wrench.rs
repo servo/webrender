@@ -309,11 +309,11 @@ impl Wrench {
                 let format = match image {
                     image::ImageLuma8(_) => ImageFormat::A8,
                     image::ImageRgb8(_) => ImageFormat::RGB8,
-                    image::ImageRgba8(_) => ImageFormat::RGBA8,
+                    image::ImageRgba8(_) => ImageFormat::BGRA8,
                     _ => panic!("We don't support whatever your crazy image type is, come on"),
                 };
                 let mut bytes = image.raw_pixels();
-                if format == ImageFormat::RGBA8 {
+                if format == ImageFormat::BGRA8 {
                     premultiply(bytes.as_mut_slice());
                 }
                 let descriptor = ImageDescriptor::new(image_dims.0,
@@ -423,7 +423,7 @@ impl Wrench {
 
 fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
     match format {
-        ImageFormat::RGBA8 => {
+        ImageFormat::BGRA8 => {
             let mut is_opaque = true;
             for i in 0..(bytes.len() / 4) {
                 if bytes[i * 4 + 3] != 255 {
@@ -453,7 +453,7 @@ fn generate_xy_gradient_image(w: u32, h: u32) -> (ImageDescriptor, ImageData) {
     }
 
     (
-        ImageDescriptor::new(w, h, ImageFormat::RGBA8, true),
+        ImageDescriptor::new(w, h, ImageFormat::BGRA8, true),
         ImageData::new(pixels)
     )
 }
@@ -476,7 +476,7 @@ fn generate_solid_color_image(r: u8, g: u8, b: u8, a: u8, w: u32, h: u32) -> (Im
     }
 
     (
-        ImageDescriptor::new(w, h, ImageFormat::RGBA8, a == 255),
+        ImageDescriptor::new(w, h, ImageFormat::BGRA8, a == 255),
         ImageData::new(pixels)
     )
 }

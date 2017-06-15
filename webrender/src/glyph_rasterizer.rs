@@ -264,7 +264,7 @@ impl GlyphRasterizer {
                             width: glyph.width,
                             height: glyph.height,
                             stride: None,
-                            format: ImageFormat::RGBA8,
+                            format: ImageFormat::BGRA8,
                             is_opaque: false,
                             offset: 0,
                         },

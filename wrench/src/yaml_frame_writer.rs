@@ -399,7 +399,7 @@ impl YamlFrameWriter {
             ImageFormat::RGB8 => {
                 (ColorType::RGB(8), 3)
             }
-            ImageFormat::RGBA8 => {
+            ImageFormat::BGRA8 => {
                 (ColorType::RGBA(8), 4)
             }
             ImageFormat::A8 => {
@@ -413,7 +413,7 @@ impl YamlFrameWriter {
         };
 
         if data.stride == data.width * bpp {
-            if data.format == ImageFormat::RGBA8 {
+            if data.format == ImageFormat::BGRA8 {
                 unpremultiply(bytes.as_mut_slice());
             }
             save_buffer(&path_file, &bytes, data.width, data.height, color_type).unwrap();
@@ -423,7 +423,7 @@ impl YamlFrameWriter {
             let mut tmp: Vec<_>  = bytes[..].chunks(data.stride as usize)
                                             .flat_map(|chunk| chunk[..(data.width * bpp) as usize].iter().cloned())
                                             .collect();
-            if data.format == ImageFormat::RGBA8 {
+            if data.format == ImageFormat::BGRA8 {
                 unpremultiply(tmp.as_mut_slice());
             }
 
