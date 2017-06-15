@@ -1650,7 +1650,7 @@ impl Device {
                 }
             }
             ImageFormat::RGB8 => (gl::RGB, 3, data, gl::UNSIGNED_BYTE),
-            ImageFormat::RGBA8 => (get_gl_format_bgra(self.gl()), 4, data, gl::UNSIGNED_BYTE),
+            ImageFormat::BGRA8 => (get_gl_format_bgra(self.gl()), 4, data, gl::UNSIGNED_BYTE),
             ImageFormat::RG8 => (gl::RG, 2, data, gl::UNSIGNED_BYTE),
             ImageFormat::RGBAF32 => (gl::RGBA, 16, data, gl::FLOAT),
             ImageFormat::Invalid => unreachable!(),
@@ -2030,7 +2030,7 @@ fn gl_texture_formats_for_image_format(gl: &gl::Gl, format: ImageFormat) -> (gl:
             }
         },
         ImageFormat::RGB8 => (gl::RGB as gl::GLint, gl::RGB),
-        ImageFormat::RGBA8 => {
+        ImageFormat::BGRA8 => {
             match gl.get_type() {
                 gl::GlType::Gl =>  {
                     (gl::RGBA as gl::GLint, get_gl_format_bgra(gl))

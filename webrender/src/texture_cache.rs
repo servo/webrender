@@ -644,7 +644,7 @@ impl TextureCache {
         let mode = RenderTargetMode::SimpleRenderTarget;
         let (page_list, page_profile) = match format {
             ImageFormat::A8 => (&mut self.arena.pages_a8, &mut profile.pages_a8),
-            ImageFormat::RGBA8 => (&mut self.arena.pages_rgba8, &mut profile.pages_rgba8),
+            ImageFormat::BGRA8 => (&mut self.arena.pages_rgba8, &mut profile.pages_rgba8),
             ImageFormat::RGB8 => (&mut self.arena.pages_rgb8, &mut profile.pages_rgb8),
             ImageFormat::RG8 => (&mut self.arena.pages_rg8, &mut profile.pages_rg8),
             ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
