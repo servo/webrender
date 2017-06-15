@@ -570,13 +570,10 @@ impl YamlFrameReader {
                     item["type"].as_str().unwrap_or("unknown")
                 };
 
-            if item_type == "stacking-context" {
-                self.add_stacking_context_from_yaml(wrench, item, false);
-                continue;
-            }
-
-
-            if !self.include_only.is_empty() && !self.include_only.contains(&item_type.to_owned()) {
+            // We never skip stacking contexts because they are structural elements
+            // of the display list.
+            if item_type != "stacking-context" &&
+               self.include_only.contains(&item_type.to_owned()) {
                 continue;
             }
 
@@ -597,7 +594,7 @@ impl YamlFrameReader {
                 "radial-gradient" => self.handle_radial_gradient(wrench, &full_clip_region, item),
                 "box-shadow" => self.handle_box_shadow(wrench, &full_clip_region, item),
                 "iframe" => self.handle_iframe(wrench, &full_clip_region, item),
-                "stacking-context" => { },
+                "stacking-context" => self.add_stacking_context_from_yaml(wrench, item, false),
                 _ => println!("Skipping unknown item type: {:?}", item),
             }
 
