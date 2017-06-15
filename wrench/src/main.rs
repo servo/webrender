@@ -32,11 +32,13 @@ extern crate webrender_traits;
 extern crate yaml_rust;
 
 mod binary_frame_reader;
+mod blob;
 mod json_frame_writer;
 mod parse_function;
 mod perf;
 mod png;
 mod premultiply;
+mod rawtest;
 mod reftest;
 mod scene;
 mod wrench;
@@ -50,6 +52,7 @@ use glutin::{ElementState, VirtualKeyCode, WindowProxy};
 use perf::PerfHarness;
 use png::save_flipped;
 use reftest::{ReftestHarness, ReftestOptions};
+use rawtest::{RawtestHarness};
 use std::cmp::{max, min};
 #[cfg(feature = "headless")]
 use std::ffi::CString;
@@ -353,6 +356,10 @@ fn main() {
                 reftest_options.allow_num_differences = w as usize * h as usize;
             }
             harness.run(base_manifest, specific_reftest, &reftest_options);
+            return;
+        } else if let Some(_) = args.subcommand_matches("rawtest") {
+            let harness = RawtestHarness::new(&mut wrench, &mut window);
+            harness.run();
             return;
         } else if let Some(subargs) = args.subcommand_matches("perf") {
             let harness = PerfHarness::new(&mut wrench, &mut window);

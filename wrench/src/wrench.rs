@@ -5,6 +5,7 @@
 
 use WindowWrapper;
 use app_units::Au;
+use blob;
 use crossbeam::sync::chase_lev;
 #[cfg(windows)]
 use dwrote;
@@ -174,6 +175,7 @@ impl Wrench {
             enable_clear_scissor: !no_scissor,
             enable_batcher: !no_batch,
             max_recorded_profiles: 16,
+            blob_image_renderer: Some(Box::new(blob::CheckerboardRenderer::new())),
             .. Default::default()
         };
 
