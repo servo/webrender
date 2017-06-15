@@ -114,6 +114,8 @@ subcommands:
               help: a specific reftest or directory to run
               required: false
               index: 1
+    - rawtest:
+        about: run rawtests
     - perf:
         about: run benchmarks
         args:
