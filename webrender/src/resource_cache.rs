@@ -211,7 +211,8 @@ pub struct ResourceCache {
     blob_image_renderer: Option<Box<BlobImageRenderer>>,
     blob_image_requests: HashSet<ImageRequest>,
 
-    requested_items: HashSet<TextureCacheItemId>,
+    requested_glyphs: HashSet<TextureCacheItemId, BuildHasherDefault<FnvHasher>>,
+    requested_images: HashSet<TextureCacheItemId, BuildHasherDefault<FnvHasher>>,
 }
 
 impl ResourceCache {
@@ -236,7 +237,8 @@ impl ResourceCache {
             blob_image_renderer: blob_image_renderer,
             blob_image_requests: HashSet::new(),
 
-            requested_items: HashSet::new(),
+            requested_glyphs: HashSet::default(),
+            requested_images: HashSet::default(),
         }
     }
 
@@ -405,7 +407,7 @@ impl ResourceCache {
                 // Ensure that blobs are added to the list of requested items
                 // foe the GPU cache, even if the cached blob image is up to date.
                 if let Some(texture_cache_id) = texture_cache_id {
-                    self.requested_items.insert(texture_cache_id);
+                    self.requested_images.insert(texture_cache_id);
                 }
 
                 if !same_epoch && self.blob_image_requests.insert(request) {
@@ -461,7 +463,7 @@ impl ResourceCache {
             glyph_instances,
             render_mode,
             glyph_options,
-            &mut self.requested_items,
+            &mut self.requested_glyphs,
         );
     }
 
@@ -576,7 +578,8 @@ impl ResourceCache {
         debug_assert_eq!(self.state, State::Idle);
         self.state = State::AddResources;
         self.current_frame_id = frame_id;
-        debug_assert!(self.requested_items.is_empty());
+        debug_assert!(self.requested_glyphs.is_empty());
+        debug_assert!(self.requested_images.is_empty());
     }
 
     pub fn block_until_all_resources_added(&mut self,
@@ -591,7 +594,7 @@ impl ResourceCache {
             self.current_frame_id,
             &mut self.cached_glyphs,
             &mut self.texture_cache,
-            &mut self.requested_items,
+            &mut self.requested_glyphs,
             texture_cache_profile,
         );
 
@@ -629,14 +632,18 @@ impl ResourceCache {
             }
         }
 
-        for texture_cache_item_id in self.requested_items.drain() {
+        for texture_cache_item_id in self.requested_images.drain() {
             let item = self.texture_cache.get_mut(texture_cache_item_id);
             if let Some(mut request) = gpu_cache.request(&mut item.uv_rect_handle) {
-                let uv0 = DevicePoint::new(item.pixel_rect.top_left.x as f32,
-                                           item.pixel_rect.top_left.y as f32);
-                let uv1 = DevicePoint::new(item.pixel_rect.bottom_right.x as f32,
-                                           item.pixel_rect.bottom_right.y as f32);
-                request.push([uv0.x, uv0.y, uv1.x, uv1.y].into());
+                request.push(item.uv_rect.into());
+            }
+        }
+
+        for texture_cache_item_id in self.requested_glyphs.drain() {
+            let item = self.texture_cache.get_mut(texture_cache_item_id);
+            if let Some(mut request) = gpu_cache.request(&mut item.uv_rect_handle) {
+                request.push(item.uv_rect.into());
+                request.push([item.user_data[0], item.user_data[1], 0.0, 0.0].into());
             }
         }
     }
@@ -712,6 +719,7 @@ impl ResourceCache {
                 let image_id = self.texture_cache.insert(descriptor,
                                                          filter,
                                                          image_data,
+                                                         [0.0; 2],
                                                          texture_cache_profile);
 
                 entry.insert(CachedImageInfo {
@@ -723,7 +731,7 @@ impl ResourceCache {
             }
         };
 
-        self.requested_items.insert(image_id);
+        self.requested_images.insert(image_id);
     }
     fn finalize_image_request(&mut self,
                               request: ImageRequest,

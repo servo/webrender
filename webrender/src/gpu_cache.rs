@@ -25,6 +25,7 @@
 //! for this frame.
 
 use device::FrameId;
+use internal_types::UvRect;
 use profiler::GpuCacheProfileCounters;
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use std::{mem, u32};
@@ -79,6 +80,17 @@ impl Into<GpuBlockData> for LayerRect {
                     self.origin.y,
                     self.size.width,
                     self.size.height ],
+        }
+    }
+}
+
+impl Into<GpuBlockData> for UvRect {
+    fn into(self) -> GpuBlockData {
+        GpuBlockData {
+            data: [ self.uv0.x,
+                    self.uv0.y,
+                    self.uv1.x,
+                    self.uv1.y ],
         }
     }
 }

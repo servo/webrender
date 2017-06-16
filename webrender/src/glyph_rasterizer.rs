@@ -4,12 +4,14 @@
 
 use app_units::Au;
 use device::TextureFilter;
+use fnv::FnvHasher;
 use frame::FrameId;
 use platform::font::{FontContext, RasterizedGlyph};
 use profiler::TextureCacheProfileCounters;
 use rayon::ThreadPool;
 use rayon::prelude::*;
 use resource_cache::ResourceClassCache;
+use std::hash::BuildHasherDefault;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::collections::hash_map::Entry;
@@ -151,7 +153,7 @@ impl GlyphRasterizer {
         glyph_instances: &[GlyphInstance],
         render_mode: FontRenderMode,
         glyph_options: Option<GlyphOptions>,
-        requested_items: &mut HashSet<TextureCacheItemId>,
+        requested_items: &mut HashSet<TextureCacheItemId, BuildHasherDefault<FnvHasher>>,
     ) {
         assert!(self.font_contexts.lock_shared_context().has_font(&font_key));
 
@@ -228,7 +230,7 @@ impl GlyphRasterizer {
         current_frame_id: FrameId,
         glyph_cache: &mut GlyphCache,
         texture_cache: &mut TextureCache,
-        requested_items: &mut HashSet<TextureCacheItemId>,
+        requested_items: &mut HashSet<TextureCacheItemId, BuildHasherDefault<FnvHasher>>,
         texture_cache_profile: &mut TextureCacheProfileCounters,
     ) {
         let mut rasterized_glyphs = Vec::with_capacity(self.pending_glyphs.len());
@@ -270,6 +272,7 @@ impl GlyphRasterizer {
                         },
                         TextureFilter::Linear,
                         ImageData::Raw(Arc::new(glyph.bytes)),
+                        [glyph.left, glyph.top],
                         texture_cache_profile,
                     );
                     requested_items.insert(image_id);
@@ -357,7 +360,7 @@ fn raterize_200_glyphs() {
     let workers = Arc::new(ThreadPool::new(Configuration::new()).unwrap());
     let mut glyph_rasterizer = GlyphRasterizer::new(workers);
     let mut glyph_cache = GlyphCache::new();
-    let mut requested_items = HashSet::new();
+    let mut requested_items = HashSet::default();
 
     let mut font_file = File::open("../wrench/reftests/text/VeraBd.ttf").expect("Couldn't open font file");
     let mut font_data = vec![];
