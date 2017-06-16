@@ -530,10 +530,19 @@ impl Frame {
                                          text_info.glyph_options);
             }
             SpecificDisplayItem::Rectangle(ref info) => {
-                // Try to extract the opaque inner rectangle out of the clipped primitive.
-                if let Some(opaque_rect) = clip_intersection(&item.rect(),
+                // If this rectangle is not opaque, splitting the rectangle up
+                // into an inner opaque region just ends up hurting batching and
+                // doing more work than necessary.
+                if info.color.a != 1.0 {
+                    context.builder.add_solid_rectangle(clip_and_scroll,
+                                                        &item.rect(),
+                                                        item.clip_region(),
+                                                        &info.color,
+                                                        PrimitiveFlags::None);
+                } else if let Some(opaque_rect) = clip_intersection(&item.rect(),
                                                              item.clip_region(),
                                                              item.display_list()) {
+                    // Try to extract the opaque inner rectangle out of the clipped primitive.
                     let mut results = Vec::new();
                     subtract_rect(&item.rect(), &opaque_rect, &mut results);
                     // The inner rectangle is considered opaque within this layer.
