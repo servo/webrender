@@ -10,7 +10,16 @@
         #else
         precision mediump sampler2DArray;
         #endif
+
+        // Sampler default precision is lowp on mobile GPUs.
+        // This causes RGBA32F texture data to be clamped to 16 bit floats on some GPUs (e.g. Mali-T880).
+        // Define highp precision macro to allow lossless FLOAT texture sampling.
+        #define HIGHP_SAMPLER_FLOAT highp
+    #else
+        #define HIGHP_SAMPLER_FLOAT
     #endif
+#else
+    #define HIGHP_SAMPLER_FLOAT
 #endif
 
 #define PST_TOP_LEFT     0
@@ -118,7 +127,7 @@ ivec2 get_resource_cache_uv(int address) {
                  address / WR_MAX_VERTEX_TEXTURE_WIDTH);
 }
 
-uniform sampler2D sResourceCache;
+uniform HIGHP_SAMPLER_FLOAT sampler2D sResourceCache;
 
 vec4[2] fetch_from_resource_cache_2(int address) {
     ivec2 uv = get_resource_cache_uv(address);
@@ -137,10 +146,10 @@ vec4[2] fetch_from_resource_cache_2(int address) {
 #define VECS_PER_GRADIENT           3
 #define VECS_PER_GRADIENT_STOP      2
 
-uniform sampler2D sLayers;
-uniform sampler2D sRenderTasks;
+uniform HIGHP_SAMPLER_FLOAT sampler2D sLayers;
+uniform HIGHP_SAMPLER_FLOAT sampler2D sRenderTasks;
 
-uniform sampler2D sData32;
+uniform HIGHP_SAMPLER_FLOAT sampler2D sData32;
 
 // Instanced attributes
 in ivec4 aData0;
