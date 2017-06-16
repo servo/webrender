@@ -125,7 +125,7 @@ impl BuiltDisplayList {
         BuiltDisplayListIter::new(self)
     }
 
-    pub fn get<T: Deserialize>(&self, range: ItemRange<T>) -> AuxIter<T> {
+    pub fn get<'de, T: Deserialize<'de>>(&self, range: ItemRange<T>) -> AuxIter<T> {
         AuxIter::new(&self.data[range.start .. range.start + range.length])
     }
 }
@@ -212,7 +212,7 @@ impl<'a> BuiltDisplayListIter<'a> {
 
     /// Returns the byte-range the slice occupied, and the number of elements
     /// in the slice.
-    fn skip_slice<T: Deserialize>(&mut self) -> (ItemRange<T>, usize) {
+    fn skip_slice<T: for<'de> Deserialize<'de>>(&mut self) -> (ItemRange<T>, usize) {
         let base = self.list.data.as_ptr() as usize;
         let start = self.data.as_ptr() as usize;
 
@@ -333,7 +333,7 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
     }
 }
 
-impl<'a, T: Deserialize> AuxIter<'a, T> {
+impl<'de, 'a, T: Deserialize<'de>> AuxIter<'a, T> {
     pub fn new(mut data: &'a [u8]) -> Self {
 
         let size: usize = if data.len() == 0 {
@@ -351,7 +351,7 @@ impl<'a, T: Deserialize> AuxIter<'a, T> {
     }
 }
 
-impl<'a, T: Deserialize> Iterator for AuxIter<'a, T> {
+impl<'a, T: for<'de> Deserialize<'de>> Iterator for AuxIter<'a, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<T> {
@@ -369,7 +369,7 @@ impl<'a, T: Deserialize> Iterator for AuxIter<'a, T> {
     }
 }
 
-impl<'a, T: Deserialize> ::std::iter::ExactSizeIterator for AuxIter<'a, T> { }
+impl<'a, T: for<'de> Deserialize<'de>> ::std::iter::ExactSizeIterator for AuxIter<'a, T> { }
 
 
 // This is purely for the JSON writer in wrench

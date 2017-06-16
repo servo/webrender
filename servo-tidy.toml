@@ -4,7 +4,7 @@ skip-check-licenses = false
 
 [ignore]
 # Ignored packages with duplicated versions
-packages = ["yaml-rust"]
+packages = ["yaml-rust", "bitflags"]
 # Files that are ignored for all tidy and lint checks.
 files = [
     # servo-tidy does not properly support workspaces yet.
