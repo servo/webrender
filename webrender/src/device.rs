@@ -18,6 +18,7 @@ use std::iter::repeat;
 use std::mem;
 use std::ops::Add;
 use std::path::PathBuf;
+use std::ptr;
 use std::rc::Rc;
 //use std::sync::mpsc::{channel, Sender};
 //use std::thread;
@@ -488,6 +489,9 @@ struct IBOId(gl::GLuint);
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 pub struct UBOId(gl::GLuint);
 
+#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
+pub struct PBOId(gl::GLuint);
+
 const MAX_EVENTS_PER_FRAME: usize = 256;
 const MAX_PROFILE_FRAMES: usize = 4;
 
@@ -846,6 +850,7 @@ pub struct Device {
     bound_textures: [TextureId; 16],
     bound_program: ProgramId,
     bound_vao: VAOId,
+    bound_pbo: PBOId,
     bound_read_fbo: FBOId,
     bound_draw_fbo: FBOId,
     default_read_fbo: gl::GLuint,
@@ -907,6 +912,7 @@ impl Device {
             bound_textures: [ TextureId::invalid(); 16 ],
             bound_program: ProgramId(0),
             bound_vao: VAOId(0),
+            bound_pbo: PBOId(0),
             bound_read_fbo: FBOId(0),
             bound_draw_fbo: FBOId(0),
             default_read_fbo: 0,
@@ -1006,6 +1012,8 @@ impl Device {
 
         // Pixel op state
         self.gl.pixel_store_i(gl::UNPACK_ALIGNMENT, 1);
+        self.bound_pbo = PBOId(0);
+        self.gl.bind_buffer(gl::PIXEL_UNPACK_BUFFER, 0);
 
         // Default is sampler 0, always
         self.gl.active_texture(gl::TEXTURE0);
@@ -1626,6 +1634,69 @@ impl Device {
                                false,
                                &transform.to_row_major_array());
         self.gl.uniform_1f(program.u_device_pixel_ratio, device_pixel_ratio);
+    }
+
+    pub fn create_pbo(&mut self) -> PBOId {
+        let id = self.gl.gen_buffers(1)[0];
+        PBOId(id)
+    }
+
+    pub fn destroy_pbo(&mut self, id: PBOId) {
+        self.gl.delete_buffers(&[id.0]);
+    }
+
+    pub fn bind_pbo(&mut self, pbo_id: Option<PBOId>) {
+        debug_assert!(self.inside_frame);
+        let pbo_id = pbo_id.unwrap_or(PBOId(0));
+
+        if self.bound_pbo != pbo_id {
+            self.bound_pbo = pbo_id;
+
+            self.gl.bind_buffer(gl::PIXEL_UNPACK_BUFFER, pbo_id.0);
+        }
+    }
+
+    pub fn update_pbo_data<T>(&mut self, data: &[T]) {
+        debug_assert!(self.inside_frame);
+        debug_assert!(self.bound_pbo.0 != 0);
+
+        gl::buffer_data(&*self.gl,
+                        gl::PIXEL_UNPACK_BUFFER,
+                        data,
+                        gl::STREAM_DRAW);
+    }
+
+    pub fn orphan_pbo(&mut self, new_size: usize) {
+        debug_assert!(self.inside_frame);
+        debug_assert!(self.bound_pbo.0 != 0);
+
+        self.gl.buffer_data_untyped(gl::PIXEL_UNPACK_BUFFER,
+                                    new_size as isize,
+                                    ptr::null(),
+                                    gl::STREAM_DRAW);
+    }
+
+    pub fn update_texture_from_pbo(&mut self,
+                                   texture_id: TextureId,
+                                   x0: u32,
+                                   y0: u32,
+                                   width: u32,
+                                   height: u32,
+                                   offset: usize) {
+        debug_assert!(self.inside_frame);
+        debug_assert_eq!(self.textures.get(&texture_id).unwrap().format, ImageFormat::RGBAF32);
+
+        self.bind_texture(DEFAULT_TEXTURE, texture_id);
+
+        self.gl.tex_sub_image_2d_pbo(texture_id.target,
+                                     0,
+                                     x0 as gl::GLint,
+                                     y0 as gl::GLint,
+                                     width as gl::GLint,
+                                     height as gl::GLint,
+                                     gl::RGBA,
+                                     gl::FLOAT,
+                                     offset);
     }
 
     pub fn update_texture(&mut self,

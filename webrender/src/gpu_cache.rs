@@ -56,6 +56,14 @@ pub struct GpuBlockData {
     pub data: [f32; 4],
 }
 
+impl GpuBlockData {
+    pub fn empty() -> GpuBlockData {
+        GpuBlockData {
+            data: [0.0; 4],
+        }
+    }
+}
+
 /// Conversion helpers for GpuBlockData
 impl Into<GpuBlockData> for ColorF {
     fn into(self) -> GpuBlockData {
