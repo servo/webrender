@@ -54,8 +54,6 @@ pub struct BuiltDisplayList {
 #[repr(C)]
 #[derive(Copy, Clone, Default, Deserialize, Serialize)]
 pub struct BuiltDisplayListDescriptor {
-    /// The size in bytes of the display list items in this display list.
-    display_list_items_size: usize,
     /// The first IPC time stamp: before any work has been done
     builder_start_time: u64,
     /// The second IPC time stamp: after serialization
@@ -92,9 +90,6 @@ pub struct AuxIter<'a, T> {
 }
 
 impl BuiltDisplayListDescriptor {
-    pub fn size(&self) -> usize {
-        self.display_list_items_size
-    }
 }
 
 impl BuiltDisplayList {
@@ -946,7 +941,6 @@ impl DisplayListBuilder {
          self.content_size,
          BuiltDisplayList {
             descriptor: BuiltDisplayListDescriptor {
-                display_list_items_size: self.data.len(),
                 builder_start_time: self.builder_start_time,
                 builder_finish_time: end_time,
             },
