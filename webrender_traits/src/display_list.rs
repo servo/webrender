@@ -856,7 +856,7 @@ impl DisplayListBuilder {
             Some(id) => id,
             None => {
                 self.next_clip_id += 1;
-                ClipId::Clip(self.next_clip_id - 1, self.pipeline_id)
+                ClipId::Clip(self.next_clip_id - 1, 0, self.pipeline_id)
             }
         };
 
@@ -905,9 +905,6 @@ impl DisplayListBuilder {
     // lists so that we can regenerate them without building Gecko display items. WebRender
     // will replace references to the root scroll frame id with the current scroll frame
     // id.
-    //
-    // New clips and scroll frames are only supported if they can be guaranteed to have
-    // a unique id (ie a unique id must be passed when creating them).
     pub fn push_nested_display_list(&mut self, built_display_list: &BuiltDisplayList) {
         self.push_clip_region(&LayoutRect::zero(), vec![], None);
         self.push_new_empty_item(SpecificDisplayItem::PushNestedDisplayList);
